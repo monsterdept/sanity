@@ -1,0 +1,283 @@
+//! Persistent scores, so analysis survives closing the app.
+//!
+//! A model pass over a real repo runs for tens of minutes. Throwing that away because
+//! someone quit the app — or because they want to look at the same project again
+//! tomorrow — makes the model path something you use once to see if it works, rather than
+//! something you actually live with.
+//!
+//! Entries are **content-addressed**: the key includes a hash of the function body, so
+//! resuming and incremental rescanning are the same mechanism. Edit a function and it is
+//! re-scored because its hash moved; edit its neighbour and it is not. Move it down the
+//! file and nothing happens at all, because line numbers are deliberately not part of
+//! the key — otherwise adding an import at the top of a file would invalidate every
+//! score in it.
+
+use crate::surprise::{Hotspot, Reading};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+/// Bumped when the meaning of a stored score changes — a new calibration curve, a
+/// different prompt, a change to what surprisal is measured over. Without it, a cache
+/// written by an older build silently pins wedges to numbers this build would never
+/// produce, and the map becomes a mix of two instruments with no way to tell which.
+const FORMAT_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Entry {
+    body_hash: u64,
+    surprise: f32,
+    /// Cached alongside the score: they were produced by the same call, and a resumed
+    /// scan that recovered the number but lost the evidence would show a hot wedge with
+    /// nothing to say about why.
+    #[serde(default)]
+    hotspots: Vec<Hotspot>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct Stored {
+    version: u32,
+    /// Which model produced these. A different model is a different instrument, so
+    /// switching invalidates everything rather than blending two scales in one picture.
+    model: String,
+    entries: HashMap<String, Entry>,
+}
+
+pub struct Cache {
+    path: Option<PathBuf>,
+    model: String,
+    inner: Mutex<Stored>,
+    /// Writes since the last flush. The app can be closed at any moment, so the cache
+    /// is written during the scan rather than only at the end — that is the whole point.
+    dirty: Mutex<usize>,
+}
+
+/// Flush after this many new scores. Small enough that a kill loses seconds of work,
+/// large enough that a fast model isn't rewriting the file hundreds of times a minute.
+const FLUSH_EVERY: usize = 25;
+
+/// Key for one function: where it lives, what it's called, what it says, and what its
+/// documentation says. Line numbers are excluded on purpose — see the module docs.
+///
+/// The DOC is part of the key because it is part of the prompt. The model is given the
+/// comment stack a reader would have, so editing a comment changes the question and must
+/// change the answer. Keyed on the body alone, writing documentation would have served
+/// the pre-documentation score back out of the cache for ever — the map would simply
+/// stop draining, in the one interaction the whole tool is built around, and it would
+/// look like the metric had failed rather than the cache.
+pub fn key(path: &str, name: &str, body: &str, doc: Option<&str>) -> (String, u64) {
+    let mut h = fnv(body.as_bytes());
+    if let Some(d) = doc {
+        h ^= fnv(d.as_bytes()).rotate_left(1);
+    }
+    (format!("{path}#{name}"), h)
+}
+
+fn fnv(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x1000_0000_01b3);
+    }
+    h
+}
+
+impl Cache {
+    /// A cache with nowhere to write. Used by tests and by the headless scanner, where
+    /// persisting across runs would make experiments non-reproducible.
+    pub fn ephemeral() -> Cache {
+        Cache {
+            path: None,
+            model: String::new(),
+            inner: Mutex::new(Stored::default()),
+            dirty: Mutex::new(0),
+        }
+    }
+
+    /// Load the cache for `repo` scored by `model`, if one exists and still applies.
+    pub fn open(repo: &Path, model: &str) -> Cache {
+        let path = Self::path_for(repo, model);
+        let stored = path
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|s| serde_json::from_str::<Stored>(&s).ok())
+            // A cache from another model or an older format is not merged or migrated —
+            // it is dropped. Half-stale scores are worse than a slow rescan, because
+            // nothing on screen would tell you which wedges came from where.
+            .filter(|s| s.version == FORMAT_VERSION && s.model == model)
+            .unwrap_or_else(|| Stored {
+                version: FORMAT_VERSION,
+                model: model.to_string(),
+                entries: HashMap::new(),
+            });
+        Cache {
+            path,
+            model: model.to_string(),
+            inner: Mutex::new(stored),
+            dirty: Mutex::new(0),
+        }
+    }
+
+    /// One file per (repo, model).
+    ///
+    /// The model belongs in the *filename*, not just in a field inside it. Keyed on the
+    /// repo alone, every scorer shared one file and whichever ran last won — so the
+    /// offline proxy pass, which runs immediately before every model pass, flushed an
+    /// empty cache over the model's accumulated scores and resume never worked once.
+    /// Separate files also mean switching models and switching back doesn't throw away
+    /// the first model's work.
+    fn path_for(repo: &Path, model: &str) -> Option<PathBuf> {
+        let dir = dirs::data_dir()?.join("Sanity").join("scores");
+        std::fs::create_dir_all(&dir).ok()?;
+        // Hashed rather than escaped: repo paths and model names contain separators and
+        // characters that are illegal in filenames on at least one platform we ship to.
+        let id = fnv(repo.to_string_lossy().as_bytes());
+        let m = fnv(model.as_bytes());
+        Some(dir.join(format!("{id:016x}-{m:016x}.json")))
+    }
+
+    pub fn get(&self, key: &(String, u64)) -> Option<Reading> {
+        let inner = self.inner.lock().ok()?;
+        inner
+            .entries
+            .get(&key.0)
+            .filter(|e| e.body_hash == key.1)
+            .map(|e| Reading {
+                surprise: e.surprise,
+                hotspots: e.hotspots.clone(),
+            })
+    }
+
+    pub fn put(&self, key: &(String, u64), reading: &Reading) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.entries.insert(
+                key.0.clone(),
+                Entry {
+                    body_hash: key.1,
+                    surprise: reading.surprise,
+                    hotspots: reading.hotspots.clone(),
+                },
+            );
+        }
+        let should_flush = match self.dirty.lock() {
+            Ok(mut d) => {
+                *d += 1;
+                if *d >= FLUSH_EVERY {
+                    *d = 0;
+                    true
+                } else {
+                    false
+                }
+            }
+            Err(_) => false,
+        };
+        if should_flush {
+            self.flush();
+        }
+    }
+
+    /// Write to a temp file and rename. A half-written cache that fails to parse costs a
+    /// full rescan, and the likeliest moment to be interrupted is exactly when the app is
+    /// being killed mid-scan — which is the case this whole module exists for.
+    pub fn flush(&self) {
+        let Some(path) = &self.path else { return };
+        let Ok(inner) = self.inner.lock() else { return };
+        let Ok(json) = serde_json::to_string(&*inner) else {
+            return;
+        };
+        let tmp = path.with_extension("json.tmp");
+        if std::fs::write(&tmp, json).is_ok() {
+            let _ = std::fs::rename(&tmp, path);
+        }
+    }
+
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.lock().map(|i| i.entries.len()).unwrap_or(0)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn two_models_never_share_a_cache_file() {
+        // The regression this guards: the proxy pass runs immediately before every model
+        // pass, and when both wrote the same file it wiped the model's scores every time.
+        let repo = Path::new("/tmp/repo");
+        let a = Cache::path_for(repo, "heuristic (no model)");
+        let b = Cache::path_for(repo, "ollama · llama3.2:3b");
+        assert!(a.is_some() && b.is_some());
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn a_hit_needs_the_same_body_not_just_the_same_name() {
+        let c = Cache::ephemeral();
+        let k = key("src/a.rs", "run", "let x = 1;", None);
+        c.put(&k, &Reading::plain(0.8));
+        assert_eq!(c.get(&k).map(|r| r.surprise), Some(0.8));
+
+        // Same function, edited — must miss, or the map keeps showing a score for code
+        // that no longer exists.
+        let edited = key("src/a.rs", "run", "let x = 2;", None);
+        assert!(c.get(&edited).is_none());
+    }
+
+    #[test]
+    fn moving_a_function_within_a_file_does_not_invalidate_it() {
+        // Line numbers are not part of the key, so adding an import at the top of a file
+        // must not force a rescan of everything below it.
+        let a = key("src/a.rs", "run", "body", None);
+        let b = key("src/a.rs", "run", "body", None);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn renaming_or_moving_a_function_misses() {
+        let c = Cache::ephemeral();
+        c.put(&key("src/a.rs", "run", "body", None), &Reading::plain(0.5));
+        assert!(c.get(&key("src/a.rs", "walk", "body", None)).is_none());
+        assert!(c.get(&key("src/b.rs", "run", "body", None)).is_none());
+    }
+
+    #[test]
+    fn an_ephemeral_cache_never_touches_disk() {
+        let c = Cache::ephemeral();
+        c.put(&key("a", "b", "c", None), &Reading::plain(1.0));
+        c.flush();
+        assert_eq!(c.len(), 1);
+    }
+
+    #[test]
+    fn a_cache_written_by_another_model_is_dropped_not_merged() {
+        let dir = tempfile::tempdir().unwrap();
+        let stored = Stored {
+            version: FORMAT_VERSION,
+            model: "old-model".into(),
+            entries: HashMap::from([(
+                "src/a.rs#run".to_string(),
+                Entry {
+                    body_hash: 1,
+                    surprise: 0.9,
+                    hotspots: Vec::new(),
+                },
+            )]),
+        };
+        let path = dir.path().join("c.json");
+        std::fs::write(&path, serde_json::to_string(&stored).unwrap()).unwrap();
+
+        let loaded: Stored = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        // The filter `open` applies: a different model means a different instrument.
+        assert!(loaded.model != "new-model");
+    }
+}

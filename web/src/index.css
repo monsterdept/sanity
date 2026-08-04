@@ -1,0 +1,307 @@
+@import "tailwindcss";
+
+/* Sanity's surface, sharing the warm-beige chrome of the sibling projects (tally /
+ * slooth / Sewcrates / Fussy) so a block lifted from one drops into another. The
+ * shadcn-style token names live in :root and .dark.
+ *
+ * Sanity is the ROSE tool. The constraint the hue had to satisfy is about data, not
+ * taste: the whole picture is a heat ramp, so an accent that reads as *heat* would
+ * compete with the one thing the app is trying to say. Rose sits off every data ramp's
+ * hue and, at these lightnesses, reads as a surface rather than as a reading — the
+ * chrome recedes and the warm end stays entirely the data's.
+ *
+ * The department's shared teal is kept, but only for annotation (--agent-mark): it is
+ * the one thing in the picture that is neither chrome nor a temperature. */
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+}
+
+:root {
+  --radius: 0.625rem;
+  --titlebar-h: 43px;
+  /* Room for the macOS overlay traffic lights, which float over the sidebar header. */
+  --traffic-light-reserve: 92px;
+  --sidebar-w: 220px;
+
+  /* The Monster Dept palette (monsterdept.com/brand) — light. Neutrals are shared
+   * across every tool in the department; the rose is Sanity's. */
+  --background: #f5f1ea; /* Paper */
+  --foreground: #1a1a1a; /* Ink */
+  --card: #efebe3; /* Card */
+  --card-foreground: #1a1a1a;
+  --primary: #1a1a1a;
+  --primary-foreground: #f5f1ea;
+  /* No sheet equivalent — a shadcn slot that lands between Card and Border. */
+  --secondary: #e7e2d9;
+  --muted: #e7e2d9;
+  --muted-foreground: #8b8279; /* Muted */
+  --border: #e5e1da; /* Rule */
+
+  /* Chrome is the rose surface in BOTH themes. Anything else leaves one mode wearing
+   * the tool's identity and the other wearing generic department beige. */
+  --sidebar: color-mix(in oklch, #f3d9e7 58%, #efebe3 42%);
+  --sidebar-foreground: #1a1a1a;
+  --sidebar-border: color-mix(in oklch, #f3d9e7 45%, #e5e1da 55%);
+
+  /* Straight off the sheet's Sanity row: Primary for links and selection, Primary
+   * dark for hover/active, Tint for chips and callouts. 4.87:1 on Paper. */
+  --accent: #895b77; /* Primary */
+  --accent-dim: #6d435c; /* Primary dark — hover, active */
+  --accent-tint: #f3d9e7; /* Tint */
+  --accent-foreground: #f5f1ea;
+
+  --destructive: #8f5753; /* Danger */
+  --warning: #bf965d;
+  --success: #597244;
+
+  /* ── Sequential ramps: one per reading ────────────────────────────────────────
+   *
+   * ONE hue each, dark→light. Not a two-pole scale: these are magnitudes with no
+   * meaningful zero-crossing — "understood" is not the opposite of "unexplained", it
+   * is less of it — and a diverging ramp claims a polarity the data does not have.
+   *
+   * Red/green for the poles was measured and rejected outright: Success #597244
+   * against Danger #8F5753 is ΔE 1.6 under deuteranopia, the same colour to 8% of
+   * men, and only 12.1 even with full colour vision because both sit at chroma
+   * 0.075. Those are chip colours; they cannot carry a map.
+   *
+   * Three hues so the three modes are told apart at a glance, on ONE shared
+   * lightness profile (L .443 .538 .627 .721 .804) so switching mode never changes
+   * what "hot" looks like — only which question is being asked. Every ramp is
+   * monotone with gaps ≥ 0.08 L, and its dark end clears 2:1 on Ink so "cold" never
+   * reads as "empty". */
+  --heat-0: #6b4d1f; /* surprise — amber, because it still reads as heat */
+  --heat-1: #8f6520;
+  --heat-2: #b37c1f;
+  --heat-3: #d19a2b;
+  --heat-4: #eab558;
+
+  --churn-0: #345679; /* churn — blue */
+  --churn-1: #4072a3;
+  --churn-2: #4e8ccb;
+  --churn-3: #67aaed;
+  --churn-4: #8ac4ff;
+
+  --age-0: #3c5d40; /* age — green */
+  --age-1: #4c7b53;
+  --age-2: #5d9966;
+  --age-3: #76b77f;
+  --age-4: #95d09c;
+
+  /* ── Categorical: owner, language ─────────────────────────────────────────────
+   *
+   * FOUR slots, and that is a measured ceiling rather than a preference. In a
+   * sunburst any wedge can end up beside any other, so the palette has to hold under
+   * all-pairs comparison — and no larger set clears it: eight slots put red beside
+   * orange at ΔE 7.1 for NORMAL vision, which is exactly the rust/python collision
+   * that prompted this. Past four, categories fold into "Other" rather than inventing
+   * a fifth hue.
+   *
+   * Assigned in fixed order by size, never cycled. Worst all-pairs CVD ΔE is 6.9,
+   * which is legal only with secondary encoding — hence the legend and the tooltips,
+   * which name every value so identity is never colour alone. */
+  --cat-1: #3987e5;
+  --cat-2: #c98500;
+  --cat-3: #c85a7c;
+  --cat-4: #008300;
+
+  --unanalyzed: #b3aca3;
+  /* Outlines wedges an AGENT judged, so they are distinguishable from model-scored ones
+   * without touching hue — hue is the reading. Off the ramp entirely, and off the rose
+   * chrome, so it reads as an annotation rather than as data. The department's shared
+   * teal: the one mark in the picture that is neither chrome nor a temperature — the
+   * same role it plays as the lit sector in the app icon. Two steps of it, because one
+   * value cannot carry on both grounds: the sheet's Info on Paper, its Teal on Ink. */
+  --agent-mark: #358189; /* Info */
+  /* Directories. Structure, not a reading — deliberately off the heat ramp and off the
+   * "unseen" neutral too, so it says "container" rather than "cold" or "unlooked-at".
+   * Lifted off the page far enough (1.46:1) that a background-coloured hairline between
+   * two sibling directories reads as a cut. It used to sit at 1.33 and lean on a drawn
+   * outline instead, which put the brightest lines on screen around the one level that
+   * carries no reading at all. */
+  --structure: #d0c9bd;
+}
+
+.dark {
+  --background: #1a1a1a; /* Ink */
+  --foreground: #f5f1ea; /* Paper */
+  --card: color-mix(in oklch, #1a1a1a 93%, #f5f1ea 7%);
+  --card-foreground: #f5f1ea;
+  --primary: #f5f1ea;
+  --primary-foreground: #1a1a1a;
+  --secondary: color-mix(in oklch, #1a1a1a 88%, #f5f1ea 12%);
+  --muted: color-mix(in oklch, #1a1a1a 88%, #f5f1ea 12%);
+  --muted-foreground: color-mix(in oklch, #8b8279 72%, #f5f1ea 28%);
+  --border: color-mix(in oklch, #1a1a1a 82%, #f5f1ea 18%);
+
+  /* Rose deep — the dark end of the icon tile's ground gradient, taken down far enough
+   * to sit under Paper text the way tally's #14383c does. */
+  --sidebar: #3a2231;
+  --sidebar-foreground: #f5f1ea;
+  --sidebar-border: color-mix(in oklch, #3a2231 80%, #f5f1ea 20%);
+
+  /* The one place dark mode cannot just take the sheet value: Primary on Ink is
+   * 3.17:1, under AA for text. The lift is the ground gradient's top stop — an
+   * existing brand colour, not a new one — at 4.88:1, and Primary steps down into
+   * the hover slot. Same two-step-of-one-hue move the mark itself makes. */
+  --accent: #a87a96; /* Ground top stop — lifted to carry on Ink */
+  --accent-dim: #895b77; /* Primary */
+  --accent-tint: #f3d9e7; /* Tint */
+  --accent-foreground: #3a2231;
+
+  --destructive: color-mix(in oklch, #8f5753 70%, #f5f1ea 30%);
+  --warning: #bf965d;
+  --success: color-mix(in oklch, #597244 66%, #f5f1ea 34%);
+
+  /* The ramp and the categorical slots are selected for the dark surface and are
+   * validated against it; light mode is not a flip of them and would need its own
+   * validated steps. Until it does, both modes use the dark-validated values rather
+   * than shipping an unchecked second palette. */
+
+  --unanalyzed: #4a4642;
+  --agent-mark: #42a2ab; /* Teal */
+  --structure: #38342f;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  /* Kill macOS elastic-bounce on the document; panes that scroll declare it. */
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+/* A desktop app, not a document: dragging across the window should not paint titles,
+ * buttons and chart labels blue. Selection is opt-back-in where it means something. */
+body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+input,
+textarea,
+[contenteditable],
+.select-text {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* A voice, not a body font — used only on the agent status and the wordmark. No custom
+ * face vendored; the tracking does the work. */
+.font-display {
+  letter-spacing: 0.06em;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* Chrome surface — shared with the sibling projects so a block lifted from one drops
+ * into another. Fixed pixels, not percentages, so the gradient lands at the same
+ * window-y regardless of the pane's height. */
+.chrome-surface {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in oklch, var(--sidebar) 92%, white 8%) 0px,
+    var(--sidebar) 64px
+  );
+}
+.dark .chrome-surface {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in oklch, var(--sidebar) 86%, white 6%) 0px,
+    var(--sidebar) 64px
+  );
+}
+
+/* Nav surfaces tinted with the accent rather than a neutral grey — selection is the one
+ * place the chrome's colour earns its keep. */
+.shell-chrome--active {
+  background: color-mix(in oklch, var(--accent) 22%, transparent);
+}
+.shell-chrome--hover:hover {
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+}
+
+/* Wedges animate their fill only. Transitioning `d` would re-tessellate every arc on
+ * every frame of a zoom, which on a repo with a few thousand functions drops the
+ * animation to single-digit fps. */
+.wedge {
+  transition: fill-opacity 120ms ease, stroke 120ms ease;
+  cursor: pointer;
+}
+
+/* Changing level remounts the wedge group, and this is the transition it plays. The
+ * two directions are deliberately mirrored — drilling IN grows into place, drilling OUT
+ * shrinks into it — so the motion says which way you went rather than just marking that
+ * something changed.
+ *
+ * `transform-box: view-box` makes the origin the centre of the viewBox, which is (0,0)
+ * in user units here. Without it an SVG group scales about its own bounding box and the
+ * ring drifts off-centre as it grows.
+ *
+ * Only opacity and transform are animated: the whole point of `.wedge` not transitioning
+ * `d` is that re-tessellating thousands of arcs per frame is what makes a zoom crawl. */
+@keyframes drill-in {
+  from { opacity: 0; transform: scale(0.86); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes drill-out {
+  from { opacity: 0; transform: scale(1.14); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.drill-in, .drill-out {
+  transform-box: view-box;
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+.drill-in  { animation: drill-in 260ms cubic-bezier(.2, .8, .3, 1) both; }
+.drill-out { animation: drill-out 260ms cubic-bezier(.2, .8, .3, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .drill-in, .drill-out { animation: none; }
+}
+
+/* ── Code view tokens ─────────────────────────────────────────────────────────
+ *
+ * Syntax colour is SCENERY here, and it has to stay scenery: the reading lives in the
+ * heat gutter, and a fully saturated theme beside it would put two colour scales in one
+ * field of view competing to be the message. So these are low-chroma and close
+ * together — enough to tell a string from a keyword at a glance, not enough to look at.
+ *
+ * Nothing here touches the ramp hues. Comments deliberately sit near the muted text
+ * colour, because a comment is the one token the metric has an opinion about and it
+ * should read as prose rather than as code. */
+.tok-plain { color: var(--foreground); }
+.tok-punct { color: color-mix(in oklch, var(--foreground) 62%, transparent); }
+.tok-comment { color: var(--muted-foreground); font-style: italic; }
+.tok-string { color: color-mix(in oklch, var(--accent) 78%, var(--foreground)); }
+.tok-key { color: var(--accent); font-weight: 600; }
+.tok-num { color: color-mix(in oklch, var(--accent-dim) 70%, var(--foreground)); }

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sanity": {
+      "command": "node",
+      "args": ["mcp/sanity.mjs"]
+    }
+  }
+}

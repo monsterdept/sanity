@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Sanity's windows: the main one and the per-file code views it spawns. Read-only against the filesystem by design — the app picks a directory and scans it, and there is no path on which it writes to the code you point it at.",
+  "windows": [
+    "main",
+    "code-*"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "opener:default",
+    "dialog:allow-open"
+  ]
+}

@@ -1,0 +1,97 @@
+[package]
+name = "sanity"
+version = "0.1.0"
+edition = "2021"
+description = "Sanity — see where the thinking in your codebase actually is"
+publish = false
+default-run = "sanity"
+
+[lib]
+name = "sanity_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+# Repo walking that honours .gitignore/.ignore for free — the same matcher ripgrep
+# uses. Getting this wrong means node_modules dominates every sunburst.
+ignore = "0.4"
+# The scan is embarrassingly parallel per file; rayon is the whole concurrency story.
+rayon = "1"
+# The compressibility term in the heuristic scorer: boilerplate compresses, novel
+# logic doesn't. deflate is the right shape (small windows, cheap) — we want a
+# ratio, not archival compression.
+flate2 = "1"
+# The surprise model's HTTP to a local Ollama. Optional at runtime (the heuristic
+# scorer needs no model at all); reqwest is always compiled because the setting is
+# a runtime toggle, not a build-time one. Blocking, because scoring runs on rayon
+# threads — never inside the Tauri/tokio runtime (commands hand the whole scan to
+# spawn_blocking), which is the one context where a blocking client panics.
+reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
+# Grammars are pinned to exact minors: each tree-sitter-* release is built against a
+# specific core ABI, and a semver-compatible bump of one grammar alone has broken the
+# `LANGUAGE.into()` conversion before. Bump them together, deliberately.
+tree-sitter = "0.26.11"
+tree-sitter-rust = "0.24.2"
+tree-sitter-typescript = "0.23.2"
+tree-sitter-javascript = "0.25.0"
+tree-sitter-python = "0.25.0"
+tree-sitter-go = "0.25.0"
+dirs = "6.0.0"
+# Local scoring. Optional and off by default: it compiles llama.cpp from source, which
+# dominates build time, and `just check` should stay fast.
+#
+# GPU backends are picked per platform by the `local-*` features below. Metal on Apple,
+# Vulkan elsewhere — deliberately NOT CUDA, which would put a toolkit install between the
+# user and a working app on every Linux and Windows machine.
+llama-cpp-4 = { version = "0.5.0", default-features = false, optional = true }
+axum = "0.8.9"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net"] }
+tree-sitter-swift = "0.7.3"
+tree-sitter-c = "0.24.2"
+tree-sitter-cpp = "0.23.4"
+tree-sitter-bash = "0.25.1"
+tree-sitter-sequel = "0.3.11"
+tree-sitter-java = "0.23.5"
+tree-sitter-kotlin-ng = "1.1.0"
+tree-sitter-c-sharp = "0.23.5"
+tree-sitter-ruby = "0.23.1"
+tree-sitter-php = "0.24.2"
+tree-sitter-lua = "0.5.0"
+tree-sitter-elixir = "0.3.5"
+tree-sitter-scala = "0.26.0"
+tree-sitter-dart = "0.2.0"
+tree-sitter-zig = "1.1.2"
+tree-sitter-objc = "3.0.2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+# Score locally instead of over HTTP. See `local.rs` — one forward pass per function
+# rather than one per token, which is ~15x Ollama's grammar-constrained path.
+local-model = ["dep:llama-cpp-4"]
+local-metal = ["local-model", "llama-cpp-4/metal"]
+local-vulkan = ["local-model", "llama-cpp-4/vulkan"]
+
+[[bin]]
+name = "sanity"
+path = "src/main.rs"
+
+# The headless scorer. Same code path as the app, no window — this is what you run
+# against a repo you know well to find out whether the metric separates anything.
+[[bin]]
+name = "sanity-scan"
+path = "src/bin/scan.rs"
+
+# Standalone workspace so cargo never folds this into a parent build graph.
+[workspace]

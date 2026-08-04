@@ -1,0 +1,348 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Both jobs need write access to releases — every build job pushes its
+# bundles directly to a draft release (bypassing upload-artifact's chunked
+# Azure Blob path, which has historically stalled on Mac runners, and keeping
+# bundles off the Actions artifact-storage quota), and the release job
+# promotes the draft to published.
+permissions:
+  contents: write
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # krapow base images ship a GitHub-hosted-equivalent universal
+          # toolchain (C compiler on Linux; MSVC + chocolatey + LLVM on
+          # Windows; Xcode CLI tools + WebKit on macOS). The workflow installs
+          # only language toolchains + project-specific deps on top.
+          - os: [self-hosted, macOS, arm64, krapow]
+            platform: macos_arm64
+            triple: aarch64-apple-darwin
+          - os: [self-hosted, linux, X64, krapow]
+            platform: linux_x86-64
+            triple: x86_64-unknown-linux-gnu
+          - os: [self-hosted, windows, X64, krapow]
+            platform: windows_x86-64
+            triple: x86_64-pc-windows-msvc
+          # Windows ARM64 cross-compiled from the same x64 runner. `cross: true`
+          # toggles the rustup target add + LLVM-on-PATH steps and switches
+          # build paths to the per-triple subdir.
+          - os: [self-hosted, windows, X64, krapow]
+            platform: windows_arm64
+            triple: aarch64-pc-windows-msvc
+            cross: true
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Linux is the only platform that needs OS-level tauri deps as a
+      # workflow step — Windows uses WebView2 (preinstalled), macOS uses
+      # WebKit.framework (part of the OS). xdg-utils provides /usr/bin/xdg-mime,
+      # which tauri-bundler shells out to during AppImage assembly; fakeroot is
+      # needed by the deb bundler.
+      - name: install tauri system deps (linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
+            xdg-utils fakeroot
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # tauri-cli is invoked from src-tauri/ via `cargo tauri build`. Install
+      # once per runner; subsequent runs hit the cached binary in ~/.cargo/bin.
+      # --locked is required by current cargo-install when the crate ships a
+      # Cargo.lock.
+      - name: Install tauri-cli
+        shell: bash
+        run: cargo install tauri-cli --version "^2" --locked
+
+      # rustup target add for the cross-compile variants. Gated on matrix.cross
+      # so native builds skip the no-op.
+      - name: Add Rust cross-compile target
+        if: matrix.cross
+        shell: bash
+        run: rustup target add ${{ matrix.triple }}
+
+      # The tree-sitter grammars are C, and cross-compiling them to
+      # aarch64-pc-windows-msvc needs clang from LLVM on PATH — the `cc` crate
+      # picks it up for the non-host target. The krapow Windows base image ships
+      # LLVM at the standard windows-latest path.
+      - name: Add LLVM to PATH (for C grammar cross-compile)
+        if: matrix.cross && runner.os == 'Windows'
+        shell: bash
+        run: echo "C:/Program Files/LLVM/bin" >> "$GITHUB_PATH"
+
+      # Cross-compile builds land under target/<triple>/release/... instead of
+      # target/release/...; emit the right bundle dir + --target flag once so
+      # the downstream build / artifact-collect steps don't each branch on
+      # matrix.cross themselves.
+      - name: Configure build paths
+        id: paths
+        shell: bash
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            echo "bundle_dir=src-tauri/target/${{ matrix.triple }}/release/bundle" >> "$GITHUB_OUTPUT"
+            echo "target_flag=--target ${{ matrix.triple }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "bundle_dir=src-tauri/target/release/bundle" >> "$GITHUB_OUTPUT"
+            echo "target_flag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install frontend dependencies
+        shell: bash
+        working-directory: web
+        run: npm ci
+
+      - name: Build frontend
+        shell: bash
+        working-directory: web
+        run: npm run build
+
+      # The git tag is the single source of truth for the bundle version (like
+      # tally / metalbug — `just release` tags, it doesn't bump committed files).
+      # Stamp tauri.conf.json from the tag before building. A -pre suffix is
+      # stripped because Tauri's version field wants plain MAJOR.MINOR.PATCH; the
+      # tag / release name still carries the prerelease. Edits the runner checkout
+      # only, never committed. node is on PATH from setup-node (all platforms).
+      - name: Set bundle version from tag
+        shell: bash
+        run: |
+          BASE="${GITHUB_REF_NAME#v}"; BASE="${BASE%%-*}"
+          node -e "const f='src-tauri/tauri.conf.json';const j=JSON.parse(require('fs').readFileSync(f,'utf8'));j.version='$BASE';require('fs').writeFileSync(f,JSON.stringify(j,null,2)+'\n');console.log('bundle version →',j.version)"
+
+      - name: Import Apple signing certificate
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+
+          echo "$CERTIFICATE_BASE64" | base64 -D > "$RUNNER_TEMP/certificate.p12"
+
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$RUNNER_TEMP/certificate.p12" \
+            -P "$CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH" || true
+
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+          echo "Available identities:"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)"/\1/')
+          if [ -z "$IDENTITY" ]; then
+            echo "ERROR: No Developer ID Application certificate found"
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+          rm -f "$RUNNER_TEMP/certificate.p12"
+
+      # tauri build codesigns the .app when APPLE_SIGNING_IDENTITY is set in the
+      # environment (exported above). Sanity has no sidecar binary to pre-sign —
+      # scanning runs in-process, so the app bundle is the whole payload.
+      - name: Build Tauri app (macOS, signed)
+        if: runner.os == 'macOS'
+        shell: bash
+        working-directory: src-tauri
+        run: cargo tauri build
+
+      - name: Sign and notarize DMG (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          DMG_FILE=$(find src-tauri/target/release/bundle/dmg -name "*.dmg" | head -1)
+          if [ -z "$DMG_FILE" ]; then
+            echo "ERROR: no DMG produced by tauri build"
+            exit 1
+          fi
+          codesign --force --sign "$APPLE_SIGNING_IDENTITY" "$DMG_FILE"
+          xcrun notarytool submit "$DMG_FILE" \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$DMG_FILE"
+
+      - name: Clean stale Tauri bundles (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: rm -rf src-tauri/target/release/bundle/{deb,appimage,rpm}
+
+      # tauri-bundler downloads linuxdeploy-plugin-gtk.sh into ~/.cache/tauri/
+      # on first use and reuses it forever. Current upstream re-creates GTK
+      # immodule/printbackend symlinks with `ln -s` (no -f) over libraries the
+      # linuxdeploy core call already staged, so the second `ln -s` dies with
+      # "File exists" and bundling fails with the unhelpful "failed to run
+      # linuxdeploy". Pre-download the plugin and patch `ln -s` → `ln -sf` so
+      # the workaround is idempotent (cold + warm caches both end up patched).
+      - name: Patch cached linuxdeploy-plugin-gtk (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/.cache/tauri"
+          PLUGIN="$HOME/.cache/tauri/linuxdeploy-plugin-gtk.sh"
+          if [ ! -f "$PLUGIN" ]; then
+            curl -fSLo "$PLUGIN" \
+              https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
+            chmod +x "$PLUGIN"
+          fi
+          sed -i 's|ln $verbose -s |ln $verbose -sf |g' "$PLUGIN"
+
+      # AppImages self-mount via FUSE, and Ubuntu 24.04 dropped libfuse2, so the
+      # AppImage runtime fails to launch. APPIMAGE_EXTRACT_AND_RUN=1 tells the
+      # runtime to extract to a temp dir and run from there — no FUSE needed.
+      - name: Build Tauri app (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        working-directory: src-tauri
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        run: cargo tauri build
+
+      - name: Clean stale Tauri bundles (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: rm -rf ${{ steps.paths.outputs.bundle_dir }}/{nsis,msi}
+
+      - name: Build Tauri app (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: src-tauri
+        run: cargo tauri build ${{ steps.paths.outputs.target_flag }} --bundles nsis
+
+      - name: Collect Tauri artifacts (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          BUNDLE="src-tauri/target/release/bundle"
+          for f in "$BUNDLE"/dmg/*.dmg; do
+            [ -f "$f" ] && cp "$f" artifacts/
+          done
+
+      - name: Collect Tauri artifacts (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          BUNDLE="src-tauri/target/release/bundle"
+          for dir in deb appimage rpm; do
+            for f in "$BUNDLE/$dir"/*; do
+              [ -f "$f" ] || continue
+              cp "$f" artifacts/
+            done
+          done
+
+      # Both Windows targets bundle to nsis/*.exe with the SAME filename — the
+      # bundler names by product + version, not by triple — so the arm64 asset
+      # would silently overwrite the x64 one on the shared draft release. Suffix
+      # the cross build with its platform before upload.
+      - name: Collect Tauri artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          BUNDLE="${{ steps.paths.outputs.bundle_dir }}"
+          for dir in nsis msi; do
+            for f in "$BUNDLE/$dir"/*; do
+              [ -f "$f" ] || continue
+              if [ "${{ matrix.cross }}" = "true" ]; then
+                base=$(basename "$f"); ext="${base##*.}"; stem="${base%.*}"
+                cp "$f" "artifacts/${stem}_arm64.${ext}"
+              else
+                cp "$f" artifacts/
+              fi
+            done
+          done
+
+      # All platforms push their bundles directly to the draft GH release via
+      # softprops/action-gh-release rather than actions/upload-artifact: release
+      # assets don't count against the Actions artifact-storage quota, and this
+      # avoids the chunked-Azure-Blob upload path that historically stalled on
+      # Mac runners with tens-of-MB Tauri payloads. The `release` job publishes.
+      - name: List artifacts (pre-upload)
+        shell: bash
+        run: ls -lh artifacts/
+
+      - name: Push artifacts to draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          files: artifacts/*
+          fail_on_unmatched_files: true
+
+      # Release builds are the biggest disk consumers and run rarely, so there's
+      # no warm-cache value in keeping them. Reclaim the target dir after every
+      # run on these persistent self-hosted runners. always() so a failed build
+      # still cleans up; || true so a missing target dir is a no-op.
+      - name: Clean target dirs
+        if: always()
+        shell: bash
+        run: cargo clean --manifest-path src-tauri/Cargo.toml || true
+
+  release:
+    needs: build
+    runs-on: [self-hosted, linux, X64, krapow]
+    permissions:
+      contents: write
+
+    steps:
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This job has no checkout step, so gh has no local .git to infer the
+          # repo from. GH_REPO points the gh release calls at the repo directly.
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # The build jobs push their bundles directly to the draft release, so
+          # nothing to download here. Ensure the release exists and publish it.
+          # Also covers re-runs, where the release already exists.
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --draft \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi
+          gh release edit "$GITHUB_REF_NAME" --draft=false
