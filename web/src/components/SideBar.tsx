@@ -148,6 +148,16 @@ export function SideBar({
                   {inProgress.assessed}/{inProgress.functions}
                 </span>
               </div>
+              {/* Why the bar moved BACKWARDS. A finished project that gains stale
+                  readings drops below full, and without this the only reading of that is
+                  "the tool lost my work" — which is the one thing it must never look
+                  like, given the whole point of committing the assessment. */}
+              {inProgress.stale > 0 && (
+                <p className="mb-1 text-[10px] opacity-70">
+                  {inProgress.stale} {inProgress.stale === 1 ? 'reading has' : 'readings have'}{' '}
+                  gone stale — the code changed under {inProgress.stale === 1 ? 'it' : 'them'}
+                </p>
+              )}
               <div className="h-1 w-full overflow-hidden rounded-full bg-black/25">
                 <div
                   className="h-full rounded-full transition-[width] duration-500"
@@ -181,7 +191,10 @@ function ProjectItem({
     <button
       type="button"
       onClick={onClick}
-      title={`${project.repo} · ${project.assessed} of ${project.functions} read`}
+      title={
+        `${project.repo} · ${project.assessed} of ${project.functions} read` +
+        (project.stale > 0 ? ` · ${project.stale} stale` : '')
+      }
       className={clsx(
         'flex w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors',
         active ? 'shell-chrome--active' : 'shell-chrome--hover',

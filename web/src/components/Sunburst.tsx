@@ -186,6 +186,38 @@ export function Sunburst({
           and pushed the legend off the bottom. `inset-0` makes both axes definite, and
           the default xMidYMid letterboxes the rings inside whatever shape that is. */}
       <svg viewBox="-360 -360 720 720" className="absolute inset-0 h-full w-full">
+        {/* Hatching for readings whose code has moved. Deliberately a TEXTURE and not a
+            colour: the map has exactly one colour encoding and adding a second hue for
+            "expired" would put two scales on one ring. A hatch sits on top of whatever
+            the wedge already is and says "don't trust this", which is a different kind
+            of statement from "this is hot".
+
+            There is a standing note below against per-wedge marks — a mark on every
+            wedge is stripes, not information. That argument is the reason this one is
+            fine: stale is rare by construction, so the hatch appears on a handful of
+            wedges and the eye goes straight to them. The moment most of a repo is
+            hatched, most of the repo genuinely has expired readings, and drawing that
+            loudly is correct. */}
+        <defs>
+          <pattern
+            id="stale-hatch"
+            width={6}
+            height={6}
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <rect width={6} height={6} fill="none" />
+            <line
+              x1={0}
+              y1={0}
+              x2={0}
+              y2={6}
+              stroke="var(--foreground)"
+              strokeWidth={1.6}
+              strokeOpacity={0.45}
+            />
+          </pattern>
+        </defs>
         {/* Keyed on the root so changing level remounts the group and replays the
             transition. Drilling in grows into place, drilling out shrinks into it, which
             is what makes the two directions distinguishable rather than just a fade. */}
@@ -307,11 +339,12 @@ export function Sunburst({
               if (isSel || isHover) {
                 highlight = { d: arcPath(fa0, fa1, slot.r0, slot.r1), width: isSel ? 1.6 : 1.2 }
               }
+              const d = arcPath(fa0, fa1, slot.r0, slot.r1)
               return (
+                <g key={slot.node.id}>
                 <path
-                  key={slot.node.id}
                   className="wedge"
-                  d={arcPath(fa0, fa1, slot.r0, slot.r1)}
+                  d={d}
                   fill={c ? c.fill : 'var(--unanalyzed)'}
                   fillOpacity={isSel || isHover ? 1 : c ? 0.92 : 0.4}
                   // No per-wedge source mark. It existed to tell agent verdicts from
@@ -334,6 +367,20 @@ export function Sunburst({
                   }}
                 >
                 </path>
+                {/* Drawn over the wedge, deaf to the mouse so the wedge underneath keeps
+                    every gesture. The wedge itself has already fallen back to the proxy
+                    colour — `applyAgentReports` drops a stale reading's score — so
+                    without this the only sign a function was ever read would be in the
+                    panel, one wedge at a time. The whole argument for a map is that you
+                    can see where the problem is without clicking. */}
+                {slot.node.agentStale && (
+                  <path
+                    className="pointer-events-none"
+                    d={d}
+                    fill="url(#stale-hatch)"
+                  />
+                )}
+                </g>
               )
             })
           })}
@@ -505,6 +552,16 @@ export function Sunburst({
                 {analyzed && c ? c.label : 'not measured yet'}
               </span>
             </div>
+
+            {/* Said on hover, not only on click. A hatched wedge poses a question — why
+                is this one different — and making you select it to get the answer is a
+                click charged for reading the map. */}
+            {n.agentStale && (
+              <p className="mb-1 text-[10px] leading-snug text-[var(--warning)]">
+                Read before, but the code has changed since — that reading no longer
+                colours this wedge.
+              </p>
+            )}
 
             <p className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
               {n.loc.toLocaleString()} lines

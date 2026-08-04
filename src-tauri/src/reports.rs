@@ -1,47 +1,40 @@
-//! Agent assessments, persisted per project.
+//! The project list, and the sizes behind the delete button.
 //!
-//! A report is minutes of an agent's reading. Keeping it only in memory would mean every
-//! restart throws that away — and unlike a model score, it cannot be recomputed cheaply
-//! or at all. Written through on each report rather than at exit, because the app being
-//! killed is exactly the case worth surviving.
+//! **No readings.** They live in `.sanity/` in the repo (`assessment.rs`) and nowhere
+//! else. This file used to hold a per-project store keyed by the repo's absolute path,
+//! and the code for it is gone rather than disabled: a second home for readings meant
+//! deleting the visible copy silently restored an older invisible one, and no amount of
+//! care at the call site fixes a design where the user cannot tell which copy they are
+//! looking at. Leaving the functions here for "just in case" is how that comes back.
+//!
+//! What remains is genuinely disposable — which projects have been opened, and how big
+//! the score cache is.
 
-use crate::agentapi::Report;
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-fn fnv(bytes: &[u8]) -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in bytes {
-        h ^= *b as u64;
-        h = h.wrapping_mul(0x1000_0000_01b3);
-    }
-    h
+/// Everything Sanity has written on this machine, for the panel that offers to delete it.
+///
+/// Reported as paths and a byte count rather than a single number: "clear 400K" is not a
+/// sentence anyone can consent to, and the readings in there are the one part that cannot
+/// be recomputed.
+pub fn data_dir() -> Option<PathBuf> {
+    dirs::data_dir().map(|d| d.join("Sanity"))
 }
 
-fn path_for(key: &str) -> Option<PathBuf> {
-    let dir = dirs::data_dir()?.join("Sanity").join("reports");
-    std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join(format!("{:016x}.json", fnv(key.as_bytes()))))
-}
-
-pub fn load(key: &str) -> HashMap<String, Report> {
-    path_for(key)
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
-}
-
-pub fn save(key: &str, reports: &HashMap<String, Report>) {
-    let Some(path) = path_for(key) else { return };
-    let Ok(json) = serde_json::to_string(reports) else {
-        return;
+/// Bytes under `dir`, following no symlinks and failing quietly. Used for the size shown
+/// beside the delete button.
+pub fn dir_size(dir: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
     };
-    // Temp-then-rename: a half-written file would lose every report, and the likeliest
-    // moment to be interrupted is while the app is being killed.
-    let tmp = path.with_extension("json.tmp");
-    if std::fs::write(&tmp, json).is_ok() {
-        let _ = std::fs::rename(&tmp, path);
-    }
+    entries
+        .flatten()
+        .map(|e| match e.file_type() {
+            Ok(t) if t.is_dir() => dir_size(&e.path()),
+            Ok(t) if t.is_file() => e.metadata().map(|m| m.len()).unwrap_or(0),
+            _ => 0,
+        })
+        .sum()
 }
 
 

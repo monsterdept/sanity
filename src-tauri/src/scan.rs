@@ -281,6 +281,8 @@ fn score_dir(files: &[ParsedFile], history: &History) -> Vec<(String, Node)> {
                         name: func.name.clone(),
                         kind: NodeKind::Func,
                         doc: func.doc.clone(),
+                        signature: Some(func.signature.clone()),
+                        body: Some(crate::assessment::body_hash(&func.body)),
                         end_line: Some(func.end_line),
                         path: file.rel_path.clone(),
                         loc: func.loc(),
@@ -325,6 +327,8 @@ fn score_dir(files: &[ParsedFile], history: &History) -> Vec<(String, Node)> {
                     // reader is handed is therefore one deep for now, and widens here
                     // when file docs are parsed rather than anywhere downstream.
                     doc: None,
+                    signature: None,
+                    body: None,
                     end_line: None,
                     path: file.rel_path.clone(),
                     loc: 0, // filled by aggregate()

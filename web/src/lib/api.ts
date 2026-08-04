@@ -48,9 +48,23 @@ export interface Node {
   /** Who last committed to this file. */
   lastAuthor: string | null
   score: Score | null
+  /** Hash of this function's body — what a committed reading is checked against. */
+  body: string | null
   hotspots: Hotspot[]
   /** Set when an agent assessed this function over MCP. */
   agent?: AgentReport
+  /** The reading in `agent` was made against a different body than the one here.
+   *  It is kept, and shown, but it no longer colours the wedge — see
+   *  `applyAgentReports`. */
+  agentStale?: boolean
+  /** The score before an agent's reading overwrote it.
+   *
+   *  Kept because reports are folded into the tree that already has earlier reports in
+   *  it, so by the time a reading goes stale the proxy number it replaced is gone and
+   *  there is nothing to fall back to. Today a rescan happens to supply a fresh tree
+   *  first, which hides it — but that is a coincidence of ordering, not a guarantee, and
+   *  the failure it hides is a wedge keeping an expired colour. */
+  proxyScore?: Score
   children: Node[]
 }
 
@@ -97,6 +111,7 @@ interface WireNode {
   lang: string | null
   end_line: number | null
   last_author: string | null
+  body: string | null
   score: WireScore | null
   hotspots?: Hotspot[]
   children: WireNode[]
@@ -123,6 +138,7 @@ function toNode(w: WireNode): Node {
     endLine: w.end_line ?? null,
     lang: w.lang ?? null,
     lastAuthor: w.last_author ?? null,
+    body: w.body ?? null,
     score: w.score
       ? {
           surprise: w.score.surprise,
@@ -235,7 +251,11 @@ export interface ProjectSummary {
   name: string
   repo: string
   functions: number
+  /** Functions whose reading still describes them. Stale ones are NOT counted — a
+   *  project cannot be finished and hold expired readings. */
   assessed: number
+  /** Readings whose code has changed since. Already excluded from `assessed`. */
+  stale: number
   touched: number
 }
 
@@ -286,6 +306,29 @@ export interface AgentReport {
   note: string
   /** Was the reader seeing this file for the first time? Self-declared. */
   cold: boolean
+  /** Hash of the body this reading was made against. Empty on readings banked before
+   *  the committed store existed — those are taken at their word rather than shown as
+   *  expired, which would present every migrated reading as broken. */
+  body?: string
+  /** Which model made the reading, as it reported itself. Absent on readings banked
+   *  before the field existed — the panel falls back rather than inventing one. */
+  model?: string
+  /** Git identity of whoever ran the reading, and the commit it was made at. Shown as
+   *  provenance; nothing keys off either. */
+  by?: string
+  at?: string
+}
+
+/**
+ * Has the code moved out from under this reading?
+ *
+ * Mirrors `assessment::is_stale`. The reading itself is still true about the code it was
+ * made against — it just isn't about *this* code any more, and the panel says so rather
+ * than deleting it.
+ */
+export function isReportStale(r: AgentReport, node: Node): boolean {
+  if (!r.body || !node.body) return false
+  return r.body !== node.body
 }
 
 /** Mirrors `Grade::surprise` and `Grade::documented` in Rust. Duplicated rather than
@@ -324,9 +367,26 @@ export function applyAgentReports(root: Node, reports: AgentReport[]): Node {
     if (node.children.length === 0) {
       const r = byId.get(node.id)
       if (!r || !node.score) return node
+      // A reading whose code has changed does NOT colour the wedge. It described a body
+      // that is not there any more, and letting it keep painting is the exact failure
+      // the metric refuses everywhere else — a number claiming confidence it no longer
+      // has. The wedge falls back to the proxy, which is what an unread function looks
+      // like, because that is what this now is. The reading is still attached, and the
+      // hatch on the map plus the panel say why it went quiet.
+      if (isReportStale(r, node)) {
+        return {
+          ...node,
+          agent: r,
+          agentStale: true,
+          score: node.proxyScore ?? node.score,
+          proxyScore: undefined,
+        }
+      }
       return {
         ...node,
         agent: r,
+        agentStale: false,
+        proxyScore: node.proxyScore ?? node.score,
         score: {
           ...node.score,
           // Both numbers from the SAME instrument. Overwriting surprise while leaving
@@ -349,6 +409,61 @@ export function applyAgentReports(root: Node, reports: AgentReport[]): Node {
     return reaggregate(node, children)
   }
   return visit(root)
+}
+
+/** Wedges the map is hatching. Counted off the tree rather than read from the project
+ *  list so the legend always describes the picture actually on screen. */
+export function countStale(root: Node): number {
+  let n = root.agentStale ? 1 : 0
+  for (const c of root.children) n += countStale(c)
+  return n
+}
+
+/** One repo's committed `.sanity/`, named so the delete button can list it. */
+export interface Assessment {
+  name: string
+  path: string
+  readings: number
+  /** Tracked by git, so `git checkout` brings it back. Untracked means gone for good. */
+  tracked: boolean
+}
+
+/** What Sanity has written — see `stored_data` in commands.rs. */
+export interface StoredData {
+  path: string
+  /** Cached model scores. Recomputable by rescanning. */
+  scoreBytes: number
+  /** Leftover machine-local reading files. Nothing reads these any more. */
+  legacyReadingFiles: number
+  projects: number
+  totalBytes: number
+  assessments: Assessment[]
+}
+
+export async function storedData(): Promise<StoredData | null> {
+  const w = await invoke<{
+    path: string
+    score_bytes: number
+    legacy_reading_files: number
+    projects: number
+    total_bytes: number
+    assessments: Assessment[]
+  } | null>('stored_data').catch(() => null)
+  return w
+    ? {
+        path: w.path,
+        scoreBytes: w.score_bytes,
+        legacyReadingFiles: w.legacy_reading_files,
+        projects: w.projects,
+        totalBytes: w.total_bytes,
+        assessments: w.assessments ?? [],
+      }
+    : null
+}
+
+/** Delete every reading, including each known repo's committed `.sanity/`. */
+export function clearStoredData(): Promise<void> {
+  return invoke<void>('clear_stored_data')
 }
 
 export function stopScan(): Promise<void> {
@@ -507,6 +622,12 @@ function reaggregate(node: Node, children: Node[]): Node {
 
 export function onScanProgress(cb: (p: Progress) => void): () => void {
   const un = listen<Progress>('scan-progress', (e) => cb(e.payload))
+  return () => void un.then((f) => f())
+}
+
+/** The app menu's Settings item (⌘,). Rust emits; React decides what opening means. */
+export function onOpenSettings(cb: () => void): () => void {
+  const un = listen('open-settings', () => cb())
   return () => void un.then((f) => f())
 }
 

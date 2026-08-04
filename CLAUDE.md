@@ -63,6 +63,84 @@ measured on tally, slooth and krapow. **`just scan <repo>` prints a histogram; r
 before and after touching those constants.** A flat or saturated spread means the metric
 is measuring nothing and the rankings are decoration.
 
+## Assessments are committed, and they expire
+
+Agent readings live in **`.sanity/`** in the scanned repo (`assessment.rs`) and nowhere
+else. **The Markdown is the store**, parsed back on open; don't add a JSON file beside
+it, because the readable copy is the one that would end up wrong. It is not slow — 5,000
+readings (1.4 MB) parse in 30ms, once, on open.
+
+- **One home, no fallback, no migration.** `reports.rs` used to keep a permanent second
+  copy, which made deleting `.sanity/` appear to do nothing — the map came back from a
+  file the user could not see, holding an *older* set of readings. Don't reintroduce a
+  mirror "for safety": a user who cannot tell which copy they are looking at is worse off
+  than one who lost a file.
+- **The migration that replaced it destroyed a project's readings. Read this before
+  writing another one.** It matched legacy entries by node id; node ids embed `@line`;
+  the lines had moved. So it wrote almost nothing, that write returned `Ok`, and the code
+  deleted the source because `Ok` looked like proof. Two rules fall out: never key
+  anything durable on a node id (that is what `key_of` is for), and never gate a
+  destructive step on a write returning `Ok` — read the result back and check it.
+- **A failed write is reported, never absorbed.** `save_reports` returns an error and the
+  `report` handler puts it in `ok`/`error`/`hint` so the agent stops. Silently diverting
+  to a hidden file is how a reading looks saved and isn't.
+
+- **Keys are `key_of(path, name, ord)`, never the node id.** Node ids carry `@line` and
+  would orphan every reading the moment somebody adds an import. `path#name` alone is
+  NOT unique — Swift files hold a dozen `init`s, Rust files hold same-named methods in
+  different `impl` blocks — so the second twin takes `#2`, the third `#3`, by position in
+  the file. Assuming uniqueness cost 91 functions and two false expiries on one real
+  Swift repo; `same_named_functions_in_one_file_stay_apart` is the test, keep it passing.
+- **`save` iterates live functions, not reports.** Walking the reports means resolving
+  each back to a function by name, which is where twins got confused. From the function
+  side each looks up its own reading and compares against its own body.
+- **Staleness replaces an update mode.** Each entry records `body_hash` of the body it
+  was read against; a mismatch marks it STALE and `collect_tasks` queues it ahead of
+  anything unread. So "update my sanity assessment" needs no new verb. The hash collapses
+  whitespace on purpose — a reformat must not expire a repo's honest work.
+- **Provenance is stamped server-side.** `body`, `by` and `at` are filled in the `report`
+  handler from the scan and from git, never taken from the agent. The one field whose job
+  is to be checkable later cannot be self-certified.
+- **Never let a reader see `.sanity/` before it predicts.** Being told what the last
+  reader found is recall, not prediction — the same contamination `cold` exists to
+  expose. The MCP descriptions say so; keep them saying it.
+- Nothing is user-scoped. `by:` is provenance to read, not ownership; anyone with the
+  repo extends anyone's assessment.
+- **A stale reading must not colour its wedge.** `applyAgentReports` drops its score and
+  the wedge falls back to the proxy; a hatch (`#stale-hatch`) marks it, and the reading
+  stays in the panel as history. Keeping the old colour would be the same sin as a term
+  claiming confidence it hasn't got. `node.proxyScore` exists only so this is reversible
+  — reports fold into the already-folded tree, so the number being restored has to have
+  been kept. Don't drop it because "a rescan supplies a fresh tree anyway"; that is
+  ordering luck, not a guarantee.
+- **`assessed` excludes stale, everywhere.** `collect_tasks`, `ProjectSummary` and the
+  sidebar all agree, so nothing can read as finished while holding expired work.
+
+## The tool contract is part of the metric
+
+`mcp.rs`'s `inputSchema` is not documentation — it is what the reader is allowed to say.
+It drifted from `Report` and silently ate four fields: the protocol asked for `predicted`,
+`documented`, `derivable` and `model`, Rust could store all four, and the schema declared
+none of them. Careful readers printed the grades into chat, where they were lost, and
+`predicted` was collapsed into the `surprised` boolean. **`derivable` is the defence
+against generated docs counting as documentation — it was being collected and discarded.**
+When a field is added to `Report`, add it to the schema in the same commit.
+
+- **Never report coverage off a lease-filtered list.** `done`/`remaining` did, so 34
+  functions out with readers read as finished under "every function has an up-to-date
+  reading". `work_left` returns `(remaining, in_flight)`: remaining ignores leases and
+  only falls when a reading lands. An instrument that overstates its own coverage is worse
+  than one that measures nothing.
+- **Coldness is the queue's job, not the reader's.** `interleave_by_file` round-robins
+  across files, because scores cluster by file (distinctiveness is file-local) and a
+  reader handed 25 from one file is recalling after the first. `cold` is self-reported and
+  should be a check, not the mechanism.
+- **Errors must say what to do.** A reader that hit the old flat "Sanity is not running"
+  invented a prerequisite, another ran the tools as shell commands, another read
+  `.sanity/` to compensate — contaminating itself. `UNREACHABLE` (transient, retry) is
+  separate from `NOT_RUNNING` (never started) for that reason. Models fill silence with
+  invention.
+
 ## Conventions
 
 - Stack: Tauri 2 · React 19 · Vite 7 · Tailwind v4 · tree-sitter · rayon.

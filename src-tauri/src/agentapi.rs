@@ -128,6 +128,45 @@ impl AppState {
 /// stranding it. Nothing is lost either way — an expired lease just re-queues.
 const LEASE: Duration = Duration::from_secs(600);
 
+/// Load a project's readings. `.sanity` in the repo is the only source, full stop.
+///
+/// There was briefly a migration here that read the old machine-local store and wrote it
+/// into the repo. It destroyed a project's readings, and the way it did so is worth
+/// keeping written down: legacy entries are keyed by node id, node ids embed `@line`, and
+/// the lines had moved since those readings were made — so the write matched almost
+/// nothing, succeeded at writing nothing, and the code then deleted the only copy because
+/// the write had returned `Ok`.
+///
+/// Two lessons, both of which outlive the migration itself:
+///
+/// - The unstable identifier was already known to be unstable. `key_of` exists precisely
+///   because line numbers move. Using the node id anyway, for the one operation whose
+///   input was irreplaceable, is the whole bug.
+/// - `Ok` from a write means bytes reached the disk, never that the right bytes did.
+///   Nothing destructive should be gated on it. If something like this is ever needed
+///   again, read the result back and check it before removing the source.
+fn load_reports(repo: &Path, scan: &Scan) -> HashMap<String, Report> {
+    crate::assessment::load(repo, scan)
+}
+
+/// Write the readings into the repo.
+///
+/// There is no fallback any more, and the absence is deliberate. A silent fallback to a
+/// hidden file is worse than a visible failure: the reading looks saved, is not where it
+/// says it is, and reappears later to contradict the file the user is reading. When this
+/// fails — a read-only checkout, a worktree owned by someone else — the caller tells the
+/// agent so it can stop and say so, rather than filling an invisible store.
+fn save_reports(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> Result<(), String> {
+    crate::assessment::save(repo, scan, reports).map_err(|e| {
+        format!(
+            "Could not write {}: {e}. The reading is held in memory but NOT saved — fix \
+             the permissions on that directory, or the work will be lost when Sanity \
+             closes.",
+            crate::assessment::dir(repo).to_string_lossy()
+        )
+    })
+}
+
 /// Canonicalised so `.`, `~/x/` and `/x` are one project rather than three.
 pub fn project_key(path: &Path) -> String {
     std::fs::canonicalize(path)
@@ -149,6 +188,10 @@ pub struct Task {
     pub path: String,
     pub line: u32,
     pub name: String,
+    /// The declaration line. Without it an overloaded name is unresolvable — the reader
+    /// sees the same name twice in `peers` and has to guess which one it was handed.
+    #[serde(default)]
+    pub signature: String,
     /// Other functions in the same file — the context a teammate would have.
     pub peers: Vec<String>,
     /// The comment stack a reader has before opening the body: this chunk's own doc
@@ -249,9 +292,52 @@ pub struct Report {
     /// UI can say so instead of presenting every report as equally earned.
     #[serde(default)]
     pub cold: bool,
+    /// [`crate::assessment::body_hash`] of the body this reading was made against.
+    ///
+    /// Filled in by the server from the scan, never by the reporter — an agent asked to
+    /// hash what it just read would have to be trusted to do it, and this is the one
+    /// field whose whole job is to be checkable later. Empty on readings that predate
+    /// the committed store; see `assessment::is_stale`.
+    #[serde(default)]
+    pub body: String,
+    /// Which model made this reading, name and version, as it reported itself.
+    ///
+    /// Self-declared, like `cold`, and weak for the same reason — but the alternative is
+    /// a panel that says "an agent (MCP)" for every reading ever banked, which puts a
+    /// frontier model and something small and cheap behind one label. The metric is a
+    /// claim about what a competent reader could predict, so *which* reader is part of
+    /// the reading. Empty on reports banked before the field existed; the UI falls back
+    /// rather than inventing an attribution.
+    #[serde(default)]
+    pub model: String,
+    /// Whose git identity was configured when the reading was made.
+    #[serde(default)]
+    pub by: String,
+    /// The short commit the repo was at. Empty outside a git repo.
+    #[serde(default)]
+    pub at: String,
 }
 
 impl Report {
+    /// An empty reading, for parsers and tests to fill in field by field.
+    pub fn blank() -> Report {
+        Report {
+            id: String::new(),
+            expected: String::new(),
+            found: String::new(),
+            surprised: false,
+            predicted: None,
+            documented: None,
+            derivable: false,
+            note: String::new(),
+            cold: false,
+            model: String::new(),
+            body: String::new(),
+            by: String::new(),
+            at: String::new(),
+        }
+    }
+
     /// The two grades, with pre-grade reports folded in.
     ///
     /// An old report only knew surprised-or-not, so it maps to the ends of the scale.
@@ -284,16 +370,29 @@ fn collect_tasks(
     out: &mut Vec<(f32, Task)>,
 ) {
     if node.kind == NodeKind::Func {
-        if done.contains_key(&node.id) {
-            return;
-        }
+        // A reading only excuses a function while it still describes it. Once the body
+        // moves, the reading is evidence about code that no longer exists and the
+        // function is unread again — which is what makes "update my sanity assessment"
+        // the same protocol as making one, rather than a second mode.
+        let stale = match done.get(&node.id) {
+            Some(prior) => {
+                if !crate::assessment::is_stale(prior, node.body.as_deref()) {
+                    return;
+                }
+                true
+            }
+            None => false,
+        };
         if leased
             .get(&node.id)
             .is_some_and(|t| t.elapsed() < LEASE)
         {
             return;
         }
-        let priority = node.score.map_or(0.5, |s| s.surprise);
+        // Stale readings outrank everything unread. Code somebody bothered to assess and
+        // then changed is where an assessment goes wrong quietly — a wedge that still
+        // looks cool because of a reading that expired.
+        let priority = node.score.map_or(0.5, |s| s.surprise) + if stale { 1.0 } else { 0.0 };
         out.push((
             priority,
             Task {
@@ -304,6 +403,7 @@ fn collect_tasks(
                 path: node.path.clone(),
                 line: node.line.unwrap_or(0),
                 name: node.name.clone(),
+                signature: node.signature.clone().unwrap_or_default(),
                 peers: Vec::new(),
                 docs: [node.doc.as_deref(), file_doc]
                     .into_iter()
@@ -369,21 +469,42 @@ stopping there leaves the map almost entirely grey and the job is not done.\n\n\
 YOUR JOB (the session that called sanity_open):\n\
   1. Spawn 3-5 subagents IN PARALLEL, each with the prompt below. The queue reserves what \
      it hands out, so parallel readers get different functions.\n\
-  2. When they return, call sanity_status and read `remaining`.\n\
-  3. If remaining > 0, go back to step 1. Keep going until remaining is 0, or until you \
-     hit a limit the user gave you.\n\
+  2. When they return, call sanity_status and read `remaining` and `in_flight`.\n\
+  3. If remaining > 0, go back to step 1 — UNLESS remaining == in_flight, which means \
+     everything left is already out with a reader and another wave would only wait. Keep \
+     going until remaining is 0, or until you hit a limit the user gave you. `remaining` \
+     ignores leases, so it does not flicker between calls and only falls when a reading \
+     actually lands.\n\
   4. Only then summarise: how many assessed, how many surprising, and what the surprises \
      were. If you stopped before remaining hit 0, SAY SO and say how many are left — \
      'done' and 'out of budget' are different outcomes and the user needs to know which.\n\n\
+Findings are written into the repo itself, at `.sanity/`, as Markdown a person can read. \
+That happens automatically on every report — do not write those files yourself. Tell the \
+user the assessment is there and that it is theirs to commit; it is not yours to commit \
+for them.\n\n\
+UPDATING AN EXISTING ASSESSMENT is this same loop, with nothing added. If `.sanity/` was \
+already there, sanity_open loaded it, and `stale` in sanity_status counts readings whose \
+code has since changed. Those are handed out FIRST. Never read `.sanity/` yourself before \
+assessing, and never pass its contents to a subagent — a reader who has been told what the \
+last reader found is no longer predicting, and the whole measurement is worthless.\n\n\
 Do NOT assess in this session. Your context is contaminated: anything you have already \
 read in this repo you will 'predict' from memory, which scores as unsurprising and makes \
 the result meaningless. Every subagent must be fresh.\n\n\
 SUBAGENT PROMPT:\n\n\
   You are reading a codebase you have never seen. Call sanity_next to get functions — you \
-  will get names, locations, sibling names and any DOCS the code carries, but NOT bodies. \
-  For each one, first write what you expect the body to do from that alone — the docs are \
-  part of what you are given, because a reader has them too. Only then open abs_path and \
-  read it.\n\n\
+  will get names, SIGNATURES, locations, sibling names and any DOCS the code carries, but \
+  NOT bodies. For each one, first write what you expect the body to do from that alone — \
+  the docs are part of what you are given, because a reader has them too. Only then open \
+  abs_path and read it.\n\n\
+  Work through them IN THE ORDER GIVEN and do not skim ahead. Successive functions come \
+  from different files on purpose, so that each prediction is made before you have opened \
+  that file. Reading ahead is what turns a prediction into a recollection.\n\n\
+  IF A SANITY TOOL ERRORS: read the message. Connection failures are usually transient — \
+  the app restarts during development — so wait a moment and call the same tool again, up \
+  to about five times. Do not invent a prerequisite, do not run sanity tools as shell \
+  commands, and do NOT read the .sanity/ directory to compensate: it contains the previous \
+  reader's findings and looking at it makes everything you say afterwards worthless. If it \
+  keeps failing, stop and say Sanity is down.\n\n\
   Then call sanity_report with:\n\
     expected    what you predicted, before reading.\n\
     found       what is actually there.\n\
@@ -398,7 +519,11 @@ SUBAGENT PROMPT:\n\n\
                 code itself. A comment that restates the signature is derivable. This is \
                 what stops generated documentation from counting as documentation, so \
                 answer it honestly even when the docs read well.\n\
-    cold        true if you had not read that file before predicting.\n\n\
+    cold        true if you had not read that file before predicting.\n\
+    model       which model you are, name and version, e.g. claude-haiku-4.5. A \
+                prediction is only worth what the reader that made it is worth, and \
+                every reading here is attributed. Say what you are; omit it rather \
+                than guess.\n\n\
   Grade `predicted` against what you wrote BEFORE reading, not against what you now \
   understand — the point is what the code told a stranger, not what you can see in \
   hindsight. Do not read any file before predicting its function. Assess 10, then stop \
@@ -433,7 +558,7 @@ async fn open_project(
             return Json(serde_json::json!({
                 "ok": true, "reopened": true, "name": p.name,
                 "functions": count_funcs(&p.scan), "assessed": p.reports.len(),
-                "protocol": PROTOCOL,
+                "stale": count_stale(&p.scan, &p.reports), "protocol": PROTOCOL,
             }));
         }
     }
@@ -466,8 +591,9 @@ async fn open_project(
     let Ok(mut s) = state.lock() else {
         return Json(serde_json::json!({ "ok": false, "error": "state poisoned" }));
     };
-    let reports = crate::reports::load(&key);
+    let reports = load_reports(&path, &scan);
     let assessed = reports.len();
+    let stale = count_stale(&scan, &reports);
     s.projects.insert(
         key.clone(),
         Project {
@@ -482,8 +608,56 @@ async fn open_project(
     s.touch(&key);
     Json(serde_json::json!({
         "ok": true, "name": name, "functions": functions, "assessed": assessed,
-        "protocol": PROTOCOL,
+        "stale": stale, "protocol": PROTOCOL,
     }))
+}
+
+/// How much work is genuinely left, and how much of it is available this second.
+///
+/// These are two different numbers and conflating them was a reporting bug with teeth.
+/// `remaining` used to come from the lease-filtered queue, so a function currently held
+/// by a reader counted as done — the tool reported `done: true` with "every function has
+/// an up-to-date reading" while 34 were still out on lease and unassessed. An instrument
+/// that overstates its own coverage is worse than one that measures nothing, because the
+/// number looks finished.
+///
+/// So `remaining` ignores leases entirely: it is unread-or-stale, full stop, and it only
+/// falls when a reading actually lands. `in_flight` is what leases explain, and it is the
+/// difference between "keep going" and "wait".
+fn work_left(project: &Project) -> (usize, usize) {
+    let none = HashMap::new();
+    let mut unread = Vec::new();
+    collect_tasks(&project.scan.root, &project.reports, &none, None, None, &mut unread);
+    let mut available = Vec::new();
+    collect_tasks(
+        &project.scan.root,
+        &project.reports,
+        &project.leased,
+        None,
+        None,
+        &mut available,
+    );
+    (unread.len(), unread.len().saturating_sub(available.len()))
+}
+
+/// Readings whose code has changed under them.
+///
+/// Reported separately from "unread" everywhere it is surfaced, because they are
+/// different situations for the person reading the number: unread is work never done,
+/// stale is work that has quietly stopped being true.
+fn count_stale(scan: &Scan, reports: &HashMap<String, Report>) -> usize {
+    let mut n = 0;
+    scan.root.visit(&mut |node| {
+        if node.kind != NodeKind::Func {
+            return;
+        }
+        if let Some(r) = reports.get(&node.id) {
+            if crate::assessment::is_stale(r, node.body.as_deref()) {
+                n += 1;
+            }
+        }
+    });
+    n
 }
 
 fn count_funcs(scan: &Scan) -> usize {
@@ -500,7 +674,52 @@ fn count_funcs(scan: &Scan) -> usize {
 ///
 /// Ordered by the proxy's guess at surprise so an agent that only gets
 /// through a fraction of a large repo spends its budget on the parts most likely to
-/// matter.
+/// matter — but **spread across files**, which matters more than the ordering does.
+///
+/// Ranking purely by score handed one reader many functions from the same file, because
+/// `distinctiveness` is computed against file-local peers and so scores cluster by file.
+/// After the first of them that file is open and read, and every later prediction is
+/// recall wearing a prediction's clothes. One reader honestly self-reported 22 of 48 as
+/// warm for exactly this reason — which is the protocol working, but only because that
+/// reader was honest. Interleaving makes coldness a property of the queue instead of a
+/// question the reader has to answer about itself.
+fn interleave_by_file(mut ranked: Vec<(f32, Task)>, n: usize) -> Vec<Task> {
+    ranked.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    // Round-robin over files, taking each file's best remaining candidate per pass. Files
+    // stay in descending order of their strongest function, so the most promising work
+    // still comes first — it just never arrives two-from-one-file in a row while any
+    // other file has something to offer.
+    let mut by_file: Vec<Vec<Task>> = Vec::new();
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    for (_, t) in ranked {
+        match seen.get(&t.path) {
+            Some(&i) => by_file[i].push(t),
+            None => {
+                seen.insert(t.path.clone(), by_file.len());
+                by_file.push(vec![t]);
+            }
+        }
+    }
+    let mut out = Vec::with_capacity(n);
+    let mut round = 0;
+    while out.len() < n {
+        let mut progressed = false;
+        for file in &by_file {
+            if let Some(t) = file.get(round) {
+                out.push(t.clone());
+                progressed = true;
+                if out.len() == n {
+                    return out;
+                }
+            }
+        }
+        if !progressed {
+            break;
+        }
+        round += 1;
+    }
+    out
+}
 async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Json<Vec<Task>> {
     let Ok(mut state) = state.lock() else {
         return Json(Vec::new());
@@ -522,8 +741,7 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
         None,
         &mut tasks,
     );
-    tasks.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-    let handed: Vec<Task> = tasks.into_iter().take(p.n).map(|(_, t)| t).collect();
+    let handed = interleave_by_file(tasks, p.n);
 
     // Reserved as they go out, so the next caller — very likely a sibling subagent
     // running at the same moment — gets different work.
@@ -546,20 +764,28 @@ async fn report(State(state): State<Shared>, Json(r): Json<Report>) -> Json<serd
         return Json(serde_json::json!({ "ok": false, "error": "no project open" }));
     };
     project.leased.remove(&r.id);
+
+    // Provenance is stamped here, not accepted from the caller. The body hash is the
+    // field a future reader checks this reading against, so it has to come from the same
+    // scan the queue handed out — an agent could report a hash of whatever it liked, and
+    // the one thing a staleness marker cannot be is self-certified.
+    let mut r = r;
+    let mut body = None;
+    project.scan.root.visit(&mut |n| {
+        if n.id == r.id {
+            body = n.body.clone();
+        }
+    });
+    r.body = body.unwrap_or_default();
+    r.by = crate::assessment::who(&project.repo);
+    r.at = crate::assessment::head(&project.repo);
+
     project.reports.insert(r.id.clone(), r);
     // Written through on every report. An assessment is minutes of an agent's work and
     // must not depend on the app exiting cleanly to survive.
-    crate::reports::save(&key, &project.reports);
+    let write_error = save_reports(&project.repo, &project.scan, &project.reports).err();
 
-    let mut left = Vec::new();
-    collect_tasks(
-        &project.scan.root,
-        &project.reports,
-        &project.leased,
-        None,
-        None,
-        &mut left,
-    );
+    let (remaining, in_flight) = work_left(project);
 
     // Surfaced back to the agent, not just to the window. An implausibly low surprise
     // rate is the signature of a contaminated or agreeable reader, and telling the
@@ -581,9 +807,18 @@ async fn report(State(state): State<Shared>, Json(r): Json<Report>) -> Json<serd
              fresh subagent."
         );
     }
+    // A failed write outranks any coaching about the reading itself: carrying on for
+    // another two hundred functions that are also not being saved is the worst outcome
+    // available, and only the agent is in a position to stop.
+    if let Some(e) = &write_error {
+        hint = e.clone();
+    }
     Json(serde_json::json!({
-        "ok": true,
-        "remaining": left.len(),
+        "ok": write_error.is_none(),
+        "saved": write_error.is_none(),
+        "error": write_error,
+        "remaining": remaining,
+        "in_flight": in_flight,
         "assessed": total,
         "surprised": surprised,
         "warm_reports": warm,
@@ -612,20 +847,45 @@ async fn status(State(state): State<Shared>) -> Json<serde_json::Value> {
             // The loop's termination condition, so a driving agent can ask "is there
             // work left" without having to infer it from a report response it may never
             // have seen — subagent tool results do not reach the parent.
-            let mut left = Vec::new();
-            collect_tasks(&p.scan.root, &p.reports, &p.leased, None, None, &mut left);
+            let (remaining, in_flight) = work_left(p);
+            let stale = count_stale(&p.scan, &p.reports);
             Json(serde_json::json!({
                 "open": true,
                 "active": p.name,
                 "repo": p.repo.to_string_lossy(),
                 "functions": count_funcs(&p.scan),
                 "assessed": p.reports.len(),
-                "remaining": left.len(),
-                "done": left.is_empty(),
-                "next_step": if left.is_empty() {
-                    "Every function has been assessed. Summarise the surprises.".to_string()
+                // Lease-independent, so two callers a second apart agree. It only falls
+                // when a reading actually lands.
+                "remaining": remaining,
+                // What the leases explain. Polling `remaining` and seeing it flat while
+                // this is non-zero means readers are working, not stuck.
+                "in_flight": in_flight,
+                // Split out of `remaining` so an update run can say what it is doing.
+                // "43 left" and "43 left, 12 of them readings that have expired" are the
+                // same number and different jobs.
+                "stale": stale,
+                "assessment_file": crate::assessment::dir(&p.repo).to_string_lossy(),
+                "done": remaining == 0,
+                "next_step": if remaining == 0 {
+                    "Every function has an up-to-date reading. Summarise the surprises.".to_string()
+                } else if remaining == in_flight {
+                    format!(
+                        "{remaining} still unread, all of them out with readers right now. \
+                         Wait for this wave to finish rather than spawning another."
+                    )
+                } else if stale > 0 {
+                    format!(
+                        "{remaining} functions need reading ({in_flight} out with readers \
+                         now), {stale} of them readings that have gone stale — the code \
+                         changed under them. Those are handed out first. Spawn another wave \
+                         of subagents.",
+                    )
                 } else {
-                    format!("{} functions still unassessed — spawn another wave of subagents.", left.len())
+                    format!(
+                        "{remaining} functions still unassessed ({in_flight} out with \
+                         readers now) — spawn another wave of subagents."
+                    )
                 },
                 "projects": projects,
             }))
@@ -647,7 +907,14 @@ pub struct ProjectSummary {
     pub name: String,
     pub repo: String,
     pub functions: usize,
+    /// Functions with a reading that still describes them.
+    ///
+    /// Stale readings are excluded rather than counted, so `assessed / functions` means
+    /// "how much of this repo is currently understood" and not "how much was understood
+    /// at some point". The same choice `collect_tasks` makes — a repo cannot be finished
+    /// and have expired readings in it.
     pub assessed: usize,
+    pub stale: usize,
     pub touched: u64,
 }
 
@@ -656,13 +923,17 @@ impl ProjectList {
         let mut projects: Vec<ProjectSummary> = state
             .projects
             .iter()
-            .map(|(key, p)| ProjectSummary {
-                key: key.clone(),
-                name: p.name.clone(),
-                repo: p.repo.to_string_lossy().to_string(),
-                functions: count_funcs(&p.scan),
-                assessed: p.reports.len(),
-                touched: p.touched,
+            .map(|(key, p)| {
+                let stale = count_stale(&p.scan, &p.reports);
+                ProjectSummary {
+                    key: key.clone(),
+                    name: p.name.clone(),
+                    repo: p.repo.to_string_lossy().to_string(),
+                    functions: count_funcs(&p.scan),
+                    assessed: p.reports.len().saturating_sub(stale),
+                    stale,
+                    touched: p.touched,
+                }
             })
             .collect();
         // Most recently touched first — the sidebar should read as a history.
@@ -724,7 +995,7 @@ pub fn restore(state: Shared) {
                 continue;
             };
             let Ok(mut s) = state.lock() else { return };
-            let reports = crate::reports::load(&known.key);
+            let reports = load_reports(&path, &scan);
             s.projects.insert(
                 known.key.clone(),
                 Project {
@@ -766,4 +1037,73 @@ pub async fn serve(state: Shared) -> anyhow::Result<u16> {
         let _ = axum::serve(listener, app).await;
     });
     Ok(port)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn task(path: &str, name: &str) -> Task {
+        Task {
+            id: format!("{path}#{name}"),
+            abs_path: path.to_string(),
+            path: path.to_string(),
+            line: 1,
+            name: name.to_string(),
+            signature: String::new(),
+            peers: Vec::new(),
+            docs: Vec::new(),
+            lines: 10,
+        }
+    }
+
+    /// The queue must not hand a reader two functions from one file back to back while
+    /// another file still has work. Ranking by score alone did exactly that — scores
+    /// cluster by file because distinctiveness is measured against file-local peers — and
+    /// every reading after the first in a file is recall, not prediction.
+    #[test]
+    fn queue_spreads_across_files() {
+        // One file is far and away the most promising; naive ranking hands out all of it.
+        let mut ranked = Vec::new();
+        for i in 0..5 {
+            ranked.push((0.9 - i as f32 * 0.01, task("hot.rs", &format!("h{i}"))));
+        }
+        for i in 0..5 {
+            ranked.push((0.5 - i as f32 * 0.01, task("mid.rs", &format!("m{i}"))));
+        }
+        for i in 0..5 {
+            ranked.push((0.2 - i as f32 * 0.01, task("cold.rs", &format!("c{i}"))));
+        }
+
+        let handed = interleave_by_file(ranked, 6);
+        assert_eq!(handed.len(), 6);
+        // No two consecutive tasks share a file while other files have work left.
+        for pair in handed.windows(2) {
+            assert_ne!(pair[0].path, pair[1].path, "consecutive reads from one file");
+        }
+        // The most promising file still leads — spreading must not become round-robin
+        // that ignores the ranking.
+        assert_eq!(handed[0].path, "hot.rs");
+        assert_eq!(handed[0].name, "h0");
+    }
+
+    /// With only one file left there is nothing to interleave with, and the queue must
+    /// still hand out work rather than starving.
+    #[test]
+    fn queue_falls_back_when_one_file_remains() {
+        let ranked = (0..4)
+            .map(|i| (0.5, task("only.rs", &format!("f{i}"))))
+            .collect();
+        let handed = interleave_by_file(ranked, 3);
+        assert_eq!(handed.len(), 3);
+    }
+
+    /// Asking for more than exists returns everything, not a panic and not a repeat.
+    #[test]
+    fn queue_never_repeats_or_overruns() {
+        let ranked = vec![(0.9, task("a.rs", "x")), (0.8, task("b.rs", "y"))];
+        let handed = interleave_by_file(ranked, 25);
+        assert_eq!(handed.len(), 2);
+        assert_ne!(handed[0].id, handed[1].id);
+    }
 }

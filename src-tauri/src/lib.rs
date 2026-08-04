@@ -16,6 +16,7 @@
 //! that tells you nothing. Colour is the product.
 
 pub mod agentapi;
+pub mod assessment;
 pub mod cache;
 pub mod churn;
 pub mod commands;
@@ -63,6 +64,66 @@ fn build_window(app: &tauri::AppHandle) {
     }
 }
 
+/// The app menu, which exists so Settings has a door.
+///
+/// It had none. Nothing in the frontend ever set `showSettings`, so the panel — and with
+/// it every control in it, including the whole model configuration — could not be opened
+/// by any means. A capability with no surface is a capability nobody has; this is the
+/// surface.
+///
+/// The menu is otherwise the platform default, rebuilt rather than extended because Tauri
+/// gives no way to insert one item into the stock menu. Everything here except Settings is
+/// a predefined item, so the standard behaviours (Hide, Quit, copy/paste, ⌘W) stay the
+/// system's rather than being reimplemented badly.
+#[cfg(target_os = "macos")]
+fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+
+    let settings = MenuItem::with_id(app, "settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
+    let app_menu = Submenu::with_items(
+        app,
+        "Sanity",
+        true,
+        &[
+            &PredefinedMenuItem::about(app, None, Some(AboutMetadata::default()))?,
+            &PredefinedMenuItem::separator(app)?,
+            &settings,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::hide(app, None)?,
+            &PredefinedMenuItem::hide_others(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::quit(app, None)?,
+        ],
+    )?;
+    // Without an Edit menu the standard clipboard shortcuts stop working in text fields —
+    // on macOS ⌘C and ⌘V are menu items, not free behaviour, so replacing the stock menu
+    // silently breaks typing anywhere until they are put back.
+    let edit_menu = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ],
+    )?;
+    let window_menu = Submenu::with_items(
+        app,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app, None)?,
+            &PredefinedMenuItem::close_window(app, None)?,
+        ],
+    )?;
+    Menu::with_items(app, &[&app_menu, &edit_menu, &window_menu])
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Shared with the loopback agent API so an MCP client can see the scan that is
@@ -75,6 +136,28 @@ pub fn run() {
         .manage(state)
         .setup(move |_app| {
             build_window(_app.handle());
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::{Emitter, Manager};
+                match build_menu(_app.handle()) {
+                    // Sent to the frontend rather than handled here: what "open settings"
+                    // means is a piece of window state React owns, and Rust reaching in to
+                    // set it would need a second copy of that state to reach into.
+                    Ok(menu) => {
+                        let _ = _app.set_menu(menu);
+                        _app.on_menu_event(|app, event| {
+                            if event.id() == "settings" {
+                                for w in app.webview_windows().values() {
+                                    let _ = w.emit("open-settings", ());
+                                }
+                            }
+                        });
+                    }
+                    // A menu that fails to build must not take the app with it — losing
+                    // ⌘, is a smaller problem than losing the window.
+                    Err(e) => eprintln!("sanity: menu unavailable: {e}"),
+                }
+            }
             // Bring back whatever was open before. The window follows the active
             // project as soon as it reappears, so a restart lands you where you were.
             agentapi::restore(api_state.clone());
@@ -100,6 +183,8 @@ pub fn run() {
             commands::ollama_available,
             commands::ollama_models,
             commands::stop_scan,
+            commands::stored_data,
+            commands::clear_stored_data,
             commands::explain_function,
             commands::read_source,
             commands::open_code_window,

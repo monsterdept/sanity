@@ -168,6 +168,67 @@ histogram — that is the instrument, and it is the first thing to look at.** A 
 saturated spread means the metric separates nothing and the rankings below it are
 decoration.
 
+## The assessment lives in the repo
+
+An agent's reading is the one thing here that cannot be recomputed. A scan is a second of
+Rust; a reading is minutes of a reader that will never see that code fresh again. So it
+is the one thing that must not be stored where only one person can reach it — and for a
+while it was, in `~/Library/Application Support/Sanity/reports/<hash>.json`, keyed by the
+repo's absolute path on one laptop.
+
+It now lives at **`.sanity/`, committed to the repo it describes** (`assessment.rs`).
+Three decisions carry that:
+
+- **The Markdown is the store, not a rendering of one.** It is parsed back in on open. A
+  JSON file underneath would have been easier and would have disagreed with the Markdown
+  within a week — and the readable copy is the one that would have been wrong. A reading
+  is prose either way; there was never a machine format worth having.
+- **One file per top-level directory, entries ordered by position in the file.** Two
+  people assessing one repo is the case this is for, and append-ordered files conflict on
+  every concurrent write regardless of content. Nothing is scoped to a user: `by:` on an
+  entry is provenance to read, not a claim on it. Anyone with the repo can extend
+  anyone's assessment.
+- **Staleness is the lifecycle, so there is no update mode.** Each entry records
+  `body_hash` of the body it was read against — whitespace-collapsed, so `cargo fmt`
+  doesn't expire a repo's honest work. When the hash stops matching, the reading is
+  marked STALE and `collect_tasks` hands it back out ahead of anything unread. "Update my
+  sanity assessment" is therefore the same protocol as making one; the queue already
+  knows which readings expired.
+
+That last point is the drainable map's claim made durable. A reading that keeps looking
+current after its code changed is exactly the failure the whole design refuses elsewhere
+— a term claiming confidence it hasn't got.
+
+### What a stale reading looks like
+
+**It stops colouring its wedge.** `applyAgentReports` drops the score of an expired
+reading and the wedge falls back to the offline proxy — which is what an unread function
+looks like, because that is what it now is. Leaving the old colour up would be a number
+claiming confidence it no longer has, the one thing this metric refuses everywhere else.
+
+That alone would be invisible, so the wedge carries a **hatch**: a texture, not a hue,
+because the ring already has exactly one colour encoding and a second would put two
+scales on one picture. There is a standing rule here against per-wedge marks — a mark on
+every wedge is stripes, not information — and it is the reason the hatch is fine: stale
+is rare by construction, so it lands on a handful of wedges and the eye goes to them. If
+most of a repo is ever hatched, most of the repo genuinely has expired readings and
+saying so loudly is right.
+
+The reading itself is kept and shown in the panel, above the prose it qualifies, with
+who made it and at which commit. It is still true about the code it was made against;
+it just isn't about this code any more.
+
+Coverage counts follow: `ProjectSummary::assessed` excludes stale readings, the same
+choice `collect_tasks` makes, so a project cannot read as finished while holding expired
+work. A completed project that gains stale readings drops below full — and the sidebar
+says why, because a bar going backwards with no explanation reads as lost work.
+
+The hash is stamped server-side from the scan, never accepted from the reporter. A
+staleness marker is the one field whose entire job is to be checkable later, so it cannot
+be self-certified. And an agent must never be shown `.sanity/` before predicting: a
+reader told what the last reader found is recalling, not predicting, which is the same
+contamination the cold/warm flag exists to expose.
+
 ## Not built yet
 
 Named here so the gaps don't read as oversights:

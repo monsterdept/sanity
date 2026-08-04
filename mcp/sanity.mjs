@@ -104,7 +104,33 @@ const TOOLS = [
         id: { type: 'string', description: 'The id from sanity_next.' },
         expected: { type: 'string', description: 'What you predicted BEFORE reading it.' },
         found: { type: 'string', description: 'What it actually does.' },
-        surprised: { type: 'boolean', description: 'Did it diverge in a way that matters?' },
+        // These three were missing here for as long as they have existed in Rust, which
+        // meant the protocol asked for them, the store accepted them, and this schema
+        // silently dropped them on every reading. `derivable` is the defence against
+        // generated documentation counting as documentation — collected and discarded.
+        // Keep this file and `src-tauri/src/mcp.rs` in step; two copies of one contract
+        // is what caused it.
+        predicted: {
+          type: 'string',
+          enum: ['full', 'most', 'some', 'none'],
+          description:
+            'How much of the body your prediction actually covered. full — you called it, nothing in the body you missed. most — broadly right, one detail that was not obvious. some — recognisable, but it does real work you did not cover. none — your prediction did not describe this code. Grade against what you wrote BEFORE reading, not against what you understand now.',
+        },
+        documented: {
+          type: 'string',
+          enum: ['full', 'most', 'some', 'none'],
+          description:
+            'How well the docs you were given cover what the code actually does, same scale. Use none if there were no docs. This is reported, never subtracted from the colour — "surprising and undocumented" and "surprising but well covered" are different situations and only one is anyone\'s fault. If the docs you were handed describe an enclosing type rather than this function, grade none and say so in the note.',
+        },
+        derivable: {
+          type: 'boolean',
+          description:
+            'True if those docs say nothing you could not have worked out from the code alone. This is the one question a lexical score can never ask, and it is the defence against someone running a model over a repo, turning the map green and making it a liar: documentation a model could regenerate from the body explains nothing that was not already there.',
+        },
+        surprised: {
+          type: 'boolean',
+          description: 'Superseded by `predicted` — send that instead. Kept so older callers still work.',
+        },
         cold: {
           type: 'boolean',
           description:
@@ -115,8 +141,13 @@ const TOOLS = [
           description:
             'One sentence a human can read, only if surprised. Say what would trip someone up.',
         },
+        model: {
+          type: 'string',
+          description:
+            'Which model you are, name and version — e.g. "claude-haiku-4.5" or "gpt-5.1". Sanity shows this beside the reading: a prediction is only as good as the reader that made it, and "an agent" says nothing about whether to trust this one. Say what you actually are; if you genuinely do not know, leave it out rather than guessing.',
+        },
       },
-      required: ['id', 'expected', 'found', 'surprised'],
+      required: ['id', 'expected', 'found', 'predicted', 'documented', 'derivable', 'cold', 'model'],
     },
   },
 ]
@@ -141,6 +172,7 @@ async function handle(name, args) {
         surprised: !!args.surprised,
         note: args.note ?? '',
         cold: !!args.cold,
+        model: args.model ?? '',
       }),
     })
   }

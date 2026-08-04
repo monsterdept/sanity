@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { CodeView } from './components/CodeView'
 import { listProjects, projectScan, type Node } from './lib/api'
+import { loadTheme, watchSystemTheme } from './lib/theme'
 
 /** Find a file node by its repo-relative path. */
 function fileByPath(node: Node, path: string): Node | null {
@@ -27,13 +28,11 @@ export function CodeWindow({ repo, relPath }: { repo: string; relPath: string })
   const [file, setFile] = useState<Node | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const apply = () => document.documentElement.classList.toggle('dark', mq.matches)
-    apply()
-    mq.addEventListener('change', apply)
-    return () => mq.removeEventListener('change', apply)
-  }, [])
+  // A popped-out code window is a separate JS context, so it reads the same stored
+  // preference rather than inheriting anything. It has no picker of its own: the setting
+  // is one thing about the app, and offering it twice invites the two windows to disagree
+  // about which is authoritative.
+  useEffect(() => watchSystemTheme(loadTheme()), [])
 
   useEffect(() => {
     let live = true

@@ -137,7 +137,18 @@ export function Detail({
   const analyzed = isAnalyzed(node)
 
   return (
-    <div className="h-full overflow-y-auto p-4">
+    <div className="flex h-full flex-col">
+      {/* What the panel is ABOUT stays on screen while you read down it. Which wedge
+          this is, and its two numbers, are the things every row below is qualifying —
+          scrolled away, the expected/found prose underneath is a paragraph about an
+          unnamed function with no reading attached.
+
+          A flex sibling of the scroller, NOT `sticky` inside it. Sticky pins against
+          the scroll position but the element is still in the scrolling box, so overscroll
+          rubber-banding carried the header with it — the pinned block bounced away from
+          the top edge and left a gap of panel behind it. Outside the box it cannot move,
+          and the bounce happens under it where it belongs. */}
+      <div className="shrink-0 px-4 pt-4">
       <div className="mb-1 flex items-center gap-2">
         <span
           className="inline-block h-3 w-3 shrink-0 rounded-full"
@@ -151,11 +162,59 @@ export function Detail({
           {KIND_LABEL[node.kind]}
         </span>
       </div>
-      <p className="mono mb-4 break-all text-[11px] text-[var(--muted-foreground)]">
+      <p className="mono break-all text-[11px] text-[var(--muted-foreground)]">
         {node.path}
         {node.line !== null && `:${node.line}`} · {node.loc.toLocaleString()} lines
       </p>
 
+      {/* The two bars ride WITH the header, above the verdict rather than below it.
+          They were under the verdict box, which put the panel's only two numbers
+          three paragraphs down and off the bottom of a short pane — the verdict is a
+          reading OF them, so it cannot come first. */}
+      {s && analyzed && (
+        <div className="mt-3">
+          {/* ONE bar for the reading. There used to be Temperature and Surprise stacked
+              on top of each other, and since temperature was surprise x (1 - explained)
+              they were the same number on every wedge nothing documented — which is most
+              of a repo. Two identical bars claiming to be different measurements. */}
+          {isLeaf ? (
+            <Meter
+              label="Surprise"
+              value={t}
+              hint="How little of this body a reader could predict from its name, signature, neighbours and docs. This is the colour."
+            />
+          ) : (
+            /* A directory's mean temperature is a meaningless number — see
+               `wedgeHeat`. Show the share, which is what its colour means. */
+            <Meter
+              label="Hot share"
+              value={s.hotShare}
+              hint="The share of these lines sitting in surprising code. This is the colour."
+            />
+          )}
+          {/* Documentation is a REPORT, not a discount. It no longer multiplies into the
+              colour — the reader who graded it had the docs in hand, so a good comment
+              already lowered the surprise above. Shown because "surprising and
+              undocumented" and "surprising but well covered" are different situations,
+              and only one of them is anyone's fault. */}
+          <Meter
+            label="Documented"
+            value={s.documented}
+            hint="How well the attached docs cover what the code actually does — graded by the reader that read both, not counted in comment lines."
+          />
+        </div>
+      )}
+      {/* The edge of the pinned block. A rule rather than a shadow: everything else
+          separating rows in this panel is a rule, and one drop shadow in a panel of
+          hairlines reads as a rendering mistake. */}
+      <div className="mt-3 h-px bg-[var(--border)]" />
+      </div>
+
+      {/* `min-h-0` because a flex child's default `min-height:auto` refuses to shrink
+          below its content, which would push the pane's own height past the window and
+          scroll the shell instead of this. `contain` keeps a flick at either end from
+          chaining out to whatever is behind the panel. */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 [overscroll-behavior:contain]">
       {!s ? (
         <p className="text-xs text-[var(--muted-foreground)]">
           Not scored — no parseable functions underneath.
@@ -190,37 +249,7 @@ export function Detail({
             </div>
           )}
 
-          {/* ONE bar for the reading. There used to be Temperature and Surprise stacked
-              on top of each other, and since temperature was surprise x (1 - explained)
-              they were the same number on every wedge nothing documented — which is most
-              of a repo. Two identical bars claiming to be different measurements. */}
-          {isLeaf ? (
-            <Meter
-              label="Surprise"
-              value={t}
-              hint="How little of this body a reader could predict from its name, signature, neighbours and docs. This is the colour."
-            />
-          ) : (
-            /* A directory's mean temperature is a meaningless number — see
-               `wedgeHeat`. Show the share, which is what its colour means. */
-            <Meter
-              label="Hot share"
-              value={s.hotShare}
-              hint="The share of these lines sitting in surprising code. This is the colour."
-            />
-          )}
-          {/* Documentation is a REPORT, not a discount. It no longer multiplies into the
-              colour — the reader who graded it had the docs in hand, so a good comment
-              already lowered the surprise above. Shown because "surprising and
-              undocumented" and "surprising but well covered" are different situations,
-              and only one of them is anyone's fault. */}
-          <Meter
-            label="Documented"
-            value={s.documented}
-            hint="How well the attached docs cover what the code actually does — graded by the reader that read both, not counted in comment lines."
-          />
-
-          <dl className="mt-3 space-y-1.5 border-t border-[var(--border)] pt-3 text-[11px]">
+          <dl className="mt-3 space-y-1.5 pt-1 text-[11px]">
             <div className="flex justify-between gap-3">
               <dt className="text-[var(--muted-foreground)]">Docs</dt>
               <dd className="text-right">{PROVENANCE_COPY[s.provenance]}</dd>
@@ -246,11 +275,19 @@ export function Detail({
               {/* This node's own source. Reading the scan-level label here claimed a
                   wedge an AGENT assessed had been measured by whatever model the scan
                   was configured with — two different instruments, one label. */}
+              {/* Name the reader. "an agent (MCP)" covered a frontier model and
+                  something small and cheap with one label, which is the one thing this
+                  row exists to tell apart — the metric is a claim about what a competent
+                  reader could predict, so which reader is part of the reading. Readings
+                  banked before agents reported it fall back to the old wording rather
+                  than being attributed to a model nobody recorded. */}
               <dd className="mono text-right">
                 {!analyzed
                   ? 'not yet analysed'
                   : s.source === 'agent'
-                    ? 'an agent (MCP)'
+                    ? node.agent?.model
+                      ? `${node.agent.model} (MCP)`
+                      : 'an agent (MCP)'
                     : (model ?? 'a model')}
               </dd>
             </div>
@@ -262,6 +299,30 @@ export function Detail({
                   labelled things — the rows already say who is speaking, and the heading
                   only pushed them down the panel. The warm-read caveat moves onto the
                   block it qualifies. */}
+              {/* Before the reading, not after it. Everything below this is a claim
+                  about a body that is no longer in the file, and a caveat printed under
+                  the claim it qualifies is a caveat half the readers never reach. */}
+              {node.agentStale && (
+                <div className="rounded-[var(--radius-sm)] border border-[var(--warning)] px-2 py-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--warning)]">
+                    Stale reading
+                  </p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-[var(--muted-foreground)]">
+                    This code has changed since it was read
+                    {node.agent.at && (
+                      <>
+                        {' at '}
+                        <span className="mono">{node.agent.at}</span>
+                      </>
+                    )}
+                    , so it no longer colours this wedge — the number above is the offline
+                    proxy again. Kept below because what a reader expected last time is
+                    still worth knowing. Ask an agent to update the assessment and it will
+                    re-read this one first.
+                  </p>
+                </div>
+              )}
+
               {!node.agent.cold && (
                 <p
                   className="inline-flex rounded-full border border-[var(--warning)] px-1.5 py-px text-[9px] uppercase tracking-wide text-[var(--warning)]"
@@ -314,6 +375,22 @@ export function Detail({
                   Read as expected — nothing here would trip someone up.
                 </p>
               )}
+
+              {/* Whose reading this is. Worth showing now that assessments are committed
+                  to the repo: on a shared one you are often looking at a colleague's
+                  reading, and "who thought this was obvious" is the first question that
+                  gets asked about a wedge you disagree with. */}
+              {(node.agent.by || node.agent.at) && (
+                <p className="text-[10px] text-[var(--muted-foreground)]">
+                  Read by {node.agent.by || 'an unnamed reader'}
+                  {node.agent.at && (
+                    <>
+                      {' at '}
+                      <span className="mono">{node.agent.at}</span>
+                    </>
+                  )}
+                </p>
+              )}
             </div>
           )}
 
@@ -361,6 +438,7 @@ export function Detail({
           )}
         </>
       )}
+      </div>
     </div>
   )
 }

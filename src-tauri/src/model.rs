@@ -312,6 +312,25 @@ pub struct Node {
     /// `Copy`.
     #[serde(default)]
     pub doc: Option<String>,
+    /// The declaration line — everything up to the body.
+    ///
+    /// Carried so the queue can hand it to a reader. The metric has always been "predict
+    /// the body from its name, signature and neighbours", but the signature was never
+    /// actually sent: readers got a bare name, which makes an overloaded pair literally
+    /// unresolvable. On a real repo an encoder/decoder sharing a name appeared in the
+    /// sibling list twice, the reader guessed the wrong direction, and was scored as
+    /// having failed to predict code it had been given no way to identify.
+    #[serde(default)]
+    pub signature: Option<String>,
+    /// A short hash of this function's body, for functions.
+    ///
+    /// The only way a committed assessment can know it has gone stale. An entry in
+    /// `.sanity` records the hash it was written against; when the body moves out from
+    /// under it, the two disagree and the reading goes back in the queue. Whitespace is
+    /// collapsed before hashing so `cargo fmt` doesn't invalidate a repo's worth of
+    /// honest readings — a reformat changes no reader's expectation.
+    #[serde(default)]
+    pub body: Option<String>,
     pub score: Option<Score>,
     /// Places the model did not see coming, with what it expected instead. Empty unless
     /// a model analysed this function — this is the evidence behind the number, and the
@@ -333,6 +352,8 @@ impl Node {
             lang: None,
             last_author: None,
             doc: None,
+            signature: None,
+            body: None,
             end_line: None,
             score: None,
             hotspots: Vec::new(),

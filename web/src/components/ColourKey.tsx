@@ -122,13 +122,37 @@ export function ModeSwitcher({
 export function ColourLegend({
   mode,
   categories,
+  stale = 0,
 }: {
   mode: ColorMode
   categories: string[]
+  /** Wedges drawn with the stale hatch. The row only appears when there are some —
+   *  a legend entry for a texture that is nowhere on screen teaches the reader to
+   *  ignore the legend. */
+  stale?: number
 }) {
   return (
     <div className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-2 py-1.5">
       <Legend mode={mode} categories={categories} />
+      {stale > 0 && (
+        /* The hatch is the only thing on the map that is not a colour, so it is the
+           only thing the ramp above cannot explain. Reproduced here in CSS rather than
+           by reusing the SVG pattern: two lines of gradient beat threading a <defs> out
+           of the chart, and the two only have to look alike, not be the same object. */
+        <div className="mt-1.5 flex items-center gap-2 border-t border-[var(--border)] pt-1.5">
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-[2px] border border-[var(--border)]"
+            style={{
+              backgroundImage:
+                'repeating-linear-gradient(45deg, var(--foreground) 0 1.2px, transparent 1.2px 4px)',
+              opacity: 0.55,
+            }}
+          />
+          <span className="text-[10px] text-[var(--muted-foreground)]">
+            {stale} stale — read, then changed
+          </span>
+        </div>
+      )}
     </div>
   )
 }

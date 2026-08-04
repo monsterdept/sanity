@@ -131,11 +131,15 @@ pub async fn scan_repo(
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| key.clone());
+        // Same source as the agent path: `.sanity` in the repo. This used to read the
+        // machine-local store, so opening a repo from the window and opening it from an
+        // agent disagreed about what had been read — the two doors into one project have
+        // to land on the same assessment.
         let reports = shared
             .projects
             .get(&key)
             .map(|p| p.reports.clone())
-            .unwrap_or_else(|| crate::reports::load(&key));
+            .unwrap_or_else(|| crate::assessment::load(&root_for_state, scan));
         shared.projects.insert(
             key.clone(),
             crate::agentapi::Project {
@@ -353,6 +357,146 @@ pub fn project_scan(
     key: String,
 ) -> Option<Scan> {
     state.lock().ok()?.projects.get(&key).map(|p| p.scan.clone())
+}
+
+/// What Sanity has written on this machine, itemised for the panel that offers to
+/// delete it.
+///
+/// Itemised on purpose. A single "clear 400 KB" is not something anyone can agree to,
+/// because the interesting question is not the size — it is whether the thing about to
+/// be deleted can be got back. Scores can (slowly). Legacy readings cannot.
+/// One repo's committed assessment, as a thing the delete button will name out loud.
+#[derive(serde::Serialize)]
+pub struct Assessment {
+    pub name: String,
+    /// Absolute path of the `.sanity/` directory that will be removed.
+    pub path: String,
+    pub readings: usize,
+    /// Whether git knows about it. A tracked directory can be brought back with
+    /// `git checkout`; an untracked one cannot be brought back at all, and the panel
+    /// says which of the two you are about to do.
+    pub tracked: bool,
+}
+
+#[derive(serde::Serialize)]
+pub struct StoredData {
+    pub path: String,
+    /// Cached model scores. Recomputable by rescanning, at the cost of model time.
+    pub score_bytes: u64,
+    /// Machine-local reading files left over from builds before `.sanity/`. Nothing
+    /// reads these any more; they are listed only so the button can remove them.
+    pub legacy_reading_files: usize,
+    pub projects: usize,
+    pub total_bytes: u64,
+    /// The committed assessments in every repo Sanity knows about.
+    pub assessments: Vec<Assessment>,
+}
+
+/// Count `### ` headings across a `.sanity/` directory — the number of readings in it,
+/// without paying to parse them. Approximate by construction and labelled as a count of
+/// entries, not used for anything but telling the user what they are deleting.
+fn count_readings(dir: &std::path::Path) -> usize {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| {
+            e.path().extension().is_some_and(|x| x == "md")
+                && e.file_name() != std::ffi::OsStr::new("README.md")
+        })
+        .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+        .map(|s| s.lines().filter(|l| l.starts_with("### ")).count())
+        .sum()
+}
+
+fn git_tracks(repo: &std::path::Path) -> bool {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["ls-files", "--error-unmatch", ".sanity"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn stored_data() -> Option<StoredData> {
+    let root = crate::reports::data_dir()?;
+    let legacy = std::fs::read_dir(root.join("reports"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .count();
+
+    let assessments = crate::reports::load_index()
+        .projects
+        .into_iter()
+        .filter_map(|p| {
+            let repo = std::path::PathBuf::from(&p.repo);
+            let dir = crate::assessment::dir(&repo);
+            dir.is_dir().then(|| Assessment {
+                name: p.name,
+                readings: count_readings(&dir),
+                tracked: git_tracks(&repo),
+                path: dir.to_string_lossy().to_string(),
+            })
+        })
+        .collect();
+
+    Some(StoredData {
+        score_bytes: crate::reports::dir_size(&root.join("scores")),
+        legacy_reading_files: legacy,
+        projects: crate::reports::load_index().projects.len(),
+        total_bytes: crate::reports::dir_size(&root),
+        assessments,
+        path: root.to_string_lossy().to_string(),
+    })
+}
+
+/// Delete every reading Sanity knows about, including the committed ones.
+///
+/// This DOES reach into working trees, which an app's settings panel normally has no
+/// business doing. It does it because the alternative was worse in practice: readings
+/// live in two places, deleting one silently restored the other, and a "clear" that left
+/// the real assessments behind would be the third version of the same lie. The panel
+/// names every directory before it asks, and says for each whether git can bring it back.
+///
+/// Only `.sanity/` directories belonging to projects in Sanity's own list are touched —
+/// never an arbitrary path, and never anything else inside a repo.
+#[tauri::command]
+pub fn clear_stored_data(state: tauri::State<'_, crate::agentapi::Shared>) -> Result<(), String> {
+    let root = crate::reports::data_dir().ok_or("no data directory")?;
+
+    // Repos first. If this fails partway, the project list is still intact and the panel
+    // can still name what is left — clearing the index first would strand the rest with
+    // nothing pointing at it.
+    for p in crate::reports::load_index().projects {
+        let dir = crate::assessment::dir(&std::path::PathBuf::from(&p.repo));
+        // Guarded rather than trusted: the index is a file on disk, and a `.sanity`
+        // suffix is the one thing that must hold before any recursive delete runs.
+        if dir.is_dir() && dir.file_name() == Some(std::ffi::OsStr::new(".sanity")) {
+            std::fs::remove_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+    }
+
+    for name in ["scores", "reports"] {
+        let dir = root.join(name);
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+    }
+    let index = root.join("projects.json");
+    if index.exists() {
+        std::fs::remove_file(&index).map_err(|e| format!("{}: {e}", index.display()))?;
+    }
+    // `agent-endpoint.json` is left alone: it describes the process that is running right
+    // now, and deleting it would cut off the MCP server mid-session for no benefit.
+    if let Ok(mut s) = state.lock() {
+        s.projects.clear();
+        s.active = None;
+    }
+    Ok(())
 }
 
 /// Stop the model pass. Everything scored so far is kept and returned.

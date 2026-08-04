@@ -7,6 +7,8 @@ import {
   projectScan,
   applyAgentReports,
   applyScores,
+  countStale,
+  onOpenSettings,
   onScanScore,
   onScanProgress,
   openCodeWindow,
@@ -29,6 +31,7 @@ import {
   rankCategories,
   type ColorMode,
 } from './lib/colorMode'
+import { loadTheme, saveTheme, watchSystemTheme, type Theme } from './lib/theme'
 import { CodeView } from './components/CodeView'
 import { ColourLegend, ModeSwitcher } from './components/ColourKey'
 import { Detail } from './components/Detail'
@@ -85,17 +88,16 @@ export default function App() {
   const [mode, setMode] = useState<ColorMode>('surprise')
   // Open projects, in the order they were opened. The sidebar lists everything sanity
   // holds; the rail is what you have in front of you.
-  // Follows the SYSTEM, with no toggle. An app-level switch is a second place for the
-  // preference to live and a second one to get out of step with the OS — and the palette
-  // is defined as tokens for both grounds anyway, so there is nothing to choose here that
-  // the system has not already been told.
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const apply = () => document.documentElement.classList.toggle('dark', mq.matches)
-    apply()
-    mq.addEventListener('change', apply)
-    return () => mq.removeEventListener('change', apply)
-  }, [])
+  // Defaults to following the system, and says so in Settings. It used to follow the
+  // system with no way to override, on the argument that a toggle is a second place for
+  // the preference to live — true, but it also made it impossible to look at the other
+  // ground without changing the machine's, which is what you want when shooting the app
+  // or checking that both palettes actually render.
+  const [theme, setTheme] = useState<Theme>(loadTheme)
+  useEffect(() => watchSystemTheme(theme), [theme])
+  // The app menu is the only way in. Rust emits the event rather than reaching into this
+  // state itself — see `build_menu`.
+  useEffect(() => onOpenSettings(() => setShowSettings(true)), [])
   const [agent, setAgent] = useState<AgentActivity>({ active: false, tool: '', nonce: 0 })
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [activeKey, setActiveKey] = useState<string | null>(null)
@@ -376,6 +378,10 @@ export default function App() {
                 <ColourLegend
                   mode={mode}
                   categories={scan ? legendFor(scan.root, mode) : []}
+                  // Counted from `focus`, not the whole scan: drilled into one
+                  // directory, the legend has to describe the rings in front of you or
+                  // it is annotating a picture nobody is looking at.
+                  stale={countStale(focus)}
                 />
               </div>
             )}
@@ -437,6 +443,14 @@ export default function App() {
             // Re-scan immediately: a changed model that leaves a stale picture on screen
             // under a header naming the NEW model is the one lie this app must not tell.
             if (lastPath.current) void run(lastPath.current, s)
+          }}
+          theme={theme}
+          // Applied on pick, not on Save. Choosing a ground and then having to confirm it
+          // is backwards for the one setting whose result is the window you are looking
+          // at — you evaluate it by seeing it.
+          onTheme={(t) => {
+            setTheme(t)
+            saveTheme(t)
           }}
           onClose={() => setShowSettings(false)}
         />
