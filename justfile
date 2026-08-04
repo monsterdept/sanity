@@ -90,7 +90,11 @@ mascot ref="main":
     npm install
     npm run build:lib
     cp dist/index.js "{{justfile_directory()}}/web/src/lib/mascot.js"
-    echo "mascot.js updated from neo-mascots@{{ref}}"
+    # The habitat sheet runs the same creatures in its masthead, so one build feeds
+    # both — the app and the site drifting to different mascot versions is the kind
+    # of thing nobody notices until the site's crew stops rendering.
+    cp dist/index.js "{{justfile_directory()}}/website/assets/mascot.js"
+    echo "mascot.js updated from neo-mascots@{{ref}} (app + website)"
 
 # Tag + push a release, e.g. `just release 0.1.0` (-suffix = prerelease).
 release version:
@@ -273,9 +277,6 @@ publish version:
 _publish-site version:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ ! -d website ]; then
-        echo "==> Skipping website (no website/ yet)"; exit 0
-    fi
     if [ -z "{{site_host}}" ] || [ -z "{{site_path}}" ]; then
         echo "==> Skipping website (SANITY_SITE_HOST / SANITY_SITE_PATH unset)"; exit 0
     fi

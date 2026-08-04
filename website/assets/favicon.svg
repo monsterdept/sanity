@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 120 120" role="img" aria-label="sanity app icon">
+<title>sanity — app icon</title>
+<defs>
+<linearGradient id="gnd" x1="0" y1="0" x2="0.4226" y2="0.9063"><stop offset="0" stop-color="#A87A96"></stop><stop offset="0.55" stop-color="#895B77"></stop><stop offset="1" stop-color="#5B364C"></stop></linearGradient>
+<linearGradient id="shd" x1="0" y1="0.72" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0"></stop><stop offset="1" stop-color="#000" stop-opacity="0.20"></stop></linearGradient>
+<clipPath id="sq"><rect x="0" y="0" width="120" height="120" rx="27.6" ry="27.6"></rect></clipPath>
+</defs>
+<g clip-path="url(#sq)">
+<rect x="0" y="0" width="120" height="120" fill="url(#gnd)"></rect>
+<svg x="21.6" y="21.6" width="76.8" height="76.8" viewBox="16.7 16.7 86.6 86.6" preserveAspectRatio="xMidYMid meet">
+
+<!--Sanity — the sunburst-->
+<defs>
+<radialGradient id="i-floor" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#000" stop-opacity="0.5"></stop><stop offset="100%" stop-color="#000" stop-opacity="0"></stop></radialGradient>
+<filter id="i-zshadow" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="0.43" stdDeviation="0.31" flood-opacity="0.35"></feDropShadow></filter>
+</defs>
+<ellipse cx="60" cy="100.7" rx="33" ry="2.6" fill="url(#i-floor)"></ellipse>
+<g>
+<path d="M71.804 23.670A38.2 38.2 0 0 1 96.720 49.471L88.838 51.731A30.0 30.0 0 0 0 69.271 31.468Z" fill="#42A2AB"></path>
+<path d="M98.200 60.000A38.2 38.2 0 0 1 81.361 91.669L76.776 84.871A30.0 30.0 0 0 0 90.000 60.000Z" fill="#F3D9E7"></path>
+<path d="M71.804 96.330A38.2 38.2 0 0 1 36.482 90.102L41.530 83.640A30.0 30.0 0 0 0 69.271 88.532Z" fill="#F3D9E7"></path>
+<path d="M29.096 82.453A38.2 38.2 0 0 1 24.104 46.935L31.809 49.739A30.0 30.0 0 0 0 35.729 77.634Z" fill="#F3D9E7"></path>
+<path d="M29.096 37.547A38.2 38.2 0 0 1 61.333 21.823L61.047 30.018A30.0 30.0 0 0 0 35.729 42.366Z" fill="#F3D9E7"></path>
+<path d="M68.436 34.036A27.3 27.3 0 0 1 86.242 52.475L78.360 54.735A19.1 19.1 0 0 0 65.902 41.835Z" fill="#42A2AB"></path>
+<path d="M86.242 52.475A27.3 27.3 0 0 1 83.642 73.650L76.541 69.550A19.1 19.1 0 0 0 78.360 54.735Z" fill="#F3D9E7"></path>
+<path d="M78.267 80.288A27.3 27.3 0 0 1 36.358 73.650L43.459 69.550A19.1 19.1 0 0 0 72.780 74.194Z" fill="#F3D9E7"></path>
+<path d="M33.297 65.676A27.3 27.3 0 0 1 60.000 32.700L60.000 40.900A19.1 19.1 0 0 0 41.317 63.971Z" fill="#F3D9E7"></path>
+<path d="M65.068 44.403A16.4 16.4 0 0 1 75.765 55.480L67.882 57.740A8.2 8.2 0 0 0 62.534 52.201Z" fill="#42A2AB"></path>
+<path d="M75.765 55.480A16.4 16.4 0 0 1 60.572 76.390L60.286 68.195A8.2 8.2 0 0 0 67.882 57.740Z" fill="#F3D9E7"></path>
+<path d="M54.932 75.597A16.4 16.4 0 0 1 59.428 43.610L59.714 51.805A8.2 8.2 0 0 0 57.466 67.799Z" fill="#F3D9E7"></path>
+</g>
+
+</svg>
+<rect x="0" y="0" width="120" height="120" fill="url(#shd)"></rect>
+<rect x="0" y="0" width="120" height="2" fill="#fff" opacity="0.16"></rect>
+</g>
+</svg>

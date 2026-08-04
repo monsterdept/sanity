@@ -1,0 +1,1499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sanity — Habitat report — The Monster Dept</title>
+<meta name="description" content="Sanity draws a repo as concentric rings. Width is lines; colour is how much of it nobody saw coming.">
+<link rel="icon" href="./assets/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- IBM Plex Sans and Mono are department chrome and are the same on every
+     sheet. The display face is the habitat's own — whatever its wordmark is
+     set in — so it is named here and again in --display below. -->
+<link href="https://fonts.googleapis.com/css2?family=LINE+Seed+JP:wght@400;700&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- The mascot bundle is built as a library with three and react left as peer
+     imports. This sheet has no build step, so the deps are vendored under
+     assets/vendor and named here. Must precede any type="module" script. -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "./assets/vendor/three/build/three.module.min.js",
+    "three/examples/jsm/loaders/GLTFLoader.js": "./assets/vendor/three/examples/jsm/loaders/GLTFLoader.js",
+    "react": "./assets/vendor/react-shim.js",
+    "react/jsx-runtime": "./assets/vendor/react-jsx-shim.js"
+  }
+}
+</script>
+<style>
+/* ============================================================
+   MONSTER DEPT — HABITAT REPORT
+   A template for one habitat. Everything above the RECORD comment
+   is shared chrome; everything below it is per-habitat content.
+   Tokens are lifted verbatim from monsterdept.com/brand.
+   ============================================================ */
+:root{
+  --white:#FFFFFF; --paper:#F5F1EA; --tint:#FAF8F4;
+  --ink:#1A1A1A; --ink-light:#4E4842; --muted:#8B8279; --muted-2:#6E665D;
+  --rule:#E5E1DA; --rule-2:#D6CFC2;
+  --sans:'IBM Plex Sans',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+  /* The habitat's own face: whatever the wordmark is drawn in. The tagline
+     and the download button are set in it too, so the sheet speaks in the
+     habitat's voice wherever it speaks loudly, and in the dept's everywhere
+     else. Must match LINE+Seed+JP:wght@400;700 in the <head> above. */
+  --display:'LINE Seed JP',var(--sans);
+
+  /* PER-APP. The block that changes between sheets. These never decorate
+     the page — they appear as swatches in the Palette row and as the
+     band under the wordmark — data about the app, not styling. */
+  --ground:#895B77;        /* primary      — buttons, button ground */
+  --ground-dark:#5B364C;   /* primary dark — hover, active */
+  --ground-tint:#F3D9E7;   /* tint         — chips, callouts */
+  --accent:#42A2AB;        /* accent       — charts, links on dark */
+
+  --gutter:132px;   /* label column — also where the MD monogram sits */
+  --gap:36px;       /* label column → content */
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--white); color:var(--ink);
+  font-family:var(--sans); font-size:14px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--ink-light); text-decoration:none; border-bottom:1px solid var(--rule-2)}
+a:hover{color:var(--ink); border-bottom-color:var(--ink)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--ink); outline-offset:2px}
+img{max-width:100%; display:block}
+
+.sheet{max-width:1080px; margin:0 auto; padding:0 40px 96px}
+
+/* ---------- shared label typography ---------- */
+.lbl{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--muted); font-weight:500;
+}
+.rule{height:1px; background:var(--ink); border:0; margin:0}
+.hair{height:1px; background:var(--rule); border:0; margin:0}
+
+/* ---------- masthead ----------
+   The department's letterhead: monogram and issuer at left, the form's
+   own number and build at right. The habitat's own marks live in 01. */
+.mast{display:flex; justify-content:space-between; align-items:center; gap:40px; padding:44px 0 30px}
+.letterhead{display:flex; align-items:center; gap:18px}
+.letterhead img{width:58px; height:auto}
+/* Three of them, overlapped slightly so they read as a group standing
+   together rather than three separate specimens in a row — the overlap is
+   smaller than the transparent margin inside each canvas, so they crowd
+   without clipping. Pulled in tight to the monogram: the letterhead's 18px
+   gap is the spacing between the mark and the issuer rule, not between the
+   mark and its own staff. */
+.crew{display:flex; align-items:flex-end; margin-right:-13px}
+.crew-slot{
+  width:34px; height:34px; display:block; flex:0 0 auto;
+  margin-right:-6px; /* the overlap; last one is reset below */
+}
+.crew-slot:last-child{margin-right:0}
+/* Nothing to show until a mascot is actually mounted — an empty canvas would
+   still take its 52px and push the monogram off the optical left edge. */
+.crew:not(.is-live){display:none}
+.letterhead .issuer{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--muted); line-height:1.9; border-left:1px solid var(--rule); padding-left:18px;
+}
+.letterhead .issuer b{color:var(--ink); font-weight:500}
+.vh{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap}
+.mast-meta{
+  font-family:var(--mono); font-size:10.5px; line-height:1.9; color:var(--muted);
+  letter-spacing:.05em; text-align:right; white-space:nowrap;
+}
+.mast-meta b{color:var(--ink); font-weight:500}
+/* A ruled divider between paired facts — the row already uses · inside a value. */
+.mast-meta .lb{color:var(--rule-2); margin:0 11px}
+
+/* ---------- the running head ----------
+   Once Exhibit A has scrolled away, the three things that identify the app
+   follow you down the page: the wordmark at left, the tagline at right, and
+   the palette as the same band it wears along the foot of the mount. It is
+   the sheet's identity block folded flat, not a navigation bar — there is
+   nothing to click, because there is nowhere else to go. */
+/* The wordmark and the tagline NEVER change opacity. They are the same two
+   objects the exhibits were holding a moment ago, and a thing that fades
+   while it moves reads as a crossfade between two copies rather than as one
+   object travelling. So the bar carries no opacity of its own — it only
+   switches visibility — and everything that fades is chrome, below. */
+.topbar{
+  position:fixed; top:0; left:0; right:0; z-index:90;
+  visibility:hidden; pointer-events:none;
+}
+.topbar.is-up{visibility:visible; pointer-events:auto}
+
+/* The ground and the band: the only things here that fade. They are drawn as
+   pseudo-elements precisely so their opacity cannot reach the contents. */
+/* --tb-fade is written by the script so the ground dissolves on exactly the
+   clock the wordmark is flying on — including when a fast scroll shortens
+   the trip, or cancels it outright. */
+.topbar::before,
+.topbar::after{
+  content:''; position:absolute; left:0; right:0;
+  opacity:0; transition:opacity var(--tb-fade,420ms) cubic-bezier(.45,.05,.2,1);
+}
+.topbar::before{top:0; bottom:0; background:var(--white)}
+.topbar.is-up::before,
+.topbar.is-up::after{opacity:1}
+/* Leaving is quicker: arriving deserves more ceremony than departing. */
+.topbar.is-up.is-leaving::before,
+.topbar.is-up.is-leaving::after{
+  opacity:0; transition-timing-function:cubic-bezier(.45,.05,.25,1);
+}
+.topbar-in{
+  position:relative; z-index:1;   /* above the ground it is painted on */
+  max-width:1080px; margin:0 auto; padding:12px 40px 14px;
+  display:flex; align-items:center; justify-content:space-between; gap:32px;
+}
+.topbar img{height:21px; width:auto; flex:0 0 auto}
+.topbar .tagline{
+  margin:0; font-family:var(--display); font-size:15px; line-height:1.2;
+  letter-spacing:-.01em; color:var(--ink); text-align:right; min-width:0;
+}
+/* The palette, stated exactly as it is under the wordmark in Exhibit A.
+   Geometry only — its opacity is handled with the ground, above. */
+.topbar::after{
+  bottom:0; height:3px;
+  background:linear-gradient(90deg,
+    var(--ground)      0    25%,
+    var(--ground-tint) 25%  50%,
+    var(--accent)      50%  75%,
+    var(--ground-dark) 75% 100%);
+}
+
+/* ---------- field: the page's only layout primitive ----------
+   Numbered title over a full-width ink rule, exactly as the brand sheet
+   sets its sections. Content runs the full measure underneath. */
+.field{padding:0}
+.mast + .field{padding-top:40px}   /* the masthead has no rule; space does the separating */
+.field > h2{
+  display:flex; align-items:baseline; gap:14px; margin:0;
+  font-size:22px; font-weight:600; letter-spacing:-.012em; line-height:1.3;
+  padding-bottom:11px; border-bottom:1px solid var(--ink);
+}
+.field > h2 .n{font-family:var(--mono); font-size:10.5px; font-weight:500; color:var(--muted); letter-spacing:.06em}
+.field .body{padding:28px 0 52px; min-width:0}
+.field:last-of-type .body{padding-bottom:34px}
+
+/* ---------- 01 identifying marks ----------
+   What identifies the habitat: its marks, its own account of itself, and the
+   build you can take away. The app icon belongs downstream in Acquisition,
+   labelling what you install.
+   Four cells on one row: the lockup, the tagline, the written description,
+   and the build itself. */
+/* A record row, not three floating blocks: every cell is a ruled field of
+   the same height, so the hairlines and the captions beneath them land on
+   one line across the row. Cells stretch; captions are pushed to the foot. */
+/* Two rows. Top: the identity as a brand book shows it — mark, then the
+   line set large on its own field. Bottom: what the thing says it is, and
+   the thing itself. */
+.ident{
+  display:grid; grid-template-columns:296px minmax(0,1fr) 200px;
+  gap:30px 26px; align-items:stretch;
+}
+.ident > *:nth-child(1){grid-column:1}
+.ident > *:nth-child(2){grid-column:2 / span 2}
+.ident > *:nth-child(3){grid-column:1 / span 2}
+.ident > *:nth-child(4){grid-column:3}
+
+.ident > *{display:flex; flex-direction:column; margin:0; min-width:0}
+/* The figure is mounted, not set loose in the column: it sits centred on a
+   tinted ground with real air around it, the same way the plates in 03 sit
+   inside their frames. Flush against the cell edges it read as a stray image. */
+.ident .mount{
+  flex:0 0 auto; height:132px; display:flex; align-items:center; justify-content:center;
+  background:var(--tint); padding:18px 22px;
+}
+.ident .mount img{max-height:100%; max-width:100%; width:auto; height:auto}
+/* The palette states itself once, quietly, as a band along the foot of the
+   wordmark's mount. The full set with names and hex lives in Specifications. */
+.ident .mount-lockup{padding:20px; position:relative}
+.ident .mount-lockup::after{
+  content:''; position:absolute; left:0; right:0; bottom:0; height:5px;
+  background:linear-gradient(90deg,
+    var(--ground)      0    25%,
+    var(--ground-tint) 25%  50%,
+    var(--accent)      50%  75%,
+    var(--ground-dark) 75% 100%);
+}
+.ident .mount-lockup img{max-height:46px}
+/* The tagline presented the way the brand sheet presents a mark: set large in
+   the wordmark's own face, centred on its field inside a dashed boundary. */
+.ident .mount-tag{
+  align-items:center; justify-content:center; padding:26px 32px;
+  border:1px dashed var(--rule-2);
+}
+.ident .mount-tag .tagline{
+  margin:0; font-family:var(--display); font-size:31px; line-height:1.15;
+  letter-spacing:-.01em; color:var(--ink); text-align:center;
+}
+.get{gap:12px; text-align:center}
+.get figcaption{text-align:left}   /* the caption band reads left-aligned across all three cells */
+/* The ambient shadow is cast onto the paper, so it is not welded to the
+   button: as the wobble lifts the object it falls further, softens, and
+   fades. Registered so they interpolate — plain custom properties snap.
+   The initial values are the rest pose, which is also what reduced-motion
+   gets when the animation is switched off. */
+@property --amb-y   {syntax:'<length>'; inherits:false; initial-value:8px}
+@property --amb-blur{syntax:'<length>'; inherits:false; initial-value:16px}
+@property --amb-a   {syntax:'<number>'; inherits:false; initial-value:0.34}
+
+/* ---- Exhibit D — the download control -------------------------------------
+   The solid block: the build named over a specification line, the direction at
+   the right, and the way to the other builds set quietly under it. Shared with
+   the other sheets in the department, so a visitor who has seen one knows this
+   one; only the palette differs.
+
+   It replaced a chunk of extruded, wobbling, gloss-swept plastic with the
+   wordmark knocked out of it. That thing was fun and it was a second identity —
+   exhibits A and B already do that job two cells over, and this is a control,
+   which wants a plain, sturdy label.
+
+   Three things must survive any edit here:
+     · <a id="get">        — href carries the version, rewritten on release
+     · <span id="get-fmt"> — the line the platform sniff replaces, so it has to
+                             survive a longer label than the markup's; it wraps
+                             rather than overflowing
+     · the ledger link      — 06 stays one click away
+   No script behind it: delete every one on the sheet and this still reads
+   "Sanity · macOS · DMG" and still downloads. */
+.get-ticket{margin:12px 0 0}
+.get-btn{
+  display:flex; align-items:center; justify-content:space-between; gap:14px;
+  border:0; padding:16px 18px; text-decoration:none;
+  background:var(--ground); transition:background 150ms ease;
+}
+.get-btn:hover,.get-btn:focus-visible{background:var(--ground-dark)}
+.get-btn:focus-visible{outline:2px solid var(--ink); outline-offset:3px}
+/* Name over specification, tight — one object, two registers. */
+.get-say{display:flex; flex-direction:column; gap:4px; min-width:0; text-align:left}
+.get-name{font-size:15px; font-weight:600; letter-spacing:.01em; color:var(--white); line-height:1.25}
+.get-btn .fmt{
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--ground-tint); line-height:1.5;
+}
+/* The direction. Decoration — the link carries the verb in its aria-label — so
+   it is aria-hidden and never the only thing saying what this does. */
+.get-arr{font-size:18px; line-height:1; color:var(--white); flex:0 0 auto}
+/* The way out of the one build: 06 carries the whole ledger. Dotted until you
+   point at it, then solid — a link you might want, versus one you are taking. */
+.get-more{
+  display:block; width:fit-content; margin:14px auto 0; padding-bottom:2px;
+  border:0; border-bottom:1px dotted var(--rule-2); text-align:center;
+  font-family:var(--mono); font-size:10px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--muted-2);
+  transition:color 150ms ease, border-color 150ms ease;
+}
+.get-more:hover,.get-more:focus-visible{color:var(--ground); border-bottom-style:solid; border-bottom-color:var(--ground)}
+/* Every exhibit on the sheet is captioned the same way: the artifact,
+   a hairline, then its letter and what it is. */
+.ident figcaption,.acq figcaption{
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--muted); margin-top:auto; padding-top:10px; border-top:1px solid var(--rule);
+  line-height:1.7;
+}
+.ident figcaption b{display:block; color:var(--ink-light); font-weight:500}
+/* Exhibit C is the habitat's own plain account of itself. */
+.self{margin:0}
+.self p{margin:0; font-size:16.5px; font-weight:300; line-height:1.7; color:var(--ink)}
+
+/* ---------- 02 findings ---------- */
+.findings{display:grid; grid-template-columns:repeat(3,1fr); border:1px solid var(--rule)}
+.findings > div{padding:20px 22px 24px; border-right:1px solid var(--rule)}
+.findings > div:last-child{border-right:0}
+.findings p{margin:12px 0 0; color:var(--ink-light); font-weight:300; font-size:14.5px}
+.findings b{font-weight:500; color:var(--ink)}
+
+/* ---------- 03 plates: a contact strip, not a slideshow ----------
+   Plates sit side by side at one common height so the whole field costs
+   ~220px of page instead of a full-bleed screenshot. Width follows each
+   plate's own aspect ratio — nothing is cropped or letterboxed to fit a
+   uniform box, so the strip reads as a true reduction of every plate.
+   Plates wider than the column scroll sideways. */
+.strip{
+  display:flex; align-items:flex-start; gap:10px; overflow-x:auto;
+  /* Room under the plates for the scrollbar — macOS floats it over the
+     container's bottom edge, and it was sitting on the exhibit tags. */
+  padding-bottom:18px;
+  scroll-snap-type:x proximity; scrollbar-width:thin;
+  scrollbar-color:var(--rule-2) transparent;
+}
+.strip::-webkit-scrollbar{height:9px}
+.strip::-webkit-scrollbar-track{background:transparent}
+.strip::-webkit-scrollbar-thumb{background:var(--rule-2); border-radius:0}
+.strip::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+.strip .plate{
+  appearance:none; padding:0; margin:0; cursor:zoom-in; position:relative;
+  flex:0 0 auto; height:184px; width:auto; scroll-snap-align:start;
+  border:1px solid var(--rule); background:var(--tint); line-height:0;
+}
+.strip .plate img{height:182px; width:auto; max-width:none; display:block}
+.strip .plate .tag{
+  position:absolute; left:0; bottom:0;
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--muted); background:var(--white);
+  border-top:1px solid var(--rule); border-right:1px solid var(--rule); padding:4px 9px;
+}
+.strip .plate:hover,.strip .plate:focus-visible{border-color:var(--ink)}
+.strip .plate:hover .tag,.strip .plate:focus-visible .tag{color:var(--ink); border-color:var(--ink)}
+
+.plate-cap{
+  font-family:var(--mono); font-size:10.5px; line-height:1.7; color:var(--muted);
+  margin:4px 0 0; min-height:2.6em;
+}
+.plate-cap b{color:var(--ink-light); font-weight:500; letter-spacing:.12em; text-transform:uppercase}
+
+/* ---------- expand modal ---------- */
+.lightbox{
+  position:fixed; inset:0; z-index:100; background:var(--paper);
+  display:none; flex-direction:column; padding:28px 40px 24px;
+}
+.lightbox[open],.lightbox.open{display:flex}
+.lightbox-top{
+  display:flex; justify-content:space-between; align-items:center; gap:24px; flex:0 0 auto;
+  padding-bottom:14px; border-bottom:1px solid var(--rule-2);
+}
+.lightbox-top .who{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+}
+.lightbox-top .who b{color:var(--ink); font-weight:500}
+/* The stage is a positioned box and the plate is absolutely centred inside it.
+   A plain flex child with max-height:100% has no definite height to resolve
+   against, so the image spills past the footer. */
+.lightbox-stage{flex:1 1 auto; position:relative; min-height:0; margin:22px 0}
+.lightbox-stage img{
+  position:absolute; inset:0; margin:auto;
+  max-width:100%; max-height:100%; width:auto; height:auto;
+  object-fit:contain; border:1px solid var(--rule-2);
+}
+.lightbox-foot{
+  flex:0 0 auto; display:flex; justify-content:space-between; align-items:center; gap:24px;
+  padding-top:14px; border-top:1px solid var(--rule-2);
+  font-family:var(--mono); font-size:10.5px; line-height:1.7; color:var(--muted);
+}
+.lightbox-foot b{color:var(--ink); font-weight:500; letter-spacing:.12em; text-transform:uppercase}
+.lightbox button{
+  appearance:none; background:none; border:1px solid var(--rule-2); color:var(--muted-2);
+  font-family:var(--mono); font-size:10px; letter-spacing:.16em; text-transform:uppercase;
+  padding:7px 12px; cursor:pointer;
+}
+.lightbox button:hover{border-color:var(--ink); color:var(--ink)}
+.lightbox .steps{display:flex; gap:8px; flex:0 0 auto}
+
+/* ---------- 04 keeper's notes ----------
+   The keeper goes on the record too: the note, then the portrait that signs it. */
+.keeper{display:grid; grid-template-columns:minmax(0,1fr) 176px; gap:30px; align-items:start}
+.portrait{margin:0; display:flex; flex-direction:column}
+.portrait .mount{
+  height:196px; display:flex; align-items:center; justify-content:center;
+  background:var(--tint); overflow:hidden;
+}
+.portrait .mount img{width:100%; height:100%; object-fit:cover; filter:grayscale(1) contrast(1.04)}
+.portrait figcaption{
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--muted); margin-top:12px; padding-top:10px; border-top:1px solid var(--rule); line-height:1.7;
+}
+.portrait figcaption b{display:block; color:var(--ink-light); font-weight:500}
+.notes{background:var(--tint); border:1px solid var(--rule); padding:26px 28px 28px}
+.notes p{margin:0; font-size:15.5px; font-weight:300; line-height:1.7; color:var(--ink)}
+.notes p + p{margin-top:14px}
+
+/* ---------- 05 specifications ---------- */
+.spec{width:100%; border-collapse:collapse; border-top:1px solid var(--rule)}
+.spec th,.spec td{text-align:left; vertical-align:top; padding:13px 0; border-bottom:1px solid var(--rule)}
+.spec th{
+  width:196px; font-family:var(--mono); font-size:10.5px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--muted); font-weight:500; padding-right:24px;
+}
+.spec td{font-size:14.5px; font-weight:300; color:var(--ink-light)}
+.spec td b{font-weight:500; color:var(--ink)}
+.spec code{font-family:var(--mono); font-size:13px; color:var(--ink)}
+/* One fact per line. Where a line names a thing and then describes it, the
+   name sits in its own column so the values stack — a dash between them just
+   made three ragged sentences. */
+.spec .line{display:block}
+.spec .line:has(.t){display:grid; grid-template-columns:var(--term,auto) minmax(0,1fr); column-gap:16px}
+.spec .line .t{color:var(--ink)}
+
+/* Palette: the app's four, a divider, then the system neutrals it shares
+   with every other sheet — one line, no names. The line beneath describes
+   the palette; pointing at a swatch swaps it for that swatch's own record. */
+.palette{display:flex; align-items:center; gap:6px}
+.palette .sep{width:1px; height:30px; background:var(--rule-2); margin:0 10px}
+.cw{
+  display:block; width:52px; height:30px; padding:0; border:1px solid rgba(26,26,26,.10);
+  background:var(--c); cursor:default; flex:0 0 auto;
+}
+.cw-read{margin:11px 0 0; min-height:1.6em}
+.cw-read .hex{font-family:var(--mono); font-size:12.5px; color:var(--ink)}
+
+/* ---------- 06 acquisition ----------
+   The app icon sits here: it is what lands in your Applications folder,
+   so it labels the download rather than the description. */
+/* The icon needs room to read as a mounted exhibit rather than a bullet
+   glued to the ledger — at 26px its corner sat right on the table's rule. */
+.acq{display:grid; grid-template-columns:88px 1fr; gap:56px; align-items:start}
+.acq > figure{margin:0}
+.acq img{width:88px; height:88px}
+/* One block per platform, stacked. A flat six-row ledger repeated the word
+   macOS twice and Linux twice and made you read the first column to find
+   yourself; grouped, you find your platform once and everything under it is
+   yours. Same label-gutter shape as Specifications above — the sheet has one
+   way of setting a labelled list and this is it. */
+.dl{width:100%; max-width:760px; border-collapse:collapse; border-top:1px solid var(--rule)}
+.dl th,.dl td{text-align:left; vertical-align:top; border-bottom:1px solid var(--rule)}
+.dl th{
+  width:196px; padding:15px 24px 15px 0;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--muted); font-weight:500;
+}
+.dl td{padding:6px 0}
+/* A build is one line: architecture, format, then the way to get it. The
+   inner rule is dotted so builds separate without competing with the solid
+   hairline that closes each platform. */
+.dl .build{
+  display:grid; grid-template-columns:96px 1fr auto; align-items:center;
+  gap:0 20px; padding:9px 0; border-bottom:1px dotted var(--rule);
+}
+.dl .build:last-child{border-bottom:0}
+.dl .build .a{font-size:14px; font-weight:300; color:var(--ink-light)}
+.dl .build .f{font-family:var(--mono); font-size:12.5px; color:var(--ink-light)}
+/* Homebrew resolves architecture and format for you — that is the whole
+   reason to use it — so the command takes both columns. */
+.dl .build.is-cmd{grid-template-columns:1fr auto}
+.dl .build code{
+  font-family:var(--mono); font-size:12.5px; color:var(--ink);
+  display:block; overflow-x:auto; white-space:nowrap; padding-right:12px;
+}
+/* Every build offers exactly one action, so every build gets exactly one
+   control. Download stays an <a> and Copy stays a <button> — the semantics
+   differ and should — but a ruled box is the sheet's way of saying "this is
+   the thing you press", and it should not matter which one you are looking
+   at. Right-aligned to a common edge so the column reads as a column. */
+.dl .build > :last-child{justify-self:end}
+.dl .build a,
+.dl button{
+  appearance:none; background:none; border:1px solid var(--rule-2); color:var(--muted-2);
+  font-family:var(--mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+  padding:5px 10px; cursor:pointer; display:inline-block; text-decoration:none;
+  white-space:nowrap;
+}
+.dl .build a:hover,
+.dl button:hover{border-color:var(--ink); color:var(--ink)}
+
+/* ---------- 07 handling: a long procedure kept in a scroll well ----------
+   The sheet stays one page; the instructions live in a fixed well that opens
+   full screen when someone actually needs to work through them. */
+.doc{border:1px solid var(--rule)}
+.doc-bar{
+  display:flex; align-items:center; justify-content:space-between; gap:20px;
+  padding:11px 16px; border-bottom:1px solid var(--rule); background:var(--tint);
+}
+.doc-bar button{
+  appearance:none; background:none; border:1px solid var(--rule-2); color:var(--muted-2);
+  font-family:var(--mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+  padding:6px 11px; cursor:pointer;
+}
+.doc-bar button:hover{border-color:var(--ink); color:var(--ink)}
+.doc-well{max-height:360px; overflow-y:auto; padding:24px 26px}
+.doc-well > p:first-child{margin-top:0}
+.doc-well ol{margin:18px 0 0; padding-left:22px}
+.doc-well li{margin-bottom:22px}
+.doc-well li:last-child{margin-bottom:0}
+.doc-well li > strong{font-size:15px; font-weight:600}
+.doc-well p{margin:8px 0; font-size:14px; font-weight:300; color:var(--ink-light)}
+.doc-well pre{
+  margin:10px 0; padding:13px 15px; background:var(--tint); border:1px solid var(--rule);
+  overflow-x:auto; font-family:var(--mono); font-size:12.5px; line-height:1.65; color:var(--ink);
+}
+.doc-well .c{color:var(--muted)}
+.doc-well .kv{color:var(--ink-light)}
+.doc-well .gate{
+  margin-top:22px; padding:15px 17px; border:1px solid var(--rule-2); background:var(--white);
+  font-size:14px; font-weight:300; color:var(--ink-light);
+}
+.doc-well .gate b{color:var(--ink); font-weight:500}
+.pill{
+  font-family:var(--mono); font-size:12px; background:var(--tint);
+  border:1px solid var(--rule); padding:1px 6px; white-space:nowrap;
+}
+
+/* full-screen reading, same paper as the expanded plate */
+.docbox{
+  position:fixed; inset:0; z-index:110; background:var(--paper);
+  display:none; flex-direction:column; padding:28px 40px 26px;
+}
+.docbox.open{display:flex}
+.docbox .docbox-top{
+  display:flex; align-items:center; justify-content:space-between; gap:24px; flex:0 0 auto;
+  padding-bottom:14px; border-bottom:1px solid var(--rule-2);
+}
+.docbox .who{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+}
+.docbox .who b{color:var(--ink); font-weight:500}
+.docbox button{
+  appearance:none; background:none; border:1px solid var(--rule-2); color:var(--muted-2);
+  font-family:var(--mono); font-size:10px; letter-spacing:.16em; text-transform:uppercase;
+  padding:7px 12px; cursor:pointer;
+}
+.docbox button:hover{border-color:var(--ink); color:var(--ink)}
+.docbox .doc-well{
+  flex:1 1 auto; max-height:none; margin-top:20px; background:var(--white);
+  border:1px solid var(--rule); max-width:860px; width:100%; align-self:center;
+}
+
+/* ---------- colophon: the issuing stamp ---------- */
+.colophon{
+  display:flex; justify-content:space-between; gap:var(--gap);
+  align-items:end; padding:26px 0 0;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted);
+}
+.colophon img{width:64px; height:auto}
+.colophon a{border:0; color:var(--muted)}
+.colophon a:hover{color:var(--ink)}
+.colophon .issuer{line-height:1.8}
+.colophon .issuer b{color:var(--ink); font-weight:500}
+.colophon .issuer a{border-bottom:1px solid var(--rule-2)}
+.colophon .issuer a:hover b{color:var(--ink)}
+.colophon .issuer a:hover{border-bottom-color:var(--ink)}
+.colophon .links{text-align:right; white-space:nowrap}
+
+/* ---------- narrow ---------- */
+@media (max-width:860px){
+  .sheet{padding:0 22px 64px}
+  /* The letterhead and the form number are one block, not two things that
+     happen to be stacked — at a 22px gap with the meta on two lines of its
+     own it read as an orphan. Close up, and the pair goes on one line. */
+  .mast{flex-direction:column; align-items:flex-start; gap:10px; padding:30px 0 24px}
+  .mast-meta{text-align:left}
+  .mast-meta br{display:none}
+  .mast-meta b{margin-right:26px}
+  .mast-meta b:last-of-type{margin-right:0}
+  .mast h1{font-size:44px}
+  .field > h2{font-size:19px}
+  .field .body{padding:22px 0 40px}
+  /* Stacked, each exhibit ends in a captioned hairline and the next one's
+     mount begins immediately — at 22px they ran together into one column of
+     stuff. Side by side the columns did the separating; vertically the gap
+     has to. */
+  .ident{grid-template-columns:1fr; gap:40px}
+  /* The two-row placement above assigns explicit columns (child 4 sits in
+     column 3). One column here does not undo that — grid would invent a
+     column 3 off the right edge and put the download button in it — so every
+     child is put back into the single column it now has. */
+  .ident > *:nth-child(1),
+  .ident > *:nth-child(2),
+  .ident > *:nth-child(3),
+  .ident > *:nth-child(4){grid-column:1}
+  .keeper{grid-template-columns:1fr; gap:20px}
+  .ident .mount{height:120px}
+  /* The cell stretches so the caption rule spans it, exactly like every other
+     exhibit — flex-start shrank the caption to the width of its own text and
+     left the hairline ending short of the button above it. The button is
+     capped instead, and sits left in a full-width cell. */
+  .get{align-items:stretch}
+  .get-ticket{max-width:300px; margin-left:10px; margin-right:10px}
+    .findings{grid-template-columns:1fr}
+  .findings > div{border-right:0; border-bottom:1px solid var(--rule)}
+  .findings > div:last-child{border-bottom:0}
+  .strip .plate,.strip .plate img{height:140px}
+  .strip .plate img{height:138px}
+  .spec th{width:auto; display:block; padding-bottom:4px; border-bottom:0}
+  .spec td{display:block; padding-top:0}
+  /* Narrower columns, but still columns. Stacking the term above its value
+     turned the spec table into a flat list where "macOS 13+" and "arm64"
+     looked like two entries rather than a term and its value — the pairing
+     IS the table. The inline --term widths are overridden; they are sized
+     for the desktop measure. */
+  .spec .line:has(.t){grid-template-columns:minmax(84px,38%) minmax(0,1fr); column-gap:14px}
+  .spec .line + .line{margin-top:7px}
+  /* Nine fixed 52px swatches in a nowrap row is 537px, and because it sits in
+     a table cell it was setting the width of the whole sheet — this was what
+     made the page scroll sideways, not anything in Acquisition. */
+  .palette{gap:5px}
+  .palette .sep{margin:0 4px}
+  /* Sharing the row rather than wrapping: nine fixed swatches wrapped 8+1 and
+     left one stranded on a line of its own. The divider stays — it is the
+     difference between the habitat's four and the neutrals every sheet shares. */
+  .cw{flex:1 1 0; width:auto; min-width:0; height:26px}
+
+  /* 06 — the icon sits above its ledger rather than beside it, and the label
+     gutter becomes a heading over each platform group. */
+  .acq{grid-template-columns:1fr; gap:20px}
+  .acq img{width:72px; height:72px}
+  .acq > figure{display:flex; flex-direction:row; align-items:center; gap:14px}
+  .acq figcaption{margin:0; padding-top:0; border-top:0}
+  .dl th{display:block; width:auto; padding:16px 0 4px; border-bottom:0}
+  .dl td{display:block; padding:0}
+  /* A three-column build line cannot hold arch, format and a button at this
+     width; as a wrapping row the button keeps the right edge and the rest
+     falls under it when it has to. */
+  .dl .build{display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px}
+  .dl .build > :last-child{margin-left:auto}
+  .dl .build code{white-space:pre-wrap; word-break:break-all}
+
+  /* The running head keeps both halves, just quieter. */
+  .topbar-in{padding:10px 22px 12px; gap:14px}
+  .topbar img{height:18px}
+  .topbar .tagline{font-size:12px}
+  .doc-well{max-height:300px; padding:18px}
+  .docbox{padding:20px}
+  .lightbox{padding:20px}
+  .colophon{flex-direction:column; gap:14px}
+  .colophon .links{text-align:left}
+}
+
+/* Phone. The sheet stays a sheet — nothing is dropped, only tightened. */
+@media (max-width:430px){
+  .sheet{padding:0 16px 56px}
+  .field > h2{font-size:17px; gap:10px}
+  .crew-slot{width:28px; height:28px; margin-right:-5px}
+  .letterhead{gap:12px}
+  .letterhead img{width:46px}
+  .letterhead .issuer{padding-left:12px; font-size:9.5px; letter-spacing:.1em}
+  .ident .mount-tag .tagline{font-size:24px}
+  .ident .mount{height:104px}
+  .self p{font-size:15px}
+  .doc-well{padding:16px 14px}
+  .doc-well pre{font-size:11.5px}
+  .topbar-in{padding:9px 16px 11px}
+  .topbar .tagline{font-size:11px}
+}
+
+/* ---------- print: it is a data sheet, it should print like one ---------- */
+@media print{
+  body{font-size:11px}
+  .dl button,.lightbox,.docbox,.doc-bar button,.topbar{display:none!important}
+  .doc-well{max-height:none; overflow:visible}
+  .strip{display:block; overflow:visible}
+  .strip .plate{display:block; width:100%; height:auto; margin-bottom:8px; break-inside:avoid}
+  .strip .plate img{width:100%; height:auto}
+  .sheet{max-width:none; padding:0}
+  .field{break-inside:avoid}
+  a{border-bottom:0}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important; animation:none!important}}
+</style>
+</head>
+<body>
+
+<!-- The running head. aria-hidden and inert: every word in it is already in
+     the document as Exhibits A and B, and a screen reader should meet them
+     once, in order, where they are catalogued — not again on every scroll. -->
+<div class="topbar" id="topbar" aria-hidden="true" inert>
+  <div class="topbar-in">
+    <img src="./assets/wordmark.svg" alt="">
+    <p class="tagline">Understand what was built</p>
+  </div>
+</div>
+
+<main class="sheet">
+
+  <!-- ============================ MASTHEAD ============================ -->
+  <h1 class="vh">Sanity — Habitat report — The Monster Dept</h1>
+  <header class="mast">
+    <div class="letterhead">
+      <!-- The department's staff, standing to the left of its mark. Purely
+           decorative and aria-hidden: they say nothing the monogram does not.
+           Canvases are only filled if WebGL and motion are both available. -->
+      <div class="crew" id="crew" aria-hidden="true">
+        <canvas class="crew-slot" width="34" height="34"></canvas>
+        <canvas class="crew-slot" width="34" height="34"></canvas>
+        <canvas class="crew-slot" width="34" height="34"></canvas>
+      </div>
+      <img src="./assets/md-monogram.svg" alt="The Monster Dept monogram">
+      <span class="issuer"><b>The Monster Dept</b><br>Habitat report</span>
+    </div>
+    <div class="mast-meta">
+      FORM &nbsp;<b>MD·HR</b><br>
+      VERSION &nbsp;<b>__VERSION__</b>
+    </div>
+  </header>
+
+  <!-- ==================== RECORD — per-app content below ==================== -->
+
+  <!-- 01 -->
+  <section class="field">
+    <h2><span class="n">01</span> Identifying marks</h2>
+    <div class="body">
+    <div class="ident">
+      <figure>
+        <div class="mount mount-lockup">
+          <img src="./assets/wordmark.svg" alt="The Sanity wordmark">
+        </div>
+        <figcaption><b>Exhibit A</b>Wordmark &amp; palette</figcaption>
+      </figure>
+      <figure>
+        <div class="mount mount-tag">
+          <p class="tagline">Understand what was built</p>
+        </div>
+        <figcaption><b>Exhibit B</b>Tagline</figcaption>
+      </figure>
+      <figure class="self">
+        <!-- FILL: what it is, in the habitat's own voice. Four sentences at most.
+             Say what it does, then the one thing about it that is unusual. -->
+        <p>Sanity draws a repo as concentric rings. Width is lines — the axis you already know, and the one that tells you nothing. Colour is the part worth having: how much of the code a careful reader could not have predicted from its name, its neighbours and its documentation. Explain a function well and the next reading of it is genuinely less surprising, so the map drains as you tour it.</p>
+        <figcaption><b>Exhibit C</b>Description</figcaption>
+      </figure>
+      <!-- href and label are rewritten to the visitor's platform on load;
+           the markup default is the macOS build. -->
+      <figure class="get">
+        <div class="get-ticket">
+          <!-- The verb is not in the block any more — the arrow carries it, and
+               the arrow is decoration. So the link says it out loud for anyone
+               who is listening rather than looking. -->
+          <a class="get-btn" id="get" aria-label="Download Sanity __VERSION__ for macOS"
+             href="https://dl.dept.monster/sanity/Sanity___VERSION___aarch64.dmg">
+            <span class="get-say">
+              <span class="get-name">Sanity __VERSION__</span>
+              <!-- The whole line is the sniff's here, not just the platform:
+                   this habitat ships four artifacts and the extension differs
+                   with each, so format travels with platform. Cluster states a
+                   hand-kept file size in this slot because it has one build; a
+                   size that nothing substitutes is wrong the day after a
+                   release, and four of them would be wrong four ways. -->
+              <span class="fmt" id="get-fmt">macOS · DMG</span>
+            </span>
+            <span class="get-arr" aria-hidden="true">↓</span>
+          </a>
+          <a class="get-more" href="#acquisition">Other install options</a>
+        </div>
+        <figcaption><b>Exhibit D</b>Download control</figcaption>
+      </figure>
+    </div>
+    </div>
+  </section>
+
+  <!-- 02 -->
+  <section class="field">
+    <h2><span class="n">02</span> Key observations</h2>
+    <div class="body">
+    <div class="findings">
+      <div>
+        <span class="lbl">What it does</span>
+        <p>Reads a repo and draws it as rings — directories, then files, then the chunks inside them. <b>Width is lines. Colour is surprise.</b> The two are measured independently.</p>
+      </div>
+      <div>
+        <span class="lbl">The twist</span>
+        <p>Boilerplate is <b>code a reader can predict from its context</b>. So the colour is not size, complexity or coverage — it is how much of the body its own name, neighbours and comments already gave away.</p>
+      </div>
+      <div>
+        <span class="lbl">The other twist</span>
+        <p>The reader can be an agent. Over MCP it is handed a name and its docs but <b>never the body</b>, commits to a prediction, then reads and reports the gap.</p>
+      </div>
+    </div>
+    </div>
+  </section>
+
+  <!-- 03 — plates. Add or remove <img> children; the carousel counts them. -->
+  <section class="field">
+    <h2><span class="n">03</span> Photographic record</h2>
+    <div class="body">
+    <div class="plates" id="plates">
+      <div class="strip">
+        <button class="plate" type="button">
+          <img src="./assets/screenshot.png"
+               data-cap="Occupant charted whole. Width was assigned by line count; colour was withheld until something had read the code."
+               alt="The full map of a repository: concentric rings for directories, files and the chunks inside them.">
+        </button>
+        <button class="plate" type="button">
+          <img src="./assets/plate-2.png"
+               data-cap="A wedge under inspection. The reading, its two terms, and the history that separates a crown jewel from a mess."
+               alt="The detail panel for one function: temperature, how well it is documented, commits and age.">
+        </button>
+        <button class="plate" type="button">
+          <img src="./assets/plate-3.png"
+               data-cap="The specimen predicted before it read, then reported the gap. Both halves are kept — a correct prediction is the evidence that a wedge is genuinely dull."
+               alt="An agent's report on one function: what it expected, what it found, and the line it cites as proof.">
+        </button>
+        <button class="plate" type="button">
+          <img src="./assets/plate-4.png"
+               data-cap="The same reading, laid over the source it came from. The gutter carries the colour; the map at right carries the whole file."
+               alt="The code view: syntax on the left, a heat gutter beside each line, and a minimap of the file's temperature.">
+        </button>
+        <button class="plate" type="button">
+          <img src="./assets/plate-5.png"
+               data-cap="One geometry, five questions. The rings do not move when the question changes — only what their colour means."
+               alt="The colour-mode switcher, with the same repository drawn by churn instead of surprise.">
+        </button>
+        <button class="plate" type="button">
+          <img src="./assets/plate-6.png"
+               data-cap="Enclosure occupied. The occupant reads on its own; the keeper watches the colour arrive."
+               alt="The agent panel while an MCP session works through the repository, with the progress of the assessment.">
+        </button>
+      </div>
+      <p class="plate-cap"><b id="plate-no">Exhibit E</b> &nbsp; <span id="plate-cap"></span></p>
+    </div>
+    </div>
+  </section>
+
+  <!-- 04 -->
+  <section class="field">
+    <h2><span class="n">04</span> Monsterkeeper’s notes</h2>
+    <div class="body">
+    <div class="keeper">
+      <div class="notes">
+        <!-- FILL: first person, past tense, no marketing. Why it was built, and
+             one thing that surprised you while building it. Two paragraphs. -->
+        <p>Generating code got cheap, so understanding it became the bottleneck. I wanted a picture of my own repos that could tell me where the real decisions were — not where the most lines were, which I already knew and which never helped.</p>
+        <p>What surprised me was how hard it is to stop a metric flattering you. The first honest version put <span class="pill">fn main()</span> at the top of the rankings, and a later one let a confidently wrong comment cool a wedge — documentation that was <em>wrong</em> made the map calmer. Both are fixed, and both are why every reading here can say "I don't know" instead of guessing.</p>
+      </div>
+      <figure class="portrait">
+        <div class="mount"><img src="./assets/keeper.webp" alt="Ross, Monsterkeeper"></div>
+        <figcaption><b>Keeper</b>Ross</figcaption>
+      </figure>
+    </div>
+    </div>
+  </section>
+
+  <!-- 05 -->
+  <section class="field">
+    <h2><span class="n">05</span> Specifications</h2>
+    <div class="body">
+    <div>
+      <table class="spec">
+        <tbody>
+          <tr>
+            <th scope="row">Palette</th>
+            <td>
+              <div class="palette" id="palette">
+                <button class="cw" type="button" style="--c:var(--ground)"      data-hex="#895B77" data-use="ground, buttons, links"></button>
+                <button class="cw" type="button" style="--c:var(--ground-dark)" data-hex="#5B364C" data-use="hover, the deep end of the tile"></button>
+                <button class="cw" type="button" style="--c:var(--ground-tint)" data-hex="#F3D9E7" data-use="the mark on dark ground"></button>
+                <button class="cw" type="button" style="--c:var(--accent)"      data-hex="#42A2AB" data-use="the one slice that has been read"></button>
+                <span class="sep"></span>
+                <button class="cw" type="button" style="--c:var(--paper)" data-hex="#F5F1EA" data-use="Paper — page ground"></button>
+                <button class="cw" type="button" style="--c:#EFEBE3"      data-hex="#EFEBE3" data-use="Card — panels"></button>
+                <button class="cw" type="button" style="--c:var(--rule)"  data-hex="#E5E1DA" data-use="Border — hairlines"></button>
+                <button class="cw" type="button" style="--c:var(--muted)" data-hex="#8B8279" data-use="Muted — secondary text"></button>
+                <button class="cw" type="button" style="--c:var(--ink)"   data-hex="#1A1A1A" data-use="Ink — body text, marks"></button>
+              </div>
+              <p class="cw-read" id="cw-read" data-default="A rose ground with the department's shared teal accent, over the same paper-and-ink neutrals as every other sheet.">A rose ground with the department's shared teal accent, over the same paper-and-ink neutrals as every other sheet.</p>
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Platform</th>
+            <td style="--term:104px">
+              <span class="line"><span class="t">macOS</span><span class="v">macOS 13+ <b>arm64</b></span></span>
+              <span class="line"><span class="t">Windows</span><span class="v">Windows 10+ <b>x86-64, arm64</b></span></span>
+              <span class="line"><span class="t">Linux</span><span class="v">Linux <b>x86-64</b></span></span>
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Interface</th>
+            <td style="--term:124px">
+              <!-- FILL: one line per surface the habitat presents. Term, then what it is. -->
+              <span class="line"><span class="t">Desktop app</span><span class="v">Tauri shell, Rust core, React front end</span></span>
+              <span class="line"><span class="t">MCP server</span><span class="v">launch Sanity with <span class="pill">mcp</span> to serve over stdio</span></span>
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Storage</th>
+            <td>
+              <span class="line">Scores and agent reports in the app data directory.</span>
+              <span class="line"><b>Read-only against your code.</b> It scans a directory; there is no path on which it writes to it.</span>
+              <span class="line">No cloud, no sync, no account.</span>
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Monsterpower</th>
+            <td>
+              <!-- Monsterpower: whether the habitat needs a model to work at all. -->
+              <span class="line">Sanity does not need an LLM to function — an offline proxy draws the map on its own.</span>
+              <span class="line">A local model, or an agent over MCP, replaces that guess with a reading.</span>
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Verified MCP hosts</th>
+            <td>
+              <span class="line">Claude Code · Claude Desktop · Cursor · Windsurf · Codex</span>
+              <span class="line">Any MCP host that works over stdio</span>
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Trust boundary</th>
+            <td>
+              <!-- What an agent may do unattended, and what waits for a human. -->
+              <span class="line">Agents may open a project, ask for work, read your files, and report what they found.</span>
+              <span class="line">Nothing writes to your code. Sanity only ever reads it.</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    </div>
+  </section>
+
+  <!-- 06 -->
+  <section class="field" id="acquisition">
+    <h2><span class="n">06</span> Acquisition</h2>
+    <div class="body">
+    <div class="acq">
+      <figure>
+        <img src="./assets/icon-512.png" alt="The Sanity app icon">
+        <figcaption>Exhibit K<br>App icon</figcaption>
+      </figure>
+      <div>
+      <table class="dl">
+        <tbody>
+          <tr>
+            <th scope="row">macOS</th>
+            <td>
+              <div class="build">
+                <span class="a">arm64</span><span class="f">.dmg</span>
+                <a href="https://dl.dept.monster/sanity/Sanity___VERSION___aarch64.dmg">Download</a>
+              </div>
+              <div class="build is-cmd">
+                <code id="brew">brew install --cask monsterdept/tap/sanity</code>
+                <button type="button" data-copy="brew">Copy</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Windows</th>
+            <td>
+              <div class="build">
+                <span class="a">x86-64</span><span class="f">.exe</span>
+                <a href="https://dl.dept.monster/sanity/Sanity___VERSION___x64-setup.exe">Download</a>
+              </div>
+              <div class="build">
+                <span class="a">arm64</span><span class="f">.exe</span>
+                <a href="https://dl.dept.monster/sanity/Sanity___VERSION___arm64-setup.exe">Download</a>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Linux</th>
+            <td>
+              <div class="build">
+                <span class="a">x86-64</span><span class="f">.deb</span>
+                <a href="https://dl.dept.monster/sanity/Sanity___VERSION___amd64.deb">Download</a>
+              </div>
+              <div class="build">
+                <span class="a">x86-64</span><span class="f">.AppImage</span>
+                <a href="https://dl.dept.monster/sanity/Sanity___VERSION___amd64.AppImage">Download</a>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+    </div>
+  </section>
+
+  <!-- 07 -->
+  <section class="field" id="handling">
+    <h2><span class="n">07</span> Handling instructions</h2>
+    <div class="body">
+      <div class="doc">
+        <div class="doc-bar">
+          <span class="lbl">Instructions for your MCP host</span>
+          <button type="button" id="doc-open">Maximize</button>
+        </div>
+        <div class="doc-well" id="doc-well">
+          <!-- FILL: written TO the assistant, not about it. Second person,
+               imperative, and specific enough to follow without guessing.
+               Keep the shape: one opening sentence saying what the habitat is
+               from the assistant's point of view, a numbered procedure, then
+               the trust boundary as the closing paragraph.
+
+               Use <span class="pill"> for anything typed or named exactly,
+               and <pre> for commands. Both are already styled. -->
+          <p>If you are an AI assistant here to set Sanity up: the app <em>is</em> its own MCP server. Register it, restart, and you can drive the open window by tool call — the human watches the map colour in as you read.</p>
+          <ol>
+            <li>
+              <strong>Make sure Sanity is open.</strong>
+              <p>It serves the agent API on loopback only, on a port the OS picks, and writes that port where the MCP server can find it. If the app is not running, ask the human to launch it.</p>
+            </li>
+            <li>
+              <strong>Register <span class="pill">sanity mcp</span> with the host.</strong>
+              <p>The launch command is the installed Sanity executable plus the <span class="pill">mcp</span> argument. Find the executable for the human’s OS:</p>
+<pre><span class="c"># macOS</span>   /Applications/Sanity.app/Contents/MacOS/Sanity
+<span class="c"># Windows</span> %LOCALAPPDATA%\Sanity\Sanity.exe
+<span class="c"># Linux</span>   /usr/bin/sanity</pre>
+            </li>
+            <li>
+              <strong>Say <span class="pill">study this project in sanity</span>.</strong>
+              <p>Sanity hands back the protocol. Follow it exactly — and read it before you start, because the one rule that matters is easy to skip: <b>predict the body before you open the file, and assess in fresh subagents.</b> A reader that has already seen the code recalls instead of predicting, scores everything as unsurprising, and quietly turns the whole measurement into a rubber stamp.</p>
+            </li>
+          </ol>
+          <!-- The gate: what the agent may do alone, and what waits for a
+               human. Every habitat has one; say yours plainly. -->
+          <p class="gate"><b>Trust boundary:</b> You may open projects, request work and report what you find. You cannot change the code — Sanity never writes to the repository it is looking at, so nothing you do here can edit the human’s work.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="hair">
+  <footer class="colophon">
+    <span class="issuer">Issued by <a href="https://monsterdept.com/"><b>The Monster Dept</b></a> &nbsp;·&nbsp; Form MD·HR<br>Habitat report: Sanity &nbsp;·&nbsp; Rev __VERSION__ &nbsp;·&nbsp; August 2026</span>
+    <span class="links">© 2026 The Monster Dept</span>
+  </footer>
+</main>
+
+<!-- expand modal -->
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Exhibit, expanded">
+  <div class="lightbox-top">
+    <span class="who">The Monster Dept &nbsp;·&nbsp; Habitat <b>Sanity</b></span>
+    <button type="button" id="lb-close">Close &nbsp;Esc</button>
+  </div>
+  <div class="lightbox-stage"><img id="lb-img" alt=""></div>
+  <div class="lightbox-foot">
+    <span><b id="lb-no"></b> &nbsp; <span id="lb-cap"></span></span>
+    <span class="steps">
+      <button type="button" id="lb-prev" aria-label="Previous plate">←</button>
+      <button type="button" id="lb-next" aria-label="Next plate">→</button>
+    </span>
+  </div>
+</div>
+
+<!-- handling instructions, full screen -->
+<div class="docbox" id="docbox" role="dialog" aria-modal="true" aria-label="Handling instructions">
+  <div class="docbox-top">
+    <span class="who">The Monster Dept &nbsp;·&nbsp; Handling instructions &nbsp;·&nbsp; <b>Sanity</b></span>
+    <button type="button" id="doc-close">Close &nbsp;Esc</button>
+  </div>
+  <div class="doc-well" id="doc-full"></div>
+</div>
+
+<script>
+(function () {
+  /* ---- point the download button at the visitor's platform ----
+     Falls back to the macOS build already in the markup if nothing matches;
+     the full table in Acquisition is always one click away. */
+  var get = document.getElementById('get'), fmt = document.getElementById('get-fmt');
+  if (get) {
+    var base = 'https://dl.dept.monster/sanity/Sanity___VERSION__';
+    var ua = navigator.userAgent;
+    var plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+    var arm = /arm|aarch64/i.test(ua) || /arm/i.test(plat);
+    var build = null;
+
+    if (/Win/i.test(plat) || /Windows/i.test(ua)) {
+      build = arm
+        ? { url: base + '_arm64-setup.exe', label: 'Windows ARM · EXE' }
+        : { url: base + '_x64-setup.exe',   label: 'Windows x64 · EXE' };
+    } else if (/Linux|X11|CrOS/i.test(plat) || /Linux/i.test(ua)) {
+      /* Android reports Linux too — send it to the table rather than a .deb. */
+      if (/Android/i.test(ua)) build = { url: '#acquisition', label: 'See all builds' };
+      else build = { url: base + '_amd64.deb', label: 'Linux · DEB' };
+    } else if (/Mac|Darwin/i.test(plat) || /Mac OS X/i.test(ua)) {
+      build = { url: base + '_aarch64.dmg', label: 'macOS · DMG' };
+    }
+
+    if (build) { get.href = build.url; fmt.textContent = build.label; }
+
+  }
+
+  /* ---- palette readout: swatches carry no labels, so the line beneath
+         reports whichever one you are pointing at ---- */
+  var cwRead = document.getElementById('cw-read');
+  if (cwRead) {
+    document.querySelectorAll('#palette .cw').forEach(function (sw) {
+      sw.setAttribute('aria-label', sw.dataset.hex + ' — ' + sw.dataset.use);
+      function tell() { cwRead.innerHTML = '<span class="hex">' + sw.dataset.hex + '</span> &nbsp; ' + sw.dataset.use; }
+      function reset() { cwRead.textContent = cwRead.dataset.default; }
+      sw.addEventListener('mouseenter', tell);
+      sw.addEventListener('focus', tell);
+      sw.addEventListener('mouseleave', reset);
+      sw.addEventListener('blur', reset);
+    });
+  }
+
+
+  /* ---- handling instructions: scroll well, or full screen ---- */
+  var docOpen = document.getElementById('doc-open');
+  if (docOpen) {
+    var docbox = document.getElementById('docbox');
+    var docFull = document.getElementById('doc-full');
+    var docWell = document.getElementById('doc-well');
+    var docClose = document.getElementById('doc-close');
+
+    function openDoc() {
+      docFull.innerHTML = docWell.innerHTML;   /* a copy, so the well keeps its scroll position */
+      docbox.classList.add('open');
+      document.body.style.overflow = 'hidden';
+      docClose.focus();
+    }
+    function closeDoc() {
+      docbox.classList.remove('open');
+      document.body.style.overflow = '';
+      docOpen.focus();
+    }
+    docOpen.addEventListener('click', openDoc);
+    docClose.addEventListener('click', closeDoc);
+    docbox.addEventListener('click', function (e) { if (e.target === docbox) closeDoc(); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && docbox.classList.contains('open')) closeDoc();
+    });
+  }
+
+  /* ---- copy the install line ---- */
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      navigator.clipboard.writeText(document.getElementById(btn.dataset.copy).textContent.trim())
+        .then(function () {
+          var was = btn.textContent;
+          btn.textContent = 'Copied';
+          setTimeout(function () { btn.textContent = was; }, 1400);
+        });
+    });
+  });
+
+  /* ---- plates: contact strip + expand ----
+     The strip shows every plate at once. The caption under it follows
+     whichever plate you are pointing at; clicking one opens it full size. */
+  var root = document.getElementById('plates');
+  if (!root) return;
+  var tiles = [].slice.call(root.querySelectorAll('.plate'));
+  var imgs = tiles.map(function (t) { return t.querySelector('img'); });
+  var capEl = document.getElementById('plate-cap');
+  var noEl = document.getElementById('plate-no');
+  var lb = document.getElementById('lightbox');
+  var lbImg = document.getElementById('lb-img');
+  var lbCap = document.getElementById('lb-cap');
+  var lbNo = document.getElementById('lb-no');
+  var i = 0, opener = tiles[0];
+
+  /* One lettered exhibit series runs the whole sheet: 01 carries A (wordmark),
+     B (tagline), C (description) and D (the build itself), E onward are the
+     plates here, and the app icon closes it in 06. The exhibits document the
+     habitat; the occupant only appears in the photographic record. */
+  function letter(n) { return String.fromCharCode(69 + n); }
+
+  tiles.forEach(function (t, n) {
+    var tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = 'Exhibit ' + letter(n);
+    t.appendChild(tag);
+    t.setAttribute('aria-label', 'Expand exhibit ' + letter(n));
+    t.addEventListener('mouseenter', function () { describe(n); });
+    t.addEventListener('focus', function () { describe(n); });
+    t.addEventListener('click', function () { open(n); });
+  });
+
+  function describe(n) {
+    i = (n + imgs.length) % imgs.length;
+    noEl.textContent = 'Exhibit ' + letter(i);
+    capEl.textContent = imgs[i].dataset.cap || '';
+    if (lb.classList.contains('open')) paint();
+  }
+  var show = describe;   /* the modal arrows reuse it */
+
+  function paint() {
+    var cur = imgs[i];
+    lbImg.src = cur.src;
+    lbImg.alt = cur.alt;
+    lbNo.textContent = 'Exhibit ' + letter(i);
+    lbCap.textContent = cur.dataset.cap || '';
+  }
+
+  function open(n) {
+    if (typeof n === 'number') { opener = tiles[n]; describe(n); }
+    lb.classList.add('open'); paint();
+    document.body.style.overflow = 'hidden';
+    document.getElementById('lb-close').focus();
+  }
+  function close() { lb.classList.remove('open'); document.body.style.overflow = ''; opener.focus(); }
+  document.getElementById('lb-close').addEventListener('click', close);
+  document.getElementById('lb-prev').addEventListener('click', function () { show(i - 1); });
+  document.getElementById('lb-next').addEventListener('click', function () { show(i + 1); });
+  lb.addEventListener('click', function (e) {
+    if (e.target === lb || e.target.classList.contains('lightbox-stage')) close();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (!lb.classList.contains('open')) return;
+    if (e.key === 'Escape') close();
+    if (e.key === 'ArrowLeft') show(i - 1);
+    if (e.key === 'ArrowRight') show(i + 1);
+  });
+
+  show(0);
+})();
+</script>
+
+<script>
+/* ---- running head ----
+   Tied to Exhibit A itself rather than a scroll offset: the bar appears at
+   the moment the real wordmark leaves the top of the screen, so the identity
+   is on screen exactly once at any time — never both at once, never neither.
+   An observer, not a scroll handler, so this costs nothing while idle. */
+(function () {
+  var bar = document.getElementById('topbar');
+  var mark = document.querySelector('.ident .mount-lockup');
+  if (!bar || !mark || !('IntersectionObserver' in window)) return;
+
+  /* Each element in the bar is the small end of a journey that starts at the
+     real exhibit. On an ordinary scroll the trigger fires as the mark crosses
+     the top edge, so the source is only just off screen. On a jump — an
+     anchor, End, a restored scroll position — it can be thousands of pixels
+     up, which turns settling into a swoop, so the rise is clamped. */
+  var MAX_RISE = 150;
+  var pairs = [
+    { from: document.querySelector('.ident .mount-lockup img'), to: bar.querySelector('img') },
+    { from: document.querySelector('.ident .mount-tag .tagline'), to: bar.querySelector('.tagline') }
+  ].filter(function (p) { return p.from && p.to; });
+
+  var still = window.matchMedia('(prefers-reduced-motion: reduce)');
+  var raf = null;
+
+  /* Solves a CSS cubic-bezier by hand. The trip has to be driven frame by
+     frame rather than handed to the Web Animations API (see fly), and this
+     keeps the feel identical to the curve it replaces. */
+  function bezier(x1, y1, x2, y2) {
+    function A(a, b) { return 1 - 3 * b + 3 * a; }
+    function B(a, b) { return 3 * b - 6 * a; }
+    function C(a) { return 3 * a; }
+    function at(t, a, b) { return ((A(a, b) * t + B(a, b)) * t + C(a)) * t; }
+    function slope(t, a, b) { return 3 * A(a, b) * t * t + 2 * B(a, b) * t + C(a); }
+    return function (x) {
+      var t = x, s;
+      for (var i = 0; i < 6; i++) { s = slope(t, x1, x2); if (!s) break; t -= (at(t, x1, x2) - x) / s; }
+      return at(t, y1, y2);
+    };
+  }
+
+  /* Out is the same path walked backwards, and a little quicker: arriving
+     deserves more ceremony than leaving.
+
+     The easing is deliberately even rather than a hard ease-out. With a
+     front-loaded curve the trip was 88% finished in its first third and then
+     crept the last few pixels, which reads as a dissolve with a twitch — the
+     eye needs to see the thing in transit for most of the duration to accept
+     that it is the same object. */
+  var TRIP = {
+    in:  { duration: 460, ease: bezier(.45, .05, .2, 1) },
+    out: { duration: 340, ease: bezier(.45, .05, .25, 1) }
+  };
+
+  /* How fast the page is actually moving, in px/ms, lightly smoothed.
+     A trackpad flick on a Mac runs well past 3px/ms, and at that speed a
+     460ms flight is still playing long after its origin has left the screen —
+     the elements end up chasing a place that is no longer there, which is
+     what makes it feel sluggish rather than deliberate. */
+  var vel = 0, lastY = window.scrollY, lastT = 0;
+  addEventListener('scroll', function () {
+    var now = performance.now(), y = window.scrollY, dt = now - lastT;
+    if (dt > 0) vel = vel * 0.6 + (Math.abs(y - lastY) / dt) * 0.4;
+    lastY = y; lastT = now;
+  }, { passive: true });
+
+  /* Outrun by the scroll: skip the trip and simply be there. Anything slower
+     gets a proportionally shorter one, floored so it never becomes a jump. */
+  function paceOf(base) {
+    var v = (performance.now() - lastT > 120) ? 0 : vel;   // stale = stopped
+    if (v > 2.5) return 0;
+    // Ordinary reading-speed scrolling should still get the whole trip; only
+    // hurrying shortens it. Without this dead zone even a gentle drag was
+    // docking the animation a fifth of its length for no reason.
+    v = Math.max(0, v - 0.5);
+    return Math.round(base * Math.max(0.3, 1 - v / 1.7));
+  }
+
+  /* The whole illusion is that there is one wordmark and one tagline, and
+     they move. So the exhibit's own copy is taken out of the page for as
+     long as the bar's copy is in flight or in residence — otherwise both are
+     on screen at once and it reads as a duplicate being cloned, not as the
+     thing itself travelling. Only ever one of each is visible. */
+  function sourcesVisible(show, homes) {
+    pairs.forEach(function (p, i) {
+      // Never hide an exhibit whose counterpart in the bar cannot be drawn —
+      // at a narrow width a bar element may be display:none, and hiding the
+      // source anyway would take the thing off the page altogether.
+      if (!show && homes && !(homes[i] && homes[i].width)) return;
+      p.from.style.visibility = show ? '' : 'hidden';
+    });
+  }
+
+  /* Driven frame by frame, and the exhibit end is re-measured every frame.
+
+     Handing fixed keyframes to the Web Animations API aimed the trip at
+     wherever the exhibit was when the trip began — but the page goes on
+     scrolling underneath for the whole flight, so by the time the copy
+     arrived, the exhibit had moved. It landed a little high and then jumped
+     the remainder the instant the real one was switched back on. Re-aiming
+     each frame means it is still travelling toward the right place on the
+     last frame, however much the page moved during the trip.
+
+     `progress` runs 0 at the bar, 1 at the exhibit; in flies 1→0, out 0→1. */
+  function place(p, home, f) {
+    var a = p.from.getBoundingClientRect();
+    if (!a.width || !home.width) return;
+    var dy = Math.max(a.top - home.top, -MAX_RISE);
+    var s = a.width / home.width;
+    p.to.style.transformOrigin = '0 0';
+    p.to.style.transform = f
+      ? 'translate(' + (a.left - home.left) * f + 'px,' + dy * f + 'px)'
+        + ' scale(' + (1 + (s - 1) * f) + ')'
+      : 'none';
+  }
+
+  function fly(dir, ms) {
+    if (raf) { cancelAnimationFrame(raf); raf = null; }
+    // The bar's own resting geometry, read with any transform cleared so it
+    // is the layout box and not wherever a previous trip left it. The bar is
+    // fixed, so this does not move with the scroll and is measured once.
+    var homes = pairs.map(function (p) {
+      p.to.style.transform = 'none';
+      return p.to.getBoundingClientRect();
+    });
+    sourcesVisible(false, homes);
+
+    var end = dir === 'in' ? 0 : 1;
+    if (!ms) {                                   // outrun by the scroll
+      pairs.forEach(function (p, i) { place(p, homes[i], end); });
+      return Promise.resolve();
+    }
+
+    var ease = TRIP[dir].ease, start = performance.now();
+    return new Promise(function (done) {
+      raf = requestAnimationFrame(function step(now) {
+        var t = Math.min(1, (now - start) / ms);
+        var e = ease(t);
+        var f = dir === 'in' ? 1 - e : e;
+        pairs.forEach(function (p, i) { place(p, homes[i], f); });
+        if (t < 1) { raf = requestAnimationFrame(step); }
+        else { raf = null; done(); }
+      });
+    });
+  }
+
+  /* Fire while the exhibit is still well on screen, not once it has gone.
+     The observer's top edge is pulled down past the bar, so the hand-off
+     happens with the mount still in view and the journey long enough to be
+     legible as one — at 70px the trip was 35 pixels, too short to read as
+     travel at all. Waiting for it to clear the viewport entirely meant the
+     flight started from something that was no longer there. */
+  /* On a phone the mount is 104px tall, so a 150px line fires the hand-off
+     while the exhibit is still sitting whole in the middle of the screen —
+     and because its contents have left for the bar, you are looking at two
+     empty boxes. Narrow screens hand off later, once the exhibit has mostly
+     gone. Recomputed on a breakpoint change so a rotation does not strand it
+     on the wrong figure. */
+  var narrow = window.matchMedia('(max-width:860px)');
+  function handOff() { return narrow.matches ? 56 : 150; }
+
+  var up = false;
+  var trip = 0;   // guards against a reversal mid-flight
+
+  function observe(entries) {
+    var e = entries[0];
+    // Gone upward past the hand-off line — scrolling back above the sheet
+    // should not trigger it, nor should the mark sitting below on load.
+    var line = e.rootBounds ? e.rootBounds.top : 0;
+    var next = !e.isIntersecting && e.boundingClientRect.top < line;
+    if (next === up) return;
+    up = next;
+
+    var mine = ++trip;
+
+    /* One clock for the flight and the chrome fade, or they come apart at
+       speed — the ground would still be dissolving after the mark landed.
+       Written before the class flips, because that is what starts the CSS
+       transition and it reads the value at that instant. */
+    var ms = paceOf(TRIP[up ? 'in' : 'out'].duration);
+    bar.style.setProperty('--tb-fade', ms + 'ms');
+
+    if (up) {
+      bar.classList.remove('is-leaving');
+      bar.classList.add('is-up');
+      // No flight to hand off with, so the exhibit simply keeps its own.
+      if (still.matches) { sourcesVisible(true); return; }
+      fly('in', ms);
+      return;
+    }
+    // Going home: the bar has to stay mounted until they land, or they would
+    // vanish halfway back to the exhibit. Only the trip that is still the
+    // current one gets to turn the lights off — and the exhibit takes its
+    // wordmark back at exactly the moment the travelling one arrives on it.
+    if (still.matches) { bar.classList.remove('is-up'); sourcesVisible(true); return; }
+    bar.classList.add('is-leaving');
+    fly('out', ms).then(function () {
+      if (mine !== trip || up) return;
+      sourcesVisible(true);
+      bar.classList.remove('is-up', 'is-leaving');
+    });
+  }
+
+  var watcher = null;
+  function watch() {
+    if (watcher) watcher.disconnect();
+    watcher = new IntersectionObserver(observe,
+      { threshold: 0, rootMargin: '-' + handOff() + 'px 0px 0px 0px' });
+    watcher.observe(mark);
+  }
+  watch();
+  (narrow.addEventListener ? narrow.addEventListener.bind(narrow, 'change')
+                           : narrow.addListener.bind(narrow))(watch);
+})();
+</script>
+
+<!-- ---- the crew ------------------------------------------------------
+     Three mascots beside the monogram. Kept in its own module so a failure
+     to load three/WebGL takes the mascots down and nothing else: the sheet
+     is a document first and must read fine with this script deleted. -->
+<script type="module">
+  const crew = document.getElementById('crew');
+  if (crew && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    try {
+      const { MascotRenderer, randomizeMascot } = await import('./assets/mascot.js');
+      const slots = crew.querySelectorAll('.crew-slot');
+      const size = slots[0].width;
+
+      const staff = Array.from(slots, (canvas, i) => new MascotRenderer(
+        canvas,
+        randomizeMascot(),
+        {
+          size,
+          // Eye tracking. The renderer binds its own document-level mousemove
+          // and converts to world coords per canvas, so each one tracks from
+          // where it actually sits rather than sharing one gaze.
+          autoMouseTracking: true,
+          // They arrive built rather than popping in — the sheet is already
+          // loud in one place (Exhibit D) and does not need a second.
+          introOnLoad: i === 0 ? 'build' : false,
+        }
+      ));
+
+      // Only claim the layout space once at least one has parts on screen.
+      await Promise.allSettled(staff.map((m) => m.ready()));
+      crew.classList.add('is-live');
+
+      // Poking one wakes it and makes it react; the other two notice.
+      const REACTIONS = ['hop', 'wiggle', 'headTilt', 'nod', 'celebrate', 'surprise', 'wave'];
+      slots.forEach((canvas, i) => {
+        canvas.style.cursor = 'pointer';
+        canvas.addEventListener('click', () => {
+          staff[i].wake();
+          staff[i].play(REACTIONS[Math.floor(Math.random() * REACTIONS.length)]);
+          staff.forEach((m, j) => { if (j !== i) { m.wake(); m.play('headTilt'); } });
+        });
+      });
+
+      // Three WebGL contexts idling off-screen is rude on a laptop battery;
+      // the render loop pauses whenever the masthead scrolls away.
+      if ('IntersectionObserver' in window) {
+        new IntersectionObserver(
+          ([entry]) => staff.forEach((m) => m.setRendering(entry.isIntersecting)),
+          { rootMargin: '100px' }
+        ).observe(crew);
+      }
+    } catch (err) {
+      console.warn('[crew] mascots unavailable:', err);
+    }
+  }
+</script>
+</body>
+</html>
