@@ -82,7 +82,20 @@ pub struct AppState {
     pub last_tool: String,
     /// Ticks per agent call, so the UI can animate on repeats of the same tool.
     pub pings: u64,
+    /// The last few calls, newest last, each with the tick it happened on.
+    ///
+    /// A single `last_tool` is what the window polls, and the window polls every two
+    /// seconds — long enough for a reader to call `next`, `open` and `report` inside one
+    /// interval, which collapsed a whole cycle of work into one animation of whichever
+    /// call happened to be last. Keeping a short tail lets the mascot play the sequence
+    /// it actually missed. Bounded because it is a display buffer, not a log.
+    pub recent: std::collections::VecDeque<(u64, String)>,
 }
+
+/// How many calls the window can be behind before the tail stops being worth keeping.
+/// Eight is four poll intervals of a fast reader; anything older would animate a burst
+/// the user has already stopped watching for.
+const RECENT_CALLS: usize = 8;
 
 impl AppState {
     /// Write the project list to disk.
@@ -118,10 +131,17 @@ impl AppState {
         self.persist();
     }
 
+    /// Record a call. `tool` is the tool name, optionally suffixed with the outcome —
+    /// `sanity_report:hot` — because what the mascot should do about a reading depends on
+    /// what the reading said, and the name of the endpoint cannot carry that.
     pub fn ping(&mut self, tool: &str) {
         self.last_agent = Some(Instant::now());
         self.last_tool = tool.to_string();
         self.pings += 1;
+        self.recent.push_back((self.pings, tool.to_string()));
+        while self.recent.len() > RECENT_CALLS {
+            self.recent.pop_front();
+        }
     }
 
     /// Which project a call belongs to.
@@ -759,8 +779,8 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
     let Some(key) = state.for_client(p.project.as_deref()) else {
         return Json(Vec::new());
     };
-    state.ping("sanity_next");
     let Some(project) = state.projects.get_mut(&key) else {
+        state.ping("sanity_next");
         return Json(Vec::new());
     };
     project.last_agent = Some(Instant::now());
@@ -782,6 +802,11 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
     for t in &handed {
         project.leased.insert(t.id.clone(), now);
     }
+    // Handing out nothing when nothing is left is the end of the job, and the only moment
+    // in the protocol worth a flourish. Handing out nothing while work is still leased is
+    // an ordinary wait, so the two are pinged apart rather than both reading as "done".
+    let done = handed.is_empty() && work_left(project).0 == 0;
+    state.ping(if done { "sanity_next:done" } else { "sanity_next" });
     Json(handed)
 }
 
@@ -808,8 +833,8 @@ async fn report(
     let Some(key) = state.for_client(req.project.as_deref()) else {
         return Json(serde_json::json!({ "ok": false, "error": "no project open" }));
     };
-    state.ping("sanity_report");
     let Some(project) = state.projects.get_mut(&key) else {
+        state.ping("sanity_error");
         return Json(serde_json::json!({ "ok": false, "error": "no project open" }));
     };
     project.last_agent = Some(Instant::now());
@@ -829,6 +854,19 @@ async fn report(
     r.body = body.unwrap_or_default();
     r.by = crate::assessment::who(&project.repo);
     r.at = crate::assessment::head(&project.repo);
+
+    // What the reading said, before it is moved into the map. `Some`/`None` are the two
+    // grades that mean the reader was actually caught out — the same test the surprise
+    // rate is counted with, so the mascot and the hint cannot disagree about what
+    // "surprising" means. A report landing on an id that already held one is a re-read of
+    // work that expired, which is honest labour but not news.
+    let outcome = if project.reports.contains_key(&r.id) {
+        "sanity_report:stale"
+    } else if matches!(r.grades().0, Grade::Some | Grade::None) {
+        "sanity_report:hot"
+    } else {
+        "sanity_report:cold"
+    };
 
     project.reports.insert(r.id.clone(), r);
     // Written through on every report. An assessment is minutes of an agent's work and
@@ -863,6 +901,11 @@ async fn report(
     if let Some(e) = &write_error {
         hint = e.clone();
     }
+    // Last, once nothing else borrows the project. A write that failed must not look like
+    // a reading that landed — the mascot is the one part of the window a user watching
+    // from across the room can read, and a celebration over a report that was never saved
+    // is the same lie as a silent fallback file.
+    state.ping(if write_error.is_some() { "sanity_error" } else { outcome });
     Json(serde_json::json!({
         "ok": write_error.is_none(),
         "saved": write_error.is_none(),
@@ -877,9 +920,14 @@ async fn report(
 }
 
 async fn status(State(state): State<Shared>) -> Json<serde_json::Value> {
-    let Ok(state) = state.lock() else {
+    let Ok(mut state) = state.lock() else {
         return Json(serde_json::json!({ "open": false }));
     };
+    // Status counts as activity. It did not, and it is the call a driving loop makes most
+    // often, so a reader could poll for minutes with the window insisting nothing was
+    // happening. Its mood is deliberately the quietest in the set: at this frequency
+    // anything livelier would drown the calls that mean something.
+    state.ping("sanity_status");
     let projects: Vec<serde_json::Value> = state
         .projects
         .values()

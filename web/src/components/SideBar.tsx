@@ -146,7 +146,7 @@ export function SideBar({
           <div className="flex h-12 items-center pr-7">
             <div className="flex w-full gap-2.5" style={{ alignItems: 'last baseline' }}>
               <span className="shrink-0" style={{ marginBottom: -MASCOT_FLOOR_OFFSET }}>
-                <AgentMascot size={MASCOT_SIZE} phase={agent.tool} nonce={agent.nonce} active={agent.active} />
+                <AgentMascot size={MASCOT_SIZE} events={agent.events} active={agent.active} />
               </span>
               <span className="font-display min-w-0 flex-1 text-[14.5px] font-semibold uppercase leading-[1.4] tracking-tight">
                 Agent is {agent.active ? 'working' : 'sleeping'}

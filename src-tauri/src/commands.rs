@@ -243,10 +243,19 @@ pub fn agent_reports(
 /// writing a report goes quiet for tens of seconds at a time, and a shorter window would
 /// have the indicator flickering between working and asleep during one continuous batch.
 #[derive(serde::Serialize)]
+pub struct AgentCall {
+    /// Which ping this was. The window replays only the ones above the last it saw, so a
+    /// burst inside one poll interval animates as a burst rather than as its last frame.
+    seq: u64,
+    tool: String,
+}
+
+#[derive(serde::Serialize)]
 pub struct AgentActivity {
     active: bool,
     tool: String,
     nonce: u64,
+    events: Vec<AgentCall>,
 }
 
 #[tauri::command]
@@ -260,11 +269,17 @@ pub fn agent_activity(
             active: s.last_agent.is_some_and(|t| t.elapsed() < IDLE_AFTER),
             tool: s.last_tool.clone(),
             nonce: s.pings,
+            events: s
+                .recent
+                .iter()
+                .map(|(seq, tool)| AgentCall { seq: *seq, tool: tool.clone() })
+                .collect(),
         })
         .unwrap_or(AgentActivity {
             active: false,
             tool: String::new(),
             nonce: 0,
+            events: Vec::new(),
         })
 }
 

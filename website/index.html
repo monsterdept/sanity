@@ -794,6 +794,49 @@ img{max-width:100%; display:block}
   .topbar .tagline{font-size:11px}
 }
 
+/* ---------- dark: the same sheet, printed on dark stock ----------
+   The system decides; there is no toggle, because a toggle is a preference the
+   visitor has already stated once to their OS and would then have to state
+   again here — and a second copy of one setting drifts from the first.
+
+   Everything below is a re-declaration of the neutrals and nothing else. The
+   sheet's whole palette runs through the tokens in :root, so the layout, the
+   rules, the mats and the captions all follow without a single component being
+   touched — which is the test of whether the tokens were real. Three things
+   need saying beyond the swap, and they are the three noted inline.
+
+   The neutrals stay WARM. Sanity's paper is #F5F1EA, not white; the dark stock
+   is its counterpart — brown-black, not blue-black — so the two renderings read
+   as the same department at two times of day rather than as two brands.
+
+   The habitat's four (--ground, --ground-dark, --ground-tint, --accent) do NOT
+   change. They are data about the app, stated as swatches in 05 with their hex
+   printed beside them; a palette that reletters itself by ambient light is a
+   palette the sheet is lying about. */
+@media (prefers-color-scheme:dark){
+  :root{
+    /* --white is the page, --tint the panel lifted off it, --paper the ground a
+       full-screen overlay lays down. The same three roles, the same small steps
+       between them, walked in the other direction. */
+    --white:#131110; --paper:#1B1815; --tint:#201C19;
+    --ink:#F2EDE6; --ink-light:#C8C0B5; --muted:#8E857A; --muted-2:#A79D91;
+    --rule:#302B26; --rule-2:#453E37;
+  }
+  /* 1. The marks are ink on paper — flat #1A1A1A and #000 outlines with no
+        light variant to swap to. Inverted they land on #E5E5E5 and #FFF, which
+        is exactly what a light-on-dark version of them would be. Only these
+        two: the keeper's portrait and the app icon are pictures, not marks, and
+        a negative of either is a different photograph. */
+  .letterhead img,.topbar img,.ident .mount-lockup img{filter:invert(1)}
+  /* 2. The swatch hairline was a 10% ink wash, which on dark stock is a swatch
+        with no edge at all. */
+  .cw{border-color:rgba(255,255,255,.14)}
+  /* 3. --ground is a ground, not a text color: #895B77 under body copy on dark
+        stock is the one contrast the token swap cannot save. The accent is the
+        token that already carries "links on dark" in its own description. */
+  .get-more:hover,.get-more:focus-visible{color:var(--accent); border-bottom-color:var(--accent)}
+}
+
 /* ---------- print: it is a data sheet, it should print like one ---------- */
 @media print{
   body{font-size:11px}

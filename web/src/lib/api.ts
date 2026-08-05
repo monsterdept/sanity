@@ -157,10 +157,18 @@ function toNode(w: WireNode): Node {
   }
 }
 
+export interface AgentCall {
+  seq: number
+  tool: string
+}
+
 export interface AgentActivity {
   active: boolean
   tool: string
   nonce: number
+  /** The last few calls, oldest first. The poll is slower than a working reader, so a
+   *  single tool name would show whichever call happened to land last and lose the rest. */
+  events: AgentCall[]
 }
 
 /** Is an agent driving sanity right now? Polled so the sidebar can say so — and, just as
@@ -170,6 +178,7 @@ export function agentActivity(): Promise<AgentActivity> {
     active: false,
     tool: '',
     nonce: 0,
+    events: [],
   }))
 }
 

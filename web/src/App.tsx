@@ -112,7 +112,12 @@ export default function App() {
   useEffect(() => {
     void syncThemeMenu(theme)
   }, [theme])
-  const [agent, setAgent] = useState<AgentActivity>({ active: false, tool: '', nonce: 0 })
+  const [agent, setAgent] = useState<AgentActivity>({
+    active: false,
+    tool: '',
+    nonce: 0,
+    events: [],
+  })
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [activeKey, setActiveKey] = useState<string | null>(null)
   /** The project the BACKEND considers active — the one an agent last called about.
@@ -121,7 +126,6 @@ export default function App() {
    *  until you click another project in the sidebar, and then they do not: the agent
    *  keeps reporting to its own repo while you look at a different one. */
   const [agentKey, setAgentKey] = useState<string | null>(null)
-  const nonce = useRef(0)
   // The path of whatever is on screen, so changing the model can re-scan it rather than
   // making the user find the directory again.
   const lastPath = useRef<string | null>(null)
@@ -363,8 +367,6 @@ export default function App() {
       setPicked(null)
     }
   }, [scan, focus])
-
-  if (busy) nonce.current += 1
 
   return (
     <div className="relative flex h-full flex-col">

@@ -1,4 +1,5 @@
 import { Suspense, lazy } from 'react'
+import type { AgentCall } from '../lib/api'
 
 /** The neo-mascots bundle plus three.js is ~1.2MB — larger than the rest of the app put
  *  together — and it's only needed while a scan is actually running. Loading it lazily
@@ -10,20 +11,18 @@ const MascotFigure = lazy(() => import('./MascotFigure'))
  *  on its own, and reserving the box keeps the row from reflowing. */
 export function AgentMascot({
   size = 44,
-  phase,
-  nonce,
+  events,
   active,
 }: {
   size?: number
-  phase: string
-  nonce: number
+  events: AgentCall[]
   active: boolean
 }) {
   return (
     <Suspense
       fallback={<span style={{ width: size, height: size }} className="shrink-0" aria-hidden />}
     >
-      <MascotFigure size={size} phase={phase} nonce={nonce} active={active} />
+      <MascotFigure size={size} events={events} active={active} />
     </Suspense>
   )
 }
