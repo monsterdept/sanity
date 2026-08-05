@@ -3,15 +3,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sanity — Habitat report — The Monster Dept</title>
-<meta name="description" content="Sanity draws a repo as concentric rings. Width is lines; colour is how much of it nobody saw coming.">
+<title>Sanity — Tool detail — The Monster Dept</title>
+<meta name="description" content="Sanity draws a repo as rings of directories, files and functions. Color represents surprise: wedges run hot when an agent couldn't predict their content.">
+<link rel="canonical" href="https://sanity.monster/">
+<!-- How the sheet unfurls when a link to it is passed around. The image is
+     Exhibit E — the tool with real numbers in it — because a link
+     preview is a photograph, not a letterhead. -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://sanity.monster/">
+<meta property="og:site_name" content="The Monster Dept">
+<meta property="og:title" content="Sanity — Understand what you build">
+<meta property="og:description" content="A repo as rings of directories, files and functions. Color represents surprise: wedges run hot when an agent couldn't predict their content.">
+<meta property="og:image" content="https://sanity.monster/assets/screenshot.png">
+<!-- The real pixel size of screenshot.png. Some readers lay out the card
+     before the image arrives, and a wrong ratio reflows it.
+     sips -g pixelWidth -g pixelHeight assets/screenshot.png -->
+<meta property="og:image:width" content="1600">
+<meta property="og:image:height" content="1000">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Sanity — Understand what you build">
+<meta name="twitter:description" content="A repo as rings of directories, files and functions. Color represents surprise: wedges run hot when an agent couldn't predict their content.">
+<meta name="twitter:image" content="https://sanity.monster/assets/screenshot.png">
 <link rel="icon" href="./assets/favicon.svg">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- IBM Plex Sans and Mono are department chrome and are the same on every
-     sheet. The display face is the habitat's own — whatever its wordmark is
-     set in — so it is named here and again in --display below. -->
-<link href="https://fonts.googleapis.com/css2?family=LINE+Seed+JP:wght@400;700&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="apple-touch-icon" href="./assets/apple-touch-icon.png">
+<!-- Fonts are vendored like everything else (assets/fonts, latin subset only)
+     so the sheet makes no third-party requests and reads fine offline. The
+     three faces above the fold are preloaded; the rest arrive with the CSS. -->
+<link rel="preload" href="./assets/fonts/ibm-plex-sans-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="./assets/fonts/display.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="./assets/fonts/ibm-plex-mono-500.woff2" as="font" type="font/woff2" crossorigin>
 
 <!-- The mascot bundle is built as a library with three and react left as peer
      imports. This sheet has no build step, so the deps are vendored under
@@ -27,8 +47,39 @@
 }
 </script>
 <style>
+/* IBM Plex Sans and Mono are department chrome and are the same on every
+   sheet — copied from the template, not re-subset here. */
+@font-face{
+  font-family:'IBM Plex Sans'; font-style:normal; font-weight:300 600; font-display:swap;
+  src:url(./assets/fonts/ibm-plex-sans-var.woff2) format('woff2');
+}
+@font-face{
+  font-family:'IBM Plex Sans'; font-style:italic; font-weight:400; font-display:swap;
+  src:url(./assets/fonts/ibm-plex-sans-italic.woff2) format('woff2');
+}
+@font-face{
+  font-family:'IBM Plex Mono'; font-style:normal; font-weight:400; font-display:swap;
+  src:url(./assets/fonts/ibm-plex-mono-400.woff2) format('woff2');
+}
+@font-face{
+  font-family:'IBM Plex Mono'; font-style:normal; font-weight:500; font-display:swap;
+  src:url(./assets/fonts/ibm-plex-mono-500.woff2) format('woff2');
+}
+@font-face{
+  font-family:'IBM Plex Mono'; font-style:normal; font-weight:600; font-display:swap;
+  src:url(./assets/fonts/ibm-plex-mono-600.woff2) format('woff2');
+}
+/* The habitat's own face, vendored the same way: LINE Seed JP, latin subset,
+   weight 400 only. The CDN link asked for 400 and 700 and the sheet has never
+   set 700 anywhere — the second weight was a whole extra file fetched to be
+   ignored. The wordmark is an SVG and carries its own outlines, so this face is
+   set in exactly two places: the tagline in Exhibit B and the running head. */
+@font-face{
+  font-family:'LINE Seed JP'; font-style:normal; font-weight:400; font-display:swap;
+  src:url(./assets/fonts/display.woff2) format('woff2');
+}
 /* ============================================================
-   MONSTER DEPT — HABITAT REPORT
+   MONSTER DEPT — TOOL DETAIL
    A template for one habitat. Everything above the RECORD comment
    is shared chrome; everything below it is per-habitat content.
    Tokens are lifted verbatim from monsterdept.com/brand.
@@ -79,39 +130,78 @@ img{max-width:100%; display:block}
 .hair{height:1px; background:var(--rule); border:0; margin:0}
 
 /* ---------- masthead ----------
-   The department's letterhead: monogram and issuer at left, the form's
-   own number and build at right. The habitat's own marks live in 01. */
-.mast{display:flex; justify-content:space-between; align-items:center; gap:40px; padding:44px 0 30px}
-.letterhead{display:flex; align-items:center; gap:18px}
-.letterhead img{width:58px; height:auto}
-/* Three of them, overlapped slightly so they read as a group standing
-   together rather than three separate specimens in a row — the overlap is
-   smaller than the transparent margin inside each canvas, so they crowd
-   without clipping. Pulled in tight to the monogram: the letterhead's 18px
-   gap is the spacing between the mark and the issuer rule, not between the
-   mark and its own staff. */
-.crew{display:flex; align-items:flex-end; margin-right:-13px}
+   The department's letterhead: monogram and issuer, at left. The habitat's own
+   marks live in 01.
+
+   The form number and build used to sit opposite, at the right. They are gone:
+   the version was a second, quieter claim about which build this is, and the
+   download control in 01 already makes that claim loudly and correctly. Two
+   places to update meant one of them was going to be wrong. */
+.mast{display:flex; justify-content:space-between; align-items:baseline; gap:40px; padding:44px 0 30px}
+/* ONE number drives the whole letterhead — --slug, the type size. Every other
+   measure here is a multiple of it (monogram width, its baseline nudge, the
+   divider's height and margins, the word space), so the line can resize without
+   any of the four gaps drifting apart. It is fluid because at a fixed 36px the
+   line wrapped to two lines between ~430 and ~560px, which no gap tuning fixes.
+
+   The number is MEASURED, not chosen: set --slug to a flat 36px, load the sheet
+   wide, read the rendered width of .letterhead, and divide by 36. Here that is
+   508.02 / 36. Change the form name or the subject and it is wrong; re-measure
+   rather than guess. Wrong low and the line runs off a phone; wrong high and it
+   never reaches full size.
+   Interpolating from the sibling sheets is NOT measuring. The two of them give
+   13.6 for a five-character subject and 14.75 for seven, and the midpoint for
+   SANITY's six is 14.175 — which is off by .06 and in the direction that quietly
+   costs the line its last pixel of size. The type is monospaced but the subject
+   is set in a heavier weight than the category, so the run is not quite linear. */
+.letterhead{--slug:clamp(20px, calc((100vw - 88px) / 14.112), 36px);
+  display:flex; align-items:baseline; gap:0}
+.letterhead img{width:calc(var(--slug) * 1.6); height:auto; position:relative; top:calc(var(--slug) * .0977)}
+.letterhead .issuer{
+  font-family:var(--mono); font-size:var(--slug); letter-spacing:.04em; text-transform:uppercase;
+  color:var(--muted); font-weight:500; line-height:1; white-space:nowrap;
+  /* One gap for the whole line — .5972em of ink-to-ink air, used between the
+     monogram and the rule, the rule and the T, the two words, and the colon and
+     the subject. Mono's own word space is far wider than that, so it is pulled
+     back to the same measure. */
+  word-spacing:calc(var(--slug) * -.2267);
+}
+.letterhead .issuer b{color:var(--ink); font-weight:600; margin-left:.319em}
+.letterhead .issuer .c{margin-left:-.2em}
+.letterhead .div{
+  width:1px; height:calc(var(--slug) * .698);   /* the monogram's ink exactly: cap line to baseline */
+  flex:0 0 auto;
+  /* The same .5972em of air on each side, measured from ink: the monogram's
+     canvas holds .0977em of transparent margin at its right edge and the T
+     carries a .025em left bearing, so each margin is the gap less what the
+     glyph already gives. */
+  margin-left:calc(var(--slug) * .4995); margin-right:calc(var(--slug) * .5722);
+  /* A hairline at --rule against 36px text was two different pages meeting: one
+     nearly white, one nearly ink. They are moved toward each other — the line
+     up off the neutrals, the type down off ink — so they read as one object. */
+  background:var(--rule-2);
+  background:color-mix(in srgb, var(--muted) 60%, var(--paper));
+}
+/* Three of them, overlapped slightly so they read as a group standing together
+   rather than three separate specimens in a row — the overlap is smaller than
+   the transparent margin inside each canvas, so they crowd without clipping.
+   They stand at the right edge of the masthead, opposite the mark they answer
+   to.
+
+   They stand ON the letterhead's baseline, like the monogram and the type: the
+   masthead aligns on baselines, a canvas's baseline is its bottom edge, and the
+   mascots' feet sit 2px above that edge (the rest of the canvas is their
+   shadow), so the negative margin drops the feet onto the line. */
+.crew{display:flex; align-items:flex-end; margin-bottom:-2px}
 .crew-slot{
   width:34px; height:34px; display:block; flex:0 0 auto;
   margin-right:-6px; /* the overlap; last one is reset below */
 }
 .crew-slot:last-child{margin-right:0}
 /* Nothing to show until a mascot is actually mounted — an empty canvas would
-   still take its 52px and push the monogram off the optical left edge. */
+   still take its 96px of masthead. */
 .crew:not(.is-live){display:none}
-.letterhead .issuer{
-  font-family:var(--mono); font-size:10.5px; letter-spacing:.14em; text-transform:uppercase;
-  color:var(--muted); line-height:1.9; border-left:1px solid var(--rule); padding-left:18px;
-}
-.letterhead .issuer b{color:var(--ink); font-weight:500}
 .vh{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap}
-.mast-meta{
-  font-family:var(--mono); font-size:10.5px; line-height:1.9; color:var(--muted);
-  letter-spacing:.05em; text-align:right; white-space:nowrap;
-}
-.mast-meta b{color:var(--ink); font-weight:500}
-/* A ruled divider between paired facts — the row already uses · inside a value. */
-.mast-meta .lb{color:var(--rule-2); margin:0 11px}
 
 /* ---------- the running head ----------
    Once Exhibit A has scrolled away, the three things that identify the app
@@ -185,8 +275,8 @@ img{max-width:100%; display:block}
 
 /* ---------- 01 identifying marks ----------
    What identifies the habitat: its marks, its own account of itself, and the
-   build you can take away. The app icon belongs downstream in Acquisition,
-   labelling what you install.
+   build you can take away. The app icon belongs downstream in Packages,
+   labeling what you install.
    Four cells on one row: the lockup, the tagline, the written description,
    and the build itself. */
 /* A record row, not three floating blocks: every cell is a ruled field of
@@ -205,7 +295,7 @@ img{max-width:100%; display:block}
 .ident > *:nth-child(4){grid-column:3}
 
 .ident > *{display:flex; flex-direction:column; margin:0; min-width:0}
-/* The figure is mounted, not set loose in the column: it sits centred on a
+/* The figure is mounted, not set loose in the column: it sits centered on a
    tinted ground with real air around it, the same way the plates in 03 sit
    inside their frames. Flush against the cell edges it read as a stray image. */
 .ident .mount{
@@ -226,7 +316,7 @@ img{max-width:100%; display:block}
 }
 .ident .mount-lockup img{max-height:46px}
 /* The tagline presented the way the brand sheet presents a mark: set large in
-   the wordmark's own face, centred on its field inside a dashed boundary. */
+   the wordmark's own face, centered on its field inside a dashed boundary. */
 .ident .mount-tag{
   align-items:center; justify-content:center; padding:26px 32px;
   border:1px dashed var(--rule-2);
@@ -257,24 +347,39 @@ img{max-width:100%; display:block}
    exhibits A and B already do that job two cells over, and this is a control,
    which wants a plain, sturdy label.
 
+   The block is the department's standard arrangement, shared with the other
+   sheets: the build named over its specification at the left, the direction at
+   the right, the ledger link underneath. What is Sanity's own is the space
+   between those two. Sanity reads code and cools as it goes, so pointing at the
+   button fills that space with the thing Sanity makes — a ring of wedges,
+   unequal because width is lines, arriving bright and draining to accent as
+   they are read. The arrow is the rim being closed around them.
+
+   Everything is skinned off the four palette tokens, so the Palette row in
+   Specifications is the only place any of these colors is decided.
+
    Three things must survive any edit here:
      · <a id="get">        — href carries the version, rewritten on release
      · <span id="get-fmt"> — the line the platform sniff replaces, so it has to
                              survive a longer label than the markup's; it wraps
                              rather than overflowing
      · the ledger link      — 06 stays one click away
-   No script behind it: delete every one on the sheet and this still reads
-   "Sanity · macOS · DMG" and still downloads. */
+   And it is still a document: the ring is decoration, so it is drawn on a canvas
+   the script makes for itself, it is aria-hidden, and the link carries the verb
+   in its aria-label. Delete every script on the sheet and this is a plain block
+   that reads "Sanity · macOS · DMG" with a real ↓ in it, and still downloads.
+   Reduced motion never draws a frame. */
 .get-ticket{margin:12px 0 0}
 .get-btn{
   display:flex; align-items:center; justify-content:space-between; gap:14px;
   border:0; padding:16px 18px; text-decoration:none;
   background:var(--ground); transition:background 150ms ease;
+  position:relative; overflow:hidden;   /* the field the ring is drawn in */
 }
 .get-btn:hover,.get-btn:focus-visible{background:var(--ground-dark)}
 .get-btn:focus-visible{outline:2px solid var(--ink); outline-offset:3px}
 /* Name over specification, tight — one object, two registers. */
-.get-say{display:flex; flex-direction:column; gap:4px; min-width:0; text-align:left}
+.get-say{display:flex; flex-direction:column; gap:4px; min-width:0; text-align:left; position:relative; z-index:1}
 .get-name{font-size:15px; font-weight:600; letter-spacing:.01em; color:var(--white); line-height:1.25}
 .get-btn .fmt{
   font-family:var(--mono); font-size:9.5px; letter-spacing:.14em;
@@ -282,7 +387,23 @@ img{max-width:100%; display:block}
 }
 /* The direction. Decoration — the link carries the verb in its aria-label — so
    it is aria-hidden and never the only thing saying what this does. */
-.get-arr{font-size:18px; line-height:1; color:var(--white); flex:0 0 auto}
+.get-arr{
+  font-size:18px; line-height:1; color:var(--white); flex:0 0 auto;
+  position:relative; z-index:1;
+  transition:color 200ms ease, translate 200ms cubic-bezier(.4,0,.2,1);
+}
+.get-btn:hover .get-arr,.get-btn:focus-visible .get-arr{color:var(--ground-tint); translate:0 2px}
+/* Once the canvas is drawing, IT draws the arrow — the glyph goes invisible
+   rather than away, because its box is what the ring is measured against. */
+.get-btn.has-ring .get-arr{visibility:hidden}
+/* The ring's field. Inserted by script: no canvas exists unless something is
+   going to draw in it, and it never takes a click meant for the button. */
+.get-ring{position:absolute; inset:0; pointer-events:none}
+/* It is still a document: nothing moves for anyone who asked it not to. The
+   script draws no frames under reduced motion, and the arrow holds still. */
+@media (prefers-reduced-motion:reduce){
+  .get-btn:hover .get-arr,.get-btn:focus-visible .get-arr{translate:none}
+}
 /* The way out of the one build: 06 carries the whole ledger. Dotted until you
    point at it, then solid — a link you might want, versus one you are taking. */
 .get-more{
@@ -304,6 +425,9 @@ img{max-width:100%; display:block}
 /* Exhibit C is the habitat's own plain account of itself. */
 .self{margin:0}
 .self p{margin:0; font-size:16.5px; font-weight:300; line-height:1.7; color:var(--ink)}
+/* The block is two beats — what it draws, then the turn. Only the second paragraph
+   needs the gap, so the rule sits on the sibling rather than on every p. */
+.self p + p{margin-top:.9em}
 
 /* ---------- 02 findings ---------- */
 .findings{display:grid; grid-template-columns:repeat(3,1fr); border:1px solid var(--rule)}
@@ -365,7 +489,7 @@ img{max-width:100%; display:block}
   font-family:var(--mono); font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
 }
 .lightbox-top .who b{color:var(--ink); font-weight:500}
-/* The stage is a positioned box and the plate is absolutely centred inside it.
+/* The stage is a positioned box and the plate is absolutely centered inside it.
    A plain flex child with max-height:100% has no definite height to resolve
    against, so the image spills past the footer. */
 .lightbox-stage{flex:1 1 auto; position:relative; min-height:0; margin:22px 0}
@@ -416,12 +540,10 @@ img{max-width:100%; display:block}
 .spec td{font-size:14.5px; font-weight:300; color:var(--ink-light)}
 .spec td b{font-weight:500; color:var(--ink)}
 .spec code{font-family:var(--mono); font-size:13px; color:var(--ink)}
-/* One fact per line. Where a line names a thing and then describes it, the
-   name sits in its own column so the values stack — a dash between them just
-   made three ragged sentences. */
+/* One fact per line, as a sentence — the same shape every other sheet in the
+   department uses. A term/value split was tried here and read as a second table
+   inside the table. */
 .spec .line{display:block}
-.spec .line:has(.t){display:grid; grid-template-columns:var(--term,auto) minmax(0,1fr); column-gap:16px}
-.spec .line .t{color:var(--ink)}
 
 /* Palette: the app's four, a divider, then the system neutrals it shares
    with every other sheet — one line, no names. The line beneath describes
@@ -435,7 +557,7 @@ img{max-width:100%; display:block}
 .cw-read{margin:11px 0 0; min-height:1.6em}
 .cw-read .hex{font-family:var(--mono); font-size:12.5px; color:var(--ink)}
 
-/* ---------- 06 acquisition ----------
+/* ---------- 06 packages ----------
    The app icon sits here: it is what lands in your Applications folder,
    so it labels the download rather than the description. */
 /* The icon needs room to read as a mounted exhibit rather than a bullet
@@ -447,7 +569,7 @@ img{max-width:100%; display:block}
    macOS twice and Linux twice and made you read the first column to find
    yourself; grouped, you find your platform once and everything under it is
    yours. Same label-gutter shape as Specifications above — the sheet has one
-   way of setting a labelled list and this is it. */
+   way of setting a labeled list and this is it. */
 .dl{width:100%; max-width:760px; border-collapse:collapse; border-top:1px solid var(--rule)}
 .dl th,.dl td{text-align:left; vertical-align:top; border-bottom:1px solid var(--rule)}
 .dl th{
@@ -560,7 +682,9 @@ img{max-width:100%; display:block}
 .colophon img{width:64px; height:auto}
 .colophon a{border:0; color:var(--muted)}
 .colophon a:hover{color:var(--ink)}
-.colophon .issuer{line-height:1.8}
+.colophon .issuer{display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; line-height:1.8}
+.colophon .sep{color:var(--rule-2)}
+.colophon .brk{flex-basis:100%; height:0}
 .colophon .issuer b{color:var(--ink); font-weight:500}
 .colophon .issuer a{border-bottom:1px solid var(--rule-2)}
 .colophon .issuer a:hover b{color:var(--ink)}
@@ -570,14 +694,10 @@ img{max-width:100%; display:block}
 /* ---------- narrow ---------- */
 @media (max-width:860px){
   .sheet{padding:0 22px 64px}
-  /* The letterhead and the form number are one block, not two things that
-     happen to be stacked — at a 22px gap with the meta on two lines of its
-     own it read as an orphan. Close up, and the pair goes on one line. */
   .mast{flex-direction:column; align-items:flex-start; gap:10px; padding:30px 0 24px}
-  .mast-meta{text-align:left}
-  .mast-meta br{display:none}
-  .mast-meta b{margin-right:26px}
-  .mast-meta b:last-of-type{margin-right:0}
+  /* Stacked, the staff would fall under the letterhead rather than stand
+     opposite it — and they say nothing the monogram does not. Send them home. */
+  .crew{display:none}
   .mast h1{font-size:44px}
   .field > h2{font-size:19px}
   .field .body{padding:22px 0 40px}
@@ -609,16 +729,10 @@ img{max-width:100%; display:block}
   .strip .plate img{height:138px}
   .spec th{width:auto; display:block; padding-bottom:4px; border-bottom:0}
   .spec td{display:block; padding-top:0}
-  /* Narrower columns, but still columns. Stacking the term above its value
-     turned the spec table into a flat list where "macOS 13+" and "arm64"
-     looked like two entries rather than a term and its value — the pairing
-     IS the table. The inline --term widths are overridden; they are sized
-     for the desktop measure. */
-  .spec .line:has(.t){grid-template-columns:minmax(84px,38%) minmax(0,1fr); column-gap:14px}
   .spec .line + .line{margin-top:7px}
   /* Nine fixed 52px swatches in a nowrap row is 537px, and because it sits in
      a table cell it was setting the width of the whole sheet — this was what
-     made the page scroll sideways, not anything in Acquisition. */
+     made the page scroll sideways, not anything in Packages. */
   .palette{gap:5px}
   .palette .sep{margin:0 4px}
   /* Sharing the row rather than wrapping: nine fixed swatches wrapped 8+1 and
@@ -656,10 +770,8 @@ img{max-width:100%; display:block}
 @media (max-width:430px){
   .sheet{padding:0 16px 56px}
   .field > h2{font-size:17px; gap:10px}
-  .crew-slot{width:28px; height:28px; margin-right:-5px}
-  .letterhead{gap:12px}
-  .letterhead img{width:46px}
-  .letterhead .issuer{padding-left:12px; font-size:9.5px; letter-spacing:.1em}
+  /* Nothing to override in the letterhead: --slug already floors at 20px, and
+     every measure in it is a multiple of --slug. */
   .ident .mount-tag .tagline{font-size:24px}
   .ident .mount{height:104px}
   .self p{font-size:15px}
@@ -688,34 +800,31 @@ img{max-width:100%; display:block}
 
 <!-- The running head. aria-hidden and inert: every word in it is already in
      the document as Exhibits A and B, and a screen reader should meet them
-     once, in order, where they are catalogued — not again on every scroll. -->
+     once, in order, where they are cataloged — not again on every scroll. -->
 <div class="topbar" id="topbar" aria-hidden="true" inert>
   <div class="topbar-in">
     <img src="./assets/wordmark.svg" alt="">
-    <p class="tagline">Understand what was built</p>
+    <p class="tagline">Understand what you build</p>
   </div>
 </div>
 
 <main class="sheet">
 
   <!-- ============================ MASTHEAD ============================ -->
-  <h1 class="vh">Sanity — Habitat report — The Monster Dept</h1>
+  <h1 class="vh">Sanity — Tool detail — The Monster Dept</h1>
   <header class="mast">
     <div class="letterhead">
-      <!-- The department's staff, standing to the left of its mark. Purely
-           decorative and aria-hidden: they say nothing the monogram does not.
-           Canvases are only filled if WebGL and motion are both available. -->
-      <div class="crew" id="crew" aria-hidden="true">
-        <canvas class="crew-slot" width="34" height="34"></canvas>
-        <canvas class="crew-slot" width="34" height="34"></canvas>
-        <canvas class="crew-slot" width="34" height="34"></canvas>
-      </div>
       <img src="./assets/md-monogram.svg" alt="The Monster Dept monogram">
-      <span class="issuer"><b>The Monster Dept</b><br>Habitat report</span>
+      <span class="div" aria-hidden="true"></span>
+      <span class="issuer">Tool detail<span class="c">:</span><b>Sanity</b></span>
     </div>
-    <div class="mast-meta">
-      FORM &nbsp;<b>MD·HR</b><br>
-      VERSION &nbsp;<b>__VERSION__</b>
+    <!-- The department's staff, standing at the far side of the letterhead.
+         Purely decorative and aria-hidden: they say nothing the monogram does
+         not. Canvases are only filled if WebGL and motion are both available. -->
+    <div class="crew" id="crew" aria-hidden="true">
+      <canvas class="crew-slot" width="34" height="34"></canvas>
+      <canvas class="crew-slot" width="34" height="34"></canvas>
+      <canvas class="crew-slot" width="34" height="34"></canvas>
     </div>
   </header>
 
@@ -723,7 +832,7 @@ img{max-width:100%; display:block}
 
   <!-- 01 -->
   <section class="field">
-    <h2><span class="n">01</span> Identifying marks</h2>
+    <h2><span class="n">01</span> Identity</h2>
     <div class="body">
     <div class="ident">
       <figure>
@@ -734,14 +843,15 @@ img{max-width:100%; display:block}
       </figure>
       <figure>
         <div class="mount mount-tag">
-          <p class="tagline">Understand what was built</p>
+          <p class="tagline">Understand what you build</p>
         </div>
         <figcaption><b>Exhibit B</b>Tagline</figcaption>
       </figure>
       <figure class="self">
         <!-- FILL: what it is, in the habitat's own voice. Four sentences at most.
              Say what it does, then the one thing about it that is unusual. -->
-        <p>Sanity draws a repo as concentric rings. Width is lines — the axis you already know, and the one that tells you nothing. Colour is the part worth having: how much of the code a careful reader could not have predicted from its name, its neighbours and its documentation. Explain a function well and the next reading of it is genuinely less surprising, so the map drains as you tour it.</p>
+        <p>Sanity is a code visualizer and explorer. It draws the structure of a project as a radial map you can drill into, ring by ring, to study an entire repo or a single function. Code segments can be colored by age, churn, language, or owner.</p>
+        <p>But they can also be colored by <em>surprise</em>: how accurately a coding agent predicts a function's contents from its name, signature, location, neighbors, and docs.</p>
         <figcaption><b>Exhibit C</b>Description</figcaption>
       </figure>
       <!-- href and label are rewritten to the visitor's platform on load;
@@ -765,7 +875,7 @@ img{max-width:100%; display:block}
             </span>
             <span class="get-arr" aria-hidden="true">↓</span>
           </a>
-          <a class="get-more" href="#acquisition">Other install options</a>
+          <a class="get-more" href="#packages">Other install options</a>
         </div>
         <figcaption><b>Exhibit D</b>Download control</figcaption>
       </figure>
@@ -780,15 +890,15 @@ img{max-width:100%; display:block}
     <div class="findings">
       <div>
         <span class="lbl">What it does</span>
-        <p>Reads a repo and draws it as rings — directories, then files, then the chunks inside them. <b>Width is lines. Colour is surprise.</b> The two are measured independently.</p>
+        <p>Draws a repo as <b>rings</b> representing directories, files, and the functions inside them. See their relative size, and drill in.</p>
       </div>
       <div>
         <span class="lbl">The twist</span>
-        <p>Boilerplate is <b>code a reader can predict from its context</b>. So the colour is not size, complexity or coverage — it is how much of the body its own name, neighbours and comments already gave away.</p>
+        <p>Color represents <b>surprise</b>: wedges run hot when an agent couldn’t predict their content. Obvious functions go cold, slop lights up.</p>
       </div>
       <div>
         <span class="lbl">The other twist</span>
-        <p>The reader can be an agent. Over MCP it is handed a name and its docs but <b>never the body</b>, commits to a prediction, then reads and reports the gap.</p>
+        <p>Honest docs <b>lower</b> surprise, while bad ones make it worse. Improve them, then rescan to see if your code has become friendlier.</p>
       </div>
     </div>
     </div>
@@ -802,7 +912,7 @@ img{max-width:100%; display:block}
       <div class="strip">
         <button class="plate" type="button">
           <img src="./assets/screenshot.png"
-               data-cap="Occupant charted whole. Width was assigned by line count; colour was withheld until something had read the code."
+               data-cap="Occupant charted whole. Width was assigned by line count; color was withheld until something had read the code."
                alt="The full map of a repository: concentric rings for directories, files and the chunks inside them.">
         </button>
         <button class="plate" type="button">
@@ -817,17 +927,17 @@ img{max-width:100%; display:block}
         </button>
         <button class="plate" type="button">
           <img src="./assets/plate-4.png"
-               data-cap="The same reading, laid over the source it came from. The gutter carries the colour; the map at right carries the whole file."
+               data-cap="The same reading, laid over the source it came from. The gutter carries the color; the map at right carries the whole file."
                alt="The code view: syntax on the left, a heat gutter beside each line, and a minimap of the file's temperature.">
         </button>
         <button class="plate" type="button">
           <img src="./assets/plate-5.png"
-               data-cap="One geometry, five questions. The rings do not move when the question changes — only what their colour means."
-               alt="The colour-mode switcher, with the same repository drawn by churn instead of surprise.">
+               data-cap="One geometry, five questions. The rings do not move when the question changes — only what their color means."
+               alt="The color-mode switcher, with the same repository drawn by churn instead of surprise.">
         </button>
         <button class="plate" type="button">
           <img src="./assets/plate-6.png"
-               data-cap="Enclosure occupied. The occupant reads on its own; the keeper watches the colour arrive."
+               data-cap="Enclosure occupied. The occupant reads on its own; the keeper watches the color arrive."
                alt="The agent panel while an MCP session works through the repository, with the progress of the assessment.">
         </button>
       </div>
@@ -844,8 +954,8 @@ img{max-width:100%; display:block}
       <div class="notes">
         <!-- FILL: first person, past tense, no marketing. Why it was built, and
              one thing that surprised you while building it. Two paragraphs. -->
-        <p>Generating code got cheap, so understanding it became the bottleneck. I wanted a picture of my own repos that could tell me where the real decisions were — not where the most lines were, which I already knew and which never helped.</p>
-        <p>What surprised me was how hard it is to stop a metric flattering you. The first honest version put <span class="pill">fn main()</span> at the top of the rankings, and a later one let a confidently wrong comment cool a wedge — documentation that was <em>wrong</em> made the map calmer. Both are fixed, and both are why every reading here can say "I don't know" instead of guessing.</p>
+        <p>We all write a ton of code, especially now. Most of it is a mess. Our coding agents slog through, making the same mistakes. They repeat mistakes because they repeat the assumptions behind them.</p>
+        <p>This is something that we can measure: how much do an agent’s expectations of a codebase diverge from reality? I expected it to generate a worklist; I didn’t expect it to be genuinely beautiful.</p>
       </div>
       <figure class="portrait">
         <div class="mount"><img src="./assets/keeper.webp" alt="Ross, Monsterkeeper"></div>
@@ -877,30 +987,29 @@ img{max-width:100%; display:block}
                 <button class="cw" type="button" style="--c:var(--muted)" data-hex="#8B8279" data-use="Muted — secondary text"></button>
                 <button class="cw" type="button" style="--c:var(--ink)"   data-hex="#1A1A1A" data-use="Ink — body text, marks"></button>
               </div>
-              <p class="cw-read" id="cw-read" data-default="A rose ground with the department's shared teal accent, over the same paper-and-ink neutrals as every other sheet.">A rose ground with the department's shared teal accent, over the same paper-and-ink neutrals as every other sheet.</p>
+              <p class="cw-read" id="cw-read" data-default="A rose ground with a teal accent, over the dept's shared paper-and-ink neutrals.">A rose ground with a teal accent, over the dept's shared paper-and-ink neutrals.</p>
             </td>
           </tr>
           <tr>
             <th scope="row">Platform</th>
-            <td style="--term:104px">
-              <span class="line"><span class="t">macOS</span><span class="v">macOS 13+ <b>arm64</b></span></span>
-              <span class="line"><span class="t">Windows</span><span class="v">Windows 10+ <b>x86-64, arm64</b></span></span>
-              <span class="line"><span class="t">Linux</span><span class="v">Linux <b>x86-64</b></span></span>
+            <td>
+              <span class="line">macOS 13+ (arm64)</span>
+              <span class="line">Windows 10+ (x86-64, arm64)</span>
+              <span class="line">Linux (x86-64)</span>
             </td>
           </tr>
           <tr>
             <th scope="row">Interface</th>
-            <td style="--term:124px">
+            <td>
               <!-- FILL: one line per surface the habitat presents. Term, then what it is. -->
-              <span class="line"><span class="t">Desktop app</span><span class="v">Tauri shell, Rust core, React front end</span></span>
-              <span class="line"><span class="t">MCP server</span><span class="v">launch Sanity with <span class="pill">mcp</span> to serve over stdio</span></span>
+              <span class="line">Desktop app (Tauri shell, Rust core, React front end)</span>
+              <span class="line">MCP server over stdio (launch Sanity with <span class="pill">mcp</span>)</span>
             </td>
           </tr>
           <tr>
             <th scope="row">Storage</th>
             <td>
-              <span class="line">Scores and agent reports in the app data directory.</span>
-              <span class="line"><b>Read-only against your code.</b> It scans a directory; there is no path on which it writes to it.</span>
+              <span class="line">Readings live in the repo they describe, as Markdown in <span class="pill">.sanity/</span>.</span>
               <span class="line">No cloud, no sync, no account.</span>
             </td>
           </tr>
@@ -908,8 +1017,8 @@ img{max-width:100%; display:block}
             <th scope="row">Monsterpower</th>
             <td>
               <!-- Monsterpower: whether the habitat needs a model to work at all. -->
-              <span class="line">Sanity does not need an LLM to function — an offline proxy draws the map on its own.</span>
-              <span class="line">A local model, or an agent over MCP, replaces that guess with a reading.</span>
+              <span class="line">Age, churn, language and owner views require no model.</span>
+              <span class="line">The surprise view is incomplete without MCP-driven analysis.</span>
             </td>
           </tr>
           <tr>
@@ -924,7 +1033,7 @@ img{max-width:100%; display:block}
             <td>
               <!-- What an agent may do unattended, and what waits for a human. -->
               <span class="line">Agents may open a project, ask for work, read your files, and report what they found.</span>
-              <span class="line">Nothing writes to your code. Sanity only ever reads it.</span>
+              <span class="line">Nothing writes to your code. Sanity only ever reads it, and writes its findings.</span>
             </td>
           </tr>
         </tbody>
@@ -934,8 +1043,8 @@ img{max-width:100%; display:block}
   </section>
 
   <!-- 06 -->
-  <section class="field" id="acquisition">
-    <h2><span class="n">06</span> Acquisition</h2>
+  <section class="field" id="packages">
+    <h2><span class="n">06</span> Packages</h2>
     <div class="body">
     <div class="acq">
       <figure>
@@ -1009,7 +1118,7 @@ img{max-width:100%; display:block}
 
                Use <span class="pill"> for anything typed or named exactly,
                and <pre> for commands. Both are already styled. -->
-          <p>If you are an AI assistant here to set Sanity up: the app <em>is</em> its own MCP server. Register it, restart, and you can drive the open window by tool call — the human watches the map colour in as you read.</p>
+          <p>If you are an AI assistant here to set Sanity up: the app <em>is</em> its own MCP server. Register it, restart, and you can drive the open window by tool call — the human watches the map color in as you read.</p>
           <ol>
             <li>
               <strong>Make sure Sanity is open.</strong>
@@ -1037,7 +1146,18 @@ img{max-width:100%; display:block}
 
   <hr class="hair">
   <footer class="colophon">
-    <span class="issuer">Issued by <a href="https://monsterdept.com/"><b>The Monster Dept</b></a> &nbsp;·&nbsp; Form MD·HR<br>Habitat report: Sanity &nbsp;·&nbsp; Rev __VERSION__ &nbsp;·&nbsp; August 2026</span>
+    <!-- Each fact is its own box so the stamp can wrap at a separator instead
+         of running off the edge of a phone. .brk forces the two-line break the
+         sheet wants when there is room for it. -->
+    <span class="issuer">
+      <span>Issued by <a href="https://monsterdept.com/"><b>The Monster Dept</b></a></span>
+      <span class="sep">·</span>
+      <span>Form MD·TD</span>
+      <span class="brk"></span>
+      <span>Rev __VERSION__</span>
+      <span class="sep">·</span>
+      <span>August 2026</span>
+    </span>
     <span class="links">© 2026 The Monster Dept</span>
   </footer>
 </main>
@@ -1071,7 +1191,7 @@ img{max-width:100%; display:block}
 (function () {
   /* ---- point the download button at the visitor's platform ----
      Falls back to the macOS build already in the markup if nothing matches;
-     the full table in Acquisition is always one click away. */
+     the full table in Packages is always one click away. */
   var get = document.getElementById('get'), fmt = document.getElementById('get-fmt');
   if (get) {
     var base = 'https://dl.dept.monster/sanity/Sanity___VERSION__';
@@ -1086,7 +1206,7 @@ img{max-width:100%; display:block}
         : { url: base + '_x64-setup.exe',   label: 'Windows x64 · EXE' };
     } else if (/Linux|X11|CrOS/i.test(plat) || /Linux/i.test(ua)) {
       /* Android reports Linux too — send it to the table rather than a .deb. */
-      if (/Android/i.test(ua)) build = { url: '#acquisition', label: 'See all builds' };
+      if (/Android/i.test(ua)) build = { url: '#packages', label: 'See all builds' };
       else build = { url: base + '_amd64.deb', label: 'Linux · DEB' };
     } else if (/Mac|Darwin/i.test(plat) || /Mac OS X/i.test(ua)) {
       build = { url: base + '_aarch64.dmg', label: 'macOS · DMG' };
@@ -1437,6 +1557,302 @@ img{max-width:100%; display:block}
   watch();
   (narrow.addEventListener ? narrow.addEventListener.bind(narrow, 'change')
                            : narrow.addListener.bind(narrow))(watch);
+})();
+</script>
+
+<!-- ---- Exhibit D: the ring ---------------------------------------------
+     Sanity draws code as concentric rings and cools them as they are read, so
+     its download button does that to itself. At rest the ↓ is drawn on canvas
+     as a single stroke. Point at the block and that stroke bends round into the
+     rim of a ring while wedges fan out inside it — unequal, because width is
+     lines — each arriving in tint and draining toward accent, which is the
+     sheet's own two-token statement of the app's one real claim: bright is
+     surprising, cool is understood. Take the pointer away and the rim folds
+     back into an arrow and the wedges go back to unread.
+
+     The drain is one-way while you are there. That is the product's claim and
+     it would be a lie to animate it as a shimmer that reheats: the map drains
+     as you tour it, and touring it twice does not make it surprising again.
+     Leaving resets the reading, because leaving is not touring.
+
+     Both ends of the morph are polylines resampled to the same number of points
+     by arc length, so the morph is a plain interpolation and every frame in
+     between is a real shape rather than a cross-fade between two pictures.
+
+     The wedge widths come from a smooth generator, not from a repo. A ring on a
+     download button claiming to be a real reading of real code would be a lie
+     told in the department's own voice, which is worse than no ring.
+
+     Its own script, and it makes its own canvas: with this deleted the block is
+     a plain download link with a real ↓ in it (the glyph only stands down once
+     the canvas is drawing). Nothing runs before the first frame is needed,
+     nothing is left running once the ring has folded away, and reduced motion
+     never draws at all. -->
+<script>
+(function () {
+  var btn = document.getElementById('get');
+  var say = btn && btn.querySelector('.get-say');
+  var arr = btn && btn.querySelector('.get-arr');
+  if (!btn || !say || !arr || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  var cv = document.createElement('canvas');
+  cv.className = 'get-ring';
+  cv.setAttribute('aria-hidden', 'true');
+  btn.insertBefore(cv, btn.firstChild);
+  var ctx = cv.getContext('2d');
+  if (!ctx) return;
+  var W = 0, H = 0;
+
+  /* Skinned off the palette tokens, with the literals as a fallback only for a
+     browser that will not report a custom property. */
+  var css = getComputedStyle(document.documentElement);
+  function tok(n, d) { return (css.getPropertyValue(n) || d).trim(); }
+  var TINT = tok('--ground-tint', '#F3D9E7'), ACCENT = tok('--accent', '#42A2AB');
+  var WHITE = '#FFFFFF';
+
+  function rgb(h) {
+    h = h.replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+  var HOT = rgb(TINT), COOL = rgb(ACCENT);
+  function mix(a, b, t) { return a + (b - a) * t; }
+  /* t is heat: 1 is unread and surprising, 0 is read and understood. */
+  function heatColor(t, alpha) {
+    return 'rgba(' + Math.round(mix(COOL[0], HOT[0], t)) + ',' + Math.round(mix(COOL[1], HOT[1], t))
+         + ',' + Math.round(mix(COOL[2], HOT[2], t)) + ',' + alpha + ')';
+  }
+
+  function size() {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2), r = btn.getBoundingClientRect();
+    W = r.width; H = r.height;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    cv.style.width = W + 'px'; cv.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  /* The field is everything to the right of the words. It runs over the ↓'s own
+     slot, which is the whole point — the arrow is drawn here, not there, so the
+     space it was holding is space the ring gets to use. That matters: a visitor
+     on Windows gets "Windows ARM · EXE" on the specification line, and the gap
+     BESIDE the arrow would be about 13px. This way the ring keeps its radius. */
+  function field() {
+    var b = btn.getBoundingClientRect(), s = say.getBoundingClientRect(), a = arr.getBoundingClientRect();
+    var x0 = s.right - b.left + 9, x1 = b.width - 14, y0 = 11, y1 = b.height - 11;
+    return { x0: x0, x1: x1, cx: (x0 + x1) / 2, cy: b.height / 2,
+             R: Math.min(x1 - x0, y1 - y0) / 2,
+             ax: a.left - b.left + a.width / 2, ay: a.top - b.top + a.height / 2 };
+  }
+
+  /* Unequal widths, because width is lines and equal wedges would be the one
+     thing the app is built to argue against. A smooth generator rather than
+     noise: three out-of-phase sines have shape at every scale you look at them,
+     and pure noise reads as static. */
+  var OUT = 9, IN = 4, GAPA = 0.055;   // the azimuthal gap, in radians
+  function weights(n, seed) {
+    var w = [], tot = 0, i;
+    for (i = 0; i < n; i++) {
+      var v = 0.45 + 0.34 * Math.sin(i * 0.9 + seed) + 0.17 * Math.sin(i * 2.3 + seed * 1.7)
+                   + 0.10 * Math.sin(i * 0.37 + 1.1);
+      v = Math.max(0.22, v); w.push(v); tot += v;
+    }
+    for (i = 0; i < n; i++) w[i] /= tot;
+    return w;
+  }
+  var WOUT = weights(OUT, 0.6), WIN = weights(IN, 2.2);
+
+  /* The rim is not closed. A ring that meets itself has no end, and the head has
+     to be somewhere — the last 26° are left open so the arrow is visibly at the
+     end of something rather than parked on a seam. */
+  var A0 = -Math.PI / 2, SWEEP = Math.PI * 2 - 0.46;
+
+  function resample(pts, n) {
+    var seg = [], total = 0, i;
+    for (i = 1; i < pts.length; i++) {
+      var d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      seg.push(d); total += d;
+    }
+    var out = [pts[0].slice()], want = total / (n - 1), k = 0, walked = 0;
+    for (i = 1; i < n - 1; i++) {
+      var target = want * i;
+      while (k < seg.length - 1 && walked + seg[k] < target) { walked += seg[k]; k++; }
+      var t = seg[k] ? (target - walked) / seg[k] : 0;
+      out.push([pts[k][0] + (pts[k + 1][0] - pts[k][0]) * t,
+                pts[k][1] + (pts[k + 1][1] - pts[k][1]) * t]);
+    }
+    out.push(pts[pts.length - 1].slice());
+    return out;
+  }
+
+  var N = 64;
+  function shaftShape(g) { return resample([[g.ax, g.ay - 9], [g.ax, g.ay + 9]], N); }
+  function rimShape(g, rot) {
+    var pts = [], STEPS = 96;
+    for (var i = 0; i <= STEPS; i++) {
+      var a = A0 + rot + SWEEP * (i / STEPS);
+      pts.push([g.cx + g.R * Math.cos(a), g.cy + g.R * Math.sin(a)]);
+    }
+    return resample(pts, N);
+  }
+
+  /* Two strokes off a tip, aimed wherever it is asked to aim. It swings with the
+     morph: down at rest, because down is what a download does, and round to the
+     rim's own tangent as the stroke becomes a ring. The head never changes
+     color — the rim can go tint because it has become a reading, but the thing
+     it points with belongs to the download. */
+  function head(x, y, ang) {
+    var L = 8, SPREAD = 0.785;
+    ctx.strokeStyle = WHITE; ctx.lineWidth = 1.6;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x + L * Math.cos(ang + Math.PI - SPREAD), y + L * Math.sin(ang + Math.PI - SPREAD));
+    ctx.lineTo(x, y);
+    ctx.lineTo(x + L * Math.cos(ang + Math.PI + SPREAD), y + L * Math.sin(ang + Math.PI + SPREAD));
+    ctx.stroke();
+  }
+
+  function sector(cx, cy, r0, r1, a0, a1) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r1, a0, a1);
+    ctx.arc(cx, cy, r0, a1, a0, true);
+    ctx.closePath();
+  }
+
+  /* Heat per wedge: 1 when it arrives, draining toward 0 while the pointer is
+     on the block. The time constants differ per wedge so the ring does not cool
+     as one flat sheet — some code takes longer to understand. */
+  var heat = [], i0;
+  function unread() { heat = []; for (i0 = 0; i0 < OUT + IN; i0++) heat.push(1); }
+  unread();
+
+  /* How far a given wedge has fanned out, 0 to 1. Used twice, and it has to be
+     the same number both times: it draws the wedge, and it gates the wedge's
+     drain. A wedge that has not arrived yet has not been read, so heat that
+     started draining on hover — before the ring had opened — spent the whole
+     arrival cooling wedges that were not on screen, and every one of them
+     turned up already half-understood. */
+  function arrived(k, p) { return Math.max(0, Math.min(1, (p - k * (0.42 / OUT)) / 0.58)); }
+  function arrivedIn(k, p) { return Math.max(0, Math.min(1, (p - 0.06 - k * (0.30 / IN)) / 0.58)); }
+
+  /* The ring turns. Radians per millisecond, and the burst is what makes it
+     arrive rather than merely appear: angular speed is highest while the wedges
+     are still fanning out and falls away to a slow drift once they have landed,
+     so the ring spins up, settles, and spins again as it folds. Scaled by
+     (1 - e) rather than by a timer of its own, which keeps the whoosh welded to
+     the morph — slow the fan-out down and the spin slows with it instead of
+     drifting out of step with the thing it belongs to.
+
+     The two rings turn opposite ways. That is not only decoration: it is the
+     one cheap way to say they are different objects on a shape this small,
+     where a directory arc and the functions inside it otherwise read as one
+     banded disc. The inner one is slower, because it holds the other. */
+  var SPIN_DRIFT = 0.00052, SPIN_BURST = 0.0075, SPIN_INNER = -0.42;
+  var spin = 0;
+
+  var p = 0, going = false, raf = 0, prev = 0;
+  function ease(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+
+  function frame(now) {
+    if (!prev) prev = now;
+    var dt = Math.min(64, now - prev); prev = now;
+
+    // Out over 520ms, back over 380 — the ring takes its time opening, and
+    // rather less putting itself away.
+    p += (going ? dt / 520 : -dt / 380);
+    if (p > 1) p = 1;
+    if (p < 0) p = 0;
+    var e = ease(p);
+
+    // Folded away and nobody watching: the next reading starts unread, and the
+    // ring starts square. Resetting the angle is free — at p = 0 the only thing
+    // on the canvas is a vertical arrow, which has no orientation to give away.
+    if (!going && p <= 0) { unread(); spin = 0; }
+    if (p > 0) spin += dt * (SPIN_DRIFT + SPIN_BURST * (1 - e));
+    /* Scaled by arrival, so a wedge starts cooling when it turns up and not
+       before. Slow enough to watch: the whole point of the encoding is that you
+       see bright become calm, and at 1.5s the ring was teal before the fan-out
+       had finished and the tint never registered as having been there. */
+    if (going) {
+      for (var q = 0; q < OUT; q++) heat[q] = Math.max(0, heat[q] - arrived(q, p) * dt / (2400 + q * 240));
+      for (var qi = 0; qi < IN; qi++) {
+        heat[OUT + qi] = Math.max(0, heat[OUT + qi] - arrivedIn(qi, p) * dt / (3000 + qi * 300));
+      }
+    }
+
+    var g = field();
+    var room = (g.x1 - g.x0) >= 26 && g.R >= 12;
+    ctx.clearRect(0, 0, W, H);
+
+    if (room && p > 0.002) {
+      var rim = g.R * 0.90, mid = g.R * 0.56, hole = g.R * 0.24, a = A0 + spin, k;
+      // Outer ring: the functions. Staggered so the reading arrives round the
+      // ring rather than all at once.
+      for (k = 0; k < OUT; k++) {
+        var span = WOUT[k] * SWEEP;
+        var kp = arrived(k, p);
+        if (kp > 0) {
+          ctx.fillStyle = heatColor(heat[k], 0.80 * kp);
+          sector(g.cx, g.cy, mid + 1, mid + 1 + (rim - mid - 1) * kp, a + GAPA / 2, a + span - GAPA / 2);
+          ctx.fill();
+        }
+        a += span;
+      }
+      // Inner ring: the directories that hold them. Dimmer and cooler — a
+      // directory is not a thing you read, it is where the reading happened.
+      a = A0 + spin * SPIN_INNER;
+      for (k = 0; k < IN; k++) {
+        var spanI = WIN[k] * SWEEP;
+        var kpI = arrivedIn(k, p);
+        if (kpI > 0) {
+          ctx.fillStyle = heatColor(heat[OUT + k], 0.42 * kpI);
+          sector(g.cx, g.cy, hole, hole + (mid - hole) * kpI, a + GAPA, a + spanI - GAPA);
+          ctx.fill();
+        }
+        a += spanI;
+      }
+    }
+
+    // The line: an arrow's shaft at one end of the morph, the ring's rim at the
+    // other, and a real shape at every point in between.
+    var from = shaftShape(g);
+    var to = room ? rimShape(g, spin) : from;
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = p < 0.02 ? WHITE
+      : 'rgb(' + Math.round(mix(255, HOT[0], e)) + ',' + Math.round(mix(255, HOT[1], e)) + ','
+               + Math.round(mix(255, HOT[2], e)) + ')';
+    ctx.lineWidth = mix(1.6, 1.3, e);
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (var j = 0; j < N; j++) {
+      var x = mix(from[j][0], to[j][0], e), y = mix(from[j][1], to[j][1], e);
+      if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // The head, on the end of whatever the line has become, swinging from down
+    // to the rim's tangent as it goes.
+    head(mix(from[N - 1][0], to[N - 1][0], e), mix(from[N - 1][1], to[N - 1][1], e),
+         mix(Math.PI / 2, A0 + spin + SWEEP + Math.PI / 2, e));
+
+    // Folded back up and nobody watching: draw the arrow one last time and stop
+    // the clock. The canvas is never cleared to nothing — the arrow is the
+    // sheet's, not the animation's.
+    if (!going && p <= 0) { raf = 0; prev = 0; return; }
+    raf = requestAnimationFrame(frame);
+  }
+
+  function run() { if (!raf) { prev = 0; raf = requestAnimationFrame(frame); } }
+  function start() { going = true; run(); }
+  function stop() { going = false; run(); }
+
+  size();
+  requestAnimationFrame(frame);          // the arrow, before anyone points at it
+  btn.classList.add('has-ring');         // only now does the real ↓ stand down
+  btn.addEventListener('mouseenter', start);
+  btn.addEventListener('mouseleave', stop);
+  btn.addEventListener('focus', start);
+  btn.addEventListener('blur', stop);
+  window.addEventListener('resize', function () { size(); run(); });
 })();
 </script>
 

@@ -299,3 +299,17 @@ _publish-site version:
 # Vite dev server in a plain browser (no Tauri backend — UI-only iteration).
 web-dev:
     cd web && npm run dev
+
+# Serve website/ locally and open it. The habitat sheet is plain static files, but it
+# must be served rather than opened as file:// — the mascot bundle is an ES module, and
+# a module fetched from file:// is blocked by CORS. Ctrl-C stops the server.
+website port="8014":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{justfile_directory()}}/website"
+    python3 -m http.server {{port}} --bind 127.0.0.1 &
+    server=$!
+    trap 'kill $server 2>/dev/null || true' EXIT
+    sleep 1
+    open "http://127.0.0.1:{{port}}/"
+    wait $server
