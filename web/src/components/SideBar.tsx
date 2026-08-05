@@ -36,6 +36,7 @@ export function SideBar({
   onSelect,
   agent,
   busyKey,
+  onOpen,
   onConnect,
 }: {
   projects: ProjectSummary[]
@@ -44,6 +45,7 @@ export function SideBar({
   agent: AgentActivity
   /** The project whose progress the bar should report — see `App`. */
   busyKey: string | null
+  onOpen: () => void
   onConnect: () => void
 }) {
   // One bar per project actually being worked, not one bar for the app.
@@ -74,8 +76,21 @@ export function SideBar({
       <SideBarHeader />
 
       <nav className="mt-1 min-h-0 flex-1 space-y-px overflow-y-auto px-2 [overscroll-behavior:contain]">
-        <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide opacity-55">
-          Projects
+        {/* The header carries the action, because this list is the only place a project
+            is ever named — an agent creates entries just by working in a repo, so a
+            person looking for "where do I add one" looks here first, not at a menu. The
+            menu has it too (⌘O); this is the one you find without being told. */}
+        <div className="flex items-center justify-between px-2 pb-1 pt-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wide opacity-55">
+            Projects
+          </span>
+          <button
+            onClick={onOpen}
+            title="Open a project… (⌘O)"
+            className="rounded px-1 text-[13px] leading-none opacity-55 hover:opacity-100"
+          >
+            +
+          </button>
         </div>
         {projects.length === 0 && (
           <div className="px-2 py-1 text-[11px] leading-snug opacity-60">

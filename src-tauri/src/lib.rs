@@ -110,7 +110,7 @@ impl ThemeMenu {
 /// than being reimplemented badly.
 #[cfg(target_os = "macos")]
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<(tauri::menu::Menu<tauri::Wry>, ThemeMenu)> {
-    use tauri::menu::{AboutMetadata, CheckMenuItem, Menu, PredefinedMenuItem, Submenu};
+    use tauri::menu::{AboutMetadata, CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 
     let app_menu = Submenu::with_items(
         app,
@@ -125,6 +125,13 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<(tauri::menu::Menu<tauri:
             &PredefinedMenuItem::quit(app, None)?,
         ],
     )?;
+    // Opening a repo by hand. Projects otherwise only appear when an agent calls
+    // `sanity_open`, which is the intended path — but it left no way to look at a repo
+    // nothing is currently driving, and the picker that does exist was reachable only
+    // from the empty state, so having one project hid the way to open a second.
+    let open_item = MenuItem::with_id(app, "open-project", "Open Project…", true, Some("CmdOrCtrl+O"))?;
+    let file_menu = Submenu::with_items(app, "File", true, &[&open_item])?;
+
     // Without an Edit menu the standard clipboard shortcuts stop working in text fields —
     // on macOS ⌘C and ⌘V are menu items, not free behaviour, so replacing the stock menu
     // silently breaks typing anywhere until they are put back.
@@ -165,7 +172,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<(tauri::menu::Menu<tauri:
             &PredefinedMenuItem::close_window(app, None)?,
         ],
     )?;
-    let menu = Menu::with_items(app, &[&app_menu, &edit_menu, &view_menu, &window_menu])?;
+    let menu = Menu::with_items(app, &[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu])?;
     Ok((menu, ThemeMenu { light, dark, system }))
 }
 
@@ -189,6 +196,12 @@ pub fn run() {
                         let _ = _app.set_menu(menu);
                         _app.manage(themes);
                         _app.on_menu_event(|app, event| {
+                            if event.id() == "open-project" {
+                                for w in app.webview_windows().values() {
+                                    let _ = w.emit("open-project", ());
+                                }
+                                return;
+                            }
                             let Some(which) = event.id().0.strip_prefix("theme-") else {
                                 return;
                             };

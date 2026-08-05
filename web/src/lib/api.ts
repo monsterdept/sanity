@@ -545,6 +545,12 @@ export function onSetTheme(cb: (theme: string) => void): () => void {
   return () => void un.then((f) => f())
 }
 
+/** The app menu's File → Open Project… (⌘O). */
+export function onOpenProject(cb: () => void): () => void {
+  const un = listen('open-project', () => cb())
+  return () => void un.then((f) => f())
+}
+
 /** Tick the appearance item matching what we're actually using. The menu is built before
  *  the webview reads localStorage, so it would otherwise always show System. */
 export function syncThemeMenu(theme: string): Promise<void> {

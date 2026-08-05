@@ -8,6 +8,7 @@ import {
   applyAgentReports,
   applyScores,
   countStale,
+  onOpenProject,
   onSetTheme,
   syncThemeMenu,
   onScanScore,
@@ -241,6 +242,10 @@ export default function App() {
     }
   }, [run])
 
+  // The menu's own door into the same picker. Registered after `pick` exists rather than
+  // beside the other menu listeners, because it closes over it.
+  useEffect(() => onOpenProject(() => void pick()), [pick])
+
   // The wedge the sunburst is currently rooted at, resolved by id every render so a
   // rescan keeps the user where they were rather than throwing them back to the top.
   const focus = useMemo(() => {
@@ -390,6 +395,7 @@ export default function App() {
           // Whose progress the bar reports: whoever is being written to while an agent
           // works, and otherwise whatever is on screen.
           busyKey={agent.active ? agentKey : activeKey}
+          onOpen={() => void pick()}
           onConnect={() => setShowAgents(true)}
           onSelect={(key) => {
             // Readings fetched WITH the scan, not left to the next poll: `project_scan`
