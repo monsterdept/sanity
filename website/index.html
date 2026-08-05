@@ -93,6 +93,12 @@
   --white:#FFFFFF; --paper:#F5F1EA; --tint:#FAF8F4;
   --ink:#1A1A1A; --ink-light:#4E4842; --muted:#8B8279; --muted-2:#6E665D;
   --rule:#E5E1DA; --rule-2:#D6CFC2;
+  /* Ink on the habitat's ground — the download plate's label and its arrow.
+     NOT --white: --white is the page, and the page turns over on dark stock
+     while a plate of --ground does not. They held the same value until the
+     sheet had a second paper, at which point the plate's label went to
+     near-black along with the page while the plate stayed navy under it. */
+  --on-ground:#FFFFFF;
   --sans:'IBM Plex Sans',system-ui,sans-serif;
   --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
   /* The habitat's own face: whatever the wordmark is drawn in. The tagline
@@ -385,7 +391,7 @@ img{max-width:100%; display:block}
 .get-btn:focus-visible{outline:2px solid var(--ink); outline-offset:3px}
 /* Name over specification, tight — one object, two registers. */
 .get-say{display:flex; flex-direction:column; gap:4px; min-width:0; text-align:left; position:relative; z-index:1}
-.get-name{font-size:15px; font-weight:600; letter-spacing:.01em; color:var(--white); line-height:1.25}
+.get-name{font-size:15px; font-weight:600; letter-spacing:.01em; color:var(--on-ground); line-height:1.25}
 .get-btn .fmt{
   font-family:var(--mono); font-size:9.5px; letter-spacing:.14em;
   text-transform:uppercase; color:var(--ground-tint); line-height:1.5;
@@ -393,7 +399,7 @@ img{max-width:100%; display:block}
 /* The direction. Decoration — the link carries the verb in its aria-label — so
    it is aria-hidden and never the only thing saying what this does. */
 .get-arr{
-  font-size:18px; line-height:1; color:var(--white); flex:0 0 auto;
+  font-size:18px; line-height:1; color:var(--on-ground); flex:0 0 auto;
   position:relative; z-index:1;
   transition:color 200ms ease, translate 200ms cubic-bezier(.4,0,.2,1);
 }
