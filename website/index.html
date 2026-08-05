@@ -6,9 +6,10 @@
 <title>Sanity — Tool detail — The Monster Dept</title>
 <meta name="description" content="Sanity draws a repo as rings of directories, files and functions. Color represents surprise: wedges run hot when an agent couldn't predict their content.">
 <link rel="canonical" href="https://sanity.monster/">
-<!-- How the sheet unfurls when a link to it is passed around. The image is
-     Exhibit E — the tool with real numbers in it — because a link
-     preview is a photograph, not a letterhead. -->
+<!-- How the sheet unfurls when a link to it is passed around. The image is a
+     plate — the tool with real numbers in it — because a link preview is a
+     photograph, not a letterhead. Not tied to a letter: the plates reletter
+     themselves by position, so naming one here goes stale on any reorder. -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://sanity.monster/">
 <meta property="og:site_name" content="The Monster Dept">
@@ -19,7 +20,7 @@
      before the image arrives, and a wrong ratio reflows it.
      sips -g pixelWidth -g pixelHeight assets/screenshot.png -->
 <meta property="og:image:width" content="1600">
-<meta property="og:image:height" content="1000">
+<meta property="og:image:height" content="900">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Sanity — Understand what you build">
 <meta name="twitter:description" content="A repo as rings of directories, files and functions. Color represents surprise: wedges run hot when an agent couldn't predict their content.">
@@ -911,34 +912,34 @@ img{max-width:100%; display:block}
     <div class="plates" id="plates">
       <div class="strip">
         <button class="plate" type="button">
+          <img src="./assets/plate-6.png"
+               data-cap="Daylight. A reading outlives the theme it was taken in: this migration was predicted correctly and is still the most-rewritten thing in the store."
+               alt="The map in the light theme, with an agent's reading of a database migration open in the panel.">
+        </button>
+        <button class="plate" type="button">
+          <img src="./assets/plate-7.png"
+               data-cap="Thirty-four functions in one file, two of them surprising. The panel ranks them so those two are not lost in the list."
+               alt="The file view in the light theme, with the file's functions ranked by surprise in the panel beside it.">
+        </button>
+        <button class="plate" type="button">
           <img src="./assets/screenshot.png"
-               data-cap="Occupant charted whole. Width was assigned by line count; color was withheld until something had read the code."
-               alt="The full map of a repository: concentric rings for directories, files and the chunks inside them.">
+               data-cap="Occupant charted whole. Width is line count; color is what a reader could not predict. The panel reports the averages of whichever ring is selected."
+               alt="The full map of a repository: concentric rings for directories, files and functions, with one directory selected and its averages in the panel.">
         </button>
         <button class="plate" type="button">
           <img src="./assets/plate-2.png"
-               data-cap="A wedge under inspection. The reading, its two terms, and the history that separates a crown jewel from a mess."
-               alt="The detail panel for one function: temperature, how well it is documented, commits and age.">
+               data-cap="The same instrument with the cage taken away. One repository, 17,096 lines, every function a wedge."
+               alt="The sunburst alone, filling the window: the neo-mascots repository drawn as rings.">
         </button>
         <button class="plate" type="button">
           <img src="./assets/plate-3.png"
-               data-cap="The specimen predicted before it read, then reported the gap. Both halves are kept — a correct prediction is the evidence that a wedge is genuinely dull."
-               alt="An agent's report on one function: what it expected, what it found, and the line it cites as proof.">
+               data-cap="A single file, unrolled. Each band is a function at its true length, and the one running hot is 46 lines nobody would have guessed."
+               alt="The file view: every function in one Swift file as a horizontal band, sized by lines and colored by surprise.">
         </button>
         <button class="plate" type="button">
           <img src="./assets/plate-4.png"
-               data-cap="The same reading, laid over the source it came from. The gutter carries the color; the map at right carries the whole file."
-               alt="The code view: syntax on the left, a heat gutter beside each line, and a minimap of the file's temperature.">
-        </button>
-        <button class="plate" type="button">
-          <img src="./assets/plate-5.png"
-               data-cap="One geometry, five questions. The rings do not move when the question changes — only what their color means."
-               alt="The color-mode switcher, with the same repository drawn by churn instead of surprise.">
-        </button>
-        <button class="plate" type="button">
-          <img src="./assets/plate-6.png"
-               data-cap="Enclosure occupied. The occupant reads on its own; the keeper watches the color arrive."
-               alt="The agent panel while an MCP session works through the repository, with the progress of the assessment.">
+               data-cap="The specimen predicted before it read, then reported the gap. Both halves are kept — a correct prediction is the evidence that a wedge is genuinely dull."
+               alt="An agent's report on one function: what it expected, what it found, and its verdict that the two matched.">
         </button>
       </div>
       <p class="plate-cap"><b id="plate-no">Exhibit E</b> &nbsp; <span id="plate-cap"></span></p>
