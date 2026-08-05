@@ -389,8 +389,22 @@ img{max-width:100%; display:block}
 }
 .get-btn:hover,.get-btn:focus-visible{background:var(--ground-dark)}
 .get-btn:focus-visible{outline:2px solid var(--ink); outline-offset:3px}
-/* Name over specification, tight — one object, two registers. */
-.get-say{display:flex; flex-direction:column; gap:4px; min-width:0; text-align:left; position:relative; z-index:1}
+/* Name over specification, tight — one object, two registers.
+
+   The words are CAPPED, and the 46px they give up is the field the sheet's own
+   drawing is measured into. Without the cap the field is whatever the label
+   happens to leave, and a label that wraps leaves the arrow's slot — about
+   24px, under the minimum every one of these drawings gates on, so the whole
+   animation vanished silently for exactly the visitors whose specification
+   line is longest: Windows x86-64 and Linux both wrap, and so does an
+   unsubstituted __VERSION__ in a local preview. Three platforms out of four
+   never saw it.
+
+   46px keeps the drawing at a radius of ~20. The cap only binds once the label
+   has wrapped anyway, so the one-line macOS case is exactly as it was — and a
+   sheet whose drawing covers the whole block rather than the space beside the
+   words (Cluster's flock) does not need the cap and does not carry it. */
+.get-say{display:flex; flex-direction:column; gap:4px; min-width:0; max-width:calc(100% - 46px); text-align:left; position:relative; z-index:1}
 .get-name{font-size:15px; font-weight:600; letter-spacing:.01em; color:var(--on-ground); line-height:1.25}
 .get-btn .fmt{
   font-family:var(--mono); font-size:9.5px; letter-spacing:.14em;
