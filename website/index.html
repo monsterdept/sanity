@@ -839,6 +839,16 @@ img{max-width:100%; display:block}
 
 /* ---------- print: it is a data sheet, it should print like one ---------- */
 @media print{
+  /* Paper is paper. The dark block above is a screen preference and follows the
+     system, not the printer — without this a visitor whose Mac is in dark mode
+     prints a sheet with a black ground and inverted marks. Only the neutrals go
+     back; the habitat's four never moved. */
+  :root{
+    --white:#FFFFFF; --paper:#F5F1EA; --tint:#FAF8F4;
+    --ink:#1A1A1A; --ink-light:#4E4842; --muted:#8B8279; --muted-2:#6E665D;
+    --rule:#E5E1DA; --rule-2:#D6CFC2;
+  }
+  .letterhead img,.topbar img,.ident .mount-lockup img{filter:none}
   body{font-size:11px}
   .dl button,.lightbox,.docbox,.doc-bar button,.topbar{display:none!important}
   .doc-well{max-height:none; overflow:visible}
@@ -1042,11 +1052,15 @@ img{max-width:100%; display:block}
                 <button class="cw" type="button" style="--c:var(--ground-tint)" data-hex="#F3D9E7" data-use="the mark on dark ground"></button>
                 <button class="cw" type="button" style="--c:var(--accent)"      data-hex="#42A2AB" data-use="the one slice that has been read"></button>
                 <span class="sep"></span>
-                <button class="cw" type="button" style="--c:var(--paper)" data-hex="#F5F1EA" data-use="Paper — page ground"></button>
-                <button class="cw" type="button" style="--c:#EFEBE3"      data-hex="#EFEBE3" data-use="Card — panels"></button>
-                <button class="cw" type="button" style="--c:var(--rule)"  data-hex="#E5E1DA" data-use="Border — hairlines"></button>
-                <button class="cw" type="button" style="--c:var(--muted)" data-hex="#8B8279" data-use="Muted — secondary text"></button>
-                <button class="cw" type="button" style="--c:var(--ink)"   data-hex="#1A1A1A" data-use="Ink — body text, marks"></button>
+                <!-- The neutrals are stated as literals, not as the tokens that
+                     happen to hold them: the tokens are re-declared on dark
+                     stock, and a swatch that follows them would stop matching
+                     the hex printed beside it. A swatch IS its hex. -->
+                <button class="cw" type="button" style="--c:#F5F1EA" data-hex="#F5F1EA" data-use="Paper — page ground"></button>
+                <button class="cw" type="button" style="--c:#EFEBE3" data-hex="#EFEBE3" data-use="Card — panels"></button>
+                <button class="cw" type="button" style="--c:#E5E1DA" data-hex="#E5E1DA" data-use="Border — hairlines"></button>
+                <button class="cw" type="button" style="--c:#8B8279" data-hex="#8B8279" data-use="Muted — secondary text"></button>
+                <button class="cw" type="button" style="--c:#1A1A1A" data-hex="#1A1A1A" data-use="Ink — body text, marks"></button>
               </div>
               <p class="cw-read" id="cw-read" data-default="A rose ground with a teal accent, over the dept's shared paper-and-ink neutrals.">A rose ground with a teal accent, over the dept's shared paper-and-ink neutrals.</p>
             </td>
