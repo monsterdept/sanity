@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- The sheet is printed on whichever paper the reader's system asks for. This
+     tells the UA before any CSS lands, so scrollbars, form controls and the
+     flash before first paint come up dark too rather than white for a frame. -->
+<meta name="color-scheme" content="light dark">
 <title>Sanity — Tool detail — The Monster Dept</title>
 <meta name="description" content="Sanity draws a repo as rings of directories, files and functions. Color represents surprise: wedges run hot when an agent couldn't predict their content.">
 <link rel="canonical" href="https://sanity.monster/">
@@ -455,12 +459,20 @@ img{max-width:100%; display:block}
 .strip::-webkit-scrollbar-track{background:transparent}
 .strip::-webkit-scrollbar-thumb{background:var(--rule-2); border-radius:0}
 .strip::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+/* Plates are matted, not bled: the captures are cropped to the window edge
+   (no macOS drop shadow), so without a margin a dark screenshot would run
+   straight into the hairline and read as a panel of the page rather than as
+   an exhibit mounted on it. Padding is the mat, the inner rule is the frame. */
+/* The bottom mat is deeper than the other three: the exhibit tag is absolutely
+   positioned in that corner, and at an even 9px it sat on the image. */
 .strip .plate{
-  appearance:none; padding:0; margin:0; cursor:zoom-in; position:relative;
-  flex:0 0 auto; height:184px; width:auto; scroll-snap-align:start;
-  border:1px solid var(--rule); background:var(--tint); line-height:0;
+  appearance:none; padding:9px 9px 26px; margin:0; cursor:zoom-in; position:relative;
+  flex:0 0 auto; height:196px; width:auto; scroll-snap-align:start;
+  border:1px solid var(--rule); background:var(--white); line-height:0;
 }
-.strip .plate img{height:182px; width:auto; max-width:none; display:block}
+/* One frame only — the plate's own border. A rule on the image too reads as a
+   double frame at this size. 196 − 2 (border) − 9 (top mat) − 26 (bottom) = 159. */
+.strip .plate img{height:159px; width:auto; max-width:none; display:block}
 .strip .plate .tag{
   position:absolute; left:0; bottom:0;
   font-family:var(--mono); font-size:9.5px; letter-spacing:.16em; text-transform:uppercase;
