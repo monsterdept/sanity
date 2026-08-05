@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { isAnalyzed, type Node } from '../lib/api'
 import { colorFor, type ColorMode } from '../lib/colorMode'
+import { elide } from '../lib/text'
 import { arcPath, labelArc, layout, stackFunctions, type Wedge } from '../lib/sunburst'
 
 /** Rings drawn at once. Deeper than this and the outer annuli are hairlines; the
@@ -27,13 +28,44 @@ const RING_GAP = 3
  *  hairline, and no file got a uniform one.
  *
  *  Radians are not a length: converting through the band's mid-radius is what makes an
- *  angular inset comparable to a radial one. */
-const FUNC_RIM = 3
+ *  angular inset comparable to a radial one.
+ *
+ *  Widened from 3, which was enough to READ as containment and not enough to CLICK. A
+ *  file's own target is exactly the rim its functions do not cover, so at three pixels
+ *  selecting a file was a coin-flip against selecting whichever function you landed on.
+ *  The invisible target over the ring gap helped and could not fix it: the functions sit
+ *  on top, so nothing inside their bounds is reachable.
+ *
+ *  Bought from the function stack, which loses about eight pixels of band — three slices
+ *  of capacity at five rings, 17 down to 14, before the overflow aggregate absorbs the
+ *  rest. A file you can select, against a few more functions drawn rather than
+ *  summarised. */
+const FUNC_RIM = 7
 
 /** Floor on how much of a narrow file's span the functions keep. Without it, converting
  *  a fixed rim to an angle eats a thin wedge entirely — the rim would be wider than the
  *  wedge and the functions inside it would invert. */
 const FUNC_RIM_MAX_SHARE = 0.35
+
+/** Arc a file needs, in pixels at its band's mid-radius, before its functions are worth
+ *  drawing at all.
+ *
+ *  The cut between stacked functions runs ALONG the arc, so it does not eat this
+ *  dimension — what this number protects is legibility and a target you can hit. Five
+ *  pixels of fill still reads as a band and can still be clicked; below that a file is
+ *  hatching, and the hatching is mostly the `--background` stroke, which on the dark
+ *  theme is darker than the plate the ring sits on.
+ *
+ *  Started at 8, which was cautious: it silenced files up to about 170 lines at the inner
+ *  bands, and plenty of those had breakdowns worth seeing. */
+const MIN_STACK_ARC = 5
+
+/** Space left around the composition, as a fraction of its own half-extent. */
+const MARGIN = 0.05
+
+/** Extra room at the bottom for the legend and the hidden-count chip — HTML overlays in
+ *  the same box, invisible to `getBBox`, which the rings would otherwise grow behind. */
+const CHROME_BOTTOM = 0.1
 
 /** How strongly each level carries the heat ramp.
  *
@@ -72,35 +104,15 @@ function heatShare(kind: string, mode: ColorMode): number {
  *  doesn't swallow the functions inside it. */
 const CUT = { dir: 2.2, file: 1.5, func: 0.6 }
 
-/**
- * Shorten from the middle, keeping both ends.
+/** Characters that fit on one line of the tooltip, at its two type sizes.
  *
- * The tooltip is a fixed 250px card and paths are long, so the choice is wrapping or
- * eliding. Wrapping is what it did, and `break-all` split the last token wherever it
- * happened to land — `Store.swif` / `t:1672` — destroying the filename and line, which
- * are the two things you are reading a path for.
- *
- * Weighted to the tail for the same reason: the leading directories orient you and are
- * usually inferable from the ring you are pointing at, while the end is the answer. Safe
- * to count in characters rather than measure pixels because every one of these is set in
- * the monospace face.
- */
-/// Characters that fit on one line of the tooltip, at its two type sizes.
-///
-/// Measured against the card rather than guessed: 250px less 12px of padding either side
-/// is 226px, and the monospace advance is close enough to 0.62em that 10px text seats 35
-/// and 12px text seats 30. Deliberately a little under — `truncate` is still on these
-/// lines as a backstop, and if the budget overshoots, CSS elides the tail a SECOND time
-/// and eats the end that `elide` just worked to keep.
+ *  Measured against the card rather than guessed: 250px less 12px of padding either side
+ *  is 226px, and the monospace advance is close enough to 0.62em that 10px text seats 35
+ *  and 12px text seats 30. Deliberately a little under — `truncate` is still on those
+ *  lines as a backstop, and if the budget overshoots, CSS elides the tail a SECOND time
+ *  and eats the end that `elide` just worked to keep. */
 const FITS_SMALL = 35
 const FITS_LARGE = 30
-
-function elide(s: string, max: number): string {
-  if (s.length <= max) return s
-  const tail = Math.ceil((max - 1) * 0.65)
-  const head = Math.max(1, max - 1 - tail)
-  return `${s.slice(0, head)}…${s.slice(s.length - tail)}`
-}
 
 /** Files at or under a node — the count the tooltip reports.
  *
@@ -145,6 +157,9 @@ export function Sunburst({
    *  container's corner for one frame before the next mousemove corrected it. */
   const [pos, setPos] = useState({ x: 0, y: 0 })
   const [box, setBox] = useState({ w: 0, h: 0 })
+  const art = useRef<SVGGElement>(null)
+  /** The drawn extent, in user units. Square, so the composition does not stretch. */
+  const [viewBox, setViewBox] = useState('-360 -360 720 720')
   const hover = hoverNode ? { node: hoverNode, ...pos } : null
   /** Directories folded shut by clicking them. A view concern, so it lives here rather
    *  than in the app's drill stack — and it survives drilling, so a directory you closed
@@ -180,6 +195,56 @@ export function Sunburst({
   useEffect(() => {
     prevPath.current = root.path
   }, [root.path])
+
+  /** Fit the box to the composition, after it has been drawn.
+   *
+   *  `getBBox` reports the union of everything rendered — arcs, labels, the hub — in user
+   *  units, which are independent of the viewBox. That independence is what makes this
+   *  safe to run on every layout: changing the box cannot change the measurement, so
+   *  there is no loop to converge.
+   *
+   *  Centred on the CONTENT, not on the origin. The origin is the hub, and the hub is
+   *  only the middle of the composition when the painted wedges happen to be symmetric
+   *  about it — which depends entirely on the repo. Squaring about the origin fit the
+   *  extent correctly and then hung it off-centre: the same map sat high on one project
+   *  and low on the next, by however lopsided that project's outer ring was.
+   *
+   *  Square, because the rings are a circle and a tight rectangular crop would scale the
+   *  two axes differently through `xMidYMid` and oval them. The larger dimension decides,
+   *  so nothing is cropped. */
+  useLayoutEffect(() => {
+    // The GROUP, not the svg.
+    //
+    // `getBBox` unions an element's children after their own transforms, and the art
+    // sits inside a `<g>` that the drill transition scales. Measuring the svg therefore
+    // measured whatever frame of that animation happened to be current — so switching
+    // away and back produced a box sized to a half-finished zoom, and the map came back
+    // smaller than it left. An element's own transform is excluded from its bbox, so
+    // asking the animated group directly gets the geometry with the animation taken out.
+    const el = art.current
+    if (!el) return
+    const b = el.getBBox()
+    if (b.width === 0 || b.height === 0) return
+    // Breathing room, as a FRACTION of the composition rather than a fixed number of
+    // user units. The units are arbitrary — the viewBox rescales them to whatever the
+    // pane is — so a constant inset is a different amount of visible space on every
+    // repo, and at +4 it was none: the rings ran to the edge and out of it.
+    const reach = Math.max(b.width, b.height) / 2
+    const m = reach * MARGIN
+    // And more at the bottom, because the legend and the hidden-count chip live there.
+    // They are HTML overlaid on the same box, so `getBBox` cannot see them and the rings
+    // will happily grow underneath — where a circle's edge sweeps closest to the corners
+    // and a wedge becomes unclickable behind a caption.
+    const x0 = b.x - m
+    const x1 = b.x + b.width + m
+    const y0 = b.y - m
+    const y1 = b.y + b.height + m + reach * CHROME_BOTTOM
+    const side = Math.max(x1 - x0, y1 - y0)
+    const cx = (x0 + x1) / 2
+    const cy = (y0 + y1) / 2
+    const next = `${cx - side / 2} ${cy - side / 2} ${side} ${side}`
+    setViewBox((prev) => (prev === next ? prev : next))
+  }, [wedges, fileWedges, collapsed, mode, root])
 
   /** Ring thickness follows the depth actually present, so a shallow project fills the
    *  canvas instead of drawing three rings and a lot of empty paper.
@@ -228,9 +293,16 @@ export function Sunburst({
           child the SVG's `height: 100%` has to resolve through the chart pane, and when
           it doesn't the square viewBox falls back to its intrinsic ratio and takes its
           WIDTH as its height — which at full screen made the chart taller than the pane
-          and pushed the legend off the bottom. `inset-0` makes both axes definite, and
-          the default xMidYMid letterboxes the rings inside whatever shape that is. */}
-      <svg viewBox="-360 -360 720 720" className="absolute inset-0 h-full w-full">
+          and pushed the legend off the bottom. `inset-0` makes both axes definite.
+
+          The viewBox is the measured extent of what is DRAWN, not the nominal circle the
+          constants describe. A tree shallower than `RINGS` never reaches `R_OUTER`, and a
+          ring whose outer band is sparse does not paint to its own edge — so a fixed box
+          leaves a margin whose size depends on the repo, and the map sits smaller than
+          the pane it was given for reasons the reader cannot see. Measured in USER units,
+          which do not change when the viewBox does, so this settles in one pass rather
+          than chasing itself. */}
+      <svg viewBox={viewBox} className="absolute inset-0 h-full w-full">
         {/* Hatching for readings whose code has moved. Deliberately a TEXTURE and not a
             colour: the map has exactly one colour encoding and adding a second hue for
             "expired" would put two scales on one ring. A hatch sits on top of whatever
@@ -266,7 +338,7 @@ export function Sunburst({
         {/* Keyed on the root so changing level remounts the group and replays the
             transition. Drilling in grows into place, drilling out shrinks into it, which
             is what makes the two directions distinguishable rather than just a fade. */}
-        <g key={root.id} className={drill === 'in' ? 'drill-in' : 'drill-out'}>
+        <g ref={art} key={root.id} className={drill === 'in' ? 'drill-in' : 'drill-out'}>
         {/* Arcs first, dots after, so a dot is never buried under the ring it belongs to. */}
         {wedges
           .filter((w) => w.node.kind !== 'func')
@@ -405,6 +477,19 @@ export function Sunburst({
             const fa0 = w.a0 + pad
             const fa1 = w.a1 - pad
             const r1 = bandStart + band - RING_GAP * 0.4 - FUNC_RIM
+            // Too narrow to say anything: draw the file solid instead.
+            //
+            // A function slice spans its file's whole angular width, so on a thin file
+            // every slice is a sliver with a 0.6px cut down each side — and the cut is
+            // `--background`, which on the dark theme is DARKER than the `--structure`
+            // plate the ring sits on. What renders is not a stack of functions, it is a
+            // picket fence of keylines, and it reads as detail while carrying none.
+            //
+            // The file keeps its own fill and its own hover, and drilling in still shows
+            // every function it has. `layout` already culls wedges below `MIN_ANGLE` on
+            // the same reasoning; this is that rule applied one level further in, where
+            // the wedges are not culled but their CONTENTS cannot be drawn.
+            if ((fa1 - fa0) * rMid < MIN_STACK_ARC) return null
             return stackFunctions(w.node.children, r0, r1).map((slot) => {
               const c = colorFor(slot.node, mode, ranks)
               const isSel = selected?.id === slot.node.id
@@ -497,6 +582,15 @@ export function Sunburst({
             const name =
               w.node.name.length > room ? w.node.name.slice(0, Math.max(1, room - 1)) + '…' : w.node.name
             if (room < 2) return null
+            // A FILE label that has to shrink or clip is dropped rather than drawn.
+            //
+            // Shrink-then-truncate is right for a directory: it sits on a structural
+            // plate, nothing is behind it, and `componen…` still says which one you are
+            // looking at. A file's label sits on top of its own function stack — bands
+            // and cuts a pixel apart — so at 7.5px, clipped, it is texture over texture
+            // and reads as neither. `citation_validation.rs` in a wedge with room for
+            // nine characters tells you nothing a hover would not tell you better.
+            if (!isDir && (size < 8.5 || w.node.name.length > room)) return null
             const pathId = `lp-${w.node.id}`
             return (
               <g key={`l-${w.node.id}`} className="pointer-events-none select-none">

@@ -21,7 +21,27 @@
 
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
+
+/// The project THIS shim is working on.
+///
+/// One `sanity mcp` process is spawned per MCP client, so this variable is already
+/// per-session — the isolation exists for free and was being thrown away at the HTTP
+/// boundary, where every call resolved against the app's single `active` project instead.
+/// Two agents on two repos therefore merged: the second to call `sanity_open` took
+/// ownership of the first's queue, its leases and its readings, and the first's
+/// orchestrator carried on believing it was assessing its own repo.
+///
+/// Held here rather than passed through the tool schema on purpose. The agent never sees
+/// it, so it cannot forget it, garble it, or lose it to a compaction — and a model that
+/// ignores instructions cannot break it, which is not true of anything carried in a
+/// prompt.
+static PROJECT: Mutex<Option<String>> = Mutex::new(None);
+
+fn project() -> Option<String> {
+    PROJECT.lock().ok().and_then(|p| p.clone())
+}
 
 /// Resolve the running app's port from the file it publishes, rather than assuming one.
 ///
@@ -135,6 +155,19 @@ const NOT_RUNNING: &str = "Sanity does not appear to be running at all — no en
     start the Sanity app, then call sanity_open with your repo path. Do NOT read the \
     .sanity/ directory instead; a reading made after seeing it is contaminated.";
 
+/// Percent-encode a project key for a query string. Keys are absolute paths, so spaces
+/// and anything else a directory name may legally contain have to survive the trip.
+fn urlencode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
 fn tools() -> Value {
     json!([
         {
@@ -195,13 +228,32 @@ fn tools() -> Value {
 
 fn call(name: &str, args: &Value) -> Result<Value, String> {
     match name {
-        "sanity_open" => post("/open", json!({ "path": args.get("path").and_then(|v| v.as_str()).unwrap_or("") })),
+        "sanity_open" => {
+            let out = post("/open", json!({ "path": args.get("path").and_then(|v| v.as_str()).unwrap_or("") }))?;
+            // Remember what we opened. Every later call carries it, so this session's
+            // work lands in this session's repo however many other agents are running.
+            if let Some(key) = out.get("project").and_then(|v| v.as_str()) {
+                if let Ok(mut p) = PROJECT.lock() {
+                    *p = Some(key.to_string());
+                }
+            }
+            Ok(out)
+        }
         "sanity_status" => get("/status"),
         "sanity_next" => {
             let n = args.get("n").and_then(|v| v.as_u64()).unwrap_or(5).clamp(1, 25);
-            get(&format!("/queue?n={n}"))
+            match project() {
+                Some(k) => get(&format!("/queue?n={n}&project={}", urlencode(&k))),
+                None => get(&format!("/queue?n={n}")),
+            }
         }
-        "sanity_report" => post("/report", args.clone()),
+        "sanity_report" => {
+            let mut body = args.clone();
+            if let (Some(obj), Some(k)) = (body.as_object_mut(), project()) {
+                obj.insert("project".into(), Value::String(k));
+            }
+            post("/report", body)
+        }
         other => Err(format!("unknown tool {other}")),
     }
 }

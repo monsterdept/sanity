@@ -1,47 +1,78 @@
 import { PartyAnts } from './PartyAnts'
 import { colorFor, type ColorMode } from '../lib/colorMode'
+import { elide } from '../lib/text'
 import {
-  QUADRANT_LABEL,
-  verdictReasons,
   heatColor,
-  quadrant,
   isAnalyzed,
   temperature,
   wedgeHeat,
+  type AgentReport,
+  type Grade,
   type Node,
 } from '../lib/api'
 
 
 /**
- * A number and a bar. The definition lives in `title`, not on screen.
+ * One reading, as a dial.
  *
- * Each meter used to carry a two-line explanation of what the metric means. That is
- * documentation — useful exactly once, then permanent noise that crowded out anything
- * specific to the code being looked at.
+ * Three of these side by side, where there were four stacked bars. A bar is a length, and
+ * three lengths in a column invite the eye to compare them — but these three measure
+ * different things on different scales, so comparing them is exactly the reading nobody
+ * should take. A dial reads as its own instrument: you take each one on its own terms,
+ * which is what they are.
+ *
+ * Fixed 180°, and the value spelled out in the middle. The arc is for the glance — is
+ * this near the top or the bottom — and the number is there because a glance at an arc is
+ * not a measurement and this panel is where you come when the map was not enough.
  */
-function Meter({
+function Gauge({
   label,
   value,
   hint,
+  unread,
 }: {
   label: string
   value: number
   hint: string
+  /** No value to show — draw the track and say so, rather than a needle at zero, which
+   *  claims a reading of nought where there is no reading at all. */
+  unread?: boolean
 }) {
+  const R = 40
+  const LEN = Math.PI * R
+  const v = Math.max(0, Math.min(1, value))
+  const arc = `M ${50 - R} 50 A ${R} ${R} 0 0 1 ${50 + R} 50`
   return (
-    <div className="mb-2.5" title={hint}>
-      <div className="mb-1 flex items-baseline justify-between">
-        <span className="cursor-help text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)] decoration-dotted underline-offset-2 hover:underline">
-          {label}
-        </span>
-        <span className="mono text-xs tabular-nums">{Math.round(value * 100)}</span>
-      </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--secondary)]">
-        <div
-          className="h-full rounded-full bg-[var(--accent)]"
-          style={{ width: `${Math.round(value * 100)}%` }}
-        />
-      </div>
+    <div className="flex min-w-0 flex-col items-center" title={hint}>
+      <svg viewBox="0 0 100 58" className="w-full overflow-visible">
+        <path d={arc} fill="none" stroke="var(--secondary)" strokeWidth={7} strokeLinecap="round" />
+        {!unread && (
+          <path
+            d={arc}
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth={7}
+            // Butt at zero: a round cap on an empty arc draws a dot, which reads as a
+            // small value rather than none.
+            strokeLinecap={v > 0.01 ? 'round' : 'butt'}
+            strokeDasharray={`${LEN * v} ${LEN}`}
+          />
+        )}
+        <text
+          x={50}
+          y={48}
+          textAnchor="middle"
+          className="mono"
+          fontSize={22}
+          fontWeight={600}
+          fill="var(--foreground)"
+        >
+          {unread ? '—' : Math.round(v * 100)}
+        </text>
+      </svg>
+      <span className="mt-0.5 cursor-help text-center text-[9.5px] font-semibold uppercase leading-tight tracking-wide text-[var(--muted-foreground)]">
+        {label}
+      </span>
     </div>
   )
 }
@@ -139,6 +170,27 @@ function measure(n: Node, mode: ColorMode): string | null {
     return `${Math.round(wedgeHeat(n) * 100)}\u00b0`
   }
   return n.loc.toLocaleString()
+}
+
+/** The reader's grade, with pre-grade readings folded to the ends of the scale — the same
+ *  fold `Report::grades` does in Rust, so the two cannot disagree about an old reading. */
+function grade(r: AgentReport): Grade {
+  return r.predicted ?? (r.surprised ? 'none' : 'full')
+}
+
+/** Where the numbers above came from, in one sentence. */
+function provenance(node: Node, model: string | null): string {
+  if (!isAnalyzed(node)) {
+    return 'Not read yet — the colour is the offline proxy, which measurably tracks file length more than surprise.'
+  }
+  const a = node.agent
+  if (node.score?.source === 'agent' && a) {
+    const who = [a.model, a.by].filter(Boolean).join(' · ')
+    return `Read by ${who || 'an agent over MCP'}${a.at ? ` at ${a.at}` : ''}`
+  }
+  if (node.score?.source === 'agent') return 'Read by an agent over MCP'
+  if (node.score?.source === 'model') return `Measured by ${model ?? 'a model'}`
+  return `Measured by ${model ?? 'the offline proxy'}`
 }
 
 /**
@@ -243,7 +295,6 @@ export function Detail({
 
   const s = node.score
   const t = temperature(s)
-  const q = quadrant(s, node.loc)
   const isLeaf = node.kind === 'func'
   const analyzed = isAnalyzed(node)
 
@@ -259,7 +310,7 @@ export function Detail({
           rubber-banding carried the header with it — the pinned block bounced away from
           the top edge and left a gap of panel behind it. Outside the box it cannot move,
           and the bounce happens under it where it belongs. */}
-      <div className="shrink-0 px-4 pt-4">
+      <div className="shrink-0 border-b border-[var(--border)] px-4 pb-3 pt-4">
       <div className="mb-1 flex items-center gap-2">
         <span
           className="inline-block h-3 w-3 shrink-0 rounded-full"
@@ -273,9 +324,14 @@ export function Detail({
           {KIND_LABEL[node.kind]}
         </span>
       </div>
-      <p className="mono break-all text-[11px] text-[var(--muted-foreground)]">
-        {node.path}
-        {node.line !== null && `:${node.line}`} · {node.loc.toLocaleString()} lines
+      {/* Two lines, and the path elided rather than wrapped — the same treatment the
+          ring's hover gives it. Wrapped, a deep path took three lines and split its own
+          filename across two of them, and the size hid at the end of the run-on. */}
+      <p className="mono truncate text-[11px] text-[var(--muted-foreground)]">
+        {elide(`${node.path}${node.line !== null ? `:${node.line}` : ''}`, 40)}
+      </p>
+      <p className="mono text-[11px] tabular-nums text-[var(--muted-foreground)]">
+        {node.loc.toLocaleString()} lines
       </p>
 
       {/* The two bars ride WITH the header, above the verdict rather than below it.
@@ -283,68 +339,56 @@ export function Detail({
           three paragraphs down and off the bottom of a short pane — the verdict is a
           reading OF them, so it cannot come first. */}
       {s && analyzed && (
-        <div className="mt-3">
-          {/* ONE bar for the reading. There used to be Temperature and Surprise stacked
-              on top of each other, and since temperature was surprise x (1 - explained)
-              they were the same number on every wedge nothing documented — which is most
-              of a repo. Two identical bars claiming to be different measurements. */}
+        // Three, in a row. Read is gone: `analyzedShare` is bimodal in practice — a repo
+        // is assessed or it is not, so the dial read ~100 everywhere or ~0 everywhere and
+        // distinguished nothing between two wedges you would want to tell apart.
+        <div className="mt-3 grid grid-cols-3 gap-1">
           {isLeaf ? (
-            <Meter
+            <Gauge
               label="Surprise"
               value={t}
               hint="How little of this body a reader could predict from its name, signature, neighbours and docs. This is the colour."
             />
           ) : (
-            /* The LOC-weighted mean of what is inside, which is also the number the
-               verdict box above speaks in ("largely predictable from its signature,
-               10/100"). It was the hot share — the FRACTION of analysed lines that are
-               hot — and the two were on screen together saying different things about
-               the same word.
+            /* The LOC-weighted mean of what is inside. It was the hot share — the
+               FRACTION of analysed lines that are hot — and the two were on screen
+               together saying different things about the same word.
 
                Worth knowing: the wedge's COLOUR is still the hot share, because a mean
-               temperature flattens every inner ring toward the repo average and makes
-               the loudest thing on screen the thing that means least. So this meter no
-               longer explains the colour, and its hint says so rather than claiming it
-               does. */
-            <Meter
-              label="Average surprise"
+               temperature flattens every inner ring toward the repo average and makes the
+               loudest thing on screen the thing that means least. So this dial no longer
+               explains the colour, and its hint says so rather than claiming it does. */
+            <Gauge
+              label="Avg surprise"
               value={s.surprise}
               hint="The line-weighted mean surprise of everything inside. The wedge's colour is a different figure — the share of analysed lines that are hot."
             />
           )}
           {/* Documentation is a REPORT, not a discount. It no longer multiplies into the
               colour — the reader who graded it had the docs in hand, so a good comment
-              already lowered the surprise above. Shown because "surprising and
+              already lowered the surprise beside it. Shown because "surprising and
               undocumented" and "surprising but well covered" are different situations,
               and only one of them is anyone's fault. */}
-          <Meter
+          <Gauge
             label="Documented"
             value={s.documented}
             hint="How well the attached docs cover what the code actually does — graded by the reader that read both, not counted in comment lines."
           />
-          {/* The second axis, as a bar rather than only as a commit count further down.
-              Surprise alone cannot tell a subtle algorithm from a mess — both are
-              unpredictable — and churn is what separates them, so the verdict above is
-              read off THIS and the bar above it. Showing one as a bar and the other as a
-              raw number buried in a list made the pair look like a headline and a
-              footnote.
+          {/* The second axis. Surprise alone cannot tell a subtle algorithm from a mess —
+              both are unpredictable — and churn is what separates them.
 
-              Hidden without git history rather than drawn at zero: no history means no
-              second axis at all, and an empty bar claims "settled" when the truth is
-              "unknown". The row below already says "no history" in words. */}
-          {s.ageDays !== null && (
-            <Meter
-              label="Churn"
-              value={s.churn}
-              hint="How much this code has moved lately, from commits in the last 90 days. High surprise that is settled is a crown jewel; high surprise that is churning is trouble."
-            />
-          )}
+              Drawn as an empty dial reading "—" without git history, not as a needle at
+              zero: no history means no second axis at all, and a zero claims "settled"
+              where the truth is "unknown". Keeping the slot also keeps the row at three,
+              so the panel does not reflow depending on whether a repo has a .git. */}
+          <Gauge
+            label="Churn"
+            value={s.churn}
+            unread={s.ageDays === null}
+            hint="How much this code has moved lately. Without git history there is no second axis, and the dial says so rather than reading zero."
+          />
         </div>
       )}
-      {/* The edge of the pinned block. A rule rather than a shadow: everything else
-          separating rows in this panel is a rule, and one drop shadow in a panel of
-          hairlines reads as a rendering mistake. */}
-      <div className="mt-3 h-px bg-[var(--border)]" />
       </div>
 
       {/* `min-h-0` because a flex child's default `min-height:auto` refuses to shrink
@@ -370,58 +414,6 @@ export function Detail({
         </p>
       ) : (
         <>
-          {q && (
-            <div className="mb-4 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--card)] p-3">
-              <p className="mb-1.5 text-xs font-semibold">{QUADRANT_LABEL[q]}</p>
-              {/* The reasons, not a fixed paragraph per quadrant. A verdict with no
-                  reasons attached reads the same for every function in the repo. */}
-              <ul className="space-y-0.5 text-[11px] leading-snug text-[var(--muted-foreground)]">
-                {verdictReasons(s, node.loc, analyzed).map((r, i) => (
-                  <li key={i} className="flex gap-1.5">
-                    <span aria-hidden>·</span>
-                    <span>{r}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <dl className="mt-3 space-y-1.5 pt-1 text-[11px]">
-              {/* Commits and first-seen used to sit here. Both are stated in the verdict
-                  box directly above, in prose and with the interpretation attached
-                  ("changed 6x in the last 90 days, last 1d ago"), and both appear in the
-                  ring's hover in the modes where they are the question. Three places for
-                  one fact.
-
-                  This row stays because nothing else says it. Which instrument produced
-                  the numbers above is the one thing the panel must never leave the user
-                  to guess — an agent's reading and the offline proxy's guess are not the
-                  same claim, and the proxy measurably tracks file length. */}
-            <div className="flex justify-between gap-3">
-              <dt className="text-[var(--muted-foreground)]">Measured by</dt>
-              {/* This node's own source, not the scan's label. A wedge upgraded by the
-                  streaming model pass was reporting "heuristic (no model)" because the
-                  footer read a scan-level field that describes the first pass only. */}
-              {/* This node's own source. Reading the scan-level label here claimed a
-                  wedge an AGENT assessed had been measured by whatever model the scan
-                  was configured with — two different instruments, one label. */}
-              {/* Name the reader. "an agent (MCP)" covered a frontier model and
-                  something small and cheap with one label, which is the one thing this
-                  row exists to tell apart — the metric is a claim about what a competent
-                  reader could predict, so which reader is part of the reading. Readings
-                  banked before agents reported it fall back to the old wording rather
-                  than being attributed to a model nobody recorded. */}
-              <dd className="mono text-right">
-                {!analyzed
-                  ? 'not yet analysed'
-                  : s.source === 'agent'
-                    ? node.agent?.model
-                      ? `${node.agent.model} (MCP)`
-                      : 'an agent (MCP)'
-                    : (model ?? 'a model')}
-              </dd>
-            </div>
-          </dl>
 
           {node.agent && (
             <div className="mt-4 space-y-3 border-t border-[var(--border)] pt-3">
@@ -483,7 +475,13 @@ export function Detail({
                 </div>
               </div>
 
-              {node.agent.surprised && node.agent.note && (
+              {/* Shown whenever there IS one, not only when a legacy flag says so. Both
+                  this and the line below used to key off `surprised`, which agents stopped
+                  sending when `predicted` replaced it — it defaults to false, so every
+                  reading claimed to be unsurprising and this note, the one sentence a
+                  human can act on, never rendered at all. A note exists because the reader
+                  chose to write one; that is the condition. */}
+              {node.agent.note && (
                 /* The takeaway, marked as one. It reads as a quote of the paragraph above
                    it otherwise — the icon is what says "this is the bit that matters",
                    and it is the same warning colour the warm-read caveat uses so the
@@ -500,27 +498,15 @@ export function Detail({
                   </div>
                 </div>
               )}
-              {!node.agent.surprised && (
+              {/* Only when the reader actually called it, and only when it has nothing
+                  else to say. `full` is "nothing in the body I missed"; anything less had
+                  a gap worth leaving unclaimed. */}
+              {!node.agent.note && grade(node.agent) === 'full' && (
                 <p className="text-[11px] italic text-[var(--muted-foreground)]">
                   Read as expected — nothing here would trip someone up.
                 </p>
               )}
 
-              {/* Whose reading this is. Worth showing now that assessments are committed
-                  to the repo: on a shared one you are often looking at a colleague's
-                  reading, and "who thought this was obvious" is the first question that
-                  gets asked about a wedge you disagree with. */}
-              {(node.agent.by || node.agent.at) && (
-                <p className="text-[10px] text-[var(--muted-foreground)]">
-                  Read by {node.agent.by || 'an unnamed reader'}
-                  {node.agent.at && (
-                    <>
-                      {' at '}
-                      <span className="mono">{node.agent.at}</span>
-                    </>
-                  )}
-                </p>
-              )}
             </div>
           )}
 
@@ -567,6 +553,14 @@ export function Detail({
 
       <Contents node={node} mode={mode} ranks={ranks} onSelect={onSelect} onDrill={onDrill} />
       </div>
+
+      {/* Pinned to the bottom, a flex sibling of the scroller rather than the last thing
+          inside it. Who produced these numbers is the one line that should not require
+          scrolling past a hundred and fifty functions to reach — and a footer that moves
+          with the list is not a footer, it is the end of the list. */}
+      <p className="shrink-0 border-t border-[var(--border)] px-4 py-2 text-[10px] leading-snug text-[var(--muted-foreground)]">
+        {provenance(node, model)}
+      </p>
     </div>
   )
 }

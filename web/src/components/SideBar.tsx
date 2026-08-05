@@ -35,16 +35,32 @@ export function SideBar({
   active,
   onSelect,
   agent,
+  busyKey,
   onConnect,
 }: {
   projects: ProjectSummary[]
   active: string | null
   onSelect: (key: string) => void
   agent: AgentActivity
+  /** The project whose progress the bar should report — see `App`. */
+  busyKey: string | null
   onConnect: () => void
 }) {
-  // The one project still being read, if any — the only place a progress bar earns room.
-  const inProgress = projects.find((p) => p.functions > 0 && p.assessed < p.functions)
+  // One bar per project actually being worked, not one bar for the app.
+  //
+  // There was a single bar, first for "the first unfinished project in the list" and then
+  // for "whichever one the app calls active" — both of which answer a question nobody
+  // asked once two sessions can run at once. They can now: calls route by project, so two
+  // agents on two repos make independent progress, and a single bar has to pick a winner
+  // and be wrong about the other.
+  //
+  // Falls back to whatever is on screen when nothing is working, so the panel still says
+  // something in the quiet case rather than collapsing to nothing.
+  const working = projects.filter((p) => p.working && p.functions > 0)
+  const bars =
+    working.length > 0
+      ? working
+      : projects.filter((p) => p.key === busyKey && p.functions > 0)
 
   return (
     <aside
@@ -140,35 +156,35 @@ export function SideBar({
               something to finish. On a completed project it is a full bar saying nothing;
               in the list it was repeated per row and pushed the rows to two lines each,
               which is what stopped the sidebar reading like tally's. */}
-          {inProgress && (
-            <div className="mt-1.5">
+          {bars.map((p) => (
+            <div key={p.key} className="mt-1.5">
               <div className="mb-1 flex items-baseline justify-between text-[10px] opacity-70">
-                <span className="mono truncate">{inProgress.name}</span>
-                <span className="tabular-nums">
-                  {inProgress.assessed}/{inProgress.functions}
+                <span className="mono truncate">{p.name}</span>
+                <span className="shrink-0 tabular-nums">
+                  {p.assessed}/{p.functions}
                 </span>
               </div>
               {/* Why the bar moved BACKWARDS. A finished project that gains stale
                   readings drops below full, and without this the only reading of that is
                   "the tool lost my work" — which is the one thing it must never look
                   like, given the whole point of committing the assessment. */}
-              {inProgress.stale > 0 && (
+              {p.stale > 0 && (
                 <p className="mb-1 text-[10px] opacity-70">
-                  {inProgress.stale} {inProgress.stale === 1 ? 'reading has' : 'readings have'}{' '}
-                  gone stale — the code changed under {inProgress.stale === 1 ? 'it' : 'them'}
+                  {p.stale} {p.stale === 1 ? 'reading has' : 'readings have'} gone stale —
+                  the code changed under {p.stale === 1 ? 'it' : 'them'}
                 </p>
               )}
               <div className="h-1 w-full overflow-hidden rounded-full bg-black/25">
                 <div
                   className="h-full rounded-full transition-[width] duration-500"
                   style={{
-                    width: `${Math.max(1.5, (inProgress.assessed / inProgress.functions) * 100)}%`,
+                    width: `${Math.max(1.5, (p.assessed / p.functions) * 100)}%`,
                     background: 'var(--agent-mark)',
                   }}
                 />
               </div>
             </div>
-          )}
+          ))}
         </div>
       </div>
     </aside>

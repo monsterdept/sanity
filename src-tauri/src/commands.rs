@@ -108,6 +108,7 @@ pub async fn scan_repo(
                 reports,
                 leased: std::collections::HashMap::new(),
                 touched: 0,
+                last_agent: None,
             },
         );
         shared.touch(&key);
@@ -212,15 +213,25 @@ pub fn open_code_window(app: tauri::AppHandle, repo: String, rel_path: String) -
 /// Polled rather than pushed: an agent reports every several seconds at best, so a poll
 /// costs nothing and avoids threading an AppHandle into the loopback server purely to
 /// emit events.
+/// Readings for one project — the one the WINDOW is showing, which is not always the one
+/// an agent last opened.
+///
+/// This used to answer for `active` only. The moment a second project existed that was
+/// wrong: an agent opening a repo makes it active, so the window — still showing the
+/// first — began receiving the second's readings, whose ids match nothing in the tree on
+/// screen. Switching back through the sidebar loads a fresh proxy-scored tree from here,
+/// and the readings that would have recoloured it were never sent. A repo with a thousand
+/// assessed functions rendered entirely grey while the sidebar counted them.
 #[tauri::command]
 pub fn agent_reports(
     state: tauri::State<'_, crate::agentapi::Shared>,
+    key: Option<String>,
 ) -> Vec<crate::agentapi::Report> {
     state
         .lock()
         .ok()
         .and_then(|s| {
-            let key = s.active.clone()?;
+            let key = key.or_else(|| s.active.clone())?;
             Some(s.projects.get(&key)?.reports.values().cloned().collect())
         })
         .unwrap_or_default()

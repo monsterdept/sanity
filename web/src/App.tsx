@@ -23,6 +23,7 @@ import {
 } from './lib/api'
 import { Sunburst } from './components/Sunburst'
 import { FileStack } from './components/FileStack'
+import { Crumbs } from './components/Crumbs'
 import { TopRow } from './components/shell/TopRow'
 import {
   legendFor,
@@ -113,6 +114,12 @@ export default function App() {
   const [agent, setAgent] = useState<AgentActivity>({ active: false, tool: '', nonce: 0 })
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [activeKey, setActiveKey] = useState<string | null>(null)
+  /** The project the BACKEND considers active — the one an agent last called about.
+   *
+   *  Tracked apart from `activeKey`, which is what the window is showing. They agree
+   *  until you click another project in the sidebar, and then they do not: the agent
+   *  keeps reporting to its own repo while you look at a different one. */
+  const [agentKey, setAgentKey] = useState<string | null>(null)
   const nonce = useRef(0)
   // The path of whatever is on screen, so changing the model can re-scan it rather than
   // making the user find the directory again.
@@ -151,16 +158,23 @@ export default function App() {
     const timer = setInterval(() => {
       void listProjects().then(async (list) => {
         setProjects(list.projects)
+        setAgentKey(list.active)
         if (!list.active || list.active === showing) return
         showing = list.active
         setActiveKey(list.active)
-        const s = await projectScan(list.active)
+        // Both, together. `project_scan` returns the tree as Rust scored it — proxy
+        // only — so fetching it without the readings shows an assessed repo as entirely
+        // grey until some later poll happens to repaint it.
+        const [s, reports] = await Promise.all([
+          projectScan(list.active),
+          agentReports(list.active),
+        ])
         if (!s) return
         // A different project means a different tree; stale drill-in and selection would
         // point at nodes that no longer exist.
         setStack([])
         setPicked(null)
-        setScan(s)
+        setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
       })
     }, 1500)
     return () => clearInterval(timer)
@@ -172,13 +186,13 @@ export default function App() {
   useEffect(() => {
     const timer = setInterval(() => {
       void agentActivity().then(setAgent)
-      void agentReports().then((reports) => {
+      void agentReports(activeKey).then((reports) => {
         if (reports.length === 0) return
         setScan((prev) => (prev ? { ...prev, root: applyAgentReports(prev.root, reports) } : prev))
       })
     }, 2000)
     return () => clearInterval(timer)
-  }, [])
+  }, [activeKey])
 
   // Streamed scores are batched and flushed on a timer rather than applied per event.
   // Each application re-aggregates the tree and re-renders a few thousand arcs; at the
@@ -304,6 +318,38 @@ export default function App() {
    *  popped, because `focus` resolves the whole stack from the root every render — a
    *  single id is the canonical way to say "we are here". Undefined at the top, which
    *  is what hides the affordance. */
+  /** The ancestry of what is on screen: root first, focus last.
+   *
+   *  Walked up the TREE, not read off the drill stack. The stack records where you
+   *  clicked, and drilling from the root straight into a nested directory puts one entry
+   *  in it — so a crumb built from it read `cluster / Store` for a directory that
+   *  actually lives at `Sources/ClusterCore/Store`. That is a history, and a history is
+   *  not a location; the bar is supposed to answer "where am I", which only the tree
+   *  knows.
+   *
+   *  Splitting the focused node's path string would be the other way, and it does not
+   *  work: the scan collapses single-child directory chains, so the segments of a path
+   *  do not all correspond to nodes. `parentOf` walks what is really there. */
+  const trail = useMemo(() => {
+    if (!scan || !focus) return []
+    const out: Node[] = []
+    let n: Node | null = focus
+    while (n) {
+      out.unshift(n)
+      n = n.id === scan.root.id ? null : parentOf(scan.root, n.id)
+    }
+    return out
+  }, [scan, focus])
+
+  /** Jump to any level of the ancestry. Index 0 is the root. */
+  const goTo = useCallback(
+    (i: number) => {
+      setStack(i === 0 ? [] : [trail[i].id])
+      setPicked(null)
+    },
+    [trail],
+  )
+
   const goUp = useMemo(() => {
     if (!scan || !focus || focus.id === scan.root.id) return undefined
     return () => {
@@ -341,14 +387,19 @@ export default function App() {
           projects={projects}
           active={activeKey}
           agent={agent}
+          // Whose progress the bar reports: whoever is being written to while an agent
+          // works, and otherwise whatever is on screen.
+          busyKey={agent.active ? agentKey : activeKey}
           onConnect={() => setShowAgents(true)}
           onSelect={(key) => {
-            void projectScan(key).then((s) => {
+            // Readings fetched WITH the scan, not left to the next poll: `project_scan`
+            // returns the proxy-scored tree, so between the two the repo renders grey.
+            void Promise.all([projectScan(key), agentReports(key)]).then(([s, reports]) => {
               if (!s) return
               setActiveKey(key)
               setStack([])
               setPicked(null)
-              setScan(s)
+              setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
             })
           }}
         />
@@ -357,24 +408,7 @@ export default function App() {
           {focus && <ModeSwitcher mode={mode} onMode={setMode} />}
         </TopRow>
         <main className="relative flex min-w-0 flex-1 flex-col border-l border-t border-[var(--border)] bg-[var(--background)]">
-          {stack.length > 0 && focus && (
-            <nav className="flex shrink-0 items-center gap-1 px-3 py-1.5 text-xs">
-              <button
-                onClick={() => setStack([])}
-                className="text-[var(--accent)] hover:underline"
-              >
-                {scan?.root.name}
-              </button>
-              <span className="text-[var(--muted-foreground)]">/</span>
-              <span className="mono truncate">{focus.path}</span>
-              <button
-                onClick={goUp}
-                className="ml-2 text-[var(--muted-foreground)] hover:underline"
-              >
-                up
-              </button>
-            </nav>
-          )}
+          {scan && focus && <Crumbs trail={trail} onGo={goTo} onUp={goUp} />}
 
           <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
             {error ? (

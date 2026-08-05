@@ -55,6 +55,14 @@ pub struct Project {
     /// Monotonic counter, not a clock: the UI follows whichever project was touched last
     /// and `Instant` would need a baseline to serialise. A counter is enough to order them.
     pub touched: u64,
+    /// When an agent last called about THIS project.
+    ///
+    /// `AppState::last_agent` is one clock for the whole app, which was enough while only
+    /// one repo could be worked at a time. Now that calls route by project, two sessions
+    /// genuinely run at once and "is anything happening" has a different answer per repo —
+    /// so the sidebar can show a bar for each rather than one bar for whichever project it
+    /// guessed.
+    pub last_agent: Option<Instant>,
 }
 
 /// Everything sanity is currently holding.
@@ -114,6 +122,21 @@ impl AppState {
         self.last_agent = Some(Instant::now());
         self.last_tool = tool.to_string();
         self.pings += 1;
+    }
+
+    /// Which project a call belongs to.
+    ///
+    /// The client's own answer wins; `active` is the fallback for anything that did not
+    /// supply one. That order matters: `active` is *which repo the window follows*, and
+    /// it changes whenever any agent opens anything. Using it to answer "whose work is
+    /// this" meant two agents on two repos silently merged — the second one to call
+    /// `sanity_open` took ownership of the first one's queue, its leases and its
+    /// readings, and the first one's orchestrator never knew it had changed repos.
+    pub fn for_client(&self, project: Option<&str>) -> Option<String> {
+        match project {
+            Some(k) if self.projects.contains_key(k) => Some(k.to_string()),
+            _ => self.active.clone(),
+        }
     }
 
     fn active_project(&self) -> Option<&Project> {
@@ -441,6 +464,14 @@ fn collect_tasks(
 pub struct QueueParams {
     #[serde(default = "default_n")]
     n: usize,
+    /// Which project is asking.
+    ///
+    /// Supplied by the stdio shim, not by the agent — see `mcp.rs`. The shim handled this
+    /// client's `sanity_open`, so it knows the answer and cannot forget it; asking the
+    /// model to carry a key through every call would put the one thing that keeps two
+    /// sessions apart inside a prompt, where a compaction can drop it.
+    #[serde(default)]
+    project: Option<String>,
 }
 
 fn default_n() -> usize {
@@ -556,7 +587,7 @@ async fn open_project(
             s.touch(&key);
             let p = s.projects.get(&key).unwrap();
             return Json(serde_json::json!({
-                "ok": true, "reopened": true, "name": p.name,
+                "ok": true, "reopened": true, "project": key, "name": p.name,
                 "functions": count_funcs(&p.scan), "assessed": p.reports.len(),
                 "stale": count_stale(&p.scan, &p.reports), "protocol": PROTOCOL,
             }));
@@ -603,11 +634,12 @@ async fn open_project(
             reports,
             leased: HashMap::new(),
             touched: 0,
+            last_agent: Some(Instant::now()),
         },
     );
     s.touch(&key);
     Json(serde_json::json!({
-        "ok": true, "name": name, "functions": functions, "assessed": assessed,
+        "ok": true, "project": key, "name": name, "functions": functions, "assessed": assessed,
         "stale": stale, "protocol": PROTOCOL,
     }))
 }
@@ -724,13 +756,14 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
     let Ok(mut state) = state.lock() else {
         return Json(Vec::new());
     };
-    let Some(key) = state.active.clone() else {
+    let Some(key) = state.for_client(p.project.as_deref()) else {
         return Json(Vec::new());
     };
     state.ping("sanity_next");
     let Some(project) = state.projects.get_mut(&key) else {
         return Json(Vec::new());
     };
+    project.last_agent = Some(Instant::now());
 
     let mut tasks: Vec<(f32, Task)> = Vec::new();
     collect_tasks(
@@ -752,17 +785,34 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
     Json(handed)
 }
 
-async fn report(State(state): State<Shared>, Json(r): Json<Report>) -> Json<serde_json::Value> {
+/// A reading, plus which project it belongs to.
+///
+/// `project` is flattened alongside the report rather than living on `Report` itself: it
+/// is routing, not part of the reading, and it must not end up in `.sanity/`.
+#[derive(Deserialize)]
+pub struct ReportRequest {
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(flatten)]
+    report: Report,
+}
+
+async fn report(
+    State(state): State<Shared>,
+    Json(req): Json<ReportRequest>,
+) -> Json<serde_json::Value> {
+    let r = req.report;
     let Ok(mut state) = state.lock() else {
         return Json(serde_json::json!({ "ok": false }));
     };
-    let Some(key) = state.active.clone() else {
+    let Some(key) = state.for_client(req.project.as_deref()) else {
         return Json(serde_json::json!({ "ok": false, "error": "no project open" }));
     };
     state.ping("sanity_report");
     let Some(project) = state.projects.get_mut(&key) else {
         return Json(serde_json::json!({ "ok": false, "error": "no project open" }));
     };
+    project.last_agent = Some(Instant::now());
     project.leased.remove(&r.id);
 
     // Provenance is stamped here, not accepted from the caller. The body hash is the
@@ -916,6 +966,9 @@ pub struct ProjectSummary {
     pub assessed: usize,
     pub stale: usize,
     pub touched: u64,
+    /// An agent has called about this project recently. Per project, so two sessions
+    /// working two repos both report as working rather than one of them winning.
+    pub working: bool,
 }
 
 impl ProjectList {
@@ -926,6 +979,12 @@ impl ProjectList {
             .map(|(key, p)| {
                 let stale = count_stale(&p.scan, &p.reports);
                 ProjectSummary {
+                    // Same window as `agent_activity`: a reader predicting, opening a
+                    // file and writing a report goes quiet for tens of seconds inside one
+                    // continuous batch, and a shorter window makes it flicker.
+                    working: p
+                        .last_agent
+                        .is_some_and(|t| t.elapsed() < Duration::from_secs(60)),
                     key: key.clone(),
                     name: p.name.clone(),
                     repo: p.repo.to_string_lossy().to_string(),
@@ -1005,6 +1064,7 @@ pub fn restore(state: Shared) {
                     reports,
                     leased: HashMap::new(),
                     touched: known.touched,
+                    last_agent: None,
                 },
             );
             // Restored in reverse order so the last one touched is the last one in, and

@@ -5,7 +5,6 @@ import { listen } from '@tauri-apps/api/event'
  *  and the comments explaining what each number *means* are the part worth having. */
 export type NodeKind = 'dir' | 'file' | 'func'
 export type Provenance = 'none' | 'source' | 'history' | 'human'
-export type Quadrant = 'crown-jewel' | 'trouble' | 'bloat' | 'quiet'
 
 export interface Score {
   /** 0..1 — how unpredictable the body is given its name and signature. */
@@ -219,6 +218,9 @@ export interface ProjectSummary {
   /** Readings whose code has changed since. Already excluded from `assessed`. */
   stale: number
   touched: number
+  /** An agent has called about this project in the last minute. Per project, so two
+   *  sessions working two repos both report as working. */
+  working: boolean
 }
 
 export interface ProjectList {
@@ -310,9 +312,11 @@ export function reportGrades(r: AgentReport): { surprise: number; documented: nu
   }
 }
 
-/** What agents have reported for the open repo, polled while any are working. */
-export function agentReports(): Promise<AgentReport[]> {
-  return invoke<AgentReport[]>('agent_reports')
+/** What agents have reported for one project. Pass the key of the project ON SCREEN —
+ *  without it the backend answers for whichever repo an agent last opened, which is not
+ *  the same thing the moment there are two. */
+export function agentReports(key: string | null): Promise<AgentReport[]> {
+  return invoke<AgentReport[]>('agent_reports', { key })
 }
 
 /**
@@ -565,23 +569,7 @@ export function temperature(s: Score | null): number {
   return Math.max(0, Math.min(1, s.surprise))
 }
 
-export function isStable(s: Score): boolean {
-  return s.churn < 0.25 && s.ageDays !== null && s.ageDays > 90
-}
 
-export function quadrant(s: Score | null, loc: number): Quadrant | null {
-  if (!s) return null
-  const hot = s.surprise >= 0.5
-  if (hot) return isStable(s) ? 'crown-jewel' : 'trouble'
-  return loc >= 40 ? 'bloat' : 'quiet'
-}
-
-export const QUADRANT_LABEL: Record<Quadrant, string> = {
-  'crown-jewel': 'Crown jewel',
-  trouble: 'Trouble',
-  bloat: 'Bloat',
-  quiet: 'Quiet',
-}
 
 /**
  * Why *this* wedge got *that* verdict, in facts about this code.
@@ -595,39 +583,6 @@ export const QUADRANT_LABEL: Record<Quadrant, string> = {
  * can check and act on; "churn 100%" is a percentage of a saturation constant they have
  * never heard of.
  */
-export function verdictReasons(s: Score, loc: number, analyzed: boolean): string[] {
-  const out: string[] = []
-
-  if (s.surprise >= 0.5) {
-    out.push(
-      analyzed
-        ? `little of this body is predictable from its name and signature (${Math.round(s.surprise * 100)}/100)`
-        : `the offline proxy rates it unpredictable (${Math.round(s.surprise * 100)}/100) — no model has checked`,
-    )
-  } else {
-    out.push(`the body is largely predictable from its signature (${Math.round(s.surprise * 100)}/100)`)
-  }
-
-  if (s.ageDays === null) {
-    out.push('no git history here, so nothing is known about whether it has settled')
-  } else if (s.commits > 0) {
-    const recency =
-      s.lastTouchedDays !== null && s.lastTouchedDays < 14
-        ? `, last ${Math.max(1, Math.round(s.lastTouchedDays))}d ago`
-        : ''
-    out.push(`changed ${s.commits}× in the last 90 days${recency}`)
-  } else {
-    out.push(`untouched for 90 days (first appeared ${Math.round(s.ageDays)}d ago)`)
-  }
-
-  if (s.documented <= 0.05) out.push('nothing documents it')
-  else if (s.documented >= 0.9) out.push('its docs cover what it does')
-  else out.push(`its docs cover about ${Math.round(s.documented * 100)}% of what it does`)
-
-  if (s.surprise < 0.5 && loc >= 40) out.push(`and there are ${loc} lines of it`)
-
-  return out
-}
 
 /**
  * What a wedge is actually coloured by, which depends on what the wedge IS.
