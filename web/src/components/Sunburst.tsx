@@ -543,7 +543,8 @@ export function Sunburst({
             })
           })}
 
-        {/* Labels last so they sit above every wedge, and only where one fits.
+        {/* Labels last so they sit above every wedge, and only where one fits. Only
+            directories are labelled — see the filter.
             Functions are excluded because they are laid out angularly by `layout` but
             DRAWN as a radial stack across their file's whole span — labelling them from
             their layout angle puts the name nowhere near the band it names. It never
@@ -552,22 +553,24 @@ export function Sunburst({
         {wedges
           .filter(
             (w) =>
-              // Directories label at ANY depth that has room. The old rule was a depth
+              // Directories only, at ANY depth that has room. The old rule was a depth
               // cut standing in for "will this fit", which the arc-length test below now
               // answers directly — `src-tauri/src/bin` sat unlabelled in a wedge with
               // plenty of room purely because it was one ring too deep.
               //
-              // Files keep the depth cut: their band is occupied by their own function
-              // stack, so a label there is printed over the data rather than over a
-              // structural plate.
-              w.node.kind === 'dir' || (w.node.kind === 'file' && w.depth <= 2),
+              // Files are never labelled. A directory's band is a structural plate with
+              // nothing behind it; a file's band is its own function stack, so the label
+              // is printed over the data it names. Worse, a shallow file's wedge is
+              // usually narrow and steep, and a name set on that arc runs near-vertical —
+              // `sql_query.rs` reading bottom-to-top across its own bands costs the
+              // legibility of the stack to say what one hover says better.
+              w.node.kind === 'dir',
           )
           .map((w) => {
-            const isDir = w.node.kind === 'dir'
             const r = R_INNER + (w.depth - 1) * band + band / 2
             // Bound to the arc, so the type can be sized against the BAND rather than
             // against the chord a straight label would have to fit inside.
-            const want = isDir ? Math.max(10, Math.min(15, band * 0.3)) : 9
+            const want = Math.max(10, Math.min(15, band * 0.3))
             // Fit by SHRINKING first and truncating only as a last resort. A name that
             // overruns its wedge is worse than a slightly smaller one, and clipping
             // "components" to "componen…" loses the word for the sake of one type size.
@@ -582,15 +585,6 @@ export function Sunburst({
             const name =
               w.node.name.length > room ? w.node.name.slice(0, Math.max(1, room - 1)) + '…' : w.node.name
             if (room < 2) return null
-            // A FILE label that has to shrink or clip is dropped rather than drawn.
-            //
-            // Shrink-then-truncate is right for a directory: it sits on a structural
-            // plate, nothing is behind it, and `componen…` still says which one you are
-            // looking at. A file's label sits on top of its own function stack — bands
-            // and cuts a pixel apart — so at 7.5px, clipped, it is texture over texture
-            // and reads as neither. `citation_validation.rs` in a wedge with room for
-            // nine characters tells you nothing a hover would not tell you better.
-            if (!isDir && (size < 8.5 || w.node.name.length > room)) return null
             const pathId = `lp-${w.node.id}`
             return (
               <g key={`l-${w.node.id}`} className="pointer-events-none select-none">
@@ -599,14 +593,12 @@ export function Sunburst({
                 </defs>
                 <text
                   fontSize={size}
-                  // A label has to contrast with the wedge UNDER it, and those are two
-                  // different surfaces. Files carry the ramp, which is bright, so the
-                  // background colour reads on them. Directories are `--structure`, a
-                  // near-background plate — background-on-background, which is why the
-                  // directory names went invisible the moment the plates stopped being
-                  // outlined in white.
-                  fill={isDir ? 'var(--foreground)' : 'var(--background)'}
-                  fillOpacity={isDir ? 0.8 : 1}
+                  // Directories are `--structure`, a near-background plate, so the label
+                  // takes the foreground — background-on-background is why the directory
+                  // names went invisible the moment the plates stopped being outlined in
+                  // white.
+                  fill="var(--foreground)"
+                  fillOpacity={0.8}
                   style={{ fontWeight: 600 }}
                 >
                   <textPath href={`#${pathId}`} startOffset="50%" textAnchor="middle">
