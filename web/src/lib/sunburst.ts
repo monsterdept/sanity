@@ -157,6 +157,95 @@ export interface Slot {
   node: Node
   r0: number
   r1: number
+  /** How many functions this slot stands in for, when it is an overflow aggregate.
+   *  Undefined on a real function. */
+  rest?: number
+}
+
+/**
+ * Thinnest slice worth drawing.
+ *
+ * The cut between two slices is a 0.6px stroke, so below about this a slice is mostly its
+ * own border and what you see is the gap rather than the code. Measured, not chosen: a
+ * 150-function file in a 60px band rendered 0.40px slices and read as a moiré pattern.
+ */
+const MIN_SLICE = 1.4
+
+/**
+ * The most of a band that may go to floors, leaving the rest to mean something.
+ *
+ * Capacity was `height / MIN_SLICE`, which packs the band to the brim with minimums and
+ * leaves about a pixel of proportional budget for every slice to share. Everything then
+ * renders at the floor again — including the aggregate, which stood for 925 lines and
+ * drew the same width as its three-line neighbour. That is the original bug wearing a
+ * different number: a floor is only a floor while something else decides the rest.
+ *
+ * Half. Fewer slices, each of which is honestly sized, beats more slices that are all
+ * the same size — the second is a texture, not a measurement.
+ */
+const FLOOR_SHARE = 0.5
+
+/**
+ * Everything the band could not fit, as one wedge.
+ *
+ * A synthetic function node rather than a special case in the renderer: colour, heat,
+ * hover and all five colour modes key off a `Node`, so giving the aggregate a real one
+ * means none of them have to learn it exists.
+ *
+ * Its score is the LOC-weighted mean of the members that have actually been read. This is
+ * the one place this codebase averages temperature, and it is deliberate — the standing
+ * rule is that averaging *upward* flattens a whole ring to the repo mean, and this is not
+ * a ring above, it is a stand-in on the same ring for siblings that could not be drawn.
+ * A neutral plate was the alternative, and it would claim "nothing to see here" about
+ * what might be the hottest code in the file.
+ */
+function aggregate(fns: Node[], filePath: string): Node {
+  const loc = fns.reduce((n, f) => n + f.loc, 0)
+  const read = fns.filter(
+    (f) => f.score && (f.score.source === 'model' || f.score.source === 'agent'),
+  )
+  const w = read.reduce((n, f) => n + Math.max(f.loc, 1), 0)
+  const mean = (pick: (f: Node) => number) =>
+    w === 0 ? 0 : read.reduce((n, f) => n + pick(f) * Math.max(f.loc, 1), 0) / w
+  const first = read[0] ?? fns[0]
+  const s = first.score
+  return {
+    id: `${filePath}#rest`,
+    // Read as "126 and more". The count is the useful half and any word after it would
+    // not survive the arc this has to fit inside.
+    name: `${fns.length}+`,
+    kind: 'func',
+    path: filePath,
+    loc,
+    line: null,
+    endLine: null,
+    lang: first.lang,
+    lastAuthor: first.lastAuthor,
+    body: null,
+    hotspots: [],
+    // The members it stands for, kept rather than dropped. The detail panel lists a
+    // node's children, so carrying them here is what turns "104+" from a dead end into
+    // the way you actually reach the functions the band had no room to draw.
+    children: fns,
+    score:
+      read.length === 0 || !s
+        ? s
+        : {
+            surprise: mean((f) => f.score!.surprise),
+            documented: mean((f) => f.score!.documented),
+            churn: mean((f) => f.score!.churn),
+            ageDays: mean((f) => f.score!.ageDays ?? 0),
+            lastTouchedDays: mean((f) => f.score!.lastTouchedDays ?? 0),
+            commits: Math.round(mean((f) => f.score!.commits)),
+            provenance: s.provenance,
+            hotShare: mean((f) => f.score!.surprise),
+            source: s.source,
+            // The share of these lines anything actually read, so an aggregate that is
+            // mostly unread still renders mostly unread rather than borrowing the
+            // confidence of the few members that were.
+            analyzedShare: loc === 0 ? 0 : Math.min(1, w / loc),
+          },
+  }
 }
 
 /**
@@ -191,24 +280,112 @@ export function stackFunctions(
   if (opts.byHeat) fns = [...fns].sort((x, y) => heatOf(y) - heatOf(x))
 
   const height = r1 - r0
-  // A floor, so a three-line helper in a big file is still visible and clickable rather
-  // than a sub-pixel line. Taken out of the proportional budget rather than added on
-  // top, so the stack still exactly fills the band.
-  const min = Math.min(1.4, height / fns.length)
+
+  // How many slices this band can hold at a size worth drawing.
+  //
+  // The floor here used to be `min(1.4, height / n)`, which looks defensive and is not:
+  // past about forty functions the second term wins, `min * n` consumes the whole band,
+  // and the proportional budget left over is exactly zero. Every function then rendered
+  // at the same sub-pixel height whatever its length — so the ring stopped meaning
+  // "width is lines" and started meaning nothing, with no way to tell by looking.
+  const capacity = Math.max(1, Math.floor((height * FLOOR_SHARE) / MIN_SLICE))
+
+  let shown = fns
+  let rest: Node[] = []
+  if (fns.length > capacity) {
+    // Keep the HOTTEST, not the largest. A three-line guard with an inverted comparison
+    // is exactly what this map exists to surface, and dropping it for being short would
+    // answer the overflow by discarding the product's central claim. Length still decides
+    // how much room each kept slice gets, below.
+    const rank = new Map(
+      [...fns].sort((x, y) => heatOf(y) - heatOf(x)).map((f, i) => [f.id, i] as const),
+    )
+    const keep = capacity - 1
+    shown = fns.filter((f) => (rank.get(f.id) ?? 0) < keep)
+    rest = fns.filter((f) => (rank.get(f.id) ?? 0) >= keep)
+  }
+
+  // The aggregate goes at the outer edge rather than in size order. It is not a function;
+  // it is the edge of what this band could show, and it reads as a boundary there.
+  const slots = rest.length > 0 ? [...shown, aggregate(rest, rest[0].path)] : shown
+  const last = slots.length - 1
+  const min = Math.min(MIN_SLICE, height / slots.length)
   const weight = (f: Node) => (opts.even ? 1 : Math.max(f.loc, 1))
-  const total = fns.reduce((s, f) => s + weight(f), 0)
-  const free = Math.max(0, height - min * fns.length)
+  const total = slots.reduce((s, f) => s + weight(f), 0)
+  const free = Math.max(0, height - min * slots.length)
 
   const out: Slot[] = []
   let r = r0
-  for (const f of fns) {
+  slots.forEach((f, i) => {
     const h = min + (free * weight(f)) / total
-    out.push({ node: f, r0: r, r1: r + h })
+    out.push({
+      node: f,
+      r0: r,
+      r1: r + h,
+      rest: rest.length > 0 && i === last ? rest.length : undefined,
+    })
     r += h
-  }
+  })
   return out
 }
 
+
+/**
+ * A file's functions as angular slices of a ring, for when the file IS the view.
+ *
+ * The radial stack above is right in the overview: a function drawn in its file's own
+ * band, at its file's full angular width, is contained by construction rather than by
+ * inference. But a band is a fixed ~60px of radius however many functions share it, so
+ * radial subdivision has a hard ceiling — around forty — and past it the file is a moiré
+ * pattern no matter how the arithmetic is arranged.
+ *
+ * Drilling into the file was supposed to be the escape hatch and was not: a root file
+ * became one full-circle wedge and its functions were stacked into the same fixed radius,
+ * so 150 functions became 150 grooves in a record. Angle is the budget that actually
+ * scales — a whole circle divided 150 ways is 2.4° each, which is clickable, labellable,
+ * and back to being proportional to lines.
+ */
+export function sliceFunctions(
+  children: Node[],
+  a0: number,
+  a1: number,
+  opts: LayoutOpts = {},
+): Wedge[] {
+  let fns = children.filter((c) => c.kind === 'func')
+  if (fns.length === 0) return []
+  if (opts.byHeat) fns = [...fns].sort((x, y) => heatOf(y) - heatOf(x))
+
+  const span = a1 - a0
+  // Same shape of guard as the radial stack, in the other axis. A full circle at this
+  // floor holds well over a thousand functions, so in practice nothing overflows here —
+  // but a generated file can hold anything, and the failure this replaces was exactly a
+  // floor that quietly stopped floring.
+  const capacity = Math.max(1, Math.floor((span * FLOOR_SHARE) / MIN_ANGLE))
+  let shown = fns
+  let rest: Node[] = []
+  if (fns.length > capacity) {
+    const rank = new Map(
+      [...fns].sort((x, y) => heatOf(y) - heatOf(x)).map((f, i) => [f.id, i] as const),
+    )
+    shown = fns.filter((f) => (rank.get(f.id) ?? 0) < capacity - 1)
+    rest = fns.filter((f) => (rank.get(f.id) ?? 0) >= capacity - 1)
+  }
+
+  const slices = rest.length > 0 ? [...shown, aggregate(rest, rest[0].path)] : shown
+  const min = Math.min(MIN_ANGLE, span / slices.length)
+  const weight = (f: Node) => (opts.even ? 1 : Math.max(f.loc, 1))
+  const total = slices.reduce((s, f) => s + weight(f), 0)
+  const free = Math.max(0, span - min * slices.length)
+
+  const out: Wedge[] = []
+  let a = a0
+  slices.forEach((f, i) => {
+    const w = min + (free * weight(f)) / total
+    out.push({ node: f, depth: 1, a0: a, a1: a + w, index: i })
+    a += w
+  })
+  return out
+}
 
 /**
  * An arc for a label to sit ON, rather than a point to rotate a label about.

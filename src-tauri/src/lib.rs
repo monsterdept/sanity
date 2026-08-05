@@ -47,8 +47,15 @@ fn build_window(app: &tauri::AppHandle) {
 
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("Sanity")
-        .inner_size(1180.0, 820.0)
-        .min_inner_size(720.0, 560.0);
+        // The default opens larger than the minimum, but not by much: the sunburst is a
+        // circle in a rectangle, so height is the binding constraint and a window that
+        // starts at its own floor has no room to show anything is adjustable.
+        .inner_size(1440.0, 900.0)
+        // The rings need radius before they need anything else — squeezed below this the
+        // inner ring collapses to unreadable slivers and the detail panel starts wrapping
+        // every label. Better to refuse the size than to render a picture that cannot be
+        // read and let the user conclude the tool is illegible.
+        .min_inner_size(1280.0, 720.0);
 
     // The overlay titlebar and the inset are macOS-only APIs — they don't merely behave
     // differently elsewhere, they don't exist, so calling them unguarded fails to compile
@@ -64,30 +71,52 @@ fn build_window(app: &tauri::AppHandle) {
     }
 }
 
-/// The app menu, which exists so Settings has a door.
+/// The three appearance items, kept so their checkmarks can be moved.
 ///
-/// It had none. Nothing in the frontend ever set `showSettings`, so the panel — and with
-/// it every control in it, including the whole model configuration — could not be opened
-/// by any means. A capability with no surface is a capability nobody has; this is the
-/// surface.
+/// Managed as app state because a radio group has to be updated as a group: picking Dark
+/// means clearing Light and System, and the handler needs all three to do it.
+#[cfg(target_os = "macos")]
+pub struct ThemeMenu {
+    pub light: tauri::menu::CheckMenuItem<tauri::Wry>,
+    pub dark: tauri::menu::CheckMenuItem<tauri::Wry>,
+    pub system: tauri::menu::CheckMenuItem<tauri::Wry>,
+}
+
+#[cfg(target_os = "macos")]
+impl ThemeMenu {
+    /// Show `which` as the active one. Called from the menu handler and from the frontend
+    /// on startup — the preference lives in the webview's localStorage, so Rust cannot
+    /// know it at build time and the menu would otherwise open with nothing ticked.
+    pub fn select(&self, which: &str) {
+        let _ = self.light.set_checked(which == "light");
+        let _ = self.dark.set_checked(which == "dark");
+        let _ = self.system.set_checked(which == "system");
+    }
+}
+
+/// The app menu.
+///
+/// It exists because appearance needs a home and a settings panel does not. There was
+/// one — reachable only after this menu was built, since nothing had ever set
+/// `showSettings` — and it emptied out: the model configuration went with Ollama, and the
+/// delete-all-readings button went when readings moved into the repo, where `rm -rf
+/// .sanity` does the same job against a diff you can read. What was left was one
+/// three-way toggle behind a modal behind a keystroke.
 ///
 /// The menu is otherwise the platform default, rebuilt rather than extended because Tauri
-/// gives no way to insert one item into the stock menu. Everything here except Settings is
-/// a predefined item, so the standard behaviours (Hide, Quit, copy/paste, ⌘W) stay the
-/// system's rather than being reimplemented badly.
+/// gives no way to insert items into the stock menu. Everything else here is a predefined
+/// item, so the standard behaviours (Hide, Quit, copy/paste, ⌘W) stay the system's rather
+/// than being reimplemented badly.
 #[cfg(target_os = "macos")]
-fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+fn build_menu(app: &tauri::AppHandle) -> tauri::Result<(tauri::menu::Menu<tauri::Wry>, ThemeMenu)> {
+    use tauri::menu::{AboutMetadata, CheckMenuItem, Menu, PredefinedMenuItem, Submenu};
 
-    let settings = MenuItem::with_id(app, "settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
     let app_menu = Submenu::with_items(
         app,
         "Sanity",
         true,
         &[
             &PredefinedMenuItem::about(app, None, Some(AboutMetadata::default()))?,
-            &PredefinedMenuItem::separator(app)?,
-            &settings,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::hide(app, None)?,
             &PredefinedMenuItem::hide_others(app, None)?,
@@ -112,6 +141,20 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
             &PredefinedMenuItem::select_all(app, None)?,
         ],
     )?;
+    // Appearance lives here rather than in a panel: it is one setting, it is a radio
+    // group, and macOS has had a place for exactly that shape since before this app.
+    let light = CheckMenuItem::with_id(app, "theme-light", "Light", true, false, None::<&str>)?;
+    let dark = CheckMenuItem::with_id(app, "theme-dark", "Dark", true, false, None::<&str>)?;
+    let system = CheckMenuItem::with_id(app, "theme-system", "System", true, true, None::<&str>)?;
+    let view_menu = Submenu::with_items(
+        app,
+        "View",
+        true,
+        &[
+            &Submenu::with_items(app, "Appearance", true, &[&light, &dark, &system])?,
+        ],
+    )?;
+
     let window_menu = Submenu::with_items(
         app,
         "Window",
@@ -121,7 +164,8 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
             &PredefinedMenuItem::close_window(app, None)?,
         ],
     )?;
-    Menu::with_items(app, &[&app_menu, &edit_menu, &window_menu])
+    let menu = Menu::with_items(app, &[&app_menu, &edit_menu, &view_menu, &window_menu])?;
+    Ok((menu, ThemeMenu { light, dark, system }))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -140,16 +184,21 @@ pub fn run() {
             {
                 use tauri::{Emitter, Manager};
                 match build_menu(_app.handle()) {
-                    // Sent to the frontend rather than handled here: what "open settings"
-                    // means is a piece of window state React owns, and Rust reaching in to
-                    // set it would need a second copy of that state to reach into.
-                    Ok(menu) => {
+                    Ok((menu, themes)) => {
                         let _ = _app.set_menu(menu);
+                        _app.manage(themes);
                         _app.on_menu_event(|app, event| {
-                            if event.id() == "settings" {
-                                for w in app.webview_windows().values() {
-                                    let _ = w.emit("open-settings", ());
-                                }
+                            let Some(which) = event.id().0.strip_prefix("theme-") else {
+                                return;
+                            };
+                            if let Some(themes) = app.try_state::<ThemeMenu>() {
+                                themes.select(which);
+                            }
+                            // The webview owns the preference and its persistence; Rust
+                            // owns the checkmarks. Neither keeps a copy of the other's
+                            // state, which is what stops the two drifting.
+                            for w in app.webview_windows().values() {
+                                let _ = w.emit("set-theme", which);
                             }
                         });
                     }
@@ -181,6 +230,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::scan_repo,
             commands::stop_scan,
+            commands::sync_theme_menu,
             commands::read_source,
             commands::open_code_window,
             commands::agent_reports,

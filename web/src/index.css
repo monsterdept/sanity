@@ -61,7 +61,16 @@
    * the tool's identity and the other wearing generic department beige. */
   --sidebar: color-mix(in oklch, #f3d9e7 58%, #efebe3 42%);
   --sidebar-foreground: #1a1a1a;
-  --sidebar-border: color-mix(in oklch, #f3d9e7 45%, #e5e1da 55%);
+  /* Mixed toward the chrome's own FOREGROUND, which is the only pair that makes a
+   * line. This was a mix of #f3d9e7 and #e5e1da — two pale grounds, so it resolved
+   * to the sidebar's own lightness and the agent panel had no visible edge at all
+   * in light mode. Dark mode had it right all along by taking 20% of its
+   * foreground; this is the same construction, and the two now step away from
+   * their grounds by about the same amount — 1.67:1 here against dark's 1.69:1,
+   * measured, not eyeballed. The old pair came out at 1.04:1, which is why the
+   * panel had no edge. The percentages differ (22 vs 20) because the same mix
+   * does not buy the same separation at both ends of the scale. */
+  --sidebar-border: color-mix(in oklch, var(--sidebar) 78%, var(--sidebar-foreground) 22%);
 
   /* Straight off the sheet's Sanity row: Primary for links and selection, Primary
    * dark for hover/active, Tint for chips and callouts. 4.87:1 on Paper. */
@@ -158,7 +167,7 @@
    * to sit under Paper text the way tally's #14383c does. */
   --sidebar: #3a2231;
   --sidebar-foreground: #f5f1ea;
-  --sidebar-border: color-mix(in oklch, #3a2231 80%, #f5f1ea 20%);
+  --sidebar-border: color-mix(in oklch, var(--sidebar) 80%, var(--sidebar-foreground) 20%);
 
   /* The one place dark mode cannot just take the sheet value: Primary on Ink is
    * 3.17:1, under AA for text. The lift is the ground gradient's top stop — an

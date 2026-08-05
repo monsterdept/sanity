@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { isAnalyzed, type Node } from '../lib/api'
 import { colorFor, type ColorMode } from '../lib/colorMode'
-import { arcPath, labelArc, layout, stackFunctions, type Wedge } from '../lib/sunburst'
+import { arcPath, labelArc, layout, sliceFunctions, stackFunctions, type Wedge } from '../lib/sunburst'
 
 /** Rings drawn at once. Deeper than this and the outer annuli are hairlines; the
  *  answer is to drill in, which is what clicking a directory does. */
@@ -48,6 +48,21 @@ const FUNC_RIM_MAX_SHARE = 0.35
  *  carry it fully — they are the only level where the number means what the legend says. */
 const HEAT_BY_KIND: Record<string, number> = { dir: 0, file: 0.3, func: 1 }
 
+/**
+ * ...but only under Surprise.
+ *
+ * The rule above is about ONE quantity: a directory's surprise colour would be its hot
+ * share, which is a different measurement wearing the same ramp, and letting the inner
+ * rings carry it makes the loudest thing on screen the thing that means least. That
+ * argument does not generalise. A directory's churn, its age, its dominant language and
+ * its last author are all perfectly well-defined aggregates of exactly the quantity the
+ * ramp is showing — so in those modes a grey inner ring is not restraint, it is a hole.
+ */
+function heatShare(kind: string, mode: ColorMode): number {
+  if (mode === 'surprise') return HEAT_BY_KIND[kind] ?? 1
+  return 1
+}
+
 /** The cut between one wedge and its neighbour, in user units.
  *
  *  Drawn as a background-coloured stroke rather than an angular pad, so the gap is a
@@ -56,6 +71,36 @@ const HEAT_BY_KIND: Record<string, number> = { dir: 0, file: 0.3, func: 1 }
  *  are already hardest to tell apart. Narrower for the finer levels so a file's rim
  *  doesn't swallow the functions inside it. */
 const CUT = { dir: 2.2, file: 1.5, func: 0.6 }
+
+/**
+ * Shorten from the middle, keeping both ends.
+ *
+ * The tooltip is a fixed 250px card and paths are long, so the choice is wrapping or
+ * eliding. Wrapping is what it did, and `break-all` split the last token wherever it
+ * happened to land — `Store.swif` / `t:1672` — destroying the filename and line, which
+ * are the two things you are reading a path for.
+ *
+ * Weighted to the tail for the same reason: the leading directories orient you and are
+ * usually inferable from the ring you are pointing at, while the end is the answer. Safe
+ * to count in characters rather than measure pixels because every one of these is set in
+ * the monospace face.
+ */
+/// Characters that fit on one line of the tooltip, at its two type sizes.
+///
+/// Measured against the card rather than guessed: 250px less 12px of padding either side
+/// is 226px, and the monospace advance is close enough to 0.62em that 10px text seats 35
+/// and 12px text seats 30. Deliberately a little under — `truncate` is still on these
+/// lines as a backstop, and if the budget overshoots, CSS elides the tail a SECOND time
+/// and eats the end that `elide` just worked to keep.
+const FITS_SMALL = 35
+const FITS_LARGE = 30
+
+function elide(s: string, max: number): string {
+  if (s.length <= max) return s
+  const tail = Math.ceil((max - 1) * 0.65)
+  const head = Math.max(1, max - 1 - tail)
+  return `${s.slice(0, head)}…${s.slice(s.length - tail)}`
+}
 
 /** Files at or under a node — the count the tooltip reports.
  *
@@ -127,6 +172,16 @@ export function Sunburst({
   )
   const rootIsFile = root.kind === 'file'
   const emptyFile = rootIsFile && !root.children.some((c) => c.kind === 'func')
+
+  /** A drilled-into file's functions, as angular slices of the whole ring.
+   *
+   *  This view used to reuse the overview's radial stack, which meant drilling into a
+   *  150-function file produced 150 grooves of 0.4px — the same unreadable band, just
+   *  bigger. Angle is the budget that scales; see `sliceFunctions`. */
+  const fileSlices = useMemo<Wedge[]>(
+    () => (rootIsFile ? sliceFunctions(root.children, -Math.PI / 2, (3 * Math.PI) / 2) : []),
+    [rootIsFile, root],
+  )
 
   /** Drill direction, for the transition. Compared during render rather than in an
    *  effect so the animation class is right on the first frame the new root paints. */
@@ -248,8 +303,31 @@ export function Sunburst({
             highlight = { d: arcPath(w.a0, w.a1, r0, r1), width: isSel ? 2 : 1.6 }
           }
           return (
+            <g key={w.node.id}>
+            {/* An invisible target, wider than the thing it selects.
+                A file's own visible area is the rim its functions do not cover — about
+                three pixels, which is a coin-flip to hit and the reason selecting a file
+                meant several tries. This spans the whole band plus half the gutter on
+                either side, drawn UNDER the functions so they still take their own
+                clicks. Nothing about the picture changes; only the part of it that
+                answers the mouse. */}
+            {w.node.kind === 'file' && (
+              <path
+                d={arcPath(w.a0, w.a1, r0 - RING_GAP * 0.5, r0 + band)}
+                fill="transparent"
+                onMouseEnter={() => setHoverNode(w.node)}
+                onMouseLeave={() => setHoverNode((n) => (n?.id === w.node.id ? null : n))}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onSelect(w.node)
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation()
+                  onDrill(w.node)
+                }}
+              />
+            )}
             <path
-              key={w.node.id}
               className="wedge"
               // A file occupies exactly ONE band, like a directory. Its functions are
               // inset inside that band, so the file's own fill shows as a rim around
@@ -266,7 +344,13 @@ export function Sunburst({
                     : 'var(--structure)'
               }
               fillOpacity={
-                isSel || isHover ? 0.95 : c ? HEAT_BY_KIND[w.node.kind] : w.node.kind === 'dir' ? 1 : 0.5
+                isSel || isHover
+                  ? 0.95
+                  : c
+                    ? heatShare(w.node.kind, mode)
+                    : w.node.kind === 'dir'
+                      ? 1
+                      : 0.5
               }
               // Directories, files and functions are three different kinds of thing and
               // used to be drawn identically, which made the rings read as one
@@ -306,13 +390,48 @@ export function Sunburst({
               onDoubleClick={() => onDrill(w.node)}
             >
             </path>
+            </g>
           )
         })}
 
         {/* Functions, stacked radially INSIDE their file's wedge — see `stackFunctions`.
             Containment is structural here rather than implied, which is what a separate
             outer ring could never give. */}
-        {fileWedges
+        {/* A drilled-into file gets its functions as one angular ring instead. Same
+            wedges, same gestures — only the axis they are subdivided along changes, and
+            it changes because a band cannot grow and a circle can. */}
+        {rootIsFile &&
+          fileSlices.map((w) => {
+            const c = colorFor(w.node, mode, ranks)
+            const isSel = selected?.id === w.node.id
+            const isHover = hover?.node.id === w.node.id
+            const d = arcPath(w.a0, w.a1, R_INNER + RING_GAP * 2, R_OUTER)
+            if (isSel || isHover) highlight = { d, width: isSel ? 1.6 : 1.2 }
+            return (
+              <path
+                key={w.node.id}
+                className="wedge"
+                d={d}
+                fill={c ? c.fill : 'var(--unanalyzed)'}
+                fillOpacity={isSel || isHover ? 1 : c ? 0.92 : 0.4}
+                stroke="var(--background)"
+                strokeWidth={CUT.file}
+                onMouseEnter={() => setHoverNode(w.node)}
+                onMouseLeave={() => setHoverNode((n) => (n?.id === w.node.id ? null : n))}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onSelect(w.node)
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation()
+                  onDrill(w.node)
+                }}
+              />
+            )
+          })}
+
+        {!rootIsFile &&
+          fileWedges
           .map((w) => {
             // Inside the file's OWN band — (depth - 1) — not the one beyond it. Inset
             // on both radii so the file's fill reads as a rim on the inside and outside
@@ -391,9 +510,13 @@ export function Sunburst({
             their layout angle puts the name nowhere near the band it names. It never
             showed before because functions sit below the depth cut in a normal tree; a
             file opened as the root puts them at depth 1, right inside it. */}
-        {wedges
+        {(rootIsFile ? fileSlices : wedges)
           .filter(
             (w) =>
+              // A drilled file's ring is all functions, and labelling them is the whole
+              // point of giving them room — the arc-length test below still decides which
+              // ones actually fit.
+              (rootIsFile && w.node.kind === 'func') ||
               // Directories label at ANY depth that has room. The old rule was a depth
               // cut standing in for "will this fit", which the arc-length test below now
               // answers directly — `src-tauri/src/bin` sat unlabelled in a wedge with
@@ -406,10 +529,14 @@ export function Sunburst({
           )
           .map((w) => {
             const isDir = w.node.kind === 'dir'
-            const r = R_INNER + (w.depth - 1) * band + band / 2
+            // The drilled file's ring is one band from the hub to the rim, so its labels
+            // sit at its own mid-radius rather than at a depth the ring does not have.
+            const r = rootIsFile
+              ? (R_INNER + RING_GAP * 2 + R_OUTER) / 2
+              : R_INNER + (w.depth - 1) * band + band / 2
             // Bound to the arc, so the type can be sized against the BAND rather than
             // against the chord a straight label would have to fit inside.
-            const want = isDir ? Math.max(10, Math.min(15, band * 0.3)) : 9
+            const want = isDir ? Math.max(10, Math.min(15, band * 0.3)) : rootIsFile ? 11 : 9
             // Fit by SHRINKING first and truncating only as a last resort. A name that
             // overruns its wedge is worse than a slightly smaller one, and clipping
             // "components" to "componen…" loses the word for the sake of one type size.
@@ -503,6 +630,13 @@ export function Sunburst({
         const analyzed = isAnalyzed(n)
         // The whole path, with the node's own segment picked out — showing the name and
         // then the path again repeated the last word on every hover.
+        //
+        // That dedup is right for directories and files, where `name` IS the last path
+        // segment. It is wrong for a FUNCTION, whose name appears nowhere in its path —
+        // so hovering a chunk showed the file it lives in and never once said which
+        // function you were pointing at, which is the only thing the hover was for.
+        // Functions get their own shape below: name first, then where to find it.
+        const isFunc = n.kind === 'func'
         const parts = n.path.split('/')
         const own = parts.pop() ?? n.name
         // What is worth knowing changes with the question being asked. Under Surprise
@@ -520,7 +654,13 @@ export function Sunburst({
           if (sc.ageDays !== null) extras.push(['First seen', `${Math.round(sc.ageDays)}d ago`])
         }
         const W = 250
-        const H = 46 + extras.length * 16 + (n.kind === 'dir' ? 26 : 0)
+        // Only used to decide which way to flip near an edge, so an estimate is fine —
+        // but it has to track the content, or the card flips the wrong way at the bottom
+        // of the window and lands under the cursor. Base covers the path row and the
+        // reading row; a function adds a name line above them, and size no longer has a
+        // row of its own.
+        const H =
+          32 + extras.length * 16 + (n.kind === 'dir' ? 26 : 0) + (isFunc ? 16 : 0)
         const flipX = hover.x + W + 18 > box.w
         const flipY = hover.y + H + 18 > box.h
         return (
@@ -534,22 +674,64 @@ export function Sunburst({
               bottom: flipY ? box.h - hover.y + 14 : undefined,
             }}
           >
-            <p className="mono mb-1 break-all text-[11px] leading-snug text-[var(--muted-foreground)]">
-              {parts.length > 0 && `${parts.join('/')}/`}
-              <span className="font-semibold text-[var(--foreground)]">{own}</span>
-            </p>
+            {isFunc ? (
+              // Name first, on its own line. It is the answer to the question the hover
+              // asks, and burying it at the end of a wrapped path — where the path is
+              // long enough to wrap in a 250px card — is the same as not showing it.
+              <>
+                <p className="mono mb-0.5 truncate text-[12px] font-semibold leading-snug">
+                  {elide(n.name, FITS_LARGE)}
+                </p>
+                {/* The line number is its own element and never shrinks. Folding it into
+                    the elided string meant it competed with the path for the same budget
+                    and lost — the card showed `Store.swift:` with the number cut off,
+                    which is worse than omitting it, because a trailing colon reads as
+                    truncated data rather than absent data. */}
+                <p className="mono mb-1 flex text-[10px] leading-snug text-[var(--muted-foreground)]">
+                  <span className="min-w-0 truncate">
+                    {elide(n.path, FITS_SMALL - (n.line !== null ? `:${n.line}`.length : 0))}
+                  </span>
+                  {n.line !== null && <span className="shrink-0">:{n.line}</span>}
+                </p>
+              </>
+            ) : (
+              <p className="mono mb-1 truncate text-[11px] leading-snug text-[var(--muted-foreground)]">
+                {/* The own segment is the identity, so it keeps whatever room it needs and
+                    the leading path gives way — elided from its own start, since what
+                    matters there is the directory immediately containing this one. */}
+                {parts.length > 0 &&
+                  `${elide(parts.join('/'), Math.max(6, FITS_SMALL - 1 - own.length))}/`}
+                <span className="font-semibold text-[var(--foreground)]">
+                  {elide(own, FITS_SMALL)}
+                </span>
+              </p>
+            )}
 
             {/* The reading is the SWATCH — it is a colour on the map, so stating it as a
                 number here would be describing the encoding rather than reading it. The
                 label beside it names the value, which is what keeps identity off colour
                 alone. */}
-            <div className="mb-1 flex items-center gap-1.5">
+            {/* Reading and size on one row. They were stacked, which gave a two-word
+                fact ("46 lines") a whole line of its own and pushed everything below it
+                down — on a card this small, three single-item rows in a column read as a
+                list of unrelated things rather than one description of one wedge.
+
+                Size is deliberately the quiet half: it is the axis you already know, and
+                the swatch beside it is the axis that is worth reading. */}
+            <div className="mb-1 flex items-baseline gap-1.5">
               <span
-                className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                className="h-2.5 w-2.5 shrink-0 translate-y-px rounded-[2px]"
                 style={{ background: analyzed && c ? c.fill : 'var(--unanalyzed)' }}
               />
               <span className="truncate text-[11px]">
                 {analyzed && c ? c.label : 'not measured yet'}
+              </span>
+              {/* Never shrinks, and the label gives way instead — under Owner or Language
+                  the label is a category name of unbounded length, and letting it push the
+                  size off the row would lose the one number that is always meaningful. */}
+              <span className="mono ml-auto shrink-0 text-[10px] tabular-nums text-[var(--muted-foreground)]">
+                {n.loc.toLocaleString()} lines
+                {n.kind !== 'func' && ` · ${countFiles(n).toLocaleString()} files`}
               </span>
             </div>
 
@@ -562,11 +744,6 @@ export function Sunburst({
                 colours this wedge.
               </p>
             )}
-
-            <p className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
-              {n.loc.toLocaleString()} lines
-              {n.kind !== 'func' && ` · ${countFiles(n).toLocaleString()} files`}
-            </p>
 
             {extras.length > 0 && (
               <dl className="mt-1.5 space-y-0.5 border-t border-[var(--border)] pt-1.5 text-[11px]">

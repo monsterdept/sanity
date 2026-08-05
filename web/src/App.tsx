@@ -8,7 +8,8 @@ import {
   applyAgentReports,
   applyScores,
   countStale,
-  onOpenSettings,
+  onSetTheme,
+  syncThemeMenu,
   onScanScore,
   onScanProgress,
   openCodeWindow,
@@ -24,6 +25,7 @@ import { Sunburst } from './components/Sunburst'
 import { TopRow } from './components/shell/TopRow'
 import {
   legendFor,
+  MODE_LABEL,
   rankCategories,
   type ColorMode,
 } from './lib/colorMode'
@@ -31,7 +33,6 @@ import { loadTheme, saveTheme, watchSystemTheme, type Theme } from './lib/theme'
 import { CodeView } from './components/CodeView'
 import { ColourLegend, ModeSwitcher } from './components/ColourKey'
 import { Detail } from './components/Detail'
-import { Settings } from './components/Settings'
 import { SideBar } from './components/SideBar'
 import { AgentSetup } from './components/AgentSetup'
 
@@ -65,7 +66,15 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<Progress | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  /** What is selected, as the NODE rather than its id.
+   *
+   *  It was an id, resolved against the tree on every render — which quietly cannot
+   *  represent the one selection that is not in the tree. The overflow aggregate a file's
+   *  band collapses into is synthesised at layout time, so `findById` returned null for
+   *  it and clicking it emptied the panel instead of describing it. The id is still used
+   *  first, so a rescan re-resolves the selection to the fresh node; the stored object is
+   *  the fallback for anything the tree does not contain. */
+  const [picked, setPicked] = useState<Node | null>(null)
   const [stack, setStack] = useState<string[]>([])
   /** A function to scroll to once the code view is up.
    *
@@ -75,7 +84,6 @@ export default function App() {
   const [reveal, setReveal] = useState<{ id: string; n: number } | null>(null)
   /** The file whose code is open over the map, by node id. */
   const [codeFile, setCodeFile] = useState<string | null>(null)
-  const [showSettings, setShowSettings] = useState(false)
   const [showAgents, setShowAgents] = useState(false)
   // One geometry, five encodings. The sunburst was never the thing worth swapping out —
   // what changes the question is what the colour MEANS, and the same rings answer five
@@ -83,16 +91,24 @@ export default function App() {
   const [mode, setMode] = useState<ColorMode>('surprise')
   // Open projects, in the order they were opened. The sidebar lists everything sanity
   // holds; the rail is what you have in front of you.
-  // Defaults to following the system, and says so in Settings. It used to follow the
-  // system with no way to override, on the argument that a toggle is a second place for
-  // the preference to live — true, but it also made it impossible to look at the other
-  // ground without changing the machine's, which is what you want when shooting the app
-  // or checking that both palettes actually render.
+  // Defaults to following the system; View → Appearance overrides it. The app used to
+  // follow the system with no way to override, on the argument that a toggle is a second
+  // place for the preference to live — true, but it also made it impossible to look at
+  // the other ground without changing the machine's, which is what you want when shooting
+  // the app or checking that both palettes actually render.
   const [theme, setTheme] = useState<Theme>(loadTheme)
   useEffect(() => watchSystemTheme(theme), [theme])
-  // The app menu is the only way in. Rust emits the event rather than reaching into this
-  // state itself — see `build_menu`.
-  useEffect(() => onOpenSettings(() => setShowSettings(true)), [])
+  // Appearance is a menu, not a panel — see `build_menu`. Rust emits the choice; the
+  // preference and its persistence stay here, and the menu's checkmarks are told what
+  // they should read rather than being trusted to remember.
+  useEffect(() => onSetTheme((t) => {
+    const next = t as Theme
+    setTheme(next)
+    saveTheme(next)
+  }), [])
+  useEffect(() => {
+    void syncThemeMenu(theme)
+  }, [theme])
   const [agent, setAgent] = useState<AgentActivity>({ active: false, tool: '', nonce: 0 })
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [activeKey, setActiveKey] = useState<string | null>(null)
@@ -102,6 +118,26 @@ export default function App() {
   const lastPath = useRef<string | null>(null)
 
   useEffect(() => onScanProgress(setProgress), [])
+
+  // Cmd-1..5 for the lenses, in the order they appear in the switcher.
+  //
+  // The whole app is one geometry under five encodings, and the question you are asking
+  // changes far more often than anything else you can do here — reaching for the mouse
+  // to change it costs more than the change is worth. Cmd rather than a bare digit
+  // because a bare digit is a character, and one text field anywhere later would make
+  // this a bug rather than a shortcut.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return
+      const i = Number(e.key) - 1
+      const modes = Object.keys(MODE_LABEL) as ColorMode[]
+      if (!Number.isInteger(i) || i < 0 || i >= modes.length) return
+      e.preventDefault()
+      setMode(modes[i])
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // Follow whatever an agent opened.
   //
@@ -122,7 +158,7 @@ export default function App() {
         // A different project means a different tree; stale drill-in and selection would
         // point at nodes that no longer exist.
         setStack([])
-        setSelectedId(null)
+        setPicked(null)
         setScan(s)
       })
     }, 1500)
@@ -185,7 +221,7 @@ export default function App() {
     const dir = await open({ directory: true, multiple: false })
     if (typeof dir === 'string') {
       setStack([])
-      setSelectedId(null)
+      setPicked(null)
       await run(dir)
     }
   }, [run])
@@ -209,8 +245,46 @@ export default function App() {
   )
 
   const selected = useMemo(
-    () => (scan && selectedId ? findById(scan.root, selectedId) : null),
-    [scan, selectedId],
+    () => (scan && picked ? (findById(scan.root, picked.id) ?? picked) : null),
+    [scan, picked],
+  )
+
+  /** Show me inside this. Shared by the ring and by the detail panel's contents list,
+   *  so the gesture means the same thing wherever it is made. */
+  const drill = useCallback(
+    (n: Node) => {
+      // A file drills like a directory: into its own ring, where its functions get the
+      // whole circle instead of a 60px band. It used to jump straight to the source, and
+      // that made "show me inside this" mean two different things one level apart —
+      // descend for a directory, leave the map for a file. Reading the code is still one
+      // gesture away, on the function you actually want; it is just no longer the only
+      // thing a file can do.
+      if (n.kind === 'func' && scan) {
+        // A function has no view of its own — it lives in a file. Drilling one opens that
+        // file and scrolls to it.
+        const file = parentOf(scan.root, n.id)
+        if (file) {
+          setCodeFile(file.id)
+          setPicked(n)
+          setReveal((r) => ({ id: n.id, n: (r?.n ?? 0) + 1 }))
+          return
+        }
+        // The overflow aggregate is synthesised at layout time, so it has no parent in
+        // the tree and `parentOf` finds nothing. Drilling it means "show me the functions
+        // you could not draw", which is the file's own ring — reached by its path, since
+        // a file node's id IS its path.
+        const owner = findById(scan.root, n.path)
+        if (owner) {
+          setStack((st) => [...st, owner.id])
+          setPicked(owner)
+          return
+        }
+        return
+      }
+      setStack((st) => [...st, n.id])
+      setPicked(n)
+    },
+    [scan],
   )
 
   /** Where the open project lives on disk.
@@ -234,7 +308,7 @@ export default function App() {
     return () => {
       const p = parentOf(scan.root, focus.id)
       setStack(p && p.id !== scan.root.id ? [p.id] : [])
-      setSelectedId(null)
+      setPicked(null)
     }
   }, [scan, focus])
 
@@ -272,7 +346,7 @@ export default function App() {
               if (!s) return
               setActiveKey(key)
               setStack([])
-              setSelectedId(null)
+              setPicked(null)
               setScan(s)
             })
           }}
@@ -320,33 +394,9 @@ export default function App() {
                 selected={selected}
                 mode={mode}
                 ranks={scan ? rankCategories(scan.root, mode) : undefined}
-                onSelect={(n) => setSelectedId(n.id)}
-                onClear={() => setSelectedId(null)}
-                onDrill={(n) => {
-                  // A function has no view of its own — it lives in a file. Drilling one
-                  // opens that file and scrolls to it, so the gesture means the same
-                  // thing at every level: show me inside this.
-                  // Code opens OVER the map rather than replacing it. Drilling a
-                  // directory changes what the chart is showing; opening a file is a
-                  // different act — you are stepping out of the picture to read, and you
-                  // want the picture still there when you step back.
-                  if (n.kind === 'file') {
-                    setCodeFile(n.id)
-                    setSelectedId(n.id)
-                    return
-                  }
-                  if (n.kind === 'func' && scan) {
-                    const file = parentOf(scan.root, n.id)
-                    if (file) {
-                      setCodeFile(file.id)
-                      setSelectedId(n.id)
-                      setReveal((r) => ({ id: n.id, n: (r?.n ?? 0) + 1 }))
-                      return
-                    }
-                  }
-                  setStack((st) => [...st, n.id])
-                  setSelectedId(n.id)
-                }}
+                onSelect={(n) => setPicked(n)}
+                onClear={() => setPicked(null)}
+                onDrill={drill}
                 onUp={goUp}
               />
             ) : (
@@ -374,7 +424,14 @@ export default function App() {
         </div>
 
         <aside className="w-[290px] shrink-0 border-l border-[var(--border)] bg-[var(--card)]">
-          <Detail node={selected} model={scan?.stats.model ?? null} />
+          <Detail
+            node={selected}
+            model={scan?.stats.model ?? null}
+            mode={mode}
+            ranks={scan ? rankCategories(scan.root, mode) : undefined}
+            onSelect={setPicked}
+            onDrill={drill}
+          />
         </aside>
       </div>
 
@@ -402,7 +459,7 @@ export default function App() {
               repo={repoPath}
               selected={selected}
               reveal={reveal}
-              onSelect={(n) => setSelectedId(n.id)}
+              onSelect={(n) => setPicked(n)}
               onPopOut={() => {
                 if (repoPath) void openCodeWindow(repoPath, codeNode.path)
                 setCodeFile(null)
@@ -413,19 +470,6 @@ export default function App() {
         </div>
       )}
 
-      {showSettings && (
-        <Settings
-          theme={theme}
-          // Applied on pick, not on Save. Choosing a ground and then having to confirm it
-          // is backwards for the one setting whose result is the window you are looking
-          // at — you evaluate it by seeing it.
-          onTheme={(t) => {
-            setTheme(t)
-            saveTheme(t)
-          }}
-          onClose={() => setShowSettings(false)}
-        />
-      )}
     </div>
   )
 }

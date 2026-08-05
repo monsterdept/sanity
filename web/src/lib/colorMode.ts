@@ -1,13 +1,13 @@
 import { heatColor, isAnalyzed, type Node } from './api'
 
 /** What the colour in the sunburst means. One geometry, five encodings. */
-export type ColorMode = 'surprise' | 'churn' | 'age' | 'owner' | 'language'
+export type ColorMode = 'surprise' | 'churn' | 'age' | 'blame' | 'language'
 
 export const MODE_LABEL: Record<ColorMode, string> = {
   surprise: 'Surprise',
   churn: 'Churn',
   age: 'Age',
-  owner: 'Owner',
+  blame: 'Blame',
   language: 'Language',
 }
 
@@ -15,12 +15,12 @@ export const MODE_HINT: Record<ColorMode, string> = {
   surprise: 'what a reader didn’t see coming',
   churn: 'how much it has changed lately',
   age: 'how long since anyone touched it',
-  owner: 'who committed to it last',
+  blame: 'who committed to it last',
   language: 'what it is written in',
 }
 
 /**
- * Categorical palette for owner and language.
+ * Categorical palette for blame and language.
  *
  * Qualitative, not a ramp — these are names, and any sequential scale would imply an
  * order that does not exist. Chosen to stay distinguishable under the common colour
@@ -97,7 +97,7 @@ export function colorFor(
     }
   }
 
-  const key = mode === 'owner' ? node.lastAuthor : node.lang
+  const key = mode === 'blame' ? node.lastAuthor : node.lang
   if (!key) return null
   const rank = ranks?.get(key)
   return {
@@ -119,10 +119,10 @@ export function rankCategories(root: Node, mode: ColorMode): Map<string, number>
 
 /** The distinct values present, for a legend. Categorical modes need one; ramps don't. */
 export function legendFor(root: Node, mode: ColorMode): string[] {
-  if (mode !== 'owner' && mode !== 'language') return []
+  if (mode !== 'blame' && mode !== 'language') return []
   const seen = new Map<string, number>()
   const walk = (n: Node) => {
-    const key = mode === 'owner' ? n.lastAuthor : n.lang
+    const key = mode === 'blame' ? n.lastAuthor : n.lang
     if (key && n.kind === 'func') seen.set(key, (seen.get(key) ?? 0) + n.loc)
     n.children.forEach(walk)
   }

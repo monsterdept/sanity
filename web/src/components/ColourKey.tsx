@@ -91,7 +91,7 @@ export function ModeSwitcher({
         boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
       }}
     >
-      {(Object.keys(MODE_LABEL) as ColorMode[]).map((k) => {
+      {(Object.keys(MODE_LABEL) as ColorMode[]).map((k, i) => {
         const on = mode === k
         return (
           <button
@@ -99,7 +99,10 @@ export function ModeSwitcher({
             role="tab"
             aria-selected={on}
             onClick={() => onMode(k)}
-            title={MODE_HINT[k]}
+            // The shortcut rides in the tooltip rather than on the chip. Five chips with
+            // a dim "⌘3" beside each label is a row of keyboard documentation where the
+            // control itself should be — discoverable once, noise every time after.
+            title={`${MODE_HINT[k]}  (⌘${i + 1})`}
             className="rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
             style={{
               background: on ? 'var(--accent)' : 'transparent',

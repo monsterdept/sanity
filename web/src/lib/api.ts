@@ -464,6 +464,9 @@ function reaggregate(node: Node, children: Node[]): Node {
     let hot = 0
     let analyzed = 0
     let age: number | null = null
+    let touched: number | null = null
+    /** The strongest instrument anything under here was measured with. */
+    let src: Score['source'] = 'proxy'
     for (const c of children) {
       if (!c.score) continue
       const cw = Math.max(c.loc, 1)
@@ -484,6 +487,20 @@ function reaggregate(node: Node, children: Node[]): Node {
       if (c.score.ageDays !== null) {
         age = age === null ? c.score.ageDays : Math.max(age, c.score.ageDays)
       }
+      // ...and was last touched when the most recent thing in it was. This was hardcoded
+      // `null` below, which is the same bug Rust's `aggregate` already fixed and this
+      // copy never got: any subtree an agent reported on was re-aggregated here, lost its
+      // last-touched date, and went grey in Age mode. The most-read directory in the repo
+      // was the one that looked least measured.
+      if (c.score.lastTouchedDays !== null) {
+        touched = touched === null ? c.score.lastTouchedDays : Math.min(touched, c.score.lastTouchedDays)
+      }
+      // An aggregate is measured by the best instrument that reached anything inside it.
+      // Hardcoding `proxy` made a directory built entirely from agent readings report
+      // "heuristic (no model)" — the one misstatement the panel is not allowed to make,
+      // in the row that exists to prevent it.
+      if (c.score.source === 'agent') src = 'agent'
+      else if (c.score.source === 'model' && src === 'proxy') src = 'model'
     }
     return {
       ...node,
@@ -495,13 +512,17 @@ function reaggregate(node: Node, children: Node[]): Node {
               documented: documented / w,
               churn: churn / w,
               ageDays: age,
-              // Aggregates carry no commit facts: a directory has no single commit
-              // count, and summing children's would double-count files touched together.
-              commits: 0,
-              lastTouchedDays: null,
+              // Commits are NOT recomputed here: a directory has no single commit count
+              // and summing children double-counts a commit that touched twelve files.
+              // Rust fills it from the git log pass, which is the only place that still
+              // knows the distinct set — so carry that value rather than zeroing it, or
+              // every re-aggregated directory reports zero commits while its churn bar
+              // sits at 72.
+              commits: node.score?.commits ?? 0,
+              lastTouchedDays: touched,
               provenance: 'source',
               hotShare: analyzed > 0 ? hot / analyzed : 0,
-              source: 'proxy',
+              source: src,
               analyzedShare: analyzed / w,
             }
           : node.score,
@@ -513,10 +534,17 @@ export function onScanProgress(cb: (p: Progress) => void): () => void {
   return () => void un.then((f) => f())
 }
 
-/** The app menu's Settings item (⌘,). Rust emits; React decides what opening means. */
-export function onOpenSettings(cb: () => void): () => void {
-  const un = listen('open-settings', () => cb())
+/** The app menu's View → Appearance items. Rust owns the checkmarks, this owns the
+ *  preference and its persistence — neither keeps a copy of the other's state. */
+export function onSetTheme(cb: (theme: string) => void): () => void {
+  const un = listen<string>('set-theme', (e) => cb(e.payload))
   return () => void un.then((f) => f())
+}
+
+/** Tick the appearance item matching what we're actually using. The menu is built before
+ *  the webview reads localStorage, so it would otherwise always show System. */
+export function syncThemeMenu(theme: string): Promise<void> {
+  return invoke<void>('sync_theme_menu', { theme }).catch(() => {})
 }
 
 // ── Derived reads of a score ────────────────────────────────────────────────────

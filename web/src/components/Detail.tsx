@@ -1,4 +1,5 @@
 import { PartyAnts } from './PartyAnts'
+import { colorFor, type ColorMode } from '../lib/colorMode'
 import {
   QUADRANT_LABEL,
   verdictReasons,
@@ -8,15 +9,8 @@ import {
   temperature,
   wedgeHeat,
   type Node,
-  type Provenance,
 } from '../lib/api'
 
-const PROVENANCE_COPY: Record<Provenance, string> = {
-  none: 'Nothing explains this code.',
-  source: 'Explained by a comment in the source — author unknown.',
-  history: 'Explained from git history.',
-  human: 'Explained by you.',
-}
 
 /**
  * A number and a bar. The definition lives in `title`, not on screen.
@@ -25,7 +19,15 @@ const PROVENANCE_COPY: Record<Provenance, string> = {
  * documentation — useful exactly once, then permanent noise that crowded out anything
  * specific to the code being looked at.
  */
-function Meter({ label, value, hint }: { label: string; value: number; hint: string }) {
+function Meter({
+  label,
+  value,
+  hint,
+}: {
+  label: string
+  value: number
+  hint: string
+}) {
   return (
     <div className="mb-2.5" title={hint}>
       <div className="mb-1 flex items-baseline justify-between">
@@ -104,12 +106,128 @@ const KIND_LABEL: Record<Node['kind'], string> = {
   func: 'function',
 }
 
+/** What the list ranks by, per mode — the same quantity the ring is coloured by. */
+function rank(n: Node, mode: ColorMode): number {
+  const s = n.score
+  if (!s) return -1
+  if (mode === 'churn') return s.ageDays === null ? -1 : s.churn
+  // Recent is the bright end of the age ramp, so recent sorts first.
+  if (mode === 'age') return s.lastTouchedDays === null ? -1 : -s.lastTouchedDays
+  return wedgeHeat(n)
+}
+
+/** The one number worth a column, per mode. Units are carried on the value rather than
+ *  in a header, because the column is eight characters wide and a header would not fit
+ *  the word it needed. */
+function measure(n: Node, mode: ColorMode): string | null {
+  const s = n.score
+  // Blame has no number. An author is a category, not a quantity, and the row's swatch
+  // already carries it — a line count beside it answers a question nobody asked here.
+  if (mode === 'blame') return null
+  if (mode === 'churn') return s && s.ageDays !== null ? `${s.commits}\u00d7` : '\u2014'
+  if (mode === 'age') {
+    if (!s || s.lastTouchedDays === null) return '\u2014'
+    return s.lastTouchedDays < 1 ? 'today' : `${Math.round(s.lastTouchedDays)}d ago`
+  }
+  // The reading itself, not the line count. Lines were the complement to the swatch —
+  // colour is surprise, width is lines, the invariant side by side — but it made Surprise
+  // and Language render an identical column, so the mode you were in stopped being
+  // legible from the list. Every other mode reports its own quantity; this one may as
+  // well too, and the swatch is a colour you have to decode where a number is not.
+  if (mode === 'surprise') {
+    if (!s || !isAnalyzed(n)) return '\u2014'
+    return `${Math.round(wedgeHeat(n) * 100)}\u00b0`
+  }
+  return n.loc.toLocaleString()
+}
+
+/**
+ * What is inside this wedge, as a list you can walk.
+ *
+ * The map answers "where is the heat" and is bad at "what is actually in here" — a
+ * directory of forty files is forty arcs you have to hover one at a time, and the
+ * overflow aggregate a big file collapses into had no way to be opened at all. Rows are
+ * the same gestures as the ring: click selects, double-click drills in.
+ *
+ * Ordered by heat, not by size or name. The ring is size-ordered because that keeps its
+ * shape recognisable between scans; this list is for reading, and the thing worth reading
+ * first is the thing nobody predicted. Unread rows sink to the bottom rather than sorting
+ * as cold — grey means "not looked at", which is not the same as "fine".
+ */
+function Contents({
+  node,
+  mode,
+  ranks,
+  onSelect,
+  onDrill,
+}: {
+  node: Node
+  mode: ColorMode
+  ranks?: Map<string, number>
+  onSelect?: (n: Node) => void
+  onDrill?: (n: Node) => void
+}) {
+  if (node.children.length === 0) return null
+  // Ordered and measured by whatever the ring is currently coloured by. The list was
+  // always sorted by surprise and always trailed a line count, so in Churn mode it sat
+  // beside a blue ring ranking things by a quantity the ring was not showing — two
+  // answers to one question, in the same panel, disagreeing.
+  const rows = [...node.children].sort((a, b) => {
+    const seen = (n: Node) => (isAnalyzed(n) ? 1 : 0)
+    return seen(b) - seen(a) || rank(b, mode) - rank(a, mode) || b.loc - a.loc
+  })
+  const label = node.kind === 'dir' ? 'Contents' : 'Functions'
+
+  return (
+    <div className="mt-4 border-t border-[var(--border)] pt-3">
+      <div className="mb-2 flex items-baseline justify-between">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+          {label}
+        </p>
+        <p className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
+          {rows.length}
+        </p>
+      </div>
+      {rows.map((c) => (
+        <button
+          key={c.id}
+          type="button"
+          className="flex w-full items-baseline gap-2 rounded-[var(--radius-sm)] px-1 py-0.5 text-left hover:bg-[var(--secondary)]"
+          onClick={() => onSelect?.(c)}
+          onDoubleClick={() => onDrill?.(c)}
+        >
+          <span
+            className="h-2 w-2 shrink-0 translate-y-px rounded-[2px]"
+            style={{ background: colorFor(c, mode, ranks)?.fill ?? 'var(--unanalyzed)' }}
+          />
+          <span className="mono flex-1 truncate text-[11px]">{c.name}</span>
+          {/* Never shrinks, and the name gives way — this column is the mode's own
+              quantity and is the reason to be reading the list at all. */}
+          {measure(c, mode) !== null && (
+            <span className="mono shrink-0 text-[10px] tabular-nums text-[var(--muted-foreground)]">
+              {measure(c, mode)}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function Detail({
   node,
   model,
+  mode,
+  ranks,
+  onSelect,
+  onDrill,
 }: {
   node: Node | null
   model: string | null
+  mode: ColorMode
+  ranks?: Map<string, number>
+  onSelect?: (n: Node) => void
+  onDrill?: (n: Node) => void
 }) {
   if (!node) {
     // Nothing but the pane and whatever is walking across it. The gestures used to be
@@ -177,12 +295,21 @@ export function Detail({
               hint="How little of this body a reader could predict from its name, signature, neighbours and docs. This is the colour."
             />
           ) : (
-            /* A directory's mean temperature is a meaningless number — see
-               `wedgeHeat`. Show the share, which is what its colour means. */
+            /* The LOC-weighted mean of what is inside, which is also the number the
+               verdict box above speaks in ("largely predictable from its signature,
+               10/100"). It was the hot share — the FRACTION of analysed lines that are
+               hot — and the two were on screen together saying different things about
+               the same word.
+
+               Worth knowing: the wedge's COLOUR is still the hot share, because a mean
+               temperature flattens every inner ring toward the repo average and makes
+               the loudest thing on screen the thing that means least. So this meter no
+               longer explains the colour, and its hint says so rather than claiming it
+               does. */
             <Meter
-              label="Hot share"
-              value={s.hotShare}
-              hint="The share of these lines sitting in surprising code. This is the colour."
+              label="Average surprise"
+              value={s.surprise}
+              hint="The line-weighted mean surprise of everything inside. The wedge's colour is a different figure — the share of analysed lines that are hot."
             />
           )}
           {/* Documentation is a REPORT, not a discount. It no longer multiplies into the
@@ -195,6 +322,23 @@ export function Detail({
             value={s.documented}
             hint="How well the attached docs cover what the code actually does — graded by the reader that read both, not counted in comment lines."
           />
+          {/* The second axis, as a bar rather than only as a commit count further down.
+              Surprise alone cannot tell a subtle algorithm from a mess — both are
+              unpredictable — and churn is what separates them, so the verdict above is
+              read off THIS and the bar above it. Showing one as a bar and the other as a
+              raw number buried in a list made the pair look like a headline and a
+              footnote.
+
+              Hidden without git history rather than drawn at zero: no history means no
+              second axis at all, and an empty bar claims "settled" when the truth is
+              "unknown". The row below already says "no history" in words. */}
+          {s.ageDays !== null && (
+            <Meter
+              label="Churn"
+              value={s.churn}
+              hint="How much this code has moved lately, from commits in the last 90 days. High surprise that is settled is a crown jewel; high surprise that is churning is trouble."
+            />
+          )}
         </div>
       )}
       {/* The edge of the pinned block. A rule rather than a shadow: everything else
@@ -243,23 +387,16 @@ export function Detail({
           )}
 
           <dl className="mt-3 space-y-1.5 pt-1 text-[11px]">
-            <div className="flex justify-between gap-3">
-              <dt className="text-[var(--muted-foreground)]">Docs</dt>
-              <dd className="text-right">{PROVENANCE_COPY[s.provenance]}</dd>
-            </div>
-            {/* Counts, not the normalised figure — see `verdictReasons`. */}
-            <div className="flex justify-between gap-3">
-              <dt className="text-[var(--muted-foreground)]">Commits (90d)</dt>
-              <dd className="mono tabular-nums">
-                {s.ageDays === null ? 'no history' : s.commits}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-[var(--muted-foreground)]">First seen</dt>
-              <dd className="mono tabular-nums">
-                {s.ageDays === null ? '—' : `${Math.round(s.ageDays)}d ago`}
-              </dd>
-            </div>
+              {/* Commits and first-seen used to sit here. Both are stated in the verdict
+                  box directly above, in prose and with the interpretation attached
+                  ("changed 6x in the last 90 days, last 1d ago"), and both appear in the
+                  ring's hover in the modes where they are the question. Three places for
+                  one fact.
+
+                  This row stays because nothing else says it. Which instrument produced
+                  the numbers above is the one thing the panel must never leave the user
+                  to guess — an agent's reading and the offline proxy's guess are not the
+                  same claim, and the proxy measurably tracks file length. */}
             <div className="flex justify-between gap-3">
               <dt className="text-[var(--muted-foreground)]">Measured by</dt>
               {/* This node's own source, not the scan's label. A wedge upgraded by the
@@ -427,19 +564,9 @@ export function Detail({
           )}
         </>
       )}
+
+      <Contents node={node} mode={mode} ranks={ranks} onSelect={onSelect} onDrill={onDrill} />
       </div>
     </div>
   )
 }
-
-/**
- * The two-line summary, fetched when a function is selected.
- *
- * Lazy on purpose: generating prose for every function would multiply an already slow
- * scan to produce text nobody reads. One call, at the moment somebody asks.
- *
- * It sits ABOVE the raw hotspots rather than replacing them, and that ordering is the
- * point. The prose is generated and could be wrong; the hotspots are measurements and
- * cannot be. Anyone who doubts a sentence can check it against the evidence that
- * produced it, in the same panel, without leaving.
- */

@@ -8,6 +8,10 @@
  * without changing the machine's. `system` is still the default, so the drift case only
  * exists for someone who deliberately opted into it.
  *
+ * It lives in the app menu, under View → Appearance. It briefly had a settings panel to
+ * itself, which then outlived everything else in that panel — a modal behind a keystroke
+ * for one three-way toggle. macOS has had a place for exactly this shape for decades.
+ *
  * The ground is a `dark` class on `<html>` — Tailwind v4 class-based dark mode, declared
  * by `@custom-variant dark` in index.css. Not a media query, because a media query cannot
  * be overridden by a preference.

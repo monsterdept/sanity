@@ -287,6 +287,26 @@ pub fn project_scan(
 /// Itemised on purpose. A single "clear 400 KB" is not something anyone can agree to,
 /// because the interesting question is not the size — it is whether the thing about to
 /// be deleted can be got back. Scores can (slowly). Legacy readings cannot.
+/// Tick the appearance item the webview is actually using.
+///
+/// The preference is stored in localStorage, so Rust cannot know it when the menu is
+/// built — without this the menu opens with System ticked whatever you last chose. The
+/// frontend calls it on mount and on every change; nothing is stored on this side, so the
+/// two cannot disagree about which is current.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn sync_theme_menu(app: tauri::AppHandle, theme: String) {
+    use tauri::Manager;
+    if let Some(themes) = app.try_state::<crate::ThemeMenu>() {
+        themes.select(&theme);
+    }
+}
+
+/// Nothing to sync where there is no app menu.
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub fn sync_theme_menu(_app: tauri::AppHandle, _theme: String) {}
+
 /// Stop the model pass. Everything scored so far is kept and returned.
 ///
 /// With the length floor gone nothing is excluded from analysis, so this is how a scan

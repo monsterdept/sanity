@@ -214,7 +214,12 @@ fn parse_file(root: &Path, path: &Path, lang: Lang) -> Option<ParsedFile> {
 /// normalisation constant is tuned for a single file, and a directory pooling every
 /// commit beneath it would saturate to 1.0 the moment anyone touched anything.
 fn apply_dir_history(node: &mut Node, history: &History) {
-    if node.kind == NodeKind::Dir {
+    // Files as well as directories. A file node's score comes from `aggregate`, which
+    // sets `commits: 0` because summing its functions would count one commit once per
+    // function it touched — and nothing filled it back in, so every file reported zero
+    // commits next to a churn bar at 72. Its path is a real path, so the log knows the
+    // answer directly; only the aggregate did not.
+    if node.kind == NodeKind::Dir || node.kind == NodeKind::File {
         if let Some(score) = node.score.as_mut() {
             score.commits = history.commits_of(&node.path);
         }
