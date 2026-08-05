@@ -1,7 +1,5 @@
-import { useEffect, useState } from 'react'
 import { PartyAnts } from './PartyAnts'
 import {
-  explainFunction,
   QUADRANT_LABEL,
   verdictReasons,
   heatColor,
@@ -9,7 +7,6 @@ import {
   isAnalyzed,
   temperature,
   wedgeHeat,
-  type ModelSettings,
   type Node,
   type Provenance,
 } from '../lib/api'
@@ -110,13 +107,9 @@ const KIND_LABEL: Record<Node['kind'], string> = {
 export function Detail({
   node,
   model,
-  repo,
-  settings,
 }: {
   node: Node | null
   model: string | null
-  repo: string | null
-  settings: ModelSettings
 }) {
   if (!node) {
     // Nothing but the pane and whatever is walking across it. The gestures used to be
@@ -394,10 +387,6 @@ export function Detail({
             </div>
           )}
 
-          {isLeaf && node.hotspots.length > 0 && repo && settings.useOllama && (
-            <Explanation node={node} repo={repo} settings={settings} />
-          )}
-
           {node.hotspots.length > 0 && (
             <div className="mt-4 border-t border-[var(--border)] pt-3">
               <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
@@ -454,58 +443,3 @@ export function Detail({
  * cannot be. Anyone who doubts a sentence can check it against the evidence that
  * produced it, in the same panel, without leaving.
  */
-function Explanation({
-  node,
-  repo,
-  settings,
-}: {
-  node: Node
-  repo: string
-  settings: ModelSettings
-}) {
-  const [text, setText] = useState<string | null>(null)
-  const [state, setState] = useState<'idle' | 'loading' | 'failed'>('idle')
-
-  useEffect(() => {
-    let live = true
-    setText(null)
-    setState('loading')
-    explainFunction({
-      repo,
-      relPath: node.path,
-      name: node.name,
-      line: node.line ?? 0,
-      hotspots: node.hotspots,
-      endpoint: settings.endpoint,
-      model: settings.model,
-    })
-      .then((t) => {
-        if (!live) return
-        setText(t)
-        setState(t ? 'idle' : 'failed')
-      })
-      .catch(() => live && setState('failed'))
-    // Cancelled on selection change so a slow reply can't land in the wrong panel.
-    return () => {
-      live = false
-    }
-  }, [node.id, repo, settings.endpoint, settings.model])
-
-  if (state === 'loading') {
-    return (
-      <p className="mt-4 border-t border-[var(--border)] pt-3 text-[11px] italic text-[var(--muted-foreground)]">
-        Working out what’s surprising here…
-      </p>
-    )
-  }
-  if (!text) return null
-
-  return (
-    <div className="mt-4 border-t border-[var(--border)] pt-3">
-      <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-        In short
-      </p>
-      <p className="whitespace-pre-line text-xs leading-relaxed">{text}</p>
-    </div>
-  )
-}

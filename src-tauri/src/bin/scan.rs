@@ -8,56 +8,26 @@
 
 use sanity_lib::model::{Node, NodeKind, Quadrant};
 use sanity_lib::scan;
-use sanity_lib::surprise::{HeuristicModel, OllamaModel, SurpriseModel};
+use sanity_lib::surprise::{HeuristicModel, SurpriseModel};
 use std::path::PathBuf;
-
-/// Functions shorter than this keep their proxy score when a model is in play. See
-/// `OllamaModel::min_lines` — this is a cost gate, and at tens of seconds per call it is
-/// the difference between a scan of minutes and one of hours.
-const DEFAULT_MIN_LINES: usize = 25;
 
 fn main() {
     let mut args = std::env::args().skip(1);
     let mut path = PathBuf::from(".");
-    let mut use_ollama = false;
-    let mut model_name = "devstral-small-2:24b".to_string();
-    let mut endpoint = std::env::var("SANITY_OLLAMA_ENDPOINT")
-        .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string());
-    let mut min_lines = DEFAULT_MIN_LINES;
     let mut local: Option<PathBuf> = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--ollama" => use_ollama = true,
-            "--model" => {
-                if let Some(m) = args.next() {
-                    model_name = m;
-                    use_ollama = true;
-                }
-            }
-            "--endpoint" => {
-                if let Some(e) = args.next() {
-                    endpoint = e;
-                    use_ollama = true;
-                }
-            }
             "--local" => {
                 if let Some(p) = args.next() {
                     local = Some(PathBuf::from(p));
                 }
             }
-            "--min-lines" => {
-                if let Some(n) = args.next().and_then(|n| n.parse().ok()) {
-                    min_lines = n;
-                }
-            }
             "-h" | "--help" => {
                 eprintln!(
-                    "usage: sanity-scan [PATH] [--ollama] [--model NAME] \\\n\
-                     \x20            [--endpoint URL] [--min-lines N]\n\n\
-                     \x20 --min-lines  only send functions at least this long to the model\n\
-                     \x20              (default {DEFAULT_MIN_LINES}); shorter ones keep their proxy score.\n\
-                     \x20 SANITY_OLLAMA_ENDPOINT sets the default endpoint."
+                    "usage: sanity-scan [PATH] [--local WEIGHTS]\n\n\
+                     \x20 --local  score with a local model (needs --features local-metal\n\
+                     \x20          or local-vulkan); otherwise the offline proxy runs."
                 );
                 return;
             }
@@ -82,15 +52,6 @@ fn main() {
     let model: Box<dyn SurpriseModel> = if let Some(m) = local_model {
         eprintln!("scoring locally with {}", m.label());
         Box::new(m)
-    } else if use_ollama {
-        let m = OllamaModel::new(&endpoint, &model_name, min_lines);
-        if m.available() {
-            eprintln!("scoring with {model_name} at {endpoint} (functions >= {min_lines} lines)");
-            Box::new(m)
-        } else {
-            eprintln!("note: nothing answering at {endpoint} — using the offline proxy");
-            Box::new(HeuristicModel)
-        }
     } else {
         Box::new(HeuristicModel)
     };
@@ -98,16 +59,7 @@ fn main() {
     #[cfg(not(feature = "local-model"))]
     let model: Box<dyn SurpriseModel> = {
         let _ = &local_model;
-        if use_ollama {
-            let m = OllamaModel::new(&endpoint, &model_name, min_lines);
-            if m.available() {
-                Box::new(m)
-            } else {
-                Box::new(HeuristicModel)
-            }
-        } else {
-            Box::new(HeuristicModel)
-        }
+        Box::new(HeuristicModel)
     };
 
     let scanned = match scan::scan(

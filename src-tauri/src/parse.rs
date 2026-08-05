@@ -158,6 +158,52 @@ fn leading_doc(node: TsNode, src: &str) -> Option<String> {
     (!joined.is_empty()).then_some(joined)
 }
 
+/// Nodes a function can be wrapped in without the wrapper being a different thing.
+///
+/// `const Foo = () => {}` carries no comment on the arrow function itself — the doc sits
+/// above the declaration, and above the `export` again when it is exported. Those are all
+/// the same declaration of the same function, so a comment above any of them documents it.
+///
+/// Matched literally, like `func_kinds`: a grammar bump that renames one of these goes
+/// red in the tests rather than silently returning nothing.
+const DOC_WRAPPERS: &[&str] = &[
+    "variable_declarator",
+    "lexical_declaration",
+    "variable_declaration",
+    "export_statement",
+    "expression_statement",
+    "assignment",
+    "public_field_definition",
+];
+
+/// A doc comment on the declaration a function is wrapped in — and *only* that.
+///
+/// This used to be a blind three-step walk up the parents, taking the first comment it
+/// found. That is right for a wrapped arrow function and badly wrong everywhere else: a
+/// nested type's `init` has no doc of its own, so the walk climbed out of the struct and
+/// into the enclosing class and handed back the **class's** docstring. The reader was then
+/// asked to predict `SentenceSuggester.Context.init` from a paragraph about how
+/// `SentenceSuggester` enforces filtering, guessed wrong, and the wedge went hot.
+///
+/// Those manufactured surprises are indistinguishable from real ones in the output, which
+/// makes this worse than a missing feature — the instrument was inventing findings. So the
+/// walk now stops at the first parent that is not a wrapper: an enclosing type or function
+/// is a different thing, and its documentation is not this function's.
+fn wrapper_doc(node: TsNode, src: &str) -> Option<String> {
+    let mut cur = node;
+    for _ in 0..3 {
+        let parent = cur.parent()?;
+        if !DOC_WRAPPERS.contains(&parent.kind()) {
+            return None;
+        }
+        if let Some(doc) = leading_doc(parent, src) {
+            return Some(doc);
+        }
+        cur = parent;
+    }
+    None
+}
+
 /// Python attaches its documentation *inside* the body, as the first statement.
 fn python_docstring(body: TsNode, src: &str) -> Option<String> {
     let first = body.named_child(0)?;
@@ -332,9 +378,7 @@ fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
         // declaration is exported. Walk out through those wrappers — stopping at the
         // first one that has a comment — or every exported arrow-function component in
         // a React codebase reads as undocumented.
-        _ => std::iter::successors(Some(node), |n| n.parent())
-            .take(3)
-            .find_map(|n| leading_doc(n, src)),
+        _ => leading_doc(node, src).or_else(|| wrapper_doc(node, src)),
     };
 
     Some(FuncDef {
@@ -437,6 +481,45 @@ class Store {
     /// Swift, added because a scan of an iOS/macOS project reported eight functions —
     /// all of them in two Python dev scripts — and read as a tidy repo. An unparsed
     /// language is not a gap in the picture, it is a picture of the wrong thing.
+    /// A nested type's undocumented member must NOT inherit the enclosing type's doc.
+    ///
+    /// The doc walk used to climb three parents and take the first comment it found, so
+    /// `Context.init` was handed the `SentenceSuggester` class docstring. The reader was
+    /// then asked to predict an initialiser from a paragraph about filter enforcement,
+    /// guessed wrong, and the wedge read hot — a surprise the instrument invented, and
+    /// indistinguishable in the output from one it measured.
+    #[test]
+    fn a_nested_type_does_not_inherit_the_enclosing_docstring() {
+        let src = r#"
+/// Suggests sentences, and enforces the filtering rules while it does.
+class SentenceSuggester {
+    struct Context {
+        let limit: Int
+
+        init(limit: Int) {
+            self.limit = limit
+        }
+    }
+
+    /// Returns the next suggestion.
+    func next() -> String { "x" }
+
+    func untouched() -> Int { 0 }
+}
+"#;
+        let fns = parse_functions(Lang::Swift, src);
+        let by = |n: &str| fns.iter().find(|f| f.name == n).expect(n).clone();
+
+        assert_eq!(by("init").doc, None, "an undocumented init has no docs, not its owner's");
+        assert_eq!(
+            by("untouched").doc,
+            None,
+            "nor does an undocumented method one level down"
+        );
+        // The ones that really are documented still are.
+        assert!(by("next").doc.unwrap().contains("next suggestion"));
+    }
+
     #[test]
     fn swift_functions_methods_and_inits() {
         let src = r#"

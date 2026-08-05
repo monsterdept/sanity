@@ -158,44 +158,6 @@ function toNode(w: WireNode): Node {
   }
 }
 
-/** Persisted in localStorage; the scan takes it verbatim so the header can always name
- *  the instrument that produced the picture on screen. */
-export interface ModelSettings {
-  useOllama: boolean
-  endpoint: string
-  model: string
-}
-
-export const DEFAULT_SETTINGS: ModelSettings = {
-  useOllama: false,
-  endpoint: 'http://127.0.0.1:11434',
-  model: 'devstral-small-2:24b',
-}
-
-const SETTINGS_KEY = 'sanity.model'
-
-export function loadSettings(): ModelSettings {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY)
-    // Spread over the defaults rather than trusting the stored object: a settings blob
-    // written by an older build is missing whatever fields have been added since, and
-    // an undefined endpoint reaches Rust as a scan that can never connect.
-    if (raw) return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<ModelSettings>) }
-  } catch {
-    /* unreadable or corrupt — fall through to defaults */
-  }
-  return DEFAULT_SETTINGS
-}
-
-export function saveSettings(s: ModelSettings): void {
-  try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s))
-  } catch {
-    /* storage unavailable; settings just won't persist */
-  }
-}
-
-/** Stop the model pass; scores already produced are kept. */
 export interface AgentActivity {
   active: boolean
   tool: string
@@ -419,73 +381,13 @@ export function countStale(root: Node): number {
   return n
 }
 
-/** One repo's committed `.sanity/`, named so the delete button can list it. */
-export interface Assessment {
-  name: string
-  path: string
-  readings: number
-  /** Tracked by git, so `git checkout` brings it back. Untracked means gone for good. */
-  tracked: boolean
-}
 
-/** What Sanity has written — see `stored_data` in commands.rs. */
-export interface StoredData {
-  path: string
-  /** Cached model scores. Recomputable by rescanning. */
-  scoreBytes: number
-  /** Leftover machine-local reading files. Nothing reads these any more. */
-  legacyReadingFiles: number
-  projects: number
-  totalBytes: number
-  assessments: Assessment[]
-}
 
-export async function storedData(): Promise<StoredData | null> {
-  const w = await invoke<{
-    path: string
-    score_bytes: number
-    legacy_reading_files: number
-    projects: number
-    total_bytes: number
-    assessments: Assessment[]
-  } | null>('stored_data').catch(() => null)
-  return w
-    ? {
-        path: w.path,
-        scoreBytes: w.score_bytes,
-        legacyReadingFiles: w.legacy_reading_files,
-        projects: w.projects,
-        totalBytes: w.total_bytes,
-        assessments: w.assessments ?? [],
-      }
-    : null
-}
 
-/** Delete every reading, including each known repo's committed `.sanity/`. */
-export function clearStoredData(): Promise<void> {
-  return invoke<void>('clear_stored_data')
-}
 
-export function stopScan(): Promise<void> {
-  return invoke<void>('stop_scan')
-}
-
-/** Prose for one function, grounded in its measured surprises. Null when there is
- *  nothing to explain or no model to ask. */
-export function explainFunction(args: {
-  repo: string
-  relPath: string
-  name: string
-  line: number
-  hotspots: Hotspot[]
-  endpoint: string
-  model: string
-}): Promise<string | null> {
-  return invoke<string | null>('explain_function', args)
-}
-
-export function listOllamaModels(endpoint: string): Promise<string[]> {
-  return invoke<string[]>('ollama_models', { endpoint })
+export async function scanRepo(path: string): Promise<Scan> {
+  const w = await invoke<WireScan>('scan_repo', { req: { path } })
+  return toScan(w)
 }
 
 function toScan(w: WireScan): Scan {
@@ -501,21 +403,7 @@ function toScan(w: WireScan): Scan {
   }
 }
 
-export async function scanRepo(path: string, s: ModelSettings): Promise<Scan> {
-  const w = await invoke<WireScan>('scan_repo', {
-    req: {
-      path,
-      useOllama: s.useOllama,
-      ollamaEndpoint: s.endpoint,
-      ollamaModel: s.model,
-    },
-  })
-  return toScan(w)
-}
 
-export function ollamaAvailable(): Promise<boolean> {
-  return invoke<boolean>('ollama_available', {})
-}
 
 export interface Upgrade {
   surprise: number

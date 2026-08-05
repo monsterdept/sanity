@@ -70,15 +70,24 @@ Rust, TypeScript, TSX, JavaScript, Python, Go, Swift, C, C++, Java, Kotlin, C#, 
 Lua, Elixir, Scala, Dart, Zig, Objective-C, shell and SQL. Files in other languages still appear as
 wedges — they just have no inner ring and no score, which is honest: we didn't read them.
 
-## Scoring with a local model
+## Where the real reading comes from
 
-The default needs nothing installed. If you have Ollama running, Sanity can use it:
+The app itself needs nothing installed: it scores with an offline proxy that is honest
+about being a proxy. The measurement worth having arrives from an **agent** over MCP —
+handed a function's name, signature and neighbours, it writes down what it expects, then
+opens the file and reports the gap. Those readings are committed to the repo at
+`.sanity/`, and they expire when the code moves out from under them.
+
+Connect an agent from the app, then tell it:
 
 ```
-just scan . --model qwen2.5-coder:7b
+study this project in sanity
 ```
 
-The app names whichever instrument produced the picture you're looking at.
+`just scan . --local <weights>` scores with a local model instead, no server involved —
+built with `--features local-metal` (or `local-vulkan`). That path exists for working on
+the metric, not for daily use; the app names whichever instrument produced the picture
+you're looking at.
 
 ## Building
 

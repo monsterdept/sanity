@@ -1,5 +1,12 @@
 //! Persistent scores, so analysis survives closing the app.
 //!
+//! **Currently only [`Cache::ephemeral`] is reachable.** The persistence half existed for
+//! the Ollama path, where a scan ran for tens of minutes and losing it to a quit was
+//! unacceptable; the offline proxy rescans a whole repo in about a second, so there is
+//! nothing worth keeping and a cache would only be a file that disagrees with the code.
+//! Kept rather than deleted because a local model would want it back on the same terms —
+//! but nothing writes `scores/` today, and if that stays true this should go.
+//!
 //! A model pass over a real repo runs for tens of minutes. Throwing that away because
 //! someone quit the app — or because they want to look at the same project again
 //! tomorrow — makes the model path something you use once to see if it works, rather than

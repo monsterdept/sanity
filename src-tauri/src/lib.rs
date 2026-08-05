@@ -180,12 +180,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::scan_repo,
-            commands::ollama_available,
-            commands::ollama_models,
             commands::stop_scan,
-            commands::stored_data,
-            commands::clear_stored_data,
-            commands::explain_function,
             commands::read_source,
             commands::open_code_window,
             commands::agent_reports,

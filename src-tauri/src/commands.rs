@@ -2,7 +2,7 @@
 
 use crate::cache::Cache;
 use crate::scan::{self, Progress, Scan, Scored};
-use crate::surprise::{HeuristicModel, OllamaModel, SurpriseModel};
+use crate::surprise::HeuristicModel;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,39 +17,16 @@ static CANCEL: std::sync::LazyLock<Arc<AtomicBool>> =
     std::sync::LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 use tauri::{AppHandle, Emitter};
 
-/// Which instrument to score with. Sent from the UI on every scan rather than held as
-/// server state, so the picture on screen can always name the model that produced it.
+/// What to scan. Just a path now.
+///
+/// It used to carry an Ollama endpoint, model and length floor, chosen in Settings and
+/// sent on every scan. All of it is gone: the model path was configuration rather than
+/// revelation, and the readings an agent files through MCP are the measurement the app
+/// is actually built around. The offline proxy draws the map until a reader improves it.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanRequest {
     pub path: String,
-    /// When false — the default — nothing is downloaded, nothing is called, and the
-    /// scan is the offline proxy.
-    #[serde(default)]
-    pub use_ollama: bool,
-    #[serde(default = "default_endpoint")]
-    pub ollama_endpoint: String,
-    #[serde(default = "default_model")]
-    pub ollama_model: String,
-    /// Functions shorter than this keep their proxy score.
-    ///
-    /// **Zero from the app, always.** A length filter decides what gets *measured*, and
-    /// sanity's central claim is that size is the boring axis — a three-line guard with
-    /// an inverted comparison is precisely what should surface. It survives only as a
-    /// `sanity-scan --min-lines` flag for cheap experiments. The app bounds cost by
-    /// ordering the queue and letting the user stop it.
-    #[serde(default)]
-    pub ollama_min_lines: usize,
-}
-
-/// Honours SANITY_OLLAMA_ENDPOINT so a machine that keeps its models on another box
-/// doesn't have to retype the host on every scan.
-fn default_endpoint() -> String {
-    std::env::var("SANITY_OLLAMA_ENDPOINT").unwrap_or_else(|_| "http://127.0.0.1:11434".into())
-}
-
-fn default_model() -> String {
-    std::env::var("SANITY_OLLAMA_MODEL").unwrap_or_else(|_| "devstral-small-2:24b".into())
 }
 
 /// Scan a repo and return the whole scored tree.
@@ -72,22 +49,10 @@ pub async fn scan_repo(
 
     CANCEL.store(false, Ordering::Relaxed);
 
-    // The scan is CPU-bound and rayon-parallel, and the Ollama client is blocking —
-    // both are reasons this must never run on the async runtime's threads.
+    // The scan is CPU-bound and rayon-parallel, so it must never run on the async
+    // runtime's threads.
     let scanned = tauri::async_runtime::spawn_blocking(move || {
-        let model: Box<dyn SurpriseModel> = if req.use_ollama {
-            let m = OllamaModel::new(&req.ollama_endpoint, &req.ollama_model, req.ollama_min_lines);
-            // Checked once, up front. Falling back per-call would still produce a
-            // picture, but the label would claim a model that never answered — and the
-            // one thing the user must always be able to trust is which instrument ran.
-            if m.available() {
-                Box::new(m)
-            } else {
-                Box::new(HeuristicModel)
-            }
-        } else {
-            Box::new(HeuristicModel)
-        };
+        let model = HeuristicModel;
 
         let emit = |p: Progress| {
             let _ = app.emit("scan-progress", p);
@@ -106,18 +71,12 @@ pub async fn scan_repo(
                 },
             );
         };
-        // The proxy has nothing worth persisting — it recomputes in about a second —
-        // and giving it a real cache is how it came to overwrite the model's.
-        let cache = if model.is_model() {
-            Cache::open(&root, &model.label())
-        } else {
-            Cache::ephemeral()
-        };
-        let result = scan::scan(&root, model.as_ref(), &emit, &scored, &CANCEL, &cache);
-        // Flush on the way out however the scan ended — a cancelled run has usually done
-        // the most work and is exactly the one worth keeping.
-        cache.flush();
-        result.map_err(|e| e.to_string())
+        // Ephemeral, always. The persistent cache existed for the model path, where a
+        // scan ran for tens of minutes; the proxy recomputes the whole repo in about a
+        // second, and a cache that saves nothing is a file that can only disagree with
+        // the code.
+        let cache = Cache::ephemeral();
+        scan::scan(&root, &model, &emit, &scored, &CANCEL, &cache).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -156,43 +115,6 @@ pub async fn scan_repo(
     scanned
 }
 
-/// Explain one function, grounded in the surprises already measured for it.
-///
-/// Takes a path rather than the source text: bodies are deliberately not carried on the
-/// tree — 2,450 of them would add megabytes to a payload the webview parses on every
-/// scan — so this re-reads and re-parses the single file it needs. That costs under a
-/// millisecond and keeps the scan payload small.
-///
-/// Returns None rather than an error when there is nothing to say or the model is
-/// unreachable: a panel reading "failed to explain" where prose would go is worse than
-/// one that quietly shows the evidence it already has.
-#[tauri::command]
-pub async fn explain_function(
-    repo: String,
-    rel_path: String,
-    name: String,
-    line: u32,
-    hotspots: Vec<crate::surprise::Hotspot>,
-    endpoint: Option<String>,
-    model: Option<String>,
-) -> Option<String> {
-    let endpoint = endpoint.unwrap_or_else(default_endpoint);
-    let model = model.unwrap_or_else(default_model);
-    tauri::async_runtime::spawn_blocking(move || {
-        let full = PathBuf::from(&repo).join(&rel_path);
-        let lang = crate::model::Lang::from_extension(full.extension()?.to_str()?)?;
-        let src = std::fs::read_to_string(&full).ok()?;
-        let func = crate::parse::parse_functions(lang, &src)
-            .into_iter()
-            // Match on the line too: overloads and same-named methods in different impl
-            // blocks are common, and explaining the wrong one is worse than not explaining.
-            .find(|f| f.name == name && f.start_line == line)?;
-        crate::surprise::explain(&endpoint, &model, &func.signature, &func.body, &hotspots)
-    })
-    .await
-    .ok()
-    .flatten()
-}
 
 /// The text of one file in the open repo, for the code view.
 ///
@@ -365,140 +287,6 @@ pub fn project_scan(
 /// Itemised on purpose. A single "clear 400 KB" is not something anyone can agree to,
 /// because the interesting question is not the size — it is whether the thing about to
 /// be deleted can be got back. Scores can (slowly). Legacy readings cannot.
-/// One repo's committed assessment, as a thing the delete button will name out loud.
-#[derive(serde::Serialize)]
-pub struct Assessment {
-    pub name: String,
-    /// Absolute path of the `.sanity/` directory that will be removed.
-    pub path: String,
-    pub readings: usize,
-    /// Whether git knows about it. A tracked directory can be brought back with
-    /// `git checkout`; an untracked one cannot be brought back at all, and the panel
-    /// says which of the two you are about to do.
-    pub tracked: bool,
-}
-
-#[derive(serde::Serialize)]
-pub struct StoredData {
-    pub path: String,
-    /// Cached model scores. Recomputable by rescanning, at the cost of model time.
-    pub score_bytes: u64,
-    /// Machine-local reading files left over from builds before `.sanity/`. Nothing
-    /// reads these any more; they are listed only so the button can remove them.
-    pub legacy_reading_files: usize,
-    pub projects: usize,
-    pub total_bytes: u64,
-    /// The committed assessments in every repo Sanity knows about.
-    pub assessments: Vec<Assessment>,
-}
-
-/// Count `### ` headings across a `.sanity/` directory — the number of readings in it,
-/// without paying to parse them. Approximate by construction and labelled as a count of
-/// entries, not used for anything but telling the user what they are deleting.
-fn count_readings(dir: &std::path::Path) -> usize {
-    std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|e| {
-            e.path().extension().is_some_and(|x| x == "md")
-                && e.file_name() != std::ffi::OsStr::new("README.md")
-        })
-        .filter_map(|e| std::fs::read_to_string(e.path()).ok())
-        .map(|s| s.lines().filter(|l| l.starts_with("### ")).count())
-        .sum()
-}
-
-fn git_tracks(repo: &std::path::Path) -> bool {
-    std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(["ls-files", "--error-unmatch", ".sanity"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-#[tauri::command]
-pub fn stored_data() -> Option<StoredData> {
-    let root = crate::reports::data_dir()?;
-    let legacy = std::fs::read_dir(root.join("reports"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
-        .count();
-
-    let assessments = crate::reports::load_index()
-        .projects
-        .into_iter()
-        .filter_map(|p| {
-            let repo = std::path::PathBuf::from(&p.repo);
-            let dir = crate::assessment::dir(&repo);
-            dir.is_dir().then(|| Assessment {
-                name: p.name,
-                readings: count_readings(&dir),
-                tracked: git_tracks(&repo),
-                path: dir.to_string_lossy().to_string(),
-            })
-        })
-        .collect();
-
-    Some(StoredData {
-        score_bytes: crate::reports::dir_size(&root.join("scores")),
-        legacy_reading_files: legacy,
-        projects: crate::reports::load_index().projects.len(),
-        total_bytes: crate::reports::dir_size(&root),
-        assessments,
-        path: root.to_string_lossy().to_string(),
-    })
-}
-
-/// Delete every reading Sanity knows about, including the committed ones.
-///
-/// This DOES reach into working trees, which an app's settings panel normally has no
-/// business doing. It does it because the alternative was worse in practice: readings
-/// live in two places, deleting one silently restored the other, and a "clear" that left
-/// the real assessments behind would be the third version of the same lie. The panel
-/// names every directory before it asks, and says for each whether git can bring it back.
-///
-/// Only `.sanity/` directories belonging to projects in Sanity's own list are touched —
-/// never an arbitrary path, and never anything else inside a repo.
-#[tauri::command]
-pub fn clear_stored_data(state: tauri::State<'_, crate::agentapi::Shared>) -> Result<(), String> {
-    let root = crate::reports::data_dir().ok_or("no data directory")?;
-
-    // Repos first. If this fails partway, the project list is still intact and the panel
-    // can still name what is left — clearing the index first would strand the rest with
-    // nothing pointing at it.
-    for p in crate::reports::load_index().projects {
-        let dir = crate::assessment::dir(&std::path::PathBuf::from(&p.repo));
-        // Guarded rather than trusted: the index is a file on disk, and a `.sanity`
-        // suffix is the one thing that must hold before any recursive delete runs.
-        if dir.is_dir() && dir.file_name() == Some(std::ffi::OsStr::new(".sanity")) {
-            std::fs::remove_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        }
-    }
-
-    for name in ["scores", "reports"] {
-        let dir = root.join(name);
-        if dir.exists() {
-            std::fs::remove_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        }
-    }
-    let index = root.join("projects.json");
-    if index.exists() {
-        std::fs::remove_file(&index).map_err(|e| format!("{}: {e}", index.display()))?;
-    }
-    // `agent-endpoint.json` is left alone: it describes the process that is running right
-    // now, and deleting it would cut off the MCP server mid-session for no benefit.
-    if let Ok(mut s) = state.lock() {
-        s.projects.clear();
-        s.active = None;
-    }
-    Ok(())
-}
-
 /// Stop the model pass. Everything scored so far is kept and returned.
 ///
 /// With the length floor gone nothing is excluded from analysis, so this is how a scan
@@ -508,28 +296,6 @@ pub fn clear_stored_data(state: tauri::State<'_, crate::agentapi::Shared>) -> Re
 pub fn stop_scan() {
     CANCEL.store(true, Ordering::Relaxed);
 }
-
-/// What models does this endpoint have? Empty when it is unreachable, which the UI
-/// shows as "can't reach it" rather than an empty dropdown with no explanation.
-#[tauri::command]
-pub async fn ollama_models(endpoint: Option<String>) -> Vec<String> {
-    let endpoint = endpoint.unwrap_or_else(default_endpoint);
-    tauri::async_runtime::spawn_blocking(move || OllamaModel::models(&endpoint))
-        .await
-        .unwrap_or_default()
-}
-
-/// Is a local model reachable? Asked before the scan so the UI can offer the model
-/// toggle honestly instead of presenting an option that silently does nothing.
-#[tauri::command]
-pub async fn ollama_available(endpoint: Option<String>, model: Option<String>) -> bool {
-    let endpoint = endpoint.unwrap_or_else(default_endpoint);
-    let model = model.unwrap_or_else(default_model);
-    tauri::async_runtime::spawn_blocking(move || OllamaModel::new(endpoint, model, 0).available())
-        .await
-        .unwrap_or(false)
-}
-
 
 // ── Connecting an agent ────────────────────────────────────────────────────────
 //

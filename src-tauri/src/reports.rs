@@ -7,36 +7,12 @@
 //! care at the call site fixes a design where the user cannot tell which copy they are
 //! looking at. Leaving the functions here for "just in case" is how that comes back.
 //!
-//! What remains is genuinely disposable — which projects have been opened, and how big
-//! the score cache is.
+//! What remains is the project list, and nothing else. There was briefly a panel that
+//! itemised and deleted everything here — it existed because readings were invisible and
+//! unreachable, and once they moved into the repo `rm -rf .sanity` (or `git checkout`)
+//! does the same job with a diff you can read first.
 
-use std::path::{Path, PathBuf};
-
-/// Everything Sanity has written on this machine, for the panel that offers to delete it.
-///
-/// Reported as paths and a byte count rather than a single number: "clear 400K" is not a
-/// sentence anyone can consent to, and the readings in there are the one part that cannot
-/// be recomputed.
-pub fn data_dir() -> Option<PathBuf> {
-    dirs::data_dir().map(|d| d.join("Sanity"))
-}
-
-/// Bytes under `dir`, following no symlinks and failing quietly. Used for the size shown
-/// beside the delete button.
-pub fn dir_size(dir: &Path) -> u64 {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .map(|e| match e.file_type() {
-            Ok(t) if t.is_dir() => dir_size(&e.path()),
-            Ok(t) if t.is_file() => e.metadata().map(|m| m.len()).unwrap_or(0),
-            _ => 0,
-        })
-        .sum()
-}
-
+use std::path::PathBuf;
 
 // ── The project list ───────────────────────────────────────────────────────────
 

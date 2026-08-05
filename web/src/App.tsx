@@ -12,11 +12,7 @@ import {
   onScanScore,
   onScanProgress,
   openCodeWindow,
-  loadSettings,
-  saveSettings,
   scanRepo,
-  stopScan,
-  type ModelSettings,
   type Node,
   type Progress,
   type AgentActivity,
@@ -79,7 +75,6 @@ export default function App() {
   const [reveal, setReveal] = useState<{ id: string; n: number } | null>(null)
   /** The file whose code is open over the map, by node id. */
   const [codeFile, setCodeFile] = useState<string | null>(null)
-  const [settings, setSettings] = useState<ModelSettings>(loadSettings)
   const [showSettings, setShowSettings] = useState(false)
   const [showAgents, setShowAgents] = useState(false)
   // One geometry, five encodings. The sunburst was never the thing worth swapping out —
@@ -167,28 +162,17 @@ export default function App() {
     }
   }, [])
 
-  const run = useCallback(async (path: string, s: ModelSettings) => {
+  const run = useCallback(async (path: string) => {
     lastPath.current = path
     setBusy(true)
     setError(null)
     setProgress(null)
     try {
-      // Two passes when a model is in play. The proxy scan takes about a second, so
-      // there is no reason to stare at a blank window for the ten minutes the model
-      // needs — draw the offline picture immediately, then replace it wholesale when
-      // the real scores land. The header names whichever one is currently on screen,
-      // so this never misreports the instrument.
-      if (s.useOllama) {
-        // The proxy pass draws the structure in grey — nothing is coloured, because
-        // nothing has been analysed yet. Then the model pass fills the colour in.
-        setScan(await scanRepo(path, { ...s, useOllama: false }))
-        // Reset before the model pass: the proxy pass ends at 100%, and leaving that on
-        // screen while the model's first call is still in flight shows a completed bar
-        // and a nonsense ETA for the tens of seconds before the first real tick.
-        setProgress(null)
-        pending.current.clear()
-      }
-      setScan(await scanRepo(path, s))
+      // One pass. There used to be two — a fast proxy scan to draw the structure in
+      // grey, then a model pass of tens of minutes to colour it in — and the whole
+      // apparatus went with the model. The proxy draws the map in about a second, and
+      // an agent's readings replace its guesses one function at a time.
+      setScan(await scanRepo(path))
     } catch (e) {
       setError(String(e))
     } finally {
@@ -202,9 +186,9 @@ export default function App() {
     if (typeof dir === 'string') {
       setStack([])
       setSelectedId(null)
-      await run(dir, settings)
+      await run(dir)
     }
-  }, [run, settings])
+  }, [run])
 
   // The wedge the sunburst is currently rooted at, resolved by id every render so a
   // rescan keeps the user where they were rather than throwing them back to the top.
@@ -259,7 +243,7 @@ export default function App() {
   return (
     <div className="relative flex h-full flex-col">
       {busy && focus && (
-        <ProgressStrip progress={progress} model={settings.useOllama ? settings.model : null} />
+        <ProgressStrip progress={progress} />
       )}
 
       {/* Warnings sit above the picture, never inside it — a caveat rendered as a
@@ -390,12 +374,7 @@ export default function App() {
         </div>
 
         <aside className="w-[290px] shrink-0 border-l border-[var(--border)] bg-[var(--card)]">
-          <Detail
-            node={selected}
-            model={scan?.stats.model ?? null}
-            repo={repoPath}
-            settings={settings}
-          />
+          <Detail node={selected} model={scan?.stats.model ?? null} />
         </aside>
       </div>
 
@@ -436,14 +415,6 @@ export default function App() {
 
       {showSettings && (
         <Settings
-          value={settings}
-          onChange={(s) => {
-            setSettings(s)
-            saveSettings(s)
-            // Re-scan immediately: a changed model that leaves a stale picture on screen
-            // under a header naming the NEW model is the one lie this app must not tell.
-            if (lastPath.current) void run(lastPath.current, s)
-          }}
           theme={theme}
           // Applied on pick, not on Save. Choosing a ground and then having to confirm it
           // is backwards for the one setting whose result is the window you are looking
@@ -462,18 +433,12 @@ export default function App() {
 /**
  * The wait, made legible.
  *
- * A model pass is one decode step per token of every body it scores, which on a real
- * repo is minutes and can be tens of them. A spinner is not enough at that duration —
- * without a rate and a finish time the only information the user has is "still going",
- * and the rational response to that is force-quitting.
+ * Much shorter than it was — the proxy scans a real repo in about a second, where the
+ * model pass it used to front could run for tens of minutes. The bar and ETA stay
+ * because a large repo still takes long enough to wonder about, and the Stop button is
+ * gone with the thing that was worth stopping.
  */
-function ProgressStrip({
-  progress,
-  model,
-}: {
-  progress: Progress | null
-  model: string | null
-}) {
+function ProgressStrip({ progress }: { progress: Progress | null }) {
   const started = useRef(Date.now())
   useEffect(() => {
     started.current = Date.now()
@@ -490,25 +455,8 @@ function ProgressStrip({
   return (
     <div className="shrink-0 border-b border-[var(--border)] bg-[var(--secondary)] px-3 py-1.5">
       <div className="mb-1 flex items-baseline justify-between text-[11px] text-[var(--muted-foreground)]">
-        {/* Name the model. The header names whatever produced the picture currently on
-            screen, so without this the two lines read as contradicting each other. */}
         <span>
-          {/* `progress` is null until the first result arrives, which with a model can
-              be tens of seconds. Rendering that as "0 / 0" reads as an empty queue —
-              i.e. as nothing to do — which is the opposite of what is happening. */}
-          {model ? (
-            progress ? (
-              <>
-                Analysing with <span className="mono">{model}</span> — {progress.done} /{' '}
-                {progress.total} functions. Grey wedges haven’t been looked at yet.
-              </>
-            ) : (
-              <>
-                Queueing work for <span className="mono">{model}</span> — the most
-                promising functions go first.
-              </>
-            )
-          ) : progress ? (
+          {progress ? (
             <>
               Scoring {progress.done} / {progress.total} functions.
             </>
@@ -516,17 +464,7 @@ function ProgressStrip({
             <>Reading the repo…</>
           )}
         </span>
-        <span className="flex shrink-0 items-center gap-2">
-          {eta !== null && <span className="mono">~{eta === 0 ? '<1' : eta} min left</span>}
-          {model && (
-            <button
-              onClick={() => void stopScan()}
-              className="rounded-[var(--radius-sm)] border border-[var(--border)] px-2 py-0.5 text-[11px]"
-            >
-              Stop
-            </button>
-          )}
-        </span>
+        {eta !== null && <span className="mono shrink-0">~{eta === 0 ? '<1' : eta} min left</span>}
       </div>
       <div className="h-1 w-full overflow-hidden rounded-full bg-[var(--border)]">
         <div

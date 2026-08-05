@@ -41,21 +41,24 @@ model can predict from its context.** Everything below defends that.
   tally's most surprising code. Equally, don't "fix" that with a global length penalty:
   that just makes the map say "long means hot", which is measuring length again.
 
-## The model is where the real metric lives
+## The real metric arrives from readers, not from a scorer
 
-`OllamaModel` forces the decode onto the real body's tokens (a `const` JSON schema
-compiles to a grammar admitting exactly one string) and averages their surprisal. That is
-the actual metric; the offline proxy is a stand-in.
+The app scores with the offline proxy and takes its actual measurement from agents over
+MCP. **There is no model path in the app** — `OllamaModel` was removed, endpoint and all,
+because configuring a model is configuration rather than revelation. `local.rs` keeps a
+no-server scorer behind `--features local-metal` for `just scan`; that is where metric
+work belongs.
 
-It is measured, not assumed: on krapow it scores **6/15** against a raw `wc -l` sort where
-the proxy scores 9/15, and the cobra boilerplate that four earlier designs ranked at
-96-98° drops off entirely. `surprise.rs` carries the full table of what failed first.
+Forced decoding was real and was measured — on krapow it scored **6/15** against a raw
+`wc -l` sort where the proxy scores 9/15, and the cobra boilerplate four earlier designs
+ranked at 96-98° dropped off entirely. `surprise.rs` and ARCHITECTURE.md carry the full
+table of what failed first, in the past tense. Read it before rebuilding anything here.
 
-Do not go back to generating a rival body and diffing it. That was tried three ways and
-the noise floor sits above the signal — a model never reproduces real code token for
+**Do not go back to generating a rival body and diffing it.** That was tried three ways
+and the noise floor sits above the signal — a model never reproduces real code token for
 token whether or not the code was predictable.
 
-## Calibration is evidence, not taste## Calibration is evidence, not taste
+## Calibration is evidence, not taste
 
 `heuristic::calibrate` maps the raw mix onto the reported scale. It is monotonic — it
 changes no ordering — but the band and exponent are a standing claim about real code,
@@ -119,9 +122,14 @@ readings (1.4 MB) parse in 30ms, once, on open.
 ## The tool contract is part of the metric
 
 `mcp.rs`'s `inputSchema` is not documentation — it is what the reader is allowed to say.
-It drifted from `Report` and silently ate four fields: the protocol asked for `predicted`,
-`documented`, `derivable` and `model`, Rust could store all four, and the schema declared
-none of them. Careful readers printed the grades into chat, where they were lost, and
+**There is exactly one MCP server**, `sanity mcp`, hosted by the app binary; the Node
+script that used to sit beside it in `mcp/` is deleted. Do not add a second — two copies
+of one contract drift, and this one did: the Rust schema gained the grades, the Node copy
+did not, and `.mcp.json` pointed at the Node copy, so every reading taken in this repo
+dropped them.
+
+The drift ate four fields: the protocol asked for `predicted`, `documented`, `derivable`
+and `model`, Rust could store all four, and the schema declared none of them. Careful readers printed the grades into chat, where they were lost, and
 `predicted` was collapsed into the `surprised` boolean. **`derivable` is the defence
 against generated docs counting as documentation — it was being collected and discarded.**
 When a field is added to `Report`, add it to the schema in the same commit.

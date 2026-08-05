@@ -21,12 +21,9 @@ your parser is long. Colour is the product.
 Feed a function its name, signature and neighbours; measure how surprised the model is by
 the body. Low surprise is scaffolding. High surprise is where the decisions are.
 
-Two implementations sit behind `surprise::SurpriseModel`:
-
-| | |
-|---|---|
-| `HeuristicModel` | The default. No model, no download, no network. |
-| `OllamaModel` | Experimental. A local model, if one is running (`SANITY_OLLAMA_ENDPOINT` for a remote box). Not yet better than the proxy — see below. |
+The app scores with **`HeuristicModel`** — no model, no download, no network — and takes
+its real measurement from readers over MCP. `local.rs` keeps a no-server scorer behind a
+feature flag for `just scan`, which is where metric work belongs.
 
 The heuristic is an honest **proxy** and the UI names whichever ran. It exists because a
 tool that shows nothing until you install a 4GB model is a tool nobody sees the point of.
@@ -40,17 +37,21 @@ It mixes four terms (`heuristic.rs`):
 3. **Incompressibility** — repetition is what deflate removes.
 4. **Branch density** — decisions per line.
 
-**The model path works, and it is measured.** `OllamaModel` forces the decode down the
-real body's token path — Ollama's `format` takes a JSON schema, and a schema of
-`{"type":"string","const": <the body>}` admits exactly one string, so the logprobs that
-come back are the probabilities the model assigned to *the code the human actually
-wrote*. That is perplexity, reached sideways: no endpoint will score supplied text
+## The model path, and why it is gone
+
+An `OllamaModel` scored bodies by **forced decoding** — Ollama's `format` takes a JSON
+schema, and `{"type":"string","const": <the body>}` admits exactly one string, so the
+logprobs that came back were the probabilities the model assigned to *the code the human
+actually wrote*. Perplexity, reached sideways: no endpoint will score supplied text
 (checked on `/api/generate` and `/v1/completions`), but constraining generation to it is
 the same arithmetic.
 
-Four earlier designs failed first, all measured on krapow against the ranking overlap
-with a plain `wc -l` sort — the yardstick `sanity-scan` prints, where the offline proxy
-scores 9/15:
+It worked and it was measured. It was removed anyway, because configuring an endpoint and
+a model is **configuration, not revelation** — and the question it approximated ("could a
+model have predicted this?") is answered better and more directly by an agent that tries.
+
+**The findings outlive the code.** Measured on krapow against ranking overlap with a plain
+`wc -l` sort — the yardstick `sanity-scan` prints, where the offline proxy scores 9/15:
 
 | variant | hot lines | vs `wc -l` | verdict |
 |---|---|---|---|
@@ -58,20 +59,18 @@ scores 9/15:
 | + weight by the model's confidence | 64% | — | ranking unchanged |
 | + imports and siblings in the prompt | 64% | — | a test function still at 86° |
 | the model's entropy alone | 20% | — | graded well, ranked the wrong functions |
-| **forced decoding** | **32%** | **6/15** | **finds what size alone does not** |
+| **forced decoding** | **32%** | **6/15** | **found what size alone does not** |
 
-They shared a cause: comparing a *generated* body to the real one has a noise floor above
-the signal, because a model never reproduces real code token for token whether or not the
-code was predictable.
+The four failures shared a cause: comparing a *generated* body to the real one has a noise
+floor above the signal, because a model never reproduces real code token for token whether
+or not the code was predictable. **Do not rebuild that.** Two corroborating signs for
+forced decoding, beyond the overlap number: the cobra command definitions that sat at
+96-98° in every earlier attempt dropped off the ranking entirely, and heat decoupled from
+length — a 24-line function at 93° outranked a 107-line one at 50°.
 
-Two corroborating signs, beyond the overlap number: the cobra command definitions that
-sat at 96-98° in every earlier attempt drop off the ranking entirely, and heat decouples
-from length — a 24-line function at 93° outranks a 107-line one at 50°.
-
-**The cost is real.** Forced decoding is one decode step per token of every body scored,
-so it is far slower than the proxy and slower than generating a fixed 192 tokens. The
-`min_lines` floor is the dial, and everything under it stays uncoloured rather than
-borrowing a proxy score.
+Its cost was one decode step per token of every body scored, which is why `min_lines`
+survives on the trait and why the persistent score cache exists. Nothing writes that cache
+today.
 
 ## Temperature, and why the map drains
 
@@ -138,7 +137,7 @@ confident-looking half-verdict.
 scan.rs       walk (ignore crate → .gitignore for free), group files by directory
 parse.rs      tree-sitter → functions with signatures and doc comments
 heuristic.rs  the offline proxy + the measured doc-coverage term
-surprise.rs   the model-backed scorer, when one is available
+surprise.rs   the SurpriseModel trait and the offline proxy behind it
 churn.rs      git history → the stability axis
 model.rs      the tree, LOC-weighted aggregation, temperature, quadrants
 ```

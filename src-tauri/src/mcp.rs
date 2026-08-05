@@ -1,10 +1,19 @@
 //! `sanity mcp` — the stdio MCP server, hosted by the app binary itself.
 //!
-//! It was a Node script (mcp/sanity.mjs) during development, which is fine from a repo
-//! checkout and useless once the app is installed: there is no `mcp/` directory next to
-//! a .app bundle, so any "connect" button would write a path that does not exist. Tally
-//! solved this by making the binary its own MCP server, and the same reasoning applies —
-//! the command an agent launches has to be something that is definitely there.
+//! **The only one.** It was a Node script (`mcp/sanity.mjs`) during development, which is
+//! fine from a repo checkout and useless once the app is installed: there is no `mcp/`
+//! directory next to a .app bundle, so any "connect" button would write a path that does
+//! not exist. So the binary became its own MCP server — the command an agent launches has
+//! to be something that is definitely there — and for a while both existed.
+//!
+//! That was the mistake, and it cost a real measurement. Two copies of one tool contract
+//! drift, and the schema here gained `predicted`, `documented` and `derivable` while the
+//! Node copy did not. `.mcp.json` pointed at the Node copy, so every reading taken in this
+//! repo silently dropped all three — including `derivable`, the whole defence against
+//! generated documentation counting as documentation. The protocol asked for them, the
+//! store accepted them, and the contract in between threw them away.
+//!
+//! One server. If a second ever seems necessary, the schema has to come from one place.
 //!
 //! It forwards to the loopback API the running app serves, so the window the human is
 //! looking at is what answers. Launching this without the app running is an error the
@@ -12,9 +21,21 @@
 
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
+use std::time::{Duration, Instant};
 
 /// Resolve the running app's port from the file it publishes, rather than assuming one.
-/// A stale file from a crashed app fails the liveness check.
+///
+/// Re-read on every attempt, never cached: the app claims a **new port** each time it
+/// starts, so a URL from thirty seconds ago points at nobody after a restart. That is the
+/// common case during development, and caching would turn a two-second gap into a dead
+/// server for the life of this process.
+///
+/// The doc here used to claim "a stale file from a crashed app fails the liveness check".
+/// There was no liveness check — the pid is published and was never read. What actually
+/// happens is that a stale file resolves to a plausible URL and the connection is refused,
+/// which the retry window below then absorbs or reports. That is a fine mechanism; it just
+/// was not the one described, and a comment describing a guard that does not exist is
+/// worse than no comment.
 fn base_url() -> Option<String> {
     if let Ok(url) = std::env::var("SANITY_BACKEND") {
         return Some(url);
@@ -26,25 +47,70 @@ fn base_url() -> Option<String> {
     Some(format!("http://127.0.0.1:{port}"))
 }
 
+/// How long to keep trying before giving up on a call.
+///
+/// The app is rebuilt and relaunched constantly during development, and each restart is a
+/// gap of a second or two on a fresh port. Telling the agent to retry — which the error
+/// text now does — is not enough on its own: three separate readers responded to that gap
+/// by inventing a prerequisite, running the tools as shell commands, and reading
+/// `.sanity/` to compensate. Absorbing the gap here means they never see it.
+const RETRY_FOR: Duration = Duration::from_secs(12);
+const RETRY_EVERY: Duration = Duration::from_millis(400);
+
+/// Run `attempt` until it succeeds or the window closes, resolving the endpoint afresh
+/// each time.
+///
+/// Only connection-level failures retry. An HTTP response that parsed is an answer, even
+/// an unwelcome one, and repeating a call the server already handled would double-report
+/// a reading.
+fn with_retry<T>(mut attempt: impl FnMut(&str) -> Result<T, RetryableError>) -> Result<T, String> {
+    let deadline = Instant::now() + RETRY_FOR;
+    loop {
+        // A missing endpoint file is not an error here: during a restart that is exactly
+        // what the window looks like for a moment, so it is worth waiting through rather
+        // than reporting — the app has not "not started", it is starting.
+        if let Some(base) = base_url() {
+            match attempt(&base) {
+                Ok(v) => return Ok(v),
+                Err(RetryableError::Fatal(e)) => return Err(e),
+                Err(RetryableError::Transient) => {}
+            }
+        }
+        if Instant::now() >= deadline {
+            return Err(if crate::agentapi::endpoint_file().is_some_and(|p| p.exists()) {
+                UNREACHABLE.to_string()
+            } else {
+                NOT_RUNNING.to_string()
+            });
+        }
+        std::thread::sleep(RETRY_EVERY);
+    }
+}
+
+enum RetryableError {
+    /// The app was not reachable. Worth another attempt on a freshly-resolved port.
+    Transient,
+    /// The app answered and something else went wrong. Retrying cannot help.
+    Fatal(String),
+}
+
 fn get(path: &str) -> Result<Value, String> {
-    let base = base_url().ok_or(NOT_RUNNING)?;
-    reqwest::blocking::get(format!("{base}{path}"))
-        // Reached the point of having an endpoint and failed to connect: the app was
-        // there and went away, which is the restart case, not the never-started one.
-        .map_err(|_| UNREACHABLE.to_string())?
-        .json()
-        .map_err(|e| e.to_string())
+    with_retry(|base| {
+        let r = reqwest::blocking::get(format!("{base}{path}"))
+            .map_err(|_| RetryableError::Transient)?;
+        r.json().map_err(|e| RetryableError::Fatal(e.to_string()))
+    })
 }
 
 fn post(path: &str, body: Value) -> Result<Value, String> {
-    let base = base_url().ok_or(NOT_RUNNING)?;
-    reqwest::blocking::Client::new()
-        .post(format!("{base}{path}"))
-        .json(&body)
-        .send()
-        .map_err(|_| UNREACHABLE.to_string())?
-        .json()
-        .map_err(|e| e.to_string())
+    with_retry(|base| {
+        let r = reqwest::blocking::Client::new()
+            .post(format!("{base}{path}"))
+            .json(&body)
+            .send()
+            .map_err(|_| RetryableError::Transient)?;
+        r.json().map_err(|e| RetryableError::Fatal(e.to_string()))
+    })
 }
 
 /// Two errors, because they call for opposite responses and one message cannot mean both.
@@ -121,7 +187,7 @@ fn tools() -> Value {
                     "model": { "type": "string", "description": "Which model you are, name and version, e.g. claude-haiku-4.5. Every reading is attributed, because a grade from a small fast model and one from a large one are not the same evidence. Say what you are; omit it rather than guess." },
                     "cold": { "type": "boolean", "description": "True if you had NOT read this file before predicting. Answer honestly — a warm reading is worth less and Sanity shows it differently rather than discarding it." }
                 },
-                "required": ["id", "expected", "found", "predicted", "documented", "derivable", "cold"]
+                "required": ["id", "expected", "found", "predicted", "documented", "derivable", "cold", "model"]
             }
         }
     ])
