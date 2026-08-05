@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { isAnalyzed, type Node } from '../lib/api'
 import { colorFor, type ColorMode } from '../lib/colorMode'
-import { arcPath, labelArc, layout, sliceFunctions, stackFunctions, type Wedge } from '../lib/sunburst'
+import { arcPath, labelArc, layout, stackFunctions, type Wedge } from '../lib/sunburst'
 
 /** Rings drawn at once. Deeper than this and the outer annuli are hairlines; the
  *  answer is to drill in, which is what clicking a directory does. */
@@ -163,24 +163,14 @@ export function Sunburst({
    *  that no longer existed. The drilled view came up blank. A root file becomes a
    *  full-circle wedge of its own; `arcPath` already special-cases the 2π span, because
    *  a full ring drawn as one arc has coincident endpoints and renders nothing. */
-  const fileWedges = useMemo<Wedge[]>(
-    () =>
-      root.kind === 'file'
-        ? [{ node: root, depth: 1, a0: 0, a1: Math.PI * 2, index: 0 }]
-        : wedges.filter((w) => w.node.kind === 'file'),
-    [root, wedges],
-  )
-  const rootIsFile = root.kind === 'file'
-  const emptyFile = rootIsFile && !root.children.some((c) => c.kind === 'func')
-
-  /** A drilled-into file's functions, as angular slices of the whole ring.
+  /** Files in the current view, whose functions stack inside their band.
    *
-   *  This view used to reuse the overview's radial stack, which meant drilling into a
-   *  150-function file produced 150 grooves of 0.4px — the same unreadable band, just
-   *  bigger. Angle is the budget that scales; see `sliceFunctions`. */
-  const fileSlices = useMemo<Wedge[]>(
-    () => (rootIsFile ? sliceFunctions(root.children, -Math.PI / 2, (3 * Math.PI) / 2) : []),
-    [rootIsFile, root],
+   *  A file is never the ROOT here any more — `FileStack` owns that, because a file is a
+   *  sequence and this is a geometry for sets. The special case that made a root file a
+   *  full-circle wedge is gone with it. */
+  const fileWedges = useMemo<Wedge[]>(
+    () => wedges.filter((w) => w.node.kind === 'file'),
+    [wedges],
   )
 
   /** Drill direction, for the transition. Compared during render rather than in an
@@ -397,41 +387,7 @@ export function Sunburst({
         {/* Functions, stacked radially INSIDE their file's wedge — see `stackFunctions`.
             Containment is structural here rather than implied, which is what a separate
             outer ring could never give. */}
-        {/* A drilled-into file gets its functions as one angular ring instead. Same
-            wedges, same gestures — only the axis they are subdivided along changes, and
-            it changes because a band cannot grow and a circle can. */}
-        {rootIsFile &&
-          fileSlices.map((w) => {
-            const c = colorFor(w.node, mode, ranks)
-            const isSel = selected?.id === w.node.id
-            const isHover = hover?.node.id === w.node.id
-            const d = arcPath(w.a0, w.a1, R_INNER + RING_GAP * 2, R_OUTER)
-            if (isSel || isHover) highlight = { d, width: isSel ? 1.6 : 1.2 }
-            return (
-              <path
-                key={w.node.id}
-                className="wedge"
-                d={d}
-                fill={c ? c.fill : 'var(--unanalyzed)'}
-                fillOpacity={isSel || isHover ? 1 : c ? 0.92 : 0.4}
-                stroke="var(--background)"
-                strokeWidth={CUT.file}
-                onMouseEnter={() => setHoverNode(w.node)}
-                onMouseLeave={() => setHoverNode((n) => (n?.id === w.node.id ? null : n))}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onSelect(w.node)
-                }}
-                onDoubleClick={(e) => {
-                  e.stopPropagation()
-                  onDrill(w.node)
-                }}
-              />
-            )
-          })}
-
-        {!rootIsFile &&
-          fileWedges
+        {fileWedges
           .map((w) => {
             // Inside the file's OWN band — (depth - 1) — not the one beyond it. Inset
             // on both radii so the file's fill reads as a rim on the inside and outside
@@ -445,9 +401,7 @@ export function Sunburst({
             // Same rim as the arc edges, expressed as the angle that subtends it at
             // the band's mid-radius — so the frame is the same width all the way round.
             const rMid = bandStart + band / 2
-            const pad = rootIsFile
-              ? 0
-              : Math.min(FUNC_RIM / rMid, (w.a1 - w.a0) * FUNC_RIM_MAX_SHARE)
+            const pad = Math.min(FUNC_RIM / rMid, (w.a1 - w.a0) * FUNC_RIM_MAX_SHARE)
             const fa0 = w.a0 + pad
             const fa1 = w.a1 - pad
             const r1 = bandStart + band - RING_GAP * 0.4 - FUNC_RIM
@@ -510,13 +464,9 @@ export function Sunburst({
             their layout angle puts the name nowhere near the band it names. It never
             showed before because functions sit below the depth cut in a normal tree; a
             file opened as the root puts them at depth 1, right inside it. */}
-        {(rootIsFile ? fileSlices : wedges)
+        {wedges
           .filter(
             (w) =>
-              // A drilled file's ring is all functions, and labelling them is the whole
-              // point of giving them room — the arc-length test below still decides which
-              // ones actually fit.
-              (rootIsFile && w.node.kind === 'func') ||
               // Directories label at ANY depth that has room. The old rule was a depth
               // cut standing in for "will this fit", which the arc-length test below now
               // answers directly — `src-tauri/src/bin` sat unlabelled in a wedge with
@@ -529,14 +479,10 @@ export function Sunburst({
           )
           .map((w) => {
             const isDir = w.node.kind === 'dir'
-            // The drilled file's ring is one band from the hub to the rim, so its labels
-            // sit at its own mid-radius rather than at a depth the ring does not have.
-            const r = rootIsFile
-              ? (R_INNER + RING_GAP * 2 + R_OUTER) / 2
-              : R_INNER + (w.depth - 1) * band + band / 2
+            const r = R_INNER + (w.depth - 1) * band + band / 2
             // Bound to the arc, so the type can be sized against the BAND rather than
             // against the chord a straight label would have to fit inside.
-            const want = isDir ? Math.max(10, Math.min(15, band * 0.3)) : rootIsFile ? 11 : 9
+            const want = isDir ? Math.max(10, Math.min(15, band * 0.3)) : 9
             // Fit by SHRINKING first and truncating only as a last resort. A name that
             // overruns its wedge is worse than a slightly smaller one, and clipping
             // "components" to "componen…" loses the word for the sake of one type size.
@@ -767,14 +713,6 @@ export function Sunburst({
         )
       })()}
 
-      {emptyFile && (
-        /* A file we parsed no functions out of draws an empty ring, which looks exactly
-           like a bug. Say which it is: unsupported language, or genuinely nothing to
-           find. */
-        <p className="absolute bottom-1 left-2 text-[11px] text-[var(--muted-foreground)]">
-          no functions parsed here — the language may not have a grammar yet
-        </p>
-      )}
 
       {hidden.files + hidden.dirs > 0 && (
         /* Never let the picture imply it showed everything. This only counts whole

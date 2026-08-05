@@ -17,6 +17,7 @@
 
 pub mod agentapi;
 pub mod assessment;
+pub mod blame;
 pub mod cache;
 pub mod churn;
 pub mod commands;

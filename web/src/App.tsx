@@ -22,6 +22,7 @@ import {
   type Upgrade,
 } from './lib/api'
 import { Sunburst } from './components/Sunburst'
+import { FileStack } from './components/FileStack'
 import { TopRow } from './components/shell/TopRow'
 import {
   legendFor,
@@ -389,6 +390,19 @@ export default function App() {
                 </p>
               </div>
             ) : focus ? (
+              // A file is a sequence, not a set — see `FileStack`. It is the one level
+              // where the shared geometry is the wrong shape for the data, so it gets
+              // its own view rather than a mode of the rings.
+              focus.kind === 'file' ? (
+                <FileStack
+                  root={focus}
+                  selected={selected}
+                  mode={mode}
+                  ranks={scan ? rankCategories(scan.root, mode) : undefined}
+                  onSelect={setPicked}
+                  onDrill={drill}
+                />
+              ) : (
               <Sunburst
                 root={focus}
                 selected={selected}
@@ -399,6 +413,7 @@ export default function App() {
                 onDrill={drill}
                 onUp={goUp}
               />
+              )
             ) : (
               <Empty onPick={pick} />
             )}

@@ -1,6 +1,7 @@
 //! Walk a repo, parse it, score it, and hand back the tree the sunburst renders.
 
 use crate::cache::{self, Cache};
+use crate::blame::Blame;
 use crate::churn::{self, History};
 use crate::heuristic::{self, Fingerprint};
 use crate::model::{Lang, Node, NodeKind, Provenance, Score, Source};
@@ -229,7 +230,7 @@ fn apply_dir_history(node: &mut Node, history: &History) {
     }
 }
 
-fn score_dir(files: &[ParsedFile], history: &History) -> Vec<(String, Node)> {
+fn score_dir(files: &[ParsedFile], history: &History, blame: &Blame) -> Vec<(String, Node)> {
     let dir_prints: Vec<&Fingerprint> = files.iter().flat_map(|f| f.prints.iter()).collect();
 
     files
@@ -241,11 +242,34 @@ fn score_dir(files: &[ParsedFile], history: &History) -> Vec<(String, Node)> {
             let last_touched_days = history.last_touched_of(&file.rel_path);
             let last_author = history.last_author_of(&file.rel_path);
 
+            let file_blame = blame.get(&file.rel_path);
+
             let children: Vec<Node> = file
                 .funcs
                 .iter()
                 .enumerate()
                 .map(|(i, func)| {
+                    // This function's own history where blame could read it, the file's
+                    // otherwise — an untracked file, a repo without git, or a range the
+                    // blame no longer covers should cost resolution, not the axis.
+                    let own = file_blame
+                        .and_then(|b| b.range(func.start_line, func.end_line, blame.now));
+                    let (churn, age_days, commits, last_touched_days, last_author) = match &own {
+                        Some(h) => (
+                            (h.commits as f32 / crate::churn::CHURN_SATURATION).clamp(0.0, 1.0),
+                            Some(h.age_days),
+                            h.commits,
+                            Some(h.last_touched_days),
+                            Some(h.last_author.clone()).filter(|a| !a.is_empty()),
+                        ),
+                        None => (
+                            churn,
+                            age_days,
+                            commits,
+                            last_touched_days,
+                            last_author.clone(),
+                        ),
+                    };
                     // Same-file peers when there are any; otherwise the directory's.
                     let peers: Vec<&Fingerprint> = if file.prints.len() > 1 {
                         file.prints
@@ -293,7 +317,7 @@ fn score_dir(files: &[ParsedFile], history: &History) -> Vec<(String, Node)> {
                         loc: func.loc(),
                         line: Some(func.start_line),
                         lang: Some(file.lang),
-                        last_author: last_author.clone(),
+                        last_author,
                         score: Some(Score {
                             surprise,
                             documented: measured * provenance.weight(),
@@ -446,6 +470,14 @@ pub fn scan(
     let files = collect_files(root);
     let total_found = files.len();
     let history = churn::read(root);
+    // Per-line provenance, so churn, age and blame resolve to the FUNCTION rather than
+    // to its file. One `git blame` per file, in parallel — 22ms each, measured, which is
+    // a rounding error against the scan and buys three of the five lenses their outer
+    // ring back. See `blame.rs` for what it can and cannot see.
+    let blame = Blame::read(
+        root,
+        &files.iter().map(|(p, _)| rel(root, p)).collect::<Vec<_>>(),
+    );
 
     // Group by parent directory so `score_dir` has peers to compare against. BTreeMap
     // rather than HashMap: iteration order decides sibling order in the sunburst, and a
@@ -479,7 +511,7 @@ pub fn scan(
     // screen in about a second instead of after the model finishes.
     let per_dir: Vec<Vec<(String, Node)>> = parsed_dirs
         .par_iter()
-        .map(|parsed| score_dir(parsed, &history))
+        .map(|parsed| score_dir(parsed, &history, &blame))
         .collect();
 
     let root_name = root

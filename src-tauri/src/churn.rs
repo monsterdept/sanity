@@ -32,7 +32,7 @@ const MAX_COMMITS: usize = 5000;
 /// precisely backwards. With a fixed anchor the pathological file simply saturates at
 /// 1.0, which is both true and harmless to everything else. Roughly a commit a week over
 /// the quarter, which is a file someone is actively working on.
-const CHURN_SATURATION: f32 = 8.0;
+pub const CHURN_SATURATION: f32 = 8.0;
 
 #[derive(Debug, Clone, Default)]
 pub struct FileHistory {
@@ -42,8 +42,13 @@ pub struct FileHistory {
     pub age_days: f32,
     /// Days since the newest.
     pub last_touched_days: f32,
-    /// Who made that newest commit. Blame would be more accurate per line, but it costs
-    /// a process per file; the last committer is a decent proxy for "who to ask".
+    /// Who made that newest commit.
+    ///
+    /// This used to say blame would be more accurate but "costs a process per file". It
+    /// does cost one, and that turned out to be 22ms — so `blame.rs` now reads per-line
+    /// provenance for every file in parallel and functions carry their own author, age
+    /// and churn. What is left here is the FILE-level answer, still used for files and
+    /// directories and as the fallback wherever blame could not read a range.
     pub last_author: String,
 }
 
