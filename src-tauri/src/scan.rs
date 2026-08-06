@@ -171,7 +171,7 @@ fn context_for(file: &ParsedFile, skip: usize) -> String {
     out
 }
 
-fn parse_file(root: &Path, path: &Path, lang: Lang) -> Option<ParsedFile> {
+fn parse_file(root: &Path, path: &Path, lang: Lang, fidelity: Fidelity) -> Option<ParsedFile> {
     let src = std::fs::read_to_string(path).ok()?;
     if src.lines().any(|l| l.len() > MINIFIED_LINE_BYTES) {
         return None;
@@ -180,7 +180,12 @@ fn parse_file(root: &Path, path: &Path, lang: Lang) -> Option<ParsedFile> {
     if funcs.is_empty() {
         return None;
     }
-    let prints = funcs.iter().map(|f| heuristic::fingerprint(&f.body)).collect();
+    // Shingling every body is half the cost of the term it feeds, so at ordering fidelity
+    // it is skipped outright rather than computed and ignored.
+    let prints = match fidelity {
+        Fidelity::Full => funcs.iter().map(|f| heuristic::fingerprint(&f.body)).collect(),
+        Fidelity::Ordering => Vec::new(),
+    };
     let head = src
         .lines()
         .take(CONTEXT_HEAD_LINES)
@@ -230,7 +235,40 @@ fn apply_dir_history(node: &mut Node, history: &History) {
     }
 }
 
-fn score_dir(files: &[ParsedFile], history: &History, blame: &Blame) -> Vec<(String, Node)> {
+/// How much of the proxy to actually compute.
+///
+/// The proxy has two jobs and they need different things. As **the metric** it is the
+/// number the histogram and the rankings are read off, and every term has to be there.
+/// Inside the app it is only ever **a reading order**: `collect_tasks` sorts the queue by
+/// it, and nothing else consumes it — a proxy-scored function is `Source::Proxy`, which
+/// `isAnalyzed` rejects, so its wedge is painted structural neutral and its number never
+/// reaches the screen. Nothing claims to have been understood until an agent reads it.
+///
+/// That asymmetry is worth a mode because one term is not like the others.
+/// `distinctiveness` is all-pairs — every function Jaccard'd against every peer in its
+/// file — and on a repo with 16,814 functions across 102 files it is ~2.8M set
+/// intersections: 27.7s of a 34s scan, measured, for 0.35 of the mix. The other three
+/// terms are O(body) and effectively free.
+///
+/// So the app pays for the cheap three and takes `UNDECIDED` for the fourth — the same
+/// answer that term already gives whenever it runs out of evidence, which keeps it honest
+/// rather than inventing a substitute. It shifts every score by one constant, so within
+/// the app it changes only the tie-break order of a queue that reads the whole repo
+/// anyway. Full fidelity stays the default everywhere the number is the point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fidelity {
+    /// All four terms. What the metric is.
+    Full,
+    /// Skip the all-pairs term. Enough to rank a work queue, and 30 seconds cheaper.
+    Ordering,
+}
+
+fn score_dir(
+    files: &[ParsedFile],
+    history: &History,
+    blame: &Blame,
+    fidelity: Fidelity,
+) -> Vec<(String, Node)> {
     let dir_prints: Vec<&Fingerprint> = files.iter().flat_map(|f| f.prints.iter()).collect();
 
     files
@@ -271,7 +309,9 @@ fn score_dir(files: &[ParsedFile], history: &History, blame: &Blame) -> Vec<(Str
                         ),
                     };
                     // Same-file peers when there are any; otherwise the directory's.
-                    let peers: Vec<&Fingerprint> = if file.prints.len() > 1 {
+                    let peers: Vec<&Fingerprint> = if fidelity == Fidelity::Ordering {
+                        Vec::new()
+                    } else if file.prints.len() > 1 {
                         file.prints
                             .iter()
                             .enumerate()
@@ -286,7 +326,13 @@ fn score_dir(files: &[ParsedFile], history: &History, blame: &Blame) -> Vec<(Str
                             .collect()
                     };
 
-                    let distinct = heuristic::distinctiveness(&file.prints[i], &peers);
+                    // No fingerprints exist at ordering fidelity, so there is nothing to
+                    // index — and `UNDECIDED` is what the term itself returns with no
+                    // peers to compare against, which is the same statement: no evidence.
+                    let distinct = match fidelity {
+                        Fidelity::Full => heuristic::distinctiveness(&file.prints[i], &peers),
+                        Fidelity::Ordering => heuristic::UNDECIDED,
+                    };
                     let proxy = heuristic::surprise(&func.signature, &func.body, distinct);
                     let surprise = proxy;
 
@@ -466,6 +512,7 @@ pub fn scan(
     // rather than a convenience.
     cancel: &AtomicBool,
     cache: &Cache,
+    fidelity: Fidelity,
 ) -> anyhow::Result<Scan> {
     let files = collect_files(root);
     let total_found = files.len();
@@ -498,7 +545,7 @@ pub fn scan(
         .map(|(_dir, entries)| {
             entries
                 .iter()
-                .filter_map(|(p, lang)| parse_file(root, p, *lang))
+                .filter_map(|(p, lang)| parse_file(root, p, *lang, fidelity))
                 .collect()
         })
         .collect();
@@ -511,7 +558,7 @@ pub fn scan(
     // screen in about a second instead of after the model finishes.
     let per_dir: Vec<Vec<(String, Node)>> = parsed_dirs
         .par_iter()
-        .map(|parsed| score_dir(parsed, &history, &blame))
+        .map(|parsed| score_dir(parsed, &history, &blame, fidelity))
         .collect();
 
     let root_name = root
@@ -684,6 +731,48 @@ mod tests {
         dir
     }
 
+    /// Ordering fidelity may drop the all-pairs term. It may not drop the tree.
+    ///
+    /// The app scans at `Ordering` and the whole UI is built on what comes back, so the
+    /// shape — files, functions, lines, ids — has to be identical to what `Full` produces.
+    /// Only the surprise number is allowed to differ, and only because at `Ordering` the
+    /// distinctiveness term reports `UNDECIDED` instead of measuring.
+    #[test]
+    fn ordering_fidelity_changes_the_score_and_nothing_else() {
+        let dir = fixture();
+        let full = run(dir.path());
+        let fast = scan(
+            dir.path(),
+            &HeuristicModel,
+            &|_| {},
+            &|_, _: &Reading| {},
+            &AtomicBool::new(false),
+            &Cache::ephemeral(),
+            Fidelity::Ordering,
+        )
+        .unwrap();
+
+        assert_eq!(full.stats.functions, fast.stats.functions);
+        assert_eq!(full.stats.files_scanned, fast.stats.files_scanned);
+        assert_eq!(full.root.loc, fast.root.loc);
+
+        let ids = |s: &Scan| {
+            let mut v = Vec::new();
+            s.root.visit(&mut |n| {
+                if n.kind == NodeKind::Func {
+                    v.push(n.id.clone());
+                }
+            });
+            v.sort();
+            v
+        };
+        assert_eq!(ids(&full), ids(&fast), "the tree must not depend on fidelity");
+        assert!(
+            !ids(&fast).is_empty(),
+            "fixture should parse some functions, or this proves nothing"
+        );
+    }
+
     fn run(dir: &Path) -> Scan {
         scan(
             dir,
@@ -692,6 +781,7 @@ mod tests {
             &|_, _: &Reading| {},
             &AtomicBool::new(false),
             &Cache::ephemeral(),
+            Fidelity::Full,
         )
         .unwrap()
     }

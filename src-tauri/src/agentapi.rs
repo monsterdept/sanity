@@ -82,6 +82,21 @@ pub struct AppState {
     pub last_tool: String,
     /// Ticks per agent call, so the UI can animate on repeats of the same tool.
     pub pings: u64,
+    /// Projects the startup restore has read from the index but not yet rescanned.
+    ///
+    /// Held apart from `projects` on purpose. A placeholder in the map would be a project
+    /// with an empty scan, and everything that reads the map would believe it: `sanity_open`
+    /// would answer `reopened: true` with zero functions, and the queue would report a repo
+    /// as fully assessed because it has no functions to assess. This list is display-only,
+    /// and drains as each real scan lands.
+    pub restoring: Vec<crate::reports::KnownProject>,
+    /// How far each pending rescan has got, keyed the same way.
+    ///
+    /// Measured, not estimated. The scan already reports `done`/`total` and the restore was
+    /// throwing it away, so the honest fraction was there for free — and a fraction the
+    /// scorer actually counted beats any guess from repo size, which is what "how long will
+    /// this take" would otherwise have to be built on.
+    pub restoring_progress: HashMap<String, (usize, usize)>,
     /// The last few calls, newest last, each with the tick it happened on.
     ///
     /// A single `last_tool` is what the window polls, and the window polls every two
@@ -103,20 +118,44 @@ impl AppState {
     /// Called on every change rather than at exit: the app restarts on every code change
     /// during development and gets killed rather than quit in normal use, so "save on
     /// close" means "usually do not save".
+    ///
+    /// **Merged with what is already on disk, never a straight overwrite.** The live map
+    /// is authoritative for the projects this session has loaded and says nothing about
+    /// the rest — and at startup "the rest" is most of them, because `restore` rescans
+    /// each repo on a background thread and a large one takes seconds. Overwriting meant
+    /// the first `touch` in that window published a half-restored map as the whole truth:
+    /// open the app with a Claude session attached, `sanity_open` lands before the
+    /// restore finishes, and every other project is erased from the index. Not dropped
+    /// for the session — erased, because the index is the only record they existed.
+    ///
+    /// The same merge covers the quieter version: a repo on a disconnected volume fails
+    /// its rescan and is skipped, and without this the next touch would forget it rather
+    /// than leave it to come back when the volume does. Forgetting a project must take
+    /// something more deliberate than being briefly unreadable.
     pub fn persist(&self) {
-        let mut index = crate::reports::KnownProjects {
-            active: self.active.clone(),
-            projects: self
-                .projects
-                .iter()
-                .map(|(key, p)| crate::reports::KnownProject {
-                    key: key.clone(),
-                    repo: p.repo.to_string_lossy().to_string(),
-                    name: p.name.clone(),
-                    touched: p.touched,
-                })
-                .collect(),
-        };
+        let live: Vec<crate::reports::KnownProject> = self
+            .projects
+            .iter()
+            .map(|(key, p)| crate::reports::KnownProject {
+                key: key.clone(),
+                repo: p.repo.to_string_lossy().to_string(),
+                name: p.name.clone(),
+                touched: p.touched,
+            })
+            .collect();
+        // Anything on disk this session has not loaded is carried through untouched. Live
+        // entries win on key, so a project that IS loaded is updated rather than doubled.
+        let mut index = crate::reports::load_index();
+        index
+            .projects
+            .retain(|known| !self.projects.contains_key(&known.key));
+        index.projects.extend(live);
+        // `active` is this session's, and only when it has one: a restore that has not yet
+        // reached the project the last session was looking at must not blank the record of
+        // which one that was.
+        if self.active.is_some() {
+            index.active = self.active.clone();
+        }
         index.projects.sort_by_key(|p| std::cmp::Reverse(p.touched));
         crate::reports::save_index(&index);
     }
@@ -170,6 +209,10 @@ impl AppState {
 /// raced; short enough that a subagent which dies mid-batch returns its work rather than
 /// stranding it. Nothing is lost either way — an expired lease just re-queues.
 const LEASE: Duration = Duration::from_secs(600);
+
+/// How many outstanding leases `sanity_status` itemises. A diagnostic, not an inventory:
+/// the oldest few answer "is a wave stuck", and the rest are the same answer again.
+const OUTSTANDING_SHOWN: usize = 10;
 
 /// Load a project's readings. `.sanity` in the repo is the only source, full stop.
 ///
@@ -230,6 +273,11 @@ pub struct Task {
     /// Repo-relative, which is what reads well in a report.
     pub path: String,
     pub line: u32,
+    /// The last line of the body. Handed over so the reader opens the function and only
+    /// the function: these files run to thousands of lines, and an unbounded read both
+    /// costs a fortune and shows the reader the bodies of functions it is about to be
+    /// asked to predict — the read-ahead the ordering exists to prevent.
+    pub end_line: u32,
     pub name: String,
     /// The declaration line. Without it an overloaded name is unresolvable — the reader
     /// sees the same name twice in `peers` and has to guess which one it was handed.
@@ -445,6 +493,9 @@ fn collect_tasks(
                     .unwrap_or_else(|| node.path.clone()),
                 path: node.path.clone(),
                 line: node.line.unwrap_or(0),
+                end_line: node
+                    .end_line
+                    .unwrap_or_else(|| node.line.unwrap_or(0) + node.loc),
                 name: node.name.clone(),
                 signature: node.signature.clone().unwrap_or_default(),
                 peers: Vec::new(),
@@ -547,6 +598,14 @@ SUBAGENT PROMPT:\n\n\
   NOT bodies. For each one, first write what you expect the body to do from that alone — \
   the docs are part of what you are given, because a reader has them too. Only then open \
   abs_path and read it.\n\n\
+  Read ONLY the function you were handed. Every task gives you its exact extent as `line` \
+  and `end_line`, so open abs_path bounded to that range and nothing more. This is not \
+  thrift: these files run to thousands of lines, and an unbounded read hands you the \
+  bodies of functions you are about to be asked to predict — the read-ahead the ordering \
+  exists to prevent.\n\n\
+  Keep predictions SHORT — two or three sentences. A reader who writes an essay per \
+  function runs out of context before the list does, and an unfinished list is worth less \
+  than a terse complete one. Do not spawn subagents of your own; you are the cold reader.\n\n\
   Work through them IN THE ORDER GIVEN and do not skim ahead. Successive functions come \
   from different files on purpose, so that each prediction is made before you have opened \
   that file. Reading ahead is what turns a prediction into a recollection.\n\n\
@@ -601,18 +660,22 @@ async fn open_project(
         s.ping("sanity_open");
     }
 
-    // Already held: just bring it forward, keeping whatever has been reported about it.
-    if let Ok(mut s) = state.lock() {
-        if s.projects.contains_key(&key) {
-            s.touch(&key);
-            let p = s.projects.get(&key).unwrap();
-            return Json(serde_json::json!({
-                "ok": true, "reopened": true, "project": key, "name": p.name,
-                "functions": count_funcs(&p.scan), "assessed": p.reports.len(),
-                "stale": count_stale(&p.scan, &p.reports), "protocol": PROTOCOL,
-            }));
-        }
-    }
+    // Already held is not a reason to skip the scan.
+    //
+    // It used to be: a held project was brought forward and returned as-is. But staleness
+    // is decided by comparing each reading's `body_hash` against the body in the CURRENT
+    // scan, so a scan taken before the code changed cannot see that it changed — and
+    // "study this project in sanity again" after a merge is exactly the case. Close and
+    // reopen the app and it worked, because `restore` rescans; leave the window open and
+    // the same request silently found nothing stale. An instrument whose answer depends on
+    // whether you restarted it is not measuring the repo.
+    //
+    // Affordable now: the app scans at `Fidelity::Ordering`, which took tonepoet from 34.8s
+    // to 8.6s. It was not affordable before, which is most of why it worked this way.
+    let reopened = state
+        .lock()
+        .map(|s| s.projects.contains_key(&key))
+        .unwrap_or(false);
 
     let scan_path = path.clone();
     let scanned = tokio::task::spawn_blocking(move || {
@@ -623,6 +686,7 @@ async fn open_project(
             &|_, _: &crate::surprise::Reading| {},
             &std::sync::atomic::AtomicBool::new(false),
             &crate::cache::Cache::ephemeral(),
+            crate::scan::Fidelity::Ordering,
         )
     })
     .await;
@@ -642,9 +706,16 @@ async fn open_project(
     let Ok(mut s) = state.lock() else {
         return Json(serde_json::json!({ "ok": false, "error": "state poisoned" }));
     };
+    // Reloaded from `.sanity/` against the fresh tree rather than carried over from the
+    // old Project. In-memory reports are keyed by node id, and node ids embed `@line` —
+    // carrying them across a rescan would orphan every reading in a file where anything
+    // moved. `load_reports` resolves the durable `key_of` entries onto the new ids, which
+    // is the same thing `restore` does and the only correct way to cross a rescan.
     let reports = load_reports(&path, &scan);
     let assessed = reports.len();
     let stale = count_stale(&scan, &reports);
+    // Keep its place in the history; the reopen is not a new project.
+    let touched = s.projects.get(&key).map(|p| p.touched).unwrap_or(0);
     s.projects.insert(
         key.clone(),
         Project {
@@ -652,14 +723,20 @@ async fn open_project(
             name: name.clone(),
             scan,
             reports,
+            // Dropped, not carried. A lease is a claim on a node id, and the ids just
+            // moved — a lease that survives a rescan reserves whatever now sits at that
+            // line. They expire in ten minutes regardless, and a reader whose function is
+            // released twice costs one duplicate reading; a reader silently blocked from
+            // work that was never really held costs coverage.
             leased: HashMap::new(),
-            touched: 0,
+            touched,
             last_agent: Some(Instant::now()),
         },
     );
     s.touch(&key);
     Json(serde_json::json!({
-        "ok": true, "project": key, "name": name, "functions": functions, "assessed": assessed,
+        "ok": true, "reopened": reopened, "project": key, "name": name,
+        "functions": functions, "assessed": assessed,
         "stale": stale, "protocol": PROTOCOL,
     }))
 }
@@ -676,20 +753,46 @@ async fn open_project(
 /// So `remaining` ignores leases entirely: it is unread-or-stale, full stop, and it only
 /// falls when a reading actually lands. `in_flight` is what leases explain, and it is the
 /// difference between "keep going" and "wait".
-fn work_left(project: &Project) -> (usize, usize) {
+/// `outstanding` itemises `in_flight` — which functions, and how long they have been out.
+/// A bare count says readers are working; it cannot distinguish that from a wave that died
+/// twenty minutes ago and left its batch to rot until the lease expires. The orchestrator
+/// polling between waves is the only party that can act on the difference, and it is the
+/// one already calling this.
+///
+/// **Ids and ages, never the task payload.** A reader that fetched a function may already
+/// have opened the file, so re-delivering the body would let it "predict" code it has read
+/// — recall wearing a prediction's clothes, which grades as unsurprising and turns the
+/// wedge green on a reading nobody made. A dropped function is re-queued for somebody
+/// else, and never handed back to whoever dropped it.
+struct WorkLeft {
+    remaining: usize,
+    in_flight: usize,
+    /// Oldest lease first — that is the end worth looking at, because age is the whole
+    /// signal. Ids only.
+    outstanding: Vec<(String, u64)>,
+}
+
+fn work_left(project: &Project) -> WorkLeft {
     let none = HashMap::new();
     let mut unread = Vec::new();
     collect_tasks(&project.scan.root, &project.reports, &none, None, None, &mut unread);
-    let mut available = Vec::new();
-    collect_tasks(
-        &project.scan.root,
-        &project.reports,
-        &project.leased,
-        None,
-        None,
-        &mut available,
-    );
-    (unread.len(), unread.len().saturating_sub(available.len()))
+    // A lease only counts as in flight while it covers work that is still outstanding: a
+    // lease over a function whose reading has since landed explains nothing, and one past
+    // LEASE has already returned to the pool.
+    let mut outstanding: Vec<(String, u64)> = unread
+        .iter()
+        .filter_map(|(_, t)| {
+            let held = project.leased.get(&t.id)?;
+            let age = held.elapsed();
+            (age < LEASE).then(|| (t.id.clone(), age.as_secs()))
+        })
+        .collect();
+    outstanding.sort_by_key(|(_, age)| std::cmp::Reverse(*age));
+    WorkLeft {
+        remaining: unread.len(),
+        in_flight: outstanding.len(),
+        outstanding,
+    }
 }
 
 /// Readings whose code has changed under them.
@@ -805,7 +908,7 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
     // Handing out nothing when nothing is left is the end of the job, and the only moment
     // in the protocol worth a flourish. Handing out nothing while work is still leased is
     // an ordinary wait, so the two are pinged apart rather than both reading as "done".
-    let done = handed.is_empty() && work_left(project).0 == 0;
+    let done = handed.is_empty() && work_left(project).remaining == 0;
     state.ping(if done { "sanity_next:done" } else { "sanity_next" });
     Json(handed)
 }
@@ -873,7 +976,11 @@ async fn report(
     // must not depend on the app exiting cleanly to survive.
     let write_error = save_reports(&project.repo, &project.scan, &project.reports).err();
 
-    let (remaining, in_flight) = work_left(project);
+    let WorkLeft {
+        remaining,
+        in_flight,
+        ..
+    } = work_left(project);
 
     // Surfaced back to the agent, not just to the window. An implausibly low surprise
     // rate is the signature of a contaminated or agreeable reader, and telling the
@@ -945,8 +1052,21 @@ async fn status(State(state): State<Shared>) -> Json<serde_json::Value> {
             // The loop's termination condition, so a driving agent can ask "is there
             // work left" without having to infer it from a report response it may never
             // have seen — subagent tool results do not reach the parent.
-            let (remaining, in_flight) = work_left(p);
+            let WorkLeft {
+                remaining,
+                in_flight,
+                outstanding,
+            } = work_left(p);
             let stale = count_stale(&p.scan, &p.reports);
+            // Oldest first and capped, because this is a diagnostic and the whole list of
+            // a stalled wave says nothing the first few do not. `in_flight` above is the
+            // true count and is never capped, so the short list cannot be mistaken for the
+            // whole of what is out.
+            let shown: Vec<serde_json::Value> = outstanding
+                .iter()
+                .take(OUTSTANDING_SHOWN)
+                .map(|(id, age)| serde_json::json!({ "id": id, "held_for_s": age }))
+                .collect();
             Json(serde_json::json!({
                 "open": true,
                 "active": p.name,
@@ -959,6 +1079,11 @@ async fn status(State(state): State<Shared>) -> Json<serde_json::Value> {
                 // What the leases explain. Polling `remaining` and seeing it flat while
                 // this is non-zero means readers are working, not stuck.
                 "in_flight": in_flight,
+                // ...which `outstanding` makes checkable: the oldest few leases with how
+                // long they have been held. A batch that has been out for minutes with
+                // `remaining` flat is a dead wave, not a busy one, and only the age tells
+                // the two apart. Ids, never bodies — see `WorkLeft`.
+                "outstanding": shown,
                 // Split out of `remaining` so an update run can say what it is doing.
                 // "43 left" and "43 left, 12 of them readings that have expired" are the
                 // same number and different jobs.
@@ -1017,6 +1142,19 @@ pub struct ProjectSummary {
     /// An agent has called about this project recently. Per project, so two sessions
     /// working two repos both report as working rather than one of them winning.
     pub working: bool,
+    /// Known from the index but not yet rescanned, so its counts are not measured yet.
+    ///
+    /// A restore rescans rather than storing trees, and a large repo takes tens of
+    /// seconds — tonepoet is 34. The name and path were on disk the whole time, so a
+    /// sidebar that shows nothing until the scan lands is withholding what it already
+    /// knows and reading as "your projects are gone". These entries carry real names and
+    /// zeroed counts, and the flag is what stops a zero being read as a measurement.
+    pub loading: bool,
+    /// How far that rescan has got, when it has started counting. Both zero means the walk
+    /// is still under way and there is no denominator yet — which is a real state, not a
+    /// zero-percent one, and the UI shows it as such.
+    pub read_done: usize,
+    pub read_total: usize,
 }
 
 impl ProjectList {
@@ -1040,9 +1178,42 @@ impl ProjectList {
                     assessed: p.reports.len().saturating_sub(stale),
                     stale,
                     touched: p.touched,
+                    loading: false,
+                    read_done: 0,
+                    read_total: 0,
                 }
             })
             .collect();
+        // Projects the restore knows about but has not reached yet. Listed from the index,
+        // which holds the name and path — everything the sidebar needs to show a row — and
+        // nothing it does not, so the counts stay zero behind `loading` rather than being
+        // guessed. Skipped once the real project lands, so a row never appears twice.
+        projects.extend(
+            state
+                .restoring
+                .iter()
+                .filter(|known| !state.projects.contains_key(&known.key))
+                .map(|known| {
+                    let (done, total) = state
+                        .restoring_progress
+                        .get(&known.key)
+                        .copied()
+                        .unwrap_or((0, 0));
+                    ProjectSummary {
+                        key: known.key.clone(),
+                        name: known.name.clone(),
+                        repo: known.repo.clone(),
+                        functions: 0,
+                        assessed: 0,
+                        stale: 0,
+                        touched: known.touched,
+                        working: false,
+                        loading: true,
+                        read_done: done,
+                        read_total: total,
+                    }
+                }),
+        );
         // Most recently touched first — the sidebar should read as a history.
         projects.sort_by_key(|p| std::cmp::Reverse(p.touched));
         ProjectList {
@@ -1080,28 +1251,74 @@ pub fn endpoint_file() -> Option<PathBuf> {
 ///
 /// A repo that has moved or been deleted is dropped silently — a sidebar entry that opens
 /// nothing is worse than one that quietly disappeared.
+///
+/// Nothing here calls `touch`, and nothing persists until the end. `touch` writes the
+/// index, and during a restore the map it would write is the half of the list rebuilt so
+/// far — so quitting mid-restore used to truncate `projects.json` to whatever had loaded,
+/// losing the rest permanently. A restore reads the index; it has no business editing it
+/// until it knows the whole answer.
 pub fn restore(state: Shared) {
     let index = crate::reports::load_index();
     if index.projects.is_empty() {
         return;
     }
+    // Continue the previous session's counter rather than restarting it. `touched` is
+    // `clock`, and clock is per-process — which was harmless while every entry was
+    // rewritten on every save and they all shared one session's numbering. Now that
+    // unloaded entries keep the number they were last saved with, a counter starting at 0
+    // would rank this session's projects BELOW last session's, and the sidebar reads as a
+    // history in that order.
+    if let Ok(mut s) = state.lock() {
+        let high = index.projects.iter().map(|p| p.touched).max().unwrap_or(0);
+        s.clock = s.clock.max(high);
+        // Published before the first scan starts, so the sidebar fills in immediately with
+        // what the index already knows and each row firms up as its scan lands — rather
+        // than staying empty for the length of the slowest repo and reading as loss.
+        s.restoring = index.projects.clone();
+    }
     std::thread::spawn(move || {
         for known in index.projects.iter().rev() {
             let path = PathBuf::from(&known.repo);
+            // Off the list whatever happens below — a row that cannot be scanned must stop
+            // claiming to be moments away from appearing. It stays in the index, so it
+            // comes back next launch if the volume does; it just isn't pending any more.
+            let settled = |s: &mut AppState| {
+                s.restoring.retain(|k| k.key != known.key);
+                s.restoring_progress.remove(&known.key);
+            };
             if !path.is_dir() {
+                if let Ok(mut s) = state.lock() {
+                    settled(&mut s);
+                }
                 continue;
             }
+            // The scan already counts what it is doing; the restore used to discard it and
+            // leave the sidebar with nothing to say for the length of a large repo.
+            let progress_key = known.key.clone();
+            let progress_state = state.clone();
+            let on_progress = move |p: crate::scan::Progress| {
+                if let Ok(mut s) = progress_state.lock() {
+                    s.restoring_progress
+                        .insert(progress_key.clone(), (p.done, p.total));
+                }
+            };
             let Ok(scan) = crate::scan::scan(
                 &path,
                 &crate::surprise::HeuristicModel,
-                &|_| {},
+                &on_progress,
                 &|_, _: &crate::surprise::Reading| {},
                 &std::sync::atomic::AtomicBool::new(false),
                 &crate::cache::Cache::ephemeral(),
+                // A queue sort key, not a number anyone sees — see `scan::Fidelity`.
+                crate::scan::Fidelity::Ordering,
             ) else {
+                if let Ok(mut s) = state.lock() {
+                    settled(&mut s);
+                }
                 continue;
             };
             let Ok(mut s) = state.lock() else { return };
+            settled(&mut s);
             let reports = load_reports(&path, &scan);
             s.projects.insert(
                 known.key.clone(),
@@ -1117,12 +1334,29 @@ pub fn restore(state: Shared) {
             );
             // Restored in reverse order so the last one touched is the last one in, and
             // the window lands back where it was rather than on an arbitrary project.
-            if index.active.as_deref() == Some(known.key.as_str())
-                || index.active.is_none()
-            {
-                s.touch(&known.key);
+            //
+            // The window only switches when `active` is set, so choosing it is what makes
+            // a restore visible at all. Decided once, after the loop, against what
+            // actually came back: picking it per-iteration meant a recorded active whose
+            // repo had since been moved or deleted matched nothing, left `active` at None,
+            // and opened an empty window with a full sidebar behind it.
+            if index.active.as_deref() == Some(known.key.as_str()) {
+                s.active = Some(known.key.clone());
             }
         }
+        let Ok(mut s) = state.lock() else { return };
+        // Fall back to the most recently touched thing that did come back. Landing on the
+        // wrong project is recoverable with a click; landing on nothing looks like the
+        // restore failed.
+        if s.active.as_ref().is_none_or(|k| !s.projects.contains_key(k)) {
+            s.active = s
+                .projects
+                .iter()
+                .max_by_key(|(_, p)| p.touched)
+                .map(|(key, _)| key.clone());
+        }
+        // One write, now that the list is whole and cannot be a truncation of itself.
+        s.persist();
     });
 }
 
@@ -1157,12 +1391,164 @@ mod tests {
             abs_path: path.to_string(),
             path: path.to_string(),
             line: 1,
+            end_line: 10,
             name: name.to_string(),
             signature: String::new(),
             peers: Vec::new(),
             docs: Vec::new(),
             lines: 10,
         }
+    }
+
+    fn project_of(dir: &std::path::Path) -> Project {
+        let scan = crate::scan::scan(
+            dir,
+            &crate::surprise::HeuristicModel,
+            &|_| {},
+            &|_, _: &crate::surprise::Reading| {},
+            &std::sync::atomic::AtomicBool::new(false),
+            &crate::cache::Cache::ephemeral(),
+            crate::scan::Fidelity::Ordering,
+        )
+        .unwrap();
+        Project {
+            repo: dir.to_path_buf(),
+            name: "t".into(),
+            scan,
+            reports: HashMap::new(),
+            leased: HashMap::new(),
+            touched: 0,
+            last_agent: None,
+        }
+    }
+
+    /// A save from a half-restored session must not erase the projects it has not got to.
+    ///
+    /// This is the bug that emptied a real index down to one entry. `restore` rescans on a
+    /// background thread and a large repo takes seconds; a `sanity_open` arriving inside
+    /// that window inserts one project and touches it, and a persist that wrote the live
+    /// map as the whole truth published "there is one project" — erasing the rest from the
+    /// only record that they existed. The map is authoritative for what it holds and says
+    /// nothing about what it does not.
+    #[test]
+    fn a_save_mid_restore_does_not_erase_projects_it_has_not_loaded() {
+        let home = tempfile::tempdir().unwrap();
+        // `save_index`/`load_index` resolve under the data dir, so point it at a temp one.
+        // Serialised against other tests by being the only one that touches these vars.
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var("XDG_DATA_HOME").ok();
+        let prev_home = std::env::var("HOME").ok();
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", home.path());
+            std::env::set_var("HOME", home.path());
+        }
+
+        crate::reports::save_index(&crate::reports::KnownProjects {
+            active: Some("/a".into()),
+            projects: vec![
+                crate::reports::KnownProject {
+                    key: "/a".into(),
+                    repo: "/a".into(),
+                    name: "a".into(),
+                    touched: 7,
+                },
+                crate::reports::KnownProject {
+                    key: "/b".into(),
+                    repo: "/b".into(),
+                    name: "b".into(),
+                    touched: 4,
+                },
+            ],
+        });
+
+        // A session that has restored only `/b` so far saves.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("x.rs"), "fn one() { }\n").unwrap();
+        let mut state = AppState::default();
+        let mut p = project_of(dir.path());
+        p.name = "b".into();
+        p.repo = PathBuf::from("/b");
+        p.touched = 9;
+        state.projects.insert("/b".into(), p);
+        state.active = Some("/b".into());
+        state.persist();
+
+        let back = crate::reports::load_index();
+        let keys: Vec<&str> = back.projects.iter().map(|p| p.key.as_str()).collect();
+        assert!(
+            keys.contains(&"/a"),
+            "the project this session had not loaded was erased: {keys:?}"
+        );
+        assert_eq!(keys.len(), 2, "and nothing was duplicated: {keys:?}");
+        // The loaded one is updated in place, not doubled, and this session's active wins.
+        let b = back.projects.iter().find(|p| p.key == "/b").unwrap();
+        assert_eq!(b.touched, 9);
+        assert_eq!(back.active.as_deref(), Some("/b"));
+
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+            match prev_home {
+                Some(v) => std::env::set_var("HOME", v),
+                None => std::env::remove_var("HOME"),
+            }
+        }
+    }
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// `outstanding` has to itemise exactly what `in_flight` counts, and a lease only
+    /// explains work that is still outstanding.
+    ///
+    /// The failure this guards is the one `work_left` was written for, one level down: a
+    /// lease left behind over a function whose reading has since landed would inflate
+    /// `in_flight`, and an orchestrator reading `remaining == in_flight` waits instead of
+    /// spawning the wave that would finish the repo. Coverage numbers must never be
+    /// derived from the lease table.
+    #[test]
+    fn outstanding_itemises_only_live_leases_on_unread_work() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("a.rs"),
+            "fn one() { println!(\"1\"); }\nfn two() { println!(\"2\"); }\n",
+        )
+        .unwrap();
+        let mut p = project_of(dir.path());
+
+        let ids: Vec<String> = {
+            let mut out = Vec::new();
+            collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, None, &mut out);
+            out.into_iter().map(|(_, t)| t.id).collect()
+        };
+        assert_eq!(ids.len(), 2, "fixture should offer two functions");
+
+        // Nothing out: no leases, nothing itemised.
+        assert_eq!(work_left(&p).in_flight, 0);
+        assert!(work_left(&p).outstanding.is_empty());
+
+        // One out with a reader: counted, itemised, and by its id.
+        p.leased.insert(ids[0].clone(), Instant::now());
+        let w = work_left(&p);
+        assert_eq!(w.remaining, 2, "a lease is not a reading; remaining holds");
+        assert_eq!(w.in_flight, 1);
+        assert_eq!(w.outstanding.len(), w.in_flight);
+        assert_eq!(w.outstanding[0].0, ids[0]);
+
+        // A lease left over a function that has since been read explains nothing. It must
+        // drop out of both numbers rather than keep claiming a reader is busy on it.
+        p.reports.insert(
+            ids[0].clone(),
+            Report {
+                id: ids[0].clone(),
+                ..Report::blank()
+            },
+        );
+        let w = work_left(&p);
+        assert_eq!(w.remaining, 1);
+        assert_eq!(w.in_flight, 0, "the reading landed; the stale lease is moot");
+        assert!(w.outstanding.is_empty());
     }
 
     /// The queue must not hand a reader two functions from one file back to back while

@@ -323,6 +323,13 @@ export default function App() {
     [projects, activeKey],
   )
 
+  /** The selected project when it is still being rescanned by the startup restore, so the
+   *  pane can show its progress instead of the copy for someone who has no projects. */
+  const loadingProject = useMemo(
+    () => projects.find((p) => p.key === activeKey && p.loading) ?? null,
+    [projects, activeKey],
+  )
+
   /** Go up exactly one level. The stack is rewritten to the parent's id rather than
    *  popped, because `focus` resolves the whole stack from the root every render — a
    *  single id is the canonical way to say "we are here". Undefined at the top, which
@@ -370,10 +377,6 @@ export default function App() {
 
   return (
     <div className="relative flex h-full flex-col">
-      {busy && focus && (
-        <ProgressStrip progress={progress} />
-      )}
-
       {/* Warnings sit above the picture, never inside it — a caveat rendered as a
           footnote under a chart is a caveat nobody reads. */}
       {scan?.stats.withoutHistory && (
@@ -400,13 +403,22 @@ export default function App() {
           onOpen={() => void pick()}
           onConnect={() => setShowAgents(true)}
           onSelect={(key) => {
+            // Selected immediately, before the tree is fetched. A project still being
+            // rescanned has no tree to return, and gating the selection on one meant
+            // clicking it did nothing at all — no highlight, no pane, no acknowledgement
+            // that the click landed. Selection is a statement about what you are looking
+            // at; it does not depend on the thing having finished loading.
+            setActiveKey(key)
+            setStack([])
+            setPicked(null)
             // Readings fetched WITH the scan, not left to the next poll: `project_scan`
             // returns the proxy-scored tree, so between the two the repo renders grey.
             void Promise.all([projectScan(key), agentReports(key)]).then(([s, reports]) => {
-              if (!s) return
-              setActiveKey(key)
-              setStack([])
-              setPicked(null)
+              if (!s) {
+                // Nothing to draw yet; the poll picks it up when the rescan lands.
+                setScan(null)
+                return
+              }
               setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
             })
           }}
@@ -416,6 +428,15 @@ export default function App() {
           {focus && <ModeSwitcher mode={mode} onMode={setMode} />}
         </TopRow>
         <main className="relative flex min-w-0 flex-1 flex-col border-l border-t border-[var(--border)] bg-[var(--background)]">
+          {/* Inside the content column, not spanning the window above the chrome.
+              Up there it took row 0 for itself — and row 0 belongs to the overlay
+              titlebar, whose traffic lights float over the webview at a fixed inset that
+              each element occupying that row has to reserve for itself. The strip
+              reserved nothing and pushed the sidebar header, which does, out from under
+              them, so "Reading the repo…" rendered beneath the buttons. It also shoved
+              the whole shell down by its own height every time a scan started. Below
+              TopRow it can do neither. */}
+          {busy && focus && <ProgressStrip progress={progress} />}
           {scan && focus && <Crumbs trail={trail} onGo={goTo} onUp={goUp} />}
 
           <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -426,11 +447,7 @@ export default function App() {
                 </p>
               </div>
             ) : busy && !focus ? (
-              <div className="flex h-full flex-col items-center justify-center gap-2">
-                <p className="text-sm text-[var(--muted-foreground)]">
-                  {progress ? `Scoring ${progress.done} / ${progress.total} functions` : 'Walking the repo…'}
-                </p>
-              </div>
+              <ProgressPane progress={progress} />
             ) : focus ? (
               // A file is a sequence, not a set — see `FileStack`. It is the one level
               // where the shared geometry is the wrong shape for the data, so it gets
@@ -456,6 +473,18 @@ export default function App() {
                 onUp={goUp}
               />
               )
+            ) : loadingProject ? (
+              // Selected, but its rescan has not finished. The empty pane's copy tells you
+              // how to open a project — advice for someone with none, addressed to someone
+              // who has one and is waiting on it. Show the wait instead.
+              <ProgressPane
+                label={`Reading ${loadingProject.name}…`}
+                progress={
+                  loadingProject.read_total > 0
+                    ? { done: loadingProject.read_done, total: loadingProject.read_total }
+                    : null
+                }
+              />
             ) : (
               <Empty onPick={pick} />
             )}
@@ -539,7 +568,8 @@ export default function App() {
  * because a large repo still takes long enough to wonder about, and the Stop button is
  * gone with the thing that was worth stopping.
  */
-function ProgressStrip({ progress }: { progress: Progress | null }) {
+/** Fraction done and minutes left, or nulls while neither is knowable yet. */
+function useProgress(progress: Progress | null) {
   const started = useRef(Date.now())
   useEffect(() => {
     started.current = Date.now()
@@ -552,6 +582,58 @@ function ProgressStrip({ progress }: { progress: Progress | null }) {
     progress && progress.done > 20 && pct > 0.02
       ? Math.round((elapsed / pct - elapsed) / 60)
       : null
+  return { pct, eta }
+}
+
+/** The bar itself, shared so the strip and the first-open pane are one instrument rather
+ *  than two that drift. Indeterminate until there is a total to be a fraction of — see
+ *  `track-sweep` in index.css for why that is not just decoration. */
+function ProgressTrack({ progress, pct }: { progress: Progress | null; pct: number }) {
+  return (
+    <div className="h-1 w-full overflow-hidden rounded-full bg-[var(--border)]">
+      {progress ? (
+        <div
+          className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-300"
+          style={{ width: `${Math.round(pct * 100)}%` }}
+        />
+      ) : (
+        <div className="track-sweep h-full rounded-full bg-[var(--accent)]" />
+      )}
+    </div>
+  )
+}
+
+/** The same wait, on an empty pane rather than over a map you can already read. Centred
+ *  and wider because there is nothing else on the screen to be beside. */
+function ProgressPane({
+  progress,
+  label,
+}: {
+  progress: Progress | null
+  label?: string
+}) {
+  const { pct, eta } = useProgress(progress)
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3">
+      <p className="text-sm text-[var(--muted-foreground)]">
+        {progress
+          ? `Scoring ${progress.done} / ${progress.total} functions`
+          : (label ?? 'Walking the repo…')}
+      </p>
+      <div className="w-[min(320px,60%)]">
+        <ProgressTrack progress={progress} pct={pct} />
+      </div>
+      {eta !== null && (
+        <p className="mono text-[11px] text-[var(--muted-foreground)]">
+          ~{eta === 0 ? '<1' : eta} min left
+        </p>
+      )}
+    </div>
+  )
+}
+
+function ProgressStrip({ progress }: { progress: Progress | null }) {
+  const { pct, eta } = useProgress(progress)
 
   return (
     <div className="shrink-0 border-b border-[var(--border)] bg-[var(--secondary)] px-3 py-1.5">
@@ -567,12 +649,7 @@ function ProgressStrip({ progress }: { progress: Progress | null }) {
         </span>
         {eta !== null && <span className="mono shrink-0">~{eta === 0 ? '<1' : eta} min left</span>}
       </div>
-      <div className="h-1 w-full overflow-hidden rounded-full bg-[var(--border)]">
-        <div
-          className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-300"
-          style={{ width: `${Math.round(pct * 100)}%` }}
-        />
-      </div>
+      <ProgressTrack progress={progress} pct={pct} />
     </div>
   )
 }

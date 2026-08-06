@@ -71,6 +71,10 @@ fn main() {
         // Ephemeral: the headless scanner is how the metric gets measured, and a run
         // that silently reuses yesterday's scores is not a measurement.
         &sanity_lib::cache::Cache::ephemeral(),
+        // Full, always. This is where the metric gets measured, and the all-pairs term is
+        // the strongest one in the mix — a histogram read off a scan that skipped it would
+        // be a measurement of a different instrument.
+        sanity_lib::scan::Fidelity::Full,
     ) {
         Ok(s) => s,
         Err(e) => {

@@ -223,8 +223,10 @@ function ProjectItem({
       type="button"
       onClick={onClick}
       title={
-        `${project.repo} · ${project.assessed} of ${project.functions} read` +
-        (project.stale > 0 ? ` · ${project.stale} stale` : '')
+        project.loading
+          ? `${project.repo} · reading…`
+          : `${project.repo} · ${project.assessed} of ${project.functions} read` +
+            (project.stale > 0 ? ` · ${project.stale} stale` : '')
       }
       className={clsx(
         'flex w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors',
@@ -236,12 +238,22 @@ function ProjectItem({
           bare list does not read as navigation. */}
       <span className="shrink-0 text-[11px] opacity-70">◍</span>
       <span className="mono flex-1 truncate">{project.name}</span>
-      <span
-        className="shrink-0 text-[10px] tabular-nums"
-        style={{ color: done ? 'var(--agent-mark)' : 'inherit', opacity: done ? 1 : 0.55 }}
-      >
-        {project.assessed}/{project.functions}
-      </span>
+      {/* A count of 0/0 would be a measurement, and nothing has measured this yet — the
+          restore is still rescanning it. Say so instead. */}
+      {project.loading ? (
+        <span className="shrink-0 text-[10px] tabular-nums opacity-45">
+          {project.read_total > 0
+            ? `${Math.round((project.read_done / project.read_total) * 100)}%`
+            : 'reading…'}
+        </span>
+      ) : (
+        <span
+          className="shrink-0 text-[10px] tabular-nums"
+          style={{ color: done ? 'var(--agent-mark)' : 'inherit', opacity: done ? 1 : 0.55 }}
+        >
+          {project.assessed}/{project.functions}
+        </span>
+      )}
     </button>
   )
 }

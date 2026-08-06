@@ -298,6 +298,31 @@ textarea,
   .drill-in, .drill-out { animation: none; }
 }
 
+/* The walk, before there is anything to count.
+ *
+ * Indeterminate on purpose: until the scorer reports a total there is no fraction to
+ * show, and a determinate bar parked at 0% is a claim — "none of N done" — where the
+ * honest statement is "working, no estimate yet". Same rule the metric follows when a
+ * term runs out of evidence: say undecided rather than pick a number. It becomes a real
+ * fraction the moment `scan-progress` supplies one. */
+@keyframes track-sweep {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(400%); }
+}
+/* Linear, deliberately. An ease-in-out decelerates into each end and accelerates out of
+ * it, which on a repeating one-way travel reads as the segment bouncing back and forth
+ * rather than sweeping through. Constant speed is the only timing that says "still
+ * going" instead of "oscillating". */
+.track-sweep {
+  width: 25%;
+  animation: track-sweep 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Still visibly not-idle, without the travel. */
+  .track-sweep { animation: none; width: 100%; opacity: 0.45; }
+}
+
 /* ── Code view tokens ─────────────────────────────────────────────────────────
  *
  * Syntax colour is SCENERY here, and it has to stay scenery: the reading lives in the

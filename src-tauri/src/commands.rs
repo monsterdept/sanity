@@ -76,7 +76,12 @@ pub async fn scan_repo(
         // second, and a cache that saves nothing is a file that can only disagree with
         // the code.
         let cache = Cache::ephemeral();
-        scan::scan(&root, &model, &emit, &scored, &CANCEL, &cache).map_err(|e| e.to_string())
+        // Ordering fidelity: in the app this number is only ever a queue sort key. A
+        // proxy-scored function is `Source::Proxy`, which the UI refuses to colour, so
+        // the all-pairs term would cost 27 of these 34 seconds to produce a value no
+        // user ever sees. See `scan::Fidelity`.
+        scan::scan(&root, &model, &emit, &scored, &CANCEL, &cache, scan::Fidelity::Ordering)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?;

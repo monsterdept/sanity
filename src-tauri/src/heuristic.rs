@@ -49,7 +49,7 @@ const MIN_SHINGLES: usize = 25;
 /// it is out of evidence — a single global length penalty just swaps the bias round, so
 /// that instead of "short means hot" the map says "long means hot", and either way it is
 /// measuring length rather than surprise.
-const UNDECIDED: f32 = 0.5;
+pub const UNDECIDED: f32 = 0.5;
 
 /// Distinct meaningful words below which vocabulary novelty means nothing.
 const MIN_WORDS: usize = 8;

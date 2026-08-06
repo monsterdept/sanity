@@ -230,6 +230,14 @@ export interface ProjectSummary {
   /** An agent has called about this project in the last minute. Per project, so two
    *  sessions working two repos both report as working. */
   working: boolean
+  /** Known from the index but not yet rescanned on startup, so `functions` and `assessed`
+   *  are zero because nothing has counted them — not because the repo is empty. The row
+   *  shows its name and holds its place; the counts wait. */
+  loading: boolean
+  /** How far the pending rescan has got. Both zero means it is still walking the repo and
+   *  has no denominator yet — a real state, not zero percent. */
+  read_done: number
+  read_total: number
 }
 
 export interface ProjectList {
