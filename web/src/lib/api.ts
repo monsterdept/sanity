@@ -318,10 +318,17 @@ export function isReportStale(r: AgentReport, node: Node): boolean {
 const GRADE_SURPRISE: Record<Grade, number> = { full: 0.08, most: 0.3, some: 0.62, none: 0.92 }
 const GRADE_DOCUMENTED: Record<Grade, number> = { full: 0.95, most: 0.7, some: 0.35, none: 0 }
 
-/** The report's two grades, with pre-grade reports folded in. */
+/** The report's two grades, with two rules applied that the grades themselves do not carry.
+ *
+ *  A pre-grade report knew only surprised-or-not, so it maps to the ends of the scale —
+ *  coarse, but inventing a middle grade for it would be making up a judgement nobody made.
+ *  And **`derivable` forces `documented` to none**, whatever grade the reader gave it: a
+ *  doc a model could regenerate from the body explains nothing that was not already there.
+ *  That second rule lived only in an inline comment, so a reader predicting this function
+ *  from the outside had no way to know the returned number is not the reported one.
+ *  Mirrors `Report::grades` in Rust. */
 export function reportGrades(r: AgentReport): { surprise: number; documented: number | null } {
   const predicted = r.predicted ?? (r.surprised ? 'none' : 'full')
-  // A doc the code already implies is not documentation, whatever grade it was given.
   const documented = r.derivable ? 'none' : r.documented
   return {
     surprise: GRADE_SURPRISE[predicted],

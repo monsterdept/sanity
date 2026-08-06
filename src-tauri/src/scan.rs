@@ -219,12 +219,17 @@ fn parse_file(root: &Path, path: &Path, lang: Lang, fidelity: Fidelity) -> Optio
 /// Churn itself stays the children's LOC-weighted mean rather than `churn_of(dir)`: the
 /// normalisation constant is tuned for a single file, and a directory pooling every
 /// commit beneath it would saturate to 1.0 the moment anyone touched anything.
+///
+/// **Files as well as directories, despite the name.** A file node's score comes from
+/// `aggregate`, which sets `commits: 0` because summing its functions would count one
+/// commit once per function it touched — and nothing filled it back in, so every file
+/// reported zero commits next to a churn bar at 72. A file's path is a real path, so the
+/// log answers directly; only the aggregate could not. Two cold readers predicted
+/// directories-only from the name and this doc, in two separate runs, and both were
+/// caught by the `File` arm — which is the instrument reporting a name that undersells
+/// its function, so the doc now says it rather than an inline comment inside the body
+/// where a reader predicting from the outside never sees it.
 fn apply_dir_history(node: &mut Node, history: &History) {
-    // Files as well as directories. A file node's score comes from `aggregate`, which
-    // sets `commits: 0` because summing its functions would count one commit once per
-    // function it touched — and nothing filled it back in, so every file reported zero
-    // commits next to a churn bar at 72. Its path is a real path, so the log knows the
-    // answer directly; only the aggregate did not.
     if node.kind == NodeKind::Dir || node.kind == NodeKind::File {
         if let Some(score) = node.score.as_mut() {
             score.commits = history.commits_of(&node.path);
@@ -358,7 +363,10 @@ fn score_dir(
                         doc: func.doc.clone(),
                         signature: Some(func.signature.clone()),
                         owner: func.owner.clone(),
-                        body: Some(crate::assessment::body_hash(&func.body)),
+                        body: Some(crate::assessment::reading_hash(
+                            func.doc.as_deref(),
+                            &func.body,
+                        )),
                         end_line: Some(func.end_line),
                         path: file.rel_path.clone(),
                         loc: func.loc(),

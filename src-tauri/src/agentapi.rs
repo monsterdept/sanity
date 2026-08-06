@@ -643,7 +643,8 @@ pub struct QueueParams {
     project: Option<String>,
 }
 
-/// Three: the knee of a curve that was measured rather than argued.
+/// One at a time — but three times per reader. The two are separate questions and got
+/// conflated.
 ///
 /// It was five, and the protocol asked each reader for ten, which was a hole in the
 /// measurement. `cold` asks whether the reader had seen this FILE, and interleaving across
@@ -668,10 +669,23 @@ pub struct QueueParams {
 /// | 5 |  6,800          | 74%                           |
 /// | 8 |  5,000          | 82%                           |
 ///
-/// So 1 was paying 2.5x for a warm tail two readings long. Three takes most of what
-/// batching can give and caps the tail where it is still short enough to inspect.
+/// So 1 reader per function was paying 2.5x for a warm tail two readings long. Three
+/// readings per reader takes most of what batching can give and caps the tail where it is
+/// still short enough to inspect.
 ///
-/// **This is a cost figure with a validity guess attached, and the guess is untested.**
+/// **But the saving is the shared CONTEXT, not the shared fetch, and this is the number
+/// of functions per HANDOUT.** Those came apart by accident: the shim was still sending
+/// `n=1` after this moved to 3, so a whole wave fetched three times inside one context
+/// instead of receiving three at once. It cost the same — 30,125 per reader against
+/// 30,495 — and it is colder, because a reader handed three tasks reads three signatures,
+/// three owners and three peer lists before it predicts the first. One sweep reader said
+/// so unprompted and downgraded its own second and third readings for it.
+///
+/// Equal cost, strictly better measurement, so the accident wins: `default_n` is 1 and the
+/// protocol asks for three calls. Nothing about the cost table changes — it was never
+/// measuring the batch.
+///
+/// **The cost figure carries a validity guess, and the guess is untested.**
 /// The same sweep looked for the drift: readings at position 2+ graded `full` 36% against
 /// 29% for first readings — the right direction, nowhere near significant on 54 readings,
 /// and confounded, because the n=1 readers ran first and took the top of a queue ordered
@@ -679,7 +693,7 @@ pub struct QueueParams {
 /// n=k readers interleaved in one wave, over hundreds of readings. `position` is on every
 /// reading so that experiment changes this constant and nothing else.
 fn default_n() -> usize {
-    3
+    1
 }
 
 #[derive(Deserialize)]
@@ -724,13 +738,14 @@ YOUR JOB (the session that called sanity_open):\n\
      result from what your subagents said in chat, and do NOT read `.sanity/` to get it. \
      If you stopped before remaining hit 0, SAY SO and say how many are left — 'done' and \
      'out of budget' are different outcomes and the user needs to know which.\n\n\
-THREE IS THE BATCH SIZE AND IT IS NOT AN EFFICIENCY SETTING. A reader gets better at a \
-repo as it works through a batch — it learns the idioms, the naming, the vocabulary, the \
-author's habits — so a reading taken tenth is made by a better reader than the first, and \
-nothing downstream can tell that apart from code that is genuinely more predictable. \
-Three is where the cost curve flattens while the warm tail is still short. Do not raise \
-it to save time; the saving past three is small and what it buys is a scale that widens \
-inside every run.\n\n\
+THREE READINGS PER READER, FETCHED ONE AT A TIME, AND NEITHER HALF IS AN EFFICIENCY \
+SETTING. Three, because a reader gets better at a repo as it works — it learns the \
+idioms, the naming, the vocabulary, the author's habits — so a reading taken tenth is \
+made by a better reader than the first, and nothing downstream can tell that apart from \
+code that is genuinely more predictable; three is where the cost curve flattens while \
+that tail is still short. One at a time, because the saving comes from the shared \
+context, not the shared handout: fetching three at once costs the same and shows the \
+reader two functions it has not predicted yet. Do not raise either number to save time.\n\n\
 ON A LARGE REPO, ASK. `functions` in the sanity_open response is the real size of the \
 job: at three functions per reader, ten thousand functions is over three thousand \
 subagents. If that is more than the user has agreed to spend, say what a full pass would \
@@ -764,15 +779,16 @@ repeating them here would only bill every reader twice for one contract.\n\n";
 /// already carries — one contract, billed to each reader twice.
 pub const READER_PROMPT: &str = "\
   You are reading a codebase you have never seen, and you are assessing EXACTLY THREE \
-  functions. Call sanity_next once, with no arguments. Take them ONE AT A TIME, in the \
-  order given: write what you expect that function's body to do from its name, owner, \
-  signature, siblings and docs alone — two or three sentences, no more — THEN open \
-  abs_path, bounded to the `line`..`end_line` you were given for it and nothing more, \
-  read it, and call sanity_report for it before you look at the next one. Then stop. You \
-  are done after three.\n\n\
-  Set `position` to 1, 2 and 3 in that order. Do not read ahead into a later function's \
-  file: predicting a function you have already seen is recall, and recall grades \
-  everything unsurprising.\n\n\
+  functions, ONE AT A TIME. Repeat this three times: call sanity_next with no arguments \
+  and it hands you exactly one function; write what you expect its body to do from the \
+  name, owner, signature, siblings and docs alone — two or three sentences, no more — \
+  THEN open abs_path, bounded to the `line`..`end_line` you were given and nothing more, \
+  read it, and call sanity_report. Only then call sanity_next again. After the third \
+  report, stop.\n\n\
+  Do not ask for more than one at a time. One handout is one function on purpose: a \
+  reader given three at once has read three signatures, three owners and three peer lists \
+  before it predicts the first, and it costs no less. Set `position` to 1, 2 and 3 in the \
+  order you assess them.\n\n\
   Grade `predicted` against what you WROTE, not against what you understand now: the \
   question is what the code told a stranger.\n\n\
   Do not read any other file, do not spawn subagents, and do NOT read the `.sanity/` \

@@ -40,7 +40,26 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// A short content hash of a function body, for detecting that a reading has expired.
+/// What a reading was taken against: the body, and the docs it was predicted from.
+///
+/// The docs belong here and their absence was a hole. `documented` and `derivable` grade
+/// the comment directly, and `predicted` is made *from* it — the comment stack is handed
+/// over before the reader opens anything, which is the whole reason documenting a repo
+/// drains the map. So rewriting a doc changes both questions the reading answers, and
+/// hashing only the body left a documentation grade reading as current when the text it
+/// graded no longer existed. A stale reading that does not know it is stale is worse than
+/// no reading: it is the one number here that cannot be recomputed from the code.
+///
+/// Found the moment it mattered — six doc comments were about to be corrected on the
+/// strength of readings that would have gone on describing them.
+pub fn reading_hash(doc: Option<&str>, body: &str) -> String {
+    match doc {
+        Some(d) => body_hash(&format!("{d} {body}")),
+        None => body_hash(body),
+    }
+}
+
+/// A short content hash, for detecting that a reading has expired.
 ///
 /// Whitespace is collapsed first. A reformat is not a change to what the code says, and
 /// hashing raw text would let one `cargo fmt` invalidate every honest reading in the
@@ -782,6 +801,32 @@ mod tests {
             body_hash("if x {\n        go();\n    }")
         );
         assert_ne!(body_hash("go()"), body_hash("stop()"));
+    }
+
+    /// Rewriting a doc comment must expire the reading that graded it.
+    ///
+    /// `documented` and `derivable` are judgements about the comment, and `predicted` is
+    /// made from it — so a corrected doc means both questions were answered about text
+    /// that is gone. Hashing only the body left those grades looking current.
+    #[test]
+    fn a_reading_expires_when_its_documentation_changes() {
+        let body = "if x { go() }";
+        assert_ne!(
+            reading_hash(Some("Goes, if x."), body),
+            reading_hash(Some("Goes, unless x."), body),
+            "a rewritten doc is a different reading"
+        );
+        assert_ne!(
+            reading_hash(None, body),
+            reading_hash(Some("Goes, if x."), body),
+            "documenting an undocumented function is a change too"
+        );
+        // But reflowing one is not. A doc rewrapped to a different column says the same
+        // thing, and expiring honest work over it teaches people to ignore the flag.
+        assert_eq!(
+            reading_hash(Some("Goes,\nif x."), body),
+            reading_hash(Some("Goes, if x."), body)
+        );
     }
 
     #[test]

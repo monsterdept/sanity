@@ -211,10 +211,10 @@ pub fn tools() -> Value {
         },
         {
             "name": "sanity_next",
-            "description": "Get functions to assess — three by default, which is what the protocol asks for. Call once, no arguments, from a fresh subagent that has not been reading this repo: a reader who already knows a file recalls it instead of predicting it, and recall marks everything unsurprising. For each you get its name, `owner` (the type it hangs off; one file can hold a dozen `parse`s), signature, location, sibling names and docs — NOT the body. Take them ONE AT A TIME in the order given: (1) write what you expect that body to do from that alone; (2) read ONLY that function, opening abs_path bounded to its `line`..`end_line`, never the whole file; (3) call sanity_report for it before you look at the next. Then STOP. Do not read ahead, and do not ask for more than you were given: a reader gets better at a repo as it works through a batch, so a long batch ends up grading its later functions as a better reader than it was at the start, and nothing downstream can tell that apart from code that is genuinely easier to predict.",
+            "description": "Get ONE function to assess. Call it with no arguments, from a fresh subagent that has not been reading this repo: a reader who already knows a file recalls it instead of predicting it, and recall marks everything unsurprising. You get its name, `owner` (the type it hangs off; one file can hold a dozen `parse`s), signature, location, sibling names and docs — NOT the body. Then: (1) write what you expect the body to do from that alone; (2) read ONLY that function, opening abs_path bounded to `line`..`end_line`, never the whole file; (3) call sanity_report. The protocol asks you to do that three times, calling this again only after reporting the last one — do not ask for several at once. It costs no less, and a reader holding three tasks has already read two signatures, owners and peer lists it has not predicted yet.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "n": { "type": "number", "description": "How many to fetch. Defaults to 3, the point where the cost per function has mostly flattened and the batch is still short enough not to run warm. Raising it buys little and widens the scale across your own run." } }
+                "properties": { "n": { "type": "number", "description": "How many to fetch. Leave it out: one at a time is the protocol, and fetching a batch is the same tokens for a warmer reading." } }
             }
         },
         {
@@ -271,11 +271,24 @@ fn call(name: &str, args: &Value) -> Result<Value, String> {
             Ok(out)
         }
         "sanity_status" => get("/status"),
+        // The batch size is decided in exactly one place, `agentapi::default_n`, and this
+        // is why: the shim used to carry its own `unwrap_or(1)` and send `n` on every
+        // call, so `default_n` was dead code for every MCP caller. When it moved to 3 the
+        // constant changed, the doc comment changed, CLAUDE.md changed, the protocol text
+        // changed — and readers kept getting one function, because the only line that
+        // actually decided was this one. A cold reader reported it in the first wave.
+        //
+        // Omitting `n` when the caller did not ask for one is the whole fix: serde fills
+        // it from `default_n` and there is nothing here left to drift.
         "sanity_next" => {
-            let n = args.get("n").and_then(|v| v.as_u64()).unwrap_or(1).clamp(1, 25);
+            let n = args
+                .get("n")
+                .and_then(|v| v.as_u64())
+                .map(|n| format!("n={}&", n.clamp(1, 25)))
+                .unwrap_or_default();
             match project() {
-                Some(k) => get(&format!("/queue?n={n}&project={}", urlencode(&k))),
-                None => get(&format!("/queue?n={n}")),
+                Some(k) => get(&format!("/queue?{n}project={}", urlencode(&k))),
+                None => get(&format!("/queue?{n}")),
             }
         }
         "sanity_summary" => match project() {

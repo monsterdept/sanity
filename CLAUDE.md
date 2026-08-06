@@ -181,6 +181,24 @@ When a field is added to `Report`, add it to the schema in the same commit.
   unbatched readers ran first and took the top of a proxy-ranked queue. Settling it needs
   n=1 and n=k interleaved in one wave. `position` is on every reading so that experiment
   moves this constant and nothing else.
+- **Three readings per reader, fetched ONE at a time. Those are two different knobs and
+  they got conflated.** The saving is the shared *context*, not the shared *handout*: a
+  wave that fetched three times inside one context cost 30,125 per reader against 30,495
+  for a true batch of three — the same — and is colder, because a reader handed three
+  tasks has read three signatures, owners and peer lists before predicting the first. One
+  sweep reader said so unprompted and downgraded its own second and third readings for it.
+  So `default_n` is 1 and the protocol asks for three calls. Equal cost, better reading.
+- **The batch size is decided in `default_n` and nowhere else.** `mcp.rs` used to carry
+  its own `unwrap_or(1)` and send `n` on every call, so when the constant, its doc,
+  CLAUDE.md and the protocol text all moved to 3, readers still got one — the only line
+  that decided was in the shim. A cold reader found it in the first wave. The shim now
+  omits `n` unless the caller asked, and serde fills it.
+- **Staleness covers the docs, not just the body.** `documented` and `derivable` grade the
+  comment, and `predicted` is made *from* it — the comment stack reaches the reader before
+  it opens anything, which is why documenting a repo drains the map. Hashing only the body
+  left a documentation grade reading as current when the text it graded was gone.
+  `reading_hash(doc, body)` is what `node.body` holds now; it collapses whitespace across
+  both, so a reflow expires nothing.
 - **Read `by_position` as a comparison, never a count.** At a batch of three `later` is
   supposed to be roughly twice `first`; a populated `later` is not a finding. Whether
   `later` grades *greener* is.

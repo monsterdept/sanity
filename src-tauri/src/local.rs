@@ -200,11 +200,17 @@ impl SurpriseModel for LocalModel {
     }
 }
 
-/// GGUF files already on this machine.
+/// Weights already on this machine, from Ollama's blob store and nowhere else.
 ///
-/// Checks Ollama's blob store first: anyone likely to want local scoring has probably
-/// pulled a model already, and a multi-gigabyte download the user has *already made* is
-/// the rudest possible thing to make them make again.
+/// It said "first", which implied fallback locations that have never existed, and it
+/// promised GGUF files when nothing here reads a magic number: Ollama stores weights and
+/// tiny metadata blobs side by side with no extension, so the filter is a 100 MB size
+/// threshold and anything large enough is assumed to be a model. A cold reader predicted
+/// a format check from that first line and found a `len()` comparison.
+///
+/// The reason for looking there at all stands: anyone likely to want local scoring has
+/// probably pulled a model already, and a multi-gigabyte download the user has *already
+/// made* is the rudest possible thing to make them make again.
 pub fn discover_models() -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
     if let Some(home) = dirs::home_dir() {

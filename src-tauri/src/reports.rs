@@ -52,13 +52,25 @@ pub fn load_index() -> KnownProjects {
         .unwrap_or_default()
 }
 
+/// Write the index, atomically, and leave nothing behind if it fails.
+///
+/// Deliberately silent, and worth saying why, because the rule next door is the opposite:
+/// a failed `.sanity/` write is reported and never absorbed, since that is an agent's
+/// measured work and losing it quietly is the failure the whole store exists to avoid.
+/// This file is not that. It is a list of which repos to reopen, recoverable by opening
+/// one, and there is nobody to tell — `persist` runs on a state change with no caller
+/// waiting on an answer. What a failure costs is a sidebar that forgets a project.
+///
+/// The temp file is cleaned up on a failed rename, which it was not: a full disk or a
+/// crossed-device rename left a `projects.json.tmp` sitting beside the real index
+/// forever, looking like a half-finished write nobody could date.
 pub fn save_index(index: &KnownProjects) {
     let Some(path) = index_path() else { return };
     let Ok(json) = serde_json::to_string_pretty(index) else {
         return;
     };
     let tmp = path.with_extension("json.tmp");
-    if std::fs::write(&tmp, json).is_ok() {
-        let _ = std::fs::rename(&tmp, path);
+    if std::fs::write(&tmp, json).is_ok() && std::fs::rename(&tmp, path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
 }

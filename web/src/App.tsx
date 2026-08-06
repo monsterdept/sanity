@@ -561,14 +561,23 @@ export default function App() {
 }
 
 /**
- * The wait, made legible.
+ * Fraction done, and minutes left once that is worth saying.
  *
- * Much shorter than it was — the proxy scans a real repo in about a second, where the
- * model pass it used to front could run for tens of minutes. The bar and ETA stay
- * because a large repo still takes long enough to wonder about, and the Stop button is
- * gone with the thing that was worth stopping.
+ * `pct` is always a number — 0 before there is anything to be a fraction of, which
+ * `ProgressTrack` renders as its indeterminate sweep rather than as "0% done". Only `eta`
+ * is withheld, and only until 20 items and 2% are in, because an estimate drawn from a
+ * three-item sample swings between "a minute" and "an hour" while you watch it.
+ *
+ * This function used to carry two doc comments — the one above it belonged to the
+ * progress UI as a whole and had been stranded here — and the one that was its own
+ * promised nulls it does not return. A cold reader predicted `pct: number | null` from
+ * that and found `: 0`.
+ *
+ * The wait is much shorter than it was: the proxy scans a real repo in about a second,
+ * where the model pass it used to front could run for tens of minutes. The bar and ETA
+ * stay because a large repo still takes long enough to wonder about, and the Stop button
+ * is gone with the thing that was worth stopping.
  */
-/** Fraction done and minutes left, or nulls while neither is knowable yet. */
 function useProgress(progress: Progress | null) {
   const started = useRef(Date.now())
   useEffect(() => {
