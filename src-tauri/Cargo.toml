@@ -99,5 +99,11 @@ path = "src/bin/scan.rs"
 name = "sanity-tokens"
 path = "src/bin/tokens.rs"
 
+# Cut functions out of a repo as prediction exercises, for measuring whether two readers
+# agree. Deliberately outside `.sanity/` — a validation run is not an assessment.
+[[bin]]
+name = "sanity-sample"
+path = "src/bin/sample.rs"
+
 # Standalone workspace so cargo never folds this into a parent build graph.
 [workspace]

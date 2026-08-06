@@ -86,6 +86,17 @@ tokens path=".":
     target="$(cd "{{path}}" && pwd)"
     cd src-tauri && cargo run --quiet --bin sanity-tokens -- "$target"
 
+# Cut N functions out of a repo as prediction exercises — `just sample ../ComfyUI /tmp/x 10`.
+# Writes NN_head.md (what a reader is handed) and NN_body.txt (what it must predict), so the
+# same function can go to several readers and their grades compared. Nothing touches
+# `.sanity/`: measuring the reader is not assessing the repo.
+sample path out n="10":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="$(cd "{{path}}" && pwd)"
+    out="$(mkdir -p "{{out}}" && cd "{{out}}" && pwd)"
+    cd src-tauri && cargo run --quiet --bin sanity-sample -- "$target" "$out" {{n}}
+
 # Clone neo-mascots at `ref` (branch/tag/sha; default main), build the lib, copy the
 # bundle to web/src/lib/mascot.js. Vendored rather than depended on: it's a private repo,
 # so a plain `npm install` on a fresh checkout (or in CI) can't fetch it. Same recipe as
