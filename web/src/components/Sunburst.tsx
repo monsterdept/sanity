@@ -60,6 +60,29 @@ const FUNC_RIM_MAX_SHARE = 0.35
  *  bands, and plenty of those had breakdowns worth seeing. */
 const MIN_STACK_ARC = 5
 
+/** Narrowest a wedge may be drawn, in real screen pixels.
+ *
+ *  The sibling of `MIN_SLICE` in the file band, and stated the same way: the cut between
+ *  two wedges is a stroke, so below about a pixel what you see is the gap rather than the
+ *  code. Expressed in pixels because that is the thing the eye has — the layout's own
+ *  units are arbitrary and the viewBox rescales them to whatever the pane is. */
+const MIN_ARC_PX = 1
+
+/** The same floor for the radial stack inside a file's band. Kept at the value
+ *  `MIN_SLICE` was measured at, now actually in the units it claims. */
+const MIN_SLICE_PX = 1.4
+
+/** How coarsely the pane's size is read when deriving that threshold.
+ *
+ *  Wedges winking in and out while a window edge is dragged would be worse than the
+ *  problem: this codebase argues everywhere that the picture should stay recognisable
+ *  between visits, and a layout that reflows continuously is not recognisable at all.
+ *  Quantising also breaks the feedback loop — the viewBox is measured from what was
+ *  drawn, so a threshold read off a continuously-varying size could chase its own tail.
+ *  At this step a normal resize crosses no boundary and nothing moves; opening the same
+ *  window on a much larger display crosses several, and more of the repo appears. */
+const SIZE_STEP = 160
+
 /** Space left around the composition, as a fraction of its own half-extent. */
 const MARGIN = 0.05
 
@@ -158,6 +181,56 @@ export function Sunburst({
   const [pos, setPos] = useState({ x: 0, y: 0 })
   const [box, setBox] = useState({ w: 0, h: 0 })
   const art = useRef<SVGGElement>(null)
+  const pane = useRef<HTMLDivElement>(null)
+  /** The pane's size, measured rather than inferred from pointer traffic.
+   *
+   *  `box` was only written in `onMouseMove`, which is fine for placing a tooltip — the
+   *  pointer is by definition inside — and useless for deciding a layout, because it is
+   *  {0,0} until someone moves the mouse over the chart. A threshold read off that would
+   *  have been the fallback on every fresh render and then silently changed the picture
+   *  the first time the pointer crossed it. */
+  useLayoutEffect(() => {
+    const el = pane.current
+    if (!el) return
+    const ro = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect
+      setBox((prev) =>
+        prev.w === width && prev.h === height ? prev : { w: width, h: height },
+      )
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  /** The thinnest wedge worth drawing here, in radians.
+   *
+   *  The composition is drawn at a fixed radius in arbitrary units and the viewBox scales
+   *  it to the pane, so the pixel width of a given angle is `R_OUTER × angle × scale`.
+   *  Inverting that for one pixel is the whole of this. The nominal extent is used rather
+   *  than the measured viewBox on purpose: the viewBox is derived from what was drawn, and
+   *  feeding it back into what to draw is a loop. The rings always span `R_INNER..R_OUTER`
+   *  whatever the repo, so the nominal is right to within the margins anyway. */
+  /** User units per screen pixel, quantised. Everything below is stated in pixels and
+   *  converted through this, so the two axes answer to the same rule. */
+  const unitsPerPx = useMemo(() => {
+    const side = Math.min(box.w, box.h)
+    if (side <= 0) return null
+    const stepped = Math.max(SIZE_STEP, Math.round(side / SIZE_STEP) * SIZE_STEP)
+    const extent = 2 * R_OUTER * (1 + 2 * MARGIN)
+    return extent / stepped
+  }, [box.w, box.h])
+
+  const minAngle = useMemo(
+    () => (unitsPerPx === null ? undefined : (MIN_ARC_PX * unitsPerPx) / R_OUTER),
+    [unitsPerPx],
+  )
+  /** The radial stack's floor, same conversion. `MIN_SLICE`'s own comment measures it in
+   *  pixels — "a 150-function file in a 60px band rendered 0.40px slices" — but it is
+   *  applied to radii in user units, so it only meant that at one window size. */
+  const minSlice = useMemo(
+    () => (unitsPerPx === null ? undefined : MIN_SLICE_PX * unitsPerPx),
+    [unitsPerPx],
+  )
   /** The drawn extent, in user units. Square, so the composition does not stretch. */
   const [viewBox, setViewBox] = useState('-360 -360 720 720')
   const hover = hoverNode ? { node: hoverNode, ...pos } : null
@@ -166,8 +239,8 @@ export function Sunburst({
    *  stays closed when you come back past it. */
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
   const { wedges, hidden } = useMemo(
-    () => layout(root, RINGS, { collapsed }),
-    [root, collapsed],
+    () => layout(root, RINGS, { collapsed, minAngle }),
+    [root, collapsed, minAngle],
   )
 
   /** Files whose functions get stacked.
@@ -276,6 +349,7 @@ export function Sunburst({
     // only way to put the panel down is to select something else, so a detail view you
     // are done with has to be replaced rather than dismissed.
     <div
+      ref={pane}
       className="relative h-full min-h-0 w-full overflow-hidden"
       onClick={onClear}
       // Tracked on the container rather than per wedge: one listener instead of
@@ -490,7 +564,7 @@ export function Sunburst({
             // the same reasoning; this is that rule applied one level further in, where
             // the wedges are not culled but their CONTENTS cannot be drawn.
             if ((fa1 - fa0) * rMid < MIN_STACK_ARC) return null
-            return stackFunctions(w.node.children, r0, r1).map((slot) => {
+            return stackFunctions(w.node.children, r0, r1, { minSlice }).map((slot) => {
               const c = colorFor(slot.node, mode, ranks)
               const isSel = selected?.id === slot.node.id
               const isHover = hover?.node.id === slot.node.id

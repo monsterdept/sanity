@@ -19,9 +19,19 @@ export interface Layout {
   depth: number
 }
 
-/** Below this a wedge is under a pixel at any realistic radius, and rendering it costs
- *  a DOM node to draw nothing. A large monorepo has tens of thousands of functions and
- *  the browser will not survive an arc for each. */
+/** Fallback thinnest wedge, used when the caller has not measured its pane yet.
+ *
+ *  This constant was the whole rule, and its justification was a claim about PIXELS —
+ *  "below this a wedge is under a pixel at any realistic radius". But arc length is
+ *  `radius × angle`, so a fixed angle is a fixed pixel width at exactly one radius: 0.0025
+ *  is 1px when the outer ring is 400px across the screen. Below that it culled things that
+ *  were visible; above it — a maximised window on a large display — it went on culling
+ *  wedges that would have rendered two pixels wide and been perfectly clickable. The map
+ *  hid the same amount of the repo however much room you gave it.
+ *
+ *  So it is now a default rather than the rule. `LayoutOpts.minAngle` carries the real
+ *  threshold, derived from the pane, and the neighbouring `MIN_SLICE` — which was always
+ *  honest about being in pixels — is the model. */
 const MIN_ANGLE = 0.0025
 
 /**
@@ -41,6 +51,20 @@ export interface LayoutOpts {
    *  loudest about the code with the most lines — which is the axis we keep proving does
    *  not matter. Equal angles make it purely a map of heat. */
   even?: boolean
+  /** Thinnest wedge worth drawing, in radians, for the pane being laid out into.
+   *
+   *  Supplied by the caller because only the caller knows what a user unit is worth in
+   *  screen pixels: the sunburst draws at a fixed radius and lets the viewBox rescale it,
+   *  so one angle is a different number of pixels in every window. Omit it and the fixed
+   *  default stands. */
+  minAngle?: number
+  /** Thinnest radial slice worth drawing, in the layout's own units.
+   *
+   *  The same correction as `minAngle`, in the other axis. `MIN_SLICE` is documented in
+   *  pixels and measured in pixels, but `stackFunctions` is handed radii in user units —
+   *  which only coincide with pixels at one window size. Omit it and the fixed default
+   *  stands. */
+  minSlice?: number
   /** Order siblings by temperature instead of by name.
    *
    *  Directory order is the default because it makes the picture stable between scans,
@@ -92,7 +116,7 @@ export function layout(root: Node, maxDepth: number, opts: LayoutOpts = {}): Lay
       // Functions are never dropped for thinness. They render as dots, which have a
       // minimum size no matter how many share a ring — the whole reason for drawing them
       // that way. Only arcs, which genuinely vanish below a pixel, get culled.
-      if (span < MIN_ANGLE && child.kind !== 'func') {
+      if (span < (opts.minAngle ?? MIN_ANGLE) && child.kind !== 'func') {
         // Count the whole subtree, not just this node — otherwise the tally under-
         // reports by exactly the amount that matters on a deep tree. Files and
         // directories are counted apart so the note can name what went missing;
@@ -288,7 +312,8 @@ export function stackFunctions(
   // and the proportional budget left over is exactly zero. Every function then rendered
   // at the same sub-pixel height whatever its length — so the ring stopped meaning
   // "width is lines" and started meaning nothing, with no way to tell by looking.
-  const capacity = Math.max(1, Math.floor((height * FLOOR_SHARE) / MIN_SLICE))
+  const minSlice = opts.minSlice ?? MIN_SLICE
+  const capacity = Math.max(1, Math.floor((height * FLOOR_SHARE) / minSlice))
 
   let shown = fns
   let rest: Node[] = []
@@ -309,7 +334,7 @@ export function stackFunctions(
   // it is the edge of what this band could show, and it reads as a boundary there.
   const slots = rest.length > 0 ? [...shown, aggregate(rest, rest[0].path)] : shown
   const last = slots.length - 1
-  const min = Math.min(MIN_SLICE, height / slots.length)
+  const min = Math.min(minSlice, height / slots.length)
   const weight = (f: Node) => (opts.even ? 1 : Math.max(f.loc, 1))
   const total = slots.reduce((s, f) => s + weight(f), 0)
   const free = Math.max(0, height - min * slots.length)
@@ -360,7 +385,8 @@ export function sliceFunctions(
   // floor holds well over a thousand functions, so in practice nothing overflows here —
   // but a generated file can hold anything, and the failure this replaces was exactly a
   // floor that quietly stopped floring.
-  const capacity = Math.max(1, Math.floor((span * FLOOR_SHARE) / MIN_ANGLE))
+  const minAngle = opts.minAngle ?? MIN_ANGLE
+  const capacity = Math.max(1, Math.floor((span * FLOOR_SHARE) / minAngle))
   let shown = fns
   let rest: Node[] = []
   if (fns.length > capacity) {
@@ -372,7 +398,7 @@ export function sliceFunctions(
   }
 
   const slices = rest.length > 0 ? [...shown, aggregate(rest, rest[0].path)] : shown
-  const min = Math.min(MIN_ANGLE, span / slices.length)
+  const min = Math.min(minAngle, span / slices.length)
   const weight = (f: Node) => (opts.even ? 1 : Math.max(f.loc, 1))
   const total = slices.reduce((s, f) => s + weight(f), 0)
   const free = Math.max(0, span - min * slices.length)
