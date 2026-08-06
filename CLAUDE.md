@@ -154,6 +154,19 @@ When a field is added to `Report`, add it to the schema in the same commit.
   count. `just tokens` first located the boundary by searching for a heading, the heading
   was reworded an hour later, and it silently billed every reader for both halves. A
   boundary worth measuring is worth making structural.
+- **A scan is a photograph; the repo is not standing still. Re-cut before handing out.**
+  Line numbers come from the scan, while `read_source` and every reader's bounded read go
+  to the file as it is NOW — so one edit puts every function below it at the wrong lines.
+  The code view highlights the wrong extent, and a reader predicts one function, reads
+  whatever now sits at those lines, and grades the two against each other. That is not a
+  weak reading, it is a reading about nothing, and nothing in it says so. A reader found
+  it from the far end, reporting that the range it was handed held unrelated constants.
+  `resync_changed` runs at the top of `queue` — mtime AND length, because two writes in
+  one second can share an mtime. It refreshes positions, signature, docs and body hash;
+  it does **not** touch node ids (they embed `@line`, they would all move, and re-keying
+  the reports map is the shape of the migration that once destroyed a project's readings),
+  and it does **not** add functions written since the scan, because those need scoring
+  against every peer in the file. Those arrive on the next `sanity_open`.
 - **Never report coverage off a lease-filtered list.** `done`/`remaining` did, so 34
   functions out with readers read as finished under "every function has an up-to-date
   reading". `work_left` returns `(remaining, in_flight)`: remaining ignores leases and
@@ -199,9 +212,22 @@ When a field is added to `Report`, add it to the schema in the same commit.
   left a documentation grade reading as current when the text it graded was gone.
   `reading_hash(doc, body)` is what `node.body` holds now; it collapses whitespace across
   both, so a reflow expires nothing.
-- **Read `by_position` as a comparison, never a count.** At a batch of three `later` is
-  supposed to be roughly twice `first`; a populated `later` is not a finding. Whether
-  `later` grades *greener* is.
+- **`by_position` is one bucket per position, and reading it as a curve is the point.**
+  It used to collapse to first-versus-later, which answered the wrong question and hid
+  that it had: a full pass of this repo at a batch of three found the two buckets flat,
+  which reads as "no warming" and actually means "no warming *within three*". The concern
+  was always position eight or nine. Per position, any run at any batch size adds a point
+  to the same curve for free, and a knee at six shows up as a knee.
+- **`peers` is the nearest twenty in FILE ORDER, and the remainder is reported.** It was
+  every function in the file, which nobody noticed while the only repo being scanned had
+  small ones. Measured: this repo's median task payload was 920 characters with 438 of
+  siblings; tonepoet's was **5,213 with 4,759** — 91% — and 30,512 at p90. A full pass
+  there would have spent ~20M tokens on lists of function names, twice the entire tool
+  contract, which makes it by a distance the biggest thing we control. File order rather
+  than alphabetical because the value was never a census: the findings this field earns —
+  a test named for a property its neighbours show it lacks — come from adjacency.
+  `peers_omitted` exists so a window is never mistaken for a whole file. **Run `just
+  tokens` against a repo with big files before trusting any claim about payload size.**
 - **The orchestrator must be able to read its own result.** It is the party that has to
   report and the one party forbidden `.sanity/`, and nothing returned a grade — so a real
   run ended with the driving session describing its own measurement from what subagents

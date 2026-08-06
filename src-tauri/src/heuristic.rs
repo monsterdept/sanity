@@ -164,8 +164,26 @@ fn shingles(src: &str) -> HashSet<u64> {
     toks.windows(3).map(|w| fnv(w.join(" ").as_bytes())).collect()
 }
 
-/// FNV-1a. A hash set of `u64` rather than of `String` — a large repo produces millions
-/// of shingles and the strings are pure allocation churn we never need to read back.
+/// FNV-1a's shape, with a multiplier that is NOT FNV-1a's prime. Read the name as a
+/// description of the loop, not a claim about the algorithm.
+///
+/// The constant should be `0x0000_0100_0000_01b3` and is `0x1000_0000_01b3` — the same
+/// digits, grouped one place out, and copied into `cache.rs` and `assessment.rs` before
+/// anyone noticed. A cold reader predicted FNV-1a from this comment, read the body, and
+/// found a different number.
+///
+/// **Left as it is, deliberately.** Nothing here needs FNV: shingles need a stable
+/// spread, and the structure is the same — a power of two plus a small odd number — so it
+/// mixes on the same principle. Correcting it would move every shingle hash, hence every
+/// distinctiveness score, hence the colour of every proxy-scored wedge in every repo; and
+/// the twin in `assessment.rs` is inside `body_hash`, so changing that one expires every
+/// committed reading everywhere. A doc that names an algorithm the code does not
+/// implement is the bug. Fixed by saying so.
+///
+/// If real FNV-1a is ever wanted here, it is a one-line change and a full re-read.
+///
+/// A hash set of `u64` rather than of `String` — a large repo produces millions of
+/// shingles and the strings are pure allocation churn we never need to read back.
 fn fnv(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in bytes {

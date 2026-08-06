@@ -336,6 +336,56 @@ export function reportGrades(r: AgentReport): { surprise: number; documented: nu
   }
 }
 
+/** What one reading is called on screen, cold to hot.
+ *
+ *  A reader's judgement has four steps and no more, so `62°` was inviting a comparison
+ *  that cannot be made — four wedges reading `30°` are not four measurements that happened
+ *  to agree, they are one grade. Two digits also need a legend before they mean anything,
+ *  and the legend was never on screen.
+ *
+ *  Temperature words rather than the grade's own words, because `none` means opposite ends
+ *  of this scale depending on which field you read it in: `predicted: none` is the hottest
+ *  reading there is, and a wedge labelled "none" would say the reverse to anyone glancing.
+ *  These match the vocabulary the app already uses for the ramp — hot lines, hottest
+ *  wedges — and the colour beside them.
+ *
+ *  They also carry no spacing, which is the point. `Grade.surprise` is deliberately uneven
+ *  (0.08 / 0.30 / 0.62 / 0.92) because the two confident steps belong close together; a
+ *  1-4 integer would have flattened that claim on screen while the constants went on
+ *  asserting it underneath. Numbers stay where they are earned: on containers, which
+ *  average many readings in surprise space and mean every digit they show. */
+export const HEAT_WORDS: Record<Grade, string> = {
+  full: 'cold',
+  most: 'warm',
+  some: 'hot',
+  none: 'blazing',
+}
+
+/** How well documented, in the reader's own words. Post-provenance, so a doc it judged
+ *  derivable reads `none` here — the same rule `reportGrades` applies to the number. */
+export const DOC_WORDS: Record<Grade, string> = {
+  full: 'full',
+  most: 'most',
+  some: 'some',
+  none: 'none',
+}
+
+/** The word for a wedge a reader actually read, or null if nobody has.
+ *
+ *  Null for a proxy or model score on purpose: those are continuous and mean something
+ *  different, and giving them one of four words would claim a reader's judgement where
+ *  there is an estimate. A stale reading is null too — it has already stopped colouring
+ *  the wedge, and a word is a colour in text. */
+export function readingWords(node: Node): { heat: string; documented: string | null } | null {
+  if (node.kind !== 'func' || !node.agent || node.agentStale) return null
+  const r = node.agent
+  const predicted = r.predicted ?? (r.surprised ? 'none' : 'full')
+  return {
+    heat: HEAT_WORDS[predicted],
+    documented: r.derivable ? DOC_WORDS.none : r.documented ? DOC_WORDS[r.documented] : null,
+  }
+}
+
 /** What agents have reported for one project. Pass the key of the project ON SCREEN —
  *  without it the backend answers for whichever repo an agent last opened, which is not
  *  the same thing the moment there are two. */

@@ -81,6 +81,8 @@ pub fn key(path: &str, name: &str, body: &str, doc: Option<&str>) -> (String, u6
     (format!("{path}#{name}"), h)
 }
 
+/// Named for FNV-1a's shape; the multiplier is not FNV-1a's prime. See the twin in
+/// `heuristic.rs` for why it stays wrong and the name stays honest about it.
 fn fnv(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in bytes {

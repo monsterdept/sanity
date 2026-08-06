@@ -4,6 +4,7 @@ import { elide } from '../lib/text'
 import {
   heatColor,
   isAnalyzed,
+  readingWords,
   temperature,
   wedgeHeat,
   type AgentReport,
@@ -30,6 +31,7 @@ function Gauge({
   value,
   hint,
   unread,
+  word,
 }: {
   label: string
   value: number
@@ -37,6 +39,13 @@ function Gauge({
   /** No value to show — draw the track and say so, rather than a needle at zero, which
    *  claims a reading of nought where there is no reading at all. */
   unread?: boolean
+  /** Say it in words instead of digits, for a reading that has four steps and no more.
+   *
+   *  The arc stays: it is the glance, and it wants the uneven spacing that makes `cold`
+   *  and `warm` sit close together. It is the printed number that was the problem —
+   *  `62` reads as a measurement to one part in a hundred, and four wedges at `30` look
+   *  like four measurements agreeing rather than one grade repeated. */
+  word?: string | null
 }) {
   const R = 40
   const LEN = Math.PI * R
@@ -63,11 +72,11 @@ function Gauge({
           y={48}
           textAnchor="middle"
           className="mono"
-          fontSize={22}
+          fontSize={word ? 15 : 22}
           fontWeight={600}
           fill="var(--foreground)"
         >
-          {unread ? '—' : Math.round(v * 100)}
+          {unread ? '—' : (word ?? Math.round(v * 100))}
         </text>
       </svg>
       <span className="mt-0.5 cursor-help text-center text-[9.5px] font-semibold uppercase leading-tight tracking-wide text-[var(--muted-foreground)]">
@@ -167,7 +176,10 @@ function measure(n: Node, mode: ColorMode): string | null {
   // well too, and the swatch is a colour you have to decode where a number is not.
   if (mode === 'surprise') {
     if (!s || !isAnalyzed(n)) return '\u2014'
-    return `${Math.round(wedgeHeat(n) * 100)}\u00b0`
+    // A read function says its grade; a model-scored one keeps its degrees, because that
+    // number really is continuous. Four rows reading `warm` are honestly tied \u2014 where
+    // four rows reading `30\u00b0` looked like four measurements that happened to agree.
+    return readingWords(n)?.heat ?? `${Math.round(wedgeHeat(n) * 100)}\u00b0`
   }
   return n.loc.toLocaleString()
 }
@@ -297,6 +309,9 @@ export function Detail({
   const t = temperature(s)
   const isLeaf = node.kind === 'func'
   const analyzed = isAnalyzed(node)
+  // Null unless a reader actually read this one, which is what keeps the words off a
+  // proxy estimate — those are continuous and mean something else.
+  const words = readingWords(node)
 
   return (
     <div className="flex h-full flex-col">
@@ -347,7 +362,8 @@ export function Detail({
             <Gauge
               label="Surprise"
               value={t}
-              hint="How little of this body a reader could predict from its name, signature, neighbours and docs. This is the colour."
+              word={words?.heat}
+              hint="How little of this body a reader could predict from its name, signature, neighbours and docs. This is the colour. A reader's judgement has four steps, so it is named rather than numbered — a printed 62 would invite a comparison the scale cannot make."
             />
           ) : (
             /* The LOC-weighted mean of what is inside. It was the hot share — the
@@ -369,10 +385,14 @@ export function Detail({
               already lowered the surprise beside it. Shown because "surprising and
               undocumented" and "surprising but well covered" are different situations,
               and only one of them is anyone's fault. */}
+          {/* Named on the same terms and for the same reason: an agent's `documented` is
+              the same four steps, so 95 / 70 / 35 / 0 was the identical false precision
+              one column over. The proxy's estimate is continuous and keeps its digits. */}
           <Gauge
             label="Documented"
             value={s.documented}
-            hint="How well the attached docs cover what the code actually does — graded by the reader that read both, not counted in comment lines."
+            word={words?.documented}
+            hint="How well the attached docs cover what the code actually does — graded by the reader that read both, not counted in comment lines. A doc the reader judged derivable from the code reads none, whatever grade it gave."
           />
           {/* The second axis. Surprise alone cannot tell a subtle algorithm from a mess —
               both are unpredictable — and churn is what separates them.
@@ -404,13 +424,19 @@ export function Detail({
         /* Say what grey means rather than showing proxy numbers under a grey swatch —
            the numbers exist, but presenting them here is how a proxy reading gets
            mistaken for a finding. */
+        /* Sent to the reader that can actually act, and no longer to a menu that does
+           not exist. This said "enable a model under Model…" — a live instruction to
+           use the Ollama path, which was removed endpoint and all, so the one panel a
+           person reaches by clicking any grey wedge told them to do something
+           impossible. Readings come from agents over MCP now, and the only thing that
+           produces one here is a reader being pointed at this repo. */
         <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
-          No model has looked at this yet.
+          Nobody has read this yet.
           {isLeaf
-            ? ' The scan hasn’t reached it — the queue is ordered by how promising each function looks.'
-            : ' Nothing inside it has been analysed yet.'}{' '}
-          Enable a model under <span className="font-semibold">Model…</span> to get a
-          reading here.
+            ? ' The queue is ordered by how promising each function looks, and it hasn’t got here.'
+            : ' Nothing inside it has been read.'}{' '}
+          Readings come from an agent working through the repo over MCP — point one at
+          this project and it will fill in.
         </p>
       ) : (
         <>
@@ -545,7 +571,7 @@ export function Detail({
           {!analyzed && (
             <p className="mt-3 text-[11px] leading-snug text-[var(--muted-foreground)]">
               These come from the offline proxy, which measurably tracks file length more
-              than surprise. Enable a model for a reading worth acting on.
+              than surprise. A reader has to look at it for a number worth acting on.
             </p>
           )}
         </>

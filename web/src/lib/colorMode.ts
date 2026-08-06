@@ -1,4 +1,4 @@
-import { heatColor, isAnalyzed, type Node } from './api'
+import { heatColor, isAnalyzed, readingWords, type Node } from './api'
 
 /** What the colour in the sunburst means. One geometry, five encodings. */
 export type ColorMode = 'surprise' | 'churn' | 'age' | 'blame' | 'language'
@@ -74,9 +74,15 @@ export function colorFor(
   if (mode === 'surprise') {
     if (!s || !isAnalyzed(node)) return null
     const t = node.kind === 'func' ? s.surprise : s.hotShare
+    // A function a reader read is named, not numbered — its scale has four steps and a
+    // printed 62 claims otherwise. A container keeps its percentage: that one is a
+    // roll-up of many readings in surprise space, where every digit is earned.
     return {
       fill: heatColor(t),
-      label: node.kind === 'func' ? `${Math.round(t * 100)}°` : `${Math.round(t * 100)}% hot`,
+      label:
+        node.kind === 'func'
+          ? (readingWords(node)?.heat ?? `${Math.round(t * 100)}°`)
+          : `${Math.round(t * 100)}% hot`,
     }
   }
 

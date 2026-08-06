@@ -141,9 +141,15 @@ fn text<'a>(node: TsNode, src: &'a str) -> &'a str {
 
 /// Comment lines sitting directly above the definition, with no blank line between.
 ///
-/// The adjacency check is the whole trick: a licence header at the top of the file is a
+/// The adjacency check is most of the trick: a licence header at the top of the file is a
 /// comment immediately preceding the first function in token order, and counting it as
 /// that function's documentation would cool the file's first wedge on every scan.
+///
+/// The rest of it is stepping over attributes and decorators, which sit *between* the
+/// comment and the definition — a strict adjacency rule would sever every doc comment
+/// above a `#[derive(...)]` or an `@override` and report those functions undocumented.
+/// This paragraph exists because a cold reader predicted the blank-line rule from the
+/// sentence above, read the body, and found a second rule it had not been told about.
 fn leading_doc(node: TsNode, src: &str) -> Option<String> {
     let mut lines: Vec<String> = Vec::new();
     let mut cur = node;

@@ -52,6 +52,35 @@ pub struct Project {
     /// got the same ten, and thirty calls produced fourteen assessments. Leases make
     /// concurrency actually add coverage.
     pub leased: HashMap<String, std::time::Instant>,
+    /// When each file last had a function handed out of it.
+    ///
+    /// `interleave_by_file` spreads work across files *within one handout*, which was the
+    /// entire mechanism while a reader received three functions at once. Drip-feeding one
+    /// at a time defeated it silently: each call is an independent request for the single
+    /// best-ranked function, scores cluster by file because distinctiveness is file-local,
+    /// and so a reader's second call lands in the file its first call just opened. A
+    /// reader caught it by honestly reporting `cold: false` on its own third reading.
+    ///
+    /// So the spreading has to survive between calls, and this is the only place it can
+    /// live: subagents share one MCP process, so the server cannot tell two readers apart
+    /// and cannot do it per reader. A global rest window is cruder and works, because the
+    /// case that matters is exactly the one it catches — the same reader coming back
+    /// seconds later.
+    pub recent_files: HashMap<String, std::time::Instant>,
+    /// What each file looked like when its functions were last cut out of it.
+    ///
+    /// Modified-time and length, because a scan is a photograph and the repo is not
+    /// standing still. Line numbers come from the scan; `read_source` and every reader's
+    /// bounded read go to the file as it is now. Edit anything and every function below
+    /// the edit is handed out at the wrong lines — the code view highlights the wrong
+    /// extent, and a reader predicts one function, reads whatever now sits at those
+    /// lines, and grades the two against each other. That reading is not weak evidence,
+    /// it is evidence about nothing, and nothing in it says so.
+    ///
+    /// Length as well as mtime: a filesystem's mtime resolution is coarse enough that two
+    /// writes in the same second can look identical, and this is the guard against
+    /// handing out a range that has already moved.
+    pub file_marks: HashMap<String, (std::time::SystemTime, u64)>,
     /// Monotonic counter, not a clock: the UI follows whichever project was touched last
     /// and `Instant` would need a baseline to serialise. A counter is enough to order them.
     pub touched: u64,
@@ -191,10 +220,26 @@ impl AppState {
     /// this" meant two agents on two repos silently merged — the second one to call
     /// `sanity_open` took ownership of the first one's queue, its leases and its
     /// readings, and the first one's orchestrator never knew it had changed repos.
+    /// **A key that is asked for and not found is NOT the same as no key.** It used to
+    /// fall through to `active`, which reopened the exact hole the shim was built to
+    /// close: the caller named a repo, the app did not have it, and the call was answered
+    /// for whichever project the window happened to be following. A reading would have
+    /// been written into another repo's `.sanity/`, attributed and hashed and looking
+    /// entirely genuine.
+    ///
+    /// It is not hypothetical. The app restarts on every edit during development and
+    /// `restore` rescans on a background thread, so there is a window on every restart
+    /// where the shim holds a perfectly good key for a project that is not loaded yet. A
+    /// cold reader found this by predicting the function from that doc comment and
+    /// noticing the body does the thing the comment warns about.
+    ///
+    /// So it returns `None`, and the callers say "not loaded, retry" — the same answer
+    /// they give when nothing is open at all, because from the caller's side it is the
+    /// same situation: wait, do not throw the reading away.
     pub fn for_client(&self, project: Option<&str>) -> Option<String> {
         match project {
-            Some(k) if self.projects.contains_key(k) => Some(k.to_string()),
-            _ => self.active.clone(),
+            Some(k) => self.projects.contains_key(k).then(|| k.to_string()),
+            None => self.active.clone(),
         }
     }
 
@@ -230,6 +275,15 @@ const NO_PROJECT: &str = "No project is open for this call. If you were assessin
     same arguments, up to about five times; do NOT discard the reading you just made, and \
     do not start over. If it keeps failing, the human needs to call sanity_open, so stop \
     and say so rather than throwing the reading away.";
+
+/// How long a file is passed over after something is drawn from it.
+///
+/// Long enough to outlast one reader's three functions, which take about seventy seconds
+/// together — that is the case this exists for, a reader coming back to a file it opened
+/// twenty seconds ago and honestly reporting the second reading warm. Short enough that
+/// it is a preference and not a lock: `queue` falls back to rested files when nothing
+/// else is left, so a repo with four files still finishes.
+const FILE_REST: Duration = Duration::from_secs(180);
 
 /// How many outstanding leases `sanity_status` itemises. A diagnostic, not an inventory:
 /// the oldest few answer "is a wave stuck", and the rest are the same answer again.
@@ -319,7 +373,14 @@ pub struct Task {
     /// Qualified by owner where there is one, for the reason above and for one the
     /// dedupe made worse: two same-named twins collapsed to a single entry, so the list
     /// actively concealed that the file held more than one.
+    ///
+    /// The nearest [`PEER_WINDOW`] in file order, not the whole file — see there for what
+    /// the whole file was costing.
     pub peers: Vec<String>,
+    /// How many siblings the window left out, so a truncated list is never mistaken for
+    /// a complete one. Zero when the file fits.
+    #[serde(default)]
+    pub peers_omitted: usize,
     /// The comment stack a reader has before opening the body: this chunk's own doc
     /// first, then the file's. Handed over BEFORE the prediction on purpose — an
     /// agentic reader reads the comments before the code, so predicting without them
@@ -482,11 +543,18 @@ impl Report {
         }
     }
 
-    /// The two grades, with pre-grade reports folded in.
+    /// The two grades, with two rules applied that the grades themselves do not carry.
     ///
     /// An old report only knew surprised-or-not, so it maps to the ends of the scale.
     /// Coarse, but it is what that reader actually said — inventing a middle grade for
     /// it would be making up a judgement nobody made.
+    ///
+    /// And **`derivable` forces `documented` to `None`**, whatever grade the reader gave:
+    /// a doc a model could regenerate from the body explains nothing that was not already
+    /// there. That rule lived only in the inline comment below, so the number this returns
+    /// was not the number the reader reported and nothing visible from outside said so —
+    /// a cold reader predicted this function, found the override, and pointed out that the
+    /// TypeScript mirror `reportGrades` documents both rules while this one documents one.
     pub fn grades(&self) -> (Grade, Option<Grade>) {
         let predicted = self
             .predicted
@@ -501,6 +569,51 @@ impl Report {
         };
         (predicted, documented)
     }
+}
+
+/// How many siblings a reader is shown, at most.
+///
+/// The list was every function in the file, and on a repo with small files nobody noticed.
+/// Measured across three: this repo's median task payload is 920 characters of which 438
+/// are siblings; tonepoet's is **5,213 of which 4,759** — 91% — and its p90 is 30,512
+/// characters of function names handed to a reader about to read fourteen lines. A full
+/// pass there would spend ~22M tokens on sibling lists, more than twice the entire tool
+/// contract. It is by a distance the largest thing we control, and it was invisible until
+/// `just tokens` was pointed at a repo with big files.
+///
+/// Twenty, centred on the function, because the value was never a census. "What else is in
+/// this file" is a claim about the neighbourhood, and the findings this field earns — a
+/// test named for a property its neighbours show it does not have — come from the
+/// functions either side. Five hundred names are not five hundred times as informative.
+///
+/// The remainder is reported rather than dropped: a reader handed twenty names with no
+/// count would take them for the whole file, which is a different and false statement.
+const PEER_WINDOW: usize = 20;
+
+/// The functions either side of this one, and how many were left out.
+///
+/// Centred where it can be, and sliding to the edges where it cannot — the first function
+/// in a file gets twenty below it rather than ten of nothing and ten below.
+fn neighbours(names: &[String], i: usize) -> (Vec<String>, usize) {
+    if names.len() <= PEER_WINDOW + 1 {
+        let peers: Vec<String> = names
+            .iter()
+            .enumerate()
+            .filter(|(k, _)| *k != i)
+            .map(|(_, n)| n.clone())
+            .collect();
+        return (peers, 0);
+    }
+    let half = PEER_WINDOW / 2;
+    let start = i.saturating_sub(half).min(names.len() - PEER_WINDOW - 1);
+    let peers: Vec<String> = names[start..=start + PEER_WINDOW]
+        .iter()
+        .enumerate()
+        .filter(|(k, _)| start + k != i)
+        .map(|(_, n)| n.clone())
+        .collect();
+    let omitted = names.len() - 1 - peers.len();
+    (peers, omitted)
 }
 
 /// How a language writes "this function, on that type".
@@ -570,6 +683,7 @@ fn collect_tasks(
                 owner: node.owner.clone(),
                 signature: node.signature.clone().unwrap_or_default(),
                 peers: Vec::new(),
+                peers_omitted: 0,
                 docs: [node.doc.as_deref(), file_doc]
                     .into_iter()
                     .flatten()
@@ -582,25 +696,30 @@ fn collect_tasks(
         return;
     }
     if node.kind == NodeKind::File {
-        // Qualified by owner first, THEN deduped. Deduping bare names folded a file's
-        // `Tag::parse` and `LogicalVolumeDescriptor::parse` into one entry reading
-        // `parse`, so the sibling list — the thing that exists to tell a reader what else
-        // is here — concealed the twins it was most needed for. What remains deduped is
-        // the genuine repeat: cfg-gated variants of one function on one type.
-        let mut names: Vec<String> = node
+        // Qualified by owner, and kept in FILE ORDER rather than sorted. Order is what
+        // makes the window below mean something: the functions either side of this one are
+        // what a person scrolling past would see, and the findings this field actually
+        // produces — a test whose name promises more than its neighbours deliver — come
+        // from that adjacency, not from an alphabetical census.
+        let names: Vec<String> = node
             .children
             .iter()
             .map(|c| qualify(&c.name, c.owner.as_deref(), c.lang))
             .collect();
-        names.sort();
-        names.dedup();
         let before = out.len();
-        for c in &node.children {
+        // Which child produced which task, so each one gets its own neighbourhood. Not
+        // every child yields a task — read and leased ones are skipped — so the index
+        // cannot be inferred from position in `out`.
+        let mut from: Vec<usize> = Vec::new();
+        for (i, c) in node.children.iter().enumerate() {
+            let mark = out.len();
             collect_tasks(c, done, leased, root, node.doc.as_deref(), out);
+            from.extend(std::iter::repeat_n(i, out.len() - mark));
         }
-        for (_, t) in out.iter_mut().skip(before) {
-            let own = qualify(&t.name, t.owner.as_deref(), node.lang);
-            t.peers = names.iter().filter(|n| **n != own).cloned().collect();
+        for (k, (_, t)) in out.iter_mut().skip(before).enumerate() {
+            let (peers, omitted) = neighbours(&names, from[k]);
+            t.peers = peers;
+            t.peers_omitted = omitted;
         }
         return;
     }
@@ -685,13 +804,25 @@ pub struct QueueParams {
 /// protocol asks for three calls. Nothing about the cost table changes — it was never
 /// measuring the batch.
 ///
-/// **The cost figure carries a validity guess, and the guess is untested.**
-/// The same sweep looked for the drift: readings at position 2+ graded `full` 36% against
-/// 29% for first readings — the right direction, nowhere near significant on 54 readings,
-/// and confounded, because the n=1 readers ran first and took the top of a queue ordered
-/// by proxy surprise while the batched ones got what was left. Settling it needs n=1 and
-/// n=k readers interleaved in one wave, over hundreds of readings. `position` is on every
-/// reading so that experiment changes this constant and nothing else.
+/// **The validity half is unsettled, and the first clean measurement points the OTHER
+/// WAY.** The batch-size sweep had readings at position 2+ grading `full` 36% against 29%
+/// for first readings — the direction the whole warm-tail argument predicts, but not
+/// significant, and confounded: the unbatched readers ran first and took the top of a
+/// proxy-ranked queue while the batched ones got what was left. A later run, on a fresh
+/// store with drip-feed and file-rest in place and no such confound, reversed it: 66
+/// readings, `full` at 41% for position 1 and 20% for positions 2-3, with `some` going
+/// 0% to 20%. Later readings were HARSHER, not greener (z ≈ 1.7 — suggestive, not
+/// settled).
+///
+/// If that holds, the stated reason for a short batch is wrong even though the batch may
+/// still be right: what drifts looks like the reader's calibration, not its knowledge —
+/// the first grade is generous and later ones are self-corrected against a scale it has
+/// now used. That is still a scale widening inside one run, and still an argument for
+/// keeping the tail short. It is not the argument written down above.
+///
+/// Do not quietly re-tune this on the strength of either number. `position` is on every
+/// reading so the question stays answerable; settling it needs the two conditions
+/// interleaved in one wave, over hundreds of readings.
 fn default_n() -> usize {
     1
 }
@@ -887,6 +1018,8 @@ async fn open_project(
             // released twice costs one duplicate reading; a reader silently blocked from
             // work that was never really held costs coverage.
             leased: HashMap::new(),
+            recent_files: HashMap::new(),
+            file_marks: HashMap::new(),
             touched,
             last_agent: Some(Instant::now()),
         },
@@ -1051,6 +1184,140 @@ fn interleave_by_file(mut ranked: Vec<(f32, Task)>, n: usize) -> Vec<Task> {
     }
     out
 }
+/// What the file looks like on disk right now, or nothing if it cannot be read.
+fn mark_of(repo: &Path, rel_path: &str) -> Option<(std::time::SystemTime, u64)> {
+    let m = std::fs::metadata(repo.join(rel_path)).ok()?;
+    Some((m.modified().ok()?, m.len()))
+}
+
+/// Cut one file's functions out of it again, against the file as it is now.
+///
+/// Positions, signature, docs and body hash are refreshed; the node **id is left alone**.
+/// Ids embed `@line` and would all move, and the reports map is keyed by id for this
+/// session — re-keying it here is the shape of the migration that once destroyed a
+/// project's readings. Nothing parses an id; the durable key is `key_of(path, name, ord)`,
+/// which has no line in it precisely so that this is safe.
+///
+/// Functions that have gone are dropped. Functions that are NEW are not added: the queue
+/// would have to score them, and distinctiveness is measured against every peer in the
+/// file. They arrive on the next `sanity_open`, which rescans. Said plainly rather than
+/// left to be discovered, because "the map is missing a function you just wrote" is a
+/// reasonable thing to be confused by.
+fn resync_file(root: &mut Node, repo: &Path, rel_path: &str) -> bool {
+    fn find<'a>(n: &'a mut Node, path: &str) -> Option<&'a mut Node> {
+        if n.kind == NodeKind::File && n.path == path {
+            return Some(n);
+        }
+        n.children.iter_mut().find_map(|c| find(c, path))
+    }
+    let Some(file) = find(root, rel_path) else {
+        return false;
+    };
+    let Some(lang) = file.lang else {
+        return false;
+    };
+    let Ok(src) = std::fs::read_to_string(repo.join(rel_path)) else {
+        return false;
+    };
+
+    // Keyed by name and ordinal — position among same-named functions, in line order.
+    // The same ordinal `key_of` uses, and for the same reason: a file holds a dozen
+    // `parse`s and the name alone cannot say which of them moved where.
+    let defs = crate::parse::parse_functions(lang, &src);
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    let mut fresh: HashMap<(&str, usize), &crate::parse::FuncDef> = HashMap::new();
+    for d in &defs {
+        let ord = counts.entry(d.name.as_str()).or_insert(0);
+        fresh.insert((d.name.as_str(), *ord), d);
+        *ord += 1;
+    }
+
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    file.children.retain_mut(|c| {
+        let ord = counts.entry(c.name.clone()).or_insert(0);
+        let this = *ord;
+        *ord += 1;
+        match fresh.get(&(c.name.as_str(), this)) {
+            Some(d) => {
+                c.line = Some(d.start_line);
+                c.end_line = Some(d.end_line);
+                c.loc = d.loc();
+                c.signature = Some(d.signature.clone());
+                c.doc = d.doc.clone();
+                c.owner = d.owner.clone();
+                // Re-hashed here so a reading taken after this points at what the reader
+                // actually read. Left stale, `report` would stamp the hash of a body that
+                // is already gone and the reading would look current forever.
+                c.body = Some(crate::assessment::reading_hash(d.doc.as_deref(), &d.body));
+                true
+            }
+            None => false,
+        }
+    });
+    true
+}
+
+/// Re-cut every file that has moved since we last looked.
+///
+/// Called before anything is handed out, which is the only place it can be: a range is
+/// wrong from the moment the file changes, and the queue is what turns a range into a
+/// reader's instruction. Doing it here rather than on a file-watcher keeps it to one
+/// mechanism with no background thread to be out of date in its own way.
+///
+/// The first pass over a file only records what it looks like — the tree came straight
+/// from a scan, so there is nothing to correct yet.
+fn resync_changed(project: &mut Project) -> usize {
+    let repo = project.repo.clone();
+    let mut seen: Vec<(String, (std::time::SystemTime, u64))> = Vec::new();
+    project.scan.root.visit(&mut |n| {
+        if n.kind == NodeKind::File {
+            if let Some(m) = mark_of(&repo, &n.path) {
+                seen.push((n.path.clone(), m));
+            }
+        }
+    });
+    let moved: Vec<String> = seen
+        .into_iter()
+        .filter(|(path, m)| project.file_marks.insert(path.clone(), *m).is_some_and(|was| was != *m))
+        .map(|(path, _)| path)
+        .collect();
+    if moved.is_empty() {
+        return 0;
+    }
+    for path in &moved {
+        resync_file(&mut project.scan.root, &repo, path);
+    }
+    // Widths and roll-ups follow the lines that just changed, or the parents keep
+    // describing a file that is no longer that size.
+    project.scan.root.aggregate();
+    moved.len()
+}
+
+/// Pick what to hand over, holding back files something was just drawn from.
+///
+/// [`interleave_by_file`] spreads within one handout and that was the whole mechanism
+/// while a reader received three functions at once. One at a time, it does nothing: each
+/// call independently returns the best-ranked function, scores cluster by file because
+/// distinctiveness is file-local, and the reader's next call lands in the file it has just
+/// been reading. So the spread has to be remembered between calls.
+///
+/// Rested files are PREFERRED, not forbidden. At the end of a run, or in a repo of four
+/// files, everything left may sit in a file touched a minute ago — and a warm reading is
+/// worth more than a stalled queue with work still on the table.
+fn spread_across_files(
+    tasks: Vec<(f32, Task)>,
+    recent: &HashMap<String, Instant>,
+    now: Instant,
+    n: usize,
+) -> Vec<Task> {
+    let (fresh, resting): (Vec<_>, Vec<_>) = tasks.into_iter().partition(|(_, t)| {
+        recent
+            .get(&t.path)
+            .is_none_or(|at| now.duration_since(*at) > FILE_REST)
+    });
+    interleave_by_file(if fresh.is_empty() { resting } else { fresh }, n)
+}
+
 async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Json<Vec<Task>> {
     let Ok(mut state) = state.lock() else {
         return Json(Vec::new());
@@ -1063,6 +1330,10 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
         return Json(Vec::new());
     };
     project.last_agent = Some(Instant::now());
+    // Before anything is ranked, let alone handed out. A range that has moved is not a
+    // slightly-wrong instruction, it is a reader predicting one function and reading
+    // whatever now sits at those lines.
+    resync_changed(project);
 
     let mut tasks: Vec<(f32, Task)> = Vec::new();
     collect_tasks(
@@ -1073,13 +1344,14 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
         None,
         &mut tasks,
     );
-    let handed = interleave_by_file(tasks, p.n);
+    let now = Instant::now();
+    let handed = spread_across_files(tasks, &project.recent_files, now, p.n);
 
     // Reserved as they go out, so the next caller — very likely a sibling subagent
     // running at the same moment — gets different work.
-    let now = Instant::now();
     for t in &handed {
         project.leased.insert(t.id.clone(), now);
+        project.recent_files.insert(t.path.clone(), now);
     }
     // Handing out nothing when nothing is left is the end of the job, and the only moment
     // in the protocol worth a flourish. Handing out nothing while work is still leased is
@@ -1173,9 +1445,10 @@ async fn report(
     let mut hint = String::new();
     if total >= 8 && surprised * 10 < total {
         hint = format!(
-            "Only {surprised} of {total} flagged as surprising. If you are reading files \
-             you already knew, or being agreeable, these results mean nothing — use a \
-             fresh subagent."
+            "Across THIS WHOLE REPO — not your readings — only {surprised} of {total} are \
+             flagged surprising. Nothing to answer for if your own reads were cold and \
+             honest; it is aimed at whoever is driving. If readers are being handed files \
+             they already know, or are being agreeable, the results mean nothing."
         );
     }
     // A failed write outranks any coaching about the reading itself: carrying on for
@@ -1195,9 +1468,15 @@ async fn report(
         "error": write_error,
         "remaining": remaining,
         "in_flight": in_flight,
-        "assessed": total,
-        "surprised": surprised,
-        "warm_reports": warm,
+        // Named for their scope, because they were read as being about the caller. Two
+        // readers in one wave stopped to query these: one saw "warm_reports: 1" after
+        // three honest `cold: true` reports and wondered which of its own it had got
+        // wrong; another read the hint's "only 2 of 21 surprising" as a verdict on its
+        // three. Both then spent tokens explaining themselves. A number handed to one
+        // reader that is really about every reader has to say so in its own name.
+        "repo_assessed": total,
+        "repo_surprised": surprised,
+        "repo_warm_reports": warm,
         "hint": hint,
     }))
 }
@@ -1355,23 +1634,34 @@ impl Tally {
 /// indistinguishable in the output from code that is genuinely more predictable, which
 /// makes it the same class of error as an invented surprise, pointed the other way.
 ///
-/// At a batch of three, `later` is SUPPOSED to be about twice `first`, so a populated
-/// `later` is not the finding — the comparison is. If `later` grades systematically
-/// greener, the batch is running warm and the scale widens inside every run.
+/// **One bucket per position, not first-versus-later.** The collapsed version answered
+/// the wrong question and hid it: a full pass of this repo at a batch of three found
+/// `full` at 39.5% for position 1 against 38.4% later — flat — which reads as "no warming"
+/// and is really "no warming *within three*". The concern was always about position eight
+/// or nine. Three may simply be too short for a reader to learn anything, and a two-bucket
+/// split cannot tell that apart from an effect that does not exist.
 ///
-/// The one measurement so far put `later` at 36% `full` against 29%: the right direction,
-/// not significant on 54 readings, and confounded, because the unbatched readers ran first
-/// and took the top of a queue ordered by proxy surprise. Nothing here settles it. What it
-/// does is keep the question answerable from data the store already holds.
+/// Per position, any run at any batch size contributes a point to the same curve for free.
+/// A knee at five or six shows up as a knee; a flat line across ten is an answer.
+///
+/// What is known so far, and it is not much: a confounded sweep put later readings at 36%
+/// `full` against 29% — the direction the warm-tail argument predicts. A cleaner run
+/// reversed it. A complete pass showed neither. The one consistent signal across all three
+/// is that `some` rises with position, which looks like a reader calibrating against a
+/// scale it has now used rather than one learning the repo — a different mechanism, and
+/// still not significant.
+///
+/// Settling it needs the arms interleaved in one wave so queue depth and file mix are
+/// matched, and it needs a repo where a reader has less handed to it — this one gives a
+/// paragraph of rationale per function, which leaves prior exposure little to add.
 #[derive(Debug, Default, Clone, Serialize)]
 struct Drift {
-    /// Graded by a reader on its first function of the run.
-    first: GradeCounts,
-    /// Graded by a reader that had already read something else this run.
-    later: GradeCounts,
-    /// Readings banked before position was recorded. Not `first` — an unknown position is
-    /// not a claim of freshness, and counting it as one is exactly how the batch got to
-    /// look uniform in the first place.
+    /// Position → how that position's readings graded. Keyed by the reader's own count,
+    /// so bucket 1 is every reader's first function whatever batch size it was running.
+    positions: std::collections::BTreeMap<u32, GradeCounts>,
+    /// Readings banked before position was recorded. Never folded into bucket 1 — an
+    /// unknown position is not a claim of freshness, and counting it as one is exactly how
+    /// a batched run got to look uniform in the first place.
     unrecorded: usize,
 }
 
@@ -1415,8 +1705,7 @@ fn aggregate(project: &Project) -> Aggregate {
             .add(r);
         let (predicted, _) = r.grades();
         match r.position {
-            Some(n) if n > 1 => agg.by_position.later.add(Some(predicted)),
-            Some(_) => agg.by_position.first.add(Some(predicted)),
+            Some(n) => agg.by_position.positions.entry(n).or_default().add(Some(predicted)),
             None => agg.by_position.unrecorded += 1,
         }
     });
@@ -1478,12 +1767,14 @@ async fn summary(State(state): State<Shared>, Query(p): Query<SummaryParams>) ->
                  before it predicts, which is the contamination the whole protocol \
                  exists to prevent. `documented` is post-provenance — a doc graded \
                  derivable counts as none. Stale readings are excluded from every count \
-                 above and reported separately. Read `by_position` as a COMPARISON, not a \
-                 count: readers take three functions each, so `later` should hold about \
-                 twice what `first` does and that means nothing on its own. What matters \
-                 is whether `later` grades greener. If it does, readers are getting \
-                 better at the repo as they work — the improvement is theirs, not the \
-                 code's, and the batch is too long."
+                 above and reported separately. `by_position` buckets readings by how \
+                 many functions the reader had already assessed, so bucket 1 is every \
+                 reader's first. Read it as a CURVE, not as counts: later buckets hold \
+                 fewer readings by construction and that means nothing. What matters is \
+                 whether the grades get GREENER as position rises — that would be readers \
+                 learning the repo as they work, an improvement that is theirs and not \
+                 the code's. A full pass of one repo at a batch of three found the curve \
+                 flat, which only rules out an effect within three."
     }))
 }
 
@@ -1699,6 +1990,8 @@ pub fn restore(state: Shared) {
                     scan,
                     reports,
                     leased: HashMap::new(),
+                    recent_files: HashMap::new(),
+                    file_marks: HashMap::new(),
                     touched: known.touched,
                     last_agent: None,
                 },
@@ -1767,6 +2060,7 @@ mod tests {
             owner: None,
             signature: String::new(),
             peers: Vec::new(),
+            peers_omitted: 0,
             docs: Vec::new(),
             lines: 10,
         }
@@ -1789,6 +2083,8 @@ mod tests {
             scan,
             reports: HashMap::new(),
             leased: HashMap::new(),
+            recent_files: HashMap::new(),
+            file_marks: HashMap::new(),
             touched: 0,
             last_agent: None,
         }
@@ -1975,9 +2271,11 @@ mod tests {
         assert_eq!(agg.by_model.len(), 2);
         assert_eq!(agg.by_model["sonnet"].readings, 1, "and not in its model's tally either");
 
-        // The drift split: one first reading, one taken deep into a batch.
-        assert_eq!(agg.by_position.first.full, 1);
-        assert_eq!(agg.by_position.later.full, 1);
+        // One bucket per position, so a curve can be read off any run at any batch size —
+        // "first vs later" could not tell a flat line from an effect that starts at six.
+        assert_eq!(agg.by_position.positions[&1].full, 1);
+        assert_eq!(agg.by_position.positions[&7].full, 1, "position 7 is its own bucket");
+        assert!(!agg.by_position.positions.contains_key(&2), "no bucket is invented");
         assert_eq!(agg.by_position.unrecorded, 0);
 
         // A reading from before the field existed lands in neither bucket.
@@ -1985,8 +2283,8 @@ mod tests {
         p.reports.insert(r.id.clone(), r);
         let agg = aggregate(&p);
         assert_eq!(agg.by_position.unrecorded, 1);
-        assert_eq!(agg.by_position.first.full, 1, "unknown is not first");
-        assert_eq!(agg.by_position.later.full, 0);
+        assert_eq!(agg.by_position.positions[&1].full, 1, "unknown is not position 1");
+        assert!(!agg.by_position.positions.contains_key(&7), "nor is it its old bucket");
     }
 
     /// Same-named twins must arrive distinguishable, and both must appear in the peers.
@@ -2021,7 +2319,8 @@ mod tests {
         );
         // Each sees the other, qualified — not a bare `parse`, and not nothing.
         for t in &tasks {
-            assert_eq!(t.peers.len(), 1, "the twin must survive the dedupe: {:?}", t.peers);
+            assert_eq!(t.peers.len(), 1, "the twin must be visible: {:?}", t.peers);
+            assert_eq!(t.peers_omitted, 0, "a two-function file fits in the window");
             assert!(t.peers[0].ends_with("::parse"), "unqualified peer: {:?}", t.peers);
             assert_ne!(
                 t.peers[0],
@@ -2029,6 +2328,207 @@ mod tests {
                 "a function must not be listed as its own peer"
             );
         }
+    }
+
+    /// A big file hands over its neighbourhood, and says how much it left out.
+    ///
+    /// The whole-file list was 91% of tonepoet's median task payload, 30k characters at its
+    /// p90. What a truncated list must never do is look complete.
+    #[test]
+    fn a_long_file_sends_the_neighbourhood_and_counts_the_rest() {
+        let names: Vec<String> = (0..100).map(|i| format!("fn_{i:02}")).collect();
+
+        // Middle of the file: centred, and the remainder is stated rather than dropped.
+        let (peers, omitted) = neighbours(&names, 50);
+        assert_eq!(peers.len(), PEER_WINDOW);
+        assert_eq!(omitted, 99 - PEER_WINDOW);
+        assert!(!peers.contains(&"fn_50".to_string()), "never its own peer");
+        assert!(peers.contains(&"fn_49".to_string()) && peers.contains(&"fn_51".to_string()));
+
+        // First in the file: the window slides rather than half-emptying.
+        let (peers, omitted) = neighbours(&names, 0);
+        assert_eq!(peers.len(), PEER_WINDOW);
+        assert_eq!(omitted, 99 - PEER_WINDOW);
+        assert!(peers.contains(&"fn_01".to_string()));
+
+        // Last, likewise.
+        let (peers, _) = neighbours(&names, 99);
+        assert_eq!(peers.len(), PEER_WINDOW);
+        assert!(peers.contains(&"fn_98".to_string()));
+
+        // A file that fits is handed over whole, and says so with a zero.
+        let small: Vec<String> = (0..5).map(|i| format!("f{i}")).collect();
+        let (peers, omitted) = neighbours(&small, 2);
+        assert_eq!(peers.len(), 4);
+        assert_eq!(omitted, 0);
+    }
+
+    /// A range that has moved is corrected before it is handed to anyone.
+    ///
+    /// The scan is a photograph; `read_source` and every reader's bounded read go to the
+    /// file as it is now. Edit anything and every function below the edit is described at
+    /// the wrong lines — the code view highlights the wrong extent, and a reader predicts
+    /// one function, reads whatever now occupies those lines, and grades the two against
+    /// each other. A reader caught it from the far end: the range it was handed for
+    /// `applyAgentReports` held unrelated constants, and it said so rather than grading
+    /// them. Nothing else would have.
+    #[test]
+    fn a_file_that_moved_is_re_cut_before_anything_is_handed_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.rs");
+        std::fs::write(
+            &path,
+            "fn first() { println!(\"1\"); }\nfn second() { println!(\"2\"); }\n",
+        )
+        .unwrap();
+        let mut p = project_of(dir.path());
+
+        let line_of = |p: &Project, name: &str| {
+            let mut found = None;
+            p.scan.root.visit(&mut |n| {
+                if n.kind == NodeKind::Func && n.name == name {
+                    found = n.line;
+                }
+            });
+            found.expect(name)
+        };
+        assert_eq!(line_of(&p, "second"), 2);
+        let before = {
+            let mut h = None;
+            p.scan.root.visit(&mut |n| {
+                if n.name == "second" {
+                    h = n.body.clone();
+                }
+            });
+            h
+        };
+
+        // First look only records what the files are — the tree came straight from a scan.
+        assert_eq!(resync_changed(&mut p), 0, "nothing has moved yet");
+
+        // Three lines land above it, and `third` is written. This is the shape of every
+        // edit made while an assessment is running.
+        std::fs::write(
+            &path,
+            "// one\n// two\n// three\nfn first() { println!(\"1\"); }\nfn second() { println!(\"2\"); }\nfn third() {}\n",
+        )
+        .unwrap();
+
+        assert_eq!(resync_changed(&mut p), 1, "the file moved and was re-cut");
+        assert_eq!(line_of(&p, "second"), 5, "the range follows the function");
+        assert_eq!(line_of(&p, "first"), 4);
+
+        // The body is unchanged, so the hash must be too — a reformat or an edit ELSEWHERE
+        // in the file is not a reason to expire an honest reading.
+        let after = {
+            let mut h = None;
+            p.scan.root.visit(&mut |n| {
+                if n.name == "second" {
+                    h = n.body.clone();
+                }
+            });
+            h
+        };
+        assert_eq!(before, after, "moving a function does not expire its reading");
+
+        // A function written since the scan is not invented here — it needs scoring
+        // against every peer in the file, which is a scan's job. It arrives on reopen.
+        let mut names = Vec::new();
+        p.scan.root.visit(&mut |n| {
+            if n.kind == NodeKind::Func {
+                names.push(n.name.clone())
+            }
+        });
+        assert_eq!(names, vec!["first", "second"]);
+    }
+
+    /// A function deleted under the queue is dropped, not handed out at stale lines.
+    #[test]
+    fn a_function_that_is_gone_stops_being_offered() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.rs");
+        std::fs::write(&path, "fn keep() { println!(\"1\"); }\nfn go() { println!(\"2\"); }\n").unwrap();
+        let mut p = project_of(dir.path());
+        assert_eq!(resync_changed(&mut p), 0);
+
+        std::fs::write(&path, "fn keep() { println!(\"1\"); }\n").unwrap();
+        assert_eq!(resync_changed(&mut p), 1);
+
+        let mut names = Vec::new();
+        p.scan.root.visit(&mut |n| {
+            if n.kind == NodeKind::Func {
+                names.push(n.name.clone())
+            }
+        });
+        assert_eq!(names, vec!["keep"]);
+    }
+
+    /// A named project that is not loaded must not be answered for by another one.
+    ///
+    /// The shim carries the project key so the model cannot lose it; that only helps if
+    /// the key is honoured or refused, never quietly replaced. Falling back to `active`
+    /// here would write one repo's reading into another repo's `.sanity/`, correctly
+    /// hashed and attributed, with nothing anywhere to say it happened.
+    #[test]
+    fn a_project_key_that_is_not_loaded_is_refused_rather_than_swapped() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let mut state = AppState::default();
+        state.projects.insert("/loaded".into(), project_of(dir.path()));
+        state.active = Some("/loaded".into());
+
+        assert_eq!(state.for_client(Some("/loaded")).as_deref(), Some("/loaded"));
+        // Asked for, absent — during a restart this is a real key for a project that has
+        // not been rescanned yet.
+        assert_eq!(
+            state.for_client(Some("/not-restored-yet")),
+            None,
+            "a named project must never be silently answered by the active one"
+        );
+        // Nothing asked for: the window's project is the honest default.
+        assert_eq!(state.for_client(None).as_deref(), Some("/loaded"));
+    }
+
+    /// Spreading has to survive between calls, not just within one handout.
+    ///
+    /// This is the regression that came with drip-feeding one function at a time:
+    /// `interleave_by_file` spreads a batch, and with a batch of one there is nothing to
+    /// spread. A reader's second call landed in the file its first call had just opened,
+    /// and the only reason anyone knew was that the reader honestly reported `cold:
+    /// false` on its own third reading. Coldness is supposed to be the queue's job.
+    #[test]
+    fn a_file_just_drawn_from_is_passed_over_on_the_next_call() {
+        let now = Instant::now();
+        let ranked = vec![
+            (0.9, task("hot.rs", "a")),
+            (0.8, task("hot.rs", "b")),
+            (0.4, task("other.rs", "c")),
+        ];
+
+        // Nothing handed out yet: the best-ranked function wins, as before.
+        let first = spread_across_files(ranked.clone(), &HashMap::new(), now, 1);
+        assert_eq!(first[0].path, "hot.rs");
+
+        // Now hot.rs has just been drawn from. The next call takes the lower-ranked
+        // function from a file the reader has not opened, rather than hot.rs's sibling.
+        let mut recent = HashMap::new();
+        recent.insert("hot.rs".to_string(), now);
+        let second = spread_across_files(ranked.clone(), &recent, now, 1);
+        assert_eq!(
+            second[0].path, "other.rs",
+            "a second draw from a file just read is recall, not prediction"
+        );
+
+        // But it is a preference, not a lock. With every remaining function in the rested
+        // file, handing over nothing would stall the loop with work still left.
+        let only_hot = vec![(0.9, task("hot.rs", "a")), (0.8, task("hot.rs", "b"))];
+        let forced = spread_across_files(only_hot, &recent, now, 1);
+        assert_eq!(forced.len(), 1, "a rested file is still better than no work");
+
+        // And the rest expires: once the window has passed, ranking decides again.
+        let mut old = HashMap::new();
+        old.insert("hot.rs".to_string(), now - FILE_REST - Duration::from_secs(1));
+        assert_eq!(spread_across_files(ranked, &old, now, 1)[0].path, "hot.rs");
     }
 
     /// The queue must not hand a reader two functions from one file back to back while

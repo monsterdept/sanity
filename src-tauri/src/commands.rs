@@ -112,6 +112,8 @@ pub async fn scan_repo(
                 scan: scan.clone(),
                 reports,
                 leased: std::collections::HashMap::new(),
+                recent_files: std::collections::HashMap::new(),
+                file_marks: std::collections::HashMap::new(),
                 touched: 0,
                 last_agent: None,
             },

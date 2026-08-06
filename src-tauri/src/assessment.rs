@@ -65,6 +65,12 @@ pub fn reading_hash(doc: Option<&str>, body: &str) -> String {
 /// hashing raw text would let one `cargo fmt` invalidate every honest reading in the
 /// repo — which trains people to ignore the staleness flag, the one signal here that
 /// cannot be recomputed from the code.
+///
+/// The loop is FNV-1a's shape with a multiplier that is not FNV-1a's prime — see the twin
+/// in `heuristic.rs`. It stays that way for the reason that matters most here: this
+/// number is what every committed reading is checked against, so correcting the constant
+/// would expire every assessment in every repo at once. What it has to be is *stable*,
+/// and it is.
 pub fn body_hash(body: &str) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in body.split_whitespace().flat_map(|w| w.bytes()) {
