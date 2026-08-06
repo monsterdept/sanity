@@ -279,6 +279,15 @@ fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
                     r.cold = true;
                 } else if seg == "warm reading" {
                     r.cold = false;
+                } else if let Some(v) = seg.strip_prefix("reading ") {
+                    // "reading 3 of its run" — how much of this repo the reader had
+                    // already seen when it made this call. Absent on everything banked
+                    // before the field existed, which is a different thing from 1 and is
+                    // reported as such.
+                    r.position = v
+                        .split_whitespace()
+                        .next()
+                        .and_then(|n| n.parse().ok());
                 } else if let Some(v) = seg.strip_prefix("predicted:") {
                     r.predicted = parse_grade(v);
                 } else if let Some(v) = seg.strip_prefix("documented:") {
@@ -480,6 +489,9 @@ fn render_entry(name: &str, ord: usize, r: &Report, stale: bool) -> String {
         meta.push(format!("by {}", r.by));
     }
     meta.push(if r.cold { "cold reading" } else { "warm reading" }.to_string());
+    if let Some(n) = r.position {
+        meta.push(format!("reading {n} of its run"));
+    }
     s.push_str(&format!("- {}\n", meta.join(" · ")));
 
     s.push_str(&format!("- expected: {}\n", flat(&r.expected)));
@@ -657,6 +669,7 @@ mod tests {
             derivable: false,
             note: note.to_string(),
             cold: true,
+            position: Some(3),
             body: "aabbccddeeff".to_string(),
             by: "ross@rossturk.com".to_string(),
             at: "37eb765".to_string(),
@@ -684,6 +697,31 @@ mod tests {
         assert!(!got.derivable);
         assert_eq!(got.predicted, Some(Grade::Some));
         assert_eq!(got.documented, Some(Grade::Full));
+        // Where the reading sat in its reader's run. `read at`, `read by` and `reading N`
+        // all start "read", so this is also the check that the segment prefixes still
+        // pick each other apart.
+        assert_eq!(got.position, Some(3));
+    }
+
+    /// A reading banked before position existed must come back as unknown, never as 1.
+    ///
+    /// The distinction is the entire point of the field: an unrecorded position is not a
+    /// claim that the reader was on its first function, and silently treating it as one
+    /// would make a batched run look uniform — which is the state this was added to make
+    /// visible.
+    #[test]
+    fn a_reading_without_a_position_does_not_claim_to_be_the_first() {
+        let mut back = HashMap::new();
+        parse_shard(
+            "## src/a.rs\n\
+             \n### `foo` — surprising\n\
+             - read at `aabb` · by dana@example.com · cold reading\n\
+             - expected: x\n\
+             - found: y\n\
+             - predicted: some · documented: none · derivable: no\n",
+            &mut back,
+        );
+        assert_eq!(back["src/a.rs#foo"].position, None);
     }
 
     /// The key is `path#name`, never the node id: a reading must survive somebody adding

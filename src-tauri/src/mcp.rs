@@ -168,11 +168,36 @@ fn urlencode(s: &str) -> String {
         .collect()
 }
 
-fn tools() -> Value {
+/// The tool contract, and the biggest fixed cost a reader carries.
+///
+/// Public so `just tokens` can weigh the real thing. Measuring a copy would be the
+/// `mcp/sanity.mjs` mistake again: two versions of one contract, and the one you are
+/// reading is the one that is wrong.
+///
+/// **These descriptions are priced per reading.** Every subagent loads all five before it
+/// reads a line of code, and at one function per reader that is once per function rather
+/// than once per ten. Measured on this repo, the context we write was 86% of a reader's
+/// input floor and the code it exists to read was 8% — and 800 of those tokens described
+/// three tools a reader never calls. So:
+///
+/// - **The wire carries the rule; the source carries the reason.** The arguments behind
+///   these rules — why `derivable` exists, what happened when readings were keyed on node
+///   ids, why one function per reader — live in doc comments and CLAUDE.md, where they
+///   cost nothing per reading. What stays here is what a reader must DO, plus the one
+///   clause that makes each rule stick, because a rule with no reason gets improvised
+///   around and this repo has watched that happen three times.
+/// - **Guidance the orchestrator needs goes in the RESPONSE, not the description.**
+///   `sanity_open` returns `protocol`, `sanity_status` returns `next_step`,
+///   `sanity_summary` returns `note`. Those reach the one session that asked, at the
+///   moment it matters, instead of every reader that never will. It is the argument
+///   `PROTOCOL` was already written down for.
+///
+/// Run `just tokens` before and after touching any of this.
+pub fn tools() -> Value {
     json!([
         {
             "name": "sanity_open",
-            "description": "Point Sanity at a repo and make it what the window shows. Call this FIRST, with the absolute path of the project you are working in — including when the user asks to UPDATE an existing assessment, which is the same call. Sanity loads any assessment committed to the repo at `.sanity/` (whoever made it — these are shared, not per-user), and reports `stale`: readings whose code has changed underneath them. Sanity does the structural work itself: walking the repo, parsing functions, reading git history. You do not need to do any of that, and you must NOT read `.sanity/` yourself — knowing what the last reader found destroys the measurement. READ THE `protocol` FIELD IN THE RESPONSE AND FOLLOW IT — the assessment must run in fresh subagents, not in the session that called this.",
+            "description": "Point Sanity at a repo and make it what the window shows. Call this FIRST, with an absolute path — updating an existing assessment is the same call. Sanity does the walking, parsing and git history itself; you must NOT read `.sanity/` yourself, because knowing what the last reader found destroys the measurement. READ THE `protocol` FIELD IN THE RESPONSE AND FOLLOW IT. Check `functions` first: a full pass is one fresh subagent per function, so on a large repo say what that would cost and ask how far to go before spawning anything.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "path": { "type": "string", "description": "Absolute path to the repo." } },
@@ -181,20 +206,20 @@ fn tools() -> Value {
         },
         {
             "name": "sanity_status",
-            "description": "What repo Sanity has open and how much work is left. Call this after every wave of subagents. `remaining` is functions with no current reading — it ignores what is out with readers, so two callers a second apart agree, and it only falls when a reading actually lands. `in_flight` is how many of those are held by readers right now: if remaining == in_flight, wait rather than spawning another wave. `outstanding` itemises the oldest few of those as `{id, held_for_s}` — use the AGE, because a batch out for minutes while `remaining` sits flat is a wave that died, not one that is working, and the count alone cannot tell you which. Leases expire on their own, so the fix is to spawn a fresh reader, never to re-hand those functions to whoever was holding them: a reader that already opened the file would be recalling, not predicting. `done` is remaining == 0 and nothing else. `stale` is the subset read before whose code has since changed; they are handed out first. `assessment_file` is where findings are written in the repo.",
+            "description": "What repo is open and how much work is left. Call after every wave of subagents, and follow `next_step`. `remaining` ignores leases and only falls when a reading lands; `in_flight` is how many of those are out with readers, so remaining == in_flight means wait rather than spawn. `outstanding` gives the oldest few as `{id, held_for_s}` — use the AGE: a wave out for minutes while `remaining` sits flat is dead, not busy. Never re-hand those functions to whoever was holding them; spawn a fresh reader instead.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
             "name": "sanity_next",
-            "description": "Get the next functions to assess, most promising first. ONLY call this from a fresh subagent that has not been reading this repo — a reader who already knows a file recalls it rather than predicting it, and recall marks everything unsurprising. Returns each function's NAME, SIGNATURE, LOCATION, SIBLING NAMES and DOCS — deliberately NOT its body. Successive functions are drawn from DIFFERENT files wherever possible, so your reading of each stays cold. For each: (1) write what you expect the body to do from the name, signature, docs and neighbours alone; (2) THEN read ONLY that function — open abs_path bounded to the exact `line`..`end_line` extent you were given, never the whole file, because an unbounded read shows you the bodies of the functions you are about to predict; (3) report the gap with sanity_report. Work through them IN ORDER and do not read ahead into the next function's file.",
+            "description": "Get ONE function to assess. Call once, no arguments, from a fresh subagent that has not been reading this repo — a reader who already knows a file recalls it instead of predicting it, and recall marks everything unsurprising. You get its name, `owner` (the type it hangs off; one file can hold a dozen `parse`s), signature, location, sibling names and docs — NOT the body. Then: (1) write what you expect the body to do from that alone; (2) read ONLY that function, opening abs_path bounded to `line`..`end_line`, never the whole file; (3) call sanity_report and STOP. Do not ask for more: a reader gets better at a repo as it works through a batch, so its later readings are made by a better reader than its first, and nothing downstream can tell that apart from code that is genuinely easier to predict.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "n": { "type": "number", "description": "How many to fetch (default 5)." } }
+                "properties": { "n": { "type": "number", "description": "How many to fetch. Defaults to 1, which is what the protocol asks for; raising it makes your later readings incomparable to your first." } }
             }
         },
         {
             "name": "sanity_report",
-            "description": "Report one function after predicting and then reading it. `predicted` is the measurement — grade how much of the body your prediction actually covered, against what you wrote BEFORE reading. `documented` and `derivable` are about the docs you were handed, not about the code. If the docs you were given describe an enclosing type rather than this function, say so in `note` and grade `documented` as none — that is a real finding about the repo, not your fault.",
+            "description": "Report one function after predicting and then reading it, then stop. `predicted` is the measurement — grade it against what you wrote BEFORE reading, not against what you understand now. `documented` and `derivable` are about the docs you were handed, not the code. If those docs describe an enclosing type rather than this function, say so in `note` and grade `documented` as none: that is a finding about the repo, not your fault.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -204,24 +229,30 @@ fn tools() -> Value {
                     "predicted": {
                         "type": "string",
                         "enum": ["full", "most", "some", "none"],
-                        "description": "How much of the body your prediction actually covered. full — you called it, nothing in the body you missed. most — broadly right, one detail that was not obvious. some — recognisable, but it does real work you did not cover. none — your prediction did not describe this code. Grade against what you wrote BEFORE reading, not against what you understand now."
+                        "description": "How much of the body your prediction covered. full — you called it, nothing missed. most — broadly right, one detail that was not obvious. some — recognisable, but it does real work you did not cover. none — your prediction did not describe this code."
                     },
                     "documented": {
                         "type": "string",
                         "enum": ["full", "most", "some", "none"],
-                        "description": "How well the docs you were given cover what the code actually does, same scale. Use none if there were no docs. This is reported, never subtracted from the colour — 'surprising and undocumented' and 'surprising but well covered' are different situations and only one is anyone's fault."
+                        "description": "How well the docs you were given cover what the code actually does, same scale. none if there were no docs. Reported, never subtracted from the colour."
                     },
                     "derivable": {
                         "type": "boolean",
-                        "description": "True if those docs say nothing you could not have worked out from the code alone. This is the one question a lexical score can never ask, and it is the defence against someone running a model over a repo, turning the map green and making it a liar: documentation a model could regenerate from the body explains nothing that was not already there, so it must not count as documentation."
+                        "description": "True if those docs say nothing you could not have worked out from the code alone. Answer honestly even when they read well: documentation a model could regenerate from the body explains nothing that was not already there, and this is the only thing stopping a generated-docs pass from turning the map green and making it a liar."
                     },
                     "surprised": { "type": "boolean", "description": "Superseded by `predicted` — send that instead. Kept so older callers still work." },
                     "note": { "type": "string", "description": "One sentence a human can read, only if surprised." },
-                    "model": { "type": "string", "description": "Which model you are, name and version, e.g. claude-haiku-4.5. Every reading is attributed, because a grade from a small fast model and one from a large one are not the same evidence. Say what you are; omit it rather than guess." },
-                    "cold": { "type": "boolean", "description": "True if you had NOT read this file before predicting. Answer honestly — a warm reading is worth less and Sanity shows it differently rather than discarding it." }
+                    "model": { "type": "string", "description": "Which model you are, name and version, e.g. claude-haiku-4.5. A grade from a small fast model and one from a large one are not the same evidence. Say what you are; omit it rather than guess." },
+                    "cold": { "type": "boolean", "description": "True if you had NOT read this file before predicting. Answer honestly — a warm reading is worth less, and Sanity marks it rather than discarding it." },
+                    "position": { "type": "number", "description": "How many functions you had already assessed in THIS run — 1 if this is your first, which it should be. Report the truth even if you batched: `cold` only asks whether you had opened this FILE, and cannot see that a reader eight functions into a batch has learned the repo's idioms and predicts better for reasons that are nothing to do with the code." }
                 },
-                "required": ["id", "expected", "found", "predicted", "documented", "derivable", "cold", "model"]
+                "required": ["id", "expected", "found", "predicted", "documented", "derivable", "cold", "position", "model"]
             }
+        },
+        {
+            "name": "sanity_summary",
+            "description": "What the assessment says, in aggregate: grade distributions, derivable count, a split by model, and whether readings made later in a reader's run graded differently. Call this at the END, from the driving session, to report the result — it exists because that session has to report and is forbidden to read `.sanity/`. Repo-wide totals only; nothing here names a file or a function, deliberately. Read `note` in the response.",
+            "inputSchema": { "type": "object", "properties": {} }
         }
     ])
 }
@@ -241,12 +272,16 @@ fn call(name: &str, args: &Value) -> Result<Value, String> {
         }
         "sanity_status" => get("/status"),
         "sanity_next" => {
-            let n = args.get("n").and_then(|v| v.as_u64()).unwrap_or(5).clamp(1, 25);
+            let n = args.get("n").and_then(|v| v.as_u64()).unwrap_or(1).clamp(1, 25);
             match project() {
                 Some(k) => get(&format!("/queue?n={n}&project={}", urlencode(&k))),
                 None => get(&format!("/queue?n={n}")),
             }
         }
+        "sanity_summary" => match project() {
+            Some(k) => get(&format!("/summary?project={}", urlencode(&k))),
+            None => get("/summary"),
+        },
         "sanity_report" => {
             let mut body = args.clone();
             if let (Some(obj), Some(k)) = (body.as_object_mut(), project()) {

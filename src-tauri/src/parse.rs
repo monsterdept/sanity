@@ -23,6 +23,20 @@ pub struct FuncDef {
     /// The doc comment attached above (or, in Python, the docstring inside). The only
     /// thing that can cool the wedge.
     pub doc: Option<String>,
+    /// The type, trait or class this function is defined inside, if any.
+    ///
+    /// A bare name is not an identity. One file holds a dozen `parse`s — one per
+    /// descriptor type — and a reader handed `udf.rs#parse` with `parse` also in its
+    /// sibling list cannot tell which one it is being asked to predict. It then grades
+    /// its own prediction against a function it may not have been given, and reports the
+    /// docs as belonging to something else, which reads as a doc bug in the repo. That is
+    /// the instrument manufacturing a finding, the same class of error as inheriting an
+    /// enclosing type's docstring.
+    ///
+    /// Kept beside `name` rather than folded into it: `key_of(path, name, ord)` keys every
+    /// committed reading, so changing `name` would expire an entire repo's assessment the
+    /// moment this shipped.
+    pub owner: Option<String>,
     pub start_line: u32,
     pub end_line: u32,
 }
@@ -198,6 +212,76 @@ fn wrapper_doc(node: TsNode, src: &str) -> Option<String> {
         }
         if let Some(doc) = leading_doc(parent, src) {
             return Some(doc);
+        }
+        cur = parent;
+    }
+    None
+}
+
+/// Nodes that own the functions inside them — a type, a class, a trait, a protocol.
+///
+/// Matched literally like [`func_kinds`], but with a softer failure: a grammar that
+/// renames one of these yields an unqualified name rather than nothing, so the tests below
+/// carry the languages this actually claims to handle. A kind absent from this list is not
+/// an owner, which is the right default — a Rust `mod` or a JS block encloses a function
+/// without the function belonging to it.
+const OWNER_KINDS: &[&str] = &[
+    // Rust. `impl_item` names itself through `type`, not `name` — see below.
+    "impl_item",
+    "trait_item",
+    // Swift (class, struct, enum and extension all parse to `class_declaration`), and the
+    // JS/TS, Java, C#, Kotlin and PHP families.
+    "class_declaration",
+    "abstract_class_declaration",
+    "protocol_declaration",
+    "interface_declaration",
+    "enum_declaration",
+    "record_declaration",
+    "struct_declaration",
+    "class",
+    "module",
+    // Python, Dart, Scala.
+    "class_definition",
+    "object_definition",
+    "trait_definition",
+    // C++.
+    "class_specifier",
+    "struct_specifier",
+];
+
+/// The type a function hangs off, if it hangs off one.
+///
+/// Go is the exception and not a small one: its receiver sits on the function itself
+/// (`func (p *Parser) parse()`), so there is no ancestor to find and the ancestor walk
+/// would return the enclosing file. The receiver's text is reduced to an identifier rather
+/// than matched structurally, because `*Parser` and `Parser` are two spellings of one
+/// answer.
+///
+/// Generic parameters are cut off first, and that is not tidiness. The comment here used
+/// to claim `Parser[T]` reduced to `Parser` too; it did not — taking the LAST identifier
+/// run returned `T`, so every method on a generic type was attributed to its type
+/// parameter. A cold reader caught it by predicting the doc and then reading the body,
+/// which is the entire point of the instrument, so it would be a poor joke to leave it.
+fn owner_of(node: TsNode, lang: Lang, src: &str) -> Option<String> {
+    if lang == Lang::Go {
+        let raw = text(node.child_by_field_name("receiver")?, src);
+        return raw
+            .split_once('[')
+            .map_or(raw, |(before, _)| before)
+            .rsplit(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .find(|s| !s.is_empty())
+            .map(str::to_string);
+    }
+    let mut cur = node;
+    while let Some(parent) = cur.parent() {
+        if OWNER_KINDS.contains(&parent.kind()) {
+            // `impl Foo` and `impl Trait for Foo` both name the owner through `type`; a
+            // class or trait names it through `name`. Asking for the wrong one first
+            // costs nothing and means neither language needs a branch here.
+            let named = parent
+                .child_by_field_name("name")
+                .or_else(|| parent.child_by_field_name("type"))?;
+            return Some(text(named, src).trim().to_string());
         }
         cur = parent;
     }
@@ -386,6 +470,7 @@ fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
         signature,
         body: text(body, src).to_string(),
         doc,
+        owner: owner_of(node, lang, src),
         start_line: node.start_position().row as u32 + 1,
         end_line: node.end_position().row as u32 + 1,
     })
@@ -470,6 +555,77 @@ class Store {
         let src = "func Add(a int) int { return a }\nfunc (s *S) Load() error { return nil }\n";
         let got = names(Lang::Go, src);
         assert_eq!(got, vec!["Add", "Load"]);
+    }
+
+    /// A name is not an identity, and the twins are the reason.
+    ///
+    /// A real UDF parser holds one `parse` per descriptor type in a single file. A reader
+    /// handed `udf.rs#parse`, with `parse` in the sibling list too, cannot tell which one
+    /// it has — so it predicts one function, reads another, and reports the docs as
+    /// belonging to something else. That is a finding the instrument invented.
+    #[test]
+    fn a_method_is_qualified_by_the_type_it_hangs_off() {
+        let src = r#"
+struct Tag;
+impl Tag {
+    fn parse(b: &[u8]) -> Tag { Tag }
+}
+impl LogicalVolumeDescriptor {
+    fn parse(b: &[u8]) -> Self { todo!() }
+}
+impl Read for Tag {
+    fn read(&self) -> u8 { 0 }
+}
+trait Descriptor {
+    fn tag(&self) -> u16 { 0 }
+}
+fn free_standing() -> u8 { 0 }
+"#;
+        let fns = parse_functions(Lang::Rust, src);
+        let owners: Vec<Option<&str>> = fns.iter().map(|f| f.owner.as_deref()).collect();
+        assert_eq!(
+            owners,
+            vec![
+                Some("Tag"),
+                Some("LogicalVolumeDescriptor"),
+                // `impl Trait for Type` belongs to the type, not the trait.
+                Some("Tag"),
+                Some("Descriptor"),
+                None,
+            ]
+        );
+    }
+
+    #[test]
+    fn owners_across_the_languages_that_claim_one() {
+        let owner = |lang, src| parse_functions(lang, src)[0].owner.clone();
+        assert_eq!(
+            owner(Lang::Python, "class Suggester:\n    def next(self):\n        return 1\n"),
+            Some("Suggester".into())
+        );
+        assert_eq!(
+            owner(Lang::Swift, "struct Context {\n    func next() -> Int { 0 }\n}\n"),
+            Some("Context".into())
+        );
+        assert_eq!(
+            owner(Lang::TypeScript, "class Store {\n  load(): void {}\n}\n"),
+            Some("Store".into())
+        );
+        // Go hangs its receiver off the function itself, and `*S` is the same answer as `S`.
+        assert_eq!(
+            owner(Lang::Go, "func (s *S) Load() error { return nil }\n"),
+            Some("S".into())
+        );
+        // A generic receiver names the type, never its type parameter. Taking the last
+        // identifier run returned `T` here, so every method on a generic type was
+        // attributed to `T` — and the doc comment claimed otherwise, which is how it was
+        // caught: a reader predicted the doc, read the body, and found the gap.
+        assert_eq!(
+            owner(Lang::Go, "func (p *Parser[T]) Load() error { return nil }\n"),
+            Some("Parser".into())
+        );
+        // A free function has no owner, and must not borrow the file's.
+        assert_eq!(owner(Lang::Rust, "fn free() {}\n"), None);
     }
 
     #[test]

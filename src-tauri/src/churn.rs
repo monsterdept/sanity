@@ -132,8 +132,6 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
-/// Split out from `read` so the parsing — which is where the bugs live — is testable
-/// without a git repo, and against a fixed clock.
 /// Record one commit against one path — a file or a directory.
 fn credit(files: &mut HashMap<String, FileHistory>, key: &str, age_days: f32, author: &str) {
     let e = files.entry(key.to_string()).or_default();
@@ -186,6 +184,15 @@ fn flush_commit(
     touched.clear();
 }
 
+/// Split out from `read` so the parsing — which is where the bugs live — is testable
+/// without a git repo, and against a fixed clock.
+///
+/// This paragraph spent some time stranded above `credit`, two functions up, where
+/// `leading_doc` correctly handed it over as `credit`'s own documentation — comments
+/// adjacent to a definition are that definition's, and the extractor has no way to know
+/// one of them is about something else. Two cold readers reported `credit` as documented
+/// by a paragraph describing this function, independently, which is exactly the failure
+/// the instrument is for: a doc that has drifted from its code reads hot, and says so.
 fn parse_log(text: &str, now: i64) -> History {
     let mut files: HashMap<String, FileHistory> = HashMap::new();
     let mut commit_ts: i64 = 0;

@@ -322,6 +322,15 @@ pub struct Node {
     /// having failed to predict code it had been given no way to identify.
     #[serde(default)]
     pub signature: Option<String>,
+    /// The type, trait or class this function hangs off, for functions that hang off one.
+    ///
+    /// Carried for the same reason as `signature`, and for a failure one step worse than
+    /// the one that earned it: a file with a dozen same-named methods gives the reader a
+    /// name that identifies nothing, so it predicts one twin and is graded against
+    /// another. Beside `name` and never folded into it — `key_of` keys every committed
+    /// reading on the name, and renaming would expire a repo's assessment wholesale.
+    #[serde(default)]
+    pub owner: Option<String>,
     /// A short hash of this function's body, for functions.
     ///
     /// The only way a committed assessment can know it has gone stale. An entry in
@@ -353,6 +362,7 @@ impl Node {
             last_author: None,
             doc: None,
             signature: None,
+            owner: None,
             body: None,
             end_line: None,
             score: None,

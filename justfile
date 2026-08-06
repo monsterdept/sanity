@@ -75,6 +75,17 @@ scan path="." *flags="":
     target="$(cd "{{path}}" && pwd)"
     cd src-tauri && cargo run --quiet --bin sanity-scan -- "$target" {{flags}}
 
+# Weigh what a reader pays for the context we write it — the tool descriptions, the
+# subagent prompt, and the task payload for a real repo. At one function per reader the
+# fixed prefix is paid once per FUNCTION, so a long `inputSchema` description is a
+# per-reading charge. Run it before and after shortening one; guessing is how the
+# descriptions got long in the first place.
+tokens path=".":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="$(cd "{{path}}" && pwd)"
+    cd src-tauri && cargo run --quiet --bin sanity-tokens -- "$target"
+
 # Clone neo-mascots at `ref` (branch/tag/sha; default main), build the lib, copy the
 # bundle to web/src/lib/mascot.js. Vendored rather than depended on: it's a private repo,
 # so a plain `npm install` on a fresh checkout (or in CI) can't fetch it. Same recipe as

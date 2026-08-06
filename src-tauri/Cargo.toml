@@ -93,5 +93,11 @@ path = "src/main.rs"
 name = "sanity-scan"
 path = "src/bin/scan.rs"
 
+# What a reader pays for the parts of its context we write. Separate from the scorer
+# because it answers a different question and must not slow that one down.
+[[bin]]
+name = "sanity-tokens"
+path = "src/bin/tokens.rs"
+
 # Standalone workspace so cargo never folds this into a parent build graph.
 [workspace]

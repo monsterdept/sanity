@@ -22,7 +22,7 @@
 //! Bodies are never sent. The agent already has the repo; shipping code over loopback
 //! would be duplicated effort and a second copy to keep in sync.
 
-use crate::model::{Node, NodeKind};
+use crate::model::{Lang, Node, NodeKind};
 use crate::scan::Scan;
 use axum::extract::{Query, State};
 use axum::routing::{get, post};
@@ -210,6 +210,27 @@ impl AppState {
 /// stranding it. Nothing is lost either way — an expired lease just re-queues.
 const LEASE: Duration = Duration::from_secs(600);
 
+/// What a reader is told when its reading has nowhere to land.
+///
+/// This is usually TRANSIENT and was phrased as though it were permanent. The app is
+/// rebuilt and relaunched constantly during development, and a restore rescans in the
+/// background — so for a second or two after every restart the server is up, answering,
+/// and holding no projects. `mcp.rs` cannot absorb that the way it absorbs a refused
+/// connection, and deliberately so: an HTTP response that parsed is an answer, and
+/// blind-retrying a `report` the server already handled would double-bank a reading.
+///
+/// So the message has to do the work. Three readers hit the flat "no project open" during
+/// this window; two retried on instinct and the third did not, and its reading — a
+/// prediction, a read and a grade already paid for — was simply lost. A reader that cannot
+/// tell "wait a moment" from "there is nothing here" will pick one, and the expensive
+/// mistake is the one that discards work.
+const NO_PROJECT: &str = "No project is open for this call. If you were assessing a moment \
+    ago this is TRANSIENT — the app restarts during development and takes a second or two \
+    to reload its projects. Wait a moment and CALL sanity_report AGAIN with exactly the \
+    same arguments, up to about five times; do NOT discard the reading you just made, and \
+    do not start over. If it keeps failing, the human needs to call sanity_open, so stop \
+    and say so rather than throwing the reading away.";
+
 /// How many outstanding leases `sanity_status` itemises. A diagnostic, not an inventory:
 /// the oldest few answer "is a wave stuck", and the rest are the same answer again.
 const OUTSTANDING_SHOWN: usize = 10;
@@ -279,11 +300,25 @@ pub struct Task {
     /// asked to predict — the read-ahead the ordering exists to prevent.
     pub end_line: u32,
     pub name: String,
+    /// The type, trait or class this function hangs off, when it hangs off one.
+    ///
+    /// The reader was told `parse`, in a file holding a dozen `parse`s, and `peers` showed
+    /// it `parse` again — so it predicted one twin, read another, and reported the docs it
+    /// had been given as belonging to something else. That reads as a copy-paste bug in
+    /// the repo, and it is not one: it is the queue handing over a name that identifies
+    /// nothing. Sent as its own field rather than spliced into `name`, because `name` is
+    /// half of the key every committed reading is stored under.
+    #[serde(default)]
+    pub owner: Option<String>,
     /// The declaration line. Without it an overloaded name is unresolvable — the reader
     /// sees the same name twice in `peers` and has to guess which one it was handed.
     #[serde(default)]
     pub signature: String,
     /// Other functions in the same file — the context a teammate would have.
+    ///
+    /// Qualified by owner where there is one, for the reason above and for one the
+    /// dedupe made worse: two same-named twins collapsed to a single entry, so the list
+    /// actively concealed that the file held more than one.
     pub peers: Vec<String>,
     /// The comment stack a reader has before opening the body: this chunk's own doc
     /// first, then the file's. Handed over BEFORE the prediction on purpose — an
@@ -383,6 +418,23 @@ pub struct Report {
     /// UI can say so instead of presenting every report as equally earned.
     #[serde(default)]
     pub cold: bool,
+    /// How many functions this reader had already assessed when it made this reading —
+    /// 1 for the first, 2 for the second.
+    ///
+    /// `cold` asks "had you read this FILE before?", and that is the smaller half of the
+    /// question. A reader working through a batch is also learning the repo's idioms, its
+    /// naming conventions, its domain vocabulary and its author's habits — so by its
+    /// eighth function it predicts better for reasons that have nothing to do with the
+    /// code being clearer, and `cold: true` records none of it. Two readings at different
+    /// positions are not comparable measurements, and nothing in the store said which was
+    /// which.
+    ///
+    /// The protocol now hands out one function per reader, so this should be 1 on
+    /// everything. It is recorded anyway, because "should be" is not a measurement: a
+    /// reader that batches regardless leaves a trace here instead of quietly widening the
+    /// scale. Self-declared, and weak for the same reason as `cold`.
+    #[serde(default)]
+    pub position: Option<u32>,
     /// [`crate::assessment::body_hash`] of the body this reading was made against.
     ///
     /// Filled in by the server from the scan, never by the reporter — an agent asked to
@@ -422,6 +474,7 @@ impl Report {
             derivable: false,
             note: String::new(),
             cold: false,
+            position: None,
             model: String::new(),
             body: String::new(),
             by: String::new(),
@@ -447,6 +500,23 @@ impl Report {
             self.documented
         };
         (predicted, documented)
+    }
+}
+
+/// How a language writes "this function, on that type".
+///
+/// Cosmetic, and still worth getting right: a reader shown `Tag.parse` in a Rust file has
+/// been handed a small untruth about the language it is about to read, and the whole
+/// exercise is asking it to notice exactly that kind of mismatch.
+fn qualify(name: &str, owner: Option<&str>, lang: Option<Lang>) -> String {
+    match owner {
+        None => name.to_string(),
+        // Ruby is deliberately not in the `::` list: there `Foo::bar` means a constant
+        // lookup and `Foo#bar` is the method, so neither separator is the obvious one.
+        Some(o) if matches!(lang, Some(Lang::Rust | Lang::Cpp | Lang::Php)) => {
+            format!("{o}::{name}")
+        }
+        Some(o) => format!("{o}.{name}"),
     }
 }
 
@@ -497,6 +567,7 @@ fn collect_tasks(
                     .end_line
                     .unwrap_or_else(|| node.line.unwrap_or(0) + node.loc),
                 name: node.name.clone(),
+                owner: node.owner.clone(),
                 signature: node.signature.clone().unwrap_or_default(),
                 peers: Vec::new(),
                 docs: [node.doc.as_deref(), file_doc]
@@ -511,10 +582,16 @@ fn collect_tasks(
         return;
     }
     if node.kind == NodeKind::File {
-        // Deduped: cfg-gated variants and same-named methods in different impl blocks
-        // share a name, and listing one twice reads as a mistake in the file rather than
-        // in this list.
-        let mut names: Vec<String> = node.children.iter().map(|c| c.name.clone()).collect();
+        // Qualified by owner first, THEN deduped. Deduping bare names folded a file's
+        // `Tag::parse` and `LogicalVolumeDescriptor::parse` into one entry reading
+        // `parse`, so the sibling list — the thing that exists to tell a reader what else
+        // is here — concealed the twins it was most needed for. What remains deduped is
+        // the genuine repeat: cfg-gated variants of one function on one type.
+        let mut names: Vec<String> = node
+            .children
+            .iter()
+            .map(|c| qualify(&c.name, c.owner.as_deref(), c.lang))
+            .collect();
         names.sort();
         names.dedup();
         let before = out.len();
@@ -522,13 +599,34 @@ fn collect_tasks(
             collect_tasks(c, done, leased, root, node.doc.as_deref(), out);
         }
         for (_, t) in out.iter_mut().skip(before) {
-            t.peers = names.iter().filter(|n| **n != t.name).cloned().collect();
+            let own = qualify(&t.name, t.owner.as_deref(), node.lang);
+            t.peers = names.iter().filter(|n| **n != own).cloned().collect();
         }
         return;
     }
     for c in &node.children {
         collect_tasks(c, done, leased, root, None, out);
     }
+}
+
+/// Every task the queue could hand out, with nothing read and nothing leased.
+///
+/// For measurement, not for handing out — `just tokens` weighs the payload a reader
+/// actually receives, and building a second version of it in the tool would measure the
+/// wrong thing the moment either drifted. `peers` in particular has no bound: it is every
+/// function in the file, and a 400-function file sends all 400 names to every reader that
+/// touches it.
+pub fn all_tasks(scan: &Scan, repo: &Path) -> Vec<Task> {
+    let mut out = Vec::new();
+    collect_tasks(
+        &scan.root,
+        &HashMap::new(),
+        &HashMap::new(),
+        Some(repo),
+        None,
+        &mut out,
+    );
+    out.into_iter().map(|(_, t)| t).collect()
 }
 
 #[derive(Deserialize)]
@@ -545,8 +643,23 @@ pub struct QueueParams {
     project: Option<String>,
 }
 
+/// One.
+///
+/// It was five, and the protocol asked each reader for ten. That looked like thrift and
+/// was a hole in the measurement: `cold` asks whether the reader had seen this FILE, and
+/// interleaving across files answers that — but a reader working a batch is also learning
+/// the repo's idioms, its naming, its domain vocabulary and its author's habits, none of
+/// which `cold` can see. By its eighth function it predicts better for reasons that have
+/// nothing to do with the code being clearer, and the reading is recorded as though it
+/// were the same kind of evidence as its first. Warmth was not the flaw; RAMPED warmth
+/// was, because it makes readings inside one run incomparable to each other.
+///
+/// It is also not thrift. A batch re-sends every prior prediction with each turn, so the
+/// accumulating tail dwarfs the ~6k prefix it was saving — a one-function reader is
+/// cheaper on tokens and its prefix is identical across every reader, which caches. What
+/// it costs is subagent spawns, which is latency and orchestration, not measurement.
 fn default_n() -> usize {
-    5
+    1
 }
 
 #[derive(Deserialize)]
@@ -564,22 +677,44 @@ pub struct OpenRequest {
 ///
 /// A subagent is the only thing that reliably fixes it — a fresh context window that
 /// receives exactly what it is given and nothing else.
-const PROTOCOL: &str = "\
+///
+/// **One function per reader**, which is the correction this text most recently needed.
+/// It used to ask for ten, and ten is a scale that widens as the reader works: `cold`
+/// catches a file the reader has opened before and catches nothing about the idioms,
+/// naming and vocabulary it has absorbed by its eighth prediction. Readings from one run
+/// were therefore not comparable to each other, and the improvement read as code getting
+/// clearer. One each is not merely cleaner — it is cheaper, because a batch re-sends every
+/// earlier prediction on every turn.
+pub const PROTOCOL: &str = "\
 HOW TO RUN THIS — read all of it before starting.\n\n\
-This is a LOOP, not a single pass. One batch of ten assesses two percent of a real repo; \
-stopping there leaves the map almost entirely grey and the job is not done.\n\n\
+This is a LOOP, not a single pass. A wave of readers assesses a percent or two of a real \
+repo; stopping there leaves the map almost entirely grey and the job is not done.\n\n\
 YOUR JOB (the session that called sanity_open):\n\
-  1. Spawn 3-5 subagents IN PARALLEL, each with the prompt below. The queue reserves what \
-     it hands out, so parallel readers get different functions.\n\
+  1. Spawn 5-10 subagents IN PARALLEL, each with the prompt below. EACH ONE ASSESSES \
+     EXACTLY ONE FUNCTION and stops. The queue reserves what it hands out, so parallel \
+     readers get different functions.\n\
   2. When they return, call sanity_status and read `remaining` and `in_flight`.\n\
   3. If remaining > 0, go back to step 1 — UNLESS remaining == in_flight, which means \
      everything left is already out with a reader and another wave would only wait. Keep \
      going until remaining is 0, or until you hit a limit the user gave you. `remaining` \
      ignores leases, so it does not flicker between calls and only falls when a reading \
      actually lands.\n\
-  4. Only then summarise: how many assessed, how many surprising, and what the surprises \
-     were. If you stopped before remaining hit 0, SAY SO and say how many are left — \
-     'done' and 'out of budget' are different outcomes and the user needs to know which.\n\n\
+  4. Only then summarise. Call sanity_summary for the actual numbers — the grade \
+     distribution, what the docs covered, how it splits by model. Do NOT reconstruct the \
+     result from what your subagents said in chat, and do NOT read `.sanity/` to get it. \
+     If you stopped before remaining hit 0, SAY SO and say how many are left — 'done' and \
+     'out of budget' are different outcomes and the user needs to know which.\n\n\
+ONE FUNCTION PER READER IS NOT AN EFFICIENCY SETTING, it is the measurement. A reader \
+given ten gets better at this repo as it works through them — it learns the idioms, the \
+naming, the vocabulary, the author's habits — so its tenth prediction is made by a better \
+reader than its first, and the map cannot tell that apart from code that is genuinely \
+more predictable. Batching also costs MORE tokens, not fewer, because every turn re-sends \
+every prediction before it. Do not batch to save time.\n\n\
+ON A LARGE REPO, ASK. `functions` in the sanity_open response is the real size of the \
+job: at one reader per function, ten thousand functions is ten thousand subagents. If \
+that is more than the user has agreed to spend, say what a full pass would cost and ask \
+how far to go BEFORE starting, then stop where they said and report how many are left. A \
+partial assessment is a normal outcome; an unannounced one is not.\n\n\
 Findings are written into the repo itself, at `.sanity/`, as Markdown a person can read. \
 That happens automatically on every report — do not write those files yourself. Tell the \
 user the assessment is there and that it is theirs to commit; it is not yours to commit \
@@ -592,52 +727,33 @@ last reader found is no longer predicting, and the whole measurement is worthles
 Do NOT assess in this session. Your context is contaminated: anything you have already \
 read in this repo you will 'predict' from memory, which scores as unsurprising and makes \
 the result meaningless. Every subagent must be fresh.\n\n\
-SUBAGENT PROMPT:\n\n\
-  You are reading a codebase you have never seen. Call sanity_next to get functions — you \
-  will get names, SIGNATURES, locations, sibling names and any DOCS the code carries, but \
-  NOT bodies. For each one, first write what you expect the body to do from that alone — \
-  the docs are part of what you are given, because a reader has them too. Only then open \
-  abs_path and read it.\n\n\
-  Read ONLY the function you were handed. Every task gives you its exact extent as `line` \
-  and `end_line`, so open abs_path bounded to that range and nothing more. This is not \
-  thrift: these files run to thousands of lines, and an unbounded read hands you the \
-  bodies of functions you are about to be asked to predict — the read-ahead the ordering \
-  exists to prevent.\n\n\
-  Keep predictions SHORT — two or three sentences. A reader who writes an essay per \
-  function runs out of context before the list does, and an unfinished list is worth less \
-  than a terse complete one. Do not spawn subagents of your own; you are the cold reader.\n\n\
-  Work through them IN THE ORDER GIVEN and do not skim ahead. Successive functions come \
-  from different files on purpose, so that each prediction is made before you have opened \
-  that file. Reading ahead is what turns a prediction into a recollection.\n\n\
-  IF A SANITY TOOL ERRORS: read the message. Connection failures are usually transient — \
-  the app restarts during development — so wait a moment and call the same tool again, up \
-  to about five times. Do not invent a prerequisite, do not run sanity tools as shell \
-  commands, and do NOT read the .sanity/ directory to compensate: it contains the previous \
-  reader's findings and looking at it makes everything you say afterwards worthless. If it \
-  keeps failing, stop and say Sanity is down.\n\n\
-  Then call sanity_report with:\n\
-    expected    what you predicted, before reading.\n\
-    found       what is actually there.\n\
-    predicted   how much of the body your prediction covered:\n\
-                  full  — you called it; nothing in the body you missed.\n\
-                  most  — broadly right, one detail that was not obvious.\n\
-                  some  — recognisable, but it does real work you did not cover.\n\
-                  none  — your prediction did not describe this code.\n\
-    documented  how well the docs you were given cover what the code does, same scale. \
-                Use none if there were no docs.\n\
-    derivable   true if those docs say nothing you could not have worked out from the \
-                code itself. A comment that restates the signature is derivable. This is \
-                what stops generated documentation from counting as documentation, so \
-                answer it honestly even when the docs read well.\n\
-    cold        true if you had not read that file before predicting.\n\
-    model       which model you are, name and version, e.g. claude-haiku-4.5. A \
-                prediction is only worth what the reader that made it is worth, and \
-                every reading here is attributed. Say what you are; omit it rather \
-                than guess.\n\n\
-  Grade `predicted` against what you wrote BEFORE reading, not against what you now \
-  understand — the point is what the code told a stranger, not what you can see in \
-  hindsight. Do not read any file before predicting its function. Assess 10, then stop \
-  and report how many remain.";
+SUBAGENT PROMPT — paste this and nothing else. The tools describe their own fields; \
+repeating them here would only bill every reader twice for one contract.\n\n";
+
+/// The half of the protocol a reader receives, split out because it is priced differently.
+///
+/// Everything above goes to one orchestrator, once. This goes into every subagent, so on a
+/// repo of any size it is multiplied by the function count — and `just tokens` has to be
+/// able to weigh the two apart. It found this out the hard way first, by locating the
+/// boundary with a string search for a heading that had just been reworded, and quietly
+/// reporting the whole protocol as the reader's share. A boundary worth measuring is worth
+/// making structural.
+///
+/// Terse on purpose. It used to restate every `sanity_report` field, which the tool schema
+/// already carries — one contract, billed to each reader twice.
+pub const READER_PROMPT: &str = "\
+  You are reading a codebase you have never seen, and you are assessing EXACTLY ONE \
+  function. Call sanity_next once, with no arguments. Write what you expect the body to \
+  do from the name, owner, signature, siblings and docs alone — two or three sentences, \
+  no more. THEN open abs_path, bounded to the `line`..`end_line` you were given and \
+  nothing more, and read it. Then call sanity_report and stop. You are done after one.\n\n\
+  Grade `predicted` against what you WROTE, not against what you understand now: the \
+  question is what the code told a stranger.\n\n\
+  Do not read any other file, do not spawn subagents, and do NOT read the `.sanity/` \
+  directory — it holds the previous reader's findings, and seeing them makes everything \
+  you say afterwards worthless. If a tool errors, read the message: connection failures \
+  are usually transient, so wait and retry the same call a few times rather than \
+  inventing a prerequisite or running the tools as shell commands.";
 
 /// Open a repo and make it what the window is showing.
 ///
@@ -737,7 +853,9 @@ async fn open_project(
     Json(serde_json::json!({
         "ok": true, "reopened": reopened, "project": key, "name": name,
         "functions": functions, "assessed": assessed,
-        "stale": stale, "protocol": PROTOCOL,
+        // The two halves, rejoined for the one caller that needs both — it has to read
+        // the orchestration half and paste the reader half.
+        "stale": stale, "protocol": format!("{PROTOCOL}{READER_PROMPT}"),
     }))
 }
 
@@ -813,6 +931,22 @@ fn count_stale(scan: &Scan, reports: &HashMap<String, Report>) -> usize {
         }
     });
     n
+}
+
+/// Functions whose reading still describes them.
+///
+/// `reports.len()` is not this number, and reporting it as one is the same failure as
+/// counting leased work in `done`: a reading whose body has moved is history, not
+/// coverage, and `collect_tasks` has already put that function back in the queue.
+/// `ProjectSummary` subtracted stale and `/status` did not, so the sidebar and the agent
+/// driving the assessment disagreed about how far along it was — and the agent's copy was
+/// the optimistic one. An instrument that overstates its own coverage is worse than one
+/// that measures nothing.
+fn assessed(project: &Project) -> usize {
+    project
+        .reports
+        .len()
+        .saturating_sub(count_stale(&project.scan, &project.reports))
 }
 
 fn count_funcs(scan: &Scan) -> usize {
@@ -934,11 +1068,11 @@ async fn report(
         return Json(serde_json::json!({ "ok": false }));
     };
     let Some(key) = state.for_client(req.project.as_deref()) else {
-        return Json(serde_json::json!({ "ok": false, "error": "no project open" }));
+        return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
     };
     let Some(project) = state.projects.get_mut(&key) else {
         state.ping("sanity_error");
-        return Json(serde_json::json!({ "ok": false, "error": "no project open" }));
+        return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
     };
     project.last_agent = Some(Instant::now());
     project.leased.remove(&r.id);
@@ -1043,7 +1177,7 @@ async fn status(State(state): State<Shared>) -> Json<serde_json::Value> {
                 "name": p.name,
                 "repo": p.repo.to_string_lossy(),
                 "functions": count_funcs(&p.scan),
-                "assessed": p.reports.len(),
+                "assessed": assessed(p),
             })
         })
         .collect();
@@ -1072,7 +1206,9 @@ async fn status(State(state): State<Shared>) -> Json<serde_json::Value> {
                 "active": p.name,
                 "repo": p.repo.to_string_lossy(),
                 "functions": count_funcs(&p.scan),
-                "assessed": p.reports.len(),
+                // Stale readings excluded, so this agrees with the sidebar and with
+                // `remaining` — see [`assessed`].
+                "assessed": p.reports.len().saturating_sub(stale),
                 // Lease-independent, so two callers a second apart agree. It only falls
                 // when a reading actually lands.
                 "remaining": remaining,
@@ -1115,6 +1251,192 @@ async fn status(State(state): State<Shared>) -> Json<serde_json::Value> {
         }
         None => Json(serde_json::json!({ "open": false, "projects": projects })),
     }
+}
+
+/// How many readings landed on each step of the scale.
+#[derive(Debug, Default, Clone, Serialize)]
+struct GradeCounts {
+    full: usize,
+    most: usize,
+    some: usize,
+    none: usize,
+    /// Readings carrying no grade at all. Only `documented` can be this — `predicted`
+    /// folds a pre-grade report onto the ends of the scale, because that is what its
+    /// reader actually said.
+    ungraded: usize,
+}
+
+impl GradeCounts {
+    fn add(&mut self, g: Option<Grade>) {
+        match g {
+            Some(Grade::Full) => self.full += 1,
+            Some(Grade::Most) => self.most += 1,
+            Some(Grade::Some) => self.some += 1,
+            Some(Grade::None) => self.none += 1,
+            None => self.ungraded += 1,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Serialize)]
+struct Tally {
+    readings: usize,
+    predicted: GradeCounts,
+    /// Post-provenance, via [`Report::grades`]: a doc the reader judged derivable counts
+    /// as `none` here however it was graded, because that is the rule the rest of the app
+    /// applies and two different "documented" numbers would be worse than one.
+    documented: GradeCounts,
+    /// How many of those docs the reader judged it could have written from the code — the
+    /// share of the `documented: none` above that came from the rule rather than from
+    /// missing comments.
+    derivable: usize,
+    /// Readings whose reader said it had not seen that file before.
+    cold: usize,
+}
+
+impl Tally {
+    fn add(&mut self, r: &Report) {
+        let (predicted, documented) = r.grades();
+        self.readings += 1;
+        self.predicted.add(Some(predicted));
+        self.documented.add(documented);
+        self.derivable += usize::from(r.derivable);
+        self.cold += usize::from(r.cold);
+    }
+}
+
+/// Does a reader get better at this repo as it works through a batch?
+///
+/// The one thing the protocol could not see about itself. Readers used to take ten
+/// functions each, and by the eighth a reader has learned the repo's idioms, its naming
+/// and its author's habits — so it predicts better for reasons that are nothing to do with
+/// the code. That improvement is indistinguishable in the output from code that is
+/// genuinely more predictable, which makes it the same class of error as an invented
+/// surprise, pointed the other way.
+///
+/// One function per reader is the fix. This is the check on it: if `later` is
+/// systematically greener than `first`, readers are still batching and the scale is
+/// drifting inside each run.
+#[derive(Debug, Default, Clone, Serialize)]
+struct Drift {
+    /// Graded by a reader on its first function of the run.
+    first: GradeCounts,
+    /// Graded by a reader that had already read something else this run.
+    later: GradeCounts,
+    /// Readings banked before position was recorded. Not `first` — an unknown position is
+    /// not a claim of freshness, and counting it as one is exactly how the batch got to
+    /// look uniform in the first place.
+    unrecorded: usize,
+}
+
+/// Everything [`summary`] reports, computed off the tree rather than off `reports`.
+///
+/// Walking the scan rather than the map is the same choice `save` makes: from the
+/// function side each reading is checked against the body it was taken over, so a reading
+/// whose code has moved is counted as stale instead of averaged in as coverage. Walking
+/// the reports instead would report a distribution over a repo that no longer exists.
+#[derive(Debug, Default, Serialize)]
+struct Aggregate {
+    total: Tally,
+    by_model: std::collections::BTreeMap<String, Tally>,
+    by_position: Drift,
+    stale: usize,
+}
+
+fn aggregate(project: &Project) -> Aggregate {
+    let mut agg = Aggregate::default();
+    project.scan.root.visit(&mut |node| {
+        if node.kind != NodeKind::Func {
+            return;
+        }
+        let Some(r) = project.reports.get(&node.id) else {
+            return;
+        };
+        if crate::assessment::is_stale(r, node.body.as_deref()) {
+            agg.stale += 1;
+            return;
+        }
+        agg.total.add(r);
+        agg.by_model
+            // Attribution is self-declared and may be missing; a blank gets its own
+            // bucket rather than being folded in with the models that did say.
+            .entry(if r.model.is_empty() {
+                "unattributed".into()
+            } else {
+                r.model.clone()
+            })
+            .or_default()
+            .add(r);
+        let (predicted, _) = r.grades();
+        match r.position {
+            Some(n) if n > 1 => agg.by_position.later.add(Some(predicted)),
+            Some(_) => agg.by_position.first.add(Some(predicted)),
+            None => agg.by_position.unrecorded += 1,
+        }
+    });
+    agg
+}
+
+#[derive(Deserialize)]
+pub struct SummaryParams {
+    /// Which project is asking. Supplied by the stdio shim, like [`QueueParams::project`].
+    #[serde(default)]
+    project: Option<String>,
+}
+
+/// What the assessment says, in aggregate and in aggregate only.
+///
+/// The orchestrator is the party that has to report the result and the one party
+/// structurally forbidden the numbers: `.sanity/` is off limits to it for the same reason
+/// it is off limits to a reader, and nothing else returned a grade. So a real run ended
+/// with the driving session describing its own measurement second-hand, from whatever its
+/// subagents happened to say in chat. That is a hole in the loop — the instrument could
+/// not tell its operator what it had learned.
+///
+/// **Repo-wide totals, and nothing that names a function or a file.** Not an oversight and
+/// not thrift: "38% of readings graded most" tells a future reader nothing about anything
+/// it is about to predict, and "udf.rs averages some" tells it precisely the thing the
+/// whole protocol exists to withhold. A per-file breakdown is `.sanity/` with the serial
+/// numbers filed off, and the same server answers both readers and orchestrators.
+///
+/// Stale readings are excluded and counted separately, like everywhere else — a summary
+/// that averaged in readings of code that has since changed would be describing a repo
+/// that no longer exists.
+async fn summary(State(state): State<Shared>, Query(p): Query<SummaryParams>) -> Json<serde_json::Value> {
+    let Ok(mut state) = state.lock() else {
+        return Json(serde_json::json!({ "open": false }));
+    };
+    state.ping("sanity_summary");
+    let key = state.for_client(p.project.as_deref());
+    let Some(project) = key.and_then(|k| state.projects.get(&k)) else {
+        return Json(serde_json::json!({
+            "open": false,
+            "hint": "No repo is open. Call sanity_open with the absolute path first."
+        }));
+    };
+
+    let agg = aggregate(project);
+    let WorkLeft { remaining, .. } = work_left(project);
+    Json(serde_json::json!({
+        "open": true,
+        "repo": project.repo.to_string_lossy(),
+        "functions": count_funcs(&project.scan),
+        "assessed": agg.total.readings,
+        "stale": agg.stale,
+        "remaining": remaining,
+        "total": agg.total,
+        "by_model": agg.by_model,
+        "by_position": agg.by_position,
+        "note": "Aggregates only. Nothing here names a function or a file, and that is \
+                 deliberate: a per-file breakdown would tell a reader what to expect \
+                 before it predicts, which is the contamination the whole protocol \
+                 exists to prevent. `documented` is post-provenance — a doc graded \
+                 derivable counts as none. Stale readings are excluded from every count \
+                 above and reported separately. Read `by_position`: readers are supposed \
+                 to take ONE function each, so `later` should be empty. If it is not, and \
+                 it grades greener than `first`, readers are batching and getting better \
+                 at the repo as they go — the improvement is theirs, not the code's."
+    }))
 }
 
 /// What the window needs to know about what is on offer.
@@ -1229,6 +1551,7 @@ pub fn router(state: Shared) -> Router {
         .route("/queue", get(queue))
         .route("/report", post(report))
         .route("/status", get(status))
+        .route("/summary", get(summary))
         .with_state(state)
 }
 
@@ -1393,6 +1716,7 @@ mod tests {
             line: 1,
             end_line: 10,
             name: name.to_string(),
+            owner: None,
             signature: String::new(),
             peers: Vec::new(),
             docs: Vec::new(),
@@ -1549,6 +1873,114 @@ mod tests {
         assert_eq!(w.remaining, 1);
         assert_eq!(w.in_flight, 0, "the reading landed; the stale lease is moot");
         assert!(w.outstanding.is_empty());
+    }
+
+    /// The summary is the orchestrator's only honest account of its own run, so what it
+    /// leaves out matters as much as what it counts.
+    ///
+    /// Two exclusions, both of which were bugs elsewhere first. A stale reading is history
+    /// and must not be averaged in as coverage — the same rule `assessed` and
+    /// `collect_tasks` follow. And a reading with no recorded position must not be counted
+    /// as a first reading: an unknown position is not a claim of freshness, and treating
+    /// it as one would make a batched run — the thing this field exists to expose — look
+    /// uniform.
+    #[test]
+    fn the_summary_counts_neither_stale_readings_nor_unknown_positions_as_good_news() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("a.rs"),
+            "fn one() { println!(\"1\"); }\nfn two() { println!(\"2\"); }\nfn three() { println!(\"3\"); }\n",
+        )
+        .unwrap();
+        let mut p = project_of(dir.path());
+
+        let mut ids = Vec::new();
+        p.scan.root.visit(&mut |n| {
+            if n.kind == NodeKind::Func {
+                ids.push((n.id.clone(), n.body.clone().unwrap_or_default()));
+            }
+        });
+        assert_eq!(ids.len(), 3);
+
+        fn reading(id: &str, body: &str, position: Option<u32>, model: &str) -> Report {
+            Report {
+                id: id.to_string(),
+                predicted: Some(Grade::Full),
+                body: body.to_string(),
+                position,
+                model: model.to_string(),
+                ..Report::blank()
+            }
+        }
+        let mut bank = |r: Report| {
+            p.reports.insert(r.id.clone(), r);
+        };
+        bank(reading(&ids[0].0, &ids[0].1, Some(1), "haiku"));
+        bank(reading(&ids[1].0, &ids[1].1, Some(7), "sonnet"));
+        // Read against a body that is no longer there.
+        bank(reading(&ids[2].0, "a hash from another era", Some(1), "sonnet"));
+
+        let agg = aggregate(&p);
+        assert_eq!(agg.stale, 1);
+        assert_eq!(agg.total.readings, 2, "the stale reading is not coverage");
+        assert_eq!(agg.total.predicted.full, 2);
+        assert_eq!(agg.by_model.len(), 2);
+        assert_eq!(agg.by_model["sonnet"].readings, 1, "and not in its model's tally either");
+
+        // The drift split: one first reading, one taken deep into a batch.
+        assert_eq!(agg.by_position.first.full, 1);
+        assert_eq!(agg.by_position.later.full, 1);
+        assert_eq!(agg.by_position.unrecorded, 0);
+
+        // A reading from before the field existed lands in neither bucket.
+        let r = reading(&ids[1].0, &ids[1].1, None, "sonnet");
+        p.reports.insert(r.id.clone(), r);
+        let agg = aggregate(&p);
+        assert_eq!(agg.by_position.unrecorded, 1);
+        assert_eq!(agg.by_position.first.full, 1, "unknown is not first");
+        assert_eq!(agg.by_position.later.full, 0);
+    }
+
+    /// Same-named twins must arrive distinguishable, and both must appear in the peers.
+    ///
+    /// A reader handed `udf.rs#parse`, with `parse` also in its sibling list, cannot tell
+    /// which of the file's dozen `parse`s it has. It predicts one, reads another, grades
+    /// itself against the mismatch, and reports the docs as belonging to something else —
+    /// a copy-paste bug in the repo that is not there. The old peers list made it worse by
+    /// deduping bare names, so the twins collapsed into a single entry and the list
+    /// concealed exactly what the reader needed.
+    #[test]
+    fn same_named_methods_arrive_with_the_type_they_hang_off() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("udf.rs"),
+            "impl DescriptorTag {\n    fn parse(b: &[u8]) -> u8 { b[0] }\n}\n\
+             impl LogicalVolumeDescriptor {\n    fn parse(b: &[u8]) -> u16 { 1 }\n}\n",
+        )
+        .unwrap();
+        let p = project_of(dir.path());
+
+        let mut out = Vec::new();
+        collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, None, &mut out);
+        let tasks: Vec<Task> = out.into_iter().map(|(_, t)| t).collect();
+        assert_eq!(tasks.len(), 2);
+
+        let owners: Vec<Option<&str>> = tasks.iter().map(|t| t.owner.as_deref()).collect();
+        assert!(
+            owners.contains(&Some("DescriptorTag"))
+                && owners.contains(&Some("LogicalVolumeDescriptor")),
+            "each twin must say which type it belongs to: {owners:?}"
+        );
+        // Each sees the other, qualified — not a bare `parse`, and not nothing.
+        for t in &tasks {
+            assert_eq!(t.peers.len(), 1, "the twin must survive the dedupe: {:?}", t.peers);
+            assert!(t.peers[0].ends_with("::parse"), "unqualified peer: {:?}", t.peers);
+            assert_ne!(
+                t.peers[0],
+                qualify(&t.name, t.owner.as_deref(), Some(Lang::Rust)),
+                "a function must not be listed as its own peer"
+            );
+        }
     }
 
     /// The queue must not hand a reader two functions from one file back to back while

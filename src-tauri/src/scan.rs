@@ -357,6 +357,7 @@ fn score_dir(
                         kind: NodeKind::Func,
                         doc: func.doc.clone(),
                         signature: Some(func.signature.clone()),
+                        owner: func.owner.clone(),
                         body: Some(crate::assessment::body_hash(&func.body)),
                         end_line: Some(func.end_line),
                         path: file.rel_path.clone(),
@@ -403,6 +404,7 @@ fn score_dir(
                     // when file docs are parsed rather than anywhere downstream.
                     doc: None,
                     signature: None,
+                    owner: None,
                     body: None,
                     end_line: None,
                     path: file.rel_path.clone(),

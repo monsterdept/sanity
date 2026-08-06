@@ -117,7 +117,10 @@ readings (1.4 MB) parse in 30ms, once, on open.
   been kept. Don't drop it because "a rescan supplies a fresh tree anyway"; that is
   ordering luck, not a guarantee.
 - **`assessed` excludes stale, everywhere.** `collect_tasks`, `ProjectSummary` and the
-  sidebar all agree, so nothing can read as finished while holding expired work.
+  sidebar all agree, so nothing can read as finished while holding expired work. `/status`
+  did not — it reported `reports.len()` raw — so the sidebar and the agent driving the
+  assessment disagreed about how far along it was, and the agent's copy was the optimistic
+  one. `assessed()` is the one definition now; use it rather than the length.
 
 ## The tool contract is part of the metric
 
@@ -134,6 +137,23 @@ and `model`, Rust could store all four, and the schema declared none of them. Ca
 against generated docs counting as documentation — it was being collected and discarded.**
 When a field is added to `Report`, add it to the schema in the same commit.
 
+- **The descriptions are priced per reading. `just tokens` before and after touching
+  them.** At one function per reader, `tools/list` is loaded once per FUNCTION, so an
+  `inputSchema` description stopped being editorial and became a per-reading charge.
+  Measured on this repo it was 86% of a reader's input floor against 8% for the code it
+  exists to read — and 800 of those tokens described three tools a reader never calls.
+  Two rules fall out. **The wire carries the rule; the source carries the reason** — the
+  arguments behind the rules live in doc comments and here, where they cost nothing per
+  reading, and what ships is what a reader must DO plus the one clause that makes it
+  stick. **Guidance for the orchestrator goes in the RESPONSE, not the description** —
+  `protocol`, `next_step` and `note` reach the one session that asked, at the moment it
+  matters, instead of every reader that never will. That is the argument `PROTOCOL` was
+  already written down for; it just was not being applied to its neighbours.
+- **`PROTOCOL` and `READER_PROMPT` are two constants because they are priced
+  differently.** One goes to an orchestrator once; the other is multiplied by the function
+  count. `just tokens` first located the boundary by searching for a heading, the heading
+  was reworded an hour later, and it silently billed every reader for both halves. A
+  boundary worth measuring is worth making structural.
 - **Never report coverage off a lease-filtered list.** `done`/`remaining` did, so 34
   functions out with readers read as finished under "every function has an up-to-date
   reading". `work_left` returns `(remaining, in_flight)`: remaining ignores leases and
@@ -143,6 +163,31 @@ When a field is added to `Report`, add it to the schema in the same commit.
   across files, because scores cluster by file (distinctiveness is file-local) and a
   reader handed 25 from one file is recalling after the first. `cold` is self-reported and
   should be a check, not the mechanism.
+- **One function per reader. The flaw was never warmth, it was RAMPED warmth.** The
+  protocol asked each subagent for ten, and `cold` only ever asked "had you read this
+  FILE?" — so it saw nothing of the idioms, naming, domain vocabulary and author style a
+  reader absorbs as it works. By its eighth prediction that reader is better than it was
+  at its first, and the map cannot tell that apart from code that is genuinely easier to
+  predict; readings inside one run were not comparable to each other. `default_n` is 1 and
+  the protocol says stop after one. It is also *cheaper* — a batch re-sends every earlier
+  prediction on every turn, and a one-function reader's prefix is identical across readers
+  and caches. `position` records where a reading sat anyway, because "the protocol says 1"
+  is not a measurement; `by_position` in the summary is where a reader that batched anyway
+  becomes visible.
+- **The orchestrator must be able to read its own result.** It is the party that has to
+  report and the one party forbidden `.sanity/`, and nothing returned a grade — so a real
+  run ended with the driving session describing its own measurement from what subagents
+  said in chat. `sanity_summary` closes that: **repo-wide aggregates only, never a
+  per-file or per-function breakdown.** "38% graded most" tells a future reader nothing;
+  "udf.rs averages some" is `.sanity/` with the serial numbers filed off, and one server
+  answers both readers and orchestrators.
+- **A bare name is not an identity — hand over the `owner`.** One file holds a dozen
+  `parse`s, one per descriptor type, and `peers` deduped bare names so the twins collapsed
+  to a single entry. Readers predicted one twin, read another, and reported the docs as
+  belonging to something else — an invented copy-paste bug in the repo, the same class of
+  error as inheriting an enclosing type's docstring. `owner` rides beside `name` and is
+  never folded into it: `key_of(path, name, ord)` keys every committed reading, so a
+  rename would expire a repo's assessment wholesale.
 - **Errors must say what to do.** A reader that hit the old flat "Sanity is not running"
   invented a prerequisite, another ran the tools as shell commands, another read
   `.sanity/` to compensate — contaminating itself. `UNREACHABLE` (transient, retry) is
