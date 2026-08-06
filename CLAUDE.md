@@ -163,17 +163,27 @@ When a field is added to `Report`, add it to the schema in the same commit.
   across files, because scores cluster by file (distinctiveness is file-local) and a
   reader handed 25 from one file is recalling after the first. `cold` is self-reported and
   should be a check, not the mechanism.
-- **One function per reader. The flaw was never warmth, it was RAMPED warmth.** The
+- **Three functions per reader. The flaw was never warmth, it was RAMPED warmth.** The
   protocol asked each subagent for ten, and `cold` only ever asked "had you read this
   FILE?" — so it saw nothing of the idioms, naming, domain vocabulary and author style a
   reader absorbs as it works. By its eighth prediction that reader is better than it was
   at its first, and the map cannot tell that apart from code that is genuinely easier to
-  predict; readings inside one run were not comparable to each other. `default_n` is 1 and
-  the protocol says stop after one. It is also *cheaper* — a batch re-sends every earlier
-  prediction on every turn, and a one-function reader's prefix is identical across readers
-  and caches. `position` records where a reading sat anyway, because "the protocol says 1"
-  is not a measurement; `by_position` in the summary is where a reader that batched anyway
-  becomes visible.
+  predict; readings inside one run were not comparable to each other.
+  **`default_n` is the knee of a measured curve, not a preference.** It was briefly 1, on
+  the belief that isolation was also cheaper. It is not: `just tokens` plus a 1/2/3/5/8
+  sweep puts a reader at ~22,100 fixed + ~1,010/turn at two turns per function, fitting
+  every point within 1% — so `22,100/n + 2,020` per function, falling monotonically with
+  no optimum. 1→3 captures 61% of every token batching can save; past 5 the saving is a
+  few hundred tokens and what it buys is a scale that widens inside each run. **Re-run
+  `just tokens` and the sweep before moving it.**
+  The validity half is still unsettled: `later` graded 36% `full` against 29% for `first`
+  — right direction, not significant on 54 readings, and confounded because the
+  unbatched readers ran first and took the top of a proxy-ranked queue. Settling it needs
+  n=1 and n=k interleaved in one wave. `position` is on every reading so that experiment
+  moves this constant and nothing else.
+- **Read `by_position` as a comparison, never a count.** At a batch of three `later` is
+  supposed to be roughly twice `first`; a populated `later` is not a finding. Whether
+  `later` grades *greener* is.
 - **The orchestrator must be able to read its own result.** It is the party that has to
   report and the one party forbidden `.sanity/`, and nothing returned a grade — so a real
   run ended with the driving session describing its own measurement from what subagents

@@ -197,7 +197,7 @@ pub fn tools() -> Value {
     json!([
         {
             "name": "sanity_open",
-            "description": "Point Sanity at a repo and make it what the window shows. Call this FIRST, with an absolute path — updating an existing assessment is the same call. Sanity does the walking, parsing and git history itself; you must NOT read `.sanity/` yourself, because knowing what the last reader found destroys the measurement. READ THE `protocol` FIELD IN THE RESPONSE AND FOLLOW IT. Check `functions` first: a full pass is one fresh subagent per function, so on a large repo say what that would cost and ask how far to go before spawning anything.",
+            "description": "Point Sanity at a repo and make it what the window shows. Call this FIRST, with an absolute path — updating an existing assessment is the same call. Sanity does the walking, parsing and git history itself; you must NOT read `.sanity/` yourself, because knowing what the last reader found destroys the measurement. READ THE `protocol` FIELD IN THE RESPONSE AND FOLLOW IT. Check `functions` first: a full pass is a fresh subagent per three functions, so on a large repo say what that would cost and ask how far to go before spawning anything.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "path": { "type": "string", "description": "Absolute path to the repo." } },
@@ -211,15 +211,15 @@ pub fn tools() -> Value {
         },
         {
             "name": "sanity_next",
-            "description": "Get ONE function to assess. Call once, no arguments, from a fresh subagent that has not been reading this repo — a reader who already knows a file recalls it instead of predicting it, and recall marks everything unsurprising. You get its name, `owner` (the type it hangs off; one file can hold a dozen `parse`s), signature, location, sibling names and docs — NOT the body. Then: (1) write what you expect the body to do from that alone; (2) read ONLY that function, opening abs_path bounded to `line`..`end_line`, never the whole file; (3) call sanity_report and STOP. Do not ask for more: a reader gets better at a repo as it works through a batch, so its later readings are made by a better reader than its first, and nothing downstream can tell that apart from code that is genuinely easier to predict.",
+            "description": "Get functions to assess — three by default, which is what the protocol asks for. Call once, no arguments, from a fresh subagent that has not been reading this repo: a reader who already knows a file recalls it instead of predicting it, and recall marks everything unsurprising. For each you get its name, `owner` (the type it hangs off; one file can hold a dozen `parse`s), signature, location, sibling names and docs — NOT the body. Take them ONE AT A TIME in the order given: (1) write what you expect that body to do from that alone; (2) read ONLY that function, opening abs_path bounded to its `line`..`end_line`, never the whole file; (3) call sanity_report for it before you look at the next. Then STOP. Do not read ahead, and do not ask for more than you were given: a reader gets better at a repo as it works through a batch, so a long batch ends up grading its later functions as a better reader than it was at the start, and nothing downstream can tell that apart from code that is genuinely easier to predict.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "n": { "type": "number", "description": "How many to fetch. Defaults to 1, which is what the protocol asks for; raising it makes your later readings incomparable to your first." } }
+                "properties": { "n": { "type": "number", "description": "How many to fetch. Defaults to 3, the point where the cost per function has mostly flattened and the batch is still short enough not to run warm. Raising it buys little and widens the scale across your own run." } }
             }
         },
         {
             "name": "sanity_report",
-            "description": "Report one function after predicting and then reading it, then stop. `predicted` is the measurement — grade it against what you wrote BEFORE reading, not against what you understand now. `documented` and `derivable` are about the docs you were handed, not the code. If those docs describe an enclosing type rather than this function, say so in `note` and grade `documented` as none: that is a finding about the repo, not your fault.",
+            "description": "Report one function after predicting and then reading it, before you look at the next one. `predicted` is the measurement — grade it against what you wrote BEFORE reading, not against what you understand now. `documented` and `derivable` are about the docs you were handed, not the code. If those docs describe an enclosing type rather than this function, say so in `note` and grade `documented` as none: that is a finding about the repo, not your fault.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -244,7 +244,7 @@ pub fn tools() -> Value {
                     "note": { "type": "string", "description": "One sentence a human can read, only if surprised." },
                     "model": { "type": "string", "description": "Which model you are, name and version, e.g. claude-haiku-4.5. A grade from a small fast model and one from a large one are not the same evidence. Say what you are; omit it rather than guess." },
                     "cold": { "type": "boolean", "description": "True if you had NOT read this file before predicting. Answer honestly — a warm reading is worth less, and Sanity marks it rather than discarding it." },
-                    "position": { "type": "number", "description": "How many functions you had already assessed in THIS run — 1 if this is your first, which it should be. Report the truth even if you batched: `cold` only asks whether you had opened this FILE, and cannot see that a reader eight functions into a batch has learned the repo's idioms and predicts better for reasons that are nothing to do with the code." }
+                    "position": { "type": "number", "description": "Where this function sat in your run — 1 for the first you assessed, 2 for the second, 3 for the third. Report the truth, and report it even if you took more than you were asked for: `cold` only asks whether you had opened this FILE, and cannot see that a reader deep into a batch has learned the repo's idioms and predicts better for reasons that are nothing to do with the code. A reading that says where it sat can be weighed; one that does not silently widens the scale." }
                 },
                 "required": ["id", "expected", "found", "predicted", "documented", "derivable", "cold", "position", "model"]
             }

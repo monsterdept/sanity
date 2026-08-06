@@ -643,23 +643,43 @@ pub struct QueueParams {
     project: Option<String>,
 }
 
-/// One.
+/// Three: the knee of a curve that was measured rather than argued.
 ///
-/// It was five, and the protocol asked each reader for ten. That looked like thrift and
-/// was a hole in the measurement: `cold` asks whether the reader had seen this FILE, and
-/// interleaving across files answers that — but a reader working a batch is also learning
-/// the repo's idioms, its naming, its domain vocabulary and its author's habits, none of
-/// which `cold` can see. By its eighth function it predicts better for reasons that have
-/// nothing to do with the code being clearer, and the reading is recorded as though it
-/// were the same kind of evidence as its first. Warmth was not the flaw; RAMPED warmth
-/// was, because it makes readings inside one run incomparable to each other.
+/// It was five, and the protocol asked each reader for ten, which was a hole in the
+/// measurement. `cold` asks whether the reader had seen this FILE, and interleaving across
+/// files answers that — but a reader working a batch is also learning the repo's idioms,
+/// its naming, its domain vocabulary and its author's habits, none of which `cold` can
+/// see. By its eighth function it predicts better for reasons that have nothing to do with
+/// the code being clearer. Warmth was never the flaw; RAMPED warmth was, because it makes
+/// readings inside one run incomparable to each other.
 ///
-/// It is also not thrift. A batch re-sends every prior prediction with each turn, so the
-/// accumulating tail dwarfs the ~6k prefix it was saving — a one-function reader is
-/// cheaper on tokens and its prefix is identical across every reader, which caches. What
-/// it costs is subagent spawns, which is latency and orchestration, not measurement.
+/// It was then 1, on the belief that isolation was also cheaper — a batch re-sends every
+/// earlier prediction on every turn, so the accumulating tail was supposed to dwarf the
+/// prefix it saved. That was wrong, and `just tokens` plus a 1/2/3/5/8 sweep is how far
+/// wrong: a reader costs about **22,100 fixed plus 1,010 per turn, at two turns per
+/// function**, which fits every point within 1%. Per function that is `22,100/n + 2,020` —
+/// monotonically falling, no optimum, and a sharp knee:
+///
+/// | n | tokens/function | of the total saving available |
+/// |---|-----------------|-------------------------------|
+/// | 1 | 26,100          | —                             |
+/// | 2 | 14,100          | 50%                           |
+/// | 3 | 10,200          | 61%                           |
+/// | 5 |  6,800          | 74%                           |
+/// | 8 |  5,000          | 82%                           |
+///
+/// So 1 was paying 2.5x for a warm tail two readings long. Three takes most of what
+/// batching can give and caps the tail where it is still short enough to inspect.
+///
+/// **This is a cost figure with a validity guess attached, and the guess is untested.**
+/// The same sweep looked for the drift: readings at position 2+ graded `full` 36% against
+/// 29% for first readings — the right direction, nowhere near significant on 54 readings,
+/// and confounded, because the n=1 readers ran first and took the top of a queue ordered
+/// by proxy surprise while the batched ones got what was left. Settling it needs n=1 and
+/// n=k readers interleaved in one wave, over hundreds of readings. `position` is on every
+/// reading so that experiment changes this constant and nothing else.
 fn default_n() -> usize {
-    1
+    3
 }
 
 #[derive(Deserialize)]
@@ -691,7 +711,7 @@ This is a LOOP, not a single pass. A wave of readers assesses a percent or two o
 repo; stopping there leaves the map almost entirely grey and the job is not done.\n\n\
 YOUR JOB (the session that called sanity_open):\n\
   1. Spawn 5-10 subagents IN PARALLEL, each with the prompt below. EACH ONE ASSESSES \
-     EXACTLY ONE FUNCTION and stops. The queue reserves what it hands out, so parallel \
+     EXACTLY THREE FUNCTIONS and stops. The queue reserves what it hands out, so parallel \
      readers get different functions.\n\
   2. When they return, call sanity_status and read `remaining` and `in_flight`.\n\
   3. If remaining > 0, go back to step 1 — UNLESS remaining == in_flight, which means \
@@ -704,17 +724,18 @@ YOUR JOB (the session that called sanity_open):\n\
      result from what your subagents said in chat, and do NOT read `.sanity/` to get it. \
      If you stopped before remaining hit 0, SAY SO and say how many are left — 'done' and \
      'out of budget' are different outcomes and the user needs to know which.\n\n\
-ONE FUNCTION PER READER IS NOT AN EFFICIENCY SETTING, it is the measurement. A reader \
-given ten gets better at this repo as it works through them — it learns the idioms, the \
-naming, the vocabulary, the author's habits — so its tenth prediction is made by a better \
-reader than its first, and the map cannot tell that apart from code that is genuinely \
-more predictable. Batching also costs MORE tokens, not fewer, because every turn re-sends \
-every prediction before it. Do not batch to save time.\n\n\
+THREE IS THE BATCH SIZE AND IT IS NOT AN EFFICIENCY SETTING. A reader gets better at a \
+repo as it works through a batch — it learns the idioms, the naming, the vocabulary, the \
+author's habits — so a reading taken tenth is made by a better reader than the first, and \
+nothing downstream can tell that apart from code that is genuinely more predictable. \
+Three is where the cost curve flattens while the warm tail is still short. Do not raise \
+it to save time; the saving past three is small and what it buys is a scale that widens \
+inside every run.\n\n\
 ON A LARGE REPO, ASK. `functions` in the sanity_open response is the real size of the \
-job: at one reader per function, ten thousand functions is ten thousand subagents. If \
-that is more than the user has agreed to spend, say what a full pass would cost and ask \
-how far to go BEFORE starting, then stop where they said and report how many are left. A \
-partial assessment is a normal outcome; an unannounced one is not.\n\n\
+job: at three functions per reader, ten thousand functions is over three thousand \
+subagents. If that is more than the user has agreed to spend, say what a full pass would \
+cost and ask how far to go BEFORE starting, then stop where they said and report how many \
+are left. A partial assessment is a normal outcome; an unannounced one is not.\n\n\
 Findings are written into the repo itself, at `.sanity/`, as Markdown a person can read. \
 That happens automatically on every report — do not write those files yourself. Tell the \
 user the assessment is there and that it is theirs to commit; it is not yours to commit \
@@ -742,11 +763,16 @@ repeating them here would only bill every reader twice for one contract.\n\n";
 /// Terse on purpose. It used to restate every `sanity_report` field, which the tool schema
 /// already carries — one contract, billed to each reader twice.
 pub const READER_PROMPT: &str = "\
-  You are reading a codebase you have never seen, and you are assessing EXACTLY ONE \
-  function. Call sanity_next once, with no arguments. Write what you expect the body to \
-  do from the name, owner, signature, siblings and docs alone — two or three sentences, \
-  no more. THEN open abs_path, bounded to the `line`..`end_line` you were given and \
-  nothing more, and read it. Then call sanity_report and stop. You are done after one.\n\n\
+  You are reading a codebase you have never seen, and you are assessing EXACTLY THREE \
+  functions. Call sanity_next once, with no arguments. Take them ONE AT A TIME, in the \
+  order given: write what you expect that function's body to do from its name, owner, \
+  signature, siblings and docs alone — two or three sentences, no more — THEN open \
+  abs_path, bounded to the `line`..`end_line` you were given for it and nothing more, \
+  read it, and call sanity_report for it before you look at the next one. Then stop. You \
+  are done after three.\n\n\
+  Set `position` to 1, 2 and 3 in that order. Do not read ahead into a later function's \
+  file: predicting a function you have already seen is recall, and recall grades \
+  everything unsurprising.\n\n\
   Grade `predicted` against what you WROTE, not against what you understand now: the \
   question is what the code told a stranger.\n\n\
   Do not read any other file, do not spawn subagents, and do NOT read the `.sanity/` \
@@ -1307,16 +1333,20 @@ impl Tally {
 
 /// Does a reader get better at this repo as it works through a batch?
 ///
-/// The one thing the protocol could not see about itself. Readers used to take ten
-/// functions each, and by the eighth a reader has learned the repo's idioms, its naming
-/// and its author's habits — so it predicts better for reasons that are nothing to do with
-/// the code. That improvement is indistinguishable in the output from code that is
-/// genuinely more predictable, which makes it the same class of error as an invented
-/// surprise, pointed the other way.
+/// The one thing the protocol could not see about itself. By its eighth function a reader
+/// has learned the repo's idioms, its naming and its author's habits — so it predicts
+/// better for reasons that are nothing to do with the code. That improvement is
+/// indistinguishable in the output from code that is genuinely more predictable, which
+/// makes it the same class of error as an invented surprise, pointed the other way.
 ///
-/// One function per reader is the fix. This is the check on it: if `later` is
-/// systematically greener than `first`, readers are still batching and the scale is
-/// drifting inside each run.
+/// At a batch of three, `later` is SUPPOSED to be about twice `first`, so a populated
+/// `later` is not the finding — the comparison is. If `later` grades systematically
+/// greener, the batch is running warm and the scale widens inside every run.
+///
+/// The one measurement so far put `later` at 36% `full` against 29%: the right direction,
+/// not significant on 54 readings, and confounded, because the unbatched readers ran first
+/// and took the top of a queue ordered by proxy surprise. Nothing here settles it. What it
+/// does is keep the question answerable from data the store already holds.
 #[derive(Debug, Default, Clone, Serialize)]
 struct Drift {
     /// Graded by a reader on its first function of the run.
@@ -1432,10 +1462,12 @@ async fn summary(State(state): State<Shared>, Query(p): Query<SummaryParams>) ->
                  before it predicts, which is the contamination the whole protocol \
                  exists to prevent. `documented` is post-provenance — a doc graded \
                  derivable counts as none. Stale readings are excluded from every count \
-                 above and reported separately. Read `by_position`: readers are supposed \
-                 to take ONE function each, so `later` should be empty. If it is not, and \
-                 it grades greener than `first`, readers are batching and getting better \
-                 at the repo as they go — the improvement is theirs, not the code's."
+                 above and reported separately. Read `by_position` as a COMPARISON, not a \
+                 count: readers take three functions each, so `later` should hold about \
+                 twice what `first` does and that means nothing on its own. What matters \
+                 is whether `later` grades greener. If it does, readers are getting \
+                 better at the repo as they work — the improvement is theirs, not the \
+                 code's, and the batch is too long."
     }))
 }
 
