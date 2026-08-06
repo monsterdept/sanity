@@ -696,6 +696,11 @@ fn collect_tasks(
         return;
     }
     if node.kind == NodeKind::File {
+        // Out of scope by the repo's own `.sanityignore`. Never queued, never counted in
+        // the denominator, still parsed and still on the map — see `Node::excluded`.
+        if node.excluded {
+            return;
+        }
         // Qualified by owner, and kept in FILE ORDER rather than sorted. Order is what
         // makes the window below mean something: the functions either side of this one are
         // what a person scrolling past would see, and the findings this field actually
@@ -762,67 +767,64 @@ pub struct QueueParams {
     project: Option<String>,
 }
 
-/// One at a time — but three times per reader. The two are separate questions and got
-/// conflated.
+/// Ten readings per reader, fetched ONE AT A TIME. Two separate knobs, and they got
+/// conflated once already.
 ///
-/// It was five, and the protocol asked each reader for ten, which was a hole in the
-/// measurement. `cold` asks whether the reader had seen this FILE, and interleaving across
-/// files answers that — but a reader working a batch is also learning the repo's idioms,
-/// its naming, its domain vocabulary and its author's habits, none of which `cold` can
-/// see. By its eighth function it predicts better for reasons that have nothing to do with
-/// the code being clearer. Warmth was never the flaw; RAMPED warmth was, because it makes
-/// readings inside one run incomparable to each other.
+/// **The number is the edge of what was measured, and deliberately not one step past it.**
 ///
-/// It was then 1, on the belief that isolation was also cheaper — a batch re-sends every
-/// earlier prediction on every turn, so the accumulating tail was supposed to dwarf the
-/// prefix it saved. That was wrong, and `just tokens` plus a 1/2/3/5/8 sweep is how far
-/// wrong: a reader costs about **22,100 fixed plus 1,010 per turn, at two turns per
-/// function**, which fits every point within 1%. Per function that is `22,100/n + 2,020` —
-/// monotonically falling, no optimum, and a sharp knee:
+/// Cost first, because that half is settled. A reader costs about 23,110 to enter plus
+/// 3,030 per function, measured on a 1/2/3/5/8 sweep and confirmed at 10 on a second repo.
+/// Per function that is `23,110/n + 3,030` — a hyperbola, so there is no natural knee and
+/// any choice of one is really a choice about what saving is worth having:
 ///
-/// | n | tokens/function | of the total saving available |
-/// |---|-----------------|-------------------------------|
-/// | 1 | 26,100          | —                             |
-/// | 2 | 14,100          | 50%                           |
-/// | 3 | 10,200          | 61%                           |
-/// | 5 |  6,800          | 74%                           |
-/// | 8 |  5,000          | 82%                           |
+/// | n  | tokens/function | saved vs the next step down |
+/// |----|-----------------|-----------------------------|
+/// | 1  | 26,100          | —                           |
+/// | 2  | 14,600          | 11,500                      |
+/// | 3  | 10,700          | 3,900                       |
+/// | 5  |  7,700          | 1,200 per step              |
+/// | 8  |  5,900          | 400 per step                |
+/// | 10 |  5,300          | 250 per step                |
 ///
-/// So 1 reader per function was paying 2.5x for a warm tail two readings long. Three
-/// readings per reader takes most of what batching can give and caps the tail where it is
-/// still short enough to inspect.
+/// This was 3, on the belief that a reader gets better at a repo as it works — that it
+/// learns the idioms and the vocabulary, so a reading taken tenth is made by a better
+/// reader than the first, and the map cannot tell that apart from code that is genuinely
+/// easier to predict. **Two experiments went looking for that and neither found it.** A
+/// full pass of this repo at a batch of three: `full` at 39.5% for position 1 against
+/// 38.4% later, flat. Forty readers at a batch of TEN on a 10,828-function repo, buckets
+/// forty deep: positions 2 through 10 scattered between 35% and 55% with a slope of
+/// essentially zero. 784 readings, two codebases, no warming.
 ///
-/// **But the saving is the shared CONTEXT, not the shared fetch, and this is the number
-/// of functions per HANDOUT.** Those came apart by accident: the shim was still sending
-/// `n=1` after this moved to 3, so a whole wave fetched three times inside one context
-/// instead of receiving three at once. It cost the same — 30,125 per reader against
-/// 30,495 — and it is colder, because a reader handed three tasks reads three signatures,
-/// three owners and three peer lists before it predicts the first. One sweep reader said
-/// so unprompted and downgraded its own second and third readings for it.
+/// So the mechanism that argued for a short batch is not in evidence, and the cost of
+/// assuming it anyway is 2.5x. Ten is where the measurement stops. Fifteen might be fine
+/// and nothing here knows that.
 ///
-/// Equal cost, strictly better measurement, so the accident wins: `default_n` is 1 and the
-/// protocol asks for three calls. Nothing about the cost table changes — it was never
-/// measuring the batch.
+/// The one position effect that did show up argues the same way. On the ten-batch repo,
+/// position 1 graded `full` 27.5% against 41.9% for everything after — first readings
+/// HARSHER, which looks like a reader hedging before it has used the four-step scale
+/// rather than anything about the code (z ≈ 1.9; and it did not replicate on the other
+/// repo, so treat it as unresolved). If it is real, a bigger batch dilutes it: at three,
+/// a third of all readings are position 1; at ten, a tenth.
 ///
-/// **The validity half is unsettled, and the first clean measurement points the OTHER
-/// WAY.** The batch-size sweep had readings at position 2+ grading `full` 36% against 29%
-/// for first readings — the direction the whole warm-tail argument predicts, but not
-/// significant, and confounded: the unbatched readers ran first and took the top of a
-/// proxy-ranked queue while the batched ones got what was left. A later run, on a fresh
-/// store with drip-feed and file-rest in place and no such confound, reversed it: 66
-/// readings, `full` at 41% for position 1 and 20% for positions 2-3, with `some` going
-/// 0% to 20%. Later readings were HARSHER, not greener (z ≈ 1.7 — suggestive, not
-/// settled).
+/// **What would move this number.** Down: warming found at positions 8-10 with buckets
+/// deeper than forty. Up: a clean measurement at 15-25 finding nothing, which nobody has
+/// run. `position` is on every reading and `by_position` buckets per position, so any run
+/// at any batch size adds a point to the curve — read it before touching this.
 ///
-/// If that holds, the stated reason for a short batch is wrong even though the batch may
-/// still be right: what drifts looks like the reader's calibration, not its knowledge —
-/// the first grade is generous and later ones are self-corrected against a scale it has
-/// now used. That is still a scale widening inside one run, and still an argument for
-/// keeping the tail short. It is not the argument written down above.
+/// **Known limitation, and it is repo-shaped.** The queue rests a file for `FILE_REST`
+/// after drawing from it, and on a small repo the pool of files with unread work runs out;
+/// a reader deep into a batch then gets handed a file it already opened. That happened on
+/// a 43-file repo at a batch of three and did not happen on a 731-file one at ten. The
+/// binding constraint on batch size is file supply, not warming — and `cold` records it
+/// honestly when it bites.
 ///
-/// Do not quietly re-tune this on the strength of either number. `position` is on every
-/// reading so the question stays answerable; settling it needs the two conditions
-/// interleaved in one wave, over hundreds of readings.
+/// The other knob: **one at a time.** The saving is the shared CONTEXT, not the shared
+/// fetch. A wave that fetched three times inside one context cost 30,125 per reader
+/// against 30,495 for a true batch of three — the same — and it is colder, because a
+/// reader handed a batch has read every signature, owner and peer list in it before it
+/// predicts the first. One reader said so unprompted and downgraded its own readings for
+/// it. Equal cost, better measurement, so `default_n` is the size of one HANDOUT and the
+/// protocol asks for ten calls.
 fn default_n() -> usize {
     1
 }
@@ -856,7 +858,7 @@ This is a LOOP, not a single pass. A wave of readers assesses a percent or two o
 repo; stopping there leaves the map almost entirely grey and the job is not done.\n\n\
 YOUR JOB (the session that called sanity_open):\n\
   1. Spawn 5-10 subagents IN PARALLEL, each with the prompt below. EACH ONE ASSESSES \
-     EXACTLY THREE FUNCTIONS and stops. The queue reserves what it hands out, so parallel \
+     EXACTLY TEN FUNCTIONS and stops. The queue reserves what it hands out, so parallel \
      readers get different functions.\n\
   2. When they return, call sanity_status and read `remaining` and `in_flight`.\n\
   3. If remaining > 0, go back to step 1 — UNLESS remaining == in_flight, which means \
@@ -869,19 +871,28 @@ YOUR JOB (the session that called sanity_open):\n\
      result from what your subagents said in chat, and do NOT read `.sanity/` to get it. \
      If you stopped before remaining hit 0, SAY SO and say how many are left — 'done' and \
      'out of budget' are different outcomes and the user needs to know which.\n\n\
-THREE READINGS PER READER, FETCHED ONE AT A TIME, AND NEITHER HALF IS AN EFFICIENCY \
-SETTING. Three, because a reader gets better at a repo as it works — it learns the \
-idioms, the naming, the vocabulary, the author's habits — so a reading taken tenth is \
-made by a better reader than the first, and nothing downstream can tell that apart from \
-code that is genuinely more predictable; three is where the cost curve flattens while \
-that tail is still short. One at a time, because the saving comes from the shared \
-context, not the shared handout: fetching three at once costs the same and shows the \
-reader two functions it has not predicted yet. Do not raise either number to save time.\n\n\
+TEN READINGS PER READER, FETCHED ONE AT A TIME. Ten because that is the edge of what has \
+actually been measured: two experiments, 784 readings across two codebases, looked for \
+readers grading greener as they work through a batch — the reason this used to be three — \
+and neither found it, while the cost falls from ~26,000 tokens per function at one to \
+~5,300 at ten. Fifteen might be fine and nobody has measured it, so do not raise it. One \
+at a time, because the saving comes from the shared context, not the shared handout: \
+fetching ten at once costs the same and shows the reader nine functions it has not \
+predicted yet.\n\n\
 ON A LARGE REPO, ASK. `functions` in the sanity_open response is the real size of the \
-job: at three functions per reader, ten thousand functions is over three thousand \
+job: at ten functions per reader, ten thousand functions is over a thousand \
 subagents. If that is more than the user has agreed to spend, say what a full pass would \
 cost and ask how far to go BEFORE starting, then stop where they said and report how many \
 are left. A partial assessment is a normal outcome; an unannounced one is not.\n\n\
+IF YOU RUN OUT OF SUBAGENTS, THE ASSESSMENT IS NOT OVER — it is paused, and resuming it \
+costs nothing. Hosts cap how many subagents one session may spawn, and at ten functions \
+each a cap of two hundred is two thousand functions; a large repo will hit it. That is not \
+a failure and it is not a reason to improvise. Every reading is already saved in the repo, \
+so: tell the user how many are left, ask them to start a fresh session, and call \
+sanity_open again — `remaining` picks up exactly where this one stopped. Above all do NOT \
+start assessing functions yourself to finish the job. Your context is full of this repo; \
+your readings would be recall, they would score as unsurprising, and they would be \
+indistinguishable afterwards from honest ones.\n\n\
 Findings are written into the repo itself, at `.sanity/`, as Markdown a person can read. \
 That happens automatically on every report — do not write those files yourself. Tell the \
 user the assessment is there and that it is theirs to commit; it is not yours to commit \
@@ -909,17 +920,17 @@ repeating them here would only bill every reader twice for one contract.\n\n";
 /// Terse on purpose. It used to restate every `sanity_report` field, which the tool schema
 /// already carries — one contract, billed to each reader twice.
 pub const READER_PROMPT: &str = "\
-  You are reading a codebase you have never seen, and you are assessing EXACTLY THREE \
-  functions, ONE AT A TIME. Repeat this three times: call sanity_next with no arguments \
-  and it hands you exactly one function; write what you expect its body to do from the \
-  name, owner, signature, siblings and docs alone — two or three sentences, no more — \
-  THEN open abs_path, bounded to the `line`..`end_line` you were given and nothing more, \
-  read it, and call sanity_report. Only then call sanity_next again. After the third \
-  report, stop.\n\n\
+  You are reading a codebase you have never seen, and you are assessing EXACTLY TEN \
+  functions, ONE AT A TIME. Repeat this ten times: call sanity_next with no arguments and \
+  it hands you exactly one function; write what you expect its body to do from the name, \
+  owner, signature, siblings and docs alone — two or three sentences, no more — THEN open \
+  abs_path, bounded to the `line`..`end_line` you were given and nothing more, read it, \
+  and call sanity_report. Only then call sanity_next again. After the tenth report, \
+  stop.\n\n\
   Do not ask for more than one at a time. One handout is one function on purpose: a \
-  reader given three at once has read three signatures, three owners and three peer lists \
-  before it predicts the first, and it costs no less. Set `position` to 1, 2 and 3 in the \
-  order you assess them.\n\n\
+  reader given ten at once has read ten signatures, ten owners and ten peer lists before \
+  it predicts the first, and it costs no less. Set `position` to 1 through 10 in the order \
+  you assess them.\n\n\
   Grade `predicted` against what you WROTE, not against what you understand now: the \
   question is what the code told a stranger.\n\n\
   Do not read any other file, do not spawn subagents, and do NOT read the `.sanity/` \
@@ -990,7 +1001,8 @@ async fn open_project(
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| key.clone());
-    let functions = count_funcs(&scan);
+    let (functions, excluded) = count_funcs(&scan);
+    let shape = shape_of(&scan);
 
     let Ok(mut s) = state.lock() else {
         return Json(serde_json::json!({ "ok": false, "error": "state poisoned" }));
@@ -1028,6 +1040,26 @@ async fn open_project(
     Json(serde_json::json!({
         "ok": true, "reopened": reopened, "project": key, "name": name,
         "functions": functions, "assessed": assessed,
+        // Both, always. `functions` is what a full pass costs and what a percentage
+        // divides by; `excluded` is what somebody decided is not this assessment's
+        // business. A denominator quietly narrowed months ago is how a map ends up
+        // claiming completeness over a subset.
+        "excluded": excluded,
+        // The repo by top-level directory, so a reader can propose a `.sanityignore` with
+        // numbers instead of a guess. Nobody shipping this tool can know which of these
+        // directories is worth a reading; somebody who has just read the repo can ask.
+        "shape": shape,
+        "sanityignore": if excluded > 0 {
+            "In effect — `excluded` above is what it set aside."
+        } else {
+            "None. If a slice of this repo is not worth reading — generated clients, \
+             vendored trees, a test suite you would rather assess separately — say so \
+             with the numbers from `shape` and let the human write `.sanityignore` at the \
+             repo root. Gitignore syntax. Do NOT create one unasked, and do not assume \
+             tests belong in it: a full pass of another repo found seven tests whose \
+             names promised properties their bodies never exercised, which was the best \
+             result of that run."
+        },
         // The two halves, rejoined for the one caller that needs both — it has to read
         // the orchestration half and paste the reader half.
         "stale": stale, "protocol": format!("{PROTOCOL}{READER_PROMPT}"),
@@ -1124,14 +1156,64 @@ fn assessed(project: &Project) -> usize {
         .saturating_sub(count_stale(&project.scan, &project.reports))
 }
 
-fn count_funcs(scan: &Scan) -> usize {
-    let mut n = 0;
-    scan.root.visit(&mut |x| {
-        if x.kind == NodeKind::Func {
-            n += 1
+/// Functions in scope, and functions `.sanityignore` set aside.
+///
+/// Always both, everywhere either is shown. "10,828 functions" and "10,828 functions,
+/// 2,140 excluded" are the same repo and different claims, and a percentage divided by
+/// the first while the queue works from the second is the instrument overstating itself
+/// — the same failure as counting leased work as done.
+fn count_funcs(scan: &Scan) -> (usize, usize) {
+    fn walk(node: &Node, out_of_scope: bool, kept: &mut usize, dropped: &mut usize) {
+        let out_of_scope = out_of_scope || node.excluded;
+        if node.kind == NodeKind::Func {
+            *(if out_of_scope { dropped } else { kept }) += 1;
+            return;
         }
-    });
-    n
+        for c in &node.children {
+            walk(c, out_of_scope, kept, dropped);
+        }
+    }
+    let (mut kept, mut dropped) = (0, 0);
+    walk(&scan.root, false, &mut kept, &mut dropped);
+    (kept, dropped)
+}
+
+/// The repo's shape by top-level directory, so an agent can propose a `.sanityignore`
+/// with numbers rather than a guess.
+///
+/// This is the whole reason the feature can work. Nobody shipping the tool can know that
+/// `comfy_api_nodes/` is generated or that `tests-unit/` is a different question — but a
+/// reader looking at "tests-unit: 900 functions" can put that in front of the human, who
+/// decides. Counts only, never names of functions: a directory total tells a future
+/// reader nothing about anything it is going to predict.
+fn shape_of(scan: &Scan) -> Vec<serde_json::Value> {
+    let mut by_dir: std::collections::BTreeMap<String, (usize, usize)> = Default::default();
+    fn walk(node: &Node, out: bool, by_dir: &mut std::collections::BTreeMap<String, (usize, usize)>) {
+        let out = out || node.excluded;
+        if node.kind == NodeKind::Func {
+            let top = node.path.split('/').next().unwrap_or(".").to_string();
+            let e = by_dir.entry(top).or_default();
+            if out {
+                e.1 += 1;
+            } else {
+                e.0 += 1;
+            }
+            return;
+        }
+        for c in &node.children {
+            walk(c, out, by_dir);
+        }
+    }
+    walk(&scan.root, false, &mut by_dir);
+    let mut rows: Vec<(String, usize, usize)> =
+        by_dir.into_iter().map(|(d, (a, b))| (d, a, b)).collect();
+    rows.sort_by_key(|(_, a, b)| std::cmp::Reverse(a + b));
+    rows.into_iter()
+        .take(15)
+        .map(|(dir, kept, dropped)| {
+            serde_json::json!({ "dir": dir, "functions": kept, "excluded": dropped })
+        })
+        .collect()
 }
 
 /// Hand out the next few functions worth assessing, from the active project.
@@ -1497,7 +1579,7 @@ async fn status(State(state): State<Shared>) -> Json<serde_json::Value> {
             serde_json::json!({
                 "name": p.name,
                 "repo": p.repo.to_string_lossy(),
-                "functions": count_funcs(&p.scan),
+                "functions": count_funcs(&p.scan).0,
                 "assessed": assessed(p),
             })
         })
@@ -1526,7 +1608,8 @@ async fn status(State(state): State<Shared>) -> Json<serde_json::Value> {
                 "open": true,
                 "active": p.name,
                 "repo": p.repo.to_string_lossy(),
-                "functions": count_funcs(&p.scan),
+                "functions": count_funcs(&p.scan).0,
+                "excluded": count_funcs(&p.scan).1,
                 // Stale readings excluded, so this agrees with the sidebar and with
                 // `remaining` — see [`assessed`].
                 "assessed": p.reports.len().saturating_sub(stale),
@@ -1755,7 +1838,8 @@ async fn summary(State(state): State<Shared>, Query(p): Query<SummaryParams>) ->
     Json(serde_json::json!({
         "open": true,
         "repo": project.repo.to_string_lossy(),
-        "functions": count_funcs(&project.scan),
+        "functions": count_funcs(&project.scan).0,
+        "excluded": count_funcs(&project.scan).1,
         "assessed": agg.total.readings,
         "stale": agg.stale,
         "remaining": remaining,
@@ -1791,6 +1875,10 @@ pub struct ProjectSummary {
     pub name: String,
     pub repo: String,
     pub functions: usize,
+    /// Functions `.sanityignore` set aside. Shown beside `functions`, never folded into
+    /// it — the sidebar's `81/377` is a claim about coverage, and a denominator that
+    /// silently shrank is the same lie as a reading that outlived its code.
+    pub excluded: usize,
     /// Functions with a reading that still describes them.
     ///
     /// Stale readings are excluded rather than counted, so `assessed / functions` means
@@ -1835,7 +1923,8 @@ impl ProjectList {
                     key: key.clone(),
                     name: p.name.clone(),
                     repo: p.repo.to_string_lossy().to_string(),
-                    functions: count_funcs(&p.scan),
+                    functions: count_funcs(&p.scan).0,
+                    excluded: count_funcs(&p.scan).1,
                     assessed: p.reports.len().saturating_sub(stale),
                     stale,
                     touched: p.touched,
@@ -1865,6 +1954,7 @@ impl ProjectList {
                         name: known.name.clone(),
                         repo: known.repo.clone(),
                         functions: 0,
+                        excluded: 0,
                         assessed: 0,
                         stale: 0,
                         touched: known.touched,
@@ -2328,6 +2418,50 @@ mod tests {
                 "a function must not be listed as its own peer"
             );
         }
+    }
+
+    /// `.sanityignore` narrows the queue and is COUNTED while it does it.
+    ///
+    /// The scoping half is easy and the counting half is the point. An exclusion that
+    /// disappears from the totals lets a map claim completeness over a subset somebody
+    /// chose months ago — the same failure as `done` counting leased work, or `assessed`
+    /// counting readings whose code had moved.
+    #[test]
+    fn an_excluded_file_leaves_the_queue_and_stays_in_the_count() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("tests")).unwrap();
+        std::fs::write(dir.path().join("keep.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        std::fs::write(
+            dir.path().join("tests/drop.rs"),
+            "fn two() { println!(\"2\"); }\nfn three() { println!(\"3\"); }\n",
+        )
+        .unwrap();
+
+        // With no `.sanityignore`, everything is in scope. No defaults, ever — a shipped
+        // default excluding tests would have deleted the best finding of a whole run.
+        let p = project_of(dir.path());
+        assert_eq!(count_funcs(&p.scan), (3, 0));
+
+        std::fs::write(dir.path().join(".sanityignore"), "tests/\n").unwrap();
+        let p = project_of(dir.path());
+        assert_eq!(
+            count_funcs(&p.scan),
+            (1, 2),
+            "in scope and set aside are both reported, never one silently"
+        );
+
+        // The queue works from the narrowed set.
+        let mut out = Vec::new();
+        collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, None, &mut out);
+        let names: Vec<String> = out.into_iter().map(|(_, t)| t.name).collect();
+        assert_eq!(names, vec!["one"], "excluded functions are never handed out");
+
+        // And the shape a reader would use to propose one still shows both halves, or it
+        // could not have proposed anything.
+        let shape = shape_of(&p.scan);
+        let tests = shape.iter().find(|r| r["dir"] == "tests").expect("tests/ in the shape");
+        assert_eq!(tests["excluded"], 2);
+        assert_eq!(tests["functions"], 0);
     }
 
     /// A big file hands over its neighbourhood, and says how much it left out.

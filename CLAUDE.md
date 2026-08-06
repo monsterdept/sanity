@@ -212,6 +212,21 @@ When a field is added to `Report`, add it to the schema in the same commit.
   left a documentation grade reading as current when the text it graded was gone.
   `reading_hash(doc, body)` is what `node.body` holds now; it collapses whitespace across
   both, so a reflow expires nothing.
+- **`.sanityignore` scopes the repo, and the tool must never decide what goes in it.**
+  Whether `tests-unit/` is noise or the most interesting thing here is a judgement about a
+  specific codebase, and the tool provider cannot know it. **So there are no defaults —
+  especially not tests.** A full pass of this repo found seven tests whose names promised
+  properties their bodies never exercised, including the one named for the product's whole
+  claim; a shipped default excluding tests would have deleted the best result of the run.
+  What the tool does instead is make the decision cheap: `sanity_open` returns `shape`
+  (functions per top-level directory) so an agent that has read the repo can put a
+  proposal in front of the human *with numbers*, and the human writes the file. Mechanism
+  here, judgement from the reader, decision with the person.
+  **Every exclusion is counted out loud.** `functions` and `excluded` appear together
+  everywhere either does. An exclusion that vanishes from the totals is how a map claims
+  completeness over a subset somebody narrowed months ago — the same failure as `done`
+  counting leased work. Excluded functions are still parsed and still drawn; what they
+  are not is queued, or in the denominator.
 - **`by_position` is one bucket per position, and reading it as a curve is the point.**
   It used to collapse to first-versus-later, which answered the wrong question and hid
   that it had: a full pass of this repo at a batch of three found the two buckets flat,

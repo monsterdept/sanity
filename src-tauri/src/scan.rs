@@ -142,6 +142,38 @@ struct ParsedFile {
     funcs: Vec<FuncDef>,
     prints: Vec<Fingerprint>,
     head: String,
+    /// Matched by `.sanityignore` — parsed and drawn, but never handed to a reader and
+    /// never in the denominator. See [`scope_of`].
+    excluded: bool,
+}
+
+/// What `.sanityignore` says is not this assessment's business.
+///
+/// **The tool cannot know this and should not pretend to.** Whether `tests-unit/` is
+/// noise or the most interesting thing in the repo is a judgement about a specific
+/// codebase — and it cuts both ways: a full pass of one repo found seven tests whose names
+/// promised properties their bodies never exercised, including the one named for the whole
+/// product's claim. Shipping a default that excluded tests would have deleted the best
+/// result of that run. So there are no defaults. The file starts absent, and every line in
+/// it is somebody's decision.
+///
+/// What the tool can do is make the decision cheap to make well: `sanity_open` reports the
+/// shape of the repo by directory, and an agent that has read it can put a proposal in
+/// front of the human with numbers attached. Mechanism here, judgement from the reader,
+/// decision with the person — the same division as the metric itself.
+///
+/// Gitignore syntax, via the same matcher, so negation and directory patterns behave the
+/// way anyone would expect. Committed with the repo like `.sanity/` is, because scoping is
+/// a claim about what this map MEANS: kept on one machine, two people looking at the same
+/// sunburst would be looking at different denominators with no way to tell.
+fn scope_of(root: &Path) -> Option<ignore::gitignore::Gitignore> {
+    let path = root.join(".sanityignore");
+    if !path.exists() {
+        return None;
+    }
+    let mut b = ignore::gitignore::GitignoreBuilder::new(root);
+    b.add(&path);
+    b.build().ok()
 }
 
 /// Imports plus a couple of whole sibling bodies, for the model prompt.
@@ -171,7 +203,13 @@ fn context_for(file: &ParsedFile, skip: usize) -> String {
     out
 }
 
-fn parse_file(root: &Path, path: &Path, lang: Lang, fidelity: Fidelity) -> Option<ParsedFile> {
+fn parse_file(
+    root: &Path,
+    path: &Path,
+    lang: Lang,
+    fidelity: Fidelity,
+    scope: Option<&ignore::gitignore::Gitignore>,
+) -> Option<ParsedFile> {
     let src = std::fs::read_to_string(path).ok()?;
     if src.lines().any(|l| l.len() > MINIFIED_LINE_BYTES) {
         return None;
@@ -197,6 +235,12 @@ fn parse_file(root: &Path, path: &Path, lang: Lang, fidelity: Fidelity) -> Optio
         funcs,
         prints,
         head,
+        // Parsed even when excluded, rather than skipped in the walk. Scanning is seconds
+        // and readers are millions of tokens, so the cheap thing is to know exactly how
+        // much was set aside and say so. An exclusion nobody can count is how a map claims
+        // completeness over a subset.
+        excluded: scope
+            .is_some_and(|s| s.matched_path_or_any_parents(path, false).is_ignore()),
     })
 }
 
@@ -360,6 +404,7 @@ fn score_dir(
                         id: format!("{}#{}@{}", file.rel_path, func.name, func.start_line),
                         name: func.name.clone(),
                         kind: NodeKind::Func,
+                        excluded: false,
                         doc: func.doc.clone(),
                         signature: Some(func.signature.clone()),
                         owner: func.owner.clone(),
@@ -406,6 +451,7 @@ fn score_dir(
                     id: file.rel_path.clone(),
                     name,
                     kind: NodeKind::File,
+                    excluded: file.excluded,
                     // No file-level doc yet: `parse` extracts the comment attached to
                     // each chunk, not the banner at the top of a module. The stack a
                     // reader is handed is therefore one deep for now, and widens here
@@ -526,6 +572,7 @@ pub fn scan(
 ) -> anyhow::Result<Scan> {
     let files = collect_files(root);
     let total_found = files.len();
+    let scope = scope_of(root);
     let history = churn::read(root);
     // Per-line provenance, so churn, age and blame resolve to the FUNCTION rather than
     // to its file. One `git blame` per file, in parallel — 22ms each, measured, which is
@@ -555,7 +602,7 @@ pub fn scan(
         .map(|(_dir, entries)| {
             entries
                 .iter()
-                .filter_map(|(p, lang)| parse_file(root, p, *lang, fidelity))
+                .filter_map(|(p, lang)| parse_file(root, p, *lang, fidelity, scope.as_ref()))
                 .collect()
         })
         .collect();

@@ -278,20 +278,36 @@ fn owner_of(node: TsNode, lang: Lang, src: &str) -> Option<String> {
             .find(|s| !s.is_empty())
             .map(str::to_string);
     }
+    // The WHOLE chain, not the nearest one. Stopping at the first enclosing type is right
+    // until the innermost type is a generic wrapper, and then it is useless: ComfyUI's API
+    // is built as `class Boolean: class Input: def as_dict`, repeated per data type, so
+    // thirty `as_dict` methods all reported `owner: Input` and a reader could not tell
+    // which of them it had been handed. That is the exact failure `owner` was added to fix,
+    // reappearing one level up. `Boolean.Input` is the answer; `Input` is a shrug.
+    //
+    // A reader found this by being handed one of the thirty and saying so.
+    let mut chain: Vec<String> = Vec::new();
     let mut cur = node;
     while let Some(parent) = cur.parent() {
         if OWNER_KINDS.contains(&parent.kind()) {
             // `impl Foo` and `impl Trait for Foo` both name the owner through `type`; a
             // class or trait names it through `name`. Asking for the wrong one first
             // costs nothing and means neither language needs a branch here.
-            let named = parent
+            if let Some(named) = parent
                 .child_by_field_name("name")
-                .or_else(|| parent.child_by_field_name("type"))?;
-            return Some(text(named, src).trim().to_string());
+                .or_else(|| parent.child_by_field_name("type"))
+            {
+                chain.push(text(named, src).trim().to_string());
+            }
         }
         cur = parent;
     }
-    None
+    // Innermost last, and capped: three levels name a thing, and a fourth is a path nobody
+    // reads. Dotted regardless of language — this is a chain of type names, and the
+    // language's own separator between the owner and the FUNCTION is `qualify`'s job.
+    chain.truncate(3);
+    chain.reverse();
+    (!chain.is_empty()).then(|| chain.join("."))
 }
 
 /// Python attaches its documentation *inside* the body, as the first statement.
@@ -632,6 +648,32 @@ fn free_standing() -> u8 { 0 }
         );
         // A free function has no owner, and must not borrow the file's.
         assert_eq!(owner(Lang::Rust, "fn free() {}\n"), None);
+    }
+
+    /// A nested type names its whole path, because the innermost name may say nothing.
+    ///
+    /// ComfyUI declares its entire API as `class Boolean: class Input: def as_dict`, once
+    /// per data type — so stopping at the nearest enclosing class reported `Input` for
+    /// thirty different methods in one file and a reader could not tell which it held.
+    /// That is precisely the ambiguity `owner` exists to remove, one level further out.
+    #[test]
+    fn a_nested_owner_names_its_whole_path() {
+        let src = "class Boolean:\n    class Input:\n        def as_dict(self):\n            return 1\n\nclass Image:\n    class Input:\n        def as_dict(self):\n            return 2\n";
+        let fns = parse_functions(Lang::Python, src);
+        let owners: Vec<Option<&str>> = fns.iter().map(|f| f.owner.as_deref()).collect();
+        assert_eq!(
+            owners,
+            vec![Some("Boolean.Input"), Some("Image.Input")],
+            "two same-named methods on two same-named inner classes must stay apart"
+        );
+
+        // One level is still one level — no trailing path where there is no nesting.
+        assert_eq!(
+            parse_functions(Lang::Python, "class Suggester:\n    def next(self):\n        return 1\n")[0]
+                .owner
+                .as_deref(),
+            Some("Suggester")
+        );
     }
 
     #[test]

@@ -331,6 +331,15 @@ pub struct Node {
     /// reading on the name, and renaming would expire a repo's assessment wholesale.
     #[serde(default)]
     pub owner: Option<String>,
+    /// Set on a FILE node that `.sanityignore` matched. Its functions are still parsed,
+    /// still drawn, and still counted — as excluded, separately and out loud. What they
+    /// are not is queued, or in the denominator that "43% assessed" divides by.
+    ///
+    /// Kept rather than dropped so the number can be reported. An exclusion nobody can
+    /// count is how a map ends up claiming completeness over a subset somebody chose
+    /// months ago and forgot.
+    #[serde(default)]
+    pub excluded: bool,
     /// A short hash of this function's body, for functions.
     ///
     /// The only way a committed assessment can know it has gone stale. An entry in
@@ -355,6 +364,7 @@ impl Node {
             id: path.to_string(),
             name: name.to_string(),
             kind: NodeKind::Dir,
+            excluded: false,
             path: path.to_string(),
             loc: 0,
             line: None,
