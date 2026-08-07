@@ -458,7 +458,12 @@ export default function App() {
                 `ProgressPane` are static, so an absolutely-positioned canvas would have
                 gone under the chart and over the empty state — ants walking across the
                 one screen that is trying to tell you what to do next. */}
-            <PartyAnts />
+            {/* Told what is on the ground with them, so they walk round the rings
+                rather than under the middle of them. Only when the rings are the branch
+                actually rendering: a file stack, the empty state and the error all fill
+                their pane, and a keep-out for a circle nothing is drawing would push the
+                ants into the margins for no visible reason. */}
+            <PartyAnts avoid={!error && focus && focus.kind !== 'file' ? 'rings' : undefined} />
             <div className="relative z-10 h-full">
             {error ? (
               <div className="flex h-full items-center justify-center p-6">

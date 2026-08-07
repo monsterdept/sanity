@@ -6,16 +6,18 @@ import { useEffect, useRef } from 'react'
  * A fixed seven was right for a 290px side panel and wrong the moment this moved behind
  * the map, which is four times the area: the same number would have read as a swarm
  * crossing the chart, and a swarm is a feature competing with the picture rather than
- * something happening at the edge of it. Per unit area it is now about a ninth as thick,
- * which puts two or three on a typical window.
+ * something happening at the edge of it.
  *
- * Clamped at both ends. One is the floor because zero is not "sparse", it is a missing
- * feature that reads as a bug; the ceiling stops a very large display from turning the
- * thinness back into an infestation.
+ * Clamped at both ends. Three is the floor because one ant reads as an escapee rather
+ * than as ants, and because ants are gone from the pane for a beat at a time now — with
+ * a floor of one, "gone" is an empty pane. The ceiling stops a very large display from
+ * turning the thinness back into an infestation. The band is narrow on purpose: the
+ * margin they walk in is a ring round the map, not the whole rectangle, so density per
+ * unit of USABLE ground is much higher than the area suggests.
  */
-const AREA_PER_ANT = 500_000
-const MIN_ANTS = 1
-const MAX_ANTS = 3
+const AREA_PER_ANT = 400_000
+const MIN_ANTS = 3
+const MAX_ANTS = 5
 
 const wanted = (w: number, h: number) =>
   Math.max(MIN_ANTS, Math.min(MAX_ANTS, Math.floor((w * h) / AREA_PER_ANT)))
@@ -81,9 +83,22 @@ const inkOf = (el: HTMLElement) => getComputedStyle(el).color
  * Canvas rather than DOM: seven sprites with six animated legs each is forty-two moving
  * parts, and doing that with elements makes the compositor re-lay-out a panel whose
  * whole job is to be doing nothing.
+ *
+ * `avoid` is the map's footprint, and it is passed in rather than measured. The rings
+ * are an SVG whose viewBox is derived from what was drawn, so reading a radius back out
+ * of it would couple this to that derivation; what stays true whatever the repo is that
+ * the composition is drawn into the largest circle the pane will hold. So the caller
+ * says WHETHER a circular map is on the ground and this works out where. The other
+ * geometries fill their pane, so they pass nothing and the ants have the run of it — an
+ * ant that skirted a treemap would be avoiding a shape that isn't there.
  */
-export function PartyAnts() {
+export function PartyAnts({ avoid }: { avoid?: 'rings' }) {
   const ref = useRef<HTMLCanvasElement | null>(null)
+  // Read through a ref inside the loop: the animation is started once and must not be
+  // torn down and re-seeded — with every ant re-randomised — because the human switched
+  // the map to blocks and back.
+  const avoidRef = useRef(avoid)
+  avoidRef.current = avoid
 
   useEffect(() => {
     const canvas = ref.current
@@ -135,6 +150,16 @@ export function PartyAnts() {
       feet: Array<{ x: number; y: number }>
       /** Slow wander of the heading, so turns curve instead of jittering. */
       drift: number
+      /** Seconds of pane-time left before this one wanders off the edge. */
+      roam: number
+      /** `in` crossing the border to arrive, `about` on the pane, `out` walking off.
+       *
+       *  One field rather than a pair of flags because the edge means something
+       *  different in each: it turns an ant that is about, it is what an ant on its way
+       *  out is aiming for, and it must do NEITHER to one still stepping over it — as a
+       *  bounce, an arrival is a body outside the margin, so the first frame reflected
+       *  every new ant straight back off the pane it had just walked onto. */
+      walk: 'in' | 'about' | 'out'
       /** Index into the resolved coats, so a theme change repaints without reassigning. */
       coat: number
       scale: number
@@ -143,6 +168,70 @@ export function PartyAnts() {
     let w = 0
     let h = 0
     const ants: Ant[] = []
+
+    /** Clearance kept outside the map's rim, in body lengths. */
+    const KEEP_OUT = SIZE * 1.2
+    /** How far out the steering starts, so an ant curves away rather than arriving. */
+    const NOTICE = SIZE * 3
+
+    /** The map's radius, or 0 when nothing circular is on the ground. */
+    const mapR = () => (avoidRef.current === 'rings' ? Math.min(w, h) / 2 + KEEP_OUT : 0)
+
+    /** A place on the pane an ant may stand: outside the map, inside the edges. */
+    const spot = (): [number, number] => {
+      const r = mapR()
+      const m = SIZE
+      // Rejection sampling, bounded. The margin is a ring and can be thin, so an
+      // unbounded loop is a hang on a pane narrower than the clearance.
+      for (let i = 0; i < 40; i++) {
+        const x = m + rand() * Math.max(1, w - m * 2)
+        const y = m + rand() * Math.max(1, h - m * 2)
+        if (Math.hypot(x - w / 2, y - h / 2) > r) return [x, y]
+      }
+      // Nowhere clear: a corner is the furthest point from the middle there is.
+      return [rand() < 0.5 ? m : w - m, rand() < 0.5 ? m : h - m]
+    }
+
+    /**
+     * Walk one on from an edge, somewhere else.
+     *
+     * The count is fixed and this reuses the ant rather than replacing it, so the
+     * population never dips or spikes — what the eye reads as "a different ant" is the
+     * new coat and size it takes on the way in. Feet are dropped so it plants a fresh
+     * stance at the new position instead of dragging six legs across the pane.
+     */
+    const enter = (a: Ant) => {
+      const m = SIZE * 1.5
+      const side = Math.floor(rand() * 4) % 4
+      const t = 0.1 + rand() * 0.8
+      if (side === 0) {
+        a.x = -m
+        a.y = t * h
+        a.dir = 0
+      } else if (side === 1) {
+        a.x = w + m
+        a.y = t * h
+        a.dir = Math.PI
+      } else if (side === 2) {
+        a.x = t * w
+        a.y = -m
+        a.dir = Math.PI / 2
+      } else {
+        a.x = t * w
+        a.y = h + m
+        a.dir = -Math.PI / 2
+      }
+      a.dir += (rand() - 0.5) * 1.2
+      a.cruise = 26 + rand() * 34
+      a.speed = a.cruise
+      a.feet = []
+      a.walk = 'in'
+      a.resting = false
+      a.timer = 2 + rand() * 6
+      a.roam = 14 + rand() * 26
+      a.coat = Math.floor(rand() * COATS.length) % COATS.length
+      a.scale = 0.8 + rand() * 0.45
+    }
 
     const resize = () => {
       const r = canvas.getBoundingClientRect()
@@ -162,9 +251,10 @@ export function PartyAnts() {
       while (ants.length > n) ants.pop()
       while (ants.length < n) {
         const cruise = 26 + rand() * 34
+        const [x, y] = spot()
         ants.push({
-          x: rand() * w,
-          y: rand() * h,
+          x,
+          y,
           dir: rand() * Math.PI * 2,
           speed: cruise,
           cruise,
@@ -174,6 +264,9 @@ export function PartyAnts() {
           // Planted on the first frame, once the ant has a position to plant around.
           feet: [],
           drift: rand() * Math.PI * 2,
+          // Staggered, so the first exodus is not all of them at once.
+          roam: 6 + rand() * 34,
+          walk: 'about',
           coat: Math.floor(rand() * COATS.length) % COATS.length,
           scale: 0.8 + rand() * 0.45,
         })
@@ -326,6 +419,39 @@ export function PartyAnts() {
       ctx.restore()
     }
 
+    /** Turn `a` towards `want` at a rate, the short way round. */
+    const towards = (a: Ant, want: number, rate: number) => {
+      const diff = Math.atan2(Math.sin(want - a.dir), Math.cos(want - a.dir))
+      a.dir += diff * Math.min(1, rate)
+    }
+
+    /**
+     * Keep off the map.
+     *
+     * A bounce would be wrong here: the ants pass BEHIND the wedges, so an ant that
+     * ricocheted off a circle nothing is drawing would read as a physics bug. What they
+     * do instead is skirt it. The steering blends two directions by how far in the ant
+     * has got — straight out when it is over the rings, tangential once it is clear —
+     * so the recovery from a bad heading is a curve away and the resting state is a
+     * lap of the rim. The tangent takes the sign of the way the ant is already going,
+     * so it keeps its own direction round rather than being flipped into a shared orbit.
+     */
+    const skirt = (a: Ant, dt: number) => {
+      const r = mapR()
+      if (r <= 0) return
+      const dx = a.x - w / 2
+      const dy = a.y - h / 2
+      const d = Math.hypot(dx, dy) || 0.001
+      if (d > r + NOTICE) return
+      const ux = dx / d
+      const uy = dy / d
+      const press = Math.min(1, Math.max(0, (r + NOTICE - d) / NOTICE))
+      const way = Math.cos(a.dir) * -uy + Math.sin(a.dir) * ux >= 0 ? 1 : -1
+      const wx = ux * press + -uy * way * (1 - press * 0.6)
+      const wy = uy * press + ux * way * (1 - press * 0.6)
+      towards(a, Math.atan2(wy, wx), dt * (2 + press * 6))
+    }
+
     let raf = 0
     let last = 0
     const frame = (t: number) => {
@@ -348,27 +474,61 @@ export function PartyAnts() {
         const want = a.resting ? 0 : a.cruise
         a.speed += (want - a.speed) * Math.min(1, dt * 6)
 
+        // The cast is not a countdown to a disappearance — it is time spent ON the pane,
+        // so an ant that is resting or already halfway out of the door is not also
+        // accruing its next departure.
+        if (a.walk === 'about') {
+          a.roam -= dt
+          if (a.roam <= 0) {
+            a.walk = 'out'
+            a.resting = false
+            a.speed = a.cruise
+          }
+        }
+
         a.drift += dt
         // Two turns at once: a slow sine that curves the path and a small jitter. Either
         // alone reads mechanically — the sine is a lazy circle, the jitter is a drunk
         // straight line. Together it looks like something with somewhere to be.
-        a.dir += Math.sin(a.drift * 1.3) * 1.1 * dt + (rand() - 0.5) * 3 * dt
+        //
+        // Damped at the borders. A wander big enough to be interesting is big enough to
+        // keep an ant circling just inside the edge it is supposed to be leaving by, or
+        // to turn an arrival round before it has finished arriving.
+        const wander = a.walk === 'about' ? 1 : 0.25
+        a.dir += (Math.sin(a.drift * 1.3) * 1.1 * dt + (rand() - 0.5) * 3 * dt) * wander
+        skirt(a, dt)
+        // Outward from the middle: the one heading that reaches an edge from anywhere on
+        // the pane, and the one that cannot cross the map on the way.
+        if (a.walk === 'out') towards(a, Math.atan2(a.y - h / 2, a.x - w / 2), dt * 1.4)
         a.x += Math.cos(a.dir) * a.speed * dt
         a.y += Math.sin(a.dir) * a.speed * dt
         // Per unit DISTANCE, so stride length is fixed and speed changes cadence.
         a.phase += a.speed * dt * 0.35
         step(a, dt)
 
-        // Turn at the edges rather than wrapping: something reappearing on the far side
-        // reads as a rendering bug, not as an animal that reached a wall.
         const m = SIZE * 0.6
-        if (a.x < m || a.x > w - m) {
-          a.dir = Math.PI - a.dir
-          a.x = Math.min(Math.max(a.x, m), w - m)
-        }
-        if (a.y < m || a.y > h - m) {
-          a.dir = -a.dir
-          a.y = Math.min(Math.max(a.y, m), h - m)
+        if (a.walk !== 'about') {
+          // Off the pane and clear of it — clear, not merely past the boundary, so the
+          // exit is a whole animal walking out rather than a sprite clipped at the rim.
+          // Checked while arriving too: an ant that is steered back out before it lands
+          // has to come round again, or it walks away forever and the pane loses one.
+          const gone = SIZE * 2
+          if (a.x < -gone || a.x > w + gone || a.y < -gone || a.y > h + gone) enter(a)
+          // Fully inside the margin: it has arrived, and the edge means "turn" again.
+          else if (a.walk === 'in' && a.x > m && a.x < w - m && a.y > m && a.y < h - m)
+            a.walk = 'about'
+        } else {
+          // Turn at the edges rather than wrapping: something reappearing on the far side
+          // reads as a rendering bug, not as an animal that reached a wall. The ones that
+          // do leave are the exception above, and they leave in view.
+          if (a.x < m || a.x > w - m) {
+            a.dir = Math.PI - a.dir
+            a.x = Math.min(Math.max(a.x, m), w - m)
+          }
+          if (a.y < m || a.y > h - m) {
+            a.dir = -a.dir
+            a.y = Math.min(Math.max(a.y, m), h - m)
+          }
         }
         draw(a)
       }
