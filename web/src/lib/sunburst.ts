@@ -58,13 +58,13 @@ export interface LayoutOpts {
    *  so one angle is a different number of pixels in every window. Omit it and the fixed
    *  default stands. */
   minAngle?: number
-  /** Thinnest radial slice worth drawing, in the layout's own units.
+  /** Smallest function patch worth drawing, in the layout's own units SQUARED.
    *
-   *  The same correction as `minAngle`, in the other axis. `MIN_SLICE` is documented in
-   *  pixels and measured in pixels, but `stackFunctions` is handed radii in user units —
-   *  which only coincide with pixels at one window size. Omit it and the fixed default
-   *  stands. */
-  minSlice?: number
+   *  The same correction as `minAngle`, for a threshold that is now an area. `MIN_PATCH_AREA`
+   *  is measured in pixels, but `tileFunctions` works in user units — which only coincide
+   *  with pixels at one window size, and being an area the conversion is the square of the
+   *  one `minAngle` uses. Omit it and the fixed default stands. */
+  minPatchArea?: number
   /** Order siblings by temperature instead of by name.
    *
    *  Directory order is the default because it makes the picture stable between scans,
@@ -176,9 +176,21 @@ export function arcPath(a0: number, a1: number, r0: number, r1: number): string 
   ].join(' ')
 }
 
-/** One function's radial slot inside its file's wedge. */
+/**
+ * One function's patch of its file's wedge.
+ *
+ * Both dimensions, where this used to be radius alone. A band is a fixed slice of radius
+ * however many functions share it, so stacking them radially pinned a file's capacity at
+ * about twenty whatever its size — `probe.rs` is 786 functions in 22,974 lines, and 766 of
+ * them went into one roll-up whose colour said more about where the truncation fell than
+ * about the code. Angle was sitting there unused: every slice spanned the file's full
+ * width, so a file 40× another file's size drew its functions 40× longer and no more
+ * numerous.
+ */
 export interface Slot {
   node: Node
+  a0: number
+  a1: number
   r0: number
   r1: number
   /** How many functions this slot stands in for, when it is an overflow aggregate.
@@ -187,25 +199,48 @@ export interface Slot {
 }
 
 /**
- * Thinnest slice worth drawing.
+ * Smallest patch worth drawing, in square user units.
  *
- * The cut between two slices is a 0.6px stroke, so below about this a slice is mostly its
- * own border and what you see is the gap rather than the code. Measured, not chosen: a
- * 150-function file in a 60px band rendered 0.40px slices and read as a moiré pattern.
+ * The two-dimensional heir to `MIN_SLICE`, and it says the same thing: the cut between two
+ * patches is a 0.6-unit stroke, so below a certain size a patch is mostly its own border.
+ * About a 5×5 patch. Stated as an AREA because that is what a tiling actually has to
+ * spend — a floor on one side alone is what let the old stack pack a band with minimums
+ * and leave nothing for the proportional budget to say.
  */
-const MIN_SLICE = 1.4
+const MIN_PATCH_AREA = 26
 
 /**
- * The most of a band that may go to floors, leaving the rest to mean something.
+ * How far a patch may be stretched above its lines to reach the floor.
  *
- * Capacity was `height / MIN_SLICE`, which packs the band to the brim with minimums and
- * leaves about a pixel of proportional budget for every slice to share. Everything then
- * renders at the floor again — including the aggregate, which stood for 925 lines and
- * drew the same width as its three-line neighbour. That is the original bug wearing a
- * different number: a floor is only a floor while something else decides the rest.
+ * The floor is a lie in the small — a patch drawn at it says "this much code" and means
+ * "at least this much" — so the question is how big a lie, and the answer has to be per
+ * patch. Three: a function may be drawn up to three times its share, which is inside the
+ * range the eye reads as "small" anyway, and below that it goes to the roll-up.
  *
- * Half. Fewer slices, each of which is honestly sized, beats more slices that are all
- * the same size — the second is a texture, not a measurement.
+ * The alternative, an aggregate budget of "spend at most half the wedge on floors", pins
+ * the roll-up at exactly half whatever the file is. That number is a fact about the
+ * budget, not about the code, and it is the same failure as a metric that saturates: it
+ * looks like a measurement and reports a constant.
+ */
+const MAX_STRETCH = 3
+
+/** Patches' worth of area the roll-up gets at minimum — about a 7×7 block. Enough to see
+ *  without hunting and to hit without aiming, which is the whole of its job. */
+const ROLLUP_PATCHES = 4
+
+/**
+ * The most of a span that may go to floors, leaving the rest to mean something.
+ *
+ * Capacity was `span / minimum`, which packs the run to the brim with minimums and leaves
+ * about a pixel of proportional budget for every slice to share. Everything then renders
+ * at the floor again — including the aggregate, which stood for 925 lines and drew the
+ * same width as its three-line neighbour. That is the original bug wearing a different
+ * number: a floor is only a floor while something else decides the rest.
+ *
+ * Half. Fewer slices, each of which is honestly sized, beats more slices that are all the
+ * same size — the second is a texture, not a measurement. `tileFunctions` needs no such
+ * constant: it floors an AREA and hands out area, so the budget it protects and the budget
+ * it spends are the same quantity.
  */
 const FLOOR_SHARE = 0.5
 
@@ -292,84 +327,276 @@ function aggregate(fns: Node[], filePath: string): Node {
 }
 
 /**
- * Stack a file's functions radially inside the file's own angular wedge.
+ * Area in the annulus, in the coordinates that make it a rectangle.
+ *
+ * The area of an annular sector is `Δθ × (r₁² − r₀²)/2`, so substituting `v = r²/2` turns
+ * it into `Δθ × Δv` — a plain product, which means a squarified tiling laid out in
+ * `(θ, v)` and mapped back through `r = √(2v)` conserves area EXACTLY. No thin-band
+ * approximation, and no cheating at the inner rings where an approximation is worst.
+ *
+ * It also fixes something the radial stack got wrong and never said: that stack sized a
+ * function by radial THICKNESS, so the same number of lines drawn near the rim covered
+ * more area than near the hub. Lines were the width of a band, not the size of a patch,
+ * and the eye reads area.
+ */
+const vOf = (r: number) => (r * r) / 2
+const rOf = (v: number) => Math.sqrt(2 * v)
+
+/** A sector in those coordinates: angles as themselves, radii as `v`. */
+interface Sector {
+  a0: number
+  a1: number
+  v0: number
+  v1: number
+}
+
+/** Worst aspect ratio among a row of patches — measured on SCREEN, in the sector the
+ *  patches will actually occupy, not in the `(θ, v)` rectangle. A cell that is square in
+ *  `v` is not square once `√` has had it, and the whole point of squarifying is that the
+ *  ratio being minimised is the one the eye sees. */
+function worstRatio(dims: { w: number; h: number }[]): number {
+  let worst = 1
+  for (const d of dims) {
+    if (d.w <= 0 || d.h <= 0) return Infinity
+    worst = Math.max(worst, d.w / d.h, d.h / d.w)
+  }
+  return worst
+}
+
+/** Where a row of items would land, and how square each patch would come out.
+ *
+ *  `radial` means the row is a band of constant thickness spanning the sector's whole
+ *  angle, with its members side by side around it; otherwise it is a wedge spanning the
+ *  whole radial extent, with its members stacked outward. Rows go across the shorter
+ *  screen dimension, which is what keeps patches from becoming ribbons. */
+function rowPlacement(
+  items: { node: Node; area: number }[],
+  sec: Sector,
+  radial: boolean,
+): { slots: Slot[]; dims: { w: number; h: number }[]; consumed: number } {
+  let total = 0
+  for (const i of items) total += i.area
+  const slots: Slot[] = []
+  const dims: { w: number; h: number }[] = []
+
+  if (radial) {
+    const dv = total / (sec.a1 - sec.a0)
+    const rIn = rOf(sec.v0)
+    const rOut = rOf(sec.v0 + dv)
+    let a = sec.a0
+    for (const it of items) {
+      const da = it.area / dv
+      slots.push({ node: it.node, a0: a, a1: a + da, r0: rIn, r1: rOut })
+      dims.push({ w: da * rOf(sec.v0 + dv / 2), h: rOut - rIn })
+      a += da
+    }
+    return { slots, dims, consumed: dv }
+  }
+
+  const da = total / (sec.v1 - sec.v0)
+  let v = sec.v0
+  for (const it of items) {
+    const dv = it.area / da
+    const rIn = rOf(v)
+    const rOut = rOf(v + dv)
+    slots.push({ node: it.node, a0: sec.a0, a1: sec.a0 + da, r0: rIn, r1: rOut })
+    dims.push({ w: da * rOf(v + dv / 2), h: rOut - rIn })
+    v += dv
+  }
+  return { slots, dims, consumed: da }
+}
+
+/**
+ * Tile a file's functions across its own wedge, in both dimensions.
  *
  * The alternative — giving functions their own outer ring, subdivided angularly — makes
  * containment a hint rather than a fact. A dot or a sliver sits in a *different ring*
  * from its file, so which file it belongs to has to be inferred from angle, and at any
  * real function count that inference fails: siblings scatter, neighbours from adjacent
- * files interleave, and everything lands near a boundary.
+ * files interleave, and everything lands near a boundary. Here a function is literally
+ * inside its file, and that is not negotiable.
  *
- * Here a function is literally inside its file. Every band spans the file's full angular
- * width and stacks outward, so there is no ambiguity to resolve.
+ * What changed is that it no longer stacks. Every slice used to span the file's full
+ * angular width, which spends one dimension on nothing: a file's capacity was its band's
+ * radial height over a minimum slice — about twenty — however large the file was. Splitting
+ * in both directions makes capacity proportional to the wedge's AREA, which is
+ * proportional to the file's lines, so a big file gets room for its functions for the same
+ * reason it is big.
  *
- * The trade is deliberate. Angular width no longer means "lines" for a function — band
- * thickness means "share of THIS file". Comparison becomes local: within a file you can
- * see instantly that one function is half of it. Across files it is no longer apples to
- * apples, because a narrow file's bands are thin no matter how much code they hold. That
- * is the right way round for this chart: "which file is this in" is asked constantly,
- * "is this bigger than that one three directories away" almost never.
+ * The reading changes with it, and for the better. Band thickness used to mean "share of
+ * THIS file" and nothing across files was comparable; a patch's area is lines, exactly, at
+ * every radius. The overflow roll-up survives for files that are still too small to open —
+ * it is a floor on legibility, not on capacity — but it is now the exception rather than
+ * what happens to every file over forty functions.
  */
-export function stackFunctions(
+export function tileFunctions(
   children: Node[],
   r0: number,
   r1: number,
+  a0: number,
+  a1: number,
   opts: LayoutOpts = {},
 ): Slot[] {
   let fns = children.filter((c) => c.kind === 'func')
   if (fns.length === 0) return []
-  // Match the ring's own ordering and sizing, or the stack inside a file would disagree
-  // with the arcs around it.
   if (opts.byHeat) fns = [...fns].sort((x, y) => heatOf(y) - heatOf(x))
 
-  const height = r1 - r0
+  const sector: Sector = { a0, a1, v0: vOf(r0), v1: vOf(r1) }
+  // Exactly the screen area of the annular sector, by the substitution above.
+  const area = (a1 - a0) * (sector.v1 - sector.v0)
+  if (area <= 0) return []
 
-  // How many slices this band can hold at a size worth drawing.
-  //
-  // The floor here used to be `min(1.4, height / n)`, which looks defensive and is not:
-  // past about forty functions the second term wins, `min * n` consumes the whole band,
-  // and the proportional budget left over is exactly zero. Every function then rendered
-  // at the same sub-pixel height whatever its length — so the ring stopped meaning
-  // "width is lines" and started meaning nothing, with no way to tell by looking.
-  const minSlice = opts.minSlice ?? MIN_SLICE
-  const capacity = Math.max(1, Math.floor((height * FLOOR_SHARE) / minSlice))
-
-  let shown = fns
-  let rest: Node[] = []
-  if (fns.length > capacity) {
-    // Keep the HOTTEST, not the largest. A three-line guard with an inverted comparison
-    // is exactly what this map exists to surface, and dropping it for being short would
-    // answer the overflow by discarding the product's central claim. Length still decides
-    // how much room each kept slice gets, below.
-    const rank = new Map(
-      [...fns].sort((x, y) => heatOf(y) - heatOf(x)).map((f, i) => [f.id, i] as const),
-    )
-    const keep = capacity - 1
-    shown = fns.filter((f) => (rank.get(f.id) ?? 0) < keep)
-    rest = fns.filter((f) => (rank.get(f.id) ?? 0) >= keep)
-  }
-
-  // The aggregate goes at the outer edge rather than in size order. It is not a function;
-  // it is the edge of what this band could show, and it reads as a boundary there.
-  const slots = rest.length > 0 ? [...shown, aggregate(rest, rest[0].path)] : shown
-  const last = slots.length - 1
-  const min = Math.min(minSlice, height / slots.length)
+  const minPatch = opts.minPatchArea ?? MIN_PATCH_AREA
   const weight = (f: Node) => (opts.even ? 1 : Math.max(f.loc, 1))
-  const total = slots.reduce((s, f) => s + weight(f), 0)
-  const free = Math.max(0, height - min * slots.length)
+  let allWeight = 0
+  for (const f of fns) allWeight += weight(f)
+
+  /**
+   * Whether THIS function clears the floor, not whether the file's average would.
+   *
+   * The first cut computed one capacity — `area / minPatch`, an even split — and then took
+   * the hottest that many. That throws away functions the tiling had room for: probe.rs
+   * came out as 106 patches and one roll-up standing for 680, and because the roll-up
+   * carries their combined lines it was the largest block on the wedge. The biggest thing
+   * in the picture was the thing with the least in it.
+   *
+   * Sizing is proportional, so a function's own share is knowable up front and the
+   * question "is there room for this one" has an exact answer. Only what genuinely cannot
+   * be drawn is rolled up, and the roll-up is then as small as the code it stands for.
+   */
+  const share = (f: Node) => (weight(f) / allWeight) * area
+  // ...or it is hot. A three-line guard with an inverted comparison is exactly what this
+  // map exists to surface, and dropping it for being short would answer the overflow by
+  // discarding the product's central claim. It is drawn at the floor, which is the one
+  // place a patch's area is allowed to overstate its lines — and it is a floor, so it
+  // cannot be mistaken for a large function.
+  const capacity = Math.max(1, Math.floor(area / minPatch))
+
+  /**
+   * Size decides who fits; heat spends what is left over.
+   *
+   * The two rules have to compose, and getting the order wrong breaks a different thing
+   * each way. Heat alone — the first cut — takes the hottest N and leaves a roll-up
+   * holding a share of the LINES roughly equal to its share of the count: on probe.rs, 680
+   * of 786 and with them most of the wedge, so the biggest block in the picture was the one
+   * with the least in it. Size alone leaves nothing drawn at all on that file, because at
+   * 786 functions no single one clears the floor on its own.
+   *
+   * Sized first, then heat: everything that can be drawn honestly is, and because the test
+   * is the same quantity that decides area, what is left over is small BY AREA as well as
+   * uninteresting. Then the leftover room goes to the hottest of the remainder, at the
+   * floor, which is where the standing rule about the three-line guard with the inverted
+   * comparison gets its due — a short hot function is exactly what this map exists to
+   * surface and must never be dropped for being short.
+   */
+  const fits = fns.filter((f) => share(f) >= minPatch)
+  const tail = fns.filter((f) => share(f) < minPatch)
+  // Room for the lifted, bounded by what will fit at all.
+  const room = Math.max(0, capacity - fits.length - (tail.length > 0 ? 1 : 0))
+  // Hot first, then longest. Two different jobs in one ordering.
+  //
+  // The hot ones are the standing rule: a short function a reader could not predict is
+  // exactly what this map exists to surface, and it must never be dropped for being
+  // short. They are rare by construction, so lifting them costs almost nothing.
+  //
+  // Then the room that is left goes to the LONGEST of what remains, not the next-hottest.
+  // Sorting the whole tail by heat filled the wedge with cold three-line functions at the
+  // same size as everything around them — graph paper, where a floor handed to most of
+  // the members stops being a floor and becomes the size. The longest are the ones nearest
+  // to clearing the floor on their own, so drawing them there overstates them least, and
+  // they are the ones whose absence would put the most LINES into the roll-up.
+  //
+  // What bounds the lifting is how far each patch would have to be STRETCHED, not how
+  // many are lifted. An aggregate cap — spend at most half the wedge on floors — pins the
+  // roll-up at exactly half whatever the file is, which is a fact about the cap and not
+  // about the code; a per-patch limit says the thing that is actually true, that a patch
+  // may overstate its lines by up to `MAX_STRETCH` and no further. A function far below
+  // that is not nearly-drawable, it is undrawable, and belongs in the roll-up.
+  const order = (f: Node) => (heatOf(f) > HOT ? 1e9 : 0) + weight(f)
+  const promoted = new Set(
+    [...tail]
+      .filter((f) => heatOf(f) > HOT || share(f) * MAX_STRETCH >= minPatch)
+      .sort((x, y) => order(y) - order(x))
+      .slice(0, room)
+      .map((f) => f.id),
+  )
+  const shown = fns.filter((f) => share(f) >= minPatch || promoted.has(f.id))
+  const rest = fns.filter((f) => share(f) < minPatch && !promoted.has(f.id))
+
+  const members = rest.length > 0 ? [...shown, aggregate(rest, rest[0].path)] : shown
+  const roll = members.find((f) => f.rest !== undefined)
+
+  /**
+   * What each member would take if it could have what it wants, then everything scaled to
+   * fit. One pass, and it cannot produce a zero.
+   *
+   * Handing out the wedge in priority order — the roll-up first, then floors for the
+   * lifted, then "whatever is left" in proportion — sounds right and has a hole in it: the
+   * first two claims can add up to the whole wedge, and then "whatever is left" is nothing.
+   * Every proportionally-sized patch got area zero and rendered as the background cut,
+   * which is why the wedge came out as white slices. A remainder is not a budget.
+   *
+   * Wants: a function that clears the floor wants its lines; one below it wants the floor;
+   * the roll-up wants its lines or four patches, whichever is more. Those overshoot the
+   * wedge by exactly what the floors added, so scaling by `area / wanted` shrinks
+   * everything by the same factor. Ordering survives, nothing degenerates, and the floors
+   * give a little rather than the proportional patches giving everything.
+   */
+  const want = (f: Node) => {
+    const own = (weight(f) / allWeight) * area
+    if (f === roll) return Math.max(own, minPatch * ROLLUP_PATCHES)
+    return Math.max(own, minPatch)
+  }
+  let wanted = 0
+  for (const f of members) wanted += want(f)
+  const scale = wanted > 0 ? area / wanted : 0
+  // File order, not size order. The findings this map earns — a test named for a property
+  // its neighbours show it lacks — come from adjacency, which is the same argument `peers`
+  // makes for handing a reader the nearest twenty in file order. Squarifying wants items
+  // largest-first to pack well; that is traded away deliberately.
+  const items = members.map((f) => ({ node: f, area: want(f) * scale }))
 
   const out: Slot[] = []
-  let r = r0
-  slots.forEach((f, i) => {
-    const h = min + (free * weight(f)) / total
-    out.push({
-      node: f,
-      r0: r,
-      r1: r + h,
-      rest: rest.length > 0 && i === last ? rest.length : undefined,
-    })
-    r += h
-  })
+  let sec = { ...sector }
+  let queue = items
+  while (queue.length > 0) {
+    const rIn = rOf(sec.v0)
+    const rOut = rOf(sec.v1)
+    const rMid = rOf((sec.v0 + sec.v1) / 2)
+    const arc = (sec.a1 - sec.a0) * rMid
+    if (arc <= 0 || rOut - rIn <= 0) break
+    // Rows run ACROSS the shorter side — the row spans it, and eats into the longer one —
+    // which is what keeps both the patches and the leftover rectangle near square. Having
+    // this backwards is not a subtle loss: in a wedge six pixels of arc by forty of radius
+    // it laid rows the long way, so each row was a ribbon a fraction of a pixel wide and
+    // the file rendered as white slices. `radial` means the row spans the full ANGLE, so
+    // it is the right choice exactly when the angle is the short side.
+    const radial = arc <= rOut - rIn
+
+    let row: typeof queue = []
+    let best = Infinity
+    let placed = rowPlacement([], sec, radial)
+    for (const item of queue) {
+      const next = rowPlacement([...row, item], sec, radial)
+      const ratio = worstRatio(next.dims)
+      if (row.length > 0 && ratio > best) break
+      row = [...row, item]
+      best = ratio
+      placed = next
+    }
+    out.push(...placed.slots)
+    sec = radial
+      ? { ...sec, v0: sec.v0 + placed.consumed }
+      : { ...sec, a0: sec.a0 + placed.consumed }
+    queue = queue.slice(row.length)
+  }
+
+  if (rest.length > 0 && out.length > 0) {
+    // The roll-up is identified by the node it carries, not by its position — rows are
+    // laid in file order and it is the last MEMBER, which is not the last patch.
+    const last = out.find((s) => s.node.rest !== undefined)
+    if (last) last.rest = rest.length
+  }
   return out
 }
 

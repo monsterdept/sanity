@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { isAnalyzed, type Node } from '../lib/api'
+import { type Node } from '../lib/api'
 import { colorFor, type ColorMode } from '../lib/colorMode'
-import { elide } from '../lib/text'
-import { arcPath, labelArc, layout, stackFunctions, type Wedge } from '../lib/sunburst'
+import { arcPath, labelArc, layout, tileFunctions, type Wedge } from '../lib/sunburst'
+import { StaleHatch } from './StaleHatch'
+import { WedgeTip } from './WedgeTip'
 
 /** Rings drawn at once. Deeper than this and the outer annuli are hairlines; the
  *  answer is to drill in, which is what clicking a directory does. */
@@ -68,9 +69,19 @@ const MIN_STACK_ARC = 5
  *  units are arbitrary and the viewBox rescales them to whatever the pane is. */
 const MIN_ARC_PX = 1
 
-/** The same floor for the radial stack inside a file's band. Kept at the value
- *  `MIN_SLICE` was measured at, now actually in the units it claims. */
-const MIN_SLICE_PX = 1.4
+/** The same floor for the function tiling inside a file's band, as an AREA in real screen
+ *  pixels — about a 3.5×3.5 patch. The old radial stack floored one dimension at 1.4px
+ *  while the other was the file's whole angular width, which is how a 786-function file
+ *  came to have room for twenty.
+ *
+ *  What sets this number is the CUT, not the eye: a patch of side `s` has an interior of
+ *  `(s − cut)²`, so at the old 0.6-unit cut a 3.5px patch was 64% code and 36% border,
+ *  and the floor had to sit at 26px² to keep a patch from being mostly its own edge.
+ *  Thinning the cut to 0.35 puts a 3.5px patch back at 78% — the same ink ratio 5.1px had
+ *  before — and doubles what a wedge can hold. Measured on probe.rs's real wedge (4,625px²
+ *  for 786 functions): 176 drawn at 26, 384 at 12. Move the two together or neither
+ *  means what it says. */
+const MIN_PATCH_PX = 12
 
 /** How coarsely the pane's size is read when deriving that threshold.
  *
@@ -125,29 +136,7 @@ function heatShare(kind: string, mode: ColorMode): number {
  *  nothing near the hub, which is exactly backwards — the inner rings are where wedges
  *  are already hardest to tell apart. Narrower for the finer levels so a file's rim
  *  doesn't swallow the functions inside it. */
-const CUT = { dir: 2.2, file: 1.5, func: 0.6 }
-
-/** Characters that fit on one line of the tooltip, at its two type sizes.
- *
- *  Measured against the card rather than guessed: 250px less 12px of padding either side
- *  is 226px, and the monospace advance is close enough to 0.62em that 10px text seats 35
- *  and 12px text seats 30. Deliberately a little under — `truncate` is still on those
- *  lines as a backstop, and if the budget overshoots, CSS elides the tail a SECOND time
- *  and eats the end that `elide` just worked to keep. */
-const FITS_SMALL = 35
-const FITS_LARGE = 30
-
-/** Files at or under a node — the count the tooltip reports.
- *
- *  Walked on demand for the one hovered node rather than precomputed for the whole
- *  tree: it runs at pointer-move rate over a single subtree, which is far cheaper than
- *  maintaining a map that most of the time nobody reads. */
-function countFiles(n: Node): number {
-  if (n.kind === 'file') return 1
-  let total = 0
-  for (const c of n.children) total += countFiles(c)
-  return total
-}
+const CUT = { dir: 2.2, file: 1.5, func: 0.35 }
 
 export function Sunburst({
   root,
@@ -224,11 +213,12 @@ export function Sunburst({
     () => (unitsPerPx === null ? undefined : (MIN_ARC_PX * unitsPerPx) / R_OUTER),
     [unitsPerPx],
   )
-  /** The radial stack's floor, same conversion. `MIN_SLICE`'s own comment measures it in
-   *  pixels — "a 150-function file in a 60px band rendered 0.40px slices" — but it is
-   *  applied to radii in user units, so it only meant that at one window size. */
-  const minSlice = useMemo(
-    () => (unitsPerPx === null ? undefined : MIN_SLICE_PX * unitsPerPx),
+  /** The function tiling's floor, same conversion SQUARED — it is an area, so a unit that
+   *  is `k` pixels makes a square unit `k²` square pixels. Getting that exponent wrong is
+   *  invisible at one window size and wrong at every other, which is exactly the bug
+   *  `MIN_SLICE` had before it was converted at all. */
+  const minPatchArea = useMemo(
+    () => (unitsPerPx === null ? undefined : MIN_PATCH_PX * unitsPerPx * unitsPerPx),
     [unitsPerPx],
   )
   /** The drawn extent, in user units. Square, so the composition does not stretch. */
@@ -377,38 +367,7 @@ export function Sunburst({
           which do not change when the viewBox does, so this settles in one pass rather
           than chasing itself. */}
       <svg viewBox={viewBox} className="absolute inset-0 h-full w-full">
-        {/* Hatching for readings whose code has moved. Deliberately a TEXTURE and not a
-            colour: the map has exactly one colour encoding and adding a second hue for
-            "expired" would put two scales on one ring. A hatch sits on top of whatever
-            the wedge already is and says "don't trust this", which is a different kind
-            of statement from "this is hot".
-
-            There is a standing note below against per-wedge marks — a mark on every
-            wedge is stripes, not information. That argument is the reason this one is
-            fine: stale is rare by construction, so the hatch appears on a handful of
-            wedges and the eye goes straight to them. The moment most of a repo is
-            hatched, most of the repo genuinely has expired readings, and drawing that
-            loudly is correct. */}
-        <defs>
-          <pattern
-            id="stale-hatch"
-            width={6}
-            height={6}
-            patternUnits="userSpaceOnUse"
-            patternTransform="rotate(45)"
-          >
-            <rect width={6} height={6} fill="none" />
-            <line
-              x1={0}
-              y1={0}
-              x2={0}
-              y2={6}
-              stroke="var(--foreground)"
-              strokeWidth={1.6}
-              strokeOpacity={0.45}
-            />
-          </pattern>
-        </defs>
+        <StaleHatch />
         {/* Keyed on the root so changing level remounts the group and replays the
             transition. Drilling in grows into place, drilling out shrinks into it, which
             is what makes the two directions distinguishable rather than just a fade. */}
@@ -530,9 +489,10 @@ export function Sunburst({
           )
         })}
 
-        {/* Functions, stacked radially INSIDE their file's wedge — see `stackFunctions`.
-            Containment is structural here rather than implied, which is what a separate
-            outer ring could never give. */}
+        {/* Functions tiled INSIDE their file's wedge — see `tileFunctions`. Containment
+            is structural here rather than implied, which is what a separate outer ring
+            could never give, and the tiling is what lets a big file actually show what is
+            in it instead of rolling most of it into one patch. */}
         {fileWedges
           .map((w) => {
             // Inside the file's OWN band — (depth - 1) — not the one beyond it. Inset
@@ -564,14 +524,14 @@ export function Sunburst({
             // the same reasoning; this is that rule applied one level further in, where
             // the wedges are not culled but their CONTENTS cannot be drawn.
             if ((fa1 - fa0) * rMid < MIN_STACK_ARC) return null
-            return stackFunctions(w.node.children, r0, r1, { minSlice }).map((slot) => {
+            return tileFunctions(w.node.children, r0, r1, fa0, fa1, { minPatchArea }).map((slot) => {
               const c = colorFor(slot.node, mode, ranks)
               const isSel = selected?.id === slot.node.id
               const isHover = hover?.node.id === slot.node.id
+              const d = arcPath(slot.a0, slot.a1, slot.r0, slot.r1)
               if (isSel || isHover) {
-                highlight = { d: arcPath(fa0, fa1, slot.r0, slot.r1), width: isSel ? 1.6 : 1.2 }
+                highlight = { d, width: isSel ? 1.6 : 1.2 }
               }
-              const d = arcPath(fa0, fa1, slot.r0, slot.r1)
               return (
                 <g key={slot.node.id}>
                 <path
@@ -729,149 +689,17 @@ export function Sunburst({
           worth knowing about a wedge rather than the one string `<title>` allowed.
           Flipped back across the pointer near the right or bottom edge so it is never
           clipped by the pane. */}
-      {hover && (() => {
-        const n = hover.node
-        const c = colorFor(n, mode, ranks)
-        const sc = n.score
-        const analyzed = isAnalyzed(n)
-        // The whole path, with the node's own segment picked out — showing the name and
-        // then the path again repeated the last word on every hover.
-        //
-        // That dedup is right for directories and files, where `name` IS the last path
-        // segment. It is wrong for a FUNCTION, whose name appears nowhere in its path —
-        // so hovering a chunk showed the file it lives in and never once said which
-        // function you were pointing at, which is the only thing the hover was for.
-        // Functions get their own shape below: name first, then where to find it.
-        const isFunc = n.kind === 'func'
-        const parts = n.path.split('/')
-        const own = parts.pop() ?? n.name
-        // What is worth knowing changes with the question being asked. Under Surprise
-        // that's the two terms the reading is made of; under Churn and Age it's the raw
-        // counts behind the ramp; under Owner and Language the swatch's own label IS the
-        // value and anything else would be padding.
-        const extras: [string, string][] = []
-        if (sc && analyzed && mode === 'surprise') {
-          extras.push(['Documented', String(Math.round(sc.documented * 100))])
-        } else if (sc && sc.ageDays !== null && mode === 'churn') {
-          extras.push(['Commits (90d)', String(sc.commits)])
-          extras.push(['First seen', `${Math.round(sc.ageDays)}d ago`])
-        } else if (sc && sc.lastTouchedDays !== null && mode === 'age') {
-          extras.push(['Last touched', `${Math.round(sc.lastTouchedDays)}d ago`])
-          if (sc.ageDays !== null) extras.push(['First seen', `${Math.round(sc.ageDays)}d ago`])
-        }
-        const W = 250
-        // Only used to decide which way to flip near an edge, so an estimate is fine —
-        // but it has to track the content, or the card flips the wrong way at the bottom
-        // of the window and lands under the cursor. Base covers the path row and the
-        // reading row; a function adds a name line above them, and size no longer has a
-        // row of its own.
-        const H =
-          32 + extras.length * 16 + (n.kind === 'dir' ? 26 : 0) + (isFunc ? 16 : 0)
-        const flipX = hover.x + W + 18 > box.w
-        const flipY = hover.y + H + 18 > box.h
-        return (
-          <div
-            className="pointer-events-none absolute z-10 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--card)] px-3 py-2 shadow-lg"
-            style={{
-              maxWidth: W,
-              left: flipX ? undefined : hover.x + 14,
-              right: flipX ? box.w - hover.x + 14 : undefined,
-              top: flipY ? undefined : hover.y + 14,
-              bottom: flipY ? box.h - hover.y + 14 : undefined,
-            }}
-          >
-            {isFunc ? (
-              // Name first, on its own line. It is the answer to the question the hover
-              // asks, and burying it at the end of a wrapped path — where the path is
-              // long enough to wrap in a 250px card — is the same as not showing it.
-              <>
-                <p className="mono mb-0.5 truncate text-[12px] font-semibold leading-snug">
-                  {elide(n.name, FITS_LARGE)}
-                </p>
-                {/* The line number is its own element and never shrinks. Folding it into
-                    the elided string meant it competed with the path for the same budget
-                    and lost — the card showed `Store.swift:` with the number cut off,
-                    which is worse than omitting it, because a trailing colon reads as
-                    truncated data rather than absent data. */}
-                <p className="mono mb-1 flex text-[10px] leading-snug text-[var(--muted-foreground)]">
-                  <span className="min-w-0 truncate">
-                    {elide(n.path, FITS_SMALL - (n.line !== null ? `:${n.line}`.length : 0))}
-                  </span>
-                  {n.line !== null && <span className="shrink-0">:{n.line}</span>}
-                </p>
-              </>
-            ) : (
-              <p className="mono mb-1 truncate text-[11px] leading-snug text-[var(--muted-foreground)]">
-                {/* The own segment is the identity, so it keeps whatever room it needs and
-                    the leading path gives way — elided from its own start, since what
-                    matters there is the directory immediately containing this one. */}
-                {parts.length > 0 &&
-                  `${elide(parts.join('/'), Math.max(6, FITS_SMALL - 1 - own.length))}/`}
-                <span className="font-semibold text-[var(--foreground)]">
-                  {elide(own, FITS_SMALL)}
-                </span>
-              </p>
-            )}
-
-            {/* The reading is the SWATCH — it is a colour on the map, so stating it as a
-                number here would be describing the encoding rather than reading it. The
-                label beside it names the value, which is what keeps identity off colour
-                alone. */}
-            {/* Reading and size on one row. They were stacked, which gave a two-word
-                fact ("46 lines") a whole line of its own and pushed everything below it
-                down — on a card this small, three single-item rows in a column read as a
-                list of unrelated things rather than one description of one wedge.
-
-                Size is deliberately the quiet half: it is the axis you already know, and
-                the swatch beside it is the axis that is worth reading. */}
-            <div className="mb-1 flex items-baseline gap-1.5">
-              <span
-                className="h-2.5 w-2.5 shrink-0 translate-y-px rounded-[2px]"
-                style={{ background: analyzed && c ? c.fill : 'var(--unanalyzed)' }}
-              />
-              <span className="truncate text-[11px]">
-                {analyzed && c ? c.label : 'not measured yet'}
-              </span>
-              {/* Never shrinks, and the label gives way instead — under Owner or Language
-                  the label is a category name of unbounded length, and letting it push the
-                  size off the row would lose the one number that is always meaningful. */}
-              <span className="mono ml-auto shrink-0 text-[10px] tabular-nums text-[var(--muted-foreground)]">
-                {n.loc.toLocaleString()} lines
-                {n.kind !== 'func' && ` · ${countFiles(n).toLocaleString()} files`}
-              </span>
-            </div>
-
-            {/* Said on hover, not only on click. A hatched wedge poses a question — why
-                is this one different — and making you select it to get the answer is a
-                click charged for reading the map. */}
-            {n.agentStale && (
-              <p className="mb-1 text-[10px] leading-snug text-[var(--warning)]">
-                Read before, but the code has changed since — that reading no longer
-                colours this wedge.
-              </p>
-            )}
-
-            {extras.length > 0 && (
-              <dl className="mt-1.5 space-y-0.5 border-t border-[var(--border)] pt-1.5 text-[11px]">
-                {extras.map(([k, v]) => (
-                  <div key={k} className="flex justify-between gap-4">
-                    <dt className="text-[var(--muted-foreground)]">{k}</dt>
-                    <dd className="mono tabular-nums">{v}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
-
-            {n.kind === 'dir' && n.children.length > 0 && (
-              <p className="mt-1.5 border-t border-[var(--border)] pt-1.5 text-[10px] text-[var(--muted-foreground)]">
-                {collapsed.has(n.id)
-                  ? `${n.children.length} folded — ⌥-click to open`
-                  : '⌥-click to fold · double-click to drill in'}
-              </p>
-            )}
-          </div>
-        )
-      })()}
+      {hover && (
+        <WedgeTip
+          node={hover.node}
+          x={hover.x}
+          y={hover.y}
+          box={box}
+          mode={mode}
+          ranks={ranks}
+          folded={hover.node.kind === 'dir' ? collapsed.has(hover.node.id) : undefined}
+        />
+      )}
 
 
       {hidden.files + hidden.dirs > 0 && (
