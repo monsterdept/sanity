@@ -257,6 +257,19 @@ When a field is added to `Report`, add it to the schema in the same commit.
   error as inheriting an enclosing type's docstring. `owner` rides beside `name` and is
   never folded into it: `key_of(path, name, ord)` keys every committed reading, so a
   rename would expire a repo's assessment wholesale.
+- **Every endpoint routes by the session's key, and says which repo it answered about.**
+  The shim holds the project this client opened (`PROJECT` in `mcp.rs`) and passes it on
+  every call, so a human clicking another project in the app cannot retarget a headless run
+  mid-flight and two sessions can assess two repos at once. `/status` was the last one
+  still resolving through `active` — an orchestrator polled its own run, got another repo's
+  `assessed` and `remaining`, and reported a conclusion from them; `queue` and `report`
+  meanwhile served its real repo, so one server described two subjects in one run. It was
+  caught only because the number happened to be absurd. `active_project()` is gone with it:
+  a shortcut past `for_client` is an invitation to reopen the hole in the next endpoint.
+  The window's project remains the fallback for a caller that supplies no key, and every
+  response names what it answered about (`project`, `repo`) so a mismatch is visible
+  anyway. **The key is never in the tool schema** — a model cannot forget, garble or
+  compact away what it never carries, and the schema is priced per reading.
 - **Errors must say what to do.** A reader that hit the old flat "Sanity is not running"
   invented a prerequisite, another ran the tools as shell commands, another read
   `.sanity/` to compensate — contaminating itself. `UNREACHABLE` (transient, retry) is

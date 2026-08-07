@@ -270,7 +270,13 @@ fn call(name: &str, args: &Value) -> Result<Value, String> {
             }
             Ok(out)
         }
-        "sanity_status" => get("/status"),
+        // Carries the key like every other call. It did not, and it is the one an
+        // orchestrator makes most often: a driving session polled its own run and was
+        // answered about whichever repo the window had drifted to, then reported that.
+        "sanity_status" => match project() {
+            Some(k) => get(&format!("/status?project={}", urlencode(&k))),
+            None => get("/status"),
+        },
         // The batch size is decided in exactly one place, `agentapi::default_n`, and this
         // is why: the shim used to carry its own `unwrap_or(1)` and send `n` on every
         // call, so `default_n` was dead code for every MCP caller. When it moved to 3 the

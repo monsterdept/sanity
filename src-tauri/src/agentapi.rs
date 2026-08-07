@@ -243,9 +243,10 @@ impl AppState {
         }
     }
 
-    fn active_project(&self) -> Option<&Project> {
-        self.projects.get(self.active.as_ref()?)
-    }
+    // There was an `active_project()` here — resolve the window's repo, ignore the
+    // caller. `status` was its last user and its removal is the fix, so the helper goes
+    // with it: leaving a one-line shortcut past `for_client` around is an invitation to
+    // reopen the hole in the next endpoint.
 }
 
 /// How long a handed-out function stays reserved.
@@ -1563,7 +1564,31 @@ async fn report(
     }))
 }
 
-async fn status(State(state): State<Shared>) -> Json<serde_json::Value> {
+#[derive(Deserialize)]
+pub struct StatusParams {
+    /// Which project is asking. Supplied by the stdio shim, like [`QueueParams::project`].
+    #[serde(default)]
+    project: Option<String>,
+}
+
+/// How far along this session's assessment is.
+///
+/// **Answered for the caller's project, not for the window's.** It was the last endpoint
+/// resolving against `active`, and `active` moves whenever anybody opens anything — the
+/// human clicking a project in the app is enough. So an orchestrator polling its own run
+/// got another repo's numbers, with `repo` and `active` in the response naming a repo it
+/// had never asked about and nothing saying the subject had changed. It reported a false
+/// conclusion from them. The only reason it was caught at all was that `assessed` fell by
+/// an order of magnitude; two repos of similar size and the wrong number reads as true.
+///
+/// Worse, `queue` and `report` were already routed by key, so the same server disagreed
+/// with itself about what "current" meant: readers stayed on the session's repo while the
+/// call driving them answered about another. An instrument whose status and whose work
+/// describe different subjects is not measuring anything.
+async fn status(
+    State(state): State<Shared>,
+    Query(p): Query<StatusParams>,
+) -> Json<serde_json::Value> {
     let Ok(mut state) = state.lock() else {
         return Json(serde_json::json!({ "open": false }));
     };
@@ -1584,7 +1609,8 @@ async fn status(State(state): State<Shared>) -> Json<serde_json::Value> {
             })
         })
         .collect();
-    match state.active_project() {
+    let key = state.for_client(p.project.as_deref());
+    match key.and_then(|k| state.projects.get(&k)) {
         Some(p) => {
             // The loop's termination condition, so a driving agent can ask "is there
             // work left" without having to infer it from a report response it may never
@@ -1606,7 +1632,11 @@ async fn status(State(state): State<Shared>) -> Json<serde_json::Value> {
                 .collect();
             Json(serde_json::json!({
                 "open": true,
-                "active": p.name,
+                // Named `project`, not `active`: this answer is about the caller's repo,
+                // and calling it "active" was how a driving session read another repo's
+                // numbers as its own. Every status response says what it answered about
+                // so a mismatch is visible even to a caller that supplied no key.
+                "project": p.name,
                 "repo": p.repo.to_string_lossy(),
                 "functions": count_funcs(&p.scan).0,
                 "excluded": count_funcs(&p.scan).1,
@@ -1653,7 +1683,21 @@ async fn status(State(state): State<Shared>) -> Json<serde_json::Value> {
                 "projects": projects,
             }))
         }
-        None => Json(serde_json::json!({ "open": false, "projects": projects })),
+        // Either nothing is open, or this session's repo is not loaded — during a restart
+        // the second is the common one, and it is transient. Say which, for the same
+        // reason `UNREACHABLE` is not `NOT_RUNNING`: a caller that cannot tell "wait" from
+        // "there is nothing here" will pick one, and it picks wrong.
+        None => Json(serde_json::json!({
+            "open": false,
+            "projects": projects,
+            "hint": if p.project.is_some() {
+                "The repo this session opened is not loaded right now. If the app was \
+                 restarting this is TRANSIENT — wait a moment and call sanity_status \
+                 again. If it keeps failing, call sanity_open with the absolute path."
+            } else {
+                "No repo is open. Call sanity_open with the absolute path first."
+            },
+        })),
     }
 }
 
@@ -2595,6 +2639,47 @@ mod tests {
             }
         });
         assert_eq!(names, vec!["keep"]);
+    }
+
+    /// `/status` answers about the caller's repo, not about whichever one the window is
+    /// following.
+    ///
+    /// This is the one endpoint that was still resolving through `active`, and it is the
+    /// call a driving session makes most often. The human clicking another project in the
+    /// app was enough to retarget a headless run mid-flight: the orchestrator polled, got
+    /// another repo's `assessed` and `remaining`, and reported a conclusion drawn from
+    /// them. Nothing in the response said the subject had moved, and `queue` and `report`
+    /// went on serving the session's real repo — so the same server described two
+    /// different subjects in one run.
+    #[tokio::test]
+    async fn status_answers_about_the_callers_repo_not_the_window() {
+        let mine = tempfile::tempdir().unwrap();
+        std::fs::write(mine.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let theirs = tempfile::tempdir().unwrap();
+        std::fs::write(theirs.path().join("b.rs"), "fn two() { println!(\"2\"); }\n").unwrap();
+
+        let mut state = AppState::default();
+        let mut p = project_of(mine.path());
+        p.name = "mine".into();
+        state.projects.insert("/mine".into(), p);
+        let mut p = project_of(theirs.path());
+        p.name = "theirs".into();
+        state.projects.insert("/theirs".into(), p);
+        // The window has drifted onto somebody else's repo.
+        state.active = Some("/theirs".into());
+        let shared: Shared = Arc::new(Mutex::new(state));
+
+        let Json(out) = status(
+            State(shared.clone()),
+            Query(StatusParams { project: Some("/mine".into()) }),
+        )
+        .await;
+        assert_eq!(out["project"], "mine", "status followed the window, not the caller");
+        assert!(out["repo"].as_str().unwrap().contains(mine.path().to_str().unwrap()));
+
+        // No key — the window is the honest default, and the answer still says whose it is.
+        let Json(out) = status(State(shared), Query(StatusParams { project: None })).await;
+        assert_eq!(out["project"], "theirs");
     }
 
     /// A named project that is not loaded must not be answered for by another one.
