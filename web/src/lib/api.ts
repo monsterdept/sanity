@@ -44,6 +44,11 @@ export interface Node {
   /** Last line, for functions — what lets the code view map a source line to its chunk. */
   endLine: number | null
   lang: string | null
+  /** Set on a FILE node a `.sanityignore` matched. Its functions are still parsed and
+   *  still drawn — what they are not is queued, or in the denominator. Inherited by the
+   *  subtree the way `collect_tasks` inherits it: the flag lives on the file, and the
+   *  functions under it are out of scope with it. */
+  excluded: boolean
   /** Who last committed to this file. */
   lastAuthor: string | null
   score: Score | null
@@ -109,6 +114,7 @@ interface WireNode {
   line: number | null
   lang: string | null
   end_line: number | null
+  excluded?: boolean
   last_author: string | null
   body: string | null
   score: WireScore | null
@@ -136,6 +142,7 @@ function toNode(w: WireNode): Node {
     line: w.line,
     endLine: w.end_line ?? null,
     lang: w.lang ?? null,
+    excluded: w.excluded ?? false,
     lastAuthor: w.last_author ?? null,
     body: w.body ?? null,
     score: w.score
@@ -482,6 +489,12 @@ export const HOT = 0.5
  */
 export interface RepoSummary {
   functions: number
+  /** Functions a `.sanityignore` set aside. Never queued, so they can never be read —
+   *  counting them as `unread` had the panel offering to connect an agent for work no
+   *  reader will ever be handed, against a sidebar that already read 16925/16925.
+   *  Reported beside `functions` rather than dropped: an exclusion nobody can count is
+   *  how a map claims completeness over a subset somebody chose months ago. */
+  excluded: number
   /** Current readings by grade — the four steps, as counts. */
   spread: Record<Grade, number>
   /** Functions holding a current reading: the sum of `spread`. */
@@ -499,6 +512,7 @@ export interface RepoSummary {
 export function summarize(root: Node): RepoSummary {
   const s: RepoSummary = {
     functions: 0,
+    excluded: 0,
     spread: { full: 0, most: 0, some: 0, none: 0 },
     read: 0,
     stale: 0,
@@ -506,8 +520,14 @@ export function summarize(root: Node): RepoSummary {
     hot: [],
     firstStale: null,
   }
-  const walk = (n: Node) => {
+  const walk = (n: Node, out: boolean) => {
+    const outOfScope = out || n.excluded
     if (n.kind === 'func') {
+      if (outOfScope) {
+        s.excluded++
+        n.children.forEach((c) => walk(c, outOfScope))
+        return
+      }
       s.functions++
       if (n.agentStale) {
         s.stale++
@@ -521,9 +541,9 @@ export function summarize(root: Node): RepoSummary {
         s.unread++
       }
     }
-    n.children.forEach(walk)
+    n.children.forEach((c) => walk(c, outOfScope))
   }
-  walk(root)
+  walk(root, false)
   s.hot.sort((a, b) => temperature(b.score) - temperature(a.score) || b.loc - a.loc)
   return s
 }

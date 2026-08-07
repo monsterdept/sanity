@@ -172,6 +172,15 @@ export function Summary({
         <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
           {node.loc.toLocaleString()} lines · {s.functions.toLocaleString()}{' '}
           {s.functions === 1 ? 'function' : 'functions'}
+          {/* Never on its own line and never omitted: `functions` is what the readings
+              below are counted against, and a denominator somebody narrowed months ago
+              has to be visible beside it. */}
+          {s.excluded > 0 && (
+            <span title=".sanityignore set these aside: still drawn, never queued.">
+              {' '}
+              · {s.excluded.toLocaleString()} excluded
+            </span>
+          )}
         </p>
 
         {s.functions > 0 && (

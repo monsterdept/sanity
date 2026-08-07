@@ -244,6 +244,9 @@ function aggregate(fns: Node[], filePath: string): Node {
     line: null,
     endLine: null,
     lang: first.lang,
+    // Not inherited from the members: the flag sits on the FILE node, and this stand-in
+    // hangs under that same file, so it is out of scope exactly when its parent is.
+    excluded: false,
     lastAuthor: first.lastAuthor,
     body: null,
     hotspots: [],
