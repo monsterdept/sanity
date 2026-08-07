@@ -1,4 +1,4 @@
-import { PartyAnts } from './PartyAnts'
+import { Summary } from './Summary'
 import { colorFor, type ColorMode } from '../lib/colorMode'
 import { elide } from '../lib/text'
 import {
@@ -280,28 +280,50 @@ function Contents({
 
 export function Detail({
   node,
+  focus,
+  title,
+  repo,
+  working,
   model,
   mode,
   ranks,
   onSelect,
   onDrill,
+  onConnect,
 }: {
   node: Node | null
+  /** The subtree the map is showing, for the pane with no selection to describe. */
+  focus?: Node | null
+  title?: string
+  repo?: string | null
+  working?: boolean
   model: string | null
   mode: ColorMode
   ranks?: Map<string, number>
   onSelect?: (n: Node) => void
   onDrill?: (n: Node) => void
+  onConnect?: () => void
 }) {
   if (!node) {
-    // Nothing but the pane and whatever is walking across it. The gestures used to be
-    // spelled out here, which put a paragraph of instructions in the one place with
-    // nothing to instruct — and every one of them is already stated on the wedge it
-    // applies to, in the hover, at the moment it is useful.
-    return (
-      <div className="relative h-full">
-        <PartyAnts />
-      </div>
+    // With nothing selected the pane describes the whole picture instead. The gestures
+    // are still not spelled out here — every one of them is already stated on the wedge
+    // it applies to, in the hover, at the moment it is useful — but "what does this repo
+    // add up to, and what is left to do" has no wedge to be stated on, and this is the
+    // one moment there is room for it.
+    return focus ? (
+      <Summary
+        node={focus}
+        title={title ?? focus.name}
+        repo={repo ?? null}
+        working={working ?? false}
+        onSelect={onSelect}
+        onDrill={onDrill}
+        onConnect={onConnect}
+      />
+    ) : (
+      // No scan yet — nothing to summarise, so the pane stays empty rather than showing
+      // a frame full of zeroes.
+      <div className="h-full" />
     )
   }
 

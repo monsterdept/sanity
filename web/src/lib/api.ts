@@ -315,7 +315,10 @@ export function isReportStale(r: AgentReport, node: Node): boolean {
 /** Mirrors `Grade::surprise` and `Grade::documented` in Rust. Duplicated rather than
  *  sent over the wire because the mapping is a claim about the metric, and it should be
  *  reviewable in the two places the metric is computed. */
-const GRADE_SURPRISE: Record<Grade, number> = { full: 0.08, most: 0.3, some: 0.62, none: 0.92 }
+/** Exported so the summary can paint a grade with the ramp the map paints it with. The
+ *  spacing is deliberately uneven — see `HEAT_WORDS` — so a panel that re-derived its own
+ *  swatches from an even 0/⅓/⅔/1 would show four colours the map never uses. */
+export const GRADE_SURPRISE: Record<Grade, number> = { full: 0.08, most: 0.3, some: 0.62, none: 0.92 }
 const GRADE_DOCUMENTED: Record<Grade, number> = { full: 0.95, most: 0.7, some: 0.35, none: 0 }
 
 /** The report's two grades, with two rules applied that the grades themselves do not carry.
@@ -459,6 +462,72 @@ export function countStale(root: Node): number {
   return n
 }
 
+/** Temperature at which a function counts as hot. Mirrors `HOT` in `model.rs` — the
+ *  number a directory's `hot_share` is a share OF, so a second copy that drifted would
+ *  make the panel and the wedge it describes disagree about what "hot" means. */
+export const HOT = 0.5
+
+/**
+ * What a subtree adds up to, for the panel that has no wedge to describe.
+ *
+ * Counted off the tree rather than taken from `ProjectSummary`, for the reason
+ * `countStale` already is: drilled into one directory, a count of the whole repo is
+ * annotating a picture nobody is looking at. The project row in the sidebar is the
+ * repo-wide number and stays that way; this one describes what is on screen.
+ *
+ * `spread` counts only readings that still describe their code. Stale ones are their own
+ * bucket and are NOT folded into a grade — the wedge has already stopped taking their
+ * colour, and a count that quietly included them would let the panel read as finished
+ * while holding expired work, which is the one thing `assessed` exists to prevent.
+ */
+export interface RepoSummary {
+  functions: number
+  /** Current readings by grade — the four steps, as counts. */
+  spread: Record<Grade, number>
+  /** Functions holding a current reading: the sum of `spread`. */
+  read: number
+  /** Read once, but against a body that has since changed. */
+  stale: number
+  /** Never read by anybody. */
+  unread: number
+  /** Current readings above `HOT`, hottest first — what the map is pointing at. */
+  hot: Node[]
+  /** Where to send someone who wants to deal with the expiries, or null if there are none. */
+  firstStale: Node | null
+}
+
+export function summarize(root: Node): RepoSummary {
+  const s: RepoSummary = {
+    functions: 0,
+    spread: { full: 0, most: 0, some: 0, none: 0 },
+    read: 0,
+    stale: 0,
+    unread: 0,
+    hot: [],
+    firstStale: null,
+  }
+  const walk = (n: Node) => {
+    if (n.kind === 'func') {
+      s.functions++
+      if (n.agentStale) {
+        s.stale++
+        if (!s.firstStale) s.firstStale = n
+      } else if (n.agent) {
+        const g = n.agent.predicted ?? (n.agent.surprised ? 'none' : 'full')
+        s.spread[g]++
+        s.read++
+        if (temperature(n.score) > HOT) s.hot.push(n)
+      } else {
+        s.unread++
+      }
+    }
+    n.children.forEach(walk)
+  }
+  walk(root)
+  s.hot.sort((a, b) => temperature(b.score) - temperature(a.score) || b.loc - a.loc)
+  return s
+}
+
 
 
 
@@ -555,7 +624,7 @@ function reaggregate(node: Node, children: Node[]): Node {
       if (c.kind === 'func') {
         if (c.score.source === 'model' || c.score.source === 'agent') {
           analyzed += cw
-          if (temperature(c.score) > 0.5) hot += cw
+          if (temperature(c.score) > HOT) hot += cw
         }
       } else {
         const ca = c.score.analyzedShare * cw

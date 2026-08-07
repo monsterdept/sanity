@@ -36,6 +36,7 @@ import { loadTheme, saveTheme, watchSystemTheme, type Theme } from './lib/theme'
 import { CodeView } from './components/CodeView'
 import { ColourLegend, ModeSwitcher } from './components/ColourKey'
 import { Detail } from './components/Detail'
+import { PartyAnts } from './components/PartyAnts'
 import { SideBar } from './components/SideBar'
 import { AgentSetup } from './components/AgentSetup'
 
@@ -323,6 +324,13 @@ export default function App() {
     [projects, activeKey],
   )
 
+  /** The row for what is on screen — its name for the summary's header, and whether an
+   *  agent is on it, which decides whether the summary offers to connect one. */
+  const activeProject = useMemo(
+    () => projects.find((p) => p.key === activeKey) ?? null,
+    [projects, activeKey],
+  )
+
   /** The selected project when it is still being rescanned by the startup restore, so the
    *  pane can show its progress instead of the copy for someone who has no projects. */
   const loadingProject = useMemo(
@@ -440,6 +448,18 @@ export default function App() {
           {scan && focus && <Crumbs trail={trail} onGo={goTo} onUp={goUp} />}
 
           <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+            {/* The ground the map is drawn on. It is the only surface in the window that
+                is genuinely mostly empty — the rings are a circle in a rectangle — which
+                is what makes it the right place for something ambient.
+
+                Explicitly z-layered rather than left to DOM order. Paint order only
+                falls out of document order for elements that are all POSITIONED, and
+                these branches are not: `Sunburst` is `relative`, `Empty` and
+                `ProgressPane` are static, so an absolutely-positioned canvas would have
+                gone under the chart and over the empty state — ants walking across the
+                one screen that is trying to tell you what to do next. */}
+            <PartyAnts />
+            <div className="relative z-10 h-full">
             {error ? (
               <div className="flex h-full items-center justify-center p-6">
                 <p className="max-w-[40ch] text-center text-sm text-[var(--destructive)]">
@@ -488,13 +508,14 @@ export default function App() {
             ) : (
               <Empty onPick={pick} />
             )}
+            </div>
 
             {/* Floated over the graph rather than stacked under it. The rings are a
                 circle in a rectangle, so the corners and the top strip are dead space
                 the picture never uses — putting the controls there costs the chart
                 nothing and buys back a whole row of window height. */}
             {focus && focus.kind !== 'file' && (
-              <div className="absolute bottom-2 right-2">
+              <div className="absolute bottom-2 right-2 z-20">
                 <ColourLegend
                   mode={mode}
                   categories={scan ? legendFor(scan.root, mode) : []}
@@ -512,11 +533,19 @@ export default function App() {
         <aside className="w-[290px] shrink-0 border-l border-[var(--border)] bg-[var(--card)]">
           <Detail
             node={selected}
+            // What the summary covers when nothing is picked: the subtree on screen, not
+            // the repo, so drilling in re-counts rather than repeating a number the
+            // sidebar already shows for the whole project.
+            focus={focus}
+            title={focus && scan && focus.id === scan.root.id ? (activeProject?.name ?? focus.name) : focus?.name}
+            repo={repoPath}
+            working={activeProject?.working ?? false}
             model={scan?.stats.model ?? null}
             mode={mode}
             ranks={scan ? rankCategories(scan.root, mode) : undefined}
             onSelect={setPicked}
             onDrill={drill}
+            onConnect={() => setShowAgents(true)}
           />
         </aside>
       </div>

@@ -1,8 +1,24 @@
 import { useEffect, useRef } from 'react'
 
-/** How many share the pane. Enough to notice, few enough that it still reads as idle
- *  rather than as an infestation. */
-const COUNT = 7
+/**
+ * How many share the pane — a DENSITY, not a count, and a deliberately thin one.
+ *
+ * A fixed seven was right for a 290px side panel and wrong the moment this moved behind
+ * the map, which is four times the area: the same number would have read as a swarm
+ * crossing the chart, and a swarm is a feature competing with the picture rather than
+ * something happening at the edge of it. Per unit area it is now about a ninth as thick,
+ * which puts two or three on a typical window.
+ *
+ * Clamped at both ends. One is the floor because zero is not "sparse", it is a missing
+ * feature that reads as a bug; the ceiling stops a very large display from turning the
+ * thinness back into an infestation.
+ */
+const AREA_PER_ANT = 500_000
+const MIN_ANTS = 1
+const MAX_ANTS = 3
+
+const wanted = (w: number, h: number) =>
+  Math.max(MIN_ANTS, Math.min(MAX_ANTS, Math.floor((w * h) / AREA_PER_ANT)))
 
 /** Body length in CSS pixels, nose to tail. */
 const SIZE = 15
@@ -45,7 +61,14 @@ const resolveCoats = (el: HTMLElement): string[][] => {
 const inkOf = (el: HTMLElement) => getComputedStyle(el).color
 
 /**
- * Party ants, for an empty pane.
+ * Party ants, walking under the map.
+ *
+ * They started in the empty detail pane, where they were the whole content of a panel
+ * that had nothing to say. That panel now carries the project summary, and an idle
+ * animation competing with a list of things to do is worse than no animation — so they
+ * moved to the one surface that is genuinely mostly empty: the ground behind the rings.
+ * Underneath, not over: the sunburst draws on top and an ant passes behind a wedge, which
+ * is what keeps this ambient rather than an overlay on the picture.
  *
  * Drawn in the mascots' idiom — flat pastel fills, no outline on the body, everything
  * rounded. Not an illustration of an ant; a mascot that happens to be one.
@@ -129,25 +152,31 @@ export function PartyAnts() {
       canvas.width = Math.max(1, Math.round(w * dpr))
       canvas.height = Math.max(1, Math.round(h * dpr))
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      if (ants.length === 0 && w > 0 && h > 0) {
-        for (let i = 0; i < COUNT; i++) {
-          const cruise = 26 + rand() * 34
-          ants.push({
-            x: rand() * w,
-            y: rand() * h,
-            dir: rand() * Math.PI * 2,
-            speed: cruise,
-            cruise,
-            timer: 1 + rand() * 5,
-            resting: false,
-            phase: rand() * Math.PI * 2,
-            // Planted on the first frame, once the ant has a position to plant around.
-            feet: [],
-            drift: rand() * Math.PI * 2,
-            coat: Math.floor(rand() * COATS.length) % COATS.length,
-            scale: 0.8 + rand() * 0.45,
-          })
-        }
+      if (w <= 0 || h <= 0) return
+      // Population tracks the pane, because the count is a density now and the pane
+      // resizes — with the window, and every time the sidebar or the detail panel
+      // changes what is left for the map. Existing ants are left alone: re-seeding on
+      // every resize would teleport the ones already walking, which is the one thing
+      // the edge-bounce exists to avoid.
+      const n = wanted(w, h)
+      while (ants.length > n) ants.pop()
+      while (ants.length < n) {
+        const cruise = 26 + rand() * 34
+        ants.push({
+          x: rand() * w,
+          y: rand() * h,
+          dir: rand() * Math.PI * 2,
+          speed: cruise,
+          cruise,
+          timer: 1 + rand() * 5,
+          resting: false,
+          phase: rand() * Math.PI * 2,
+          // Planted on the first frame, once the ant has a position to plant around.
+          feet: [],
+          drift: rand() * Math.PI * 2,
+          coat: Math.floor(rand() * COATS.length) % COATS.length,
+          scale: 0.8 + rand() * 0.45,
+        })
       }
     }
     resize()
@@ -357,8 +386,11 @@ export function PartyAnts() {
     <canvas
       ref={ref}
       aria-hidden
-      // Held back so it stays peripheral — this is an idle pane, not a feature.
-      className="pointer-events-none absolute inset-0 h-full w-full text-[var(--foreground)] opacity-75"
+      // Held further back than it was in the side panel. There it was the only thing in
+      // the pane and could carry; here it shares a surface with the one picture this app
+      // exists to draw, and anything on that surface that is not the reading has to stay
+      // clearly under it.
+      className="pointer-events-none absolute inset-0 z-0 h-full w-full text-[var(--foreground)] opacity-40"
     />
   )
 }
