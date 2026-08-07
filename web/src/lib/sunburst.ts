@@ -1,4 +1,4 @@
-import type { Node } from './api'
+import { HOT, showsShare, temperature, type Node } from './api'
 
 export interface Wedge {
   node: Node
@@ -82,7 +82,7 @@ export interface LayoutOpts {
 function heatOf(n: Node): number {
   const s = n.score
   if (!s) return 0
-  return n.kind === 'func' ? s.surprise : s.hotShare
+  return showsShare(n) ? s.hotShare : s.surprise
 }
 
 export function layout(root: Node, maxDepth: number, opts: LayoutOpts = {}): Layout {
@@ -233,6 +233,17 @@ function aggregate(fns: Node[], filePath: string): Node {
     w === 0 ? 0 : read.reduce((n, f) => n + pick(f) * Math.max(f.loc, 1), 0) / w
   const first = read[0] ?? fns[0]
   const s = first.score
+  // Lines in here that a reader found hot, as a share of the lines anything read — the
+  // same question `hotShare` answers for a directory, asked of the same members. It used
+  // to hold `mean(surprise)`, a different quantity under this field's name; nothing read
+  // it, because the wedge was `kind: 'func'` and took the temperature branch everywhere.
+  // Both halves of that are the bug: this pool is what is LEFT after the hottest members
+  // were drawn as their own wedges, so a mean of it is bounded by its coldest neighbour
+  // and reports the truncation rather than the code.
+  const hotLoc = read.reduce(
+    (n, f) => n + (temperature(f.score) > HOT ? Math.max(f.loc, 1) : 0),
+    0,
+  )
   return {
     id: `${filePath}#rest`,
     // Read as "126 and more". The count is the useful half and any word after it would
@@ -250,6 +261,11 @@ function aggregate(fns: Node[], filePath: string): Node {
     lastAuthor: first.lastAuthor,
     body: null,
     hotspots: [],
+    // What makes this a collection rather than a function, everywhere colour is decided.
+    // Carried on the node and not just on the `Slot` because `colorFor` is handed a node
+    // and nothing else — a wedge cannot be coloured correctly by a fact its own node does
+    // not hold.
+    rest: fns.length,
     // The members it stands for, kept rather than dropped. The detail panel lists a
     // node's children, so carrying them here is what turns "104+" from a dead end into
     // the way you actually reach the functions the band had no room to draw.
@@ -265,7 +281,7 @@ function aggregate(fns: Node[], filePath: string): Node {
             lastTouchedDays: mean((f) => f.score!.lastTouchedDays ?? 0),
             commits: Math.round(mean((f) => f.score!.commits)),
             provenance: s.provenance,
-            hotShare: mean((f) => f.score!.surprise),
+            hotShare: w === 0 ? 0 : hotLoc / w,
             source: s.source,
             // The share of these lines anything actually read, so an aggregate that is
             // mostly unread still renders mostly unread rather than borrowing the

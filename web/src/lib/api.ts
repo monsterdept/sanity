@@ -69,7 +69,28 @@ export interface Node {
    *  first, which hides it — but that is a coincidence of ordering, not a guarantee, and
    *  the failure it hides is a wedge keeping an expired colour. */
   proxyScore?: Score
+  /** How many functions this node stands in for, on the synthetic wedge a band draws when
+   *  it runs out of room. Undefined on everything else, which is what makes it the test
+   *  for "this is a collection wearing a function's `kind`" — see `showsShare`. */
+  rest?: number
   children: Node[]
+}
+
+/**
+ * Does this wedge report a SHARE rather than a temperature?
+ *
+ * The two are on one colour ramp and are not comparable, so which one a wedge is showing
+ * has to be decided in exactly one place. It used to be decided as `kind === 'func'` in
+ * four, and the overflow aggregate — a stand-in for hundreds of functions, drawn at the
+ * size of a container — fell on the function side of it. So the only large objects on the
+ * screen painting a temperature were the roll-ups, every real container sat near the cold
+ * end of a share scale, and the map read hot exactly where it was least entitled to: that
+ * pool holds what is left after the hottest members were drawn separately, so its
+ * temperature is bounded by the coldest wedge beside it and says more about where the
+ * truncation fell than about the code.
+ */
+export function showsShare(node: Node): boolean {
+  return node.kind !== 'func' || node.rest !== undefined
 }
 
 export interface ScanStats {
@@ -756,17 +777,17 @@ export function temperature(s: Score | null): number {
 /**
  * What a wedge is actually coloured by, which depends on what the wedge IS.
  *
- * A function shows its own temperature. A file or directory shows the *share* of its
- * lines that are hot — because averaging temperature over hundreds of functions
- * converges on the repo mean, and every inner ring, which is most of the picture by
- * area, comes out the same lukewarm colour. That was the first screenshot.
+ * A function shows its own temperature. A file, a directory, or an overflow roll-up shows
+ * the *share* of its lines that are hot — because averaging temperature over hundreds of
+ * functions converges on the repo mean, and every inner ring, which is most of the picture
+ * by area, comes out the same lukewarm colour. That was the first screenshot.
  *
  * The two readings stay compatible: both answer "how much of what I'm looking at needs
  * my attention", one for a single body and one for a collection.
  */
 export function wedgeHeat(node: Node): number {
   if (!node.score) return 0
-  return node.kind === 'func' ? temperature(node.score) : node.score.hotShare
+  return showsShare(node) ? node.score.hotShare : temperature(node.score)
 }
 
 /**
@@ -781,9 +802,9 @@ export function wedgeHeat(node: Node): number {
  */
 export function isAnalyzed(node: Node): boolean {
   if (!node.score) return false
-  return node.kind === 'func'
-    ? node.score.source === 'model' || node.score.source === 'agent'
-    : node.score.analyzedShare > 0
+  return showsShare(node)
+    ? node.score.analyzedShare > 0
+    : node.score.source === 'model' || node.score.source === 'agent'
 }
 
 /** Which ramp a reading walks. Each is five CSS stops of a single hue, sharing one
