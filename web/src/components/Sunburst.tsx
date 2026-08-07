@@ -45,21 +45,42 @@ const FUNC_RIM = 7
 
 /** Floor on how much of a narrow file's span the functions keep. Without it, converting
  *  a fixed rim to an angle eats a thin wedge entirely — the rim would be wider than the
- *  wedge and the functions inside it would invert. */
-const FUNC_RIM_MAX_SHARE = 0.35
+ *  wedge and the functions inside it would invert.
+ *
+ *  PER SIDE, so 0.35 was leaving a narrow file 30% of its own width and doing most of
+ *  the blanking the area gate was written to undo: at `tui`'s depth 1 a 1,000-line file
+ *  has 3.45 units of arc, of which the rim took 2.4 and the tiling was then refused for
+ *  the 1.03 that was left. At 0.2 it keeps 60% and opens; measured across that band, the
+ *  floor for opening at depth 1 falls from 5,000 lines to 1,000.
+ *
+ *  What it costs is the rim's other job. `FUNC_RIM` was widened from 3 to 7 because a
+ *  file's own click target is exactly the frame its functions do not cover, and on the
+ *  narrowest files this hands some of that back — a 1,000-line file at depth 1 gets about
+ *  0.55px a side. Those are the files that were drawn solid and entirely clickable
+ *  before, so the trade is legibility for a target, on the wedges where the target was
+ *  the only thing there. */
+const FUNC_RIM_MAX_SHARE = 0.2
 
-/** Arc a file needs, in pixels at its band's mid-radius, before its functions are worth
- *  drawing at all.
+/** Arc a file needs at its band's mid-radius before its functions are worth drawing.
  *
- *  The cut between stacked functions runs ALONG the arc, so it does not eat this
- *  dimension — what this number protects is legibility and a target you can hit. Five
- *  pixels of fill still reads as a band and can still be clicked; below that a file is
- *  hatching, and the hatching is mostly the `--background` stroke, which on the dark
- *  theme is darker than the plate the ring sits on.
+ *  This used to be the whole gate, and it could be, because a radial slice spanned the
+ *  file's full angular width — arc was the only dimension a slice had, so a narrow file
+ *  could only ever produce a picket fence of keylines. Tiling spends both dimensions, so
+ *  what is left for this constant is the narrow job it can still do honestly: a wedge
+ *  thinner than about two units cannot hold a patch wide enough to see or to hit,
+ *  whatever its radial extent. Capacity is `OPEN_PATCHES` below.
  *
- *  Started at 8, which was cautious: it silenced files up to about 170 lines at the inner
- *  bands, and plenty of those had breakdowns worth seeing. */
-const MIN_STACK_ARC = 5
+ *  Was 5, which silenced a file of a thousand lines while its wedge had room for twenty
+ *  patches. */
+const MIN_STACK_ARC = 2
+
+/** Patches a wedge must have room for before it is opened at all.
+ *
+ *  One is not enough: a wedge with capacity for a single patch draws its roll-up across
+ *  its own area, which repaints the file in the roll-up's colour and says nothing the
+ *  file's own fill was not already saying. Four is the smallest tiling that shows a file
+ *  has PARTS, which is the claim opening it makes. */
+const OPEN_PATCHES = 4
 
 /** Narrowest a wedge may be drawn, in real screen pixels.
  *
@@ -511,19 +532,31 @@ export function Sunburst({
             const fa0 = w.a0 + pad
             const fa1 = w.a1 - pad
             const r1 = bandStart + band - RING_GAP * 0.4 - FUNC_RIM
-            // Too narrow to say anything: draw the file solid instead.
+            // Too small to say anything: draw the file solid instead.
             //
-            // A function slice spans its file's whole angular width, so on a thin file
-            // every slice is a sliver with a 0.6px cut down each side — and the cut is
-            // `--background`, which on the dark theme is DARKER than the `--structure`
-            // plate the ring sits on. What renders is not a stack of functions, it is a
-            // picket fence of keylines, and it reads as detail while carrying none.
+            // The test is AREA now, and the arc floor that used to carry it alone is down
+            // to the width one patch needs. That gate was written for a radial stack,
+            // where a file's whole angular width WAS one slice, so arc was the only
+            // dimension a slice had and 5 units of it was the honest floor. Tiling spends
+            // both, so a wedge can be narrow and still hold plenty — and the old rule was
+            // silencing files that had the room. Worked through on `tui` at depth 1: a
+            // 1,000-line file gets 0.0384 rad, which is 3.45 units of arc and blanked,
+            // while its wedge is ~260px² and holds about twenty patches. Every file under
+            // roughly 1,450 lines at that depth was being told it had nothing to show.
+            //
+            // Four patches rather than one, because a wedge with room for a single patch
+            // draws its own roll-up over its own area and says nothing the file's fill was
+            // not already saying.
             //
             // The file keeps its own fill and its own hover, and drilling in still shows
             // every function it has. `layout` already culls wedges below `MIN_ANGLE` on
             // the same reasoning; this is that rule applied one level further in, where
             // the wedges are not culled but their CONTENTS cannot be drawn.
-            if ((fa1 - fa0) * rMid < MIN_STACK_ARC) return null
+            const patch = minPatchArea ?? MIN_PATCH_PX
+            const sector = (fa1 - fa0) * ((r1 * r1 - r0 * r0) / 2)
+            if ((fa1 - fa0) * rMid < MIN_STACK_ARC || sector < OPEN_PATCHES * patch) {
+              return null
+            }
             return tileFunctions(w.node.children, r0, r1, fa0, fa1, { minPatchArea }).map((slot) => {
               const c = colorFor(slot.node, mode, ranks)
               const isSel = selected?.id === slot.node.id
