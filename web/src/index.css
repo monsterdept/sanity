@@ -98,23 +98,41 @@
    * lightness profile (L .443 .538 .627 .721 .804) so switching mode never changes
    * what "hot" looks like — only which question is being asked. Every ramp is
    * monotone with gaps ≥ 0.08 L, and its dark end clears 2:1 on Ink so "cold" never
-   * reads as "empty". */
-  --heat-0: #6b4d1f; /* surprise — amber, because it still reads as heat */
-  --heat-1: #8f6520;
-  --heat-2: #b37c1f;
-  --heat-3: #d19a2b;
-  --heat-4: #eab558;
+   * reads as "empty".
+   *
+   * CHROMA RAMPS TOO, and that is the fix for a map that lied. Lightness alone
+   * carried the reading and all five stops sat at full chroma — heat-0 was C .074,
+   * a committed amber. So "a reader predicted this exactly" and "a reader was
+   * blindsided" differed only in brightness within one fire colour, and a repo whose
+   * readings are 96% cold-or-warm rendered as a forge. The scale had no resting
+   * state. Chroma now runs C0 → C4 (heat .040 → .126) on the unchanged lightness
+   * profile: same ordering, same numbers, but the bottom of the scale finally looks
+   * like nothing is wrong, which is what the data says about most code.
+   *
+   * The floor is NOT zero, and the bar is measured. Dark-mode --unanalyzed is a warm
+   * grey (L .397 C .009 h 68) and heat shares its hue, so draining to neutral would
+   * put "cold" on top of "nobody has looked at this" — the one distinction this app
+   * exists to be able to state. C0 is solved per ramp for ΔE00 ≥ 10 against
+   * --unanalyzed in BOTH themes (heat 10.1 / 35.2), comfortably past the 6.9
+   * all-pairs margin the categorical palette below runs at. Cold ends stay 12–18
+   * apart from each other, so a calm map still says which question it answered, and
+   * cold→hot span went UP (heat 39.7 → 41.4). Re-solve, don't eyeball, if these move. */
+  --heat-0: #60513a; /* surprise — amber, because it still reads as heat */
+  --heat-1: #85693d;
+  --heat-2: #a78145;
+  --heat-3: #cb9b50;
+  --heat-4: #ecb459;
 
-  --churn-0: #345679; /* churn — blue */
-  --churn-1: #4072a3;
-  --churn-2: #4e8ccb;
-  --churn-3: #67aaed;
+  --churn-0: #4c545e; /* churn — blue */
+  --churn-1: #59718a;
+  --churn-2: #688cb1;
+  --churn-3: #7ba9da;
   --churn-4: #8ac4ff;
 
-  --age-0: #3c5d40; /* age — green */
-  --age-1: #4c7b53;
-  --age-2: #5d9966;
-  --age-3: #76b77f;
+  --age-0: #4d574d; /* age — green */
+  --age-1: #5c765f;
+  --age-2: #6e9473;
+  --age-3: #83b388;
   --age-4: #95d09c;
 
   /* ── Categorical: owner, language ─────────────────────────────────────────────
