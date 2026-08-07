@@ -174,8 +174,24 @@ export function PartyAnts({ avoid }: { avoid?: 'rings' }) {
     /** How far out the steering starts, so an ant curves away rather than arriving. */
     const NOTICE = SIZE * 3
 
+    /**
+     * How much of the pane's half-width the rings actually reach.
+     *
+     * Not all of it, and the gap is the ants' ground. The map is fitted to a square
+     * viewBox built from the drawn extent plus `MARGIN` either side and another
+     * `CHROME_BOTTOM` below, so its half-side is about `1.1 × reach` and the circle comes
+     * out at ten percent less than the pane allows. Taking the half-width raw made the
+     * keep-out disc as wide as the pane is short — so it met both short edges and the
+     * "ring round the map" was really four corners, which is why placing an ant needs
+     * bounded sampling and a corner to fall back to. Kept as a number here rather than
+     * imported: the two are the same fact seen from opposite sides, and a component that
+     * draws nothing should not be reaching into the one that does for its constants.
+     */
+    const FIT = 1.1
+
     /** The map's radius, or 0 when nothing circular is on the ground. */
-    const mapR = () => (avoidRef.current === 'rings' ? Math.min(w, h) / 2 + KEEP_OUT : 0)
+    const mapR = () =>
+      avoidRef.current === 'rings' ? Math.min(w, h) / 2 / FIT + KEEP_OUT : 0
 
     /** A place on the pane an ant may stand: outside the map, inside the edges. */
     const spot = (): [number, number] => {
