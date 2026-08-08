@@ -38,8 +38,15 @@ import { rOf, vOf } from './sunburst'
  * A treemap cannot say "nothing here". The stack drew a function at its real offset, so
  * two hundred lines of imports were two hundred lines of gap; here the cells close up.
  * Order survives — `tileFunctions` keeps `children` order, which is file order — but
- * proportion does not, and that was the stack's best argument. See `spanWeights` for the
- * one cheap way to give it back.
+ * proportion does not, and that was the stack's best argument.
+ *
+ * **Decided, not overlooked: the dead ground stays out of the picture.** There was a
+ * `spanWeights` here that charged each function for the gap before the next one, and a
+ * sketch for drawing those gaps as cells of their own. Both are gone, because a line
+ * outside a function has no TEMPERATURE — surprise is measured per function and `.sanity/`
+ * is keyed per function — so either would spend area on ground the colour cannot speak
+ * about. A map that draws what it cannot read is worse than one whose subject is plainly
+ * functions.
  */
 
 /** A wedge as the rectangle it really is: angles as themselves, radii as `v`. */
@@ -185,41 +192,14 @@ export function paneFor(w: number, h: number, inset = 0.06): Pane {
   return { x: -w / 2 + m, y: -h / 2 + m, w: w - m * 2, h: h - m * 2 }
 }
 
-/**
- * Weights that draw the gaps between functions, for a file that is mostly not functions.
- *
- * Not wired up, and offered here because it is the answer to the one thing the vertical
- * stack did better and this cannot: position was line number there, so two hundred lines
- * of imports were two hundred lines of nothing, and a sparse file LOOKED sparse. A tiling
- * closes up; the space between one function and the next has nowhere to go.
- *
- * Weighting each function by its span to the next one — its own lines plus the dead ground
- * before the next function starts — gives that back without drawing anything new: a
- * function preceded by a long stretch of declarations simply gets a bigger cell. What it
- * trades away is that a patch's area stops being exactly `loc`, which is a real cost,
- * because "area is lines, exactly, at every radius" is a property the tiling earned and
- * says out loud.
- *
- * So this is a decision to make deliberately, on a repo where it matters, and not a
- * default to discover later.
- */
-export function spanWeights(fns: { line?: number | null; loc: number }[], fileLines: number): number[] {
-  return fns.map((f, i) => {
-    const next = fns[i + 1]
-    const start = f.line ?? 0
-    const end = next?.line ?? fileLines
-    return Math.max(f.loc, end - start, 1)
-  })
-}
-
 /** Which edge of the pane the way back belongs on. Top or bottom, never a side.
  *
  *  The horizontal edges only, and that is a constraint rather than a simplification. A
  *  side bar has to hold its label turned on its side, which is the one piece of text in
  *  the app you would have to tilt your head for; and it eats the axis the tiling can least
- *  afford, since an unrolled file is already wider than it is tall on any normal window.
- *  Two answers also means the affordance lands in one of two places rather than four,
- *  which is the difference between somewhere you look and somewhere you hunt for. */
+ *  afford, since an unrolled file is wider than it is tall on any normal window. Two
+ *  answers also puts the affordance in one of two places rather than four, which is the
+ *  difference between somewhere you look and somewhere you hunt for. */
 export type Side = 'top' | 'bottom'
 
 /**
@@ -227,13 +207,13 @@ export type Side = 'top' | 'bottom'
  *
  * Not a preference — a fact about where the thing you came from actually is. A wedge at
  * angle `a` sits at `(sin a, -cos a)` from the hub, so its vertical offset is `-cos a`:
- * positive `cos` puts the wedge ABOVE the middle, and the way back below it. A wedge
- * across the top of the ring therefore returns downward, one across the bottom returns
- * upward. Point it anywhere else and the way back leads away from where you came from,
- * which is the one thing a back affordance must not do.
+ * positive `cos` puts the wedge ABOVE the middle and the way back below it. A wedge across
+ * the top of the ring therefore returns downward, one across the bottom returns upward.
+ * Point it anywhere else and the way back leads away from where you came from, which is
+ * the one thing a back affordance must not do.
  *
- * A wedge level with the hub — three or nine o'clock — has no vertical answer, and takes
- * the bottom. There is no third option to give it and the bottom is where the eye already
+ * A wedge level with the hub — three or nine o'clock — has no vertical answer and takes
+ * the bottom. There is no third option to give it, and the bottom is where the eye already
  * expects a bar.
  */
 export function homeSide(aMid: number): Side {

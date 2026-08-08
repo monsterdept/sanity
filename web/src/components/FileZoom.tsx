@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { type Node } from '../lib/api'
 import { colorFor, type ColorMode } from '../lib/colorMode'
 import { tileFunctions, vOf, type Slot } from '../lib/sunburst'
@@ -253,6 +253,7 @@ export function FileZoom({
  */
 export function HomeMark({
   t,
+  fade,
   hubR,
   bar,
   name,
@@ -260,12 +261,35 @@ export function HomeMark({
   onUp,
 }: {
   t: number
+  /** Transition progress, always 0 at the start of a level change and 1 at the end.
+   *
+   *  Separate from `t` because the two run in opposite directions when a file CLOSES: the
+   *  shape retracts from bar to disc, so `t` counts down, while the name still has to
+   *  travel forwards from the file's to the one it is returning to. One number cannot say
+   *  both. */
+  fade: number
   hubR: number
   bar: Pane
   name: string
   lines: number
   onUp?: () => void
 }) {
+  /** The name this mark carried before the current level change.
+   *
+   *  Kept in a ref and swapped during render, the same way `Sunburst` tracks the root it
+   *  is leaving — an effect would run a frame late, and a frame late is a frame with the
+   *  wrong name in it. */
+  const shownName = useRef(name)
+  const shownLines = useRef(lines)
+  const prevName = useRef(name)
+  const prevLines = useRef(lines)
+  if (shownName.current !== name) {
+    prevName.current = shownName.current
+    prevLines.current = shownLines.current
+    shownName.current = name
+    shownLines.current = lines
+  }
+
   const k = Math.max(0, Math.min(1, t))
   const lerp = (a: number, b: number) => a + (b - a) * k
   const x = lerp(-hubR, bar.x)
@@ -284,18 +308,12 @@ export function HomeMark({
   const dx = lerp(0, name.length * 4.2 + 26)
   const size = lerp(Math.max(9, Math.min(15, 150 / Math.max(name.length, 5))), 15)
 
-  return (
-    <g
-      onDoubleClick={onUp ? (e) => { e.stopPropagation(); onUp() } : undefined}
-      style={onUp ? { cursor: 'zoom-out' } : undefined}
-    >
-      <rect x={x} y={y} width={w} height={h} rx={rx} fill="var(--card)" stroke="var(--border)" />
-      {onUp && <title>Double-click to go up a level</title>}
-      {/* The disc is solid throughout — it is what the thing you clicked is turning INTO,
-          so it has to be there to be turned into. Its label is not: swapping the name on
-          the first frame would announce the destination before the thing that is
-          travelling has arrived. It fades up with the rest of the detail. */}
-      <g className="patches-in" key={name}>
+  /** One name and its size, at an opacity. Both halves of the cross-fade are the same
+   *  geometry — only the words and the opacity differ — so they cannot drift apart while
+   *  the shape underneath them is still moving. */
+  const label = (n: string, l: number, o: number) =>
+    o <= 0 ? null : (
+      <g opacity={o} key={n}>
         <text
           x={cx - dx / 2}
           y={cy + lerp(-4, 0)}
@@ -305,7 +323,7 @@ export function HomeMark({
           fill="var(--foreground)"
           fontWeight={600}
         >
-          {name}
+          {n}
         </text>
         <text
           x={cx + lerp(0, dx / 2 + 4)}
@@ -315,9 +333,30 @@ export function HomeMark({
           fontSize={9.5}
           fill="var(--muted-foreground)"
         >
-          {lines.toLocaleString()} lines
+          {l.toLocaleString()} lines
         </text>
       </g>
+    )
+
+  return (
+    <g
+      onDoubleClick={onUp ? (e) => { e.stopPropagation(); onUp() } : undefined}
+      style={onUp ? { cursor: 'zoom-out' } : undefined}
+    >
+      <rect x={x} y={y} width={w} height={h} rx={rx} fill="var(--card)" stroke="var(--border)" />
+      {onUp && <title>Double-click to go up a level</title>}
+      {/* The disc is solid throughout — it is what the thing you clicked is turning INTO,
+          so it has to be there to be turned into. Its label is not: swapping the name on
+          the first frame would announce the destination before the thing travelling has
+          arrived.
+
+          BOTH names are drawn while the level changes, the old one going out as the new
+          one comes in. This was a `patches-in` fade keyed on the name, which is a fade over
+          NOTHING: changing the key unmounts the outgoing text on the same frame, so the
+          name it replaced simply vanished and the new one grew in over the gap. A
+          cross-fade needs the thing being faded from to still be on screen. */}
+      {label(prevName.current, prevLines.current, 1 - fade)}
+      {label(name, lines, fade)}
     </g>
   )
 }

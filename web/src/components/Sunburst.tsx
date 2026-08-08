@@ -1129,30 +1129,28 @@ export function Sunburst({
             hub is where this is going, not where it is. */}
         {(() => {
           const closing = moving && fileLeaving.current
-          const src = closing ? fileLeaving.current : null
-          const home = fileHome(src ? src.from : root.kind === 'file' ? fileFrom.current : null)
-          const node = src ? src.node : root
-          // No bar to travel to — a file that was never a wedge, or an ordinary ring — so
-          // the mark stays the disc it has always been.
-          if (!home) {
-            return (
-              <HomeMark
-                t={0}
-                hubR={R_INNER - 4}
-                bar={{ x: 0, y: 0, w: 0, h: 0 }}
-                name={node.name}
-                lines={node.loc}
-                onUp={onUp}
-              />
-            )
-          }
+          const home = fileHome(
+            closing && fileLeaving.current
+              ? fileLeaving.current.from
+              : root.kind === 'file'
+                ? fileFrom.current
+                : null,
+          )
+          // The name is ALWAYS the level being arrived at, never the one being left. The
+          // mark cross-fades between them itself, and it does that on `fade` rather than on
+          // `t` because the two run opposite ways when a file closes: the shape retracts
+          // while the name still travels forwards. Handing it the outgoing name here would
+          // have the words go backwards with the geometry.
           return (
             <HomeMark
-              t={closing ? 1 - e : root.kind === 'file' ? e : 0}
+              // No bar to travel to — an ordinary ring, or a file that was never a wedge —
+              // so the mark stays the disc it has always been.
+              t={!home ? 0 : closing ? 1 - e : root.kind === 'file' ? e : 0}
+              fade={e}
               hubR={R_INNER - 4}
-              bar={home.bar}
-              name={node.name}
-              lines={node.loc}
+              bar={home ? home.bar : { x: 0, y: 0, w: 0, h: 0 }}
+              name={root.name}
+              lines={root.loc}
               onUp={onUp}
             />
           )
