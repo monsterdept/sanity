@@ -56,15 +56,14 @@ fn project() -> Option<String> {
 /// which the retry window below then absorbs or reports. That is a fine mechanism; it just
 /// was not the one described, and a comment describing a guard that does not exist is
 /// worse than no comment.
-fn base_url() -> Option<String> {
+pub(crate) fn base_url() -> Option<String> {
     if let Ok(url) = std::env::var("SANITY_BACKEND") {
         return Some(url);
     }
-    let path = crate::agentapi::endpoint_file()?;
-    let raw = std::fs::read_to_string(path).ok()?;
-    let v: Value = serde_json::from_str(&raw).ok()?;
-    let port = v.get("port")?.as_u64()?;
-    Some(format!("http://127.0.0.1:{port}"))
+    // Parsed by `agentapi::read_endpoint` rather than here. It was two readers of one
+    // file the moment the CLI needed the pid as well as the port, and two parsers of one
+    // format is the `mcp/sanity.mjs` shape in miniature.
+    Some(crate::agentapi::read_endpoint()?.url())
 }
 
 /// How long to keep trying before giving up on a call.
@@ -157,7 +156,7 @@ const NOT_RUNNING: &str = "Sanity does not appear to be running at all — no en
 
 /// Percent-encode a project key for a query string. Keys are absolute paths, so spaces
 /// and anything else a directory name may legally contain have to survive the trip.
-fn urlencode(s: &str) -> String {
+pub(crate) fn urlencode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
@@ -197,7 +196,7 @@ pub fn tools() -> Value {
     json!([
         {
             "name": "sanity_open",
-            "description": "Point Sanity at a repo and make it what the window shows. Call this FIRST, with an absolute path — updating an existing assessment is the same call. Sanity does the walking, parsing and git history itself; you must NOT read `.sanity/` yourself, because knowing what the last reader found destroys the measurement. READ THE `protocol` FIELD IN THE RESPONSE AND FOLLOW IT. Check `functions` first: a full pass is a fresh subagent per ten functions, so on a large repo say what that would cost and ask how far to go before spawning anything. The response also carries `shape` — the repo by top-level directory — and `excluded`, what a `.sanityignore` at the repo root has set aside. If some slice of the repo is not worth reading, put that to the human WITH the numbers from `shape` and let them decide; the file is theirs to write, not yours, and there are no defaults in it. Never assume tests belong in it.",
+            "description": "Point Sanity at a repo. Call this FIRST, with an absolute path — updating an existing assessment is the same call. Sanity does the walking, parsing and git history itself; you must NOT read `.sanity/` yourself, because knowing what the last reader found destroys the measurement. READ THE `protocol` FIELD IN THE RESPONSE AND FOLLOW IT. Check `functions` first: a full pass is a fresh subagent per ten functions, so on a large repo say what that would cost and ask how far to go before spawning anything. The response also carries `shape` — the repo by top-level directory — and `excluded`, what a `.sanityignore` at the repo root has set aside. If some slice of the repo is not worth reading, put that to the human WITH the numbers from `shape` and let them decide; the file is theirs to write, not yours, and there are no defaults in it. Never assume tests belong in it.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "path": { "type": "string", "description": "Absolute path to the repo." } },

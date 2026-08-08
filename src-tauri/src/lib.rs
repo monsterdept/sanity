@@ -20,6 +20,7 @@ pub mod assessment;
 pub mod blame;
 pub mod cache;
 pub mod churn;
+pub mod cli;
 pub mod commands;
 pub mod heuristic;
 #[cfg(feature = "local-model")]

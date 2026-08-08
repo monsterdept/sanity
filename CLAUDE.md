@@ -270,6 +270,33 @@ When a field is added to `Report`, add it to the schema in the same commit.
   response names what it answered about (`project`, `repo`) so a mismatch is visible
   anyway. **The key is never in the tool schema** — a model cannot forget, garble or
   compact away what it never carries, and the schema is priced per reading.
+- **The backend is per machine, and the window is not a prerequisite for it.** `cli.rs`
+  hosts `sanity serve` — the same binary, the same `agentapi`, no window — because the
+  state lived in the app's process only from the accident of the app being written first.
+  There is one endpoint file, one process and a map of projects, so `sanity study` in a
+  second repo is another client, never a second server. Three rules keep it from becoming
+  a lifecycle problem. **`serve` is idempotent, not exclusive** — something already
+  answering means it prints the port and exits 0, which is the whole of "must not conflict
+  with a running UI": the second one never starts. **The daemon stands down when the
+  endpoint file stops naming its pid**, so a human opening the app beats a background
+  process rather than stranding two servers with one address. **It holds nothing
+  precious** — the scan recomputes, the readings are in `.sanity/`, an expired lease
+  re-queues — which is why it can idle out on a timer and why there is no `sanity stop`.
+  The CLI's read verbs are formatters over `/status` and `/summary` and compute nothing;
+  anything they needed that an endpoint lacks belongs in the endpoint, or it is two
+  implementations of one answer and the unwatched one goes wrong. **And `study` prints the
+  sentence rather than running an agent** — spawning one means owning model choice, auth,
+  concurrency and resumption, the configuration `OllamaModel` was deleted to avoid, and it
+  would make the tool assert the reading conditions `by_position` exists to measure.
+- **Opening a repo is not a claim on the window.** `touch` (history) and `focus` (the
+  view) were one call, so any open retargeted the pane — including a headless run in
+  another repo, and including the second of two agents working two repos at once, which is
+  the hazard `for_client` is written up against. `focus(key, asked)` moves the view only
+  when a caller asked outright (`sanity study --show`, the window's own Open command) or
+  when nothing holds it — a fresh launch, a headless daemon, an `active` naming a project
+  that is not loaded. Nothing is hidden by declining: the project is in the sidebar with
+  its own progress, and `/open` returns `showing` so a caller never tells the human to go
+  and look at a pane that is still on something else.
 - **Errors must say what to do.** A reader that hit the old flat "Sanity is not running"
   invented a prerequisite, another ran the tools as shell commands, another read
   `.sanity/` to compensate — contaminating itself. `UNREACHABLE` (transient, retry) is

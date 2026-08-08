@@ -9,5 +9,15 @@ fn main() {
         sanity_lib::mcp::run();
         return;
     }
+    // Everything else with an argument is the headless half — `serve`, `study` and the
+    // read verbs. Same binary again, and for the same reason: one artifact means one
+    // implementation of the contract and one version writing `.sanity/`. A second
+    // installable that could drift from this one is the `mcp/sanity.mjs` mistake with a
+    // longer fuse.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if !args.is_empty() {
+        std::process::exit(sanity_lib::cli::main(&args));
+    }
+    // No arguments: the window, which is what double-clicking the app does.
     sanity_lib::run()
 }

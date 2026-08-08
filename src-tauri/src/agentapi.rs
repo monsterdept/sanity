@@ -189,14 +189,45 @@ impl AppState {
         crate::reports::save_index(&index);
     }
 
+    /// Move a project to the front of the history. Says nothing about the window.
+    ///
+    /// It used to set `active` too, and the two are different claims: one is "this was
+    /// used most recently", which is the sidebar's ordering, and the other is "this is
+    /// what the human is looking at". Fusing them meant any open retargeted the window —
+    /// including an open by a headless run in another repo, and including the second of
+    /// two agents working two repos at once, which is the hazard `for_client` is written
+    /// up against. Whether the view follows is now [`AppState::focus`], decided by the
+    /// caller.
     pub fn touch(&mut self, key: &str) {
         self.clock += 1;
         let c = self.clock;
         if let Some(p) = self.projects.get_mut(key) {
             p.touched = c;
         }
+        self.persist();
+    }
+
+    /// Point the window at a project, if that is not taking a view away from somebody.
+    ///
+    /// `asked` is a caller saying so outright — `sanity study --show`, or a human
+    /// clicking. Absent that, the view only moves when nothing is being looked at: a
+    /// fresh launch, a headless daemon that has never had a window, or an `active` key
+    /// naming a project that is no longer loaded. The pane the human is reading is not
+    /// something a background process gets to reassign, and the sidebar already carries
+    /// the new project with its own progress, so nothing is hidden by declining.
+    ///
+    /// Returns whether the view actually moved, so the caller can say which happened.
+    pub fn focus(&mut self, key: &str, asked: bool) -> bool {
+        let vacant = self
+            .active
+            .as_ref()
+            .is_none_or(|k| !self.projects.contains_key(k));
+        if !asked && !vacant {
+            return false;
+        }
         self.active = Some(key.to_string());
         self.persist();
+        true
     }
 
     /// Record a call. `tool` is the tool name, optionally suffixed with the outcome —
@@ -833,6 +864,15 @@ fn default_n() -> usize {
 #[derive(Deserialize)]
 pub struct OpenRequest {
     pub path: String,
+    /// Make the window follow this repo as well as opening it.
+    ///
+    /// Absent by default, and absent is not "no" — see [`AppState::focus`], which still
+    /// takes the view when nothing holds it. The field exists for the one caller who can
+    /// legitimately claim the pane: a human who typed `sanity study --show`. The MCP
+    /// shim never sends it, because an agent opening a repo is not evidence that the
+    /// person at the window wanted to stop looking at the one they had.
+    #[serde(default)]
+    pub focus: Option<bool>,
 }
 
 /// The instruction handed back on every open.
@@ -940,7 +980,13 @@ pub const READER_PROMPT: &str = "\
   are usually transient, so wait and retry the same call a few times rather than \
   inventing a prerequisite or running the tools as shell commands.";
 
-/// Open a repo and make it what the window is showing.
+/// Open a repo, and add it to what Sanity is holding.
+///
+/// It used to end "…and make it what the window is showing", which is no longer the
+/// default and was never quite defensible: an open is a claim about what the caller is
+/// working on, not about what the person at the window wants to look at. The project
+/// appears in the sidebar with its own progress either way, so nothing becomes invisible;
+/// see [`AppState::focus`] for when the view does move.
 ///
 /// Sanity does the structural work — walking, tree-sitter, git churn — because that is a
 /// second of Rust and would be thousands of tokens of agent time. The agent supplies the
@@ -1038,8 +1084,12 @@ async fn open_project(
         },
     );
     s.touch(&key);
+    let showing = s.focus(&key, req.focus.unwrap_or(false));
     Json(serde_json::json!({
         "ok": true, "reopened": reopened, "project": key, "name": name,
+        // Whether the window moved. It usually will not, and a caller that assumed it had
+        // would tell the human to go and look at a pane still showing something else.
+        "showing": showing,
         "functions": functions, "assessed": assessed,
         // Both, always. `functions` is what a full pass costs and what a percentage
         // divides by; `excluded` is what somebody decided is not this assessment's
@@ -2018,8 +2068,23 @@ impl ProjectList {
     }
 }
 
+/// Is anybody home, and who.
+///
+/// Separate from `/status` because status is not free: it calls `ping`, which is what
+/// drives the mascot and the "an agent is working" panel. `sanity serve` and `sanity
+/// study` both have to ask whether a backend is already up, and a liveness probe that
+/// animates the window as though a reader had called something would make the UI lie
+/// about its own subject. This touches no state at all.
+///
+/// The pid is the answer to "already serving, but by whom" — a daemon compares it against
+/// its own to notice it has been superseded.
+async fn health() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "ok": true, "pid": std::process::id() }))
+}
+
 pub fn router(state: Shared) -> Router {
     Router::new()
+        .route("/health", get(health))
         .route("/open", post(open_project))
         .route("/queue", get(queue))
         .route("/report", post(report))
@@ -2037,6 +2102,34 @@ pub fn endpoint_file() -> Option<PathBuf> {
     let dir = dirs::data_dir()?.join("Sanity");
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("agent-endpoint.json"))
+}
+
+/// Who currently claims to be the backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Endpoint {
+    pub port: u16,
+    pub pid: u32,
+}
+
+impl Endpoint {
+    pub fn url(&self) -> String {
+        format!("http://127.0.0.1:{}", self.port)
+    }
+}
+
+/// Parse the published endpoint. One reader, because two would drift.
+///
+/// It says nothing about whether that process is alive — the file outlives a crash, and
+/// the pid was published for years without anything ever reading it. Callers that need
+/// liveness probe `/health`; callers that only need "who claims it" (a daemon checking
+/// whether it has been superseded) can stop here.
+pub fn read_endpoint() -> Option<Endpoint> {
+    let raw = std::fs::read_to_string(endpoint_file()?).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    Some(Endpoint {
+        port: u16::try_from(v.get("port")?.as_u64()?).ok()?,
+        pid: u32::try_from(v.get("pid")?.as_u64()?).ok()?,
+    })
 }
 
 /// Rebuild the projects sanity had open, in the background.
@@ -2798,5 +2891,67 @@ mod tests {
         let handed = interleave_by_file(ranked, 25);
         assert_eq!(handed.len(), 2);
         assert_ne!(handed[0].id, handed[1].id);
+    }
+
+    /// Two loaded projects keyed `/x` and `/y`, over one throwaway repo. The keys are
+    /// what `focus` reasons about; the scans behind them are only there because a
+    /// `Project` cannot exist without one.
+    fn two_projects() -> (tempfile::TempDir, AppState) {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let mut state = AppState::default();
+        state.projects.insert("/x".into(), project_of(dir.path()));
+        state.projects.insert("/y".into(), project_of(dir.path()));
+        (dir, state)
+    }
+
+    /// Opening a repo must not take the pane away from whoever is reading it.
+    ///
+    /// This is the whole of the `sanity study` question: the human is looking at one repo
+    /// in the window, a headless run opens another, and the view has to stay put while
+    /// the new project still becomes fully addressable. It is also the two-agents case —
+    /// `for_client` keeps their *routing* apart, and this keeps their *view* apart.
+    #[test]
+    fn an_unasked_open_does_not_steal_the_window() {
+        let (dir, mut state) = two_projects();
+        let _dir = dir;
+        state.active = Some("/x".into());
+
+        assert!(!state.focus("/y", false), "an unasked open must not move the view");
+        assert_eq!(state.active.as_deref(), Some("/x"));
+
+        // Asked for outright — `--show`, or the window's own Open command.
+        assert!(state.focus("/y", true));
+        assert_eq!(state.active.as_deref(), Some("/y"));
+    }
+
+    /// Nothing on screen is not a view worth protecting.
+    ///
+    /// The case that matters is headless: a daemon that has never had a window has no
+    /// `active`, and if an open declined to set one then every keyless caller would
+    /// resolve to nothing and `sanity serve` would answer no one.
+    #[test]
+    fn an_open_takes_a_window_that_nobody_holds() {
+        let (dir, mut state) = two_projects();
+        let _dir = dir;
+        assert!(state.focus("/y", false), "nothing was being looked at");
+        assert_eq!(state.active.as_deref(), Some("/y"));
+
+        // An `active` naming a project that is not loaded is the same situation wearing a
+        // key: it points at nothing, so it is not a view being taken from anybody.
+        state.active = Some("/gone".into());
+        assert!(state.focus("/y", false));
+        assert_eq!(state.active.as_deref(), Some("/y"));
+    }
+
+    /// The endpoint file round-trips through the one parser both halves now share.
+    #[test]
+    fn endpoint_reads_back_what_was_published() {
+        let ep = Endpoint { port: 51823, pid: 4242 };
+        assert_eq!(ep.url(), "http://127.0.0.1:51823");
+        let raw = serde_json::json!({ "port": ep.port, "pid": ep.pid }).to_string();
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(v["port"].as_u64(), Some(51823));
+        assert_eq!(v["pid"].as_u64(), Some(4242));
     }
 }

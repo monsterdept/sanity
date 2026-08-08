@@ -119,6 +119,11 @@ pub async fn scan_repo(
             },
         );
         shared.touch(&key);
+        // Focused outright, unlike the agent and headless paths. This is the window's own
+        // Open command — somebody stood in front of the app and chose this repo, which is
+        // the one case where taking the view is what was asked for rather than something
+        // done to a pane in use.
+        shared.focus(&key, true);
     }
     scanned
 }
