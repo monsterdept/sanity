@@ -628,17 +628,21 @@ fn render_index(repo: &str, shards: &[(String, usize, usize, usize, usize)]) -> 
          \n\
          ## Updating this assessment\n\
          \n\
-         Readings go stale. Each one records a hash of the body it was made against, so\n\
-         when the code moves out from under a reading, Sanity marks it STALE and offers\n\
-         it for re-reading before anything else. Nothing here silently keeps claiming to\n\
-         be current.\n\
+         Readings go stale. Each one records a hash of the code and the comments it was\n\
+         made against, so when either moves out from under a reading, Sanity marks it\n\
+         STALE and offers it for re-reading before anything else. Nothing here silently\n\
+         keeps claiming to be current.\n\
          \n\
-         With the app running and its MCP server connected (the app offers this under\n\
-         Connect), ask Claude:\n\
+         An agent does the reading, over MCP. Connect one — the app has a button for it\n\
+         under Connect, or add the server by hand as `sanity mcp` — then, from this repo,\n\
+         ask the agent:\n\
          \n\
-         > update my sanity assessment\n\
+         > study this project in sanity\n\
          \n\
          It re-reads what changed and what was never covered, and rewrites these files.\n\
+         The app does not have to be open; the agent starts whatever it needs. From a\n\
+         shell, `sanity status` says how far along it is and `sanity summary` says what\n\
+         it found.\n\
          \n\
          **Anyone with the repo can do this.** Readings are not owned by whoever made\n\
          them: `by` on each entry is provenance you can read, not a claim on the entry.\n\
@@ -928,7 +932,7 @@ mod tests {
         assert!(tmp.join(".sanity/web.md").exists());
         let index = std::fs::read_to_string(tmp.join(".sanity/README.md")).unwrap();
         assert!(index.contains("sanity.monster"), "the index says where to get the app");
-        assert!(index.contains("update my sanity assessment"), "and how to refresh it");
+        assert!(index.contains("study this project in sanity"), "and how to refresh it");
 
         // The same functions, moved down the file and one of them rewritten.
         let moved = scan_of(&[

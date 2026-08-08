@@ -36,17 +36,21 @@ Or download it for macOS or Windows from <https://sanity.monster>.
 
 ## Updating this assessment
 
-Readings go stale. Each one records a hash of the body it was made against, so
-when the code moves out from under a reading, Sanity marks it STALE and offers
-it for re-reading before anything else. Nothing here silently keeps claiming to
-be current.
+Readings go stale. Each one records a hash of the code and the comments it was
+made against, so when either moves out from under a reading, Sanity marks it
+STALE and offers it for re-reading before anything else. Nothing here silently
+keeps claiming to be current.
 
-With the app running and its MCP server connected (the app offers this under
-Connect), ask Claude:
+An agent does the reading, over MCP. Connect one — the app has a button for it
+under Connect, or add the server by hand as `sanity mcp` — then, from this repo,
+ask the agent:
 
-> update my sanity assessment
+> study this project in sanity
 
 It re-reads what changed and what was never covered, and rewrites these files.
+The app does not have to be open; the agent starts whatever it needs. From a
+shell, `sanity status` says how far along it is and `sanity summary` says what
+it found.
 
 **Anyone with the repo can do this.** Readings are not owned by whoever made
 them: `by` on each entry is provenance you can read, not a claim on the entry.
