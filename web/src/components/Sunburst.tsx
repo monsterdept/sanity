@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type Node } from '../lib/api'
 import { colorFor, type ColorMode } from '../lib/colorMode'
 import { arcPath, labelArc, layout, tileFunctions, type Wedge } from '../lib/sunburst'
+import { FileZoom, HomeMark, fileP, homeOf, sourceSector } from './FileZoom'
+import type { Pane } from '../lib/unroll'
 import {
   direction,
   ease,
@@ -316,11 +318,13 @@ export function Sunburst({
    *  that no longer existed. The drilled view came up blank. A root file becomes a
    *  full-circle wedge of its own; `arcPath` already special-cases the 2π span, because
    *  a full ring drawn as one arc has coincident endpoints and renders nothing. */
-  /** Files in the current view, whose functions stack inside their band.
+  /** Files in the current view, whose functions tile inside their band.
    *
-   *  A file is never the ROOT here any more — `FileStack` owns that, because a file is a
-   *  sequence and this is a geometry for sets. The special case that made a root file a
-   *  full-circle wedge is gone with it. */
+   *  A root file is not among them, and does not need to be. `layout` never emits the
+   *  root as a wedge, and a file that IS the root is no longer drawn as a ring at all —
+   *  `FileZoom` unrolls its tiling into the pane instead, which is the same cells this
+   *  pass would have drawn, projected out of the wedge they were already in. So the
+   *  full-circle special case stays gone: there is no ring to be full. */
   const fileWedges = useMemo<Wedge[]>(
     () => wedges.filter((w) => w.node.kind === 'file'),
     [wedges],
@@ -354,6 +358,33 @@ export function Sunburst({
    *  entry in `leaving`, because it is not leaving — it is arriving as the hub. */
   const coring = useRef<{ node: Node; from: Geo; to: Geo } | null>(null)
   const from = useRef<Map<string, Geo>>(new Map())
+  /** The wedge an open file unrolled out of. See the level-change block below. */
+  const fileFrom = useRef<ReturnType<typeof sourceSector> | null>(null)
+  /** The pane an open file unrolls into, in the ring's own user units. */
+  const filePane = useMemo(() => fileP(box.w || 1, box.h || 1), [box.w, box.h])
+
+  /** Where an open file's way back sits, and the room the tiling gets once it has it.
+   *
+   *  Computed here rather than inside `FileZoom`, because two things need it and they must
+   *  not work it out separately: the cells tile into `inner`, and the hub morphs into
+   *  `bar`. Derived twice, they would disagree about where the edge is — by a few units at
+   *  first, and by a whole layout the next time either is touched. */
+  const fileHome = (from: ReturnType<typeof sourceSector> | null) =>
+    from ? homeOf(from, filePane) : null
+
+  /** The file being closed, retracting into the wedge it came out of.
+   *
+   *  Its own thing rather than an entry in `leaving`, for the same reason `coring` is: it
+   *  is not an arc flying outward, it is a tiling rolling back up. Without it, closing a
+   *  file was the hard cut this whole approach removed in the other direction — the cells
+   *  unmounted on the frame the root changed and the rings eased in over nothing.
+   *
+   *  It retracts into the sector it CAME from, not into wherever the file lands in the new
+   *  level. In the ordinary case — going back up to the parent — those are the same wedge,
+   *  because the level being returned to is the one the file was opened from. Reusing the
+   *  source guarantees the first frame of the exit is exactly the picture on screen, where
+   *  re-deriving it would risk a pop on a jump that reorganised the ring. */
+  const fileLeaving = useRef<{ node: Node; from: ReturnType<typeof sourceSector>; pane: Pane } | null>(null)
   const prevRoot = useRef(root)
   const dir = useRef<Direction>('across')
 
@@ -455,6 +486,29 @@ export function Sunburst({
         from: was.get(w.node.id) as Geo,
         to: exitTo(was.get(w.node.id) as Geo, dir.current, R_INNER, R_OUTER),
       }))
+    // A file is a destination rather than a level: the rings do not reorganise around it,
+    // its own tiling unrolls into the pane. What that needs is the one thing only this
+    // moment has — where the file's wedge stood on screen just before it was opened. The
+    // insets match the ones the patch renderer applies, because a source sector a few
+    // units off is a first frame that jumps, which is the whole thing this avoids.
+    // A file being closed: keep its cells alive through the transition, rolling back up.
+    fileLeaving.current =
+      prevRoot.current.kind === 'file' && root.kind !== 'file' && fileFrom.current
+        ? { node: prevRoot.current, from: fileFrom.current, pane: filePane }
+        : null
+    if (root.kind === 'file') {
+      const g = was.get(root.id)
+      if (g) {
+        const rMid = (g.r0 + g.r1) / 2
+        const pad = Math.min(FUNC_RIM / rMid, (g.a1 - g.a0) * FUNC_RIM_MAX_SHARE)
+        fileFrom.current = sourceSector(g.a0 + pad, g.a1 - pad, g.r0 + FUNC_RIM, g.r1 - FUNC_RIM)
+      } else {
+        // Never on screen — a restored session, or a project opened straight into a file.
+        // Nothing to come out of, so it is drawn where it lands rather than flown in from
+        // a wedge that was never there.
+        fileFrom.current = null
+      }
+    }
     prevRoot.current = root
     setT(0)
     setRun((r) => r + 1)
@@ -508,8 +562,23 @@ export function Sunburst({
    *  one. Interpolated together with the wedges, so the zoom and the movement are one
    *  thing rather than two that happen to overlap. */
   const viewTo = useMemo(
-    () => viewFor(extentOf(target.values(), R_INNER), MARGIN, CHROME_BOTTOM),
-    [target],
+    () =>
+      root.kind === 'file'
+        ? // Fitted to the pane rather than to a ring's extent, and interpolated to from
+          // wherever the rings were — so the box and the cells arrive together instead of
+          // the box snapping on the frame the movement ends.
+          viewFor(
+            {
+              x0: filePane.x,
+              x1: filePane.x + filePane.w,
+              y0: filePane.y,
+              y1: filePane.y + filePane.h,
+            },
+            MARGIN,
+            CHROME_BOTTOM,
+          )
+        : viewFor(extentOf(target.values(), R_INNER), MARGIN, CHROME_BOTTOM),
+    [target, root.kind, filePane],
   )
   const viewFrom = useRef(viewTo)
   const viewNow = useRef(viewTo)
@@ -624,8 +693,53 @@ export function Sunburst({
             />
           )
         })()}
+        {/* An open file: its own tiling, unrolled out of the wedge it came from.
+            It REPLACES the rings rather than joining them, because a file's contents are
+            not an enclosure of further enclosures — they are the cells that were already
+            inside its wedge, and there is no second level for a ring to describe. The
+            `leaving` group above still runs, so the level being left flies outward around
+            this as it opens. See `FileZoom`. */}
+        {/* The file being closed, rolling back into its wedge. Drawn inside the fitted
+            group and before the arriving rings, so the level you are returning to comes up
+            over it rather than under — the reverse of `leaving`, which flies outward past
+            the rim and is drawn first for the same reason. */}
+        {moving && fileLeaving.current && (
+          <g style={{ pointerEvents: 'none' }}>
+            <FileZoom
+              root={fileLeaving.current.node}
+              // Backwards. `t` always runs 0→1 for the level arriving; what is LEAVING has
+              // to read that as 1→0, or the file would unroll again on its way out.
+              t={1 - e}
+              from={fileLeaving.current.from}
+              pane={fileHome(fileLeaving.current.from)?.inner ?? fileLeaving.current.pane}
+              selected={null}
+              mode={mode}
+              ranks={ranks}
+              minPatchArea={minPatchArea}
+              onSelect={() => {}}
+              onDrill={() => {}}
+              onHover={() => {}}
+              settled={false}
+            />
+          </g>
+        )}
+        {root.kind === 'file' && (
+          <FileZoom
+            root={root}
+            t={e}
+            from={fileFrom.current}
+            pane={fileHome(fileFrom.current)?.inner ?? filePane}
+            selected={selected}
+            mode={mode}
+            ranks={ranks}
+            minPatchArea={minPatchArea}
+            onSelect={onSelect}
+            onDrill={onDrill}
+            onHover={setHoverNode}
+          />
+        )}
         {/* Arcs first, dots after, so a dot is never buried under the ring it belongs to. */}
-        {wedges
+        {root.kind !== 'file' && wedges
           .filter((w) => w.node.kind !== 'func')
           .map((w) => {
           // Directories get the full gap and a visible rule; files sit tighter to the
@@ -1005,38 +1119,44 @@ export function Sunburst({
         )}
         </g>
 
-        {/* The hub is the way back out: double-click it to go up a level, the mirror of
-            double-clicking a wedge to go in. Grouped with its labels so the whole disc is
-            the target, not just the ring under the text. The pointer only appears when
-            there is somewhere to go, so it never promises a level that isn't there. */}
-        <g
-          onDoubleClick={onUp ? (e) => { e.stopPropagation(); onUp() } : undefined}
-          style={onUp ? { cursor: 'zoom-out' } : undefined}
-        >
-        <circle r={R_INNER - 4} fill="var(--card)" stroke="var(--border)" />
-        {onUp && <title>Double-click to go up a level</title>}
-        {/* The disc is solid throughout — it is what the directory you clicked is turning
-            INTO, so it has to be there to be turned into. Its label is not: swapping the
-            name on the first frame would announce the destination before the thing that
-            is travelling has arrived. It fades up with the rest of the detail. */}
-        <g className="patches-in" key={`hub-${root.id}`}>
-        {/* Sized to the hub rather than fixed: a long repo name at a fixed size either
-            overflows the circle or gets truncated to nothing useful. Shrinking to fit
-            keeps the whole name, which is the one label that must always be readable. */}
-        <text
-          textAnchor="middle"
-          y={-4}
-          fontSize={Math.max(9, Math.min(15, 150 / Math.max(root.name.length, 5)))}
-          fill="var(--foreground)"
-          fontWeight={600}
-        >
-          {root.name}
-        </text>
-        <text textAnchor="middle" y={13} fontSize={9.5} fill="var(--muted-foreground)">
-          {root.loc.toLocaleString()} lines
-        </text>
-        </g>
-        </g>
+        {/* The way back — the ring's hub, an open file's edge bar, or any point between.
+            One shape rather than two that swap: see `HomeMark`. Which end it sits at is
+            just `t`, so it morphs out to the edge as a file opens and rolls back to the
+            middle as one closes, without either direction being written twice.
+
+            The file being CLOSED wins while it is leaving, because during that transition
+            the mark still belongs to it: the ring arriving underneath has a hub, but the
+            hub is where this is going, not where it is. */}
+        {(() => {
+          const closing = moving && fileLeaving.current
+          const src = closing ? fileLeaving.current : null
+          const home = fileHome(src ? src.from : root.kind === 'file' ? fileFrom.current : null)
+          const node = src ? src.node : root
+          // No bar to travel to — a file that was never a wedge, or an ordinary ring — so
+          // the mark stays the disc it has always been.
+          if (!home) {
+            return (
+              <HomeMark
+                t={0}
+                hubR={R_INNER - 4}
+                bar={{ x: 0, y: 0, w: 0, h: 0 }}
+                name={node.name}
+                lines={node.loc}
+                onUp={onUp}
+              />
+            )
+          }
+          return (
+            <HomeMark
+              t={closing ? 1 - e : root.kind === 'file' ? e : 0}
+              hubR={R_INNER - 4}
+              bar={home.bar}
+              name={node.name}
+              lines={node.loc}
+              onUp={onUp}
+            />
+          )
+        })()}
       </svg>
 
       {/* The tooltip. Instant, because it is ours: it appears the moment a wedge is

@@ -339,8 +339,8 @@ function aggregate(fns: Node[], filePath: string): Node {
  * more area than near the hub. Lines were the width of a band, not the size of a patch,
  * and the eye reads area.
  */
-const vOf = (r: number) => (r * r) / 2
-const rOf = (v: number) => Math.sqrt(2 * v)
+export const vOf = (r: number) => (r * r) / 2
+export const rOf = (v: number) => Math.sqrt(2 * v)
 
 /** A sector in those coordinates: angles as themselves, radii as `v`. */
 interface Sector {

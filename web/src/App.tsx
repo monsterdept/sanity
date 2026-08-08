@@ -33,7 +33,6 @@ import {
 import { Sunburst } from './components/Sunburst'
 import { CommitLog } from './components/CommitLog'
 import { HistoryBar } from './components/HistoryBar'
-import { FileStack } from './components/FileStack'
 import { Crumbs } from './components/Crumbs'
 import { TopRow } from './components/shell/TopRow'
 import {
@@ -663,19 +662,12 @@ export default function App() {
             ) : busy && !focus ? (
               <ProgressPane progress={progress} />
             ) : focus ? (
-              // A file is a sequence, not a set — see `FileStack`. It is the one level
-              // where the shared geometry is the wrong shape for the data, so it gets
-              // its own view rather than a mode of the rings.
-              focus.kind === 'file' ? (
-                <FileStack
-                  root={focus}
-                  selected={selected}
-                  mode={viewMode}
-                  ranks={tree ? rankCategories(tree, viewMode) : undefined}
-                  onSelect={setPicked}
-                  onDrill={drill}
-                />
-              ) : (
+              // A file is no longer a different view. It used to be `FileStack`, a vertical
+              // column reached by a hard cut — the argument being that a file is a sequence
+              // and the ring is a set, which is true and was never the whole of it: the
+              // wedge ALREADY holds a treemap of the file, so what the column really did
+              // was throw away the picture you had just clicked and draw a second one. The
+              // rings now unroll that same tiling into the pane instead. See `unroll.ts`.
               <Sunburst
                 root={focus}
                 selected={selected}
@@ -686,7 +678,6 @@ export default function App() {
                 onDrill={drill}
                 onUp={goUp}
               />
-              )
             ) : loadingProject ? (
               // Selected, but its rescan has not finished. The empty pane's copy tells you
               // how to open a project — advice for someone with none, addressed to someone
