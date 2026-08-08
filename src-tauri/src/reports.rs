@@ -39,10 +39,31 @@ pub struct KnownProjects {
     pub active: Option<String>,
 }
 
-fn index_path() -> Option<PathBuf> {
-    let dir = dirs::data_dir()?.join("Sanity");
+/// Where sanity keeps its own files — the project index, the endpoint file, the score
+/// cache. One resolver because there is one directory, and because the tests need to be
+/// able to point it somewhere disposable.
+///
+/// `AppState::persist` writes the index on any `touch` or `focus`, so without a seam
+/// every test that opens a project writes into the developer's real sidebar — it did,
+/// leaving `/x` and `/y` in it pointing at temp dirs that no longer exist — and in CI
+/// they wrote into the file another test was asserting about, which is what failed.
+/// Redirecting `HOME`/`XDG_DATA_HOME` was tried and only half works: on Windows
+/// `dirs::data_dir` asks the OS for the known folder and ignores the environment
+/// entirely, so the Windows runner shared one index across every test regardless.
+///
+/// `SANITY_DATA_DIR` is a test seam, not configuration: nothing in the app, the CLI or
+/// the shim sets it, and it is not documented as a knob.
+pub fn data_dir() -> Option<PathBuf> {
+    let dir = match std::env::var_os("SANITY_DATA_DIR") {
+        Some(d) => PathBuf::from(d),
+        None => dirs::data_dir()?.join("Sanity"),
+    };
     std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join("projects.json"))
+    Some(dir)
+}
+
+fn index_path() -> Option<PathBuf> {
+    Some(data_dir()?.join("projects.json"))
 }
 
 pub fn load_index() -> KnownProjects {

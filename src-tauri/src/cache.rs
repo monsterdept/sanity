@@ -137,7 +137,7 @@ impl Cache {
     /// Separate files also mean switching models and switching back doesn't throw away
     /// the first model's work.
     fn path_for(repo: &Path, model: &str) -> Option<PathBuf> {
-        let dir = dirs::data_dir()?.join("Sanity").join("scores");
+        let dir = crate::reports::data_dir()?.join("scores");
         std::fs::create_dir_all(&dir).ok()?;
         // Hashed rather than escaped: repo paths and model names contain separators and
         // characters that are illegal in filenames on at least one platform we ship to.

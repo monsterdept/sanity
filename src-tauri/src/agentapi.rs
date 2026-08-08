@@ -2122,9 +2122,7 @@ pub fn router(state: Shared) -> Router {
 /// way: if the MCP server assumes a port, anything else holding it answers in the app's
 /// place — alive enough to look fine, wrong enough to fail confusingly.
 pub fn endpoint_file() -> Option<PathBuf> {
-    let dir = dirs::data_dir()?.join("Sanity");
-    std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join("agent-endpoint.json"))
+    Some(crate::reports::data_dir()?.join("agent-endpoint.json"))
 }
 
 /// Who currently claims to be the backend.
@@ -2350,16 +2348,7 @@ mod tests {
     /// nothing about what it does not.
     #[test]
     fn a_save_mid_restore_does_not_erase_projects_it_has_not_loaded() {
-        let home = tempfile::tempdir().unwrap();
-        // `save_index`/`load_index` resolve under the data dir, so point it at a temp one.
-        // Serialised against other tests by being the only one that touches these vars.
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let prev = std::env::var("XDG_DATA_HOME").ok();
-        let prev_home = std::env::var("HOME").ok();
-        unsafe {
-            std::env::set_var("XDG_DATA_HOME", home.path());
-            std::env::set_var("HOME", home.path());
-        }
+        let _data = data_home();
 
         crate::reports::save_index(&crate::reports::KnownProjects {
             active: Some("/a".into()),
@@ -2402,20 +2391,48 @@ mod tests {
         let b = back.projects.iter().find(|p| p.key == "/b").unwrap();
         assert_eq!(b.touched, 9);
         assert_eq!(back.active.as_deref(), Some("/b"));
+    }
 
-        unsafe {
-            match prev {
-                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
-                None => std::env::remove_var("XDG_DATA_HOME"),
-            }
-            match prev_home {
-                Some(v) => std::env::set_var("HOME", v),
-                None => std::env::remove_var("HOME"),
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A disposable data dir, held for the length of a test.
+    ///
+    /// **Every test whose state can `persist` needs one.** `touch` and `focus` both write
+    /// the project index, so a test without this writes into the developer's real sidebar
+    /// — `/x` and `/y` sat in a real one, pointing at temp dirs long since deleted — and,
+    /// running in parallel, into the same file the index tests are asserting about. That
+    /// is what turned two green CI runs red: the save-mid-restore test read back four
+    /// projects because the focus tests had put theirs in the same place.
+    ///
+    /// The lock is what serialises them; there is one process-wide environment, so
+    /// pointing it somewhere private is only private while nobody else is running. The
+    /// vars are restored on drop rather than at the end of the test body, so a panicking
+    /// test cannot leave the next one aimed at a directory that has been deleted.
+    struct DataHome {
+        _guard: std::sync::MutexGuard<'static, ()>,
+        _dir: tempfile::TempDir,
+        prev: Option<std::ffi::OsString>,
+    }
+
+    impl Drop for DataHome {
+        fn drop(&mut self) {
+            unsafe {
+                match self.prev.take() {
+                    Some(v) => std::env::set_var("SANITY_DATA_DIR", v),
+                    None => std::env::remove_var("SANITY_DATA_DIR"),
+                }
             }
         }
     }
 
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    #[must_use]
+    fn data_home() -> DataHome {
+        let guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let prev = std::env::var_os("SANITY_DATA_DIR");
+        unsafe { std::env::set_var("SANITY_DATA_DIR", dir.path()) };
+        DataHome { _guard: guard, _dir: dir, prev }
+    }
 
     /// `outstanding` has to itemise exactly what `in_flight` counts, and a lease only
     /// explains work that is still outstanding.
@@ -2769,6 +2786,8 @@ mod tests {
     /// different subjects in one run.
     #[tokio::test]
     async fn status_answers_about_the_callers_repo_not_the_window() {
+        // `touch` persists.
+        let _data = data_home();
         let mine = tempfile::tempdir().unwrap();
         std::fs::write(mine.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
         let theirs = tempfile::tempdir().unwrap();
@@ -2926,13 +2945,18 @@ mod tests {
     /// Two loaded projects keyed `/x` and `/y`, over one throwaway repo. The keys are
     /// what `focus` reasons about; the scans behind them are only there because a
     /// `Project` cannot exist without one.
-    fn two_projects() -> (tempfile::TempDir, AppState) {
+    ///
+    /// The `DataHome` comes back with them because both verbs under test — `touch` and
+    /// `focus` — persist, and a caller that drops it writes `/x` and `/y` into whatever
+    /// index the machine really has.
+    fn two_projects() -> (DataHome, tempfile::TempDir, AppState) {
+        let data = data_home();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
         let mut state = AppState::default();
         state.projects.insert("/x".into(), project_of(dir.path()));
         state.projects.insert("/y".into(), project_of(dir.path()));
-        (dir, state)
+        (data, dir, state)
     }
 
     /// Opening a repo must not take the pane away from whoever is reading it.
@@ -2943,8 +2967,7 @@ mod tests {
     /// `for_client` keeps their *routing* apart, and this keeps their *view* apart.
     #[test]
     fn an_unasked_open_does_not_steal_the_window() {
-        let (dir, mut state) = two_projects();
-        let _dir = dir;
+        let (_data, _dir, mut state) = two_projects();
         state.active = Some("/x".into());
 
         assert!(!state.focus("/y", false), "an unasked open must not move the view");
@@ -2962,8 +2985,7 @@ mod tests {
     /// resolve to nothing and `sanity serve` would answer no one.
     #[test]
     fn an_open_takes_a_window_that_nobody_holds() {
-        let (dir, mut state) = two_projects();
-        let _dir = dir;
+        let (_data, _dir, mut state) = two_projects();
         assert!(state.focus("/y", false), "nothing was being looked at");
         assert_eq!(state.active.as_deref(), Some("/y"));
 
@@ -2982,8 +3004,7 @@ mod tests {
     /// reading into a repo nobody was assessing.
     #[test]
     fn a_keyless_call_follows_the_last_open_not_the_window() {
-        let (dir, mut state) = two_projects();
-        let _dir = dir;
+        let (_data, _dir, mut state) = two_projects();
         // `/x` was opened first and is what the window still shows; `/y` was opened after.
         state.focus("/x", true);
         state.touch("/x");
