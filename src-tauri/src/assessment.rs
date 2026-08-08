@@ -633,16 +633,14 @@ fn render_index(repo: &str, shards: &[(String, usize, usize, usize, usize)]) -> 
          STALE and offers it for re-reading before anything else. Nothing here silently\n\
          keeps claiming to be current.\n\
          \n\
-         An agent does the reading, over MCP. Connect one — the app has a button for it\n\
-         under Connect, or add the server by hand as `sanity mcp` — then, from this repo,\n\
-         ask the agent:\n\
+         An agent does the reading, over MCP. Install the app and connect your agent to\n\
+         it — the button is under Connect — then, from this repo, ask the agent:\n\
          \n\
          > study this project in sanity\n\
          \n\
          It re-reads what changed and what was never covered, and rewrites these files.\n\
-         The app does not have to be open; the agent starts whatever it needs. From a\n\
-         shell, `sanity status` says how far along it is and `sanity summary` says what\n\
-         it found.\n\
+         The app does not have to be open while it works; the agent starts whatever it\n\
+         needs. Open it to watch the map colour in, or afterwards to read the result.\n\
          \n\
          **Anyone with the repo can do this.** Readings are not owned by whoever made\n\
          them: `by` on each entry is provenance you can read, not a claim on the entry.\n\
