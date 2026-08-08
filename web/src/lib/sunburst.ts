@@ -194,7 +194,12 @@ export interface Slot {
   r0: number
   r1: number
   /** How many functions this slot stands in for, when it is an overflow aggregate.
-   *  Undefined on a real function. */
+   *  Undefined on a real function.
+   *
+   *  Not set where the slot is built — `rowPlacement` knows nothing about roll-ups — but
+   *  afterwards, on the one slot whose node is the aggregate. Both this and `node.rest`
+   *  therefore mark the same patch, and callers use `node.rest` because that is the field
+   *  `aggregate` writes and the only one that survives a slot being rebuilt. */
   rest?: number
 }
 

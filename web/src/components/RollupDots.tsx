@@ -1,3 +1,30 @@
+/** A pattern id from a file path.
+ *
+ *  Ids may not hold slashes or dots, and the obvious `replace(/[^a-zA-Z0-9]/g, '-')` is
+ *  not injective — `a/b.rs` and `a-b.rs` both come out `a-b-rs`, and the two would share
+ *  one grid, drawn at whichever of their angles React rendered second. Escaping to the
+ *  character code cannot collide, because the escape is the one character it removes. */
+export function dotsId(path: string): string {
+  return `dots-${path.replace(/[^a-zA-Z0-9]/g, (c) => `-${c.charCodeAt(0)}-`)}`
+}
+
+/** Shorter side a roll-up needs, in real screen pixels, before it is worth texturing.
+ *
+ *  Measured rather than picked. Across depths and file sizes the roll-ups that read as one
+ *  big function come out at 13.3, 16.4, 22.6, 25.4 and 32.2 pixels on the short side, and
+ *  the ones that read as a sliver at 3.0, 6.2, 7.0, 7.4 and 7.6 — two populations either
+ *  side of ten with nothing between them. That gap is not luck: a roll-up is large exactly
+ *  when the code it stands for is, which is the same condition that makes it mistakable
+ *  for a single large function. So the ones that need the mark can hold it, and the ones
+ *  that cannot hold it do not need it.
+ *
+ *  At the pattern's 3.2-unit pitch, ten pixels is a 3x3 field of dots — enough to read as
+ *  a texture rather than as specks.
+ *
+ *  Lives here rather than with the chart: it is the floor on this texture's own
+ *  legibility, and both the ring and the unrolled file view have to apply the same one. */
+export const ROLLUP_TEXTURE_PX = 10
+
 /**
  * The texture that says a patch is a collection, not a function.
  *

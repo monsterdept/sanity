@@ -3,6 +3,7 @@ import { type Node } from '../lib/api'
 import { colorFor, type ColorMode } from '../lib/colorMode'
 import { tileFunctions, vOf, type Slot } from '../lib/sunburst'
 import { at, cellPath, homeSide, withBar, type Pane, type Sector } from '../lib/unroll'
+import { RollupDots, dotsId, ROLLUP_TEXTURE_PX } from './RollupDots'
 
 /**
  * One file, unrolled out of its own wedge.
@@ -103,6 +104,10 @@ export interface FileZoomProps {
   mode: ColorMode
   ranks?: Parameters<typeof colorFor>[2]
   minPatchArea?: number
+  /** User units to a screen pixel, for the roll-up texture's legibility floor. Null until
+   *  the pane has been measured, in which case the texture is simply not drawn — a mark
+   *  whose size cannot be checked is a mark that might be a smear. */
+  unitsPerPx?: number | null
   onSelect: (n: Node) => void
   onDrill: (n: Node) => void
   onHover: (n: Node | null) => void
@@ -139,6 +144,7 @@ export function FileZoom({
   mode,
   ranks,
   minPatchArea,
+  unitsPerPx,
   onSelect,
   onDrill,
   onHover,
@@ -176,25 +182,75 @@ export function FileZoom({
       {cells.map((c) => {
         const fill = fills.get(c.node.id)
         const isSel = selected?.id === c.node.id
+        // One path string, used by the fill and by every mark laid over it. Recomputing it
+        // per overlay would be three projections of the same cell that could disagree by a
+        // rounding, and a hatch a hair off its own patch reads as a rendering fault.
+        const d = cellPath(c, t, from, pane)
+        // The patch's own centre at this frame, for the roll-up lattice.
+        const mid = at((c.a0 + c.a1) / 2, (vOf(c.r0) + vOf(c.r1)) / 2, t, from, pane)
+        const short = Math.min(
+          Math.abs(at(c.a1, vOf(c.r1), t, from, pane).x - at(c.a0, vOf(c.r1), t, from, pane).x),
+          Math.abs(at(c.a0, vOf(c.r0), t, from, pane).y - at(c.a0, vOf(c.r1), t, from, pane).y),
+        )
         return (
-          <path
-            key={c.node.id}
-            className="wedge"
-            d={cellPath(c, t, from, pane)}
-            fill={fill?.fill}
-            stroke={isSel ? 'var(--foreground)' : 'var(--background)'}
-            strokeWidth={isSel ? 1.4 : 0.6}
-            onClick={(ev) => {
-              ev.stopPropagation()
-              onSelect(c.node)
-            }}
-            onDoubleClick={(ev) => {
-              ev.stopPropagation()
-              onDrill(c.node)
-            }}
-            onMouseEnter={() => onHover(c.node)}
-            onMouseLeave={() => onHover(null)}
-          />
+          <g key={c.node.id}>
+            <path
+              className="wedge"
+              d={d}
+              // Unread patches fall back to `--unanalyzed` at low opacity, exactly as they
+              // do in the ring. Without the fallback an unscored function got `undefined`
+              // and painted itself black — the loudest thing in the picture standing for
+              // the one thing nobody has looked at.
+              fill={fill ? fill.fill : 'var(--unanalyzed)'}
+              fillOpacity={isSel ? 1 : fill ? 0.92 : 0.4}
+              stroke={isSel ? 'var(--foreground)' : 'var(--background)'}
+              strokeWidth={isSel ? 1.4 : 0.6}
+              onClick={(ev) => {
+                ev.stopPropagation()
+                onSelect(c.node)
+              }}
+              onDoubleClick={(ev) => {
+                ev.stopPropagation()
+                onDrill(c.node)
+              }}
+              onMouseEnter={() => onHover(c.node)}
+              onMouseLeave={() => onHover(null)}
+            />
+            {/* Expired. The fill underneath has already fallen back to the proxy colour —
+                `applyAgentReports` drops a stale reading's score — so without the hatch the
+                only sign a function was ever read is in the panel, one at a time. Deaf to
+                the mouse, so the patch below keeps every gesture. */}
+            {c.node.agentStale && (
+              <path className="pointer-events-none" d={d} fill="url(#stale-hatch)" />
+            )}
+            {/* An aggregate, standing for the functions the tiling could not draw one by
+                one. Its area is honest, which is exactly what makes it mistakable: it is
+                the largest patch here and is drawn like a function. The dots say otherwise.
+
+                The lattice's angle travels with the cell. At rest in the pane the cells are
+                axis-aligned, so the grid stands upright; at the wedge it takes the wedge's
+                own bearing, which is what `RollupDots` was built to do. Interpolating
+                between them means the texture is never at odds with the shape holding it —
+                a grid that stayed radial while its patch squared up would read as a
+                texture the patch was cut out of. */}
+            {c.node.rest !== undefined &&
+              unitsPerPx != null &&
+              short / unitsPerPx >= ROLLUP_TEXTURE_PX && (
+                <>
+                  <RollupDots
+                    id={dotsId(root.path)}
+                    angle={(c.a0 + c.a1) / 2 + (Math.PI / 2 - (c.a0 + c.a1) / 2) * t}
+                    cx={mid.x}
+                    cy={mid.y}
+                  />
+                  <path
+                    className="pointer-events-none"
+                    d={d}
+                    fill={`url(#${dotsId(root.path)})`}
+                  />
+                </>
+              )}
+          </g>
         )
       })}
       {/* Labels only once the movement has finished.
