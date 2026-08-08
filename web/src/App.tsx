@@ -22,7 +22,17 @@ import {
   type Scan,
   type Upgrade,
 } from './lib/api'
+import {
+  countFunctions,
+  frameTree,
+  onHistoryProgress,
+  scanHistory,
+  warmHistory,
+  type HistoryScan,
+} from './lib/history'
 import { Sunburst } from './components/Sunburst'
+import { CommitLog } from './components/CommitLog'
+import { HistoryBar } from './components/HistoryBar'
 import { FileStack } from './components/FileStack'
 import { Crumbs } from './components/Crumbs'
 import { TopRow } from './components/shell/TopRow'
@@ -42,6 +52,32 @@ import { AgentSetup } from './components/AgentSetup'
 
 /** Find a node by id so the drill-in stack survives a rescan — the user's position in
  *  the tree shouldn't reset just because they re-ran the scan. */
+/** Do two project lists say the same thing?
+ *
+ *  Field by field rather than by identity, because the poll that produces them allocates a
+ *  new array of new objects every time regardless — identity can only ever say "different".
+ *  Everything the sidebar draws is compared; anything not compared here is something the
+ *  sidebar must not be showing. */
+function sameProjects(a: ProjectSummary[], b: ProjectSummary[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((p, i) => {
+    const q = b[i]
+    return (
+      p.key === q.key &&
+      p.name === q.name &&
+      p.touched === q.touched &&
+      p.repo === q.repo &&
+      p.assessed === q.assessed &&
+      p.functions === q.functions &&
+      p.stale === q.stale &&
+      p.working === q.working &&
+      p.loading === q.loading &&
+      p.read_done === q.read_done &&
+      p.read_total === q.read_total
+    )
+  })
+}
+
 function findById(node: Node, id: string): Node | null {
   if (node.id === id) return node
   for (const c of node.children) {
@@ -121,6 +157,27 @@ export default function App() {
   })
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [activeKey, setActiveKey] = useState<string | null>(null)
+  // ── The replay ──────────────────────────────────────────────────────────────
+  //
+  // History is a MODE, not a sixth lens. The lenses answer "what should the colour mean",
+  // and in here that question is already settled: surprise is a reading taken against
+  // today's code and cannot be replayed onto a 2019 body, so a frame is coloured by
+  // recency and the switcher is disabled rather than offered with one option that lies.
+  const [historyOn, setHistoryOn] = useState(false)
+  const [history, setHistory] = useState<HistoryScan | null>(null)
+  /** Which project `history` describes. A repo's timeline is not transferable, and
+   *  switching projects with a stale one loaded would replay one repo's commits over
+   *  another's name. */
+  const [historyKey, setHistoryKey] = useState<string | null>(null)
+  const [historyBusy, setHistoryBusy] = useState(false)
+  const [historyProgress, setHistoryProgress] = useState<Progress | null>(null)
+  /** The playhead. -1 is the opening state, before the first replayed commit lands. */
+  const [histIndex, setHistIndex] = useState(-1)
+  const [playing, setPlaying] = useState(false)
+  /** Seconds the whole replay should take — see `DURATIONS`. A duration rather than a
+   *  rate, because a rate that suits a 46-commit repo is two minutes of shimmer on a
+   *  thousand-commit one. */
+  const [duration, setDuration] = useState(30)
   /** The project the BACKEND considers active — the one an agent last called about.
    *
    *  Tracked apart from `activeKey`, which is what the window is showing. They agree
@@ -143,6 +200,10 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return
+      // Pinned while the replay is up, for the same reason the switcher is greyed: the
+      // shortcut is the switcher, and a control that is disabled in one place and live on
+      // the keyboard is not disabled.
+      if (historyOn) return
       const i = Number(e.key) - 1
       const modes = Object.keys(MODE_LABEL) as ColorMode[]
       if (!Number.isInteger(i) || i < 0 || i >= modes.length) return
@@ -151,7 +212,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [historyOn])
 
   // Follow whatever an agent opened.
   //
@@ -163,7 +224,11 @@ export default function App() {
     let showing: string | null = null
     const timer = setInterval(() => {
       void listProjects().then(async (list) => {
-        setProjects(list.projects)
+        // Replaced only when it differs. The poll returns fresh objects whether or not
+        // anything moved, and setting them re-rendered the whole window — including a
+        // sunburst of several thousand arcs — every 1.5 seconds. During a replay that is a
+        // stutter on a fixed period; the rest of the time it is just waste.
+        setProjects((prev) => (sameProjects(prev, list.projects) ? prev : list.projects))
         setAgentKey(list.active)
         if (!list.active || list.active === showing) return
         showing = list.active
@@ -189,16 +254,27 @@ export default function App() {
   // Agents report over MCP while the app is open, so the map has to pick their verdicts
   // up without a rescan. Polled on a slow timer: an agent takes seconds per function, so
   // this costs nothing and avoids pushing events out of the loopback server.
+  //
+  // Except during a replay, where it costs a great deal. The readings are fetched WHOLE —
+  // 16,925 of them on tonepoet — and folded into the live tree, which is not the tree on
+  // screen while history is playing. At three hundred commits a second two seconds is
+  // several hundred frames, so the picture stuttered on a fixed period and the period was
+  // this timer. Nothing is lost by waiting: readings are recovered on the next tick after
+  // history closes, and the live map is not being looked at meanwhile.
+  //
+  // Activity keeps polling. That one is a few bytes, and it drives the mascot — an agent
+  // that goes to sleep behind a replay should not still be reported as working.
   useEffect(() => {
     const timer = setInterval(() => {
       void agentActivity().then(setAgent)
+      if (historyOn) return
       void agentReports(activeKey).then((reports) => {
         if (reports.length === 0) return
         setScan((prev) => (prev ? { ...prev, root: applyAgentReports(prev.root, reports) } : prev))
       })
     }, 2000)
     return () => clearInterval(timer)
-  }, [activeKey])
+  }, [activeKey, historyOn])
 
   // Streamed scores are batched and flushed on a timer rather than applied per event.
   // Each application re-aggregates the tree and re-renders a few thousand arcs; at the
@@ -251,67 +327,6 @@ export default function App() {
   // beside the other menu listeners, because it closes over it.
   useEffect(() => onOpenProject(() => void pick()), [pick])
 
-  // The wedge the sunburst is currently rooted at, resolved by id every render so a
-  // rescan keeps the user where they were rather than throwing them back to the top.
-  const focus = useMemo(() => {
-    if (!scan) return null
-    let node: Node = scan.root
-    for (const id of stack) {
-      const next = findById(scan.root, id)
-      if (!next) break
-      node = next
-    }
-    return node
-  }, [scan, stack])
-
-  const codeNode = useMemo(
-    () => (scan && codeFile ? findById(scan.root, codeFile) : null),
-    [scan, codeFile],
-  )
-
-  const selected = useMemo(
-    () => (scan && picked ? (findById(scan.root, picked.id) ?? picked) : null),
-    [scan, picked],
-  )
-
-  /** Show me inside this. Shared by the ring and by the detail panel's contents list,
-   *  so the gesture means the same thing wherever it is made. */
-  const drill = useCallback(
-    (n: Node) => {
-      // A file drills like a directory: into its own ring, where its functions get the
-      // whole circle instead of a 60px band. It used to jump straight to the source, and
-      // that made "show me inside this" mean two different things one level apart —
-      // descend for a directory, leave the map for a file. Reading the code is still one
-      // gesture away, on the function you actually want; it is just no longer the only
-      // thing a file can do.
-      if (n.kind === 'func' && scan) {
-        // A function has no view of its own — it lives in a file. Drilling one opens that
-        // file and scrolls to it.
-        const file = parentOf(scan.root, n.id)
-        if (file) {
-          setCodeFile(file.id)
-          setPicked(n)
-          setReveal((r) => ({ id: n.id, n: (r?.n ?? 0) + 1 }))
-          return
-        }
-        // The overflow aggregate is synthesised at layout time, so it has no parent in
-        // the tree and `parentOf` finds nothing. Drilling it means "show me the functions
-        // you could not draw", which is the file's own ring — reached by its path, since
-        // a file node's id IS its path.
-        const owner = findById(scan.root, n.path)
-        if (owner) {
-          setStack((st) => [...st, owner.id])
-          setPicked(owner)
-          return
-        }
-        return
-      }
-      setStack((st) => [...st, n.id])
-      setPicked(n)
-    },
-    [scan],
-  )
-
   /** Where the open project lives on disk.
    *
    *  NOT `lastPath`, which is only written when someone picks a directory by hand — a
@@ -330,6 +345,151 @@ export default function App() {
     () => projects.find((p) => p.key === activeKey) ?? null,
     [projects, activeKey],
   )
+
+  useEffect(() => onHistoryProgress(setHistoryProgress), [])
+
+  // Keep this repo's timeline current, if it has one. Never builds one — see
+  // `history::warm`. The repo you are working in gains commits while you look at it, so
+  // without this the first History of the day would re-read a stale cache's worth of new
+  // work; with it, opening the replay is a file read.
+  useEffect(() => {
+    if (!repoPath) return
+    void warmHistory(repoPath).catch(() => {})
+  }, [repoPath])
+
+  // Read on demand, and only once per project. The replay re-parses every file version
+  // the window touches — seconds on a large repo — so nobody pays for it on the way to a
+  // map they asked for. Turning the mode off keeps the result: scrubbing back in is then
+  // instant, and the commits behind you cannot have changed.
+  useEffect(() => {
+    if (!historyOn || !repoPath || !activeKey) return
+    if (historyKey === activeKey || historyBusy) return
+    setHistoryBusy(true)
+    setHistoryProgress(null)
+    void scanHistory(repoPath)
+      .then((h) => {
+        setHistory(h)
+        setHistoryKey(activeKey)
+        // Opens at the END, not at the beginning. The map you were just looking at is the
+        // last frame, so starting there means turning history on changes nothing you can
+        // see until you ask it to — and pressing play then rewinds and replays, which is
+        // the gesture people expect from a transport they have just revealed.
+        setHistIndex(h.commits.length - 1)
+      })
+      .catch((e) => setError(String(e)))
+      .finally(() => setHistoryBusy(false))
+  }, [historyOn, repoPath, activeKey, historyKey, historyBusy])
+
+  // A different project is a different timeline. Dropped rather than kept per project:
+  // holding several megabytes of somebody else's commits against the chance they click
+  // back is a cache with no eviction and no owner.
+  useEffect(() => {
+    if (historyKey && historyKey !== activeKey) {
+      setHistory(null)
+      setHistoryKey(null)
+      setPlaying(false)
+    }
+  }, [activeKey, historyKey])
+
+  /** The tree for the frame under the playhead, or nothing when history is off.
+   *
+   *  Built fresh per frame rather than patched onto the live scan: the two hold different
+   *  functions — that is the entire point of a timeline — and reusing the live tree would
+   *  mean deciding what to do with every function that does not exist yet. */
+  const histRoot = useMemo(
+    () =>
+      historyOn && history && historyKey === activeKey
+        ? frameTree(history, histIndex, activeProject?.name ?? 'repo')
+        : null,
+    // The NAME, not the project row. `listProjects` hands back fresh objects every poll,
+    // so depending on the row rebuilt the whole frame tree on a timer — a hitch at a fixed
+    // period, in the middle of a replay, for a string that had not changed.
+    [historyOn, history, historyKey, activeKey, histIndex, activeProject?.name],
+  )
+
+  /** What the map is drawing: the frame when history is on, the scan otherwise. Every
+   *  navigation below reads this rather than `scan`, so drilling, crumbs and selection
+   *  work the same in both — they are the same rings. */
+  const tree = histRoot ?? scan?.root ?? null
+
+  /** Jump the playhead and stop. Stable across renders on purpose: `CommitLog` memoises
+   *  its rows against this, and an inline arrow would rebuild every row on every frame —
+   *  the exact cost that component is written to avoid. */
+  const scrubTo = useCallback((i: number) => {
+    setPlaying(false)
+    setHistIndex(i)
+  }, [])
+
+  /** History was asked for and this repo has none. Stated rather than drawn as an empty
+   *  circle: a map with no wedges and no sentence reads as a bug in the tool. */
+  const historyEmpty =
+    historyOn && history !== null && historyKey === activeKey && history.commits.length === 0
+
+  /** Pinned while history is on. See `historyOn` — the encoding is not a preference here,
+   *  it is the only thing the evidence supports. */
+  const viewMode: ColorMode = historyOn ? 'age' : mode
+
+  // The wedge the sunburst is currently rooted at, resolved by id every render so a
+  // rescan keeps the user where they were rather than throwing them back to the top.
+  const focus = useMemo(() => {
+    if (!tree) return null
+    let node: Node = tree
+    for (const id of stack) {
+      const next = findById(tree, id)
+      if (!next) break
+      node = next
+    }
+    return node
+  }, [tree, stack])
+
+  const codeNode = useMemo(
+    () => (tree && codeFile ? findById(tree, codeFile) : null),
+    [tree, codeFile],
+  )
+
+  const selected = useMemo(
+    () => (tree && picked ? (findById(tree, picked.id) ?? picked) : null),
+    [tree, picked],
+  )
+
+  /** Show me inside this. Shared by the ring and by the detail panel's contents list,
+   *  so the gesture means the same thing wherever it is made. */
+  const drill = useCallback(
+    (n: Node) => {
+      // A file drills like a directory: into its own ring, where its functions get the
+      // whole circle instead of a 60px band. It used to jump straight to the source, and
+      // that made "show me inside this" mean two different things one level apart —
+      // descend for a directory, leave the map for a file. Reading the code is still one
+      // gesture away, on the function you actually want; it is just no longer the only
+      // thing a file can do.
+      if (n.kind === 'func' && tree) {
+        // A function has no view of its own — it lives in a file. Drilling one opens that
+        // file and scrolls to it.
+        const file = parentOf(tree, n.id)
+        if (file) {
+          setCodeFile(file.id)
+          setPicked(n)
+          setReveal((r) => ({ id: n.id, n: (r?.n ?? 0) + 1 }))
+          return
+        }
+        // The overflow aggregate is synthesised at layout time, so it has no parent in
+        // the tree and `parentOf` finds nothing. Drilling it means "show me the functions
+        // you could not draw", which is the file's own ring — reached by its path, since
+        // a file node's id IS its path.
+        const owner = findById(tree, n.path)
+        if (owner) {
+          setStack((st) => [...st, owner.id])
+          setPicked(owner)
+          return
+        }
+        return
+      }
+      setStack((st) => [...st, n.id])
+      setPicked(n)
+    },
+    [tree],
+  )
+
 
   /** The selected project when it is still being rescanned by the startup restore, so the
    *  pane can show its progress instead of the copy for someone who has no projects. */
@@ -355,15 +515,15 @@ export default function App() {
    *  work: the scan collapses single-child directory chains, so the segments of a path
    *  do not all correspond to nodes. `parentOf` walks what is really there. */
   const trail = useMemo(() => {
-    if (!scan || !focus) return []
+    if (!tree || !focus) return []
     const out: Node[] = []
     let n: Node | null = focus
     while (n) {
       out.unshift(n)
-      n = n.id === scan.root.id ? null : parentOf(scan.root, n.id)
+      n = n.id === tree.id ? null : parentOf(tree, n.id)
     }
     return out
-  }, [scan, focus])
+  }, [tree, focus])
 
   /** Jump to any level of the ancestry. Index 0 is the root. */
   const goTo = useCallback(
@@ -375,13 +535,13 @@ export default function App() {
   )
 
   const goUp = useMemo(() => {
-    if (!scan || !focus || focus.id === scan.root.id) return undefined
+    if (!tree || !focus || focus.id === tree.id) return undefined
     return () => {
-      const p = parentOf(scan.root, focus.id)
-      setStack(p && p.id !== scan.root.id ? [p.id] : [])
+      const p = parentOf(tree, focus.id)
+      setStack(p && p.id !== tree.id ? [p.id] : [])
       setPicked(null)
     }
-  }, [scan, focus])
+  }, [tree, focus])
 
   return (
     <div className="relative flex h-full flex-col">
@@ -433,7 +593,28 @@ export default function App() {
         />
         <div className="flex min-w-0 flex-1 flex-col">
         <TopRow>
-          {focus && <ModeSwitcher mode={mode} onMode={setMode} />}
+          {focus && (
+            <div className="flex items-center gap-2">
+              {/* Disabled rather than hidden while the replay is up. The switcher is the
+                  window's statement of what colour means, and removing it would leave the
+                  rings recoloured with nothing on screen saying by what. Greyed, with the
+                  reason in the tooltip, it still answers the question. */}
+              <ModeSwitcher mode={viewMode} onMode={setMode} disabled={historyOn} />
+              <HistoryToggle
+                on={historyOn}
+                busy={historyBusy}
+                onToggle={() => {
+                  setHistoryOn((v) => !v)
+                  setPlaying(false)
+                  // Selection and drill-in survive the switch by id, but a selected
+                  // FUNCTION usually will not exist in the frame under the playhead — and
+                  // a panel describing a function the rings are not drawing is worse than
+                  // an empty one.
+                  setPicked(null)
+                }}
+              />
+            </div>
+          )}
         </TopRow>
         <main className="relative flex min-w-0 flex-1 flex-col border-l border-t border-[var(--border)] bg-[var(--background)]">
           {/* Inside the content column, not spanning the window above the chrome.
@@ -445,7 +626,8 @@ export default function App() {
               the whole shell down by its own height every time a scan started. Below
               TopRow it can do neither. */}
           {busy && focus && <ProgressStrip progress={progress} />}
-          {scan && focus && <Crumbs trail={trail} onGo={goTo} onUp={goUp} />}
+          {historyBusy && <ProgressStrip progress={historyProgress} label="Replaying the history…" />}
+          {tree && focus && <Crumbs trail={trail} onGo={goTo} onUp={goUp} />}
 
           <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
             {/* The ground the map is drawn on. It is the only surface in the window that
@@ -471,6 +653,13 @@ export default function App() {
                   {error}
                 </p>
               </div>
+            ) : historyEmpty ? (
+              <div className="flex h-full items-center justify-center p-6">
+                <p className="max-w-[40ch] text-center text-sm text-[var(--muted-foreground)]">
+                  No git history here, so there is nothing to replay. The map beside this
+                  is still the repo as it stands.
+                </p>
+              </div>
             ) : busy && !focus ? (
               <ProgressPane progress={progress} />
             ) : focus ? (
@@ -481,8 +670,8 @@ export default function App() {
                 <FileStack
                   root={focus}
                   selected={selected}
-                  mode={mode}
-                  ranks={scan ? rankCategories(scan.root, mode) : undefined}
+                  mode={viewMode}
+                  ranks={tree ? rankCategories(tree, viewMode) : undefined}
                   onSelect={setPicked}
                   onDrill={drill}
                 />
@@ -490,8 +679,8 @@ export default function App() {
               <Sunburst
                 root={focus}
                 selected={selected}
-                mode={mode}
-                ranks={scan ? rankCategories(scan.root, mode) : undefined}
+                mode={viewMode}
+                ranks={tree ? rankCategories(tree, viewMode) : undefined}
                 onSelect={(n) => setPicked(n)}
                 onClear={() => setPicked(null)}
                 onDrill={drill}
@@ -522,8 +711,8 @@ export default function App() {
             {focus && focus.kind !== 'file' && (
               <div className="absolute bottom-2 right-2 z-20">
                 <ColourLegend
-                  mode={mode}
-                  categories={scan ? legendFor(scan.root, mode) : []}
+                  mode={viewMode}
+                  categories={tree ? legendFor(tree, viewMode) : []}
                   // Counted from `focus`, not the whole scan: drilled into one
                   // directory, the legend has to describe the rings in front of you or
                   // it is annotating a picture nobody is looking at.
@@ -532,26 +721,54 @@ export default function App() {
               </div>
             )}
           </div>
+
+          {/* Under the map, not floated over it. The legend is an annotation and can live
+              in a corner; the transport is the control the whole view is about, and the
+              scrub bar needs the full width or it cannot address the commits it draws. */}
+          {historyOn && history && historyKey === activeKey && history.commits.length > 0 && (
+            <HistoryBar
+              hist={history}
+              index={histIndex}
+              onIndex={setHistIndex}
+              playing={playing}
+              onPlaying={setPlaying}
+              duration={duration}
+              onDuration={setDuration}
+              functions={tree ? countFunctions(tree) : 0}
+            />
+          )}
         </main>
         </div>
 
         <aside className="w-[290px] shrink-0 border-l border-[var(--border)] bg-[var(--card)]">
+          {/* The log takes the panel while the replay is up. Not beside it: the panel
+              answers "what am I looking at", and during a replay that answer is the
+              commit, not whichever wedge the pointer last brushed. */}
+          {historyOn && history && historyKey === activeKey ? (
+          <CommitLog
+            hist={history}
+            index={histIndex}
+            onIndex={scrubTo}
+            name={activeProject?.name ?? 'History'}
+          />
+          ) : (
           <Detail
             node={selected}
             // What the summary covers when nothing is picked: the subtree on screen, not
             // the repo, so drilling in re-counts rather than repeating a number the
             // sidebar already shows for the whole project.
             focus={focus}
-            title={focus && scan && focus.id === scan.root.id ? (activeProject?.name ?? focus.name) : focus?.name}
+            title={focus && tree && focus.id === tree.id ? (activeProject?.name ?? focus.name) : focus?.name}
             repo={repoPath}
             working={activeProject?.working ?? false}
             model={scan?.stats.model ?? null}
-            mode={mode}
-            ranks={scan ? rankCategories(scan.root, mode) : undefined}
+            mode={viewMode}
+            ranks={tree ? rankCategories(tree, viewMode) : undefined}
             onSelect={setPicked}
             onDrill={drill}
             onConnect={() => setShowAgents(true)}
           />
+          )}
         </aside>
       </div>
 
@@ -675,14 +892,30 @@ function ProgressPane({
   )
 }
 
-function ProgressStrip({ progress }: { progress: Progress | null }) {
+function ProgressStrip({
+  progress,
+  label,
+}: {
+  progress: Progress | null
+  /** What is being waited on, when it is not the scan. The bar is the same instrument
+   *  either way; only the sentence over it changes. */
+  label?: string
+}) {
   const { pct, eta } = useProgress(progress)
 
   return (
     <div className="shrink-0 border-b border-[var(--border)] bg-[var(--secondary)] px-3 py-1.5">
       <div className="mb-1 flex items-baseline justify-between text-[11px] text-[var(--muted-foreground)]">
         <span>
-          {progress ? (
+          {label ? (
+            progress ? (
+              <>
+                {label} {progress.done} / {progress.total} commits.
+              </>
+            ) : (
+              <>{label}</>
+            )
+          ) : progress ? (
             <>
               Scoring {progress.done} / {progress.total} functions.
             </>
@@ -694,6 +927,46 @@ function ProgressStrip({ progress }: { progress: Progress | null }) {
       </div>
       <ProgressTrack progress={progress} pct={pct} />
     </div>
+  )
+}
+
+/**
+ * The door into the replay.
+ *
+ * Beside the lens switcher rather than inside it, because it is not a sixth lens. The
+ * lenses answer "what should the colour mean"; this one changes what the rings ARE — the
+ * repo as it stood at some commit rather than as it stands now — and folding a change of
+ * subject into a row of encodings would make the two look interchangeable.
+ */
+function HistoryToggle({
+  on,
+  busy,
+  onToggle,
+}: {
+  on: boolean
+  busy: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      disabled={busy}
+      title={
+        on
+          ? 'Back to the repo as it stands now'
+          : 'Replay the repo commit by commit — coloured by recency, not by surprise'
+      }
+      className="rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
+      style={{
+        background: on ? 'var(--accent)' : 'color-mix(in oklch, var(--foreground) 8%, transparent)',
+        color: on ? 'var(--accent-foreground)' : 'var(--muted-foreground)',
+        fontWeight: on ? 600 : 400,
+        opacity: busy ? 0.6 : 1,
+        boxShadow: on ? '0 1px 2px rgb(0 0 0 / 0.25)' : undefined,
+      }}
+    >
+      {busy ? 'Reading…' : 'History'}
+    </button>
   )
 }
 

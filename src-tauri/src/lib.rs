@@ -23,6 +23,7 @@ pub mod churn;
 pub mod cli;
 pub mod commands;
 pub mod heuristic;
+pub mod history;
 #[cfg(feature = "local-model")]
 pub mod local;
 pub mod mcp;
@@ -251,6 +252,8 @@ pub fn run() {
             commands::agent_reports,
             commands::projects,
             commands::project_scan,
+            commands::scan_history,
+            commands::warm_history,
             commands::agent_activity,
             commands::mcp_command,
             commands::mcp_clients,

@@ -332,6 +332,91 @@ When a field is added to `Report`, add it to the schema in the same commit.
   separate from `NOT_RUNNING` (never started) for that reason. Models fill silence with
   invention.
 
+## History is replayed, never re-measured
+
+`history.rs` grows the same rings one commit at a time. It is a second *view*, not a
+second metric, and the line between those is the whole design.
+
+- **Surprise is not replayed, and the lens switcher is disabled to say so.** A
+  temperature is a reading taken against the code as it is NOW; stamping it onto the same
+  function's 2019 body would be the map claiming a measurement nobody took — the same sin
+  as a stale reading keeping its colour. What a frame is coloured by is recency, *as of
+  that frame's own date*, which is a fact about the commit stream and the only thing this
+  module reads. Greyed rather than hidden: remove the switcher and the rings are recoloured
+  with nothing on screen saying by what.
+- **Nothing before the window makes a claim about its own age.** Functions folded into the
+  opening frame have no touch date, so they draw uncoloured. Dating them to the edge of the
+  window would open every truncated repo with the entire codebase flaring as though someone
+  had just written it.
+- **Only changed files are re-parsed.** The obvious implementation checks out each commit
+  and scans — a full scan per frame, minutes for a repo the live map draws in a second.
+  The walk carries parse state forward and re-parses exactly what each commit touched, so
+  the cost is file *versions* in the window, not commits × files. tonepoet: 984 commits,
+  17k functions, 57s cold.
+- **It must refuse what the scan refuses.** History has no `.gitignore` walker to lean on,
+  and the first version drew a committed 161-function mascot bundle the scan skips as
+  minified — 769 functions at HEAD against the map's 472, with the largest wedge in the
+  story a file the map does not show. `MINIFIED_LINE_BYTES` and `VENDORED` are duplicated
+  here on purpose and have to move together. A refused blob yields an EMPTY state, never
+  no state, or a file that turns into a bundle keeps its old wedges forever.
+- **The cap is a backstop, not a window.** It was 400, chosen against the scrub bar, and it
+  cost the feature its point: tonepoet opened with 584 commits already folded in, so the
+  directory structure existed on day one and the story started in the middle. Addressing a
+  commit is the log's job and the log addresses all of them. 5000, matching `churn`.
+- **The cache is machine-local, and that is the same rule `.sanity/` follows from the other
+  side.** The repo holds what cannot be recomputed; a timeline is derivable from the repo's
+  own object database in full, is megabytes, and changes on every commit — in-repo it would
+  be a conflicting blob on every branch and a dirty `git status` after merely looking.
+  A failed cache write is silent for the same reason a failed *reading* write must not be:
+  nothing is lost that git cannot produce again.
+- **A cached timeline is EXTENDED, not rebuilt.** A commit's diff is immutable, so the
+  frames cannot go stale the way a score can; a working day's commits are appended and the
+  overflow folded into the opening state. `Replayer::resume` derives its parse state by
+  folding the frames rather than storing a second copy — a stored copy could disagree with
+  the frames, and the disagreement would be invisible, with new commits diffing against a
+  state nobody can see. `extending_a_cached_timeline_matches_replaying_it_whole` and its
+  fold twin are what keep a warm machine and a cold one telling the same story; keep them
+  passing. A rewritten history (`merge-base --is-ancestor` says no) is replayed, never
+  appended to — appending would produce a timeline that never happened.
+- **The transport sets a DURATION, not a rate.** It was 1×–8× commits per second, and a
+  rate cannot be right for two repos at once: eight a second is six seconds of this repo
+  and two minutes of tonepoet, so one button meant "a glance" on one project and "go and
+  make coffee" on the next. Nobody is choosing commits per second; they are choosing how
+  long they will watch. Past `MAX_FPS` the clock SKIPS commits rather than falling behind
+  — every frame is computed from its index, so a step of forty is as correct as forty
+  steps of one, and the label stays true on a slow machine. The clock must never depend on
+  `index`: an effect rebuilt per frame re-reads its own start time, and the replay
+  silently overruns the duration it promised.
+- **The frontend replay is forward-incremental; the fold is not.** A from-scratch fold is
+  linear in how far along you are — 1.3ms at tonepoet's commit 98 and **26ms at 983** — so
+  the map got slower exactly as the story got interesting and the top speed was set by the
+  tail. `advance` mutates a memoised frame forward; scrubbing BACKWARDS rebuilds, because
+  undoing a commit needs the state it replaced, which is the whole timeline stored twice
+  and free to drift. Churn therefore keeps touch STAMPS, not a count: the 90-day window
+  moves with the playhead, so a count could only be recomputed from the start.
+- **A replay is a periodic-stutter detector for the whole window.** Every timer in the app
+  became visible the moment something ran at thirty frames a second, and each one was a
+  hitch on a fixed period: the 2s reading poll fetched all 16,925 of tonepoet's readings
+  and folded them into a tree that is not on screen during history; the 1.5s project poll
+  replaced an unchanged list, which rebuilt the frame tree (`activeProject` is a fresh
+  object every poll — depend on its NAME) and re-rendered several thousand arcs. Poll
+  results are now compared before they are stored. **If the replay stutters on a period,
+  look for a timer, not for the renderer.**
+- **Function nodes are pooled; containers are not.** A frame of tonepoet is seventeen
+  thousand functions with a `Score` apiece, and building them fresh thirty times a second
+  hands a million objects a second to the collector. They are mutated in place instead —
+  but dirs and files must stay freshly allocated, because the sunburst recomputes its
+  layout when the node it is rooted at changes identity, and a pooled root would freeze the
+  map while the data underneath it moved. 700 allocations against 17,000, with none of the
+  hazard. A full sequential playback of tonepoet costs 1.1ms a frame.
+- **`warm` tops up a timeline; it cannot create one.** Prefetching on open would charge
+  every open of every project a minute of parsing for a mode most opens never enter. Once
+  a repo has one, keeping it current costs the commits since — so History opens in 0.2s on
+  the repo you are actually working in. Ask for it once; never be charged for it unasked.
+- `just history <repo>` is the headless check, and it is UNCACHED by default: a run that
+  answers from a file is not a run of the thing being checked. `--files` reconciles its
+  totals against `just scan`, which is how the mascot bundle was found.
+
 ## Conventions
 
 - Stack: Tauri 2 · React 19 · Vite 7 · Tailwind v4 · tree-sitter · rayon.

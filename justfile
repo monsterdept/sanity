@@ -75,6 +75,16 @@ scan path="." *flags="":
     target="$(cd "{{path}}" && pwd)"
     cd src-tauri && cargo run --quiet --bin sanity-scan -- "$target" {{flags}}
 
+# Replay a repo's history headlessly — `just history ../slooth`. The app is the human's
+# to open, so this is how a change to the commit walk gets checked: it prints how many
+# commits replayed, how many functions survive to HEAD, and the busiest frames. A rename
+# mishandled as an add shows up here as a function count that only ever climbs.
+history path="." *flags="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="$(cd "{{path}}" && pwd)"
+    cd src-tauri && cargo run --quiet --bin sanity-history -- "$target" {{flags}}
+
 # Weigh what a reader pays for the context we write it — the tool descriptions, the
 # subagent prompt, and the task payload for a real repo. At one function per reader the
 # fixed prefix is paid once per FUNCTION, so a long `inputSchema` description is a

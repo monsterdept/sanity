@@ -129,6 +129,59 @@ pub async fn scan_repo(
 }
 
 
+/// Replay one repo's history, commit by commit.
+///
+/// Separate from `scan_repo` and asked for by hand, because it is the one thing here that
+/// costs real time on a large repo — a few hundred commits means re-parsing every file
+/// version they touched. Nobody should pay for that on the way to looking at a map they
+/// asked for.
+///
+/// Cached per repo, and carried forward rather than recomputed: a commit's diff is
+/// immutable, so the second time this is asked the answer is a file read, and after a
+/// day's work it is a file read plus the commits since. See `history::read_cached`.
+///
+/// Blocking, like the scan, for the same reason: tree-sitter over a few hundred file
+/// versions is rayon-parallel CPU work and must never run on the async runtime's threads.
+#[tauri::command]
+pub async fn scan_history(
+    app: AppHandle,
+    path: String,
+    limit: Option<usize>,
+) -> Result<crate::history::HistoryScan, String> {
+    let root = PathBuf::from(&path);
+    if !root.is_dir() {
+        return Err(format!("{path} is not a directory"));
+    }
+    let limit = limit.unwrap_or(crate::history::MAX_COMMITS);
+    tauri::async_runtime::spawn_blocking(move || {
+        let emit = |p: Progress| {
+            let _ = app.emit("history-progress", p);
+        };
+        crate::history::read_cached(&root, limit, &emit)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Top up this repo's timeline, if it already has one.
+///
+/// Called when a project comes on screen. It is deliberately incapable of building a
+/// timeline from nothing — see `history::warm`. Fire-and-forget from the frontend: the
+/// answer is only ever "there was one and it is current now", which changes nothing on
+/// screen and everything about how long History takes to open.
+#[tauri::command]
+pub async fn warm_history(path: String) -> bool {
+    let root = PathBuf::from(&path);
+    if !root.is_dir() {
+        return false;
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::history::warm(&root, crate::history::MAX_COMMITS)
+    })
+    .await
+    .unwrap_or(false)
+}
+
 /// The text of one file in the open repo, for the code view.
 ///
 /// Joined onto the repo root and then checked to still be inside it, because `rel_path`

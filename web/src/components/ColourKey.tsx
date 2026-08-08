@@ -73,9 +73,17 @@ function Legend({ mode, categories }: { mode: ColorMode; categories: string[] })
 export function ModeSwitcher({
   mode,
   onMode,
+  disabled = false,
 }: {
   mode: ColorMode
   onMode: (m: ColorMode) => void
+  /** Greyed out, but still showing which encoding is in force.
+   *
+   *  History mode sets this. There the colour is not a choice: a temperature is a reading
+   *  taken against today's code, and four of the five lenses would be claiming a
+   *  measurement of a commit nobody took it against. Hiding the control instead would
+   *  leave the rings recoloured with nothing on screen saying by what. */
+  disabled?: boolean
 }) {
   return (
     // A segmented control: one recessed track, segments inside it, and the selection as
@@ -87,6 +95,7 @@ export function ModeSwitcher({
       role="tablist"
       className="flex items-center gap-0.5 rounded-full p-[3px]"
       style={{
+        opacity: disabled ? 0.55 : 1,
         background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
         boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
       }}
@@ -98,11 +107,16 @@ export function ModeSwitcher({
             key={k}
             role="tab"
             aria-selected={on}
-            onClick={() => onMode(k)}
+            onClick={() => !disabled && onMode(k)}
+            disabled={disabled}
             // The shortcut rides in the tooltip rather than on the chip. Five chips with
             // a dim "⌘3" beside each label is a row of keyboard documentation where the
             // control itself should be — discoverable once, noise every time after.
-            title={`${MODE_HINT[k]}  (⌘${i + 1})`}
+            title={
+              disabled
+                ? 'Pinned to recency while history plays — a past commit has no surprise reading'
+                : `${MODE_HINT[k]}  (⌘${i + 1})`
+            }
             className="rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
             style={{
               background: on ? 'var(--accent)' : 'transparent',

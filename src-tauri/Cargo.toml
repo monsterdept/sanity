@@ -105,5 +105,11 @@ path = "src/bin/tokens.rs"
 name = "sanity-sample"
 path = "src/bin/sample.rs"
 
+# Replay a repo's history without opening a window. The app is the human's to launch, so
+# this is the only way a change to the commit walk gets checked.
+[[bin]]
+name = "sanity-history"
+path = "src/bin/history.rs"
+
 # Standalone workspace so cargo never folds this into a parent build graph.
 [workspace]
