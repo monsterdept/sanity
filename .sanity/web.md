@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-102 of 102 functions read · 1 surprising
+100 of 132 functions read · 1 surprising · 14 stale
 
 Each entry below is one **reading**. An agent was given a function's name,
 signature, neighbouring function names and comments — never its body — and wrote
@@ -26,11 +26,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Recursively searches the tree: checks if target ID is in direct children (returns parent node if found), otherwise recursively searches each child's subtree. Returns null if ID not found. Uses tree traversal to locate parent, as docs specify (not stack-based).
 - predicted: full · documented: full · derivable: no
 
-### `App` — nearly
+### `App` — nearly — STALE
 - read at `5d4b272f5788` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: The main React component serving as the app's root. Given the large size (495 lines) and peers involving progress tracking (ProgressTrack, ProgressPane) and layout components, it likely handles initializing the app state, managing the scan/assessment workflow, parsing command-line repo paths, and rendering the main layout with the sunburst visualization and progress panels.
 - found: The App component initializes and manages all app state (scan, busy, progress, error, selected node, drill stack, theme, color mode, agent activity, projects). It sets up effects for keyboard shortcuts (Cmd-1..5 to switch color modes), following agent activity, polling for project changes and new agent reports, and batching score updates from streamed scores. It implements navigation callbacks (drill into nodes, go up, breadcrumb navigation). The render tree includes a sidebar with projects list, top row with mode switcher, main content area (either Sunburst or FileStack depending on focus depth), progress strips, breadcrumbs, detail panel, modal code view, and agent setup modal.
 - predicted: most · documented: none · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `useProgress` — as expected
 - read at `022713725cb5` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 4 of its run
@@ -126,18 +128,22 @@ What this is and how to add to it: [README.md](README.md)
 - found: Clamps t to 0-1, scales it to stop index range, finds surrounding stops, linearly interpolates each RGB component between the two stops, rounds the result, and returns an rgb() color string.
 - predicted: full · documented: none · derivable: no
 
-### `Minimap` — nearly
+### `Minimap` — nearly — STALE
 - read at `ea6f464ac9a2` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: This React component renders a canvas-based minimap showing the entire source file at a glance with heat values overlaid. It displays one indentation-based bar per line (indentation profile is more recognizable than glyphs), colored by surprise heat for each line's owner node. It includes a scroll position indicator and is clickable/draggable to navigate to specific lines, repainting when scroll ticks change.
 - found: Renders a canvas element that uses 2D rendering. For each line, draws heat-colored background if owner exists and is analyzed, then draws an indentation bar with lower opacity for comments. Calculates line height to fit entire file on screen. Draws a scroll indicator showing current viewport position. Implements pointer-based seeking: onPointerDown/Move calls seek() to scroll the file to clicked line with the click point centered.
 - predicted: most · documented: most · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `CodeView` — nearly
+### `CodeView` — nearly — STALE
 - read at `4fdff6198439` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: The CodeView component renders source code for a file with heat/temperature indicators in the gutter for each line, handles selecting and revealing specific functions via scrolling, and manages popup and close actions for the view.
 - found: Fetches and displays source code in a table with line numbers, syntax highlighting (via tokenize), a heat-colored gutter (3px), and faint heat wash backgrounds; handles selection and scroll-to-reveal using a nonce to avoid re-triggers from tree rebuilds; shows "not measured" labels for unanalyzed functions; includes a Minimap on the right and optional pop-out/close buttons.
 - predicted: most · documented: some · derivable: no
 - note: Docs don't describe the actual rendering (table structure, gutter vs background heat, syntax highlighting, minimap) or the scroll-tick optimization to avoid minimap re-renders on every scroll frame.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/components/ColourKey.tsx
 
@@ -216,11 +222,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Renders a list of child items sorted by analyzed status first (unanalyzed sink to bottom), then by rank according to the current color mode, then by line count. Each row is a button showing a color dot, the item name, and a measure value (lines/size). Handles click for selection and double-click for drilling. Returns null if no children exist.
 - predicted: most · documented: full · derivable: no
 
-### `Detail` — nearly
+### `Detail` — nearly — STALE
 - read at `1d694ecdef00` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: This is a React component that renders a detailed view panel showing information about the selected node, likely using the Gauge and Markdown components to display various aspects of the node.
 - found: Renders a detail panel for the selected node, showing name/path/location, three gauge metrics (Surprise/Avg Surprise/Documented/Churn), agent reading assessment with Expected/Found sections if available, hotspot evidence, and a Contents sub-component, with proper handling of stale readings and warm-read indicators.
 - predicted: most · documented: none · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/components/FileStack.tsx
 
@@ -286,11 +294,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Returns the computed color style of the element directly via getComputedStyle(el).color.
 - predicted: most · documented: none · derivable: yes
 
-### `PartyAnts` — nearly
+### `PartyAnts` — nearly — STALE
 - read at `e33160929886` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: Renders animated party ants using Canvas as decorative mascots for empty panes, with continuous movement, frequent direction changes, and animated legs, all implemented in Canvas to avoid DOM layout overhead.
 - found: Creates a Canvas-based animation of 7 ants with realistic alternating tripod walking gait, curved legs with bent knees, and animated antennae. Each ant wanders using sine curves plus jitter for natural movement, bounces at edges, and phases animation based on distance traveled. Respects reduced-motion preference, watches for theme changes, handles resize, and uses deterministic randomization for reproducible layouts.
 - predicted: most · documented: full · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/components/SideBar.tsx
 
@@ -308,23 +318,21 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Sunburst.tsx
 
-### `heatShare` — nearly
+### `heatShare` — nearly — STALE
 - read at `d9838ecd84aa` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: The function calculates the heat or surprise share value for a directory in the sunburst visualization. It takes a directory kind (probably a path segment) and a color mode, and returns a number representing what portion of that directory should be colored as "hot" under that measurement mode.
 - found: If mode is 'surprise', returns the heat value for that kind from a HEAT_BY_KIND map (defaulting to 1 if not found). For all other modes, returns 1.
 - predicted: most · documented: none · derivable: yes
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `countFiles` — as expected
-- read at `84865977315d` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: This function recursively counts all files within and under a given node in the tree. According to the docs, it's called on-demand (at pointer-move rate) for the single hovered node rather than precomputing counts for the entire tree. It likely traverses the node's children recursively to sum up all descendant files.
-- found: The function checks if the current node is a file (base case, returns 1), then recursively sums the file counts from all children. If the node is not a file, it iterates through children and adds their file counts together.
-- predicted: full · documented: none · derivable: yes
-
-### `Sunburst` — as expected
+### `Sunburst` — as expected — STALE
 - read at `6462cdeafb15` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: This is the main sunburst visualization component that renders the interactive DaisyDisk-style diagram. It takes a tree of nodes, handles selection and drilling callbacks for user interactions, applies color based on the mode, and manages navigation with the onUp callback for going up the hierarchy.
 - found: Renders the interactive SVG sunburst visualization with mouse interaction handling (hover, select, drill). Manages state for hovered nodes, tooltip position, collapsed directories, and viewport sizing. Applies color based on the ColorMode prop. Displays hover tooltips with node details (name, color swatch, line count, stale warnings). Shows caveat for hidden files/dirs. Supports collapsing directories via alt-click and drilling via double-click.
 - predicted: full · documented: none · derivable: yes
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/components/Wordmark.tsx
 
@@ -352,11 +360,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/api.ts
 
-### `toNode` — as expected
+### `toNode` — as expected — STALE
 - read at `6af9fec7a5ad` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: A transformation function that converts WireNode (backend wire format) into Node (frontend internal representation), mapping snake_case backend fields to camelCase frontend fields.
 - found: Converts a WireNode to a Node by mapping all snake_case wire fields to camelCase, handling optional fields with nullish coalescing, transforming the score object structure, and recursively converting children.
 - predicted: full · documented: none · derivable: yes
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `agentActivity` — as expected
 - read at `498e4cdbcd05` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
@@ -473,11 +483,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Recursively visits all nodes; for leaves, patches in surprise and hotspots from the upgrade map while preserving churn/age/doc coverage; for parents, recursively visits children and calls reaggregate only if a child changed (detected by reference equality), enabling React to skip unchanged subtrees.
 - predicted: most · documented: full · derivable: no
 
-### `reaggregate` — nearly
+### `reaggregate` — nearly — STALE
 - read at `feeb138409f2` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: Aggregates child scores up to parent node. Takes parent node and children array, calculates weighted average of child scores (surprise, documented, churn) to produce parent's aggregated metrics, and returns node with updated score. Must match Rust implementation.
 - found: Iterates children accumulating weighted metrics (weighted by max(loc, 1)). Separately tracks analyzed/hot counts for functions (model/agent sourced) vs non-functions (using shares). Computes maximum age and minimum lastTouchedDays. Tracks strongest score source. Returns node with aggregated averages and preserved commits from original node.
 - predicted: most · documented: full · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `onScanProgress` — as expected
 - read at `6259f44de964` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
@@ -509,18 +521,22 @@ What this is and how to add to it: [README.md](README.md)
 - found: Returns 0 if the score is null, otherwise clamps the score's surprise value to [0, 1] using Math.max and Math.min to ensure it stays within bounds.
 - predicted: most · documented: full · derivable: no
 
-### `wedgeHeat` — as expected
+### `wedgeHeat` — as expected — STALE
 - read at `a74b7ad8a437` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: This function calculates the heat/temperature display value for a node. For functions, it returns the node's temperature directly. For directories and files, it computes the proportion of hot lines (surprising code) to total lines, rather than averaging temperatures which would converge toward the repo mean.
 - found: Returns 0 if node has no score. For functions, returns the temperature of the score. For directories/files, returns the hotShare proportion from the score.
 - predicted: full · documented: full · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `isAnalyzed` — nearly
+### `isAnalyzed` — nearly — STALE
 - read at `5fa6310d7f10` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: Checks whether a node has been analyzed by an agent (rather than just using the offline proxy's score). Returns true if the node has a score that came from actual model or agent analysis, false if it only has a proxy score or no score at all.
 - found: Returns false if the node has no score. For function nodes, returns true if the score source is 'model' or 'agent' (not proxy). For non-function nodes (directories/files), returns true if analyzedShare is greater than 0, indicating that at least some child nodes have been analyzed.
 - predicted: most · documented: none · derivable: yes
 - note: I missed that non-function nodes check analyzedShare instead of score source, treating them as aggregates of their children's analysis state.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `heatColor` — nearly
 - read at `cb9031e433f6` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
@@ -550,12 +566,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: Uses a logarithmic scale (log10(days+1) normalized to a one-year baseline) and inverts it (1 - ...) so that newer code returns higher values, capping at 1.0 so anything around or older than a year maps to the cold end of the spectrum.
 - predicted: most · documented: full · derivable: no
 
-### `colorFor` — nearly
+### `colorFor` — nearly — STALE
 - read at `19cb6c27aa96` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 10 of its run
 - expected: colorFor determines the fill color and descriptive label for a sunburst wedge under a specific color mode. It returns {fill, label} when the mode has data for the node, or null when there's nothing meaningful to display (no history, language, or analysis). The caller uses a structural neutral color for null returns.
 - found: Implements four color modes with mode-specific logic: 'surprise' uses heatColor and reading name or percentage, 'churn' uses commit count over 90d, 'age' uses days since last touched, and blame/language modes use slotColor based on ranks, with identity carried in label even when color is "Other" for CVD accessibility.
 - predicted: most · documented: none · derivable: yes
 - note: Four separate color modes with distinct validation and formatting per mode; label preserves identity for CVD accessibility.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `rankCategories` — nearly
 - read at `43639d96a85f` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -599,12 +617,14 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/sunburst.ts
 
-### `heatOf` — surprising
+### `heatOf` — surprising — STALE
 - read at `3caa3e70d7b1` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: Extracts the heat or surprise score from a Node, returning it for use in the sunburst color encoding.
 - found: Returns 0 if the node has no score, otherwise returns the `surprise` property for function nodes or the `hotShare` property for non-function nodes.
 - predicted: some · documented: none · derivable: yes
 - note: Missed the distinction between functions using `surprise` vs. aggregates using `hotShare`.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `layout` — as expected
 - read at `edc13ec63f43` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -618,18 +638,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Converts polar coordinates (angles and radii) to SVG path commands for an annular sector. Defines x/y helpers using sin/cos to map angles from 12 o'clock to Cartesian coordinates. For nearly-full-circle angles, draws two semicircles for outer and inner radii separately to work around SVG arc limitations. For normal sectors, constructs path via moveto, lines to radii, and arc segments.
 - predicted: most · documented: full · derivable: no
 
-### `aggregate` — as expected
+### `aggregate` — as expected — STALE
 - read at `1bd7b2953877` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: This function creates a synthetic aggregate node representing functions that couldn't fit in the sunburst visualization. It computes the LOC-weighted mean temperature of the members that have readings, creating a real Node object so rendering logic doesn't need special-case handling for the aggregate.
 - found: Calculates total LOC, filters to read functions, computes LOC-weighted means of score properties, creates a synthetic Node with name like "104+" containing all overflow functions as children, and sets score to weighted mean with analyzedShare reflecting the fraction of LOC that was actually read.
 - predicted: full · documented: full · derivable: no
-
-### `stackFunctions` — nearly
-- read at `5231ba09e609` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
-- expected: This function arranges child functions radially within a parent file's angular wedge. It creates concentric bands stacked outward from inner radius r0 to outer radius r1. Each band represents one function and spans the file's full angular width, with band thickness proportional to the function's code share within the file. Returns layout slots for rendering.
-- found: The function filters to functions, optionally sorts by heat, calculates band capacity based on minimum slice size. If functions exceed capacity, it keeps the hottest functions and aggregates the rest. It then distributes the radial space, ensuring each function gets at least minimum thickness, with additional space distributed proportionally by code lines (or evenly). Returns an array of Slot objects with r0/r1 radii for each function/aggregate.
-- predicted: most · documented: full · derivable: no
-- note: Missed the capacity management logic and that overflow functions are ranked by heat (not size) then aggregated into a single node.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `sliceFunctions` — nearly
 - read at `103298d152b8` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 1 of its run

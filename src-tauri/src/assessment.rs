@@ -408,12 +408,36 @@ struct Placed<'a> {
 /// agent's reading and the app is far more often killed than quit, so anything deferred
 /// to exit is anything lost; and a full rewrite is the only way entries stay in path
 /// order, which is what keeps two people's diffs from colliding.
-pub fn save(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> std::io::Result<()> {
-    let root = dir(repo);
-    std::fs::create_dir_all(&root)?;
-    let live = live_funcs(scan);
+/// One shard's row in the index, and the body that goes in its own file.
+///
+/// Both come out of the same pass because they are the same walk seen twice, and the
+/// counts in the index have to be the counts in the shard. Rendering the table anywhere
+/// else would be a second implementation of the arithmetic, and the copy nobody reads is
+/// the one that goes wrong — which is how a whole repo's readings lost `derivable`.
+struct Compiled {
+    shard: String,
+    read: usize,
+    total: usize,
+    surprising: usize,
+    stale: usize,
+    body: String,
+}
 
-    // Grouped for the file layout — shard, then source file, then position within it.
+impl Compiled {
+    /// The tuple `render_index` wants. The body is the shard file's business.
+    fn row(&self) -> (String, usize, usize, usize, usize) {
+        (self.shard.clone(), self.read, self.total, self.surprising, self.stale)
+    }
+}
+
+/// Group the readings by shard and render each one, without writing anything.
+///
+/// Split out of [`save`] so [`refresh_index`] can produce a byte-identical index without
+/// also being a second opinion about what the index says. If these two ever disagreed,
+/// `open` and `report` would rewrite the file past each other on every call and the repo
+/// would carry a permanently dirty diff.
+fn compile(scan: &Scan, reports: &HashMap<String, Report>) -> Vec<Compiled> {
+    let live = live_funcs(scan);
     // `BTreeMap` throughout so the output is a pure function of the readings: the same
     // set writes the same bytes, which is what lets `git diff` show only what changed.
     // Driven off the live functions, not off the reports. Walking the reports meant
@@ -437,7 +461,7 @@ pub fn save(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> std:
             });
     }
 
-    let mut index = Vec::new();
+    let mut out = Vec::new();
     for (shard, files) in &shards {
         let mut read = 0usize;
         let mut surprising = 0usize;
@@ -460,17 +484,133 @@ pub fn save(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> std:
         }
         // Total functions in this shard, so "12 of 400 read" is honest about the rest.
         let total = live.values().filter(|l| shard_of(&l.path) == *shard).count();
+        out.push(Compiled { shard: shard.clone(), read, total, surprising, stale, body });
+    }
+    out
+}
+
+/// The repo's own name, as the index titles it.
+fn repo_name(repo: &Path) -> String {
+    repo.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "this repo".to_string())
+}
+
+/// What happened to `.sanity/README.md` when we last looked at it.
+pub enum Index {
+    /// Already said what this version of Sanity would say.
+    Current,
+    /// It was out of date and has been rewritten.
+    Refreshed,
+    /// There is no assessment here. Nothing was created — see [`refresh_index`].
+    Absent,
+    Failed(String),
+}
+
+impl Index {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Index::Current => "current",
+            Index::Refreshed => "refreshed",
+            Index::Absent => "absent",
+            Index::Failed(e) => e,
+        }
+    }
+}
+
+/// Bring an existing assessment up to date with what this version of Sanity would write.
+///
+/// `save` already rewrites these files on every report, so a repo mid-assessment repairs
+/// itself the moment a reading lands. The gap is the repo that is FINISHED: nothing is
+/// left to read, so nothing is ever saved, so it keeps whatever it was written with —
+/// prose telling strangers to run a command that has since stopped existing, and a table
+/// claiming a coverage that stopped being true the next time somebody wrote a function.
+/// Opening the repo is the one moment we certainly have both the tree and the readings in
+/// hand, so that is where this goes.
+///
+/// **The index and the shards move together.** Refreshing only `README.md` was worse than
+/// refreshing nothing: the table would say 27 stale while the file it links to said 0, and
+/// a document that contradicts itself is not a document anybody trusts. They come out of
+/// one `compile`, so there is no version in which they can disagree.
+///
+/// **Refreshes, never creates.** Opening a repo that has no assessment must not put a
+/// `.sanity/` directory in somebody's working tree — an open is a look, and a look that
+/// leaves a directory behind is a surprise in a place people run `git status`. A shard
+/// that does not exist yet is not written either: that is a reading's business, not a
+/// refresh's.
+///
+/// **Writes only on a real difference, file by file.** Rewriting identical bytes would
+/// touch the mtime and dirty a checkout for nothing, on every open, of every repo.
+pub fn refresh(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> Index {
+    let root = dir(repo);
+    let Ok(existing_index) = std::fs::read_to_string(root.join("README.md")) else {
+        return Index::Absent;
+    };
+    let compiled = compile(scan, reports);
+
+    let mut wrote = false;
+    let mut write_if_changed = |path: PathBuf, fresh: String| -> Result<(), String> {
+        // Only files already there. A shard that has never been written is coverage that
+        // does not exist, and inventing it here would claim readings nobody made.
+        match std::fs::read_to_string(&path) {
+            Ok(cur) if cur == fresh => Ok(()),
+            Ok(_) => match std::fs::write(&path, fresh) {
+                Ok(()) => {
+                    wrote = true;
+                    Ok(())
+                }
+                Err(e) => Err(format!("could not rewrite {}: {e}", path.to_string_lossy())),
+            },
+            Err(_) => Ok(()),
+        }
+    };
+
+    for c in &compiled {
+        let fresh = render_shard(&c.shard, c.read, c.total, c.surprising, c.stale, &c.body);
+        if let Err(e) = write_if_changed(root.join(shard_file(&c.shard)), fresh) {
+            return Index::Failed(e);
+        }
+    }
+
+    let rows: Vec<_> = compiled.iter().map(Compiled::row).collect();
+    let fresh = render_index(&repo_name(repo), &rows);
+    if existing_index != fresh {
+        // Reported rather than absorbed. Nothing is lost — the readings themselves are
+        // untouched and the next report tries again — but an index that silently failed
+        // to update is a document claiming to be current while saying something else.
+        if let Err(e) = std::fs::write(root.join("README.md"), fresh) {
+            return Index::Failed(format!("could not rewrite the index: {e}"));
+        }
+        wrote = true;
+    }
+    if wrote {
+        Index::Refreshed
+    } else {
+        Index::Current
+    }
+}
+
+pub fn save(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> std::io::Result<()> {
+    let root = dir(repo);
+    std::fs::create_dir_all(&root)?;
+
+    // Grouped for the file layout — shard, then source file, then position within it. The
+    // grouping and the arithmetic live in `compile`, shared with `refresh_index` so the
+    // two can never write a different index for the same readings.
+    let compiled = compile(scan, reports);
+    let mut index = Vec::new();
+    for c in &compiled {
         std::fs::write(
-            root.join(shard_file(shard)),
-            render_shard(shard, read, total, surprising, stale, &body),
+            root.join(shard_file(&c.shard)),
+            render_shard(&c.shard, c.read, c.total, c.surprising, c.stale, &c.body),
         )?;
-        index.push((shard.clone(), read, total, surprising, stale));
+        index.push(c.row());
     }
 
     // Shards that lost their last reading leave a file behind claiming coverage that is
     // no longer there. Cleared, not left to rot.
     if let Ok(existing) = std::fs::read_dir(&root) {
-        let keep: Vec<String> = shards.keys().map(|s| shard_file(s)).collect();
+        let keep: Vec<String> = compiled.iter().map(|c| shard_file(&c.shard)).collect();
         for e in existing.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
             if name.ends_with(".md") && name != "README.md" && !keep.contains(&name) {
@@ -479,11 +619,7 @@ pub fn save(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> std:
         }
     }
 
-    let name = repo
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "this repo".to_string());
-    std::fs::write(root.join("README.md"), render_index(&name, &index))?;
+    std::fs::write(root.join("README.md"), render_index(&repo_name(repo), &index))?;
     Ok(())
 }
 
@@ -897,6 +1033,58 @@ mod tests {
                 model: "test".into(),
             },
         }
+    }
+
+    /// An index written by an older Sanity is brought up to date without a new reading.
+    ///
+    /// The case it exists for is the FINISHED repo: nothing left to read means nothing is
+    /// ever saved, so the file that ships to strangers keeps whatever prose it was written
+    /// with — including instructions for a version that no longer works that way.
+    #[test]
+    fn a_stale_index_is_rewritten_on_open_and_an_absent_one_is_not_created() {
+        let tmp = std::env::temp_dir().join(format!("sanity-index-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let scan = scan_of(&[("src-tauri/src/scan.rs", "walk", 40, "fn walk() {}")]);
+        let reports: HashMap<String, Report> = scan
+            .root
+            .children
+            .iter()
+            .flat_map(|f| f.children.iter())
+            .map(|n| {
+                let r = Report { body: n.body.clone().unwrap_or_default(), ..report(&n.id, "a thing") };
+                (n.id.clone(), r)
+            })
+            .collect();
+
+        // No assessment here yet: an open must look and leave nothing behind.
+        assert!(matches!(refresh(&tmp, &scan, &reports), Index::Absent));
+        assert!(!dir(&tmp).exists(), "opening a repo must not create .sanity/");
+
+        save(&tmp, &scan, &reports).unwrap();
+        // Freshly written, so there is nothing to do — and nothing is written, because a
+        // rewrite of identical bytes dirties a checkout on every open of every repo.
+        assert!(matches!(refresh(&tmp, &scan, &reports), Index::Current));
+
+        // An index carrying an older version's copy.
+        let path = dir(&tmp).join("README.md");
+        let old = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("study this project in sanity", "update my sanity assessment");
+        std::fs::write(&path, &old).unwrap();
+
+        assert!(matches!(refresh(&tmp, &scan, &reports), Index::Refreshed));
+        let now = std::fs::read_to_string(&path).unwrap();
+        assert!(now.contains("study this project in sanity"), "the copy is current again");
+
+        // Byte-identical to what `save` writes. If these two ever disagreed, `open` and
+        // `report` would rewrite the file past each other and the repo would carry a
+        // permanently dirty diff.
+        save(&tmp, &scan, &reports).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), now);
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     /// The whole point, exercised end to end: write the repo's assessment, read it back,

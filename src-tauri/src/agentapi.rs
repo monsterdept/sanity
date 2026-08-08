@@ -1083,6 +1083,12 @@ async fn open_project(
     // moved. `load_reports` resolves the durable `key_of` entries onto the new ids, which
     // is the same thing `restore` does and the only correct way to cross a rescan.
     let reports = load_reports(&path, &scan);
+    // The index ships to strangers, and `save` only rewrites it when a reading lands — so
+    // a FINISHED repo keeps whatever prose its last reading was written with, forever. An
+    // open is the moment we certainly have both the repo and its readings in hand, so it
+    // is where an out-of-date index gets caught. It refreshes, never creates: opening a
+    // repo with no assessment must not leave a `.sanity/` directory in somebody's tree.
+    let index = crate::assessment::refresh(&path, &scan, &reports);
     let assessed = reports.len();
     let stale = count_stale(&scan, &reports);
     // Keep its place in the history; the reopen is not a new project.
@@ -1113,6 +1119,10 @@ async fn open_project(
         // Whether the window moved. It usually will not, and a caller that assumed it had
         // would tell the human to go and look at a pane still showing something else.
         "showing": showing,
+        // What became of `.sanity/README.md`. Reported rather than absorbed, on the same
+        // grounds as a failed `save_reports`: an index that quietly failed to update is a
+        // document claiming to be current while saying something else.
+        "index": index.as_str(),
         "functions": functions, "assessed": assessed,
         // Both, always. `functions` is what a full pass costs and what a percentage
         // divides by; `excluded` is what somebody decided is not this assessment's

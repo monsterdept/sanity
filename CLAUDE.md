@@ -104,6 +104,19 @@ readings (1.4 MB) parse in 30ms, once, on open.
 - **Provenance is stamped server-side.** `body`, `by` and `at` are filled in the `report`
   handler from the scan and from git, never taken from the agent. The one field whose job
   is to be checkable later cannot be self-certified.
+- **An open refreshes the assessment's own files; it never creates them.** `save` rewrites
+  them on every report, so a repo mid-assessment repairs itself the moment a reading lands
+  — but a FINISHED repo never saves again, so it keeps whatever it was written with: prose
+  naming a command that has stopped existing, and a table claiming a coverage that expired
+  the next time somebody wrote a function. This repo's index said "391 of 391 read, 0
+  stale" against a tree holding 453 functions and 27 expired readings. `assessment::refresh`
+  runs on `sanity_open`, and `/open` returns `index` so a failed rewrite is reported rather
+  than absorbed. **The index and the shards move together** — refreshing only `README.md`
+  is worse than refreshing nothing, because the table would say 27 stale while the file it
+  links to said 0, so both come out of one `compile` and cannot disagree. **Nothing is
+  created**: no `.sanity/` in a repo that has none, no shard that was never written, and no
+  write at all unless the bytes differ. An open is a look, and a look that leaves a
+  directory behind is a surprise where people run `git status`.
 - **Never let a reader see `.sanity/` before it predicts.** Being told what the last
   reader found is recall, not prediction — the same contamination `cold` exists to
   expose. The MCP descriptions say so; keep them saying it.

@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-287 of 287 functions read · 13 surprising
+287 of 319 functions read · 13 surprising · 13 stale
 
 Each entry below is one **reading**. An agent was given a function's name,
 signature, neighbouring function names and comments — never its body — and wrote
@@ -28,11 +28,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: The method builds a `live` list of KnownProject structs from the current in-memory projects with key, repo path, name, and touched timestamp. It loads the existing index from disk, retains only projects not in the current session (so on-disk projects not loaded are kept), then extends with the live projects (updating current ones). It conditionally updates the active project only if the current session has one. Finally, it sorts by touched timestamp (most recent first) and saves the merged index back to disk.
 - predicted: most · documented: full · derivable: no
 
-### `touch` — nearly
+### `touch` — nearly — STALE
 - read at `9472c98218bb` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · warm reading · reading 7 of its run
 - expected: Mark the resource identified by the key as touched/accessed by updating a timestamp or counter, and trigger persistence to save the state change. Likely used to track when projects were last accessed.
 - found: Increments the clock counter, stores the value, sets the touched timestamp on the project with that key to the current clock value, sets the active project to this key, and calls persist() to save the state.
 - predicted: most · documented: none · derivable: yes
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `ping` — nearly
 - read at `0facbb877de9` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 7 of its run
@@ -40,11 +42,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Records a tool call by updating the last agent timestamp and tool name, incrementing a call counter, and appending (counter, tool name) to a recent calls deque. Maintains a bounded history by removing the oldest entries when the deque exceeds RECENT_CALLS limit.
 - predicted: most · documented: most · derivable: no
 
-### `for_client` — as expected
+### `for_client` — as expected — STALE
 - read at `f2ffe2ecd7c1` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: Returns the project key the client call belongs to. If a project is supplied, checks if it exists and returns it; if not found, returns None rather than falling back to active (preventing cross-repo contamination). If no project supplied, returns active project.
 - found: Matches on project parameter: if Some(k), checks if k exists in projects and returns it or None; if None, returns active project.
 - predicted: full · documented: full · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `load_reports` — as expected
 - read at `01746026f963` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 10 of its run
@@ -120,11 +124,13 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: none · documented: none · derivable: yes
 - note: Misread the architecture: thought it returned batch size but it returns handout size. The docs explain this clearly but I missed the crucial distinction between n-at-a-time vs n calls.
 
-### `open_project` — nearly
+### `open_project` — nearly — STALE
 - read at `f76d7c8d8408` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: This function opens a repo by validating the path, performing an initial scan using the proxy model, loading stored assessments, and returning the tree structure and initial scores so the frontend can display the sunburst visualization.
 - found: The function validates the path, performs a fresh scan with the proxy every time (to detect staleness), loads and re-keys reports from disk against the new tree, creates a Project struct with metadata and dropped leases, and returns a detailed JSON response including project key, name, function/excluded counts, shape, stale count, guidance about .sanityignore, and the protocol for agents.
 - predicted: most · documented: most · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `work_left` — nearly
 - read at `c258e9e8dba4` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 9 of its run
@@ -237,11 +243,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Iterates through loaded projects in state.projects and creates ProjectSummary entries with counts of functions and assessed work, checking if each is actively being worked on (based on last_agent timestamp). Also includes projects being restored from state.restoring that haven't fully loaded yet, with progress tracking. Sorts all projects by most recently touched first, then wraps in a ProjectList with the active project key.
 - predicted: some · documented: none · derivable: no
 
-### `router` — as expected
+### `router` — as expected — STALE
 - read at `c1bf5c2e20f9` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: This function creates and configures an HTTP router by registering handler functions for various endpoints. It likely sets up routes like /queue, /report, /status, and /summary that are mentioned in the peer functions, attaches shared state, and returns the configured router.
 - found: The function creates a new Router, registers POST /open to open_project, GET /queue to queue, POST /report to report, GET /status to status, GET /summary to summary, and attaches the shared state.
 - predicted: full · documented: none · derivable: yes
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `endpoint_file` — nearly
 - read at `a3cb589c4a07` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 4 of its run
@@ -324,12 +332,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: Creates a temp directory with a Rust file containing keep() and go() functions. Syncs the project. Deletes go() from the file and calls resync_changed, expecting it to detect 1 change. Then visits the tree to collect function names and asserts only "keep" remains—verifying the deleted function is actually removed from the tree.
 - predicted: most · documented: none · derivable: yes
 
-### `status_answers_about_the_callers_repo_not_the_window` — as expected
+### `status_answers_about_the_callers_repo_not_the_window` — as expected — STALE
 - read at `87e59836a1ed` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · warm reading · reading 3 of its run
 - expected: This test function validates that the status endpoint correctly returns data for the caller's project, not the active window project. It sets up multiple projects, sets the window to one, makes a status call for another with an explicit project key, and verifies the response describes the calling session's repo, not the window's.
 - found: Creates two temp directories and projects (mine/theirs), sets window active to /theirs. Calls status with project=/mine and asserts the response has project=mine (not theirs) with correct repo path. Then calls status with project=None and asserts it defaults to the window's active project (theirs).
 - predicted: full · documented: full · derivable: no
 - note: Cold=false because the same file was read for the previous function (status endpoint at 1588-1702); this test is at 2655-2683 in the same file.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `a_project_key_that_is_not_loaded_is_refused_rather_than_swapped` — as expected
 - read at `ed53d881df27` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 6 of its run
@@ -457,11 +467,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Matches on (report.body, node_body): empty report.body returns false, recorded vs now comparison returns true if different, None node_body returns false.
 - predicted: most · documented: full · derivable: no
 
-### `save` — nearly
+### `save` — nearly — STALE
 - read at `eb5b6204deb6` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: This function persists agent assessment reports to disk by rewriting the entire `.sanity/` directory structure—one file per top-level directory plus an index. It likely iterates through the reports, groups them by directory, renders them as markdown, and writes them to the filesystem.
 - found: Writes assessment reports to disk by creating the `.sanity/` directory and grouping live functions into a nested BTreeMap by shard/file/position. For each shard, it collects statistics (read count, surprising, stale), renders markdown entries sorted by line and name, writes shard files, cleans up orphaned files from deleted readings, and finally writes a README.md index with aggregate statistics.
 - predicted: most · documented: most · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `render_entry` — nearly
 - read at `0087893dc036` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
@@ -475,12 +487,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: Returns a markdown-formatted string containing: header with shard name, summary line with read/total/surprising/stale counts (stale count only shown if > 0), explanatory text about readings and staleness, and the body content.
 - predicted: full · documented: none · derivable: yes
 
-### `render_index` — surprising
+### `render_index` — surprising — STALE
 - read at `201faa7cc7ba` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: Renders a markdown index/table of contents document for the assessment file. Takes repo name and shard data (file names with line/count statistics), generates a markdown table listing all shards with their statistics, and returns the formatted markdown string.
 - found: Renders a comprehensive markdown report for the assessment that includes: a markdown table summarizing shard statistics (read/total/surprising/stale counts) with links to each shard file, totals row, and extensive explanation text about what readings are, how to interpret them, how to use the app, instructions for updating the assessment, notes about collaboration and file organization, and advice to commit the assessment directory.
 - predicted: some · documented: none · derivable: yes
 - note: I got the table generation right but missed that this generates a full report document with extensive explanatory text about the assessment process, not just a simple index.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `git` — as expected
 - read at `ce1c2ecff671` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -561,11 +575,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Creates a tree: root → files (by_file mapping) → functions. Each function becomes a Node with id "path#name@line", with line number and body hash. Returns a Scan with the tree root and stats (including function count, "test" model, without_history flag).
 - predicted: most · documented: none · derivable: yes
 
-### `writes_and_reloads_a_repo_assessment` — as expected
+### `writes_and_reloads_a_repo_assessment` — as expected — STALE
 - read at `4dd8c8c54659` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
 - expected: This end-to-end test creates an assessment, saves it to the repo, reads it back, and verifies that readings survive and are properly marked stale when the source code functions move to different lines.
 - found: Creates scan with functions, generates reports, saves to .sanity/ shards, verifies files exist and index is correct, then creates a new scan with functions moved and one body rewritten, loads readings back, verifies they're found by key (not line), and are marked stale correctly.
 - predicted: full · documented: full · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `shards_by_top_level_dir` — surprising
 - read at `3e71ff49437a` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -921,12 +937,14 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/commands.rs
 
-### `scan_repo` — nearly
+### `scan_repo` — nearly — STALE
 - read at `67a22744acc7` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: This async command handler takes a ScanRequest and orchestrates scanning a repository. It will coordinate with the app state to parse the repo, calculate the surprise/temperature metric for functions, and return the complete scored tree as a single Scan result payload to the frontend.
 - found: Validates the repo path, resets cancellation flag, spawns CPU-bound scanning on a blocking thread with a HeuristicModel. Streams progress and individual function scores live via emit callbacks. Uses an ephemeral cache and Ordering-level fidelity (just enough precision to sort, not color the UI). Loads existing agent reports from .sanity, updates shared project state, and returns the completed Scan tree.
 - predicted: most · documented: most · derivable: no
 - note: Docs omit streaming of individual scores via emit and the state management around project registration; the design reasoning about parsing frames and wedge dependencies is not derivable from code alone.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `read_source` — as expected
 - read at `515cf731af35` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 4 of its run
@@ -1259,11 +1277,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/main.rs
 
-### `main` — nearly
+### `main` — nearly — STALE
 - read at `f4ff0d9e142f` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: This is the entry point function for the Tauri app. It will initialize and launch the application window, setting up any necessary configuration before handing control to the frontend.
 - found: The entry point checks if the first command-line argument is 'mcp'; if so, it runs the MCP server via sanity_lib::mcp::run(). Otherwise, it calls sanity_lib::run() to launch the normal Tauri app.
 - predicted: most · documented: none · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## src-tauri/src/mcp.rs
 
@@ -1273,12 +1293,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: It retrieves a cloned Optional<String> from a shared mutex-protected static variable called PROJECT, using lock().ok().and_then() to safely access the inner value.
 - predicted: most · documented: none · derivable: yes
 
-### `base_url` — nearly
+### `base_url` — nearly — STALE
 - read at `b10c9e157e80` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: base_url reads a file to discover the app's current port and constructs a base URL string. Since the app publishes a new port each startup, the function must re-read the file every time to get the current address rather than caching it.
 - found: Checks if SANITY_BACKEND environment variable is set and returns it if present; otherwise reads the endpoint file path, parses its JSON, extracts the port field, and returns a formatted http://127.0.0.1:{port} URL.
 - predicted: most · documented: none · derivable: yes
 - note: Missed the environment variable override (SANITY_BACKEND) that provides an alternate path before file reading.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `with_retry` — nearly
 - read at `c1dba3d1748d` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 4 of its run
@@ -1304,18 +1326,22 @@ What this is and how to add to it: [README.md](README.md)
 - found: Iterates over input bytes and maps each: unreserved characters (A-Z, a-z, 0-9, -, _, ., ~, /) pass through unchanged; all others are percent-encoded as %HH in uppercase hex. Collects results into String.
 - predicted: most · documented: none · derivable: yes
 
-### `tools` — as expected
+### `tools` — as expected — STALE
 - read at `a91a7982501e` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: This function constructs and returns a JSON Value representing the MCP tool contract/schema with all five tools and their input schemas and descriptions.
 - found: Returns a JSON array containing the five MCP tool definitions (sanity_open, sanity_status, sanity_next, sanity_report, sanity_summary), each with name, description, and inputSchema properties specifying their parameters.
 - predicted: full · documented: full · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `call` — nearly
+### `call` — nearly — STALE
 - read at `5f2f79573519` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: This function dispatches MCP tool calls by name, routing the args Value to the appropriate handler (get/post with retry logic), and returns the tool's result or an error message.
 - found: Matches on tool name (sanity_open, sanity_status, sanity_next, sanity_summary, sanity_report) and routes to HTTP get/post calls. Injects current project context via project() into query strings or request bodies. For sanity_next, handles the optional n parameter with clamping to 1-25 and only includes it if the caller provided it (to defer to default_n constant).
 - predicted: most · documented: none · derivable: yes
 - note: The n parameter handling required reading the comment to understand the design decision; the project context injection was a detail not evident from signature alone.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `run` — nearly
 - read at `d53dea6f65ee` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
