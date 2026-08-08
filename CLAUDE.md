@@ -282,6 +282,16 @@ When a field is added to `Report`, add it to the schema in the same commit.
   process rather than stranding two servers with one address. **It holds nothing
   precious** — the scan recomputes, the readings are in `.sanity/`, an expired lease
   re-queues — which is why it can idle out on a timer and why there is no `sanity stop`.
+  **`sanity_open` starts one if nothing answers, and it is the only tool that may.** MCP
+  being configured used to get an agent as far as talking to a backend and no further —
+  somebody still had to open a window, which is the UI requirement wearing a hat. `open`
+  is where it belongs because it means "I am starting work": once per session, before any
+  reader exists. Restricting it there is about the race, not tidiness — if any shim could
+  bootstrap, a cold wave would have several spawning servers that each bind a port and
+  publish the file, and the losers only stand down on their next watch tick, by which time
+  a project can have been opened on one that is leaving. The spawn's stdio is null because
+  the shim speaks JSON-RPC on stdout, and `SANITY_BACKEND` suppresses it: a shim pointed at
+  one server must not quietly start another.
   The CLI's read verbs are formatters over `/status` and `/summary` and compute nothing;
   anything they needed that an endpoint lacks belongs in the endpoint, or it is two
   implementations of one answer and the unwatched one goes wrong. **And `study` prints the
@@ -296,7 +306,13 @@ When a field is added to `Report`, add it to the schema in the same commit.
   when nothing holds it — a fresh launch, a headless daemon, an `active` naming a project
   that is not loaded. Nothing is hidden by declining: the project is in the sidebar with
   its own progress, and `/open` returns `showing` so a caller never tells the human to go
-  and look at a pane that is still on something else.
+  and look at a pane that is still on something else. **`for_client(None)` follows the last
+  repo OPENED, never `active`.** Those were the same value only while opening also moved the
+  window; once they came apart, a caller with no key — a reader shim that never handled
+  `sanity_open` — resolved to whatever somebody was LOOKING at, and `report` takes that same
+  path, so the reading would land in another repo's `.sanity/`, attributed and hashed and
+  looking entirely genuine. `touched` is the right fallback because every open bumps it and
+  no view moves it.
 - **Errors must say what to do.** A reader that hit the old flat "Sanity is not running"
   invented a prerequisite, another ran the tools as shell commands, another read
   `.sanity/` to compensate — contaminating itself. `UNREACHABLE` (transient, retry) is

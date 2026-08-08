@@ -96,14 +96,26 @@ fn post(ep: &Endpoint, path: &str, body: Value) -> Result<Value, String> {
 /// `PATH`. Whatever is running now is definitely installed; anything found by name might
 /// be a different version writing the same `.sanity/`.
 ///
+/// **Its stdio is null, and for the shim that is load-bearing rather than tidy.**
+/// `sanity mcp` speaks JSON-RPC over stdout; a child that inherited it would print
+/// "Sanity backend on port …" into the middle of a protocol stream and break the session
+/// that started it.
+///
+/// `SANITY_BACKEND` means the caller has said where the backend is, so nothing is
+/// started — pointing a shim at one server and silently spawning another is the two-copies
+/// failure in process form.
+///
 /// It is not detached from the terminal's session, so closing the shell takes the daemon
 /// with it. That is a deliberate non-feature rather than an oversight: a backend that
 /// dies costs an unreported reading or two and comes straight back on the next call, and
 /// a background process that outlives every window and terminal the user can see is a
 /// worse thing to leave on somebody's machine than a restart.
-fn ensure_backend() -> Result<Endpoint, String> {
+pub(crate) fn ensure_backend() -> Result<Endpoint, String> {
     if let Some(ep) = live() {
         return Ok(ep);
+    }
+    if std::env::var_os("SANITY_BACKEND").is_some() {
+        return Err("SANITY_BACKEND is set but nothing is answering there".into());
     }
     let exe = std::env::current_exe().map_err(|e| format!("cannot find my own binary: {e}"))?;
     std::process::Command::new(exe)

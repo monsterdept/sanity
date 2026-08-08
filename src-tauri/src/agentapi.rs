@@ -267,10 +267,33 @@ impl AppState {
     /// So it returns `None`, and the callers say "not loaded, retry" — the same answer
     /// they give when nothing is open at all, because from the caller's side it is the
     /// same situation: wait, do not throw the reading away.
+    /// A keyless caller gets the most recently OPENED project, never the window's.
+    ///
+    /// This used to be `active`, which was the same thing only for as long as opening a
+    /// repo also pointed the window at it. Splitting those apart (see [`Self::focus`])
+    /// broke the equivalence in the dangerous direction: with the window left on an
+    /// earlier repo, a caller that supplied no key would resolve to whatever somebody was
+    /// LOOKING at rather than what this session had opened — and `report` takes that same
+    /// path, so a reading would be written into another repo's `.sanity/`, attributed and
+    /// hashed and looking entirely genuine.
+    ///
+    /// `touched` is the right fallback because it means what this needs it to mean: every
+    /// open bumps it, nothing else does, and no view moves it. It restores exactly the
+    /// behaviour keyless callers had before the split, without tying it back to a pane.
+    ///
+    /// It remains a fallback and not a mechanism. A shim that handled `sanity_open` sends
+    /// its key on every call and never comes through here.
+    fn most_recent(&self) -> Option<String> {
+        self.projects
+            .iter()
+            .max_by_key(|(_, p)| p.touched)
+            .map(|(key, _)| key.clone())
+    }
+
     pub fn for_client(&self, project: Option<&str>) -> Option<String> {
         match project {
             Some(k) => self.projects.contains_key(k).then(|| k.to_string()),
-            None => self.active.clone(),
+            None => self.most_recent(),
         }
     }
 
@@ -2758,8 +2781,11 @@ mod tests {
         let mut p = project_of(theirs.path());
         p.name = "theirs".into();
         state.projects.insert("/theirs".into(), p);
-        // The window has drifted onto somebody else's repo.
+        // The window has drifted onto somebody else's repo — but `mine` is what was
+        // opened most recently, which is what a keyless caller is actually asking about.
         state.active = Some("/theirs".into());
+        state.touch("/theirs");
+        state.touch("/mine");
         let shared: Shared = Arc::new(Mutex::new(state));
 
         let Json(out) = status(
@@ -2770,9 +2796,13 @@ mod tests {
         assert_eq!(out["project"], "mine", "status followed the window, not the caller");
         assert!(out["repo"].as_str().unwrap().contains(mine.path().to_str().unwrap()));
 
-        // No key — the window is the honest default, and the answer still says whose it is.
+        // No key — the last repo OPENED, not the one being looked at. This asserted the
+        // window until opening a repo stopped pointing the window at it; once those came
+        // apart, "whatever is on screen" was the wrong answer in the one direction that
+        // costs something, because `report` resolves down this same path. The answer still
+        // names whose it is either way, which is what makes a mismatch visible.
         let Json(out) = status(State(shared), Query(StatusParams { project: None })).await;
-        assert_eq!(out["project"], "theirs");
+        assert_eq!(out["project"], "mine");
     }
 
     /// A named project that is not loaded must not be answered for by another one.
@@ -2942,6 +2972,28 @@ mod tests {
         state.active = Some("/gone".into());
         assert!(state.focus("/y", false));
         assert_eq!(state.active.as_deref(), Some("/y"));
+    }
+
+    /// A caller with no key follows what was OPENED, not what is on screen.
+    ///
+    /// The pairing that has to hold: the window is left on an earlier repo while a
+    /// session works in a newer one, and a keyless `next` or `report` must land on the
+    /// newer one. `report` resolves down this same path, so getting it wrong writes a
+    /// reading into a repo nobody was assessing.
+    #[test]
+    fn a_keyless_call_follows_the_last_open_not_the_window() {
+        let (dir, mut state) = two_projects();
+        let _dir = dir;
+        // `/x` was opened first and is what the window still shows; `/y` was opened after.
+        state.focus("/x", true);
+        state.touch("/x");
+        state.touch("/y");
+        assert_eq!(state.active.as_deref(), Some("/x"), "the view has not moved");
+        assert_eq!(state.for_client(None).as_deref(), Some("/y"));
+        // A key that IS supplied still wins outright, view or no view.
+        assert_eq!(state.for_client(Some("/x")).as_deref(), Some("/x"));
+        // And one that names nothing loaded is still not silently redirected.
+        assert_eq!(state.for_client(Some("/gone")), None);
     }
 
     /// The endpoint file round-trips through the one parser both halves now share.

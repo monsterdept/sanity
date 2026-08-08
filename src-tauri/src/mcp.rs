@@ -15,9 +15,11 @@
 //!
 //! One server. If a second ever seems necessary, the schema has to come from one place.
 //!
-//! It forwards to the loopback API the running app serves, so the window the human is
-//! looking at is what answers. Launching this without the app running is an error the
-//! agent can read, not a silent empty result.
+//! It forwards to the loopback API, which is the app's when a window is open and
+//! `sanity serve`'s when one is not — `sanity_open` starts one if nothing answers, so a
+//! client configured with nothing but this command can assess a repo end to end. What it
+//! never does is fail quietly: everything that goes wrong here comes back as an error the
+//! agent can read, because a reader with no answer invents one.
 
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
@@ -149,10 +151,11 @@ const UNREACHABLE: &str = "Sanity is not answering right now. This is usually TR
     contaminates your reading with the previous reader's findings and makes it worthless. \
     If it is still failing after several retries, stop and report that Sanity is down.";
 
-const NOT_RUNNING: &str = "Sanity does not appear to be running at all — no endpoint file \
-    was found. If it is starting up, retry in a few seconds. Otherwise ask the human to \
-    start the Sanity app, then call sanity_open with your repo path. Do NOT read the \
-    .sanity/ directory instead; a reading made after seeing it is contaminated.";
+const NOT_RUNNING: &str = "Sanity is not running and could not be started. If you have not \
+    called sanity_open yet, call it — it starts the backend itself, so this is not a \
+    prerequisite you need a human for. If sanity_open is what just failed, retry it once, \
+    then stop and tell the human Sanity could not start. Do NOT read the .sanity/ \
+    directory instead; a reading made after seeing it is contaminated.";
 
 /// Percent-encode a project key for a query string. Keys are absolute paths, so spaces
 /// and anything else a directory name may legally contain have to survive the trip.
@@ -259,6 +262,28 @@ pub fn tools() -> Value {
 fn call(name: &str, args: &Value) -> Result<Value, String> {
     match name {
         "sanity_open" => {
+            // The one call that starts a backend, and the only one that may.
+            //
+            // Without this, "MCP is configured" got an agent as far as talking to a
+            // backend and no further — somebody still had to open a window first, which is
+            // the UI requirement wearing a different hat. `open` is where it belongs
+            // because it means "I am starting work": it is made once, by the orchestrator,
+            // before any reader exists, so every other tool still runs against a backend
+            // that is already up and still fails loudly if it is not.
+            //
+            // Restricting it here is about the race, not tidiness. If any shim could
+            // bootstrap, a wave of subagents starting cold would all probe an empty
+            // endpoint at once and several would spawn a server; each binds its own port
+            // and publishes the file, and the losers only notice they have been superseded
+            // on their next watch tick. Self-healing, but a project can be opened on the
+            // one that is about to stand down. One bootstrapping caller and there is
+            // nothing to race.
+            //
+            // The result is deliberately discarded. If starting failed, `post` below
+            // retries and reports in the words a reader has already been given for this —
+            // a second error path here would be a second thing to keep saying the right
+            // thing.
+            let _ = crate::cli::ensure_backend();
             let out = post("/open", json!({ "path": args.get("path").and_then(|v| v.as_str()).unwrap_or("") }))?;
             // Remember what we opened. Every later call carries it, so this session's
             // work lands in this session's repo however many other agents are running.
