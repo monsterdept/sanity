@@ -1213,27 +1213,24 @@ img{max-width:100%; display:block}
 
                Use <span class="pill"> for anything typed or named exactly,
                and <pre> for commands. Both are already styled. -->
-          <p>If you are an AI assistant here to set Sanity up: the app <em>is</em> its own MCP server. Register it, restart, and you can drive the open window by tool call — the human watches the map color in as you read.</p>
+          <p>If you are an AI assistant here to set Sanity up: the app <em>is</em> its own MCP server. Register it, restart, and you can drive the whole reading by tool call. The app does not have to be running — starting work starts what it needs — but if a window is open, the human watches the map color in as you read.</p>
           <ol>
             <li>
-              <strong>Make sure Sanity is open.</strong>
-              <p>It serves the agent API on loopback only, on a port the OS picks, and writes that port where the MCP server can find it. If the app is not running, ask the human to launch it.</p>
-            </li>
-            <li>
               <strong>Register <span class="pill">sanity mcp</span> with the host.</strong>
-              <p>The launch command is the installed Sanity executable plus the <span class="pill">mcp</span> argument. Find the executable for the human’s OS:</p>
+              <p>The easy path is the human’s: <span class="pill">Connect an agent</span> in Sanity lists the hosts it knows and writes the entry itself, resolving the executable path for you. Nothing puts <span class="pill">sanity</span> on a <span class="pill">PATH</span> — the binary lives inside the app bundle — so to write the config yourself, name the installed executable plus the <span class="pill">mcp</span> argument:</p>
 <pre><span class="c"># macOS</span>   /Applications/Sanity.app/Contents/MacOS/Sanity
 <span class="c"># Windows</span> %LOCALAPPDATA%\Sanity\Sanity.exe
 <span class="c"># Linux</span>   /usr/bin/sanity</pre>
+              <p>Restart the host afterwards; clients read their config at startup.</p>
             </li>
             <li>
               <strong>Say <span class="pill">study this project in sanity</span>.</strong>
-              <p>Sanity hands back the protocol. Follow it exactly — and read it before you start, because the one rule that matters is easy to skip: <b>predict the body before you open the file, and assess in fresh subagents.</b> A reader that has already seen the code recalls instead of predicting, scores everything as unsurprising, and quietly turns the whole measurement into a rubber stamp.</p>
+              <p>Opening the project starts a backend if nothing is answering yet, and the project opens in the window if one is up. The backend is loopback only, on a port the OS picks, written where the MCP server can find it; nothing leaves the machine. Sanity hands back the protocol. Follow it exactly — and read it before you start, because the one rule that matters is easy to skip: <b>predict the body before you open the file, and assess in fresh subagents.</b> A reader that has already seen the code recalls instead of predicting, scores everything as unsurprising, and quietly turns the whole measurement into a rubber stamp.</p>
             </li>
           </ol>
           <!-- The gate: what the agent may do alone, and what waits for a
                human. Every habitat has one; say yours plainly. -->
-          <p class="gate"><b>Trust boundary:</b> You may open projects, request work and report what you find. You cannot change the code — Sanity never writes to the repository it is looking at, so nothing you do here can edit the human’s work.</p>
+          <p class="gate"><b>Trust boundary:</b> You may open projects, request work and report what you find. You cannot change the code — Sanity never writes to the source it is looking at, so nothing you do here can edit the human’s work. The one thing it does write into the repository is the readings themselves, as Markdown under <span class="pill">.sanity/</span>, to be committed alongside the code they describe.</p>
         </div>
       </div>
     </div>
