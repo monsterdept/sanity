@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type Node } from '../lib/api'
 import { colorFor, type ColorMode } from '../lib/colorMode'
 import { arcPath, labelArc, layout, tileFunctions, type Wedge } from '../lib/sunburst'
+import { RollupDots } from './RollupDots'
 import { StaleHatch } from './StaleHatch'
 import { WedgeTip } from './WedgeTip'
 
@@ -73,6 +74,20 @@ const FUNC_RIM_MAX_SHARE = 0.2
  *  Was 5, which silenced a file of a thousand lines while its wedge had room for twenty
  *  patches. */
 const MIN_STACK_ARC = 2
+
+/** Shorter side a roll-up needs, in real screen pixels, before it is worth texturing.
+ *
+ *  Measured rather than picked. Across depths and file sizes the roll-ups that read as one
+ *  big function come out at 13.3, 16.4, 22.6, 25.4 and 32.2 pixels on the short side, and
+ *  the ones that read as a sliver at 3.0, 6.2, 7.0, 7.4 and 7.6 — two populations either
+ *  side of ten with nothing between them. That gap is not luck: a roll-up is large exactly
+ *  when the code it stands for is, which is the same condition that makes it mistakable
+ *  for a single large function. So the ones that need the mark can hold it, and the ones
+ *  that cannot hold it do not need it.
+ *
+ *  At the pattern's 3.2-unit pitch, ten pixels is a 3×3 field of dots — enough to read as
+ *  a texture rather than as specks. */
+const ROLLUP_TEXTURE_PX = 10
 
 /** Patches a wedge must have room for before it is opened at all.
  *
@@ -158,6 +173,16 @@ function heatShare(kind: string, mode: ColorMode): number {
  *  are already hardest to tell apart. Narrower for the finer levels so a file's rim
  *  doesn't swallow the functions inside it. */
 const CUT = { dir: 2.2, file: 1.5, func: 0.35 }
+
+/** A pattern id from a file path.
+ *
+ *  Ids may not hold slashes or dots, and the obvious `replace(/[^a-zA-Z0-9]/g, '-')` is
+ *  not injective — `a/b.rs` and `a-b.rs` both come out `a-b-rs`, and the two would share
+ *  one grid, drawn at whichever of their angles React rendered second. Escaping to the
+ *  character code cannot collide, because the escape is the one character it removes. */
+function dotsId(path: string): string {
+  return `dots-${path.replace(/[^a-zA-Z0-9]/g, (c) => `-${c.charCodeAt(0)}-`)}`
+}
 
 export function Sunburst({
   root,
@@ -605,6 +630,51 @@ export function Sunburst({
                     fill="url(#stale-hatch)"
                   />
                 )}
+                {/* A roll-up is drawn like a function and is the largest patch in its
+                    file, so at any real size it reads as one enormous cold function
+                    rather than as the hundreds it stands for. The dots say otherwise —
+                    see `RollupDots`.
+
+                    Only when there is room for the texture to BE one, and the threshold
+                    costs nothing: a roll-up is large exactly when its members carry a lot
+                    of lines, which is the same condition that makes it mistakable. The
+                    ones below the cut measure three to eight pixels on the short side and
+                    nobody was going to read those as one big function anyway. Measured
+                    across depths and file sizes, the two populations fall either side of
+                    ten pixels with nothing in between. */}
+                {slot.node.rest !== undefined &&
+                  unitsPerPx !== null &&
+                  Math.min(
+                    (slot.a1 - slot.a0) * ((slot.r0 + slot.r1) / 2),
+                    slot.r1 - slot.r0,
+                  ) /
+                    unitsPerPx >=
+                    ROLLUP_TEXTURE_PX && (
+                    <>
+                      {/* Keyed on the FILE, not the roll-up's own node. The aggregate is
+                          synthetic and its id is minted from the path, so it is stable per
+                          file and there is exactly one roll-up in a file's wedge. */}
+                      <RollupDots
+                        id={dotsId(w.node.path)}
+                        angle={(slot.a0 + slot.a1) / 2}
+                        // The patch's own middle, so the lattice is centred on it rather
+                        // than on the hub. Mid-angle at mid-radius: not the true centroid
+                        // of an annular sector, which sits a little outward of it, but the
+                        // dots are a texture and the difference is under a tile.
+                        cx={
+                          ((slot.r0 + slot.r1) / 2) * Math.sin((slot.a0 + slot.a1) / 2)
+                        }
+                        cy={
+                          -((slot.r0 + slot.r1) / 2) * Math.cos((slot.a0 + slot.a1) / 2)
+                        }
+                      />
+                      <path
+                        className="pointer-events-none"
+                        d={d}
+                        fill={`url(#${dotsId(w.node.path)})`}
+                      />
+                    </>
+                  )}
                 </g>
               )
             })
