@@ -139,26 +139,36 @@ const CHROME_BOTTOM = 0.1
 
 /** How strongly each level carries the heat ramp.
  *
- *  Colour has to mean ONE thing, and for a function it means that function's
- *  surprise. A directory's colour was `hot_share` — what FRACTION of its lines are hot —
- *  which is a different quantity wearing the same ramp, and because the inner rings
- *  dominate by area it was also the loudest thing on screen while the actual findings sat
- *  in thin bands at the edge.
+ *  Directories were zeroed here, on the argument that a directory's colour is `hotShare` —
+ *  what FRACTION of its lines are hot, a different quantity wearing the same ramp — and
+ *  that because the inner rings dominate by area it would be the loudest thing on screen
+ *  while the actual findings sat in thin bands at the edge.
  *
- *  So directories are structure and carry no reading at all. Files keep a faint tint
- *  because they are the immediate container and it helps you FIND a hot file. Functions
- *  carry it fully — they are the only level where the number means what the legend says. */
-const HEAT_BY_KIND: Record<string, number> = { dir: 0, file: 0.3, func: 1 }
+ *  Both halves of that have since stopped being true. The findings are no longer in thin
+ *  bands: `tileFunctions` fills every file's wedge with per-function colour, so the leaves
+ *  now carry most of the painted area and a directory tint is no longer the loudest thing
+ *  in the window. And the quantity is no longer raw — `shareRamp` calibrates it onto the
+ *  ramp's own scale, which is what a share needed all along. Zeroing it was the right
+ *  answer to a scale problem and the wrong place to fix it: measured across three repos,
+ *  35 of 37 directories sat in the bottom fifth of the raw ramp, so even un-zeroed they
+ *  would all have been the same grey. That is why turning this up alone would have looked
+ *  like it did nothing.
+ *
+ *  Still not 1. Functions are the level where the number means exactly what the legend
+ *  says, and the containers are a roll-up OF those numbers; drawing all three at full
+ *  strength would make the ring you can read and the ring you have to interpret shout
+ *  equally loudly. */
+const HEAT_BY_KIND: Record<string, number> = { dir: 0.6, file: 0.55, func: 1 }
 
 /**
  * ...but only under Surprise.
  *
- * The rule above is about ONE quantity: a directory's surprise colour would be its hot
- * share, which is a different measurement wearing the same ramp, and letting the inner
- * rings carry it makes the loudest thing on screen the thing that means least. That
- * argument does not generalise. A directory's churn, its age, its dominant language and
- * its last author are all perfectly well-defined aggregates of exactly the quantity the
- * ramp is showing — so in those modes a grey inner ring is not restraint, it is a hole.
+ * The damping above is about ONE quantity: a directory's surprise colour is its hot share,
+ * a roll-up rather than a reading, and the ring carrying it is the one that dominates by
+ * area. That argument does not generalise. A directory's churn, its age, its dominant
+ * language and its last author are all perfectly well-defined aggregates of exactly the
+ * quantity the ramp is showing — the same measurement over more code, not a different one
+ * — so in those modes a damped inner ring is not restraint, it is a hole.
  */
 function heatShare(kind: string, mode: ColorMode): number {
   if (mode === 'surprise') return HEAT_BY_KIND[kind] ?? 1
@@ -428,10 +438,19 @@ export function Sunburst({
           const gap = w.node.kind === 'dir' ? RING_GAP : RING_GAP * 0.4
           const r0 = R_INNER + (w.depth - 1) * band
           const r1 = r0 + band - gap
-          // Directories stay structural in every mode: their value is an aggregate of a
-          // different quantity, and painting it in the same scale as the leaves reads as
-          // comparable when it is not.
-          const c = w.node.kind === 'dir' ? null : colorFor(w.node, mode, ranks)
+          // Directories used to be hard-nulled here, and that made `HEAT_BY_KIND.dir`
+          // dead code: the damping is applied as `fillOpacity` on a colour, so a wedge
+          // with no colour at all could never be damped, only blanked. Turning that
+          // constant up did nothing, which is a bad way for a policy to be stated twice.
+          //
+          // It also blanked directories in EVERY mode, while `heatShare` carves out an
+          // explicit exception for the other four — a directory's churn, age, owner and
+          // language are the same measurement over more code, so a grey inner ring there
+          // is a hole rather than restraint. That exception was unreachable.
+          //
+          // One mechanism now: `colorFor` decides WHAT a wedge means, `heatShare` decides
+          // how loudly its level says it.
+          const c = colorFor(w.node, mode, ranks)
           // Agent verdicts and model surprisal are different instruments and must be
           // told apart at a glance. Hue is spoken for — it is the reading itself — so the
           // distinction goes on the outline.
@@ -504,8 +523,8 @@ export function Sunburst({
               // Everything else is separated by a CUT, not a line: the stroke is the
               // background colour, so what you see is the gap between two plates. The
               // drawn foreground outline directories used to carry was the brightest
-              // thing on screen and it sat around the one level that carries no reading
-              // at all — the eye went to structure instead of to heat.
+              // thing on screen, and it sat around the level whose reading is the
+              // quietest — the eye went to structure instead of to heat.
               stroke="var(--background)"
               strokeWidth={w.node.kind === 'dir' ? CUT.dir : CUT.file}
               onMouseEnter={() => setHoverNode(w.node)}

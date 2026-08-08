@@ -6,6 +6,7 @@ import {
   isAnalyzed,
   readingWords,
   temperature,
+  paintHeat,
   wedgeHeat,
   type AgentReport,
   type Grade,
@@ -351,7 +352,7 @@ export function Detail({
       <div className="mb-1 flex items-center gap-2">
         <span
           className="inline-block h-3 w-3 shrink-0 rounded-full"
-          style={{ background: analyzed ? heatColor(wedgeHeat(node)) : 'var(--unanalyzed)' }}
+          style={{ background: analyzed ? heatColor(paintHeat(node)) : 'var(--unanalyzed)' }}
         />
         <h2 className="mono truncate text-sm font-semibold">{node.name}</h2>
         {/* Three ring kinds are hard to tell apart in a sunburst, and hue can't be

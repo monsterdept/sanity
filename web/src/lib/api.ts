@@ -791,6 +791,46 @@ export function wedgeHeat(node: Node): number {
 }
 
 /**
+ * Where a hot SHARE sits on the ramp — the calibration, not the measurement.
+ *
+ * A share and a temperature both run 0..1 and are not the same scale. Real directories
+ * do not use the top of theirs: measured line-weighted across tonepoet, sanity and
+ * ComfyUI, 37 directories run from 0.0% to 37.8% hot with a median of 5.9%, so on the raw
+ * number 35 of the 37 land in the bottom fifth of the ramp and every folder in the window
+ * is the same grey. That is the same failure a flat histogram is for the proxy: the scale
+ * looks like a measurement and reports a constant.
+ *
+ * `min(1, share/BAND)^SKEW` with the constants below puts the p10–p90 across 0.80 of the
+ * ramp against 0.18 raw, and saturates exactly one directory — tonepoet's
+ * `pipeline/qualification` at 37.8%, which is genuinely extreme. A tighter band scores
+ * better on spread and saturates six, and a saturated top is the point where the ranking
+ * stops being a ranking.
+ *
+ * Two properties this is not allowed to lose. It is MONOTONIC, so it changes no ordering —
+ * which is why `wedgeHeat` above is left raw for sorting and for the numbers the panel
+ * prints, and this is applied only where a colour is produced. And `0` maps to `0`, so a
+ * directory with nothing hot in it still reads as nothing hot: ComfyUI has six of those,
+ * and a scale that lifted them off the floor could not say that anything was fine.
+ *
+ * Constants are a standing claim about real repos, like `heuristic::calibrate`'s. Re-run
+ * the measurement across several before moving them.
+ */
+const SHARE_BAND = 0.25
+const SHARE_SKEW = 0.7
+
+export function shareRamp(share: number): number {
+  return Math.pow(Math.min(1, Math.max(0, share) / SHARE_BAND), SHARE_SKEW)
+}
+
+/** What a wedge is PAINTED with: `wedgeHeat`, with a share put on the ramp's own scale.
+ *  Separate from `wedgeHeat` because that one is the reported quantity — the tooltip's
+ *  "9% hot" is the measurement and this is where it lands on the colour bar. */
+export function paintHeat(node: Node): number {
+  if (!node.score) return 0
+  return showsShare(node) ? shareRamp(node.score.hotShare) : temperature(node.score)
+}
+
+/**
  * Has anything actually looked at this wedge?
  *
  * Wedges the model hasn't reached render neutral rather than borrowing the offline

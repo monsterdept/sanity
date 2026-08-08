@@ -1,4 +1,4 @@
-import { heatColor, isAnalyzed, readingWords, showsShare, type Node } from './api'
+import { heatColor, isAnalyzed, readingWords, shareRamp, showsShare, type Node } from './api'
 
 /** What the colour in the sunburst means. One geometry, five encodings. */
 export type ColorMode = 'surprise' | 'churn' | 'age' | 'blame' | 'language'
@@ -75,11 +75,14 @@ export function colorFor(
     if (!s || !isAnalyzed(node)) return null
     const share = showsShare(node)
     const t = share ? s.hotShare : s.surprise
+    // The fill is calibrated and the label is not, and that split is the whole point:
+    // `shareRamp` decides where 9% lands on the colour bar, the label says 9%. Ramping
+    // the printed number too would report the calibration as if it were the reading.
     // A function a reader read is named, not numbered — its scale has four steps and a
     // printed 62 claims otherwise. A container keeps its percentage: that one is a
     // roll-up of many readings in surprise space, where every digit is earned.
     return {
-      fill: heatColor(t),
+      fill: heatColor(share ? shareRamp(t) : t),
       label: share
         ? `${Math.round(t * 100)}% hot`
         : (readingWords(node)?.heat ?? `${Math.round(t * 100)}°`),

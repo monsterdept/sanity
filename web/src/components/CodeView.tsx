@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { heatColor, isAnalyzed, readSource, wedgeHeat, type Node } from '../lib/api'
+import { heatColor, isAnalyzed, paintHeat, readSource, type Node } from '../lib/api'
 
 /**
  * Rough syntax highlighting for the six languages the scanner parses.
@@ -129,7 +129,7 @@ function Minimap({
       const y = i * lh
       const owner = owners.get(i + 1)
       if (owner && isAnalyzed(owner)) {
-        ctx.fillStyle = rampAt(stops, wedgeHeat(owner))
+        ctx.fillStyle = rampAt(stops, paintHeat(owner))
         ctx.globalAlpha = 0.4
         ctx.fillRect(0, y, r.width, Math.max(lh, 1))
         ctx.globalAlpha = 1
@@ -317,7 +317,7 @@ export function CodeView({
             const n = i + 1
             const owner = owners.get(n)
             const analyzed = owner ? isAnalyzed(owner) : false
-            const heat = owner && analyzed ? wedgeHeat(owner) : null
+            const heat = owner && analyzed ? paintHeat(owner) : null
             const isSel = owner != null && selected?.id === owner.id
             const isFirst = owner != null && owner.line === n
             return (
