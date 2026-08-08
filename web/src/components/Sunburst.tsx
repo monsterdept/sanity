@@ -2,6 +2,23 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type Node } from '../lib/api'
 import { colorFor, type ColorMode } from '../lib/colorMode'
 import { arcPath, labelArc, layout, tileFunctions, type Wedge } from '../lib/sunburst'
+import {
+  direction,
+  ease,
+  enterFrom,
+  exitTo,
+  geoOf,
+  lerpGeo,
+  extentOf,
+  hubGeo,
+  lerpView,
+  viewBoxOf,
+  viewFor,
+  ZOOM_MS,
+  type Direction,
+  type Exiting,
+  type Geo,
+} from '../lib/zoom'
 import { RollupDots } from './RollupDots'
 import { StaleHatch } from './StaleHatch'
 import { WedgeTip } from './WedgeTip'
@@ -277,8 +294,10 @@ export function Sunburst({
     () => (unitsPerPx === null ? undefined : MIN_PATCH_PX * unitsPerPx * unitsPerPx),
     [unitsPerPx],
   )
-  /** The drawn extent, in user units. Square, so the composition does not stretch. */
-  const [viewBox, setViewBox] = useState('-360 -360 720 720')
+  /** The drawn extent, in user units. Square, so the composition does not stretch. Held
+   *  on the element and in a ref rather than in state — see the fit effect. */
+  const svg = useRef<SVGSVGElement>(null)
+  const fitted = useRef('-360 -360 720 720')
   const hover = hoverNode ? { node: hoverNode, ...pos } : null
   /** Directories folded shut by clicking them. A view concern, so it lives here rather
    *  than in the app's drill stack — and it survives drilling, so a directory you closed
@@ -307,13 +326,36 @@ export function Sunburst({
     [wedges],
   )
 
-  /** Drill direction, for the transition. Compared during render rather than in an
-   *  effect so the animation class is right on the first frame the new root paints. */
-  const prevPath = useRef(root.path)
-  const drill = root.path.length >= prevPath.current.length ? 'in' : 'out'
-  useEffect(() => {
-    prevPath.current = root.path
-  }, [root.path])
+  /** How far through the level change we are, 0..1. `1` means nothing is moving.
+   *
+   *  Driven by a rAF loop rather than CSS, because what is being animated is the wedges'
+   *  own geometry — see `zoom.ts` for why that is worth paying for and how it stays
+   *  affordable. React re-renders per frame, which is fine at a couple of hundred arcs:
+   *  the function patches, which are the thousands, are not drawn while this is running. */
+  const [t, setT] = useState(1)
+  /** Bumped once per level change, so the frame loop below knows a new run has begun
+   *  without depending on the value that run is writing. */
+  const [run, setRun] = useState(0)
+  /** The run the box has been re-based for, so it re-bases once per level and not once
+   *  per frame. */
+  const startedRun = useRef(0)
+  /** Where every wedge is RIGHT NOW, whether or not it has arrived.
+   *
+   *  Written every frame, which is what makes an interrupted transition start from the
+   *  picture on screen instead of from wherever the last one began. Double-clicking twice
+   *  quickly used to restart the keyframe from its own beginning, so the second move
+   *  visibly jumped backwards before going forwards. */
+  const live = useRef<Map<string, Geo>>(new Map())
+  /** The wedges of the level being left, so they can be animated out rather than dropped.
+   *  The old transition unmounted them, which is why changing level read as a hard cut
+   *  with an ease-in after it rather than as one movement. */
+  const leaving = useRef<Exiting[]>([])
+  /** The directory being opened, on its way into the middle. Its own thing rather than an
+   *  entry in `leaving`, because it is not leaving — it is arriving as the hub. */
+  const coring = useRef<{ node: Node; from: Geo; to: Geo } | null>(null)
+  const from = useRef<Map<string, Geo>>(new Map())
+  const prevRoot = useRef(root)
+  const dir = useRef<Direction>('across')
 
   /** Fit the box to the composition, after it has been drawn.
    *
@@ -331,39 +373,7 @@ export function Sunburst({
    *  Square, because the rings are a circle and a tight rectangular crop would scale the
    *  two axes differently through `xMidYMid` and oval them. The larger dimension decides,
    *  so nothing is cropped. */
-  useLayoutEffect(() => {
-    // The GROUP, not the svg.
-    //
-    // `getBBox` unions an element's children after their own transforms, and the art
-    // sits inside a `<g>` that the drill transition scales. Measuring the svg therefore
-    // measured whatever frame of that animation happened to be current — so switching
-    // away and back produced a box sized to a half-finished zoom, and the map came back
-    // smaller than it left. An element's own transform is excluded from its bbox, so
-    // asking the animated group directly gets the geometry with the animation taken out.
-    const el = art.current
-    if (!el) return
-    const b = el.getBBox()
-    if (b.width === 0 || b.height === 0) return
-    // Breathing room, as a FRACTION of the composition rather than a fixed number of
-    // user units. The units are arbitrary — the viewBox rescales them to whatever the
-    // pane is — so a constant inset is a different amount of visible space on every
-    // repo, and at +4 it was none: the rings ran to the edge and out of it.
-    const reach = Math.max(b.width, b.height) / 2
-    const m = reach * MARGIN
-    // And more at the bottom, because the legend and the hidden-count chip live there.
-    // They are HTML overlaid on the same box, so `getBBox` cannot see them and the rings
-    // will happily grow underneath — where a circle's edge sweeps closest to the corners
-    // and a wedge becomes unclickable behind a caption.
-    const x0 = b.x - m
-    const x1 = b.x + b.width + m
-    const y0 = b.y - m
-    const y1 = b.y + b.height + m + reach * CHROME_BOTTOM
-    const side = Math.max(x1 - x0, y1 - y0)
-    const cx = (x0 + x1) / 2
-    const cy = (y0 + y1) / 2
-    const next = `${cx - side / 2} ${cy - side / 2} ${side} ${side}`
-    setViewBox((prev) => (prev === next ? prev : next))
-  }, [wedges, fileWedges, collapsed, mode, root])
+
 
   /** Ring thickness follows the depth actually present, so a shallow project fills the
    *  canvas instead of drawing three rings and a lot of empty paper.
@@ -379,6 +389,147 @@ export function Sunburst({
     return Math.max(d, 1)
   }, [wedges])
   const band = (R_OUTER - R_INNER) / structDepth
+
+  /** Where every wedge in THIS layout belongs, by id. The renderer below reads geometry
+   *  from here rather than recomputing it, so the moving picture and the settled one are
+   *  the same arithmetic and cannot drift apart. */
+  /** Each structural wedge's fill and label, computed once per level rather than per
+   *  frame. Only geometry changes while the ring is moving, and `colorFor` over a couple
+   *  of hundred wedges sixty times a second is work with no output. */
+  const fills = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof colorFor>>()
+    for (const w of wedges) if (w.node.kind !== 'func') m.set(w.node.id, colorFor(w.node, mode, ranks))
+    return m
+  }, [wedges, mode, ranks])
+
+  const target = useMemo(
+    () => geoOf(wedges, R_INNER, band, (kind) => (kind === 'dir' ? RING_GAP : RING_GAP * 0.4)),
+    [wedges, band],
+  )
+
+  /** The wedges of the level currently on screen, kept so the one being left can still be
+   *  drawn on its way out. Declared before the check below uses it. */
+  const prevWedges = useRef<Wedge[]>(wedges)
+
+  // A level change, detected during render so the first painted frame is already the
+  // first frame of the motion — an effect would show one frame of the destination first,
+  // which is exactly the cut this replaces.
+  if (prevRoot.current.id !== root.id) {
+    dir.current = direction(prevRoot.current.path, root.path)
+    // Everything starts from where it is on screen, not from where it was when the last
+    // transition began. For a wedge that was not visible at all, `enterFrom` finds the
+    // nearest ancestor it can have come out of.
+    const was = live.current
+    const start = new Map<string, Geo>()
+    for (const [id, g] of target) start.set(id, was.get(id) ?? enterFrom(id, g, was))
+    from.current = start
+    // The wedge you clicked BECOMES the hub, and that is the one piece of this motion the
+    // reader is actually following. `layout` never emits the root as a wedge, so without
+    // this the directory being opened is simply absent from the new level and falls into
+    // the pile below — it flew outward with the siblings it was replacing, which says the
+    // opposite of what happened.
+    //
+    // Going the other way it is the same journey reversed: the level you are leaving was
+    // the hub a moment ago, so it comes OUT of the middle rather than growing from
+    // nothing at the edge.
+    const hub = hubGeo(R_INNER)
+    coring.current =
+      dir.current === 'in' && was.has(root.id)
+        ? { node: root, from: was.get(root.id) as Geo, to: hub }
+        : null
+    const cameFrom = prevRoot.current
+    if (dir.current === 'out' && target.has(cameFrom.id)) {
+      start.set(cameFrom.id, hub)
+    }
+    // What was on screen and is not in the new level. Rendered through the transition on
+    // its way out, then dropped. The clicked wedge is excluded: it has somewhere better
+    // to be.
+    leaving.current = prevWedges.current
+      .filter(
+        (w) => !target.has(w.node.id) && was.has(w.node.id) && w.node.id !== root.id,
+      )
+      .map((w) => ({
+        node: w.node,
+        depth: w.depth,
+        index: w.index,
+        from: was.get(w.node.id) as Geo,
+        to: exitTo(was.get(w.node.id) as Geo, dir.current, R_INNER, R_OUTER),
+      }))
+    prevRoot.current = root
+    setT(0)
+    setRun((r) => r + 1)
+  }
+  prevWedges.current = wedges
+
+  /** The rAF loop, started once per level change.
+   *
+   *  Keyed on `run` and NOT on `t`: a dependency on the value the loop is writing tears
+   *  the effect down and rebuilds it every frame, and each rebuild re-reads the clock, so
+   *  the transition restarts its own duration for as long as it runs. `run` changes once,
+   *  when a level change begins. */
+  useEffect(() => {
+    if (run === 0) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setT(1)
+      return
+    }
+    let raf = 0
+    const started = performance.now()
+    const step = (now: number) => {
+      const p = Math.min(1, (now - started) / ZOOM_MS)
+      setT(p)
+      if (p < 1) raf = requestAnimationFrame(step)
+    }
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+  }, [run])
+
+  const moving = t < 1
+  const e = ease(t)
+  /** A wedge's geometry for this frame: where it belongs once nothing is moving, and on
+   *  the way there while something is. */
+  const geo = (id: string): Geo => {
+    const to = target.get(id)
+    if (!to) return { a0: 0, a1: 0, r0: 0, r1: 0 }
+    if (!moving) return to
+    const f = from.current.get(id)
+    return f ? lerpGeo(f, to, e) : to
+  }
+  // Where the picture IS, recorded for whatever interrupts it. Without this an
+  // interrupted transition would restart from the last run's starting positions and the
+  // ring would visibly snap backwards before setting off again.
+  {
+    const now = new Map<string, Geo>()
+    for (const id of target.keys()) now.set(id, geo(id))
+    live.current = now
+  }
+
+  /** Where the box wants to be for the level being drawn, and where it was for the last
+   *  one. Interpolated together with the wedges, so the zoom and the movement are one
+   *  thing rather than two that happen to overlap. */
+  const viewTo = useMemo(
+    () => viewFor(extentOf(target.values(), R_INNER), MARGIN, CHROME_BOTTOM),
+    [target],
+  )
+  const viewFrom = useRef(viewTo)
+  const viewNow = useRef(viewTo)
+  if (startedRun.current !== run) {
+    startedRun.current = run
+    viewFrom.current = viewNow.current
+  }
+  useLayoutEffect(() => {
+    const v = moving ? lerpView(viewFrom.current, viewTo, e) : viewTo
+    viewNow.current = v
+    const next = viewBoxOf(v)
+    // Written straight to the element rather than through state. Through state this is a
+    // second React render for every frame — one to move the wedges, one to resize the box
+    // around them — which was most of what made the motion feel heavy. Nothing else reads
+    // the attribute, and it is derived from geometry this component already has.
+    if (svg.current && fitted.current !== next) {
+      fitted.current = next
+      svg.current.setAttribute('viewBox', next)
+    }
+  }, [viewTo, e, moving])
 
   /** The highlighted wedge's outline, drawn once over everything at the end.
    *
@@ -422,12 +573,57 @@ export function Sunburst({
           the pane it was given for reasons the reader cannot see. Measured in USER units,
           which do not change when the viewBox does, so this settles in one pass rather
           than chasing itself. */}
-      <svg viewBox={viewBox} className="absolute inset-0 h-full w-full">
+      <svg ref={svg} viewBox={fitted.current} className="absolute inset-0 h-full w-full">
         <StaleHatch />
-        {/* Keyed on the root so changing level remounts the group and replays the
-            transition. Drilling in grows into place, drilling out shrinks into it, which
-            is what makes the two directions distinguishable rather than just a fade. */}
-        <g ref={art} key={root.id} className={drill === 'in' ? 'drill-in' : 'drill-out'}>
+        {/* NOT keyed on the root any more. A key here remounted the whole group on every
+            level change, which is what forced the transition to be a keyframe played over
+            a picture that had already been replaced — nothing could move from an old
+            position to a new one because nothing survived the change. The wedges persist
+            now and `geo` moves them; see `zoom.ts`.
+
+            Pointer events are off while it runs. Hovering a wedge that is halfway to
+            somewhere else selects a thing the tooltip then describes at coordinates it no
+            longer occupies, and a click landing mid-flight lands on whatever happened to
+            be under the cursor. */}
+        {/* The level being left, on its way out.
+            Drawn first so it passes UNDER the level arriving — what you are moving toward
+            should never be occluded by what you are moving away from. And OUTSIDE the
+            group the viewBox is fitted to: these fly outward past the rim, so a box drawn
+            round them would zoom out and back over a transition that is not about them. */}
+        {moving &&
+          leaving.current.map((x) => {
+            const g = lerpGeo(x.from, x.to, e)
+            const c = colorFor(x.node, mode, ranks)
+            return (
+              <path
+                key={`leaving-${x.node.id}`}
+                d={arcPath(g.a0, g.a1, g.r0, g.r1)}
+                fill={c ? c.fill : 'var(--structure)'}
+                fillOpacity={(1 - e) * (c ? heatShare(x.node.kind, mode) : 1)}
+                stroke="var(--background)"
+                strokeWidth={x.node.kind === 'dir' ? CUT.dir : CUT.file}
+              />
+            )
+          })}
+        <g ref={art} style={moving ? { pointerEvents: 'none' } : undefined}>
+        {/* The directory you opened, shrinking into the middle it is about to be.
+            Inside the fitted group, because it IS the arriving level's own hub and the box
+            should be drawn around where it lands. Painted before everything else so it
+            passes under the hub disc: it does not need to fade out, it is covered by the
+            thing it turned into, which is what "became the core" should look like. */}
+        {moving && coring.current && (() => {
+          const g = lerpGeo(coring.current.from, coring.current.to, e)
+          const c = colorFor(coring.current.node, mode, ranks)
+          return (
+            <path
+              d={arcPath(g.a0, g.a1, g.r0, g.r1)}
+              fill={c ? c.fill : 'var(--structure)'}
+              fillOpacity={c ? heatShare(coring.current.node.kind, mode) : 1}
+              stroke="var(--background)"
+              strokeWidth={CUT.dir}
+            />
+          )
+        })()}
         {/* Arcs first, dots after, so a dot is never buried under the ring it belongs to. */}
         {wedges
           .filter((w) => w.node.kind !== 'func')
@@ -435,9 +631,11 @@ export function Sunburst({
           // Directories get the full gap and a visible rule; files sit tighter to the
           // functions they contain, so the eye groups file-with-contents rather than
           // file-with-neighbouring-directory.
-          const gap = w.node.kind === 'dir' ? RING_GAP : RING_GAP * 0.4
-          const r0 = R_INNER + (w.depth - 1) * band
-          const r1 = r0 + band - gap
+          // Geometry comes from `geo`, which is the settled position when nothing is
+          // moving and a point on the way there when something is. One source, so the
+          // moving picture and the still one cannot disagree.
+          const g = geo(w.node.id)
+          const { a0, a1, r0, r1 } = g
           // Directories used to be hard-nulled here, and that made `HEAT_BY_KIND.dir`
           // dead code: the damping is applied as `fillOpacity` on a colour, so a wedge
           // with no colour at all could never be damped, only blanked. Turning that
@@ -450,7 +648,7 @@ export function Sunburst({
           //
           // One mechanism now: `colorFor` decides WHAT a wedge means, `heatShare` decides
           // how loudly its level says it.
-          const c = colorFor(w.node, mode, ranks)
+          const c = fills.get(w.node.id) ?? null
           // Agent verdicts and model surprisal are different instruments and must be
           // told apart at a glance. Hue is spoken for — it is the reading itself — so the
           // distinction goes on the outline.
@@ -460,7 +658,7 @@ export function Sunburst({
           const foldable = w.node.kind === 'dir' && w.node.children.length > 0
           const isFolded = foldable && collapsed.has(w.node.id)
           if (isSel || isHover) {
-            highlight = { d: arcPath(w.a0, w.a1, r0, r1), width: isSel ? 2 : 1.6 }
+            highlight = { d: arcPath(a0, a1, r0, r1), width: isSel ? 2 : 1.6 }
           }
           return (
             <g key={w.node.id}>
@@ -473,7 +671,7 @@ export function Sunburst({
                 answers the mouse. */}
             {w.node.kind === 'file' && (
               <path
-                d={arcPath(w.a0, w.a1, r0 - RING_GAP * 0.5, r0 + band)}
+                d={arcPath(a0, a1, r0 - RING_GAP * 0.5, r0 + band)}
                 fill="transparent"
                 onMouseEnter={() => setHoverNode(w.node)}
                 onMouseLeave={() => setHoverNode((n) => (n?.id === w.node.id ? null : n))}
@@ -492,7 +690,7 @@ export function Sunburst({
               // A file occupies exactly ONE band, like a directory. Its functions are
               // inset inside that band, so the file's own fill shows as a rim around
               // them — the containment is drawn, not implied by adjacency.
-              d={arcPath(w.a0, w.a1, r0, r1)}
+              d={arcPath(a0, a1, r0, r1)}
               // Unanalysed wedges take the neutral, not the ramp — see `isAnalyzed`.
               // A folded directory is drawn a shade heavier than an open one, so the
               // ring that ends at it reads as packed rather than as genuinely empty.
@@ -557,8 +755,24 @@ export function Sunburst({
         {/* Functions tiled INSIDE their file's wedge — see `tileFunctions`. Containment
             is structural here rather than implied, which is what a separate outer ring
             could never give, and the tiling is what lets a big file actually show what is
-            in it instead of rolling most of it into one patch. */}
-        {fileWedges
+            in it instead of rolling most of it into one patch.
+
+            Not drawn while the rings are in flight, and this is the trade that makes the
+            whole transition affordable. A repo view holds a couple of hundred structural
+            arcs and several thousand patches; re-tessellating the patches every frame is
+            precisely what made per-wedge motion unaffordable and is why the old
+            transition had to be one keyframe over a group. Leaving them out for 260ms
+            means the moving part is the part that answers "where am I", and the detail
+            resolves into place as the movement ends — which is also the moment it becomes
+            worth reading. */}
+        {/* Mounted once, when the rings have stopped, and faded in by CSS.
+            NOT rendered per frame with an interpolated opacity, which is what this was
+            first: `tileFunctions` then ran across every file on every frame of the second
+            half of the transition — a few thousand patches re-tiled ten times over, which
+            is precisely the cost the whole design is arranged to avoid. Opacity is the one
+            thing CSS can animate here for free, so it does. */}
+        <g className="patches-in" key={`patches-${root.id}`}>
+        {(moving ? [] : fileWedges)
           .map((w) => {
             // Inside the file's OWN band — (depth - 1) — not the one beyond it. Inset
             // on both radii so the file's fill reads as a rim on the inside and outside
@@ -699,6 +913,8 @@ export function Sunburst({
             })
           })}
 
+        </g>
+
         {/* Labels last so they sit above every wedge, and only where one fits. Only
             directories are labelled — see the filter.
             Functions are excluded because they are laid out angularly by `layout` but
@@ -706,7 +922,7 @@ export function Sunburst({
             their layout angle puts the name nowhere near the band it names. It never
             showed before because functions sit below the depth cut in a normal tree; a
             file opened as the root puts them at depth 1, right inside it. */}
-        {wedges
+        {(moving ? [] : wedges)
           .filter(
             (w) =>
               // Directories only, at ANY depth that has room. The old rule was a depth
@@ -723,7 +939,11 @@ export function Sunburst({
               w.node.kind === 'dir',
           )
           .map((w) => {
-            const r = R_INNER + (w.depth - 1) * band + band / 2
+            // Fixed to where the wedge is THIS frame, like everything else. A label left
+            // at its settled angle while its wedge travels is text sitting on a
+            // neighbouring directory for the length of the transition.
+            const { a0, a1, r0, r1 } = geo(w.node.id)
+            const r = (r0 + r1) / 2
             // Bound to the arc, so the type can be sized against the BAND rather than
             // against the chord a straight label would have to fit inside.
             const want = Math.max(10, Math.min(15, band * 0.3))
@@ -731,7 +951,7 @@ export function Sunburst({
             // overruns its wedge is worse than a slightly smaller one, and clipping
             // "components" to "componen…" loses the word for the sake of one type size.
             // 0.62em is about the average advance of this face at weight 600.
-            const arc = (w.a1 - w.a0) * r
+            const arc = (a1 - a0) * r
             const advance = 0.62
             const size = Math.max(
               7.5,
@@ -743,9 +963,16 @@ export function Sunburst({
             if (room < 2) return null
             const pathId = `lp-${w.node.id}`
             return (
-              <g key={`l-${w.node.id}`} className="pointer-events-none select-none">
+              // Hidden outright while the ring moves, rather than faded per frame. A
+              // name is read, not glanced at, and text that is re-sizing and re-fitting
+              // its arc every frame is unreadable anyway — so it costs a `<defs>` and a
+              // textPath per wedge per frame to render something nobody can use.
+              <g
+                key={`l-${w.node.id}`}
+                className="patches-in pointer-events-none select-none"
+              >
                 <defs>
-                  <path id={pathId} d={labelArc(w.a0, w.a1, r, size)} />
+                  <path id={pathId} d={labelArc(a0, a1, r, size)} />
                 </defs>
                 <text
                   fontSize={size}
@@ -788,6 +1015,11 @@ export function Sunburst({
         >
         <circle r={R_INNER - 4} fill="var(--card)" stroke="var(--border)" />
         {onUp && <title>Double-click to go up a level</title>}
+        {/* The disc is solid throughout — it is what the directory you clicked is turning
+            INTO, so it has to be there to be turned into. Its label is not: swapping the
+            name on the first frame would announce the destination before the thing that
+            is travelling has arrived. It fades up with the rest of the detail. */}
+        <g className="patches-in" key={`hub-${root.id}`}>
         {/* Sized to the hub rather than fixed: a long repo name at a fixed size either
             overflows the circle or gets truncated to nothing useful. Shrinking to fit
             keeps the whole name, which is the one label that must always be readable. */}
@@ -803,6 +1035,7 @@ export function Sunburst({
         <text textAnchor="middle" y={13} fontSize={9.5} fill="var(--muted-foreground)">
           {root.loc.toLocaleString()} lines
         </text>
+        </g>
         </g>
       </svg>
 

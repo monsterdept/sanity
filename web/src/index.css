@@ -285,35 +285,39 @@ textarea,
   cursor: pointer;
 }
 
-/* Changing level remounts the wedge group, and this is the transition it plays. The
- * two directions are deliberately mirrored — drilling IN grows into place, drilling OUT
- * shrinks into it — so the motion says which way you went rather than just marking that
- * something changed.
+/* Changing level is animated in `zoom.ts`, not here.
  *
- * `transform-box: view-box` makes the origin the centre of the viewBox, which is (0,0)
- * in user units here. Without it an SVG group scales about its own bounding box and the
- * ring drifts off-centre as it grows.
+ * There used to be a `drill-in`/`drill-out` keyframe pair on the art group: the incoming
+ * picture faded up from `scale(0.86)` or down from `scale(1.14)`. A transform on the
+ * group is the one thing CSS can offer when the group is REMOUNTED on every level change,
+ * and remounting is what made it impossible for a wedge to travel — nothing survived the
+ * change, so nothing could move from where it was to where it belongs. The group persists
+ * now and its arcs are interpolated per frame, which needs the geometry rather than a
+ * matrix, so it lives in TypeScript. Reduced motion is honoured there too, by finishing
+ * the transition on its first frame.
  *
- * Only opacity and transform are animated: the whole point of `.wedge` not transitioning
- * `d` is that re-tessellating thousands of arcs per frame is what makes a zoom crawl. */
-@keyframes drill-in {
-  from { opacity: 0; transform: scale(0.86); }
-  to   { opacity: 1; transform: scale(1); }
+ * The 120ms `fill-opacity` and `stroke` transition above stays: those are per-wedge state
+ * changes — hover, selection, a mode switch — not motion between levels, and CSS is still
+ * the cheapest way to run them. */
+
+/* Detail arriving once the rings have stopped.
+ *
+ * The tiling inside the files, the wedge labels and the hub's name are all mounted at the
+ * end of a level change rather than drawn through it — see `zoom.ts`. Fading them with an
+ * interpolated `opacity` prop meant re-rendering them on every frame, which for the tiling
+ * is a few thousand patches re-tiled ten times over: the exact cost the transition is
+ * designed around. Mounted once and faded by CSS, they cost one composited property.
+ *
+ * Keyed on the root in the markup, so changing level replays this rather than leaving the
+ * new level's detail already faded up from the last one. */
+@keyframes patches-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
-@keyframes drill-out {
-  from { opacity: 0; transform: scale(1.14); }
-  to   { opacity: 1; transform: scale(1); }
-}
-.drill-in, .drill-out {
-  transform-box: view-box;
-  transform-origin: center;
-  will-change: transform, opacity;
-}
-.drill-in  { animation: drill-in 260ms cubic-bezier(.2, .8, .3, 1) both; }
-.drill-out { animation: drill-out 260ms cubic-bezier(.2, .8, .3, 1) both; }
+.patches-in { animation: patches-in 180ms ease-out both; }
 
 @media (prefers-reduced-motion: reduce) {
-  .drill-in, .drill-out { animation: none; }
+  .patches-in { animation: none; }
 }
 
 /* The walk, before there is anything to count.
