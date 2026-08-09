@@ -115,9 +115,36 @@ enum RetryableError {
     Fatal(String),
 }
 
+/// How long one request may take before the shim gives up on it.
+///
+/// **`reqwest`'s blocking client defaults to 30 seconds, and this is why that default had
+/// to go.** An open re-parses and re-blames the whole repo — 51.5s on PrusaSlicer before
+/// `scancache` existed, and still the full cost the first time any large repo is opened.
+/// At the default, `send` returned an error at 30s; every send error was read as
+/// [`RetryableError::Transient`]; so a scan that was running perfectly well was reported as
+/// a connection failure, in the words of [`UNREACHABLE`] — "wait a moment and call the same
+/// tool again" — and each obedient retry started another 51s scan the shim would also
+/// abandon. `sanity_status` answered instantly throughout, so the server looked healthy and
+/// only `sanity_open` looked broken, which is exactly backwards from what was happening.
+///
+/// Ten minutes is not a guess at how long a scan takes; it is past any plausible one, which
+/// is the only useful thing a transport-level deadline can be. Slowness is the server's
+/// business to report — it returns `scan_ms` and says so — and the shim's only job is to
+/// not mistake it for silence.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(600);
+
+fn client() -> Result<reqwest::blocking::Client, RetryableError> {
+    reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|e| RetryableError::Fatal(e.to_string()))
+}
+
 fn get(path: &str) -> Result<Value, String> {
     with_retry(|base| {
-        let r = reqwest::blocking::get(format!("{base}{path}"))
+        let r = client()?
+            .get(format!("{base}{path}"))
+            .send()
             .map_err(|_| RetryableError::Transient)?;
         r.json().map_err(|e| RetryableError::Fatal(e.to_string()))
     })
@@ -125,7 +152,7 @@ fn get(path: &str) -> Result<Value, String> {
 
 fn post(path: &str, body: Value) -> Result<Value, String> {
     with_retry(|base| {
-        let r = reqwest::blocking::Client::new()
+        let r = client()?
             .post(format!("{base}{path}"))
             .json(&body)
             .send()
