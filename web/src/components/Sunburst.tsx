@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type Node } from '../lib/api'
 import { colorFor, type ColorMode } from '../lib/colorMode'
+import { CHROME_INK, inkOn } from '../lib/ink'
 import { arcPath, layout, tileFunctions, type Wedge } from '../lib/sunburst'
 import { FileZoom, fanOf } from './FileZoom'
 import { arcOf, sectorOf, type Sector } from '../lib/fan'
+import { elide } from '../lib/text'
 import {
   direction,
   ease,
@@ -45,6 +47,14 @@ const FILE_MAX = 11
 const RINGS = 5
 const R_INNER = 62
 const R_OUTER = 340
+
+/** How much of a name the hub can hold at the smallest size it will shrink to.
+ *
+ *  The shrink-to-fit sizing spends a fixed ~90px of width, so `150 / length` and a 9px
+ *  floor between them buy about seventeen characters; past that the size stops falling
+ *  and the string simply gets longer than the disc. Kept as a character count rather than
+ *  a measurement because the two numbers it has to agree with are right here beside it. */
+const HUB_FITS = 17
 
 /** Gap between one ring level and the next.
  *
@@ -442,6 +452,7 @@ export function Sunburst({
     return Math.max(d, 1)
   }, [wedges])
   const band = (R_OUTER - R_INNER) / structDepth
+  const hubName = elide(root.name, HUB_FITS)
 
   /** Where every wedge in THIS layout belongs, by id. The renderer below reads geometry
    *  from here rather than recomputing it, so the moving picture and the settled one are
@@ -1081,6 +1092,10 @@ export function Sunburst({
                     <WedgeLabel
                       id={`fn-${slot.node.id}`}
                       at={at}
+                      // The patch this name is standing ON decides the ink — see `ink.ts`.
+                      // An unread patch is `--unanalyzed` at 0.4, which is nearly the
+                      // ground, so it keeps the chrome's own foreground.
+                      fill={c ? c.ink : CHROME_INK}
                       opacity={at.clipped ? 0.6 : 0.85}
                     />
                   ) : null
@@ -1152,11 +1167,21 @@ export function Sunburst({
                 key={`l-${w.node.id}`}
                 id={`lp-${w.node.id}`}
                 at={at}
-                // Directories are `--structure`, a near-background plate, so their names
-                // take the foreground — background-on-background is why they went invisible
-                // the moment the plates stopped being outlined in white. A file's name is
-                // annotation hanging off the rim and is set quieter than the structure it
-                // labels.
+                // A directory's name sits ON its plate, so the plate picks the ink — and at
+                // the plate's own opacity, because under Surprise it is damped to 0.6 and
+                // what the eye gets is the stop composited over the pane. An unanalysed
+                // plate is `--structure`, a near-background neutral, and takes the chrome's
+                // foreground: background-on-background is why these went invisible the
+                // moment the plates stopped being outlined in white.
+                //
+                // A FILE's name is not on anything. It hangs off the rim, past the outermost
+                // ring, on ground that belongs to nobody — so the ground's own ink is the
+                // right one, and it is set quieter than the structure it labels.
+                fill={
+                  isDir && fills.get(w.node.id)
+                    ? inkOn(fills.get(w.node.id)!.stop, heatShare('dir', mode))
+                    : CHROME_INK
+                }
                 opacity={(isDir ? 0.9 : 0.62) * (at.clipped ? 0.72 : 1)}
               />
             )
@@ -1199,15 +1224,25 @@ export function Sunburst({
         <g className="patches-in" key={`hub-${root.id}`}>
         {/* Sized to the hub rather than fixed: a long repo name at a fixed size either
             overflows the circle or gets truncated to nothing useful. Shrinking to fit
-            keeps the whole name, which is the one label that must always be readable. */}
+            keeps the whole name, which is the one label that must always be readable.
+
+            But shrinking stops at 9px, because below that the name is not readable either
+            — so past HUB_FITS characters the size is pinned and the text runs straight out
+            of the disc and across the wedges. A file view is where this bites: repo names
+            are short, function-bearing test files like `dsd_reference_qualification.rs` are
+            not. So the string is elided FIRST and the size computed from what will actually
+            be drawn. Elided from the middle, keeping the extension, for the reason `elide`
+            gives: the tail is the answer. The full name is a hover away and is already in
+            the crumbs and the panel. */}
         <text
           textAnchor="middle"
           y={-4}
-          fontSize={Math.max(9, Math.min(15, 150 / Math.max(root.name.length, 5)))}
+          fontSize={Math.max(9, Math.min(15, 150 / Math.max(hubName.length, 5)))}
           fill="var(--foreground)"
           fontWeight={600}
         >
-          {root.name}
+          {hubName !== root.name && <title>{root.name}</title>}
+          {hubName}
         </text>
         <text textAnchor="middle" y={13} fontSize={9.5} fill="var(--muted-foreground)">
           {root.loc.toLocaleString()} lines

@@ -1,4 +1,14 @@
-import { heatColor, isAnalyzed, readingWords, shareRamp, showsShare, type Node } from './api'
+import {
+  heatColor,
+  isAnalyzed,
+  rampStop,
+  readingWords,
+  shareRamp,
+  showsShare,
+  type Node,
+  type Ramp,
+} from './api'
+import { inkOn } from './ink'
 
 /** What the colour in the sunburst means. One geometry, five encodings. */
 export type ColorMode = 'surprise' | 'churn' | 'age' | 'blame' | 'language'
@@ -49,11 +59,31 @@ export function slotColor(rank: number): string {
   return rank < CATEGORICAL.length ? CATEGORICAL[rank] : OTHER
 }
 
+/** A ramped fill, the stop it sits nearest, and the ink that survives on it. The three
+ *  move together and always have to: a caller that took the fill without the ink is how
+ *  every label in the map came to be one colour over a ramp spanning 6:1 of lightness.
+ *  See `ink.ts`. */
+function ramped(v: number, ramp: Ramp = 'heat'): Paint {
+  const stop = rampStop(v, ramp)
+  return { fill: heatColor(v, ramp), stop, ink: inkOn(stop) }
+}
+
 /** Older reads cooler. Anything past a year is simply "old" — the difference between two
  *  and three years is not something anyone acts on, and a linear scale would spend most
  *  of its range on it. */
 function ageRamp(days: number): number {
   return 1 - Math.min(1, Math.log10(Math.max(days, 1) + 1) / Math.log10(366))
+}
+
+/** What a wedge is painted with, and what a name printed ON it has to be set in.
+ *
+ *  `stop` is the fill as a custom-property NAME, which `inkOn` can read and a
+ *  `color-mix()` fill cannot — it is here for the callers that draw the wedge at less
+ *  than full opacity and so have to re-derive the ink against what the eye receives. */
+export interface Paint {
+  fill: string
+  stop: string
+  ink: string
 }
 
 /**
@@ -68,7 +98,7 @@ export function colorFor(
   node: Node,
   mode: ColorMode,
   ranks?: Map<string, number>,
-): { fill: string; label: string } | null {
+): (Paint & { label: string }) | null {
   const s = node.score
 
   if (mode === 'surprise') {
@@ -82,7 +112,7 @@ export function colorFor(
     // printed 62 claims otherwise. A container keeps its percentage: that one is a
     // roll-up of many readings in surprise space, where every digit is earned.
     return {
-      fill: heatColor(share ? shareRamp(t) : t),
+      ...ramped(share ? shareRamp(t) : t),
       label: share
         ? `${Math.round(t * 100)}% hot`
         : (readingWords(node)?.heat ?? `${Math.round(t * 100)}°`),
@@ -92,7 +122,7 @@ export function colorFor(
   if (mode === 'churn') {
     if (!s || s.ageDays === null) return null
     return {
-      fill: heatColor(s.churn, 'churn'),
+      ...ramped(s.churn, 'churn'),
       label: s.commits > 0 ? `${s.commits} commits in 90d` : 'untouched in 90d',
     }
   }
@@ -101,7 +131,7 @@ export function colorFor(
     if (!s || s.lastTouchedDays === null) return null
     const d = s.lastTouchedDays
     return {
-      fill: heatColor(ageRamp(d), 'age'),
+      ...ramped(ageRamp(d), 'age'),
       label: d < 1 ? 'touched today' : `touched ${Math.round(d)}d ago`,
     }
   }
@@ -109,8 +139,11 @@ export function colorFor(
   const key = mode === 'blame' ? node.lastAuthor : node.lang
   if (!key) return null
   const rank = ranks?.get(key)
+  const slot = rank === undefined ? OTHER : slotColor(rank)
   return {
-    fill: rank === undefined ? OTHER : slotColor(rank),
+    fill: slot,
+    stop: slot,
+    ink: inkOn(slot),
     // The label names the value even when the colour is "Other", so identity is never
     // carried by colour alone — which is what makes the 6.9 CVD margin legal.
     label: key,

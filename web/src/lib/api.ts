@@ -866,9 +866,29 @@ export type Ramp = 'heat' | 'churn' | 'age'
 /** Interpolate a ramp's five CSS stops. Returns a `var(...)` mix so the ramps stay
  *  defined in one place (index.css) and re-theme with the rest of the app. */
 export function heatColor(t: number, ramp: Ramp = 'heat'): string {
+  const { stops, i, f } = rampAt(t, ramp)
+  return `color-mix(in oklch, var(${stops[i + 1]}) ${Math.round(f * 100)}%, var(${stops[i]}))`
+}
+
+/**
+ * The stop a mixed ramp colour is NEAREST to, as a bare custom-property name.
+ *
+ * For anyone who has to know how dark the fill actually came out — `inkOn` does, to pick
+ * a label colour. A `color-mix()` string is not something JavaScript can read back: the
+ * mix happens in the renderer, in oklch, and nothing exposes the result. Rounding to the
+ * nearer of the two stops sidesteps it entirely, and costs nothing worth having, because
+ * the decision this feeds is a binary one and the two candidate stops sit a fifth of a
+ * ramp apart — the mixes that round the "wrong" way are the ones sitting on the flip,
+ * where either answer is within a few percent of the other.
+ */
+export function rampStop(t: number, ramp: Ramp = 'heat'): string {
+  const { stops, i, f } = rampAt(t, ramp)
+  return stops[f < 0.5 ? i : i + 1]
+}
+
+function rampAt(t: number, ramp: Ramp) {
   const stops = [0, 1, 2, 3, 4].map((i) => `--${ramp}-${i}`)
   const x = Math.max(0, Math.min(1, t)) * (stops.length - 1)
   const i = Math.min(stops.length - 2, Math.floor(x))
-  const f = x - i
-  return `color-mix(in oklch, var(${stops[i + 1]}) ${Math.round(f * 100)}%, var(${stops[i]}))`
+  return { stops, i, f: x - i }
 }
