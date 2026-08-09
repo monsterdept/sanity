@@ -61,10 +61,11 @@ export function applyTheme(t: Theme): void {
 /**
  * Apply the stored preference immediately, at module load.
  *
- * `index.html` ships `class="dark"` so the very first frame has a ground rather than
- * flashing unstyled. That is a guess, and it is wrong for anyone in light mode — so this
- * runs as a side effect of importing the module, before React renders, instead of waiting
- * for an effect to fire after the first paint.
+ * `index.html` has already done this, from the same key, in a blocking script — it has to,
+ * because the first paint happens long before this module is fetched. This is not the
+ * thing that prevents the flash; it is what puts the answer back under the module that
+ * owns it, so nothing later has to wonder which copy is current. The two agree by
+ * construction: same key, same class, same fallback.
  */
 export function applyStoredTheme(): void {
   applyTheme(loadTheme())
