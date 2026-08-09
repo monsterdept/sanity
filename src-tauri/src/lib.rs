@@ -261,6 +261,18 @@ pub fn run() {
             commands::mcp_connect,
             commands::mcp_disconnect,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running sanity");
+        .build(tauri::generate_context!())
+        .expect("error while running sanity")
+        .run(|_app, event| {
+            // The backend is a thread in THIS process, so quitting the window takes the
+            // server with it — but the endpoint file naming it survived, and every later
+            // caller was sent to a dead port. `mcp.rs` then read the surviving file as
+            // "something is there, this is transient" and told readers to retry into a
+            // hole. Withdrawing the claim is what makes the app's exit legible to the
+            // shim: nothing answering AND no file is a state `sanity_open` knows how to
+            // fix by starting a backend.
+            if let tauri::RunEvent::Exit = event {
+                agentapi::release_endpoint(std::process::id());
+            }
+        });
 }

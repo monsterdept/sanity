@@ -84,8 +84,16 @@ const RETRY_EVERY: Duration = Duration::from_millis(400);
 /// Only connection-level failures retry. An HTTP response that parsed is an answer, even
 /// an unwelcome one, and repeating a call the server already handled would double-report
 /// a reading.
+///
+/// **It also heals a backend that has gone away, once.** Retrying assumes something is
+/// coming back, which is true of a restart and false of a human quitting the app or a
+/// daemon idling out mid-wave — and those end the run, because the party that noticed used
+/// to be forbidden to start a backend. `ensure_backend` is safe to call from anywhere now
+/// that one-at-a-time is enforced by a lock rather than by which tool is asking, so the
+/// gap can be absorbed here like every other gap in this file.
 fn with_retry<T>(mut attempt: impl FnMut(&str) -> Result<T, RetryableError>) -> Result<T, String> {
     let deadline = Instant::now() + RETRY_FOR;
+    let mut healed = false;
     loop {
         // A missing endpoint file is not an error here: during a restart that is exactly
         // what the window looks like for a moment, so it is worth waiting through rather
@@ -98,14 +106,78 @@ fn with_retry<T>(mut attempt: impl FnMut(&str) -> Result<T, RetryableError>) -> 
             }
         }
         if Instant::now() >= deadline {
-            return Err(if crate::agentapi::endpoint_file().is_some_and(|p| p.exists()) {
+            // Decided by a PROBE, not by whether the endpoint file exists.
+            //
+            // The file was the discriminator, and it is not evidence — `probe`'s own doc
+            // comment says so, and this was the one place that forgot. Nothing removed the
+            // file, so after a machine's first run it always existed, so every failure
+            // reported itself as `UNREACHABLE`: "usually transient, it comes back on a new
+            // port, retry about five times". For the case that actually happens — the
+            // human quit the app mid-run, or the daemon idled out — that advice is a
+            // certainty dressed as a wait, and the reader spends its retries proving it.
+            //
+            // Asking `/health` costs one round trip on a path that has already failed for
+            // twelve seconds, and it separates the two cases correctly: something answered
+            // and we still could not get through (genuinely odd, worth retrying) from
+            // nothing is there at all (a backend has to be started, which is what
+            // `sanity_open` does).
+            return Err(if crate::cli::live().is_some() {
                 UNREACHABLE.to_string()
             } else {
                 NOT_RUNNING.to_string()
             });
         }
+        // Nothing is answering AT ALL, so this is not a restart to be waited out. Start
+        // one — once per call, whatever happens.
+        //
+        // Once, and gated on a probe, because the failure to avoid is a shim that spawns a
+        // backend on every retry of a call failing for some other reason. `ensure_backend`
+        // is itself idempotent and locked, so the cost of being wrong here is a probe; the
+        // cost of doing it every 400ms would be a process storm.
+        if !healed && crate::cli::live().is_none() {
+            healed = true;
+            if heal().is_ok() {
+                // Straight back round rather than sleeping: the backend is up as of this
+                // instant, and the wait was for a server that no longer needs waiting for.
+                continue;
+            }
+        }
         std::thread::sleep(RETRY_EVERY);
     }
+}
+
+/// Bring a backend back, and put this session's repo back into it.
+///
+/// **Starting the process is only half of a recovery.** A fresh backend restores what was
+/// open from the index, but on a background thread and with a rescan apiece — so for the
+/// first seconds it is up, answering, and holding no projects, which is precisely the
+/// window `NO_PROJECT` exists to describe. A reader retried into that window gets a parsed
+/// answer, which is Fatal by design and not retried, and its reading dies anyway. Opening
+/// the repo here is synchronous, so by the time the caller's retry goes out the project is
+/// certainly there.
+///
+/// The path comes from `PROJECT` — this shim's own memory of what it opened, which the
+/// agent never sees and cannot garble. That is the same reason the key is not in the tool
+/// schema, paying off in a second place: the session can name its own repo without asking
+/// the model to have remembered it.
+///
+/// A shim that has not opened anything yet has nothing to restore and skips it; that is the
+/// cold-start case, where the caller is `sanity_open` and about to say which repo anyway.
+fn heal() -> Result<(), String> {
+    crate::cli::ensure_backend()?;
+    let Some(key) = project() else {
+        return Ok(());
+    };
+    // Deliberately NOT through `post`: that is what called us, and routing the repair back
+    // through the retry loop it is repairing would recurse.
+    let base = base_url().ok_or("no endpoint to reopen against")?;
+    client()
+        .map_err(|_| "no http client".to_string())?
+        .post(format!("{base}/open"))
+        .json(&json!({ "path": key }))
+        .send()
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 enum RetryableError {
@@ -178,11 +250,13 @@ const UNREACHABLE: &str = "Sanity is not answering right now. This is usually TR
     contaminates your reading with the previous reader's findings and makes it worthless. \
     If it is still failing after several retries, stop and report that Sanity is down.";
 
-const NOT_RUNNING: &str = "Sanity is not running and could not be started. If you have not \
-    called sanity_open yet, call it — it starts the backend itself, so this is not a \
-    prerequisite you need a human for. If sanity_open is what just failed, retry it once, \
-    then stop and tell the human Sanity could not start. Do NOT read the .sanity/ \
-    directory instead; a reading made after seeing it is contaminated.";
+const NOT_RUNNING: &str = "Nothing is answering as the Sanity backend: it was never \
+    started, or it has stopped. Retrying will NOT help. If you have not called sanity_open \
+    yet, call it — it starts the backend itself, so this is not a prerequisite you need a \
+    human for. If sanity_open is what just failed, retry it once, then stop and tell the \
+    human Sanity could not start. If you were part-way through readings, the backend went \
+    away underneath you: stop and report that, and do not re-derive what you had. Do NOT \
+    read the .sanity/ directory instead; a reading made after seeing it is contaminated.";
 
 /// Percent-encode a project key for a query string. Keys are absolute paths, so spaces
 /// and anything else a directory name may legally contain have to survive the trip.
@@ -289,22 +363,19 @@ pub fn tools() -> Value {
 fn call(name: &str, args: &Value) -> Result<Value, String> {
     match name {
         "sanity_open" => {
-            // The one call that starts a backend, and the only one that may.
+            // Where a backend gets started in the normal case: `open` means "I am starting
+            // work", made once by the orchestrator before any reader exists. Without it,
+            // "MCP is configured" got an agent as far as talking to a backend and no
+            // further — somebody still had to open a window first, which is the UI
+            // requirement wearing a different hat.
             //
-            // Without this, "MCP is configured" got an agent as far as talking to a
-            // backend and no further — somebody still had to open a window first, which is
-            // the UI requirement wearing a different hat. `open` is where it belongs
-            // because it means "I am starting work": it is made once, by the orchestrator,
-            // before any reader exists, so every other tool still runs against a backend
-            // that is already up and still fails loudly if it is not.
-            //
-            // Restricting it here is about the race, not tidiness. If any shim could
-            // bootstrap, a wave of subagents starting cold would all probe an empty
-            // endpoint at once and several would spawn a server; each binds its own port
-            // and publishes the file, and the losers only notice they have been superseded
-            // on their next watch tick. Self-healing, but a project can be opened on the
-            // one that is about to stand down. One bootstrapping caller and there is
-            // nothing to race.
+            // It is no longer the ONLY call that may. That restriction was standing in for
+            // a lock: a cold wave that all bootstrapped would put several servers on one
+            // machine, so the fix was to let one tool ask. It cost recovery — the calls
+            // that notice a backend has died are the ones that were forbidden to restart
+            // it — and it never actually excluded anything, since two sessions opening two
+            // repos are two permitted callers. `take_spawn_lock` enforces one-at-a-time
+            // properly, so `with_retry` may now heal any call.
             //
             // The result is deliberately discarded. If starting failed, `post` below
             // retries and reports in the words a reader has already been given for this —

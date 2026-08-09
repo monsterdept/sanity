@@ -101,7 +101,8 @@ pub async fn scan_repo(
     // Publish as a project so an MCP client can pull a work queue from the very scan the
     // user is looking at. The window's own Open button and an agent's sanity_open land in
     // the same place — there is one list of projects, however it got filled.
-    if let (Ok(mut shared), Ok(scan)) = (state.lock(), scanned.as_ref()) {
+    if let Ok(scan) = scanned.as_ref() {
+        let mut shared = crate::agentapi::lock(&state);
         let key = crate::agentapi::project_key(&root_for_state);
         let name = root_for_state
             .file_name()
@@ -304,13 +305,13 @@ pub fn agent_reports(
     state: tauri::State<'_, crate::agentapi::Shared>,
     key: Option<String>,
 ) -> Vec<crate::agentapi::Report> {
-    state
-        .lock()
-        .ok()
-        .and_then(|s| {
-            let key = key.or_else(|| s.active.clone())?;
-            Some(s.projects.get(&key)?.reports.values().cloned().collect())
-        })
+    let s = crate::agentapi::lock(&state);
+    let Some(key) = key.or_else(|| s.active.clone()) else {
+        return Vec::new();
+    };
+    s.projects
+        .get(&key)
+        .map(|p| p.reports.values().cloned().collect())
         .unwrap_or_default()
 }
 
@@ -340,24 +341,17 @@ pub fn agent_activity(
     state: tauri::State<'_, crate::agentapi::Shared>,
 ) -> AgentActivity {
     const IDLE_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
-    state
-        .lock()
-        .map(|s| AgentActivity {
-            active: s.last_agent.is_some_and(|t| t.elapsed() < IDLE_AFTER),
-            tool: s.last_tool.clone(),
-            nonce: s.pings,
-            events: s
-                .recent
-                .iter()
-                .map(|(seq, tool)| AgentCall { seq: *seq, tool: tool.clone() })
-                .collect(),
-        })
-        .unwrap_or(AgentActivity {
-            active: false,
-            tool: String::new(),
-            nonce: 0,
-            events: Vec::new(),
-        })
+    let s = crate::agentapi::lock(&state);
+    AgentActivity {
+        active: s.last_agent.is_some_and(|t| t.elapsed() < IDLE_AFTER),
+        tool: s.last_tool.clone(),
+        nonce: s.pings,
+        events: s
+            .recent
+            .iter()
+            .map(|(seq, tool)| AgentCall { seq: *seq, tool: tool.clone() })
+            .collect(),
+    }
 }
 
 /// What the window should be showing, and everything else on offer.
@@ -369,10 +363,7 @@ pub fn agent_activity(
 pub fn projects(
     state: tauri::State<'_, crate::agentapi::Shared>,
 ) -> crate::agentapi::ProjectList {
-    state
-        .lock()
-        .map(|s| crate::agentapi::ProjectList::from_state(&s))
-        .unwrap_or_default()
+    crate::agentapi::ProjectList::from_state(&crate::agentapi::lock(&state))
 }
 
 /// The full scored tree for one project, fetched when the window switches to it.
@@ -381,7 +372,7 @@ pub fn project_scan(
     state: tauri::State<'_, crate::agentapi::Shared>,
     key: String,
 ) -> Option<Scan> {
-    state.lock().ok()?.projects.get(&key).map(|p| p.scan.clone())
+    crate::agentapi::lock(&state).projects.get(&key).map(|p| p.scan.clone())
 }
 
 /// What Sanity has written on this machine, itemised for the panel that offers to

@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// One project sanity is displaying.
 ///
@@ -392,6 +392,30 @@ pub fn project_key(path: &Path) -> String {
 }
 
 pub type Shared = Arc<Mutex<AppState>>;
+
+/// Take the state lock, recovering from poison.
+///
+/// **Poisoning turned a transient panic into a permanently wrong backend.** A panic
+/// anywhere under this lock poisons it for the life of the process, and every reader was
+/// written to degrade quietly: `queue` answered with an empty list, `report` with
+/// `ok: false`, the window's polls with defaults, and `serve`'s watch loop could not tell
+/// how idle it was — so it never stood down. Meanwhile `/health` touches no state at all,
+/// by design, so `live()` kept reporting that daemon healthy and `ensure_backend` kept
+/// handing it to new sessions instead of starting one that worked. Immortal, useless, and
+/// indistinguishable from a working backend over the only probe there is.
+///
+/// Recovering is honest here because `AppState` holds **nothing precious** — the scan
+/// recomputes, the readings are in `.sanity/`, an expired lease re-queues. That is the
+/// same property that lets the daemon idle out at all, and it means poisoning has nothing
+/// to protect. A caller that panicked mid-mutation leaves at worst one project's live
+/// scan inconsistent until the next open rescans it, which is strictly better than every
+/// caller after it being told, plausibly, that there is no work to do.
+///
+/// It returns a guard rather than a `Result` on purpose: there is no `.ok()` left for a
+/// call site to swallow, which is what the watch loop was doing.
+pub fn lock(state: &Shared) -> MutexGuard<'_, AppState> {
+    state.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// One unit of work: everything a reader gets *before* opening the file.
 #[derive(Debug, Clone, Serialize)]
@@ -1026,9 +1050,7 @@ async fn open_project(
         return Json(serde_json::json!({ "ok": false, "error": format!("{} is not a directory", req.path) }));
     }
     let key = project_key(&path);
-    if let Ok(mut s) = state.lock() {
-        s.ping("sanity_open");
-    }
+    lock(&state).ping("sanity_open");
 
     // Already held is not a reason to skip the scan.
     //
@@ -1042,10 +1064,7 @@ async fn open_project(
     //
     // Affordable now: the app scans at `Fidelity::Ordering`, which took tonepoet from 34.8s
     // to 8.6s. It was not affordable before, which is most of why it worked this way.
-    let reopened = state
-        .lock()
-        .map(|s| s.projects.contains_key(&key))
-        .unwrap_or(false);
+    let reopened = lock(&state).projects.contains_key(&key);
 
     let scan_path = path.clone();
     let started = Instant::now();
@@ -1081,9 +1100,7 @@ async fn open_project(
     let (functions, excluded) = count_funcs(&scan);
     let shape = shape_of(&scan);
 
-    let Ok(mut s) = state.lock() else {
-        return Json(serde_json::json!({ "ok": false, "error": "state poisoned" }));
-    };
+    let mut s = lock(&state);
     // Reloaded from `.sanity/` against the fresh tree rather than carried over from the
     // old Project. In-memory reports are keyed by node id, and node ids embed `@line` —
     // carrying them across a rescan would orphan every reading in a file where anything
@@ -1526,9 +1543,7 @@ fn spread_across_files(
 }
 
 async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Json<Vec<Task>> {
-    let Ok(mut state) = state.lock() else {
-        return Json(Vec::new());
-    };
+    let mut state = lock(&state);
     let Some(key) = state.for_client(p.project.as_deref()) else {
         return Json(Vec::new());
     };
@@ -1585,9 +1600,7 @@ async fn report(
     Json(req): Json<ReportRequest>,
 ) -> Json<serde_json::Value> {
     let r = req.report;
-    let Ok(mut state) = state.lock() else {
-        return Json(serde_json::json!({ "ok": false }));
-    };
+    let mut state = lock(&state);
     let Some(key) = state.for_client(req.project.as_deref()) else {
         return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
     };
@@ -1713,9 +1726,7 @@ async fn status(
     State(state): State<Shared>,
     Query(p): Query<StatusParams>,
 ) -> Json<serde_json::Value> {
-    let Ok(mut state) = state.lock() else {
-        return Json(serde_json::json!({ "open": false }));
-    };
+    let mut state = lock(&state);
     // Status counts as activity. It did not, and it is the call a driving loop makes most
     // often, so a reader could poll for minutes with the window insisting nothing was
     // happening. Its mood is deliberately the quietest in the set: at this frequency
@@ -1989,9 +2000,7 @@ pub struct SummaryParams {
 /// that averaged in readings of code that has since changed would be describing a repo
 /// that no longer exists.
 async fn summary(State(state): State<Shared>, Query(p): Query<SummaryParams>) -> Json<serde_json::Value> {
-    let Ok(mut state) = state.lock() else {
-        return Json(serde_json::json!({ "open": false }));
-    };
+    let mut state = lock(&state);
     state.ping("sanity_summary");
     let key = state.for_client(p.project.as_deref());
     let Some(project) = key.and_then(|k| state.projects.get(&k)) else {
@@ -2204,6 +2213,34 @@ pub fn read_endpoint() -> Option<Endpoint> {
     })
 }
 
+/// Withdraw this process's claim to be the backend, on the way out.
+///
+/// **A claim nobody retracts is a claim that outlives its claimant.** Nothing removed this
+/// file — not the app on quit, not the daemon on standing down — so after the first run
+/// there was always a file on disk naming a port, usually a dead one. Two things read that
+/// file and both were misled by it. `mcp.rs` chooses its error text by whether the file
+/// EXISTS, so a backend that had quit reported itself as `UNREACHABLE`: "usually
+/// TRANSIENT, comes back on a new port within a few seconds, retry up to five times" — to
+/// a reader whose backend was never coming back. And a human reading the file has no way
+/// to tell a live backend from the wreckage of the last one.
+///
+/// **Only if it still names me.** The superseded case is a daemon standing down *because*
+/// the app has already published its own claim over the top, and deleting the file there
+/// would take the live backend's address with it — turning a clean handover into an outage
+/// that ends with `ensure_backend` starting a third server. Read, compare, then unlink.
+///
+/// A failed removal is silent, for the reason a failed *cache* write is: the file is a
+/// hint, `probe` is the evidence, and a stale one costs a probe that fails and a fresh
+/// spawn. Nothing here is unrecoverable, which is why it can be a best-effort tidy rather
+/// than a shutdown protocol.
+pub fn release_endpoint(pid: u32) {
+    if read_endpoint().is_some_and(|ep| ep.pid == pid) {
+        if let Some(path) = endpoint_file() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 /// Rebuild the projects sanity had open, in the background.
 ///
 /// Scans are recomputed rather than stored: a saved tree would be wrong the moment a file
@@ -2229,7 +2266,8 @@ pub fn restore(state: Shared) {
     // unloaded entries keep the number they were last saved with, a counter starting at 0
     // would rank this session's projects BELOW last session's, and the sidebar reads as a
     // history in that order.
-    if let Ok(mut s) = state.lock() {
+    {
+        let mut s = lock(&state);
         let high = index.projects.iter().map(|p| p.touched).max().unwrap_or(0);
         s.clock = s.clock.max(high);
         // Published before the first scan starts, so the sidebar fills in immediately with
@@ -2248,9 +2286,7 @@ pub fn restore(state: Shared) {
                 s.restoring_progress.remove(&known.key);
             };
             if !path.is_dir() {
-                if let Ok(mut s) = state.lock() {
-                    settled(&mut s);
-                }
+                settled(&mut lock(&state));
                 continue;
             }
             // The scan already counts what it is doing; the restore used to discard it and
@@ -2258,10 +2294,9 @@ pub fn restore(state: Shared) {
             let progress_key = known.key.clone();
             let progress_state = state.clone();
             let on_progress = move |p: crate::scan::Progress| {
-                if let Ok(mut s) = progress_state.lock() {
-                    s.restoring_progress
-                        .insert(progress_key.clone(), (p.done, p.total));
-                }
+                lock(&progress_state)
+                    .restoring_progress
+                    .insert(progress_key.clone(), (p.done, p.total));
             };
             let Ok(scan) = crate::scan::scan(
                 &path,
@@ -2276,12 +2311,10 @@ pub fn restore(state: Shared) {
                 // A queue sort key, not a number anyone sees — see `scan::Fidelity`.
                 crate::scan::Fidelity::Ordering,
             ) else {
-                if let Ok(mut s) = state.lock() {
-                    settled(&mut s);
-                }
+                settled(&mut lock(&state));
                 continue;
             };
-            let Ok(mut s) = state.lock() else { return };
+            let mut s = lock(&state);
             settled(&mut s);
             let reports = load_reports(&path, &scan);
             s.projects.insert(
@@ -2310,7 +2343,7 @@ pub fn restore(state: Shared) {
                 s.active = Some(known.key.clone());
             }
         }
-        let Ok(mut s) = state.lock() else { return };
+        let mut s = lock(&state);
         // Fall back to the most recently touched thing that did come back. Landing on the
         // wrong project is recoverable with a click; landing on nothing looks like the
         // restore failed.
@@ -2348,7 +2381,7 @@ pub async fn serve(state: Shared) -> anyhow::Result<u16> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn task(path: &str, name: &str) -> Task {
@@ -2465,7 +2498,7 @@ mod tests {
     /// pointing it somewhere private is only private while nobody else is running. The
     /// vars are restored on drop rather than at the end of the test body, so a panicking
     /// test cannot leave the next one aimed at a directory that has been deleted.
-    struct DataHome {
+    pub(crate) struct DataHome {
         _guard: std::sync::MutexGuard<'static, ()>,
         _dir: tempfile::TempDir,
         prev: Option<std::ffi::OsString>,
@@ -2483,12 +2516,41 @@ mod tests {
     }
 
     #[must_use]
-    fn data_home() -> DataHome {
+    pub(crate) fn data_home() -> DataHome {
         let guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::var_os("SANITY_DATA_DIR");
         unsafe { std::env::set_var("SANITY_DATA_DIR", dir.path()) };
         DataHome { _guard: guard, _dir: dir, prev }
+    }
+
+    /// Standing down withdraws MY claim and never somebody else's.
+    ///
+    /// The superseded path is a daemon exiting *because* the app has already written its
+    /// own port over the top. An unconditional remove there would take the live backend's
+    /// address with it, and the next `ensure_backend` would find nothing answering and
+    /// start a third server against a window that was working perfectly well — a clean
+    /// handover turned into an outage by the tidying.
+    #[test]
+    fn standing_down_withdraws_only_its_own_claim() {
+        let _home = data_home();
+        let path = endpoint_file().unwrap();
+        let write = |pid: u32| {
+            std::fs::write(&path, serde_json::json!({ "port": 4242, "pid": pid }).to_string())
+                .unwrap()
+        };
+
+        // Superseded: the file names the app, and the departing daemon is 999.
+        write(1234);
+        release_endpoint(999);
+        assert_eq!(read_endpoint().map(|e| e.pid), Some(1234), "took the successor's claim with it");
+
+        // Idling out: the file still names me, so it goes.
+        release_endpoint(1234);
+        assert!(read_endpoint().is_none(), "left a claim naming a process that has exited");
+
+        // Already gone is not an error — two exits can race, and the second must not panic.
+        release_endpoint(1234);
     }
 
     /// `outstanding` has to itemise exactly what `in_flight` counts, and a lease only

@@ -294,17 +294,38 @@ When a field is added to `Report`, add it to the schema in the same commit.
   endpoint file stops naming its pid**, so a human opening the app beats a background
   process rather than stranding two servers with one address. **It holds nothing
   precious** — the scan recomputes, the readings are in `.sanity/`, an expired lease
-  re-queues — which is why it can idle out on a timer and why there is no `sanity stop`.
-  **`sanity_open` starts one if nothing answers, and it is the only tool that may.** MCP
+  re-queues — which is why it can idle out on a timer, why there is no `sanity stop`, and
+  why `agentapi::lock` recovers from a poisoned mutex instead of honouring it. Poisoning
+  protects nothing here and cost everything: one panic under the lock and every handler
+  answered empty forever, while `/health` (which touches no state, deliberately) kept
+  vouching for the process — so the idle check could not tell how idle it was and never
+  stood down. **The idle check must fail closed**; it had an `ok()` that read "I cannot
+  tell" as "not idle".
+  **`sanity_open` starts one if nothing answers, and any call may heal one that died.** MCP
   being configured used to get an agent as far as talking to a backend and no further —
   somebody still had to open a window, which is the UI requirement wearing a hat. `open`
-  is where it belongs because it means "I am starting work": once per session, before any
-  reader exists. Restricting it there is about the race, not tidiness — if any shim could
-  bootstrap, a cold wave would have several spawning servers that each bind a port and
-  publish the file, and the losers only stand down on their next watch tick, by which time
-  a project can have been opened on one that is leaving. The spawn's stdio is null because
-  the shim speaks JSON-RPC on stdout, and `SANITY_BACKEND` suppresses it: a shim pointed at
-  one server must not quietly start another.
+  is where a cold start belongs because it means "I am starting work": once per session,
+  before any reader exists. It was for a while the *only* tool allowed to, which was a lock
+  written as a rule about callers — and it failed as both. It never excluded anything (two
+  sessions opening two repos are two permitted callers), and it made recovery impossible,
+  because the calls that notice a dead backend were exactly the ones forbidden to restart
+  it: quit the app mid-wave and every reader failed until a human intervened. **Exclusion
+  belongs at the spawn, where it can be enforced.** `take_spawn_lock` is an `O_EXCL` create
+  — one atomic syscall, no check-then-claim window, no dependency — and losers wait for the
+  winner's backend rather than queueing to start their own. Because `O_EXCL` leaves nothing
+  to clean up after a crash, an abandoned lock is stolen by AGE, which is only sound because
+  the region it guards is bounded by `START_WAIT`. With that in place `with_retry` heals any
+  call, once, gated on a probe — and healing **reopens the shim's own `PROJECT`**, because a
+  fresh backend restores in the background and a reader retried into that window gets
+  `NO_PROJECT`, which is Fatal by design and loses the reading anyway. The spawn's stdio is
+  null because the shim speaks JSON-RPC on stdout, and `SANITY_BACKEND` suppresses it: a
+  shim pointed at one server must not quietly start another.
+  **A backend that exits retracts its claim** (`release_endpoint`), and only if the file
+  still names its own pid — the superseded path is a daemon standing down *because* the app
+  wrote its port over the top, and deleting there would take the live backend's address with
+  it. Nothing retracted before, so a file always existed, so `mcp.rs` chose its error text by
+  file existence and told readers a quit app was "usually TRANSIENT, retry five times". The
+  discriminator is a probe now. Errors must say what to do, and that one said the opposite.
   The CLI's read verbs are formatters over `/status` and `/summary` and compute nothing;
   anything they needed that an endpoint lacks belongs in the endpoint, or it is two
   implementations of one answer and the unwatched one goes wrong. **And `study` prints the

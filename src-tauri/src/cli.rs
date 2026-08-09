@@ -41,6 +41,96 @@ const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
 /// on its own thread and the server answers before it finishes.
 const START_WAIT: Duration = Duration::from_secs(15);
 
+/// How long a spawn lock may be held before the next caller assumes it was abandoned.
+///
+/// Derived, not chosen: the lock covers exactly "spawn a child and wait for it to answer",
+/// which [`START_WAIT`] already bounds. A lock older than that outlived the only operation
+/// it can legitimately cover, so its holder died between creating it and releasing it.
+/// The margin is for a machine slow enough to be near the wait's own limit.
+const SPAWN_LOCK_STALE: Duration = Duration::from_secs(START_WAIT.as_secs() + 5);
+
+/// Where the one-spawner-at-a-time lock lives. Beside the endpoint file, in the per-machine
+/// data dir, because that is the scope of the thing it protects: one backend per machine.
+fn spawn_lock_path() -> Option<PathBuf> {
+    Some(crate::reports::data_dir()?.join("backend.lock"))
+}
+
+/// Held by whichever process is currently allowed to start a backend.
+///
+/// Released on drop, which covers every way `ensure_backend` returns — including the error
+/// paths, where leaving it behind would block the next caller for [`SPAWN_LOCK_STALE`].
+struct SpawnLock(PathBuf);
+
+impl Drop for SpawnLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// Win the right to start a backend, or return `None` because somebody else has it.
+///
+/// **`create_new` is the whole mechanism, and it is chosen for being atomic rather than
+/// convenient.** `O_EXCL` is one syscall that either creates the file or fails because it
+/// exists — there is no window between checking and claiming for a second process to fit
+/// through, which is exactly what a probe-then-spawn has and why a cold wave could put
+/// several servers on one machine. Portable to every platform this ships on, and it needs
+/// no dependency: `flock` would be tidier about cleanup and is unix-only.
+///
+/// The cost of `O_EXCL` over an advisory lock is that a process which dies holding it
+/// leaves the file behind, so staleness has to be handled here rather than by the kernel.
+/// Age is a sound test *because* the guarded region is bounded: see [`SPAWN_LOCK_STALE`].
+/// Two processes can both judge one stale, and that is safe — the steal is a remove
+/// followed by the same atomic create, so only one of them wins the re-creation and the
+/// other goes back to waiting.
+fn take_spawn_lock() -> Option<SpawnLock> {
+    take_spawn_lock_after(SPAWN_LOCK_STALE)
+}
+
+/// The above, with the abandonment threshold passed in so a test can exercise the steal
+/// without having to age a file on disk.
+fn take_spawn_lock_after(stale: Duration) -> Option<SpawnLock> {
+    let path = spawn_lock_path()?;
+    let claim = |path: &PathBuf| {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .map(|mut f| {
+                use std::io::Write;
+                let _ = write!(f, "{}", std::process::id());
+            })
+            .is_ok()
+    };
+    if claim(&path) {
+        return Some(SpawnLock(path));
+    }
+    // Somebody holds it. Only consider stealing if it is too old to be a live attempt.
+    let abandoned = std::fs::metadata(&path)
+        .and_then(|m| m.modified())
+        .map(|t| t.elapsed().unwrap_or_default() >= stale)
+        .unwrap_or(false);
+    if abandoned {
+        let _ = std::fs::remove_file(&path);
+        if claim(&path) {
+            return Some(SpawnLock(path));
+        }
+    }
+    None
+}
+
+/// Wait for whoever is starting a backend to publish one.
+fn await_backend(deadline: Instant) -> Option<Endpoint> {
+    loop {
+        if let Some(ep) = live() {
+            return Some(ep);
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
 /// How long a headless backend sits with nothing calling it before standing down.
 ///
 /// Sized for the gap this actually has to survive: `study` prints a sentence, and a human
@@ -70,7 +160,7 @@ fn probe(ep: Endpoint) -> Option<u32> {
 }
 
 /// The backend that is actually up, if any.
-fn live() -> Option<Endpoint> {
+pub(crate) fn live() -> Option<Endpoint> {
     let ep = agentapi::read_endpoint()?;
     probe(ep).map(|pid| Endpoint { pid, ..ep })
 }
@@ -110,6 +200,18 @@ fn post(ep: &Endpoint, path: &str, body: Value) -> Result<Value, String> {
 /// dies costs an unreported reading or two and comes straight back on the next call, and
 /// a background process that outlives every window and terminal the user can see is a
 /// worse thing to leave on somebody's machine than a restart.
+///
+/// **Exactly one process spawns, and that is enforced here rather than by restricting who
+/// may ask.** It used to be enforced by convention — only `sanity_open` was allowed to
+/// call this — because a cold wave of readers that all probed an empty endpoint would all
+/// spawn, each binding its own port and publishing the file over the last, with the losers
+/// only noticing on their next five-second watch tick. That convention bought exclusion at
+/// the price of recovery: a backend that died mid-run could not be restarted by the calls
+/// that noticed, because they were the calls forbidden to try. And it was never exclusion
+/// anyway — two sessions opening two repos at once are two permitted callers.
+///
+/// [`take_spawn_lock`] makes it real. Losers do not queue up behind the lock to spawn in
+/// turn; they wait for the winner's backend, which is the thing they actually wanted.
 pub(crate) fn ensure_backend() -> Result<Endpoint, String> {
     if let Some(ep) = live() {
         return Ok(ep);
@@ -117,6 +219,23 @@ pub(crate) fn ensure_backend() -> Result<Endpoint, String> {
     if std::env::var_os("SANITY_BACKEND").is_some() {
         return Err("SANITY_BACKEND is set but nothing is answering there".into());
     }
+
+    let deadline = Instant::now() + START_WAIT;
+    // Held for the rest of this call, spawn and wait together. Releasing it the moment the
+    // child is spawned would let the next caller in while the port is still unpublished,
+    // and it would spawn a second server for the same gap this exists to close.
+    let Some(_lock) = take_spawn_lock() else {
+        // Somebody else is already starting one. Theirs will do.
+        return await_backend(deadline)
+            .ok_or_else(|| "another process is starting the backend and it did not come up in 15s".to_string());
+    };
+    // Under the lock, ask again. The holder we queued behind may have finished between our
+    // probe and our claim, and starting a second server on top of a working one is the
+    // exact outcome the lock exists to prevent.
+    if let Some(ep) = live() {
+        return Ok(ep);
+    }
+
     let exe = std::env::current_exe().map_err(|e| format!("cannot find my own binary: {e}"))?;
     std::process::Command::new(exe)
         .arg("serve")
@@ -126,16 +245,7 @@ pub(crate) fn ensure_backend() -> Result<Endpoint, String> {
         .spawn()
         .map_err(|e| format!("could not start the backend: {e}"))?;
 
-    let deadline = Instant::now() + START_WAIT;
-    loop {
-        if let Some(ep) = live() {
-            return Ok(ep);
-        }
-        if Instant::now() >= deadline {
-            return Err("the backend did not come up within 15s".into());
-        }
-        std::thread::sleep(Duration::from_millis(250));
-    }
+    await_backend(deadline).ok_or_else(|| "the backend did not come up within 15s".to_string())
 }
 
 /// Thousands separators. The counts here are function totals, and six digits without them
@@ -230,12 +340,22 @@ pub fn serve() -> i32 {
             _ => {}
         }
 
-        let idle = state
-            .lock()
-            .ok()
-            .map(|s| s.last_agent.map_or_else(|| started.elapsed(), |t| t.elapsed()));
-        if idle.is_some_and(|d| d >= IDLE_FOR) {
+        // Unconditional, and that is the fix rather than the style.
+        //
+        // This was `state.lock().ok().map(...)` fed to `is_some_and`, so a lock it could
+        // not take read as "not idle" and the daemon stayed up forever — which is exactly
+        // the state a poisoned mutex leaves it in, and exactly the state in which every
+        // one of its answers is empty. The idle check is the only thing that ever ends
+        // this process, so it must not have a branch that means "I could not tell".
+        // `agentapi::lock` recovers from poison, so there is no longer an `ok()` here to
+        // swallow; if that ever changes, this has to fail CLOSED and stand down.
+        let idle = {
+            let s = agentapi::lock(&state);
+            s.last_agent.map_or_else(|| started.elapsed(), |t| t.elapsed())
+        };
+        if idle >= IDLE_FOR {
             println!("Nothing has called in {} minutes. Standing down.", IDLE_FOR.as_secs() / 60);
+            agentapi::release_endpoint(me);
             return 0;
         }
     }
@@ -478,5 +598,64 @@ pub fn main(args: &[String]) -> i32 {
             print!("{USAGE}");
             2
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agentapi::tests::data_home;
+
+    /// The whole point of the lock: a cold wave cannot put two backends on one machine.
+    ///
+    /// This is what replaced "only `sanity_open` may bootstrap". That rule reduced the
+    /// number of callers without ever excluding them — two sessions opening two repos are
+    /// two permitted callers — and it made recovery impossible, because the calls that
+    /// notice a dead backend were the ones forbidden to restart it. Exclusion belongs at
+    /// the spawn, where it can be enforced, not at the caller, where it can only be
+    /// discouraged.
+    #[test]
+    fn only_one_caller_may_start_a_backend_at_a_time() {
+        let _home = data_home();
+
+        let first = take_spawn_lock().expect("an uncontended lock must be available");
+        assert!(
+            take_spawn_lock().is_none(),
+            "a second caller got the lock too, which is a second backend"
+        );
+
+        // Released on drop — including, in `ensure_backend`, on the error paths.
+        drop(first);
+        assert!(
+            take_spawn_lock().is_some(),
+            "the lock was not released, so nothing can ever start a backend again"
+        );
+    }
+
+    /// A process that dies holding the lock must not wedge every later caller.
+    ///
+    /// The cost of `O_EXCL` over an advisory lock is that nothing cleans up after a death,
+    /// so age is the test — sound only because the guarded region is bounded by
+    /// `START_WAIT`. Both halves matter: a lock younger than the threshold is a live
+    /// attempt and must be respected, and one older is wreckage and must be taken.
+    #[test]
+    fn an_abandoned_spawn_lock_is_taken_rather_than_blocking_forever() {
+        let _home = data_home();
+
+        let held = take_spawn_lock().expect("uncontended");
+        assert!(
+            take_spawn_lock_after(Duration::from_secs(3600)).is_none(),
+            "stole a lock that is still well within a live attempt"
+        );
+
+        // Zero threshold: whatever is there is by definition too old.
+        let stolen = take_spawn_lock_after(Duration::ZERO);
+        assert!(stolen.is_some(), "an abandoned lock blocked a caller forever");
+
+        // The thief now holds it, and the original holder's drop must not hand it to a
+        // third caller — release is by path, and both point at the same one.
+        drop(held);
+        drop(stolen);
+        assert!(take_spawn_lock().is_some(), "lock left behind after everyone released");
     }
 }
