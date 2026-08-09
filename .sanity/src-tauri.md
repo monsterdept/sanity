@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-287 of 363 functions read · 13 surprising · 18 stale
+287 of 409 functions read · 13 surprising · 43 stale
 
 Each entry below is one **reading**. An agent was given a function's name,
 signature, neighbouring function names and comments — never its body — and wrote
@@ -193,25 +193,31 @@ What this is and how to add to it: [README.md](README.md)
 - found: Partitions scored tasks into fresh (rested) and resting (recently accessed) based on the recent map and a FILE_REST threshold. Fresh files are those not in the recent map or where FILE_REST duration has elapsed since last access. Prefers fresh tasks, but falls back to resting tasks if no fresh tasks exist. Calls interleave_by_file to spread the selected set of n tasks across their respective files.
 - predicted: full · documented: full · derivable: no
 
-### `queue` — nearly
+### `queue` — nearly — STALE
 - read at `e7564887ef3c` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: This is an async endpoint handler that builds and returns a queue of tasks for agents to process. It likely takes QueueParams from the query, resyncs any changed files, determines which functions still need assessment, applies some interleaving strategy (based on the `interleave_by_file` peer), and returns a Vec<Task> to be processed.
 - found: Locks shared state and gets the project, updates last_agent timestamp, resyncs changed files, collects scored tasks, spreads them across files with interleaving using `spread_across_files`, marks tasks as leased (with timestamp) to prevent duplicate assignment to concurrent agents, tracks recent files, determines if work is complete, pings UI with done/wait status, and returns the handed tasks.
 - predicted: most · documented: none · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `report` — nearly
+### `report` — nearly — STALE
 - read at `3e6839b8e449` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: Receives a reading from an agent, validates the project, stamps provenance fields (by and at from git), saves the report to disk, and returns a JSON response with status and remaining task counts.
 - found: Handles an incoming report: removes the function from the in-flight lease, stamps provenance (body, by, at) from the scan and git, classifies the outcome (stale/hot/cold based on whether it's a re-read or surprising), saves reports to disk, computes repo-wide aggregates (total, surprised count, warm count), generates quality hints for the agent if surprise rate is low or write fails, and returns JSON with status, remaining/in_flight counts, aggregates, and hint.
 - predicted: most · documented: none · derivable: no
 - note: Core mechanism was correct but the function does significant quality monitoring and in-flight task management beyond basic report persistence.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `status` — nearly
+### `status` — nearly — STALE
 - read at `643f03263264` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: This async endpoint handler returns assessment progress for the caller's project. It extracts the project key from StatusParams, retrieves the current scan state, and returns structured JSON with counts of assessed functions, remaining work, and progress metadata.
 - found: Locks state and returns early if unavailable. Pings for activity tracking. Collects all projects' summaries, then resolves the caller's specific project via for_client(). Calculates WorkLeft (remaining, in_flight, outstanding leases), counts stale readings, and returns comprehensive JSON including function counts, assessed/remaining/in_flight counts, oldest outstanding leases with age, stale count, assessment file path, and dynamic next_step guidance based on completion status and stale reading presence. On project not found, returns helpful error distinguishing transient vs. permanent failures.
 - predicted: most · documented: full · derivable: no
 - note: The WorkLeft calculation with lease tracking, stale reading handling, and context-aware next_step guidance required reading the full state machine logic; signature alone suggested simple counting.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `add` — as expected
 - read at `6d13901c3e9d` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 8 of its run
@@ -231,11 +237,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Visits all function nodes in the project tree, filters for non-stale reports, accumulates grade statistics into total tally, per-model buckets (with unattributed fallback), and per-position buckets for grade distribution by reading position.
 - predicted: most · documented: none · derivable: yes
 
-### `summary` — nearly
+### `summary` — nearly — STALE
 - read at `cdf529429b5c` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: An HTTP endpoint that computes and returns repository-wide aggregate statistics about assessed functions, excluding stale readings, from the current project.
 - found: Locks state, gets project, calls aggregate() and work_left(), counts functions, and returns JSON with repo path, function counts, assessed/stale/remaining counts, and aggregates by model and by_position, plus detailed note on methodology.
 - predicted: most · documented: most · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `from_state` — surprising
 - read at `1e1384212f9c` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
@@ -260,11 +268,13 @@ What this is and how to add to it: [README.md](README.md)
 - this code has changed since it was read; the reading above may no longer
   describe it, and Sanity will offer it for re-reading first.
 
-### `restore` — nearly
+### `restore` — nearly — STALE
 - read at `ef48454d12a9` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: This function restores previously open projects by rescanning the code trees (not loading cached trees since they'd be stale), loading the assessments from disk, and handling cases where files have moved or been deleted. It iterates through projects and rebuilds the state.
 - found: The function loads the project index, spawns a thread to rescan each project in reverse order, loads their assessments from disk, creates Project structs with metadata, tracks the active project (with a fallback to most recent), handles deleted/moved repos gracefully, and calls persist() once at the end to avoid partial saves.
 - predicted: most · documented: most · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `serve` — as expected
 - read at `75b39671788f` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -279,12 +289,14 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: no
 - note: Initializes with fixed default bounds (1-10) that seemed arbitrary without context.
 
-### `project_of` — nearly
+### `project_of` — nearly — STALE
 - read at `56979d1d4599` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: Constructs a Project by scanning the directory with the heuristic model, loading any existing .sanity/ assessments, computing initial scores for all functions, and returning a fully initialized Project struct.
 - found: Calls scan() with HeuristicModel and ephemeral cache (test mode, no persistent caching), then constructs a Project with the scan result, empty reports/leases/marks hashmaps (no loading of existing assessments), a hardcoded name "t", and zero touched/no last_agent.
 - predicted: most · documented: none · derivable: no
 - note: High-level concept correct (scan and construct) but misses the testing context: ephemeral cache, empty reports, hardcoded test name.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `a_save_mid_restore_does_not_erase_projects_it_has_not_loaded` — nearly — STALE
 - read at `b6eccac47da9` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
@@ -595,20 +607,24 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/bin/sample.rs
 
-### `main` — nearly
+### `main` — nearly — STALE
 - read at `beca877b6182` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Entry point that initializes the sanity tool, parses command-line arguments (repo path, output directory, sample size), scans the repository for functions, performs sampling, and writes function metadata and code to separate output files for review exercises.
 - found: Creates sampling exercises by scanning repo, extracting all functions, calculating stride-based sampling to evenly select from total functions, and writing markdown head files (metadata: name, owner, docs, peers) and text body files (code) for each sampled function. Reports count and output location.
 - predicted: most · documented: none · derivable: yes
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## src-tauri/src/bin/scan.rs
 
-### `main` — nearly
+### `main` — nearly — STALE
 - read at `4ad0f03429e3` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: Entry point for the scan binary. Parses command-line arguments for a repo path, runs the scoring logic on that repo, and uses helper functions to format and print a histogram of the surprise distribution.
 - found: Parses CLI args (PATH and --local WEIGHTS). Conditionally loads a local model or uses heuristic proxy based on compilation features. Calls scan::scan with ephemeral cache and full fidelity. Prints summary stats, handles missing git history warning, calculates hot line percentage. Calls histogram, baseline_check, and section helpers to print ranked results sorted by temperature × lines (not just temperature).
 - predicted: most · documented: most · derivable: no
 - note: Features detailed comments on design rationale but would benefit from higher-level overview of the stages.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `histogram` — as expected
 - read at `87f3ee24e884` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · warm reading · reading 7 of its run
@@ -669,11 +685,13 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no
 - note: Docs frame purpose ("number a person can hold") rather than stating the thresholds (k, M) and fallback behavior explicitly.
 
-### `main` — surprising
+### `main` — surprising — STALE
 - read at `207918e6c0bb` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: This is the entry point for a binary/CLI tool that calculates or displays token counts. Given the peers (tok, row, pct, big), it likely reads input and computes token statistics, displaying them in a formatted output (rows, percentages, big values).
 - found: Scans a repo, calculates per-reader token budgets (fixed prefix tools/prompts + function payloads + body reading costs), generates statistics for each task component (median, p90, max), projects whole-repo costs across functions, and identifies unused tool descriptions as potential budget savings.
 - predicted: some · documented: none · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## src-tauri/src/blame.rs
 
@@ -689,11 +707,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Delegates directly to the internal files map's get method, returning an optional reference to the FileBlame entry for the given path.
 - predicted: full · documented: none · derivable: no
 
-### `read` — as expected
+### `read` — as expected — STALE
 - read at `6295486f5fc5` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: This is a Blame type method that reads git blame history for multiple files in parallel. It takes a repository path and list of file paths, runs blame on each (silently handling failures per-file), and returns a Blame struct containing the aggregated blame data. Individual file failures are gracefully ignored, allowing the caller to fall back to file-level history.
 - found: The method captures the current Unix timestamp (falling back to 0 if time retrieval fails), then uses rayon's par_iter to iterate in parallel over the file paths. For each path, it calls blame_file and uses filter_map to silently drop failures, keeping only successful blame results. Returns a Blame struct containing the files map and the captured timestamp.
 - predicted: full · documented: none · derivable: yes
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `blame_file` — as expected
 - read at `ed62f32435e8` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 4 of its run
@@ -874,11 +894,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Returns whether the internal `files` collection is empty by delegating to its `is_empty()` method.
 - predicted: most · documented: none · derivable: no
 
-### `read` — as expected
+### `read` — as expected — STALE
 - read at `f16b98f461b6` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: Reads git history for a repository, parsing commit logs to calculate churn and age metrics. It gracefully handles non-git directories by returning a History object without git data.
 - found: Runs `git log` command with custom format to extract timestamp and author, limiting to MAX_COMMITS and filtering out merges. Includes file paths (--name-only). Returns default History if git command fails or exits with error. Parses the log output with parse_log, passing the current timestamp.
 - predicted: full · documented: full · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `now_secs` — as expected
 - read at `785486d94a76` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 7 of its run
@@ -886,23 +908,29 @@ What this is and how to add to it: [README.md](README.md)
 - found: Gets the current system time, calculates duration since Unix epoch, converts to seconds as i64, and returns 0 on error (if system time is before epoch).
 - predicted: full · documented: none · derivable: yes
 
-### `credit` — nearly
+### `credit` — nearly — STALE
 - read at `659595849b26` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: This function records a single commit event against a specific file or directory path by updating the FileHistory entry in the files HashMap. It takes the path key, the age of the commit in days, and the commit author, and updates the corresponding FileHistory structure to track this commit.
 - found: Records a commit by getting or creating a FileHistory entry, setting last_touched and last_author on first sighting, incrementing recent_commits only if within CHURN_WINDOW_DAYS, and always updating age_days (relying on git log walking newest-first to find the oldest age).
 - predicted: most · documented: full · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `flush_commit` — nearly
+### `flush_commit` — nearly — STALE
 - read at `657564a9e74e` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: Processes a single commit by iterating through touched files, updating their histories with the commit timestamp and author, and crediting each ancestor directory exactly once to avoid double-counting commits touching multiple files in one directory.
 - found: Validates timestamp and touched list. Calculates age_days from timestamp. Extracts all ancestor directories from touched paths by splitting on '/' and storing in HashSet. Calls credit() for each touched file and each collected directory. Clears the touched vector.
 - predicted: most · documented: full · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `parse_log` — nearly
+### `parse_log` — nearly — STALE
 - read at `940a52e35ee4` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: This function parses git log output text and a current timestamp to build a History struct tracking commit data (timestamps, authors, touched files). The doc emphasizes this is where parsing bugs live and is testable independently. Given peers like `churn_of`, `age_of`, `last_touched_of`, it likely processes commit records to extract temporal metadata for churn and age scoring.
 - found: The function parses git log text by iterating line-by-line. It recognizes commit boundaries by lines prefixed with the SOH character (\u{1}), extracting the timestamp and author separated by STX (\u{2}) from each commit header. It collects file paths touched in each commit. When a new commit is encountered or at the end, it calls flush_commit to accumulate the commit's data (timestamp, author, touched files) into a HashMap of FileHistory per path. Returns History with the aggregated file history data.
 - predicted: most · documented: some · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `a_commit_touching_three_files_counts_once_for_their_directory` — as expected
 - read at `d79af032ecd6` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 6 of its run
@@ -964,29 +992,37 @@ What this is and how to add to it: [README.md](README.md)
 - found: Creates a sanitized window label, checks if a window with that label already exists and focuses it if so, manually URL-encodes the path and repo parameters, builds a WebviewWindow with the encoded URL, title, and configurable dimensions, applies macOS-specific title bar styling and traffic light positioning, then builds and returns the result.
 - predicted: most · documented: full · derivable: no
 
-### `agent_reports` — as expected
+### `agent_reports` — as expected — STALE
 - read at `2a8618d78133` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: A Tauri command that polls and returns all agent-reported assessments for a project. It takes an optional project key parameter; if not provided, it uses the currently active project. Returns a vector of Report objects containing all assessments collected for that project, or an empty vector if the key is invalid or state cannot be accessed.
 - found: Locks the shared state, retrieves the provided key or falls back to the active project key, looks up the project's reports in the projects map, clones all report values into a vector, and returns it. Returns an empty vector if any step fails (state lock fails, key is invalid, or project not found).
 - predicted: full · documented: none · derivable: yes
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `agent_activity` — nearly
+### `agent_activity` — nearly — STALE
 - read at `ed8e92e26ed7` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · warm reading · reading 8 of its run
 - expected: This is a Tauri command that accesses the shared agent state and returns an AgentActivity struct containing information about current agent activity/status.
 - found: Locks the shared agent state and returns an AgentActivity struct with active (true if agent touched within 60 seconds), last tool name, ping count as nonce, and recent events mapped to AgentCall structs; returns default empty AgentActivity if lock fails.
 - predicted: most · documented: none · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `projects` — nearly
+### `projects` — nearly — STALE
 - read at `ea8670a0d028` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
 - expected: This function retrieves the list of available projects from the application state and returns a ProjectList that the frontend uses to populate the UI and handle project selection.
 - found: Locks the shared state, maps it to a ProjectList using ProjectList::from_state, and returns the result or a default ProjectList if locking fails.
 - predicted: most · documented: full · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `project_scan` — as expected
+### `project_scan` — as expected — STALE
 - read at `cd1fb638d2fa` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 7 of its run
 - expected: This Tauri command retrieves the full scored tree for a project when the UI window switches to it. It likely locks the shared state, looks up the project by the given key, and returns a clone of its scan tree.
 - found: The function locks the shared state, gets the projects map, looks up the project by key, and returns a clone of its scan field using map and the ? operator for error handling.
 - predicted: full · documented: none · derivable: yes
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `sync_theme_menu` — as expected
 - read at `dbabffd78808` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -1310,23 +1346,29 @@ What this is and how to add to it: [README.md](README.md)
 - this code has changed since it was read; the reading above may no longer
   describe it, and Sanity will offer it for re-reading first.
 
-### `with_retry` — nearly
+### `with_retry` — nearly — STALE
 - read at `c1dba3d1748d` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: This is a retry utility that takes a closure and repeatedly calls it with an endpoint URL until it succeeds or encounters a fatal error. It only retries on transient connection failures, not on parsed HTTP responses or fatal errors. It stops when the window closes or a deadline is reached.
 - found: The function sets a deadline (now + RETRY_FOR) and loops, calling the attempt closure with the base URL. On success it returns Ok(v), on Fatal error it returns that error immediately. On Transient error it continues. When the deadline is reached, it checks if the endpoint file exists to distinguish between UNREACHABLE (exists but unreachable) and NOT_RUNNING (doesn't exist), then sleeps between iterations.
 - predicted: most · documented: most · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `get` — as expected
+### `get` — as expected — STALE
 - read at `0f1107220ccb` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: This function makes an HTTP GET request to a base URL with the given path, retrying on transient errors, and returns the parsed JSON response or an error.
 - found: The function wraps a GET request in with_retry, constructs a URL from base + path, makes a blocking request, and parses the response as JSON, distinguishing between transient (network) and fatal (parse) errors.
 - predicted: full · documented: none · derivable: yes
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `post` — as expected
+### `post` — as expected — STALE
 - read at `6acb4b90e1ab` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: Makes an HTTP POST request to the given path with a JSON body, returning a JSON response or an error message. It likely handles retries and uses shared HTTP client infrastructure.
 - found: Makes an HTTP POST request by wrapping the operation with with_retry for retry logic. Creates a new reqwest blocking client, posts to the formatted base URL + path with JSON body. Maps send errors as transient (retryable) and JSON parse errors as fatal (non-retryable), returning the parsed JSON response.
 - predicted: full · documented: none · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `urlencode` — nearly
 - read at `a37075a00bd1` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 10 of its run
@@ -1702,11 +1744,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: The function builds a context string by starting with the file's preamble/imports (file.head), then iterating through functions in order, skipping the one at index `skip`, taking the first CONTEXT_SIBLINGS functions, and for each appending its signature and the first CONTEXT_SIBLING_LINES lines of its body. This provides the model prompt with the file structure and neighboring function patterns without the target function.
 - predicted: most · documented: none · derivable: yes
 
-### `parse_file` — nearly
+### `parse_file` — nearly — STALE
 - read at `c3b3e6347d94` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: This function takes a file path, language identifier, and fidelity level, then parses the source file to extract function/definition locations, handles gitignore scoping, and returns a ParsedFile structure containing the parsed functions and metadata.
 - found: The function reads the source file, rejects minified files (lines > MINIFIED_LINE_BYTES), parses functions for the language, returns None if no functions found, conditionally computes fingerprints based on fidelity level (Full vs Ordering), extracts the first N lines as file head context, checks gitignore scope to set the excluded flag, and returns a ParsedFile with all metadata.
 - predicted: most · documented: none · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `apply_dir_history` — as expected
 - read at `2754a8f9bc96` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 10 of its run
@@ -1739,11 +1783,13 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no
 - note: Elegant loop-based approach that handles arbitrarily long chains and preserves full paths via name concatenation.
 
-### `scan` — nearly
+### `scan` — nearly — STALE
 - read at `fafd39db392a` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · warm reading · reading 9 of its run
 - expected: This is the main entry point that orchestrates the entire scanning pipeline. It likely collects files, parses them, applies directory history, scores everything, applies model scores, and fires callbacks as it progresses. It handles cancellation via the atomic bool and returns a Scan result.
 - found: Orchestrates the complete scanning pipeline: collects and parses files in parallel, builds a fast proxy-scored tree for immediate display, optionally runs a model pass with work queue prioritized by proxy intensity, parallel scoring with streaming callbacks inside the map, caches results, applies model scores and history, properly reaggregating after each phase, and returns Scan with stats.
 - predicted: most · documented: full · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `fixture` — nearly
 - read at `60d889d6f8b2` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 2 of its run
@@ -1751,18 +1797,22 @@ What this is and how to add to it: [README.md](README.md)
 - found: Creates a temporary directory with a nested src/deep/nest structure, writes a .rs file with sample Rust functions (add, sub), creates a .gitignore file, and adds a vendor directory with a file to test that gitignore patterns are respected by the scanner.
 - predicted: most · documented: none · derivable: no
 
-### `ordering_fidelity_changes_the_score_and_nothing_else` — nearly
+### `ordering_fidelity_changes_the_score_and_nothing_else` — nearly — STALE
 - read at `f3bd21643386` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: Test verifying that Ordering fidelity produces identical tree structure and node properties as Full fidelity scanning, with only surprise scores potentially differing.
 - found: Scans a fixture with both Full and Ordering fidelity, then asserts that function counts, file counts, and total LOC match, and that both produce identical function IDs (proving tree structure is identical), ensuring fidelity only affects scores.
 - predicted: most · documented: none · derivable: yes
 - note: Captured the general concept but missed the specific stat assertions and the id collection helper used to verify tree identity.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `run` — as expected
+### `run` — as expected — STALE
 - read at `0a361133a50e` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: This is a test helper function that performs a complete scan of a directory and returns the Scan result, likely wrapping the main scan function with test setup/configuration.
 - found: Calls scan() with the directory, HeuristicModel scorer, empty callback closures, a false cancellation flag, ephemeral cache, and Full fidelity, then unwraps the result.
 - predicted: full · documented: none · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `gitignored_paths_never_enter_the_picture` — as expected
 - read at `1350304cce85` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run

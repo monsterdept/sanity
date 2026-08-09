@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-98 of 177 functions read · 1 surprising · 19 stale
+97 of 188 functions read · 1 surprising · 22 stale
 
 Each entry below is one **reading**. An agent was given a function's name,
 signature, neighbouring function names and comments — never its body — and wrote
@@ -63,11 +63,13 @@ What this is and how to add to it: [README.md](README.md)
 - this code has changed since it was read; the reading above may no longer
   describe it, and Sanity will offer it for re-reading first.
 
-### `Empty` — nearly
+### `Empty` — nearly — STALE
 - read at `cb95fe9b3d53` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 7 of its run
 - expected: This is a React component that renders the empty state UI when no project is selected, likely showing a message and a button that calls onPick to allow the user to select a project.
 - found: Renders a centered empty state screen with instruction text directing users to use Claude Code with 'study this project in sanity', explaining the interface will open and update as the agent reads, plus a button 'or open a repo by hand' that calls onPick.
 - predicted: most · documented: none · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/CodeWindow.tsx
 
@@ -167,22 +169,22 @@ What this is and how to add to it: [README.md](README.md)
 - this code has changed since it was read; the reading above may no longer
   describe it, and Sanity will offer it for re-reading first.
 
-### `ColourLegend` — nearly
+### `ColourLegend` — nearly — STALE
 - read at `a31ab9cef181` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: The ColourLegend component renders a boxed legend displaying color categories for a given color mode, matching the visual styling of the ModeSwitcher component, with optional handling for displaying stale items marked with a hatch pattern.
 - found: Renders a rounded bordered card containing a Legend component, and conditionally appends a row showing stale count with a CSS gradient-based hatch pattern (45-degree repeating lines) when stale items exist, with explanatory text "read, then changed".
 - predicted: most · documented: some · derivable: no
 - note: Docs don't describe how the stale row renders or explain the CSS gradient approach to creating the hatch pattern instead of using SVG.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/components/Crumbs.tsx
 
-### `Crumbs` — nearly — STALE
+### `Crumbs` — nearly
 - read at `899166c24f97` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: A breadcrumb component rendering each node in the ancestry trail as clickable buttons. Each click calls onGo with the node's index. Node names with slashes are split and displayed with inner slashes dimmed to distinguish collapsed single-child chains from the outer crumb separators.
 - found: Renders a nav containing an ordered list of trail nodes as clickable buttons. Between items (not before first) adds dimmed forward slashes. Each button calls onGo(i), with the current node styled differently (bold, aria-current="page", no hover). Splits each node name by '/' and renders parts with inner slashes dimmed (opacity-40). Also renders an "Up" button that calls onUp if provided, disabled if onUp is undefined.
 - predicted: most · documented: full · derivable: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/components/Detail.tsx
 
@@ -297,11 +299,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/SideBar.tsx
 
-### `SideBar` — nearly
+### `SideBar` — nearly — STALE
 - read at `07f253ba2968` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: React component rendering application sidebar with project list, active selection, project item components, and progress/agent status display at bottom. Handles callbacks for project selection, opening projects, and connecting agents.
 - found: Renders sidebar with header, projects nav (with empty state), and agent status panel. Progress bars shown for actively working projects or fall back to busyKey project. Agent panel displays mascot, working/sleeping status, connect button. Per-project bars show assessed/functions counts, stale reading warnings, and animated progress bar. Styling uses Tauri drag region and detailed alignment comments.
 - predicted: most · documented: none · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `ProjectItem` — as expected
 - read at `f27112610f1c` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
@@ -445,12 +449,6 @@ What this is and how to add to it: [README.md](README.md)
 - found: Creates a report Map, recursively visits tree nodes, applies reports to leaf nodes. For stale reports (code changed), marks agentStale=true and restores proxyScore, keeping reading but ignoring its score. For fresh reports, extracts grades from report, updates node score with agent's surprise and documented grades (or just surprise if undocumented), preserves proxyScore, sets source='agent'. Re-aggregates non-leaf nodes if children changed.
 - predicted: most · documented: most · derivable: no
 
-### `countStale` — as expected
-- read at `04f9c71e9172` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
-- expected: Recursively traverses the tree starting from the root node, counting all nodes that are marked as stale, to accurately reflect the stale wedges actually displayed in the sunburst visualization.
-- found: Recursively counts stale nodes in the tree: checks if the root node's agentStale flag is set (contributing 1 if true, 0 if false), then recursively counts stale children, and returns the total count.
-- predicted: full · documented: full · derivable: no
-
 ### `scanRepo` — nearly
 - read at `252492de7a28` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: This function calls the Tauri backend to scan a repository at the given path and returns the scan results including parsed functions, files, and their metadata.
@@ -531,11 +529,13 @@ What this is and how to add to it: [README.md](README.md)
 - this code has changed since it was read; the reading above may no longer
   describe it, and Sanity will offer it for re-reading first.
 
-### `heatColor` — nearly
+### `heatColor` — nearly — STALE
 - read at `cb9031e433f6` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
 - expected: Takes a heat value and interpolates between five CSS color stops, returning a CSS variable reference that can be used in styles.
 - found: Clamps t to [0,1], scales to [0,4], finds two adjacent stops to interpolate between, and returns a CSS color-mix() function in oklch space that mixes between the upper and lower stops based on the fractional interpolation value.
 - predicted: most · documented: some · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/lib/cn.ts
 
