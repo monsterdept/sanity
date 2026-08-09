@@ -42,6 +42,13 @@ pub struct FileHistory {
     pub age_days: f32,
     /// Days since the newest.
     pub last_touched_days: f32,
+    /// Oid of the newest commit touching this file.
+    ///
+    /// Collected here rather than asked for separately because this walk already knows it:
+    /// `scancache` needs it to tell an unchanged file's blame from one that was reverted
+    /// and reapplied — same bytes, same hash, different provenance — and a `git log` per
+    /// file to find it out would cost more than the blame the cache exists to skip.
+    pub last_commit: String,
     /// Who made that newest commit.
     ///
     /// This used to say blame would be more accurate but "costs a process per file". It
@@ -94,6 +101,19 @@ impl History {
         self.files.get(path).map(|h| h.age_days)
     }
 
+    /// Oid of the newest commit touching this path, if it fell inside the walked window.
+    ///
+    /// `None` is not "never committed" — it is "not in the last `MAX_COMMITS` commits",
+    /// and `scancache` treats the two the same on purpose: a file untouched for five
+    /// thousand commits cannot have its blame change without the history being rewritten,
+    /// which is detected separately and wholesale.
+    pub fn last_commit_of(&self, path: &str) -> Option<&str> {
+        self.files
+            .get(path)
+            .map(|h| h.last_commit.as_str())
+            .filter(|c| !c.is_empty())
+    }
+
     pub fn is_empty(&self) -> bool {
         self.files.is_empty()
     }
@@ -108,8 +128,8 @@ pub fn read(repo: &Path) -> History {
         .args([
             "log",
             "--no-merges",
-            // \x01 starts a commit, \x02 separates timestamp from author.
-            "--format=%x01%ct%x02%an",
+            // \x01 starts a commit, \x02 separates its fields: timestamp, author, oid.
+            "--format=%x01%ct%x02%an%x02%H",
             "--name-only",
             &format!("--max-count={MAX_COMMITS}"),
         ])
@@ -133,12 +153,19 @@ fn now_secs() -> i64 {
 }
 
 /// Record one commit against one path — a file or a directory.
-fn credit(files: &mut HashMap<String, FileHistory>, key: &str, age_days: f32, author: &str) {
+fn credit(
+    files: &mut HashMap<String, FileHistory>,
+    key: &str,
+    age_days: f32,
+    author: &str,
+    oid: &str,
+) {
     let e = files.entry(key.to_string()).or_default();
     if e.recent_commits == 0 && e.age_days == 0.0 {
         // First sighting, and git walks newest first, so this is the latest commit.
         e.last_touched_days = age_days;
         e.last_author = author.to_string();
+        e.last_commit = oid.to_string();
     }
     if age_days <= CHURN_WINDOW_DAYS {
         e.recent_commits += 1;
@@ -159,6 +186,7 @@ fn flush_commit(
     ts: i64,
     now: i64,
     author: &str,
+    oid: &str,
     touched: &mut Vec<String>,
 ) {
     if ts == 0 || touched.is_empty() {
@@ -176,10 +204,10 @@ fn flush_commit(
         }
     }
     for path in touched.iter() {
-        credit(files, path, age_days, author);
+        credit(files, path, age_days, author, oid);
     }
     for dir in dirs {
-        credit(files, &dir, age_days, author);
+        credit(files, &dir, age_days, author, oid);
     }
     touched.clear();
 }
@@ -197,15 +225,20 @@ fn parse_log(text: &str, now: i64) -> History {
     let mut files: HashMap<String, FileHistory> = HashMap::new();
     let mut commit_ts: i64 = 0;
     let mut author = String::new();
+    let mut oid = String::new();
     let mut touched: Vec<String> = Vec::new();
 
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix('\u{1}') {
             // A new commit starts, so the previous one is complete.
-            flush_commit(&mut files, commit_ts, now, &author, &mut touched);
-            let (ts, who) = rest.split_once('\u{2}').unwrap_or((rest, ""));
+            flush_commit(&mut files, commit_ts, now, &author, &oid, &mut touched);
+            let (ts, rest) = rest.split_once('\u{2}').unwrap_or((rest, ""));
+            // Author names contain almost anything, oids contain nothing; splitting from
+            // the RIGHT keeps a name with a \x02 in it from eating the oid.
+            let (who, id) = rest.rsplit_once('\u{2}').unwrap_or((rest, ""));
             commit_ts = ts.trim().parse().unwrap_or(0);
             author = who.trim().to_string();
+            oid = id.trim().to_string();
             continue;
         }
         let path = line.trim();
@@ -214,7 +247,7 @@ fn parse_log(text: &str, now: i64) -> History {
         }
         touched.push(path.to_string());
     }
-    flush_commit(&mut files, commit_ts, now, &author, &mut touched);
+    flush_commit(&mut files, commit_ts, now, &author, &oid, &mut touched);
 
     History { files }
 }

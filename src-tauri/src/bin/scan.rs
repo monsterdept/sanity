@@ -62,6 +62,7 @@ fn main() {
         Box::new(HeuristicModel)
     };
 
+    let memos = sanity_lib::scan::Memos::ephemeral();
     let scanned = match scan::scan(
         &path,
         model.as_ref(),
@@ -70,7 +71,9 @@ fn main() {
         &std::sync::atomic::AtomicBool::new(false),
         // Ephemeral: the headless scanner is how the metric gets measured, and a run
         // that silently reuses yesterday's scores is not a measurement.
-        &sanity_lib::cache::Cache::ephemeral(),
+        // Both memos ephemeral: a headless run that answers from a file on disk is not a
+        // run of the thing being measured. Same rule `just history` follows.
+        sanity_lib::scan::Memos { scores: &memos.0, scans: &memos.1 },
         // Full, always. This is where the metric gets measured, and the all-pairs term is
         // the strongest one in the mix — a histogram read off a scan that skipped it would
         // be a measurement of a different instrument.

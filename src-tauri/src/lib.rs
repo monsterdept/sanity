@@ -31,6 +31,7 @@ pub mod model;
 pub mod parse;
 pub mod reports;
 pub mod scan;
+pub mod scancache;
 pub mod surprise;
 
 /// Where the macOS traffic lights sit inside the overlay titlebar.

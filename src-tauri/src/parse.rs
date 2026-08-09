@@ -8,10 +8,15 @@
 //! Kind matching fails loudly instead: if a grammar renames a node, its tests go red.
 
 use crate::model::Lang;
+use serde::{Deserialize, Serialize};
 use tree_sitter::{Node as TsNode, Parser};
 
 /// One function, with everything the scorer needs and nothing it doesn't.
-#[derive(Debug, Clone)]
+///
+/// Serialisable because `scancache` memoises the parse: re-deriving this for a file nobody
+/// touched is the same work producing the same answer, and on a large C++ tree it was most
+/// of a minute per open.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FuncDef {
     pub name: String,
     /// Everything before the body — `fn foo(a: u32) -> bool`. This is the context the

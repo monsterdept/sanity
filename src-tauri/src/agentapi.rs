@@ -1048,18 +1048,25 @@ async fn open_project(
         .unwrap_or(false);
 
     let scan_path = path.clone();
+    let started = Instant::now();
     let scanned = tokio::task::spawn_blocking(move || {
+        // Persistent, unlike the score cache beside it. The rescan on every open is
+        // deliberate and stays — but re-deriving a parse and a blame for a file nobody
+        // touched is the same work producing the same answer, and on PrusaSlicer that was
+        // 51.5s of a 51.5s open. See `scancache`.
+        let scans = crate::scancache::ScanCache::open(&scan_path);
         crate::scan::scan(
             &scan_path,
             &crate::surprise::HeuristicModel,
             &|_| {},
             &|_, _: &crate::surprise::Reading| {},
             &std::sync::atomic::AtomicBool::new(false),
-            &crate::cache::Cache::ephemeral(),
+            crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
             crate::scan::Fidelity::Ordering,
         )
     })
     .await;
+    let scan_ms = started.elapsed().as_millis() as u64;
 
     let scan = match scanned {
         Ok(Ok(s)) => s,
@@ -1144,10 +1151,44 @@ async fn open_project(
              names promised properties their bodies never exercised, which was the best \
              result of that run."
         },
+        // How long the scan took, and — when that was long enough for a caller to have
+        // wondered whether it had hung — what it will cost next time.
+        //
+        // In the RESPONSE rather than the schema, on the standing rule: an `inputSchema`
+        // description is loaded once per FUNCTION and would bill every reader for a
+        // sentence only the orchestrator can act on. This reaches the one session that
+        // asked, at the moment it matters, and it can say the actual number rather than a
+        // hedge that has to cover every repo.
+        "scan_ms": scan_ms,
+        "scan_note": scan_note(scan_ms, reopened),
         // The two halves, rejoined for the one caller that needs both — it has to read
         // the orchestration half and paste the reader half.
         "stale": stale, "protocol": format!("{PROTOCOL}{READER_PROMPT}"),
     }))
+}
+
+/// What to tell the caller about the time it just waited.
+///
+/// A slow open is not a fault and must not read as one — a reader that decides an open is
+/// broken invents a prerequisite, which is the documented failure mode behind `UNREACHABLE`
+/// existing separately from `NOT_RUNNING`. What it needs to know is the shape of the cost:
+/// the first open of a repo pays for the parse and the blame of every file, and every open
+/// after it pays only for what changed.
+///
+/// Silent under the threshold, because a note attached to a fast call is noise that trains
+/// the reader to skip the field on the one call where it matters.
+fn scan_note(ms: u64, reopened: bool) -> Option<String> {
+    const SLOW_MS: u64 = 5_000;
+    if ms < SLOW_MS {
+        return None;
+    }
+    Some(format!(
+        "This scan took {}s. The parse and git blame of every file are cached per machine, \
+         so opens after this one cost only what changed{}. Expect the same one-off wait the \
+         first time you open any large repo — it is not a hang, and retrying restarts it.",
+        ms / 1000,
+        if reopened { " (this repo was already open, so the cache was in use)" } else { "" }
+    ))
 }
 
 /// How much work is genuinely left, and how much of it is available this second.
@@ -2228,7 +2269,10 @@ pub fn restore(state: Shared) {
                 &on_progress,
                 &|_, _: &crate::surprise::Reading| {},
                 &std::sync::atomic::AtomicBool::new(false),
-                &crate::cache::Cache::ephemeral(),
+                crate::scan::Memos {
+                    scores: &crate::cache::Cache::ephemeral(),
+                    scans: &crate::scancache::ScanCache::open(&path),
+                },
                 // A queue sort key, not a number anyone sees — see `scan::Fidelity`.
                 crate::scan::Fidelity::Ordering,
             ) else {
@@ -2331,7 +2375,10 @@ mod tests {
             &|_| {},
             &|_, _: &crate::surprise::Reading| {},
             &std::sync::atomic::AtomicBool::new(false),
-            &crate::cache::Cache::ephemeral(),
+            crate::scan::Memos {
+                scores: &crate::cache::Cache::ephemeral(),
+                scans: &crate::scancache::ScanCache::ephemeral(),
+            },
             crate::scan::Fidelity::Ordering,
         )
         .unwrap();

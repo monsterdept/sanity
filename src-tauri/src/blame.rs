@@ -34,28 +34,41 @@
 //! function moved between files reads as brand new. The file-level numbers have always
 //! had this limitation; per-function resolution just makes it easier to notice.
 
+use crate::churn::History;
+use crate::scancache::ScanCache;
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 
 /// One source line's provenance, packed small — a 2,000-line file holds 2,000 of these
 /// and a repo holds a few hundred files.
-#[derive(Clone, Copy)]
+///
+/// The field names are abbreviated in the serialised form because `scancache` stores one
+/// of these per source line: PrusaSlicer is 849k lines, and `"commit"`/`"author"`/`"time"`
+/// spelled out cost more disk than the values they label.
+#[derive(Clone, Copy, Serialize, Deserialize)]
 struct Line {
     /// First 16 hex digits of the commit. Enough to count distinct commits in a range
     /// without keeping a string per line; a collision would need two commits in the same
     /// function sharing a 64-bit prefix.
+    #[serde(rename = "c")]
     commit: u64,
     /// Index into `FileBlame::authors`.
+    #[serde(rename = "a")]
     author: u16,
     /// Author time, epoch seconds.
+    #[serde(rename = "t")]
     time: i64,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct FileBlame {
     /// Indexed by line number minus one.
+    #[serde(rename = "l")]
     lines: Vec<Line>,
+    #[serde(rename = "a")]
     authors: Vec<String>,
 }
 
@@ -120,20 +133,34 @@ impl Blame {
         self.files.get(path)
     }
 
-    /// Blame every file, in parallel.
+    /// Blame every file, in parallel, taking from `cache` whatever is still current.
     ///
     /// Failures are silent and per-file on purpose: an untracked file, a symlink, or a
     /// directory that is not a git repo at all should cost that file its per-function
     /// history and nothing else. The caller falls back to the file-level numbers, which
     /// is exactly what the map showed before this existed.
-    pub fn read(repo: &Path, paths: &[String]) -> Blame {
+    ///
+    /// A cache miss is not stored as a failure. `blame_file` returning `None` is the
+    /// untracked-file case above, and writing that absence down would mean a file that
+    /// gets committed tomorrow keeps its missing history until something else invalidates
+    /// it — a cache is allowed to be slow, never to be wrong for longer than the thing it
+    /// describes.
+    pub fn read(repo: &Path, paths: &[(String, u64)], history: &History, cache: &ScanCache) -> Blame {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
         let files = paths
             .par_iter()
-            .filter_map(|p| blame_file(repo, p).map(|b| (p.clone(), b)))
+            .filter_map(|(p, hash)| {
+                let want = history.last_commit_of(p);
+                if let Some(b) = cache.cached_blame(p, *hash, want) {
+                    return Some((p.clone(), b));
+                }
+                let b = blame_file(repo, p)?;
+                cache.put_blame(p, Some(&b), want);
+                Some((p.clone(), b))
+            })
             .collect();
         Blame { files, now }
     }

@@ -25,13 +25,16 @@ fn main() {
     let out = PathBuf::from(args.next().unwrap_or_else(|| "sample".into()));
     let want: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(10);
 
+    let memos = sanity_lib::scan::Memos::ephemeral();
     let scanned = match scan::scan(
         &repo,
         &HeuristicModel,
         &|_| {},
         &|_, _: &sanity_lib::surprise::Reading| {},
         &std::sync::atomic::AtomicBool::new(false),
-        &sanity_lib::cache::Cache::ephemeral(),
+        // Both memos ephemeral: a headless run that answers from a file on disk is not a
+        // run of the thing being measured. Same rule `just history` follows.
+        sanity_lib::scan::Memos { scores: &memos.0, scans: &memos.1 },
         // The scores are never used here — only the handout is — so the all-pairs term
         // would be thirty seconds spent on a number this tool does not print.
         sanity_lib::scan::Fidelity::Ordering,

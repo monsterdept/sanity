@@ -1,7 +1,7 @@
 //! The `invoke` surface. Frontend ↔ Rust is Tauri commands — no server, no sidecar.
 
 use crate::cache::Cache;
-use crate::scan::{self, Progress, Scan, Scored};
+use crate::scan::{self, Memos, Progress, Scan, Scored};
 use crate::surprise::HeuristicModel;
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -76,12 +76,24 @@ pub async fn scan_repo(
         // second, and a cache that saves nothing is a file that can only disagree with
         // the code.
         let cache = Cache::ephemeral();
+        // The scan cache, by contrast, is persistent and worth having: what it memoises is
+        // the tree-sitter parse and `git blame`, which recompute to exactly the same answer
+        // for a file nobody touched and cost 51s an open on a large C++ tree.
+        let scans = crate::scancache::ScanCache::open(&root);
         // Ordering fidelity: in the app this number is only ever a queue sort key. A
         // proxy-scored function is `Source::Proxy`, which the UI refuses to colour, so
         // the all-pairs term would cost 27 of these 34 seconds to produce a value no
         // user ever sees. See `scan::Fidelity`.
-        scan::scan(&root, &model, &emit, &scored, &CANCEL, &cache, scan::Fidelity::Ordering)
-            .map_err(|e| e.to_string())
+        scan::scan(
+            &root,
+            &model,
+            &emit,
+            &scored,
+            &CANCEL,
+            Memos { scores: &cache, scans: &scans },
+            scan::Fidelity::Ordering,
+        )
+        .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?;

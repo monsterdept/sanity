@@ -2,6 +2,7 @@
 
 use crate::cache::{self, Cache};
 use crate::blame::Blame;
+use crate::scancache::{Look, ScanCache};
 use crate::churn::{self, History};
 use crate::heuristic::{self, Fingerprint};
 use crate::model::{Lang, Node, NodeKind, Provenance, Score, Source};
@@ -136,12 +137,35 @@ const CONTEXT_HEAD_LINES: usize = 40;
 const CONTEXT_SIBLINGS: usize = 2;
 const CONTEXT_SIBLING_LINES: usize = 30;
 
+/// The two memos a scan carries, bundled because they are always passed together and
+/// separately because they answer different questions.
+///
+/// `scores` is keyed on a function's body and doc, since a score is a reading OF those.
+/// `scans` is keyed on a whole file, since a parse and a blame are readings of the file.
+/// They also differ in who fills them: `scores` only in the model path, `scans` on every
+/// scan. Passing two ephemerals is how the headless scanner stays reproducible.
+pub struct Memos<'a> {
+    pub scores: &'a Cache,
+    pub scans: &'a ScanCache,
+}
+
+impl Memos<'_> {
+    /// Neither memo persists. What `just scan` and the tests use — an experiment that can
+    /// answer from a file is not an experiment against the thing being measured.
+    pub fn ephemeral() -> (Cache, ScanCache) {
+        (Cache::ephemeral(), ScanCache::ephemeral())
+    }
+}
+
 struct ParsedFile {
     rel_path: String,
     lang: Lang,
     funcs: Vec<FuncDef>,
     prints: Vec<Fingerprint>,
     head: String,
+    /// FNV of the file's bytes, carried out of the parse so the blame pass can ask the
+    /// cache about this exact content without stat-ing or reading the file a second time.
+    hash: u64,
     /// Matched by `.sanityignore` — parsed and drawn, but never handed to a reader and
     /// never in the denominator. See [`scope_of`].
     excluded: bool,
@@ -203,44 +227,69 @@ fn context_for(file: &ParsedFile, skip: usize) -> String {
     out
 }
 
+/// Parse one file, or take its parse from `cache` when nothing about it has changed.
+///
+/// Fingerprints are recomputed rather than cached even on a hit. They are a `HashSet<u64>`
+/// per function — bigger on disk than the body they are derived from, and derived from a
+/// body the cache is already holding — so storing them would trade the thing this cache is
+/// for (a fast open) against the thing it costs (disk), in the wrong direction. At
+/// `Fidelity::Ordering`, which is what the app opens at, they are not computed at all.
 fn parse_file(
     root: &Path,
     path: &Path,
     lang: Lang,
     fidelity: Fidelity,
     scope: Option<&ignore::gitignore::Gitignore>,
+    cache: &ScanCache,
 ) -> Option<ParsedFile> {
-    let src = std::fs::read_to_string(path).ok()?;
-    if src.lines().any(|l| l.len() > MINIFIED_LINE_BYTES) {
-        return None;
-    }
-    let funcs = parse::parse_functions(lang, &src);
-    if funcs.is_empty() {
-        return None;
-    }
+    let rel_path = rel(root, path);
     // Shingling every body is half the cost of the term it feeds, so at ordering fidelity
     // it is skipped outright rather than computed and ignored.
-    let prints = match fidelity {
-        Fidelity::Full => funcs.iter().map(|f| heuristic::fingerprint(&f.body)).collect(),
-        Fidelity::Ordering => Vec::new(),
+    let print = |funcs: &[FuncDef]| -> Vec<Fingerprint> {
+        match fidelity {
+            Fidelity::Full => funcs.iter().map(|f| heuristic::fingerprint(&f.body)).collect(),
+            Fidelity::Ordering => Vec::new(),
+        }
     };
-    let head = src
-        .lines()
-        .take(CONTEXT_HEAD_LINES)
-        .collect::<Vec<_>>()
-        .join("\n");
+    // Excluded is recomputed on every scan and never cached: `.sanityignore` is a file the
+    // human edits, and a scan that answered from a memo would keep drawing a slice they
+    // just took out of scope.
+    let excluded =
+        scope.is_some_and(|s| s.matched_path_or_any_parents(path, false).is_ignore());
+
+    let (funcs, head, hash) = match cache.look(&rel_path, path, None) {
+        Look::Unreadable => return None,
+        Look::Hit(hit) => (hit.funcs, hit.head, hit.ident.hash),
+        Look::Miss { src, ident } => {
+            if src.lines().any(|l| l.len() > MINIFIED_LINE_BYTES) {
+                return None;
+            }
+            let funcs = parse::parse_functions(lang, &src);
+            if funcs.is_empty() {
+                return None;
+            }
+            let head = src
+                .lines()
+                .take(CONTEXT_HEAD_LINES)
+                .collect::<Vec<_>>()
+                .join("\n");
+            cache.put_parse(&rel_path, &ident, lang, &funcs, &head);
+            (funcs, head, ident.hash)
+        }
+    };
+    let prints = print(&funcs);
     Some(ParsedFile {
-        rel_path: rel(root, path),
+        rel_path,
         lang,
         funcs,
         prints,
         head,
+        hash,
         // Parsed even when excluded, rather than skipped in the walk. Scanning is seconds
         // and readers are millions of tokens, so the cheap thing is to know exactly how
         // much was set aside and say so. An exclusion nobody can count is how a map claims
         // completeness over a subset.
-        excluded: scope
-            .is_some_and(|s| s.matched_path_or_any_parents(path, false).is_ignore()),
+        excluded,
     })
 }
 
@@ -567,21 +616,14 @@ pub fn scan(
     // length filter, being able to stop IS the cost control, so this is load-bearing
     // rather than a convenience.
     cancel: &AtomicBool,
-    cache: &Cache,
+    memos: Memos<'_>,
     fidelity: Fidelity,
 ) -> anyhow::Result<Scan> {
+    let Memos { scores: cache, scans } = memos;
     let files = collect_files(root);
     let total_found = files.len();
     let scope = scope_of(root);
     let history = churn::read(root);
-    // Per-line provenance, so churn, age and blame resolve to the FUNCTION rather than
-    // to its file. One `git blame` per file, in parallel — 22ms each, measured, which is
-    // a rounding error against the scan and buys three of the five lenses their outer
-    // ring back. See `blame.rs` for what it can and cannot see.
-    let blame = Blame::read(
-        root,
-        &files.iter().map(|(p, _)| rel(root, p)).collect::<Vec<_>>(),
-    );
 
     // Group by parent directory so `score_dir` has peers to compare against. BTreeMap
     // rather than HashMap: iteration order decides sibling order in the sunburst, and a
@@ -602,12 +644,37 @@ pub fn scan(
         .map(|(_dir, entries)| {
             entries
                 .iter()
-                .filter_map(|(p, lang)| parse_file(root, p, *lang, fidelity, scope.as_ref()))
+                .filter_map(|(p, lang)| {
+                    parse_file(root, p, *lang, fidelity, scope.as_ref(), scans)
+                })
                 .collect()
         })
         .collect();
 
     let files_scanned: usize = parsed_dirs.iter().map(|d| d.len()).sum();
+
+    // Per-line provenance, so churn, age and blame resolve to the FUNCTION rather than to
+    // its file. One `git blame` per file, in parallel — 22ms each on a small Swift file,
+    // and 29.4s across 2,518 C++ files, which is why `scancache` memoises it.
+    //
+    // Taken AFTER the parse, over the files that actually parsed, rather than before it
+    // over every file the walk found. Two reasons, and the second is the load-bearing one.
+    // Nothing ever read the blame of a file with no functions in it — `score_dir` asks per
+    // function — so blaming minified bundles and empty headers was always waste. And the
+    // cache is keyed on content, so the blame pass needs the hash the parse pass computed;
+    // running first would mean stat-ing and reading every file twice to learn the same
+    // thing.
+    let for_blame: Vec<(String, u64)> = parsed_dirs
+        .iter()
+        .flatten()
+        .map(|f| (f.rel_path.clone(), f.hash))
+        .collect();
+    let blame = Blame::read(root, &for_blame, &history, scans);
+
+    // A repo shrinks as well as grows, and an entry nobody asks about again is never
+    // invalidated by anything — without this a cache would carry every file of every
+    // branch anyone had ever checked out.
+    scans.retain(&for_blame.iter().map(|(p, _)| p.clone()).collect());
     let is_model = model.is_model();
 
     // Build the whole tree from the proxy first. It is fast, it is entirely grey (no
@@ -754,6 +821,10 @@ pub fn scan(
         }
     });
 
+    // Written at the end as well as every `FLUSH_EVERY`, so a scan that finishes under the
+    // flush threshold — which is every small repo — still leaves something behind.
+    scans.save();
+
     Ok(Scan {
         root: tree,
         stats: ScanStats {
@@ -798,13 +869,14 @@ mod tests {
     fn ordering_fidelity_changes_the_score_and_nothing_else() {
         let dir = fixture();
         let full = run(dir.path());
+        let m = Memos::ephemeral();
         let fast = scan(
             dir.path(),
             &HeuristicModel,
             &|_| {},
             &|_, _: &Reading| {},
             &AtomicBool::new(false),
-            &Cache::ephemeral(),
+            Memos { scores: &m.0, scans: &m.1 },
             Fidelity::Ordering,
         )
         .unwrap();
@@ -831,13 +903,14 @@ mod tests {
     }
 
     fn run(dir: &Path) -> Scan {
+        let m = Memos::ephemeral();
         scan(
             dir,
             &HeuristicModel,
             &|_| {},
             &|_, _: &Reading| {},
             &AtomicBool::new(false),
-            &Cache::ephemeral(),
+            Memos { scores: &m.0, scans: &m.1 },
             Fidelity::Full,
         )
         .unwrap()
