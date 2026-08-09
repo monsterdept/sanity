@@ -1017,8 +1017,17 @@ export function Sunburst({
                     colour — `applyAgentReports` drops a stale reading's score — so
                     without this the only sign a function was ever read would be in the
                     panel, one wedge at a time. The whole argument for a map is that you
-                    can see where the problem is without clicking. */}
-                {slot.node.agentStale && (
+                    can see where the problem is without clicking.
+
+                    **Surprise only, because staleness is a fact about a READING and only
+                    this mode is painted from readings.** In blame the colour is an author,
+                    in age a date, in language an extension — none of which expire when a
+                    body changes. A hatch there marks the wedge as untrustworthy in an
+                    encoding it cannot be untrustworthy in: the author of a function that
+                    was edited is not in doubt. It read as damage to the layer underneath,
+                    which is the same sin as a stale reading keeping its colour, pointed the
+                    other way. */}
+                {mode === 'surprise' && slot.node.agentStale && (
                   <path
                     className="pointer-events-none"
                     d={d}

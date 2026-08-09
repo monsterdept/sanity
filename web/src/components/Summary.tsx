@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { clsx } from '../lib/cn'
 import { elide } from '../lib/text'
 import {
@@ -10,8 +10,21 @@ import {
   type Grade,
   type Node,
 } from '../lib/api'
+import { bucketsFor, colorFor, type Bucket, type ColorMode } from '../lib/colorMode'
 
 const GRADES: Grade[] = ['full', 'most', 'some', 'none']
+
+/** What the breakdown is a breakdown OF, per mode.
+ *
+ *  Not `MODE_LABEL`: the switcher above the map says "Blame" because it is naming a lens,
+ *  and this is naming the rows underneath it, which are authors. A heading that repeated
+ *  the tab would tell the reader something they can already see. */
+const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
+  blame: 'Authors',
+  language: 'Languages',
+  churn: 'Commits in 90d',
+  age: 'Last touched',
+}
 
 /** Height of one row, in pixels, and it is a contract rather than a style.
  *
@@ -36,10 +49,16 @@ function ListWindow({
   rows,
   onSelect,
   goTo,
+  paint,
 }: {
   rows: Node[]
   onSelect?: (n: Node) => void
   goTo: (n: Node) => void
+  /** Swatch and trailing word for one row. Defaults to the reading's heat and grade, which
+   *  is what the surprise panel wants; the other lenses pass their own so a row says
+   *  "touched 4d ago" rather than restating a temperature the map is not currently
+   *  showing. Same source as the wedge — see `colorFor`. */
+  paint?: (n: Node) => { fill: string; label: string }
 }) {
   const box = useRef<HTMLDivElement | null>(null)
   const [view, setView] = useState({ top: 0, h: 0 })
@@ -78,24 +97,27 @@ function ListWindow({
       {/* Spacers, so the scrollbar describes the whole list rather than the slice of it
           that happens to exist. */}
       <div style={{ height: first * ROW_H }} />
-      {shown.map((h) => (
-        <button
-          key={h.id}
-          type="button"
-          className="flex h-5 w-full items-center gap-2 rounded-[var(--radius-sm)] px-1 text-left hover:bg-[var(--secondary)]"
-          onClick={() => onSelect?.(h)}
-          onDoubleClick={() => goTo(h)}
-        >
-          <span
-            className="h-2 w-2 shrink-0 rounded-[2px]"
-            style={{ background: heatColor(temperature(h.score)) }}
-          />
-          <span className="mono flex-1 truncate text-[11px]">{h.name}</span>
-          <span className="mono shrink-0 text-[10px] text-[var(--muted-foreground)]">
-            {HEAT_WORDS[h.agent?.predicted ?? 'none']}
-          </span>
-        </button>
-      ))}
+      {shown.map((h) => {
+        const p = paint?.(h) ?? {
+          fill: heatColor(temperature(h.score)),
+          label: HEAT_WORDS[h.agent?.predicted ?? 'none'],
+        }
+        return (
+          <button
+            key={h.id}
+            type="button"
+            className="flex h-5 w-full items-center gap-2 rounded-[var(--radius-sm)] px-1 text-left hover:bg-[var(--secondary)]"
+            onClick={() => onSelect?.(h)}
+            onDoubleClick={() => goTo(h)}
+          >
+            <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: p.fill }} />
+            <span className="mono flex-1 truncate text-[11px]">{h.name}</span>
+            <span className="mono shrink-0 truncate text-[10px] text-[var(--muted-foreground)]">
+              {p.label}
+            </span>
+          </button>
+        )
+      })}
       <div style={{ height: Math.max(0, (rows.length - last) * ROW_H) }} />
     </div>
   )
@@ -211,6 +233,85 @@ function Spread({
   )
 }
 
+/**
+ * The same bar and key as `Spread`, for the modes that are not painted from readings.
+ *
+ * Deliberately the same shape rather than a second design: the question "what is this made
+ * of, and which ones are they" is identical whether the slices are grades, authors or age
+ * bands, and a panel that answered it two ways would make switching lens feel like
+ * switching app. What changes per mode is the buckets, which is `bucketsFor`'s job.
+ *
+ * Every row is pickable here, unlike `Spread` — where `expired` and `unread` stay inert
+ * because they are the absence of a reading rather than a kind of one. A bucket is always
+ * a set of functions that exist and are on screen, including the "no git history" one, so
+ * there is nothing to protect the reader from asking for.
+ *
+ * Widths are LINES, not counts, and that differs from `Spread` on purpose. `Spread` asks
+ * how the readings came out, which is one vote each. These ask how much of the picture each
+ * slice IS — and the picture is drawn by line count, so a bar weighted by function count
+ * would disagree with the rings beside it about which author owns this repo.
+ */
+function Buckets({
+  buckets,
+  picked,
+  onPick,
+}: {
+  buckets: Bucket[]
+  picked: string | null
+  onPick: (key: string | null) => void
+}) {
+  const total = buckets.reduce((a, b) => a + b.lines, 0)
+  if (total === 0) return null
+
+  return (
+    <div className="mt-3">
+      <div className="flex h-2 overflow-hidden rounded-[2px]">
+        {buckets.map((b) => (
+          <div
+            key={b.key}
+            style={{ width: `${(b.lines / total) * 100}%`, background: b.fill }}
+            title={`${b.label} — ${b.nodes.length} functions, ${b.lines.toLocaleString()} lines`}
+          />
+        ))}
+      </div>
+      <div className="mt-2 space-y-0.5">
+        {buckets.map((b) => {
+          const on = b.key === picked
+          return (
+            <button
+              key={b.key}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onPick(on ? null : b.key)}
+              className={clsx(
+                'flex w-full items-baseline gap-2 rounded-[var(--radius-sm)] px-1 text-left hover:bg-[var(--secondary)]',
+                on && 'bg-[var(--secondary)]',
+              )}
+            >
+              <span
+                className="h-2 w-2 shrink-0 translate-y-px rounded-[2px]"
+                style={{ background: b.fill }}
+              />
+              <span
+                className={clsx(
+                  'flex-1 truncate text-[11px]',
+                  on ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]',
+                )}
+                title={b.label}
+              >
+                {b.label}
+              </span>
+              <span className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
+                {b.nodes.length}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 /** One thing to do, and the fact that makes it worth doing.
  *
  *  A row with no handler is a statement, not a button: some of what belongs in this list
@@ -268,6 +369,8 @@ export function Summary({
   title,
   repo,
   working,
+  mode,
+  ranks,
   onSelect,
   onDrill,
   onConnect,
@@ -279,11 +382,19 @@ export function Summary({
   repo: string | null
   /** An agent is reading this project right now. */
   working: boolean
+  /** The lens the map is under. The panel describes the picture, so it has to follow —
+   *  readings, expiries and "connect an agent" are answers to the surprise map and to
+   *  nothing else, and under Blame they were a page of confident numbers about a quantity
+   *  the rings in front of you were not showing. */
+  mode: ColorMode
+  /** Category → colour slot, so a row's swatch is the wedge's own colour. */
+  ranks?: Map<string, number>
   onSelect?: (n: Node) => void
   onDrill?: (n: Node) => void
   onConnect?: () => void
 }) {
   const s = summarize(node)
+  const buckets = useMemo(() => bucketsFor(node, mode, ranks), [node, mode, ranks])
   // Go to it AND open the file around it: a name in this list is useless if clicking it
   // selects something off-screen. Drill first so the map moves, then select so the panel
   // fills in — the panel replacing this one is the point of the click.
@@ -303,6 +414,15 @@ export function Summary({
   const shown: Grade =
     picked ?? ((['none', 'some', 'most', 'full'] as Grade[]).find((g) => s.byGrade[g].length > 0) ?? 'none')
   const list = s.byGrade[shown]
+
+  /** The same idea one lens over: unchosen falls back to the biggest slice, so switching to
+   *  Blame lands on the author who wrote most of what is on screen rather than on nothing.
+   *  Held per mode — a key picked under Language means nothing under Age, and a remembered
+   *  one would resolve to an empty list. */
+  const [pickedBucket, setPickedBucket] = useState<string | null>(null)
+  useEffect(() => setPickedBucket(null), [mode])
+  const bucket = buckets.find((b) => b.key === pickedBucket) ?? buckets[0] ?? null
+  const lens = mode !== 'surprise'
 
   return (
     /* A column, not one long scroll.
@@ -338,16 +458,20 @@ export function Summary({
         {s.functions > 0 && (
           <div className="mt-4 border-t border-[var(--border)] pt-3">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-              Readings
+              {lens ? BREAKDOWN_TITLE[mode as Exclude<ColorMode, 'surprise'>] : 'Readings'}
             </p>
-            <Spread
-              spread={s.spread}
-              read={s.read}
-              stale={s.stale}
-              unread={s.unread}
-              picked={shown}
-              onPick={setPicked}
-            />
+            {lens ? (
+              <Buckets buckets={buckets} picked={bucket?.key ?? null} onPick={setPickedBucket} />
+            ) : (
+              <Spread
+                spread={s.spread}
+                read={s.read}
+                stale={s.stale}
+                unread={s.unread}
+                picked={shown}
+                onPick={setPicked}
+              />
+            )}
           </div>
         )}
 
@@ -362,7 +486,38 @@ export function Summary({
             are, which is the thing you cannot read off a ring.
             It was the hot list alone, which answered one of the four questions the key
             above was already asking. Now the key chooses and this follows. */}
-        {list.length > 0 && (
+        {lens ? (
+          bucket && bucket.nodes.length > 0 && (
+            <div className="flex min-h-0 flex-1 flex-col border-t border-[var(--border)] pt-3">
+              <div className="mb-2 flex items-baseline justify-between gap-2">
+                <p
+                  className="truncate text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]"
+                  title={bucket.label}
+                >
+                  {bucket.label}
+                </p>
+                <p className="mono shrink-0 text-[10px] tabular-nums text-[var(--muted-foreground)]">
+                  {bucket.nodes.length}
+                </p>
+              </div>
+              {/* Painted by the same call the wedge is, so the swatch beside a name in this
+                  list is the colour that name is wearing on the map. `colorFor` returns null
+                  for what the mode cannot speak about, which is exactly the "no git history"
+                  bucket — those take the neutral, and the label says why rather than showing
+                  a blank. */}
+              <ListWindow
+                rows={bucket.nodes}
+                onSelect={onSelect}
+                goTo={goTo}
+                paint={(n) => {
+                  const c = colorFor(n, mode, ranks)
+                  return { fill: c?.fill ?? 'var(--unanalyzed)', label: c?.label ?? '—' }
+                }}
+              />
+            </div>
+          )
+        ) : (
+          list.length > 0 && (
           <div className="flex min-h-0 flex-1 flex-col border-t border-[var(--border)] pt-3">
             <div className="mb-2 flex items-baseline justify-between">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
@@ -390,12 +545,19 @@ export function Summary({
                 the whole list would have had. */}
             <ListWindow rows={list} onSelect={onSelect} goTo={goTo} />
           </div>
+          )
         )}
       </div>
 
       {/* Last, and only as tall as it is. It is a short list of things to do — pinning it
           to the bottom of the pane rather than letting it float on the end of a scroll is
-          what makes it findable without reading past everything above it. */}
+          what makes it findable without reading past everything above it.
+
+          Surprise only. Every item here is reading work — expiries, unread functions,
+          hot results — which is a fact about the assessment and not about the lens. Under
+          Blame it was offering to connect an agent underneath a picture of who wrote what,
+          which reads as though the authors were the thing an agent would go and fix. */}
+      {!lens ? (
       <div className="shrink-0 border-t border-[var(--border)] px-4 pb-5 pt-3">
           <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
             Next Steps
@@ -454,6 +616,7 @@ export function Summary({
             </Action>
           )}
       </div>
+      ) : null}
     </div>
   )
 }

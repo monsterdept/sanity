@@ -1,4 +1,5 @@
 import { Summary } from './Summary'
+import { Bloom } from './Bloom'
 import { colorFor, type ColorMode } from '../lib/colorMode'
 import { elide } from '../lib/text'
 import {
@@ -317,14 +318,22 @@ export function Detail({
         title={title ?? focus.name}
         repo={repo ?? null}
         working={working ?? false}
+        // The pane describes the picture, so it has to know which picture is on screen.
+        mode={mode}
+        ranks={ranks}
         onSelect={onSelect}
         onDrill={onDrill}
         onConnect={onConnect}
       />
     ) : (
-      // No scan yet — nothing to summarise, so the pane stays empty rather than showing
-      // a frame full of zeroes.
-      <div className="h-full" />
+      // No scan yet — nothing to summarise, so the pane says nothing rather than showing a
+      // frame full of zeroes. It is not blank, though: this is the pane's one idle state,
+      // during onboarding and again while a project's first scan runs, and a column of
+      // dead space beside a card of instructions reads as something failing to load.
+      // Ground, not content — see `Bloom`, which is one static pattern and owns no frame.
+      <div className="h-full text-[var(--foreground)] opacity-[0.2]">
+        <Bloom className="h-full w-full" />
+      </div>
     )
   }
 

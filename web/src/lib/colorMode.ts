@@ -159,6 +159,135 @@ export function rankCategories(root: Node, mode: ColorMode): Map<string, number>
   return m
 }
 
+/** One row of the panel's breakdown: a slice of the picture, its colour, and its members. */
+export interface Bucket {
+  key: string
+  label: string
+  fill: string
+  /** The functions in it, so the row can put them in a list. */
+  nodes: Node[]
+  lines: number
+}
+
+/** Churn bands, in the order the panel lists them — busiest first, because that is the end
+ *  of this ramp anyone opens the mode to find. Upper bound is exclusive. */
+const CHURN_BANDS: { label: string; min: number }[] = [
+  { label: '10+ commits', min: 10 },
+  { label: '3–9 commits', min: 3 },
+  { label: '1–2 commits', min: 1 },
+  { label: 'untouched in 90d', min: 0 },
+]
+
+/** Age bands, most recent first. The boundaries are the ones people actually say out loud
+ *  — today, this week, this month, this quarter — rather than an even split of a log ramp,
+ *  which would be defensible and unreadable. */
+const AGE_BANDS: { label: string; under: number }[] = [
+  { label: 'today', under: 1 },
+  { label: 'this week', under: 7 },
+  { label: 'this month', under: 30 },
+  { label: 'this quarter', under: 90 },
+  { label: 'older', under: Infinity },
+]
+
+/**
+ * The subtree broken into the slices the current mode is painting it in.
+ *
+ * **One walk, and the colours come from `colorFor`'s own inputs rather than a second
+ * palette.** A panel that invented its own fills would be a legend disagreeing with the
+ * map it sits beside — the failure `Spread` already calls out for the grade ramp, which is
+ * why its segments are drawn from `heatColor` too.
+ *
+ * Scoped like `summarize`: functions a `.sanityignore` set aside are left out, so the
+ * bucket counts add up to the `functions` total in the header above them. They are still
+ * drawn on the map, and the header still names them separately — what they are not is
+ * silently folded into somebody's line count.
+ *
+ * A ramped mode's band takes the ramp colour at the MEAN of its members' ramp inputs, so
+ * every swatch here is a colour actually on screen rather than a representative guess. The
+ * bands are fixed and the colours are measured; doing it the other way round would put a
+ * swatch in the key that no wedge is wearing.
+ *
+ * Whatever the mode cannot colour gets a final bucket in the structural neutral rather than
+ * being dropped. Absence is stated, never filled in — and never quietly excluded from a
+ * total either, which is how a breakdown comes to describe a subset of the picture.
+ */
+export function bucketsFor(root: Node, mode: ColorMode, ranks?: Map<string, number>): Bucket[] {
+  if (mode === 'surprise') return []
+
+  const bucket = new Map<string, Bucket>()
+  /** Ramp inputs per bucket, kept only long enough to average them into a fill. */
+  const ramps = new Map<string, number[]>()
+  const put = (key: string, label: string, fill: string, n: Node, ramp?: number) => {
+    let b = bucket.get(key)
+    if (!b) {
+      b = { key, label, fill, nodes: [], lines: 0 }
+      bucket.set(key, b)
+    }
+    b.nodes.push(n)
+    b.lines += n.loc
+    if (ramp !== undefined) {
+      const r = ramps.get(key) ?? []
+      r.push(ramp)
+      ramps.set(key, r)
+    }
+  }
+
+  const UNKNOWN = ' unknown'
+  const walk = (n: Node, out: boolean) => {
+    const outOfScope = out || n.excluded
+    if (n.kind === 'func' && !outOfScope) {
+      const s = n.score
+      if (mode === 'blame' || mode === 'language') {
+        const key = mode === 'blame' ? n.lastAuthor : n.lang
+        if (key) {
+          const rank = ranks?.get(key)
+          put(key, key, rank === undefined ? OTHER : slotColor(rank), n)
+        } else {
+          put(UNKNOWN, mode === 'blame' ? 'uncommitted' : 'unknown', 'var(--unanalyzed)', n)
+        }
+      } else if (mode === 'churn') {
+        // Same gate `colorFor` uses, so a wedge the map left grey is not given a band here.
+        if (s && s.ageDays !== null) {
+          const band = CHURN_BANDS.find((b) => s.commits >= b.min) ?? CHURN_BANDS[CHURN_BANDS.length - 1]
+          put(band.label, band.label, '', n, s.churn)
+        } else {
+          put(UNKNOWN, 'no git history', 'var(--unanalyzed)', n)
+        }
+      } else {
+        if (s && s.lastTouchedDays !== null) {
+          const d = s.lastTouchedDays
+          const band = AGE_BANDS.find((b) => d < b.under) ?? AGE_BANDS[AGE_BANDS.length - 1]
+          put(band.label, band.label, '', n, ageRamp(d))
+        } else {
+          put(UNKNOWN, 'no git history', 'var(--unanalyzed)', n)
+        }
+      }
+    }
+    n.children.forEach((c) => walk(c, outOfScope))
+  }
+  walk(root, false)
+
+  for (const [key, vals] of ramps) {
+    const b = bucket.get(key)
+    if (!b || vals.length === 0) continue
+    const mean = vals.reduce((a, v) => a + v, 0) / vals.length
+    b.fill = ramped(mean, mode === 'churn' ? 'churn' : 'age').fill
+  }
+
+  const out = [...bucket.values()]
+  if (mode === 'blame' || mode === 'language') {
+    // By lines, matching `legendFor` — so the panel lists them in the order the map's own
+    // legend does, and the biggest slice of the picture is the first row in both.
+    out.sort((a, b) => b.lines - a.lines)
+  } else {
+    const order = mode === 'churn' ? CHURN_BANDS.map((b) => b.label) : AGE_BANDS.map((b) => b.label)
+    out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
+  }
+  // Whatever the mode could not colour goes last whichever way the rest is sorted: it is
+  // the one row that is not a value, and interleaving it by size would read as one.
+  return [...out.filter((b) => b.key !== UNKNOWN), ...out.filter((b) => b.key === UNKNOWN)]
+}
+
 /** The distinct values present, for a legend. Categorical modes need one; ramps don't. */
 export function legendFor(root: Node, mode: ColorMode): string[] {
   if (mode !== 'blame' && mode !== 'language') return []

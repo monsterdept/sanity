@@ -482,12 +482,37 @@ export function applyAgentReports(root: Node, reports: AgentReport[]): Node {
   return visit(root)
 }
 
-/** Wedges the map is hatching. Counted off the tree rather than read from the project
- *  list so the legend always describes the picture actually on screen. */
-export function countStale(root: Node): number {
-  let n = root.agentStale ? 1 : 0
-  for (const c of root.children) n += countStale(c)
-  return n
+/**
+ * The two things on the map that a colour ramp cannot explain: hatched wedges and
+ * uncoloured ones.
+ *
+ * Counted off the tree rather than read from the project list so the legend always
+ * describes the picture actually on screen — drilled into one directory, the repo-wide
+ * number is annotating something nobody is looking at.
+ *
+ * **Scoped exactly like `summarize`, and that is the point of returning both from one
+ * walk.** The panel gets its `unread` from `summarize`, which drops functions a
+ * `.sanityignore` set aside; a legend that counted them would put a different number
+ * beside the same word in two places on one screen, and the reader has no way to tell
+ * which is lying. One definition, one traversal, no chance to drift.
+ *
+ * Deliberately cheap: no allocation beyond the result, no sorting. It runs on every render
+ * of the legend, which includes every frame of a history replay, where `summarize`'s hot
+ * and by-grade arrays would be thousands of pushes a frame.
+ */
+export function countPending(root: Node): { stale: number; unread: number } {
+  let stale = 0
+  let unread = 0
+  const walk = (n: Node, out: boolean) => {
+    const outOfScope = out || n.excluded
+    if (n.kind === 'func' && !outOfScope) {
+      if (n.agentStale) stale++
+      else if (!n.agent) unread++
+    }
+    for (const c of n.children) walk(c, outOfScope)
+  }
+  walk(root, false)
+  return { stale, unread }
 }
 
 /** Temperature at which a function counts as hot. Mirrors `HOT` in `model.rs` — the

@@ -140,34 +140,61 @@ export function ColourLegend({
   mode,
   categories,
   stale = 0,
+  unread = 0,
 }: {
   mode: ColorMode
   categories: string[]
-  /** Wedges drawn with the stale hatch. The row only appears when there are some —
+  /** Wedges drawn with the stale hatch. Each entry only appears when there are some —
    *  a legend entry for a texture that is nowhere on screen teaches the reader to
    *  ignore the legend. */
   stale?: number
+  /** Wedges drawn in the flat unanalysed grey, having never been read. */
+  unread?: number
 }) {
   return (
     <div className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-2 py-1.5">
       <Legend mode={mode} categories={categories} />
-      {stale > 0 && (
-        /* The hatch is the only thing on the map that is not a colour, so it is the
-           only thing the ramp above cannot explain. Reproduced here in CSS rather than
-           by reusing the SVG pattern: two lines of gradient beat threading a <defs> out
-           of the chart, and the two only have to look alike, not be the same object. */
-        <div className="mt-1.5 flex items-center gap-2 border-t border-[var(--border)] pt-1.5">
-          <span
-            className="h-2.5 w-2.5 shrink-0 rounded-[2px] border border-[var(--border)]"
-            style={{
-              backgroundImage:
-                'repeating-linear-gradient(45deg, var(--foreground) 0 1.2px, transparent 1.2px 4px)',
-              opacity: 0.55,
-            }}
-          />
-          <span className="text-[10px] text-[var(--muted-foreground)]">
-            {stale} stale — read, then changed
-          </span>
+      {mode === 'surprise' && (stale > 0 || unread > 0) && (
+        /* The two things the ramp above cannot explain: a wedge can be hatched, or it can
+           be uncoloured. Both are absences of a reading rather than positions on the
+           scale, which is exactly why they need saying — a reader who takes the grey for
+           "cold" has read the map backwards.
+
+           **Surprise only, because both are facts about READINGS and this is the one mode
+           painted from them.** The map stops hatching outside this mode for the same
+           reason, so the key follows it — but the grey needed the gate independently: an
+           unread function still has an author, a date and a language, so in those modes it
+           takes a real colour and is not grey at all. "192 unread" beside a swatch nothing
+           on screen is wearing describes a picture the reader cannot find.
+
+           Each swatch is reproduced in CSS rather than by reusing the chart's own fill:
+           two lines beat threading a <defs> out of the SVG, and they only have to look
+           alike, not be the same object. They do have to STAY alike, though — the grey is
+           `--unanalyzed` at 0.4 because that is what `Sunburst` draws an unread wedge
+           with, and a key painted in a colour the map does not use is worse than no key. */
+        <div className="mt-1.5 flex items-center gap-3 border-t border-[var(--border)] pt-1.5">
+          {stale > 0 && (
+            <span className="flex items-center gap-1.5">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-[2px] border border-[var(--border)]"
+                style={{
+                  backgroundImage:
+                    'repeating-linear-gradient(45deg, var(--foreground) 0 1.2px, transparent 1.2px 4px)',
+                  opacity: 0.55,
+                }}
+              />
+              <span className="text-[10px] text-[var(--muted-foreground)]">{stale} stale</span>
+            </span>
+          )}
+          {unread > 0 && (
+            <span className="flex items-center gap-1.5">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-[2px] border border-[var(--border)]"
+                style={{ background: 'var(--unanalyzed)', opacity: 0.4 }}
+              />
+              <span className="text-[10px] text-[var(--muted-foreground)]">{unread} unread</span>
+            </span>
+          )}
         </div>
       )}
     </div>

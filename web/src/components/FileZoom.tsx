@@ -174,8 +174,12 @@ export function FileZoom({
             {/* Expired. The fill underneath has already fallen back to the proxy colour —
                 `applyAgentReports` drops a stale reading's score — so without the hatch the
                 only sign a function was ever read is in the panel, one at a time. Deaf to
-                the mouse, so the patch below keeps every gesture. */}
-            {c.node.agentStale && (
+                the mouse, so the patch below keeps every gesture.
+
+                Surprise only, and for the same reason as in `Sunburst`: staleness is a fact
+                about a reading, and this is the one mode painted from readings. The two
+                views draw one map and have to agree about when the texture means anything. */}
+            {mode === 'surprise' && c.node.agentStale && (
               <path className="pointer-events-none" d={d} fill="url(#stale-hatch)" />
             )}
             {/* An aggregate, standing for the functions the tiling could not draw one by
