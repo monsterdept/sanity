@@ -18,9 +18,9 @@ agent can both work from them as they are.
 | area | read | of | surprising | stale |
 |---|---|---|---|---|
 | [scripts](scripts.md) | 2 | 2 | 1 | 0 |
-| [src-tauri](src-tauri.md) | 287 | 319 | 13 | 13 |
-| [web](web.md) | 100 | 132 | 1 | 14 |
-| **total** | **389** | **453** | **15** | **27** |
+| [src-tauri](src-tauri.md) | 287 | 363 | 13 | 18 |
+| [web](web.md) | 98 | 177 | 1 | 19 |
+| **total** | **387** | **542** | **15** | **37** |
 
 ## Seeing it as a map
 

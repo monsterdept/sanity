@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-287 of 319 functions read · 13 surprising · 13 stale
+287 of 363 functions read · 13 surprising · 18 stale
 
 Each entry below is one **reading**. An agent was given a function's name,
 signature, neighbouring function names and comments — never its body — and wrote
@@ -251,12 +251,14 @@ What this is and how to add to it: [README.md](README.md)
 - this code has changed since it was read; the reading above may no longer
   describe it, and Sanity will offer it for re-reading first.
 
-### `endpoint_file` — nearly
+### `endpoint_file` — nearly — STALE
 - read at `a3cb589c4a07` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: The endpoint_file function returns the path where the app writes the actual claimed port for the MCP server, PID-stamped to prevent port conflicts and ensure the MCP server connects to the correct port.
 - found: Returns the path to "agent-endpoint.json" in the Sanity subdirectory of the platform data directory, creating the directory if it doesn't exist, or None if directory creation or data_dir lookup fails.
 - predicted: most · documented: most · derivable: no
 - note: Docs mention PID-stamping but this function just returns the path; PID-stamping happens when the file is written elsewhere.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `restore` — nearly
 - read at `ef48454d12a9` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 5 of its run
@@ -284,11 +286,13 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: no
 - note: High-level concept correct (scan and construct) but misses the testing context: ephemeral cache, empty reports, hardcoded test name.
 
-### `a_save_mid_restore_does_not_erase_projects_it_has_not_loaded` — nearly
+### `a_save_mid_restore_does_not_erase_projects_it_has_not_loaded` — nearly — STALE
 - read at `b6eccac47da9` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: Sets up a scenario with two projects in the index, creates a session state that has only partially loaded one of them, modifies and persists that one, then verifies that the unloaded project is still in the saved state and the loaded one was updated in place.
 - found: Saves an initial index with projects /a and /b, creates an AppState with only /b loaded, modifies /b's touched timestamp, persists it, and asserts the loaded index still contains /a (preserved), has no duplicates, and /b was updated with the new timestamp.
 - predicted: most · documented: full · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `outstanding_itemises_only_live_leases_on_unread_work` — as expected
 - read at `d2fe708a8895` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -748,12 +752,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: Attempts to load a cache file from disk by constructing the path, reading and deserializing JSON, then validating that the version and model match. Returns the loaded cache if valid, or constructs a default empty Stored cache otherwise. Wraps the result in a Cache struct with mutexes for inner state and dirty flag.
 - predicted: full · documented: none · derivable: yes
 
-### `path_for` — nearly
+### `path_for` — nearly — STALE
 - read at `a54e7ff236f3` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: path_for is a Cache method that constructs a filesystem path for a cache file based on the repo and model name. Since the docs emphasize the model must be in the filename, this function likely combines the repo identifier with the model name to create a unique cache file path, returning Option<PathBuf> in case construction fails.
 - found: Gets platform data directory, joins with Sanity/scores, creates the directory structure, hashes both repo path and model name using FNV to 64-bit hex IDs, and returns a path formatted as {repo_hash}-{model_hash}.json to avoid platform filename issues.
 - predicted: most · documented: none · derivable: yes
 - note: Uses FNV hashing to create platform-agnostic filenames that handle separators and illegal characters.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `get` — nearly
 - read at `7560cbc74312` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 10 of its run
@@ -1224,11 +1230,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds a macOS app menu with Sanity, File, Edit, View, and Window submenus; creates CheckMenuItems for Light, Dark, and System theme with System selected by default; combines all menus and returns both the Menu and a ThemeMenu struct containing the three theme items.
 - predicted: most · documented: full · derivable: no
 
-### `run` — nearly
+### `run` — nearly — STALE
 - read at `809e98a95a2d` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: This is the main entry point for the Tauri application. It likely initializes the Tauri app builder, configures the window (via build_window), sets up the menu (via build_menu), and runs the event loop to start the application.
 - found: The function creates shared agent API state, builds a Tauri app with that state managed. In setup, it builds the window, handles platform-specific macOS menu setup with theme selection, restores previously open projects, and spawns an async task to start the agent API server. It adds single-instance, dialog, and opener plugins, registers command handlers for UI invocation, and runs the Tauri context.
 - predicted: most · documented: none · derivable: yes
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## src-tauri/src/local.rs
 
@@ -1648,11 +1656,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/reports.rs
 
-### `index_path` — nearly
+### `index_path` — nearly — STALE
 - read at `03555470a6fa` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: Utility function that returns the file path where the assessment report or index is stored, likely in a .sanity directory in the repo or in a standard assessment storage location.
 - found: Returns the path to a global projects.json index file stored in the system data directory (~/Library/Application Support/Sanity on macOS). Creates the directory if it doesn't exist, then returns the path to projects.json inside it.
 - predicted: most · documented: none · derivable: yes
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `load_index` — as expected
 - read at `134516bb5dcc` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run

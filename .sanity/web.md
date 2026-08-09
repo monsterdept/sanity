@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-100 of 132 functions read · 1 surprising · 14 stale
+98 of 177 functions read · 1 surprising · 19 stale
 
 Each entry below is one **reading**. An agent was given a function's name,
 signature, neighbouring function names and comments — never its body — and wrote
@@ -14,11 +14,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/App.tsx
 
-### `findById` — as expected
+### `findById` — as expected — STALE
 - read at `977918682157` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: This function recursively searches through a tree of nodes starting from a given node, looking for one with a matching id, and returns that node or null if not found.
 - found: Recursively searches the tree: checks if current node matches id (return it), iterates through children calling findById recursively, returns the first match found or null if none exist.
 - predicted: full · documented: none · derivable: yes
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `parentOf` — as expected
 - read at `c0cda91e70f7` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
@@ -53,11 +55,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: The component uses the useProgress hook to calculate percentage and ETA from progress data. It renders a centered flex container with: a label showing either 'Scoring X/Y functions' or a default message, a ProgressTrack component for the progress bar, and conditionally shows estimated time remaining in minutes.
 - predicted: most · documented: most · derivable: no
 
-### `ProgressStrip` — nearly
+### `ProgressStrip` — nearly — STALE
 - read at `6e55be443637` · commit `61cf1b2` · read by claude-haiku-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: A React component that renders a horizontal progress indicator or visual strip, displaying progress information if the progress object is provided, or showing nothing/empty state if null.
 - found: A React component that renders a progress strip with text information and a progress bar. It uses the useProgress hook to extract percentage and ETA, then displays "Scoring X / Y functions" if progress is provided or "Reading the repo…" if null. It shows the estimated time remaining if available, and renders a ProgressTrack component for the visual bar.
 - predicted: most · documented: none · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `Empty` — nearly
 - read at `cb95fe9b3d53` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 7 of its run
@@ -154,12 +158,14 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no
 - note: Missed categorical handling of first-4 + Other pattern, and the endpoint label mapping per mode; docs frame gradient-under-categorical as conceptual lie, not just code behavior.
 
-### `ModeSwitcher` — nearly
+### `ModeSwitcher` — nearly — STALE
 - read at `80b508d48adf` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: ModeSwitcher is a React component that renders controls to switch between different color modes for the visualization. It takes the current mode and a callback to update it. Since it's floated over the graph separately from the legend, it likely renders toggle buttons or mode selectors at the top.
 - found: Renders a segmented control (one recessed track with pills inside) by mapping over all ColorMode options, creating a button for each with conditional styling (accent color and shadow for selected, muted for unselected), keyboard shortcuts (⌘1-9 in title), and accessibility attributes (role tab, aria-selected).
 - predicted: most · documented: none · derivable: yes
 - note: Implements segmented control pattern with keyboard shortcuts and clever shadow-based styling for selection.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `ColourLegend` — nearly
 - read at `a31ab9cef181` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 2 of its run
@@ -170,11 +176,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Crumbs.tsx
 
-### `Crumbs` — nearly
+### `Crumbs` — nearly — STALE
 - read at `899166c24f97` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: A breadcrumb component rendering each node in the ancestry trail as clickable buttons. Each click calls onGo with the node's index. Node names with slashes are split and displayed with inner slashes dimmed to distinguish collapsed single-child chains from the outer crumb separators.
 - found: Renders a nav containing an ordered list of trail nodes as clickable buttons. Between items (not before first) adds dimmed forward slashes. Each button calls onGo(i), with the current node styled differently (bold, aria-current="page", no hover). Splits each node name by '/' and renders parts with inner slashes dimmed (opacity-40). Also renders an "Up" button that calls onUp if provided, disabled if onUp is undefined.
 - predicted: most · documented: full · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/components/Detail.tsx
 
@@ -229,21 +237,6 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: no
 - this code has changed since it was read; the reading above may no longer
   describe it, and Sanity will offer it for re-reading first.
-
-## web/src/components/FileStack.tsx
-
-### `layoutRows` — nearly
-- read at `a7e194ade9b7` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: This function takes an array of functions and a viewport height, then arranges them consecutively in file order, calculating appropriate heights and adding spacers for gaps. It will scale everything to fit within or scroll beyond the viewport.
-- found: The function calculates gaps between functions, then uses binary search twice: first to find a scale that fits all rows in the viewport (if possible), and if not, finds a scale that keeps total height within floor + viewport*SLACK_SCREENS. Each row has height clamped between MIN_ROW and MAX_ROW_SHARE of viewport.
-- predicted: most · documented: most · derivable: no
-
-### `FileStack` — nearly
-- read at `e91ee97a3fe4` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: This is a React component that renders a visual stack of files in a hierarchical tree structure. It takes a root Node and manages selection state, using the provided callbacks (onSelect, onDrill) to handle user interactions. The `ranks` parameter and `ColorMode` suggest it applies visual styling based on some ranking metric and color scheme. It likely displays file information in a layout similar to a sidebar or panel.
-- found: FileStack is a React component that renders a scrollable list of functions within a single file. It filters the root's children to only functions, sorts them by line number, and uses ResizeObserver to measure the viewport height. It renders each function as a button with the function name, line numbers, line count, and a color-coded background tinted in oklch color space. Selection and double-click drilling are handled via callbacks. Empty files show a helpful message. The layoutRows function positions each row within the viewport.
-- predicted: most · documented: none · derivable: yes
-- note: Predicted file-based hierarchy but the component displays functions within a single file, not a file tree. Missed the ResizeObserver viewport measurement and layoutRows integration.
 
 ## web/src/components/MascotFigure.tsx
 
@@ -694,11 +687,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Determines if dark mode should be applied (either from system preference if theme is 'system', or directly if theme is 'dark'), then toggles the 'dark' class on the document root element.
 - predicted: full · documented: full · derivable: no
 
-### `applyStoredTheme` — as expected
+### `applyStoredTheme` — as expected — STALE
 - read at `6f0934e442b4` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Loads the stored theme preference via loadTheme() and immediately applies it to the document via applyTheme(), preventing a flash of the wrong theme before React renders.
 - found: Calls applyTheme(loadTheme()) to load and apply the stored theme preference.
 - predicted: full · documented: full · derivable: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `watchSystemTheme` — nearly
 - read at `27a18420c8ba` · commit `61cf1b2` · read by claude-haiku-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
