@@ -398,6 +398,55 @@ export function frameTree(hist: HistoryScan, index: number, repoName: string): N
   return collapse(root)
 }
 
+/**
+ * The commits that touched anything under `scope`, as indices into `hist.commits`.
+ *
+ * Drilling into a directory asks a narrower question — "how did THIS come to be" — and the
+ * transport has to answer it, or the scrub bar spends most of its length on commits that
+ * change nothing you can see. `''` is the whole repo and returns every commit.
+ *
+ * A view of the timeline, never a re-fold of it. The rings for a given commit are still
+ * built from the full replay: a commit outside the scope cannot change what is inside it,
+ * so filtering is safe for what is DRAWN — but folding only the scoped commits would give
+ * the frame the wrong date, and the date is what the colour means here. So the scoped list
+ * addresses real commits, and the frame is always the real one.
+ */
+export function scopedCommits(hist: HistoryScan, scope: string): number[] {
+  const all = hist.commits.map((_, i) => i)
+  if (!scope) return all
+  // Segment-boundary match, so `web/src` does not take in `web/src-old`.
+  const inScope = hist.paths.map((p) => p === scope || p.startsWith(`${scope}/`))
+  return all.filter((i) => hist.commits[i].files.some((f) => inScope[f]))
+}
+
+/** Where a real commit index sits in a scoped list: the last scoped commit at or before
+ *  it, or -1 for "before this scope had happened yet". */
+export function posOf(frames: number[], index: number): number {
+  let lo = 0
+  let hi = frames.length - 1
+  let out = -1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (frames[mid] <= index) {
+      out = mid
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
+  }
+  return out
+}
+
+/** The real commit a scoped position addresses.
+ *
+ *  Position -1 is the commit BEFORE this scope's first — the moment just before the story
+ *  being told starts, which for the repo as a whole is the empty opening state and for a
+ *  directory is whatever the repo looked like the instant before anyone touched it. */
+export function realOf(frames: number[], pos: number, fallback: number): number {
+  if (frames.length === 0) return fallback
+  return pos < 0 ? frames[0] - 1 : frames[Math.min(pos, frames.length - 1)]
+}
+
 /** Functions alive anywhere under `node` — the counter under the transport. Walked from
  *  the tree rather than replayed a second time: two counts of one thing are two things
  *  that can disagree, and the tree is the one on screen. */

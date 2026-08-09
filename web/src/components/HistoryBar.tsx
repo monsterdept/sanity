@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { HistoryScan } from '../lib/history'
+import { posOf, realOf, type HistoryScan } from '../lib/history'
 
 /**
  * How long the whole replay takes, in seconds.
@@ -55,6 +55,8 @@ function stamp(ts: number): string {
  */
 export function HistoryBar({
   hist,
+  frames,
+  scope,
   index,
   onIndex,
   playing,
@@ -64,7 +66,14 @@ export function HistoryBar({
   functions,
 }: {
   hist: HistoryScan
-  /** -1 is the opening state, before the first replayed commit lands. */
+  /** The commits in scope, as indices into `hist.commits`. Everything the transport
+   *  addresses is a position in HERE; the map is still drawn at the real commit, because
+   *  a subtree's state is the repo's state restricted to it, not a fold of its own
+   *  commits. */
+  frames: number[]
+  /** What the timeline has been narrowed to, for the label. Empty is the whole repo. */
+  scope: string
+  /** The real commit index on screen. */
   index: number
   onIndex: (i: number) => void
   playing: boolean
@@ -74,8 +83,13 @@ export function HistoryBar({
   onDuration: (s: number) => void
   functions: number
 }) {
-  const last = hist.commits.length - 1
+  const last = frames.length - 1
+  /** Where the playhead sits in the SCOPED list. */
+  const pos = posOf(frames, index)
   const at = hist.commits[Math.max(0, index)]
+  // Paced over the commits actually being shown. A drilled-in directory with forty commits
+  // in a repo of a thousand should take the same thirty seconds — the button promises a
+  // duration for the story on screen, and the story on screen is the narrow one.
   const rate = (last + 1) / duration
 
   /** The playhead as a REAL number, which the integer `index` is a rounding of.
@@ -83,14 +97,14 @@ export function HistoryBar({
    *  Kept in a ref because at the slow end a tick advances a fraction of a commit and at
    *  the fast end it advances forty, and both come off one clock. Rounding to the index
    *  every tick would stall at the slow end, where the fraction IS the progress. */
-  const pos = useRef(index)
+  const cursor = useRef(pos)
   /** The last index this clock emitted, so an index arriving from anywhere else — a
    *  scrub, a click in the log — can be told apart from the clock's own output and reset
    *  the accumulator. Syncing on every change instead threw the fraction away each time
    *  the integer moved, which is a stall dressed up as a slow setting. */
   const emitted = useRef(index)
   if (index !== emitted.current) {
-    pos.current = index
+    cursor.current = pos
     emitted.current = index
   }
 
@@ -112,11 +126,12 @@ export function HistoryBar({
       const dt = (now - then) / 1000
       if (dt < 1 / MAX_FPS) return
       then = now
-      pos.current = Math.min(last, pos.current + rate * dt)
-      const next = Math.floor(pos.current)
-      if (next !== emitted.current) {
-        emitted.current = next
-        onIndex(next)
+      cursor.current = Math.min(last, cursor.current + rate * dt)
+      const next = Math.floor(cursor.current)
+      if (next !== posOf(frames, emitted.current)) {
+        const real = realOf(frames, next, emitted.current)
+        emitted.current = real
+        onIndex(real)
       }
       // The end is a stop, not a wrap. A timeline that loops back to nothing has thrown
       // away the one moment the viewer was watching for.
@@ -124,30 +139,52 @@ export function HistoryBar({
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [playing, last, rate, onIndex, onPlaying])
+  }, [playing, last, rate, frames, onIndex, onPlaying])
+
+  /** Commits a shifted arrow covers.
+   *
+   *  Ten, because the thing it is for is crossing a stretch of commits you can see are not
+   *  the one you want — a page of the log is about twenty rows, so this is half a screen a
+   *  press. Anything larger and it is a scrub, which the bar already does better. */
+  const STRIDE = 10
 
   // Space plays, arrows step. Bare keys rather than modified ones: there is no text field
   // in this mode, and a transport you have to reach for the mouse to nudge is a transport
   // nobody scrubs.
+  //
+  // Both axes, because the transport and the log are one instrument seen twice: left/right
+  // is the bar's own direction, up/down is the log's, and down is FORWARD because the log
+  // runs oldest at the top. Shift multiplies either.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
+      // The scrub bar is a real range input with its own arrow-key handling. Without this
+      // a press while it has focus moves the playhead twice — once natively, once here —
+      // which reads as the keyboard being twitchy rather than as two handlers agreeing.
+      if (e.target instanceof HTMLInputElement) return
+
       if (e.key === ' ') {
         e.preventDefault()
         onPlaying(!playing)
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault()
-        onPlaying(false)
-        onIndex(Math.min(last, index + 1))
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault()
-        onPlaying(false)
-        onIndex(Math.max(-1, index - 1))
+        return
       }
+      const step =
+        e.key === 'ArrowRight' || e.key === 'ArrowDown'
+          ? 1
+          : e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+            ? -1
+            : 0
+      if (step === 0) return
+      // Arrows scroll a pane by default, and the pane under this one is the log — which
+      // would fight the very movement the key just asked for.
+      e.preventDefault()
+      onPlaying(false)
+      const to = Math.max(-1, Math.min(last, pos + step * (e.shiftKey ? STRIDE : 1)))
+      onIndex(realOf(frames, to, index))
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [playing, index, last, onIndex, onPlaying])
+  }, [playing, index, pos, last, frames, onIndex, onPlaying])
 
   return (
     <div className="shrink-0 border-t border-[var(--border)] bg-[var(--card)] px-3 py-2">
@@ -157,7 +194,7 @@ export function HistoryBar({
             // Play from a finished timeline starts again from the beginning; anywhere
             // else it carries on. Without this the button at the end does nothing at all,
             // which reads as broken rather than as finished.
-            if (index >= last) onIndex(-1)
+            if (pos >= last) onIndex(realOf(frames, -1, index))
             onPlaying(!playing)
           }}
           title={playing ? 'Pause (space)' : 'Play (space)'}
@@ -180,10 +217,10 @@ export function HistoryBar({
           min={-1}
           max={last}
           step={1}
-          value={index}
+          value={pos}
           onChange={(e) => {
             onPlaying(false)
-            onIndex(Number(e.target.value))
+            onIndex(realOf(frames, Number(e.target.value), index))
           }}
           className="h-1 min-w-0 flex-1 accent-[var(--accent)]"
           aria-label="commit"
@@ -209,13 +246,13 @@ export function HistoryBar({
 
       <div className="mt-1.5 flex items-baseline justify-between gap-3 text-[11px] text-[var(--muted-foreground)]">
         <span className="min-w-0 truncate">
-          {index < 0 ? (
+          {pos < 0 ? (
             // The opening frame is a state, not a commit, and saying so is the difference
             // between "the repo started here" and "everything before this is off-screen".
-            hist.truncated > 0 ? (
-              <>
-                before this window — {hist.truncated} earlier commits already applied
-              </>
+            scope ? (
+              <>before anything touched {scope}</>
+            ) : hist.truncated > 0 ? (
+              <>before this window — {hist.truncated} earlier commits already applied</>
             ) : (
               <>before the first commit — an empty repo</>
             )
@@ -226,15 +263,15 @@ export function HistoryBar({
           )}
         </span>
         <span className="mono shrink-0">
-          {index < 0 ? '—' : `${index + 1} / ${hist.commits.length}`}
+          {pos < 0 ? '—' : `${pos + 1} / ${frames.length}`}
           {' · '}
-          {stamp(index < 0 ? hist.baseTs : at.ts)}
+          {stamp(pos < 0 && !at ? hist.baseTs : (at?.ts ?? hist.baseTs))}
           {' · '}
           {functions} fn
           {/* What the duration button actually buys you from HERE. The button is a
               promise about the whole replay; scrubbed to the middle, the thing you want
               to know is how much is left of it. */}
-          {playing && index < last && <> · {pace(Math.max(1, Math.round((last - index) / rate)))} left</>}
+          {playing && pos < last && <> · {pace(Math.max(1, Math.round((last - pos) / rate)))} left</>}
         </span>
       </div>
     </div>

@@ -394,6 +394,16 @@ second metric, and the line between those is the whole design.
   undoing a commit needs the state it replaced, which is the whole timeline stored twice
   and free to drift. Churn therefore keeps touch STAMPS, not a count: the 90-day window
   moves with the playhead, so a count could only be recomputed from the start.
+- **Drilling narrows the timeline, and that is a VIEW, not a second fold.** A directory's
+  transport and log list only the commits that touched it — otherwise the scrub bar spends
+  most of its length on commits that change nothing on screen. But the rings are still
+  built at the REAL commit: a commit outside a subtree cannot change what is inside it, so
+  the narrowed list is complete for what is drawn, while folding only the scoped commits
+  would give the frame the wrong DATE, and the date is what the colour means here.
+  `histIndex` therefore stays a real index and the transport speaks positions in the scoped
+  list — which is also what makes drilling in and popping back out land on the same commit
+  rather than somewhere proportional. The prefix test is segment-wise, or `web/src` takes
+  in `web/src-old`.
 - **A replay is a periodic-stutter detector for the whole window.** Every timer in the app
   became visible the moment something ran at thirty frames a second, and each one was a
   hitch on a fixed period: the 2s reading poll fetched all 16,925 of tonepoet's readings

@@ -27,6 +27,7 @@ import {
   frameTree,
   onHistoryProgress,
   scanHistory,
+  scopedCommits,
   warmHistory,
   type HistoryScan,
 } from './lib/history'
@@ -441,6 +442,27 @@ export default function App() {
     return node
   }, [tree, stack])
 
+  /** What the timeline has been narrowed to: the path of whatever the rings are rooted
+   *  at, and `''` at the top. Drilling into a directory asks a narrower question — "how
+   *  did THIS come to be" — and a transport still addressing the whole repo answers a
+   *  different one, spending most of its length on commits that change nothing on screen.
+   *
+   *  Read off `focus`, so the scope follows the picture rather than being a second place
+   *  the user has to say where they are. */
+  const scope = historyOn && focus && tree && focus.id !== tree.id ? focus.path : ''
+
+  /** The commits in scope, as indices into the full timeline.
+   *
+   *  A view of the timeline, never a re-fold of it: `histIndex` stays a REAL commit index
+   *  and the rings are always built at that commit. A commit outside the scope cannot
+   *  change what is inside it, so the narrowed list is complete for what is drawn — and
+   *  keeping the real index is what makes drilling in and popping back out land you on the
+   *  same commit rather than somewhere proportional. */
+  const frames = useMemo(
+    () => (history ? scopedCommits(history, scope) : []),
+    [history, scope],
+  )
+
   const codeNode = useMemo(
     () => (tree && codeFile ? findById(tree, codeFile) : null),
     [tree, codeFile],
@@ -719,13 +741,17 @@ export default function App() {
           {historyOn && history && historyKey === activeKey && history.commits.length > 0 && (
             <HistoryBar
               hist={history}
+              frames={frames}
+              scope={scope}
               index={histIndex}
               onIndex={setHistIndex}
               playing={playing}
               onPlaying={setPlaying}
               duration={duration}
               onDuration={setDuration}
-              functions={tree ? countFunctions(tree) : 0}
+              // Counted from `focus`, like the legend above: drilled into a directory the
+              // number has to describe the rings in front of you, not the repo behind them.
+              functions={focus ? countFunctions(focus) : 0}
             />
           )}
         </main>
@@ -738,9 +764,12 @@ export default function App() {
           {historyOn && history && historyKey === activeKey ? (
           <CommitLog
             hist={history}
+            frames={frames}
+            scope={scope}
             index={histIndex}
+            playing={playing}
             onIndex={scrubTo}
-            name={activeProject?.name ?? 'History'}
+            name={scope || (activeProject?.name ?? 'History')}
           />
           ) : (
           <Detail
