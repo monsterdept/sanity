@@ -35,14 +35,16 @@ export function SideBar({
   active,
   onSelect,
   agent,
-  onOpen,
+  connected,
   onConnect,
 }: {
   projects: ProjectSummary[]
   active: string | null
   onSelect: (key: string) => void
   agent: AgentActivity
-  onOpen: () => void
+  /** An MCP client is registered against THIS binary. Absence is a state worth naming:
+   *  with agents the only way in, nothing connected means nothing can ever arrive. */
+  connected: boolean
   onConnect: () => void
 }) {
   // One bar per project actually being worked, not one bar for the app.
@@ -75,25 +77,30 @@ export function SideBar({
       <SideBarHeader />
 
       <nav className="mt-1 min-h-0 flex-1 space-y-px overflow-y-auto px-2 [overscroll-behavior:contain]">
-        {/* The header carries the action, because this list is the only place a project
-            is ever named — an agent creates entries just by working in a repo, so a
-            person looking for "where do I add one" looks here first, not at a menu. The
-            menu has it too (⌘O); this is the one you find without being told. */}
-        <div className="flex items-center justify-between px-2 pb-1 pt-1">
+        {/* No action in this header any more.
+            A project arrives exactly one way: an agent calls `sanity_open` in the repo it
+            is already working in. That is the instrument's actual shape — the session that
+            knows which repo you are in decides what is on screen — and a `+` beside this
+            list offered a second way in that could not do the same job. Opening by hand
+            gets you four lenses and a grey map, which is the app with its reason for
+            existing removed; worse, it was the door that handed a folder picker a whole
+            directory of repos and set thirty minutes of CPU on fire. The list is a
+            readout now, not a control. */}
+        <div className="px-2 pb-1 pt-1">
           <span className="text-[10px] font-semibold uppercase tracking-wide opacity-55">
             Projects
           </span>
-          <button
-            onClick={onOpen}
-            title="Open a project… (⌘O)"
-            className="rounded px-1 text-[13px] leading-none opacity-55 hover:opacity-100"
-          >
-            +
-          </button>
         </div>
+        {/* Says what this column is FOR, not what to go and do about it.
+            The old empty note repeated the onboarding gate's own instruction — "in Claude
+            Code, say study this project in sanity" — in smaller type two inches from where
+            the card was already saying it. This one earns its place differently: it names
+            the space so that when a project does appear here, the reader has been told in
+            advance that this is where to look. That matters more than usual, because the
+            agent goes silent during the scan and this column is the only thing moving. */}
         {projects.length === 0 && (
-          <div className="px-2 py-1 text-[11px] leading-snug opacity-60">
-            Nothing yet. In Claude Code, say <em>study this project in sanity</em>.
+          <div className="px-2 py-1 text-[11px] leading-snug opacity-55">
+            Projects will appear here when studied.
           </div>
         )}
         {projects.map((p) => (
@@ -142,13 +149,21 @@ export function SideBar({
               mascot moved the balance, and the compensating pixel value lived in a
               comment three lines away. Now nothing outside this row cares what size
               either of them is. */}
-          <div className="flex h-12 items-center pr-7">
+          {/* Clearance for the gear. Kept tight: the label is three words and the panel is
+              narrow, and a wider reserve pushed "Agent is sleeping" onto three lines. */}
+          <div className="flex h-12 items-center pr-8">
             <div className="flex w-full gap-2.5" style={{ alignItems: 'last baseline' }}>
               <span className="shrink-0" style={{ marginBottom: -MASCOT_FLOOR_OFFSET }}>
                 <AgentMascot size={MASCOT_SIZE} events={agent.events} active={agent.active} />
               </span>
+              {/* Three states, not two. "Sleeping" said of a client that was never
+                  registered is the panel reporting a rest it has no evidence of — and it
+                  is the exact moment somebody needs telling that the gear beside it is the
+                  thing to press. Now that agents are the only way a project arrives, the
+                  difference between "connected and idle" and "nothing is connected" is the
+                  difference between waiting and being stuck. */}
               <span className="font-display min-w-0 flex-1 text-[14.5px] font-semibold uppercase leading-[1.4] tracking-tight">
-                Agent is {agent.active ? 'working' : 'sleeping'}
+                {!connected ? 'Agent not connected' : agent.active ? 'Agent is working' : 'Agent is sleeping'}
               </span>
             </div>
           </div>
@@ -157,11 +172,20 @@ export function SideBar({
               insets is a statement about the corner it sits in, and a flex item inherits
               whatever the row's alignment happens to be instead.
               Connecting lives HERE, not in the top row — this panel is what you are
-              looking at when it says sleeping and you are wondering why. */}
+              looking at when it says sleeping and you are wondering why.
+
+              **A gear and no word.** It was briefly labelled "⚙ Connect", on the argument
+              that a `title` is not a name and the empty state points here — but the panel is
+              too narrow to hold both: the chip took a third of the width and broke "Agent is
+              sleeping" onto three ragged lines, which made the panel harder to read in every
+              session in order to help in the first one. So the glyph carries it, given a
+              proper hit target and enough contrast to read as a control rather than as
+              decoration, and the empty state describes it by position instead of by name. */}
           <button
             onClick={onConnect}
-            title="Connect an agent"
-            className="absolute right-2 top-2 rounded text-2xl leading-none opacity-60 hover:opacity-100"
+            title="Connect an agent over MCP"
+            aria-label="Connect an agent"
+            className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[19px] leading-none opacity-70 hover:bg-[var(--card)] hover:opacity-100"
           >
             ⚙
           </button>

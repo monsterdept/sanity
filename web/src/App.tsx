@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { open } from '@tauri-apps/plugin-dialog'
 import {
   agentActivity,
   agentReports,
@@ -7,14 +6,13 @@ import {
   projectScan,
   applyAgentReports,
   applyScores,
-  countStale,
+  countPending,
+  mcpClients,
   onOpenProject,
   onSetTheme,
   syncThemeMenu,
   onScanScore,
-  onScanProgress,
   openCodeWindow,
-  scanRepo,
   type Node,
   type Progress,
   type AgentActivity,
@@ -102,8 +100,6 @@ function parentOf(node: Node, id: string): Node | null {
 
 export default function App() {
   const [scan, setScan] = useState<Scan | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [progress, setProgress] = useState<Progress | null>(null)
   const [error, setError] = useState<string | null>(null)
   /** What is selected, as the NODE rather than its id.
    *
@@ -156,6 +152,27 @@ export default function App() {
   })
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [activeKey, setActiveKey] = useState<string | null>(null)
+  /** Whether any MCP client is registered against THIS binary.
+   *
+   *  Load-bearing now that agents are the only way a project arrives: with nothing
+   *  connected, no amount of waiting produces one, and the app has to say so rather than
+   *  describe a sleeping agent that does not exist. Polled rather than fetched once
+   *  because the fix happens in another application — the user connects Claude Code in the
+   *  setup sheet, or edits a config by hand — and the window has no way to be told. */
+  const [connected, setConnected] = useState(false)
+  useEffect(() => {
+    let alive = true
+    const read = () =>
+      void mcpClients().then((cs) => {
+        if (alive) setConnected(cs.some((c) => c.registered && c.current))
+      })
+    read()
+    const t = setInterval(read, 4000)
+    return () => {
+      alive = false
+      clearInterval(t)
+    }
+  }, [])
   // ── The replay ──────────────────────────────────────────────────────────────
   //
   // History is a MODE, not a sixth lens. The lenses answer "what should the colour mean",
@@ -180,8 +197,6 @@ export default function App() {
   // The path of whatever is on screen, so changing the model can re-scan it rather than
   // making the user find the directory again.
   const lastPath = useRef<string | null>(null)
-
-  useEffect(() => onScanProgress(setProgress), [])
 
   // Cmd-1..5 for the lenses, in the order they appear in the switcher.
   //
@@ -287,37 +302,12 @@ export default function App() {
     }
   }, [])
 
-  const run = useCallback(async (path: string) => {
-    lastPath.current = path
-    setBusy(true)
-    setError(null)
-    setProgress(null)
-    try {
-      // One pass. There used to be two — a fast proxy scan to draw the structure in
-      // grey, then a model pass of tens of minutes to colour it in — and the whole
-      // apparatus went with the model. The proxy draws the map in about a second, and
-      // an agent's readings replace its guesses one function at a time.
-      setScan(await scanRepo(path))
-    } catch (e) {
-      setError(String(e))
-    } finally {
-      setBusy(false)
-      setProgress(null)
-    }
-  }, [])
 
-  const pick = useCallback(async () => {
-    const dir = await open({ directory: true, multiple: false })
-    if (typeof dir === 'string') {
-      setStack([])
-      setPicked(null)
-      await run(dir)
-    }
-  }, [run])
-
-  // The menu's own door into the same picker. Registered after `pick` exists rather than
-  // beside the other menu listeners, because it closes over it.
-  useEffect(() => onOpenProject(() => void pick()), [pick])
+  // File → Open used to raise a folder picker. Opening by hand is gone — a project arrives
+  // only when an agent calls `sanity_open` — so the menu item now opens the one thing that
+  // can still get you one. Kept rather than deleted because ⌘O is muscle memory, and a
+  // shortcut that does nothing teaches people the app is broken.
+  useEffect(() => onOpenProject(() => setShowAgents(true)), [])
 
   /** Where the open project lives on disk.
    *
@@ -578,7 +568,7 @@ export default function App() {
           projects={projects}
           active={activeKey}
           agent={agent}
-          onOpen={() => void pick()}
+          connected={connected}
           onConnect={() => setShowAgents(true)}
           onSelect={(key) => {
             // Selected immediately, before the tree is fetched. A project still being
@@ -635,7 +625,6 @@ export default function App() {
               them, so "Reading the repo…" rendered beneath the buttons. It also shoved
               the whole shell down by its own height every time a scan started. Below
               TopRow it can do neither. */}
-          {busy && focus && <ProgressStrip progress={progress} />}
           {historyBusy && <ProgressStrip progress={historyProgress} label="Replaying the history…" />}
           {tree && focus && <Crumbs trail={trail} onGo={goTo} onUp={goUp} />}
 
@@ -670,8 +659,6 @@ export default function App() {
                   is still the repo as it stands.
                 </p>
               </div>
-            ) : busy && !focus ? (
-              <ProgressPane progress={progress} />
             ) : focus ? (
               // A file is no longer a different view. It used to be `FileStack`, a vertical
               // column reached by a hard cut — the argument being that a file is a sequence
@@ -702,7 +689,7 @@ export default function App() {
                 }
               />
             ) : (
-              <Empty onPick={pick} />
+              <Empty connected={connected} onConnect={() => setShowAgents(true)} />
             )}
             </div>
 
@@ -718,7 +705,7 @@ export default function App() {
                   // Counted from `focus`, not the whole scan: drilled into one
                   // directory, the legend has to describe the rings in front of you or
                   // it is annotating a picture nobody is looking at.
-                  stale={countStale(focus)}
+                  {...countPending(focus)}
                 />
               </div>
             )}
@@ -974,21 +961,204 @@ function HistoryToggle({
   )
 }
 
-function Empty({ onPick }: { onPick: () => void }) {
+/**
+ * The window with no projects in it — which is to say, the first run.
+ *
+ * What an empty window owes you is the next action, not the premise. It used to open with
+ * a headline and a paragraph about what the rings mean: a pitch, on the screen of someone
+ * who has already installed the thing.
+ *
+ * **But the one instruction it then gave was circular.** It said to tell Claude Code
+ * "study this project in sanity" — which only works once sanity is registered as an MCP
+ * server, and the only thing that registers it is a dialog behind a small gear this screen
+ * never mentioned. So the screen written for the person who has nothing assumed the one
+ * thing they had not done, and sent them to a client that would answer "no such tool" with
+ * nothing here explaining why. A first run cannot depend on a step it does not offer.
+ *
+ * Three facts, because between them they cover every way out of this screen — and two of
+ * them are set under the button they are about rather than in a block after both, because
+ * prose that answers two questions in one voice makes the reader sort out which sentence
+ * belongs to which choice before they can use any of it:
+ *
+ * 1. **It works without an agent.** Churn, age, blame and language are read from the repo
+ *    and its git history, so four of the five lenses are live the moment a repo opens.
+ *    Saying so first is what makes "not now" a real option rather than a way to get a
+ *    broken app — and it is true, which the old copy never got round to mentioning.
+ * 2. **Surprise is the one that needs a reader**, and it is the reason this exists. Said
+ *    plainly, including what you get if you skip it: grey. A wedge that stays uncoloured
+ *    with no explanation reads as a bug in the map.
+ * 3. **The offer keeps.** Declining here has to be survivable, so the way back is named
+ *    and pointed at — the gear, in the panel it lives in. An offer with no stated second
+ *    chance is a modal wearing a screen's clothing.
+ *
+ * No remembered "declined" flag, deliberately. This screen only exists while there are no
+ * projects, so opening one dismisses it for good; a persisted dismissal would be state
+ * that can only ever go wrong, guarding a screen nobody will see again anyway.
+ */
+function Empty({ connected, onConnect }: { connected: boolean; onConnect: () => void }) {
   return (
-    /* One instruction and one alternative. This used to open with a headline and a
-       paragraph explaining what the rings mean — a pitch, on the screen of someone who
-       has already installed the thing, repeating what the sidebar says two inches to the
-       left. What an empty window owes you is the next action, not the premise. */
-    <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-      <p className="max-w-[42ch] text-sm leading-relaxed text-[var(--muted-foreground)]">
-        In a Claude Code session in your project, say{' '}
-        <span className="mono text-[var(--foreground)]">study this project in sanity</span>.
-        It will open here on its own and colour in as the agent reads.
-      </p>
-      <button onClick={onPick} className="text-xs text-[var(--accent)] hover:underline">
-        or open a repo by hand
-      </button>
+    /* Boxed, and the box is what the ants pass behind.
+       They are drawn at `z-0` under a `z-10` content layer, so the stacking was already
+       right — what was missing was a ground. Over bare pane an ant crossed the middle of a
+       sentence, which reads as a rendering fault rather than as something living on the
+       desk. A card gives the copy an opaque floor to sit on and turns the ants back into
+       what they are: behind it, at the edges, incidental. */
+    <div className="flex h-full items-center justify-center p-8">
+      <div className="flex w-full max-w-[54ch] flex-col items-center gap-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-8 py-9">
+      {/* A heading, not the wordmark.
+          The mark says WHO this is, which the title bar, the sidebar and the icon in the dock
+          have all already said by the time anyone reads this card. What the card needed was a
+          name for what it IS — a two-step setup — so it says that. Set in LINE Seed JP, the
+          same voice the agent panel uses, so the two pieces of chrome that speak to the
+          reader rather than reporting numbers sound alike. */}
+      {/* `font-display` tracks OUT by 6% — it exists for the agent panel's small uppercase
+          label, where letters that tight would touch. At 26px in sentence case the same
+          setting reads as loose, so this one goes the other way. */}
+      <h2
+        className="font-display text-[26px] font-normal leading-none text-[var(--foreground)]"
+        style={{ fontFamily: "'LINE Seed JP', ui-sans-serif, system-ui", letterSpacing: '-0.06em' }}
+      >
+        Study your first project
+      </h2>
+
+      {/* One way in, in two steps, shown in order.
+          There was a second column offering "Open a repo" by hand. That door is gone: a
+          repo opened by hand gets four lenses and a grey map, which is this app with its
+          reason for existing removed — and it was the door that handed a folder picker a
+          whole directory of repos. So the screen is a gate now rather than a choice, and a
+          gate owes you the steps and your position in them. */}
+      <div className="flex w-full max-w-[44ch] flex-col gap-4">
+        <Step n={1} title="Connect an agent" done={connected}>
+          {connected
+            ? 'Registered. An agent session can reach Sanity from inside your project.'
+            : 'Sanity checks are initiated from within an agent harness. Register the MCP server to begin.'}
+        </Step>
+
+        {/* Indented to the step's TEXT column, not to its number.
+            Flush left it sat between the two badges and read as a third item in the list —
+            the eye scans the numbers down the left edge, and an unnumbered thing on that
+            same edge breaks the count. `ml-8` is the badge (w-5) plus the row gap (gap-3),
+            so the button starts exactly where the sentence above it does and reads as
+            belonging to step one. */}
+        {!connected && (
+          <button
+            onClick={onConnect}
+            className="ml-8 self-start rounded-[var(--radius-sm)] bg-[var(--accent)] px-3.5 py-2 text-xs font-semibold text-[var(--accent-foreground)] hover:opacity-90"
+          >
+            Connect an agent
+          </button>
+        )}
+
+        {/* Part of step one, not a footnote to the whole card.
+            It is a fact about connecting — where to go to do it again — so it belongs under
+            the step that connects, in the same indented column as that step's button. At the
+            bottom of the card it was a centred line of small print after the last
+            instruction, which is where people stop reading, and it followed step TWO, whose
+            subject is asking your agent to work. */}
+        <p className="ml-8 text-xs leading-relaxed text-[var(--muted-foreground)]">
+          Configure agents any time from the{' '}
+          <span className="text-[var(--foreground)]">⚙</span> in the Agent panel.
+        </p>
+
+        <div className="mt-2" />
+        <Step n={2} title="Ask it to study a project" done={false}>
+          Enter a session inside your project and say{' '}
+          <span className="mono text-[var(--foreground)]">study this project in sanity</span>.
+          You will see your project fill in as the agent works.
+        </Step>
+
+        {/* The phrase itself, on the clipboard.
+            It is the one thing on this screen that has to arrive VERBATIM in another
+            application, and retyping it from a paragraph is where a typo turns "nothing
+            happened" into a mystery. Indented to the text column like the button above, so
+            the two steps each have their action in the same place. */}
+        <CopyPhrase phrase="study this project in sanity" />
+      </div>
+
+      </div>
+    </div>
+  )
+}
+
+/** The magic words, on one press.
+ *
+ *  Confirmed in place rather than with a toast: the feedback belongs on the control that
+ *  was pressed, and a phrase you are about to paste somewhere else should not need you to
+ *  look away from it. Reverts on a timer so the button is ready for a second project.
+ *
+ *  A clipboard that refuses is silent — the text is right there in the step above, and an
+ *  error about a permission the user cannot see would be worse than the button appearing to
+ *  do nothing. */
+function CopyPhrase({ phrase }: { phrase: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      onClick={() => {
+        navigator.clipboard
+          .writeText(phrase)
+          .then(() => {
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1600)
+          })
+          .catch(() => {})
+      }}
+      className="group ml-8 flex items-center gap-3 self-start rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--secondary)] py-1.5 pl-3 pr-2 text-xs hover:border-[var(--muted-foreground)]"
+      title={`Copy "${phrase}"`}
+      aria-label={`Copy ${phrase}`}
+    >
+      {/* The ordinary shape: the code on the left, the copy affordance at the right edge.
+          It briefly became "Copy" followed by the phrase, which put the thing you are
+          about to paste in the wrong place and made the control read as a sentence. What
+          this needs to look like is a code block with a copy button, because that is what
+          it is and everyone already knows how to use one. */}
+      <span className="mono text-[var(--foreground)]">{phrase}</span>
+      <span className="shrink-0 text-[var(--muted-foreground)] group-hover:text-[var(--foreground)]">
+        {copied ? (
+          <span className="text-[10px] font-semibold uppercase tracking-wide">Copied</span>
+        ) : (
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="9" y="9" width="13" height="13" rx="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+          </svg>
+        )}
+      </span>
+    </button>
+  )
+}
+
+/** One numbered step of the gate, ticked once it is satisfied.
+ *
+ *  Numbered rather than bulleted because the two are ordered — the second cannot be done
+ *  until the first is — and the tick is what turns instructions into a POSITION: which half
+ *  you are on is readable without parsing either sentence. */
+function Step({
+  n,
+  title,
+  done,
+  children,
+}: {
+  n: number
+  title: string
+  done: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex gap-3">
+      <span
+        className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold"
+        style={{
+          background: done ? 'var(--accent)' : 'var(--secondary)',
+          color: done ? 'var(--accent-foreground)' : 'var(--muted-foreground)',
+        }}
+      >
+        {done ? '✓' : n}
+      </span>
+      <div className="min-w-0">
+        <p className="text-xs font-semibold text-[var(--foreground)]">{title}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-[var(--muted-foreground)]">
+          {children}
+        </p>
+      </div>
     </div>
   )
 }
