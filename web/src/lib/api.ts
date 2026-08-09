@@ -526,6 +526,13 @@ export interface RepoSummary {
   unread: number
   /** Current readings above `HOT`, hottest first — what the map is pointing at. */
   hot: Node[]
+  /** Every current reading, by the grade it came back with, hottest first within each.
+   *
+   *  The counts in `spread` were the whole of this and a count is where the panel stops
+   *  being useful: "5,841 cold" is a fact you can do nothing with, and the reader who wants
+   *  to know WHICH has only the map, which cannot spell. Node references, so the four lists
+   *  together cost one pointer per function. */
+  byGrade: Record<Grade, Node[]>
   /** Where to send someone who wants to deal with the expiries, or null if there are none. */
   firstStale: Node | null
 }
@@ -539,6 +546,7 @@ export function summarize(root: Node): RepoSummary {
     stale: 0,
     unread: 0,
     hot: [],
+    byGrade: { full: [], most: [], some: [], none: [] },
     firstStale: null,
   }
   const walk = (n: Node, out: boolean) => {
@@ -556,6 +564,7 @@ export function summarize(root: Node): RepoSummary {
       } else if (n.agent) {
         const g = n.agent.predicted ?? (n.agent.surprised ? 'none' : 'full')
         s.spread[g]++
+        s.byGrade[g].push(n)
         s.read++
         if (temperature(n.score) > HOT) s.hot.push(n)
       } else {
@@ -565,7 +574,10 @@ export function summarize(root: Node): RepoSummary {
     n.children.forEach((c) => walk(c, outOfScope))
   }
   walk(root, false)
-  s.hot.sort((a, b) => temperature(b.score) - temperature(a.score) || b.loc - a.loc)
+  const hottestFirst = (a: Node, b: Node) =>
+    temperature(b.score) - temperature(a.score) || b.loc - a.loc
+  s.hot.sort(hottestFirst)
+  for (const g of Object.keys(s.byGrade) as Grade[]) s.byGrade[g].sort(hottestFirst)
   return s
 }
 

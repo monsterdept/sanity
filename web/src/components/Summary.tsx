@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react'
+import { clsx } from '../lib/cn'
 import { elide } from '../lib/text'
 import {
   GRADE_SURPRISE,
@@ -10,6 +12,94 @@ import {
 } from '../lib/api'
 
 const GRADES: Grade[] = ['full', 'most', 'some', 'none']
+
+/** Height of one row, in pixels, and it is a contract rather than a style.
+ *
+ *  `ListWindow` works out which rows are on screen by dividing the scroll offset by this,
+ *  so a row that does not measure exactly this tall puts the window out of step with the
+ *  scrollbar — slowly at first, and by whole rows near the bottom. The rows carry `h-5` to
+ *  make it true. */
+const ROW_H = 20
+
+/**
+ * The readings list, rendering only what is on screen.
+ *
+ * Windowed rather than virtualised by a library: the rows are a fixed height and the list
+ * is flat, which is the one case where the arithmetic is three lines and a dependency
+ * would be the more complicated answer.
+ *
+ * `overscan` above and below so a fast scroll does not show the seam — the browser paints
+ * before React reacts to the scroll event, and without a margin that gap is a band of
+ * blank rows at the leading edge.
+ */
+function ListWindow({
+  rows,
+  onSelect,
+  goTo,
+}: {
+  rows: Node[]
+  onSelect?: (n: Node) => void
+  goTo: (n: Node) => void
+}) {
+  const box = useRef<HTMLDivElement | null>(null)
+  const [view, setView] = useState({ top: 0, h: 0 })
+
+  useEffect(() => {
+    const el = box.current
+    if (!el) return
+    const read = () => setView({ top: el.scrollTop, h: el.clientHeight })
+    read()
+    el.addEventListener('scroll', read, { passive: true })
+    const ro = new ResizeObserver(read)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener('scroll', read)
+      ro.disconnect()
+    }
+  }, [])
+
+  // Back to the top when the list becomes a different list. Keeping the offset would open
+  // `blazing` scrolled to where `cold` was left, which reads as a list that starts in the
+  // middle of itself.
+  useEffect(() => {
+    if (box.current) box.current.scrollTop = 0
+  }, [rows])
+
+  const overscan = 8
+  const first = Math.max(0, Math.floor(view.top / ROW_H) - overscan)
+  const last = Math.min(rows.length, Math.ceil((view.top + view.h) / ROW_H) + overscan)
+  const shown = rows.slice(first, last)
+
+  return (
+    <div
+      ref={box}
+      className="min-h-0 flex-1 overflow-y-auto [overscroll-behavior:contain]"
+    >
+      {/* Spacers, so the scrollbar describes the whole list rather than the slice of it
+          that happens to exist. */}
+      <div style={{ height: first * ROW_H }} />
+      {shown.map((h) => (
+        <button
+          key={h.id}
+          type="button"
+          className="flex h-5 w-full items-center gap-2 rounded-[var(--radius-sm)] px-1 text-left hover:bg-[var(--secondary)]"
+          onClick={() => onSelect?.(h)}
+          onDoubleClick={() => goTo(h)}
+        >
+          <span
+            className="h-2 w-2 shrink-0 rounded-[2px]"
+            style={{ background: heatColor(temperature(h.score)) }}
+          />
+          <span className="mono flex-1 truncate text-[11px]">{h.name}</span>
+          <span className="mono shrink-0 text-[10px] text-[var(--muted-foreground)]">
+            {HEAT_WORDS[h.agent?.predicted ?? 'none']}
+          </span>
+        </button>
+      ))}
+      <div style={{ height: Math.max(0, (rows.length - last) * ROW_H) }} />
+    </div>
+  )
+}
 
 /**
  * The spread of readings, as one bar and its key.
@@ -29,11 +119,16 @@ function Spread({
   read,
   stale,
   unread,
+  picked,
+  onPick,
 }: {
   spread: Record<Grade, number>
   read: number
   stale: number
   unread: number
+  /** Which grade the list below is showing. */
+  picked: Grade | null
+  onPick: (g: Grade | null) => void
 }) {
   const total = read + stale + unread
   if (total === 0) return null
@@ -59,19 +154,58 @@ function Spread({
           />
         ))}
       </div>
+      {/* The key is the control.
+          A count is where this panel used to stop being useful: "5,841 cold" is a fact you
+          can do nothing with, and a reader who wants to know WHICH has only the map, which
+          cannot spell. The four grades already sit here naming the thing to ask for, so
+          they ask for it — clicking one puts its readings in the list below.
+
+          Only the grades. `expired` and `unread` keep their segments and stay inert,
+          because they are not a reading that came back some way, they are the absence of
+          one — and the work each of them implies is stated in Next Steps, which is where
+          somebody who wants to act on them should be sent. */}
       <div className="mt-2 space-y-0.5">
-        {segs.map((s) => (
-          <div key={s.key} className="flex items-baseline gap-2">
-            <span
-              className="h-2 w-2 shrink-0 translate-y-px rounded-[2px]"
-              style={{ background: s.fill }}
-            />
-            <span className="flex-1 text-[11px] text-[var(--muted-foreground)]">{s.label}</span>
-            <span className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
-              {s.n}
-            </span>
-          </div>
-        ))}
+        {segs.map((seg) => {
+          const grade = GRADES.includes(seg.key as Grade) ? (seg.key as Grade) : null
+          const on = grade !== null && grade === picked
+          const row = (
+            <>
+              <span
+                className="h-2 w-2 shrink-0 translate-y-px rounded-[2px]"
+                style={{ background: seg.fill }}
+              />
+              <span
+                className={clsx(
+                  'flex-1 text-[11px]',
+                  on ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]',
+                )}
+              >
+                {seg.label}
+              </span>
+              <span className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
+                {seg.n}
+              </span>
+            </>
+          )
+          return grade === null ? (
+            <div key={seg.key} className="flex items-baseline gap-2 px-1">
+              {row}
+            </div>
+          ) : (
+            <button
+              key={seg.key}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onPick(on ? null : grade)}
+              className={clsx(
+                'flex w-full items-baseline gap-2 rounded-[var(--radius-sm)] px-1 text-left hover:bg-[var(--secondary)]',
+                on && 'bg-[var(--secondary)]',
+              )}
+            >
+              {row}
+            </button>
+          )
+        })}
       </div>
     </div>
   )
@@ -158,9 +292,27 @@ export function Summary({
     onSelect?.(n)
   }
 
+  /** Which grade's readings the list is showing.
+   *
+   *  `null` means "not chosen", which is not the same as "none" — an unchosen panel falls
+   *  back to the hottest grade that has anything in it, so opening a repo lands on the
+   *  readings worth looking at rather than on an empty `full`. Held as an absence rather
+   *  than initialised to that grade because the repo can change under the panel, and a
+   *  remembered default would then be a choice nobody made. */
+  const [picked, setPicked] = useState<Grade | null>(null)
+  const shown: Grade =
+    picked ?? ((['none', 'some', 'most', 'full'] as Grade[]).find((g) => s.byGrade[g].length > 0) ?? 'none')
+  const list = s.byGrade[shown]
+
   return (
-    <div className="relative h-full overflow-y-auto">
-      <div className="px-4 pb-6 pt-4">
+    /* A column, not one long scroll.
+       Three parts with three different claims on the height: what the repo IS, which is
+       fixed; the readings themselves, which are as many as there are; and what to do next,
+       which is a handful of lines. Scrolling the whole panel gave the list an arbitrary
+       `max-h` — so it stopped mid-row with dead space under Next Steps, and on a taller
+       window it would stop just as short. Only the middle one grows. */
+    <div className="relative flex h-full flex-col">
+      <div className="shrink-0 px-4 pt-4">
         <h2 className="mono truncate text-sm font-semibold" title={title}>
           {title}
         </h2>
@@ -188,13 +340,65 @@ export function Summary({
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
               Readings
             </p>
-            <Spread spread={s.spread} read={s.read} stale={s.stale} unread={s.unread} />
+            <Spread
+              spread={s.spread}
+              read={s.read}
+              stale={s.stale}
+              unread={s.unread}
+              picked={shown}
+              onPick={setPicked}
+            />
           </div>
         )}
 
-        <div className="mt-4 border-t border-[var(--border)] pt-3">
+
+      </div>
+
+      {/* The one part that grows. `min-h-0` because a flex child will not shrink below its
+          content without it, which is how a long list pushes its own scrollbar off the
+          bottom of the pane instead of using one. */}
+      <div className="flex min-h-0 flex-1 flex-col px-4">
+        {/* The readings themselves. The map shows WHERE they are; this says WHICH they
+            are, which is the thing you cannot read off a ring.
+            It was the hot list alone, which answered one of the four questions the key
+            above was already asking. Now the key chooses and this follows. */}
+        {list.length > 0 && (
+          <div className="flex min-h-0 flex-1 flex-col border-t border-[var(--border)] pt-3">
+            <div className="mb-2 flex items-baseline justify-between">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                {HEAT_WORDS[shown]}
+              </p>
+              <p className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
+                {list.length}
+              </p>
+            </div>
+            {/* Scrolled, not truncated, and windowed.
+                It showed twelve and then "and 37 more", which names a quantity and hides
+                the thing itself — the whole reason this list exists is that the map can say
+                WHERE the readings are and only a list can say WHICH. Thirty-seven behind a
+                count is thirty-seven the reader cannot reach.
+
+                Rendering them all is not the answer either. tonepoet's `cold` is 7,900
+                functions, and a row is a button and three spans — thirty-two thousand DOM
+                nodes, every one of which React has to build before the browser can paint.
+                That was a second and a half of nothing happening after a click, which is
+                the click feeling broken.
+
+                So only what is on screen exists. A row is a fixed `h-5` for exactly this
+                reason: uniform height is what lets the first visible index be arithmetic
+                instead of measurement, and the two spacers hold the scrollbar at the size
+                the whole list would have had. */}
+            <ListWindow rows={list} onSelect={onSelect} goTo={goTo} />
+          </div>
+        )}
+      </div>
+
+      {/* Last, and only as tall as it is. It is a short list of things to do — pinning it
+          to the bottom of the pane rather than letting it float on the end of a scroll is
+          what makes it findable without reading past everything above it. */}
+      <div className="shrink-0 border-t border-[var(--border)] px-4 pb-5 pt-3">
           <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-            Next
+            Next Steps
           </p>
 
           {/* Expiries first. They are the only item here that is work already done going
@@ -249,47 +453,6 @@ export function Summary({
               Nothing outstanding
             </Action>
           )}
-        </div>
-
-        {/* The hot list itself, when there is one. The map shows WHERE they are; this
-            says WHICH they are, which is the thing you cannot read off a ring. */}
-        {s.hot.length > 0 && (
-          <div className="mt-4 border-t border-[var(--border)] pt-3">
-            <div className="mb-2 flex items-baseline justify-between">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-                Hot
-              </p>
-              <p className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
-                {s.hot.length}
-              </p>
-            </div>
-            {s.hot.slice(0, 12).map((h) => (
-              <button
-                key={h.id}
-                type="button"
-                className="flex w-full items-baseline gap-2 rounded-[var(--radius-sm)] px-1 py-0.5 text-left hover:bg-[var(--secondary)]"
-                onClick={() => onSelect?.(h)}
-                onDoubleClick={() => goTo(h)}
-              >
-                <span
-                  className="h-2 w-2 shrink-0 translate-y-px rounded-[2px]"
-                  style={{ background: heatColor(temperature(h.score)) }}
-                />
-                <span className="mono flex-1 truncate text-[11px]">{h.name}</span>
-                <span className="mono shrink-0 text-[10px] text-[var(--muted-foreground)]">
-                  {HEAT_WORDS[h.agent?.predicted ?? 'none']}
-                </span>
-              </button>
-            ))}
-            {/* A truncated list that does not say it is truncated reads as the whole
-                set — the same failure as coverage counted off a filtered queue. */}
-            {s.hot.length > 12 && (
-              <p className="mt-1 px-1 text-[10px] text-[var(--muted-foreground)]">
-                and {s.hot.length - 12} more
-              </p>
-            )}
-          </div>
-        )}
       </div>
     </div>
   )
