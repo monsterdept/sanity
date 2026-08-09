@@ -35,7 +35,6 @@ export function SideBar({
   active,
   onSelect,
   agent,
-  busyKey,
   onOpen,
   onConnect,
 }: {
@@ -43,8 +42,6 @@ export function SideBar({
   active: string | null
   onSelect: (key: string) => void
   agent: AgentActivity
-  /** The project whose progress the bar should report — see `App`. */
-  busyKey: string | null
   onOpen: () => void
   onConnect: () => void
 }) {
@@ -56,13 +53,15 @@ export function SideBar({
   // agents on two repos make independent progress, and a single bar has to pick a winner
   // and be wrong about the other.
   //
-  // Falls back to whatever is on screen when nothing is working, so the panel still says
-  // something in the quiet case rather than collapsing to nothing.
-  const working = projects.filter((p) => p.working && p.functions > 0)
-  const bars =
-    working.length > 0
-      ? working
-      : projects.filter((p) => p.key === busyKey && p.functions > 0)
+  // There is no fallback to whatever is on screen. It was there so the quiet case "still
+  // said something", but the panel already says it — an asleep mascot and the word
+  // sleeping — and the coverage is on the project's own row two inches above. What the
+  // fallback added was a second meaning for the same bar depending on whether anything
+  // was working ("being read now" against "what you clicked"), and, because it did not
+  // look at completeness, a full bar under a sleeping mascot on any finished project you
+  // happened to have selected. Absent, the bar means one thing and its absence means
+  // nobody is reading.
+  const bars = projects.filter((p) => p.working && p.functions > 0)
 
   return (
     <aside
@@ -167,10 +166,10 @@ export function SideBar({
             ⚙
           </button>
 
-          {/* The bar lives here rather than on every project row, and only while there is
-              something to finish. On a completed project it is a full bar saying nothing;
-              in the list it was repeated per row and pushed the rows to two lines each,
-              which is what stopped the sidebar reading like tally's. */}
+          {/* The bar lives here rather than on every project row: in the list it was
+              repeated per row and pushed the rows to two lines each, which is what stopped
+              the sidebar reading like tally's. It belongs to the agent panel because it
+              reports on a repo being read right now, which is what this panel is about. */}
           {bars.map((p) => (
             <div key={p.key} className="mt-1.5">
               <div className="mb-1 flex items-baseline justify-between text-[10px] opacity-70">

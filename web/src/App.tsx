@@ -177,12 +177,6 @@ export default function App() {
    *  rate, because a rate that suits a 46-commit repo is two minutes of shimmer on a
    *  thousand-commit one. */
   const [duration, setDuration] = useState(30)
-  /** The project the BACKEND considers active — the one an agent last called about.
-   *
-   *  Tracked apart from `activeKey`, which is what the window is showing. They agree
-   *  until you click another project in the sidebar, and then they do not: the agent
-   *  keeps reporting to its own repo while you look at a different one. */
-  const [agentKey, setAgentKey] = useState<string | null>(null)
   // The path of whatever is on screen, so changing the model can re-scan it rather than
   // making the user find the directory again.
   const lastPath = useRef<string | null>(null)
@@ -228,7 +222,6 @@ export default function App() {
         // sunburst of several thousand arcs — every 1.5 seconds. During a replay that is a
         // stutter on a fixed period; the rest of the time it is just waste.
         setProjects((prev) => (sameProjects(prev, list.projects) ? prev : list.projects))
-        setAgentKey(list.active)
         if (!list.active || list.active === showing) return
         showing = list.active
         setActiveKey(list.active)
@@ -585,9 +578,6 @@ export default function App() {
           projects={projects}
           active={activeKey}
           agent={agent}
-          // Whose progress the bar reports: whoever is being written to while an agent
-          // works, and otherwise whatever is on screen.
-          busyKey={agent.active ? agentKey : activeKey}
           onOpen={() => void pick()}
           onConnect={() => setShowAgents(true)}
           onSelect={(key) => {
