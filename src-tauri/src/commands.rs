@@ -46,15 +46,52 @@ pub async fn scan_repo(
     if !root.is_dir() {
         return Err(format!("{} is not a directory", req.path));
     }
+    // Before anything expensive. The scan that prompted this ran for minutes and wrote
+    // 323MB before anyone could tell it was scanning the wrong thing.
+    if scan::git_root(&root).is_none() {
+        return Err(scan::not_a_repo(&root));
+    }
 
     CANCEL.store(false, Ordering::Relaxed);
 
+    // In the sidebar BEFORE the work starts, not after it finishes.
+    //
+    // The project used to be published only once the scan returned, so a long scan was
+    // indistinguishable from a hang: the pane said "Walking the repo…", the sidebar stayed
+    // empty, and there was nothing on screen naming what was being read. When the path
+    // turned out to be wrong — a picker handing back a parent directory — nothing said so
+    // for minutes. `restoring` already exists to describe a project whose scan has not
+    // landed, with a progress bar; this is the same state arrived at from the other door.
+    let pending_key = crate::agentapi::project_key(&root);
+    {
+        let mut s = crate::agentapi::lock(&state);
+        let name = root
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| pending_key.clone());
+        s.restoring.retain(|k| k.key != pending_key);
+        s.restoring.push(crate::reports::KnownProject {
+            key: pending_key.clone(),
+            repo: root.to_string_lossy().to_string(),
+            name,
+            touched: 0,
+        });
+    }
+
     // The scan is CPU-bound and rayon-parallel, so it must never run on the async
     // runtime's threads.
+    let progress_state = (*state).clone();
+    let progress_key = pending_key.clone();
     let scanned = tauri::async_runtime::spawn_blocking(move || {
         let model = HeuristicModel;
 
         let emit = |p: Progress| {
+            // Fed to the sidebar row as well as the pane, so the two agree about how far
+            // along the same scan is.
+            if let Ok(mut s) = progress_state.lock() {
+                s.restoring_progress
+                    .insert(progress_key.clone(), (p.done, p.total));
+            }
             let _ = app.emit("scan-progress", p);
         };
         // Per-function scores go out as they land so the sunburst colours in live. The
@@ -97,6 +134,15 @@ pub async fn scan_repo(
     })
     .await
     .map_err(|e| e.to_string())?;
+
+    // Off the pending list however this turned out. A row that stays "reading…" forever is
+    // the failure this was added to prevent, wearing the opposite face — so it is cleared
+    // before the success path decides anything, not inside it.
+    {
+        let mut s = crate::agentapi::lock(&state);
+        s.restoring.retain(|k| k.key != pending_key);
+        s.restoring_progress.remove(&pending_key);
+    }
 
     // Publish as a project so an MCP client can pull a work queue from the very scan the
     // user is looking at. The window's own Open button and an agent's sanity_open land in

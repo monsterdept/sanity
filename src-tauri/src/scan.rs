@@ -29,7 +29,111 @@ const MINIFIED_LINE_BYTES: usize = 2_000;
 /// dependencies — the first real scan of a sibling project had three.js's GLTFLoader
 /// sitting in the results, which is noise at best and actively misleading at worst,
 /// since it is neither code the user wrote nor code they can act on.
-const VENDORED: &[&str] = &["vendor", "vendored", "third_party", "thirdparty", "node_modules"];
+/// Directory names that are somebody else's code by definition.
+///
+/// **Not a `.sanityignore` default, and the difference is the whole argument.** That file
+/// is a judgement about a specific codebase — whether `tests-unit/` is noise or the most
+/// interesting thing in the repo — and the tool provider cannot know it. This list is not a
+/// judgement: a `node_modules` or a `site-packages` is installed dependencies, and nobody
+/// opens a map of their repo to look at torch.
+///
+/// The Python names were missing, which cost a real minute of a user's machine. `venv` is
+/// as ubiquitous as `node_modules` and was simply never added — the list grew from the
+/// language that taught the lesson first. `.gitignore` normally hides these, but only
+/// inside a git repo: the `ignore` walker requires one, so a directory that is not a repo
+/// gets no ignore rules at all and every virtualenv under it is parsed. That path is
+/// refused outright now (see `git_root`), and this list is the second line.
+const VENDORED: &[&str] = &[
+    "vendor",
+    "vendored",
+    "third_party",
+    "thirdparty",
+    "node_modules",
+    "venv",
+    ".venv",
+    "site-packages",
+    "__pycache__",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+];
+
+/// The work tree `path` sits in, or `None` if it is not in a git repo at all.
+///
+/// **Refusing is the point.** A folder picker double-click navigates rather than selects,
+/// so the panel can hand back the PARENT of the thing you meant — and `~/projects` is not a
+/// repo, it is thirty of them. Nothing downstream noticed: with no repo there are no ignore
+/// rules, so the walk went into every virtualenv it found, pinned every core for minutes,
+/// and wrote a third of a gigabyte of cache, while the window said "Walking the repo…" and
+/// the sidebar stayed empty. Every part of that is a symptom of one unasked question.
+///
+/// It is also the honest reading of what this tool measures. Age, churn and blame are all
+/// git, `.sanity/` expects to be committed, and history replays commits — a directory with
+/// no repo cannot answer four of the five lenses, and the one it could answer would be a
+/// map of somebody's whole home directory.
+pub fn git_root(path: &Path) -> Option<PathBuf> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let root = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!root.is_empty()).then(|| PathBuf::from(root))
+}
+
+/// The git repositories sitting directly inside `path`, by name.
+///
+/// One level only. A folder of projects is the case worth catching, and walking deeper to
+/// find it would be doing the expensive thing this refusal exists to avoid.
+pub fn repos_inside(path: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return Vec::new();
+    };
+    let mut found: Vec<String> = entries
+        .flatten()
+        .filter(|e| e.path().join(".git").exists())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    found.sort();
+    found
+}
+
+/// What to tell someone who picked a directory that is not in a repo.
+///
+/// **It offers the way out rather than explaining the mistake.** The first version of this
+/// spent its last sentence on a theory about how the folder picker behaves — that a
+/// double-click navigates instead of choosing, so the dialog hands back the parent. That
+/// theory was never verified, and it is probably wrong: a directory-choosing panel returns
+/// the folder you have navigated INTO, which would be the project, not its parent. Shipping
+/// it meant the app explained a user's own action back to them, confidently, from a guess.
+///
+/// What is not a guess is what is on disk. A folder holding thirty repositories is a folder
+/// somebody meant to pick one thing out of, and naming them turns a refusal into a
+/// direction. If it holds none, there is nothing to suggest and the message says only what
+/// it knows.
+pub fn not_a_repo(path: &Path) -> String {
+    let need = "Sanity needs a git repository: age, churn and blame all come from git \
+                history, and assessments are committed to the repo they describe.";
+    let inside = repos_inside(path);
+    if inside.is_empty() {
+        return format!("{} is not a git repository.\n\n{need}", path.display());
+    }
+    let shown = inside.iter().take(3).cloned().collect::<Vec<_>>().join(", ");
+    let rest = match inside.len() {
+        n if n > 3 => format!(" and {} more", n - 3),
+        _ => String::new(),
+    };
+    format!(
+        "{} is not a git repository, but it contains {} of them — {shown}{rest}.\n\nOpen one \
+         of those instead.\n\n{need}",
+        path.display(),
+        inside.len(),
+    )
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanStats {

@@ -1049,6 +1049,11 @@ async fn open_project(
     if !path.is_dir() {
         return Json(serde_json::json!({ "ok": false, "error": format!("{} is not a directory", req.path) }));
     }
+    // Same gate as the window's Open. An agent is likelier than a human to hand over a
+    // parent directory — it is working from a path in a prompt, with no picker to look at.
+    if crate::scan::git_root(&path).is_none() {
+        return Json(serde_json::json!({ "ok": false, "error": crate::scan::not_a_repo(&path) }));
+    }
     let key = project_key(&path);
     lock(&state).ping("sanity_open");
 
@@ -1065,6 +1070,33 @@ async fn open_project(
     // Affordable now: the app scans at `Fidelity::Ordering`, which took tonepoet from 34.8s
     // to 8.6s. It was not affordable before, which is most of why it worked this way.
     let reopened = lock(&state).projects.contains_key(&key);
+
+    // In the sidebar NOW, before the scan, not after it.
+    //
+    // **This is the only window in which the user has nothing to look at.** The agent calls
+    // `sanity_open` and then goes silent for as long as the scan takes — no tool output, no
+    // chat, nothing — and until this existed the app was silent with it: an empty project
+    // list and an onboarding screen still saying "ask your agent to study a project", which
+    // is precisely the instruction they had just followed. The one moment somebody most
+    // needs to see the machine working was the one moment it showed them nothing.
+    //
+    // `restoring` already describes exactly this state — a project whose scan has not landed
+    // yet, with a progress bar — and it is display-only, so nothing downstream mistakes it
+    // for a project that can be queued or reported against.
+    {
+        let mut s = lock(&state);
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| key.clone());
+        s.restoring.retain(|k| k.key != key);
+        s.restoring.push(crate::reports::KnownProject {
+            key: key.clone(),
+            repo: path.to_string_lossy().to_string(),
+            name,
+            touched: 0,
+        });
+    }
 
     let scan_path = path.clone();
     let started = Instant::now();
@@ -1087,11 +1119,26 @@ async fn open_project(
     .await;
     let scan_ms = started.elapsed().as_millis() as u64;
 
+    // Off the pending list however this turned out, before anything can return. A row left
+    // reading forever is the same failure as no row at all, and the failure paths are
+    // exactly where it would be easiest to forget.
+    let settled = |state: &Shared| {
+        let mut s = lock(state);
+        s.restoring.retain(|k| k.key != key);
+        s.restoring_progress.remove(&key);
+    };
     let scan = match scanned {
         Ok(Ok(s)) => s,
-        Ok(Err(e)) => return Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
-        Err(e) => return Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
+        Ok(Err(e)) => {
+            settled(&state);
+            return Json(serde_json::json!({ "ok": false, "error": e.to_string() }));
+        }
+        Err(e) => {
+            settled(&state);
+            return Json(serde_json::json!({ "ok": false, "error": e.to_string() }));
+        }
     };
+    settled(&state);
 
     let name = path
         .file_name()

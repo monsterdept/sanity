@@ -74,10 +74,17 @@ const FORMAT_VERSION: u32 = 1;
 /// Stand-in oid for "not touched inside the churn window". See the module docs.
 const ANCIENT: &str = "-";
 
-/// Write the file back after this many changed entries. A scan that is killed halfway
-/// should not throw away the files it did get through, and on a cold PrusaSlicer open
-/// there are 2,518 of them.
+/// Append after this many changed entries. A scan that is killed halfway should not throw
+/// away the files it did get through, and on a cold PrusaSlicer open there are 2,518 of
+/// them.
 const FLUSH_EVERY: usize = 400;
+
+/// Rewrite the log once it holds this many times more lines than there are live entries.
+///
+/// The log is append-only, so a re-scan that touches every file writes every file again and
+/// the old lines are dead weight the next open has to parse past. Compacting at 2× trades
+/// one full write for a file that never drifts far from the size of what it holds.
+const COMPACT_RATIO: usize = 2;
 
 /// One file's memo. Parse and blame are stored side by side but invalidate independently:
 /// an edit costs both, a rebase costs only the blame.
@@ -145,10 +152,29 @@ pub struct Ident {
 pub struct ScanCache {
     path: Option<PathBuf>,
     inner: Mutex<Stored>,
-    dirty: Mutex<usize>,
+    /// Keys changed since the last append, and how many lines the log holds.
+    ///
+    /// **This is what stopped the cache being quadratic.** `save` used to serialise the
+    /// WHOLE store and rewrite the file every [`FLUSH_EVERY`] entries, so a scan of n files
+    /// wrote O(n²) bytes — invisible on a repo of a few hundred, and 323MB rewritten over
+    /// and over on a tree of a hundred thousand. The store holds function *bodies*, so the
+    /// constant is large. Only what changed is written now.
+    dirty: Mutex<Dirty>,
     /// Blame entries are dropped on load when history was rewritten. Recorded so the
     /// current HEAD can be written back on save.
     head: String,
+}
+
+#[derive(Default)]
+struct Dirty {
+    /// Entries written to the map but not yet to the log.
+    keys: std::collections::HashSet<String>,
+    /// Lines currently in the log, live and superseded alike — the compaction trigger.
+    lines: usize,
+    /// Something was REMOVED, which an append cannot express. Only a rewrite can, so this
+    /// forces one at the next opportunity: without it a `retain` would be invisible on
+    /// disk and the dropped files would come back on the next open.
+    rewrite: bool,
 }
 
 impl ScanCache {
@@ -164,7 +190,7 @@ impl ScanCache {
                 version: FORMAT_VERSION,
                 ..Default::default()
             }),
-            dirty: Mutex::new(0),
+            dirty: Mutex::new(Dirty::default()),
             head: String::new(),
         }
     }
@@ -180,15 +206,20 @@ impl ScanCache {
     pub fn open(repo: &Path) -> ScanCache {
         let path = Self::path_for(repo);
         let head = git_head(repo);
-        let mut stored = path
+        let (mut stored, lines) = path
             .as_ref()
             .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| serde_json::from_str::<Stored>(&s).ok())
-            .filter(|s| s.version == FORMAT_VERSION)
-            .unwrap_or_else(|| Stored {
-                version: FORMAT_VERSION,
-                head: head.clone(),
-                entries: HashMap::new(),
+            .map(|s| read_log(&s))
+            .filter(|(s, _)| s.version == FORMAT_VERSION)
+            .unwrap_or_else(|| {
+                (
+                    Stored {
+                        version: FORMAT_VERSION,
+                        head: head.clone(),
+                        entries: HashMap::new(),
+                    },
+                    0,
+                )
             });
         if !stored.head.is_empty() && !stored.head.eq(&head) && !is_ancestor(repo, &stored.head) {
             for e in stored.entries.values_mut() {
@@ -198,7 +229,7 @@ impl ScanCache {
         ScanCache {
             path,
             inner: Mutex::new(stored),
-            dirty: Mutex::new(0),
+            dirty: Mutex::new(Dirty { keys: Default::default(), lines, rewrite: false }),
             head,
         }
     }
@@ -318,7 +349,7 @@ impl ScanCache {
             },
         );
         drop(inner);
-        self.tick();
+        self.touched(rel_path);
     }
 
     /// Store blame for a file whose parse entry already exists. A blame with no parse entry
@@ -333,50 +364,140 @@ impl ScanCache {
             e.blame_commit = last_commit.unwrap_or(ANCIENT).to_string();
         }
         drop(inner);
-        self.tick();
+        self.touched(rel_path);
     }
 
     /// Forget files that are no longer in the scan, so a cache cannot outgrow the repo it
     /// describes — a deleted directory would otherwise be carried forever.
     pub fn retain(&self, live: &std::collections::HashSet<String>) {
-        if let Ok(mut inner) = self.inner.lock() {
+        let dropped = {
+            let Ok(mut inner) = self.inner.lock() else { return };
+            let before = inner.entries.len();
             inner.entries.retain(|k, _| live.contains(k));
+            before != inner.entries.len()
+        };
+        // A removal cannot be appended — the log only ever says "this key now looks like
+        // this". So it is recorded as owed, and the next write is a full rewrite.
+        if dropped {
+            if let Ok(mut d) = self.dirty.lock() {
+                d.rewrite = true;
+            }
         }
     }
 
-    fn tick(&self) {
+    /// Note a changed key, and append once enough have piled up.
+    fn touched(&self, key: &str) {
         let flush = {
             let Ok(mut d) = self.dirty.lock() else { return };
-            *d += 1;
-            if *d >= FLUSH_EVERY {
-                *d = 0;
-                true
-            } else {
-                false
-            }
+            d.keys.insert(key.to_string());
+            d.keys.len() >= FLUSH_EVERY
         };
         if flush {
             self.save();
         }
     }
 
-    /// Write the cache out. Silent on failure, by the argument in the module docs.
+    /// Write out what has changed, compacting when the log has grown too far past the
+    /// thing it describes. Silent on failure, by the argument in the module docs.
+    ///
+    /// **Appends by default.** The cost of a write is the size of what CHANGED, not the
+    /// size of the store, which is the whole point — see [`ScanCache::dirty`].
     pub fn save(&self) {
         let Some(path) = &self.path else { return };
-        let Ok(mut inner) = self.inner.lock() else {
-            return;
-        };
+        let Ok(mut inner) = self.inner.lock() else { return };
+        let Ok(mut d) = self.dirty.lock() else { return };
         inner.head = self.head.clone();
-        if let Ok(s) = serde_json::to_string(&*inner) {
-            // Written via a temporary and renamed: a kill partway through a 40MB write
-            // would otherwise leave truncated JSON, which parses as garbage and silently
-            // costs the next open its entire cache.
+
+        let stale = d.lines > inner.entries.len() * COMPACT_RATIO + FLUSH_EVERY;
+        if d.rewrite || stale || d.lines == 0 {
+            // Whole file, via a temporary and a rename: a kill partway through would
+            // otherwise leave a truncated last line, and while the reader drops those, a
+            // half-written REWRITE would lose everything before it too.
+            let mut s = header_line(&inner);
+            for (k, e) in &inner.entries {
+                s.push_str(&entry_line(k, e));
+            }
             let tmp = path.with_extension("tmp");
-            if std::fs::write(&tmp, s).is_ok() {
-                let _ = std::fs::rename(&tmp, path);
+            if std::fs::write(&tmp, s).is_ok() && std::fs::rename(&tmp, path).is_ok() {
+                d.lines = inner.entries.len() + 1;
+                d.rewrite = false;
+                d.keys.clear();
+            }
+            return;
+        }
+
+        // The common path: one line per changed file, appended.
+        let mut s = String::new();
+        let mut n = 0;
+        for k in d.keys.iter() {
+            if let Some(e) = inner.entries.get(k) {
+                s.push_str(&entry_line(k, e));
+                n += 1;
             }
         }
+        if s.is_empty() {
+            d.keys.clear();
+            return;
+        }
+        use std::io::Write;
+        let appended = std::fs::OpenOptions::new()
+            .append(true)
+            .open(path)
+            .and_then(|mut f| f.write_all(s.as_bytes()));
+        if appended.is_ok() {
+            d.lines += n;
+            d.keys.clear();
+        }
     }
+}
+
+/// One JSON object per line: a header, then one per file, last mention winning.
+///
+/// A log rather than a document because the write pattern is "one more file is done", and
+/// re-encoding the whole store to say that is what made a large tree quadratic. The cost is
+/// that a reader has to apply the lines in order, and that removals need a rewrite — both
+/// cheap next to serialising hundreds of megabytes on a timer.
+fn header_line(s: &Stored) -> String {
+    serde_json::to_string(&serde_json::json!({ "version": s.version, "head": s.head }))
+        .unwrap_or_default()
+        + "\n"
+}
+
+fn entry_line(key: &str, e: &Entry) -> String {
+    serde_json::to_string(&serde_json::json!({ "k": key, "e": e })).unwrap_or_default() + "\n"
+}
+
+/// Fold a log back into a store, and say how many lines it took.
+///
+/// A trailing partial line is dropped rather than fatal: an append killed mid-write leaves
+/// exactly that, and everything before it is still perfectly good. This is the property the
+/// old format did not have — one truncated document parsed as garbage and cost the next
+/// open its entire cache.
+fn read_log(text: &str) -> (Stored, usize) {
+    let mut out = Stored { version: 0, head: String::new(), entries: HashMap::new() };
+    let mut lines = 0;
+    for (i, line) in text.lines().enumerate() {
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if i == 0 {
+            out.version = v.get("version").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+            out.head = v.get("head").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            lines += 1;
+            continue;
+        }
+        let (Some(k), Some(e)) = (v.get("k").and_then(|x| x.as_str()), v.get("e")) else {
+            continue;
+        };
+        if let Ok(entry) = serde_json::from_value::<Entry>(e.clone()) {
+            out.entries.insert(k.to_string(), entry);
+            lines += 1;
+        }
+    }
+    (out, lines)
 }
 
 fn git_head(repo: &Path) -> String {
@@ -514,6 +635,96 @@ mod tests {
     /// A repo shrinks as well as grows. Without this, a cache accumulates every file of
     /// every branch anybody ever checked out, and nothing invalidates an entry nobody asks
     /// about again.
+    /// A real file on disk, so the log format is exercised rather than the in-memory map.
+    ///
+    /// Every other test here uses `ephemeral`, which has nowhere to write — so the format
+    /// had no coverage at all while it was a single JSON document, and none of these would
+    /// have noticed it becoming a log.
+    fn on_disk(repo: &Path, files: &[(&str, &str)]) -> ScanCache {
+        let cache = ScanCache::open(repo);
+        for (name, body) in files {
+            let path = repo.join(name);
+            fs::write(&path, body).unwrap();
+            let Look::Miss { ident, .. } = cache.look(name, &path, None) else {
+                panic!("an empty cache must miss");
+            };
+            cache.put_parse(name, &ident, Lang::Rust, &[func("one")], "head");
+        }
+        cache.save();
+        cache
+    }
+
+    /// The point of the log: a write costs the size of what CHANGED.
+    ///
+    /// The old format re-encoded the whole store every 400 entries, so a scan of n files
+    /// wrote O(n²) bytes. On a tree of a hundred thousand files holding function bodies
+    /// that was 323MB rewritten over and over, which is how a mis-picked directory became
+    /// minutes of pinned CPU. Counting lines is the honest test: one per file, plus a
+    /// header, no matter how many times save() was called along the way.
+    #[test]
+    fn saving_appends_rather_than_rewriting_the_whole_store() {
+        let _home = crate::agentapi::tests::data_home();
+        let repo = tempfile::tempdir().unwrap();
+        let cache = on_disk(repo.path(), &[("a.rs", "fn one() {}")]);
+        let path = ScanCache::path_for(repo.path()).unwrap();
+
+        // Three more files, saved one at a time — the shape a scan actually has.
+        for name in ["b.rs", "c.rs", "d.rs"] {
+            let p = repo.path().join(name);
+            fs::write(&p, "fn one() {}").unwrap();
+            let Look::Miss { ident, .. } = cache.look(name, &p, None) else {
+                panic!("miss")
+            };
+            cache.put_parse(name, &ident, Lang::Rust, &[func("one")], "head");
+            cache.save();
+        }
+
+        let lines = fs::read_to_string(&path).unwrap().lines().count();
+        assert_eq!(lines, 5, "expected a header and one line per file, got {lines}");
+        assert_eq!(ScanCache::open(repo.path()).inner.lock().unwrap().entries.len(), 4);
+    }
+
+    /// A write killed halfway costs that one entry, not the whole cache.
+    ///
+    /// This is the property the single-document format could not have: a truncated JSON
+    /// object parses as garbage, so an interrupted write silently cost the next open
+    /// everything. A torn last line is exactly what an interrupted append leaves.
+    #[test]
+    fn a_torn_last_line_costs_only_its_own_entry() {
+        let _home = crate::agentapi::tests::data_home();
+        let repo = tempfile::tempdir().unwrap();
+        on_disk(repo.path(), &[("a.rs", "fn one() {}"), ("b.rs", "fn one() {}")]);
+        let path = ScanCache::path_for(repo.path()).unwrap();
+
+        let text = fs::read_to_string(&path).unwrap();
+        let torn = format!("{}{{\"k\":\"c.rs\",\"e\":{{\"mtime\":1,\"len\"", text);
+        fs::write(&path, torn).unwrap();
+
+        let back = ScanCache::open(repo.path());
+        let n = back.inner.lock().unwrap().entries.len();
+        assert_eq!(n, 2, "a torn trailing line took the good entries with it");
+    }
+
+    /// A removal has to survive a reopen, and an append cannot express one.
+    ///
+    /// `retain` drops entries from the map; if that only ever appended, the dropped files
+    /// would still be in the log and would walk back in on the next open — a cache that
+    /// outgrows the repo it describes, which is the thing `retain` exists to prevent.
+    #[test]
+    fn a_dropped_file_does_not_come_back_on_the_next_open() {
+        let _home = crate::agentapi::tests::data_home();
+        let repo = tempfile::tempdir().unwrap();
+        let cache = on_disk(repo.path(), &[("a.rs", "fn one() {}"), ("b.rs", "fn one() {}")]);
+
+        cache.retain(&["a.rs".to_string()].into_iter().collect());
+        cache.save();
+
+        let back = ScanCache::open(repo.path());
+        let entries = back.inner.lock().unwrap();
+        assert!(entries.entries.contains_key("a.rs"));
+        assert!(!entries.entries.contains_key("b.rs"), "a dropped file came back from the log");
+    }
+
     #[test]
     fn files_no_longer_in_the_scan_are_dropped() {
         let dir = tempfile::tempdir().unwrap();
