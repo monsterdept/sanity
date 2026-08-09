@@ -2,8 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type Node } from '../lib/api'
 import { colorFor, type ColorMode } from '../lib/colorMode'
 import { arcPath, labelArc, layout, tileFunctions, type Wedge } from '../lib/sunburst'
-import { FileZoom, HomeMark, fileP, homeOf, sourceSector } from './FileZoom'
-import type { Pane } from '../lib/unroll'
+import { FileZoom, fanOf } from './FileZoom'
+import { arcOf, sectorOf, type Sector } from '../lib/fan'
 import {
   direction,
   ease,
@@ -334,20 +334,12 @@ export function Sunburst({
    *  entry in `leaving`, because it is not leaving — it is arriving as the hub. */
   const coring = useRef<{ node: Node; from: Geo; to: Geo } | null>(null)
   const from = useRef<Map<string, Geo>>(new Map())
-  /** The wedge an open file unrolled out of. See the level-change block below. */
-  const fileFrom = useRef<ReturnType<typeof sourceSector> | null>(null)
-  /** The pane an open file unrolls into, in the ring's own user units. */
-  const filePane = useMemo(() => fileP(box.w || 1, box.h || 1), [box.w, box.h])
+  /** The pane's shape, which is what the fan is sized against. Guarded so a pane that has
+   *  not been measured yet asks for a square rather than for a division by zero. */
+  const paneAspect = box.h > 0 ? box.w / box.h : 1
 
-  /** Where an open file's way back sits, and the room the tiling gets once it has it.
-   *
-   *  Computed here rather than inside `FileZoom`, because two things need it and they must
-   *  not work it out separately: the cells tile into `inner`, and the hub morphs into
-   *  `bar`. Derived twice, they would disagree about where the edge is — by a few units at
-   *  first, and by a whole layout the next time either is touched. */
-  const fileHome = (from: ReturnType<typeof sourceSector> | null) =>
-    from ? homeOf(from, filePane) : null
-
+  /** The wedge an open file grew out of. See the level-change block below. */
+  const fileFrom = useRef<Sector | null>(null)
   /** The file being closed, retracting into the wedge it came out of.
    *
    *  Its own thing rather than an entry in `leaving`, for the same reason `coring` is: it
@@ -360,7 +352,7 @@ export function Sunburst({
    *  because the level being returned to is the one the file was opened from. Reusing the
    *  source guarantees the first frame of the exit is exactly the picture on screen, where
    *  re-deriving it would risk a pop on a jump that reorganised the ring. */
-  const fileLeaving = useRef<{ node: Node; from: ReturnType<typeof sourceSector>; pane: Pane } | null>(null)
+  const fileLeaving = useRef<{ node: Node; from: Sector } | null>(null)
   const prevRoot = useRef(root)
   const dir = useRef<Direction>('across')
 
@@ -470,14 +462,14 @@ export function Sunburst({
     // A file being closed: keep its cells alive through the transition, rolling back up.
     fileLeaving.current =
       prevRoot.current.kind === 'file' && root.kind !== 'file' && fileFrom.current
-        ? { node: prevRoot.current, from: fileFrom.current, pane: filePane }
+        ? { node: prevRoot.current, from: fileFrom.current }
         : null
     if (root.kind === 'file') {
       const g = was.get(root.id)
       if (g) {
         const rMid = (g.r0 + g.r1) / 2
         const pad = Math.min(FUNC_RIM / rMid, (g.a1 - g.a0) * FUNC_RIM_MAX_SHARE)
-        fileFrom.current = sourceSector(g.a0 + pad, g.a1 - pad, g.r0 + FUNC_RIM, g.r1 - FUNC_RIM)
+        fileFrom.current = sectorOf(g.a0 + pad, g.a1 - pad, g.r0 + FUNC_RIM, g.r1 - FUNC_RIM)
       } else {
         // Never on screen — a restored session, or a project opened straight into a file.
         // Nothing to come out of, so it is drawn where it lands rather than flown in from
@@ -538,23 +530,16 @@ export function Sunburst({
    *  one. Interpolated together with the wedges, so the zoom and the movement are one
    *  thing rather than two that happen to overlap. */
   const viewTo = useMemo(
-    () =>
-      root.kind === 'file'
-        ? // Fitted to the pane rather than to a ring's extent, and interpolated to from
-          // wherever the rings were — so the box and the cells arrive together instead of
-          // the box snapping on the frame the movement ends.
-          viewFor(
-            {
-              x0: filePane.x,
-              x1: filePane.x + filePane.w,
-              y0: filePane.y,
-              y1: filePane.y + filePane.h,
-            },
-            MARGIN,
-            CHROME_BOTTOM,
-          )
-        : viewFor(extentOf(target.values(), R_INNER), MARGIN, CHROME_BOTTOM),
-    [target, root.kind, filePane],
+    () => {
+      // An open file is fitted to the FAN it is opening into, not to a ring's extent —
+      // and to where it is GOING, so the box travels with the cells instead of snapping on
+      // the frame the movement ends. `extentOf` already folds the hub in, which is exactly
+      // right here: the fan's core IS the hub.
+      const fan = root.kind === 'file' ? fanOf(fileFrom.current, paneAspect) : null
+      const geos = fan ? [arcOf(fan)] : [...target.values()]
+      return viewFor(extentOf(geos, R_INNER), MARGIN, CHROME_BOTTOM)
+    },
+    [target, root.kind, root.id, paneAspect],
   )
   const viewFrom = useRef(viewTo)
   const viewNow = useRef(viewTo)
@@ -687,8 +672,8 @@ export function Sunburst({
               // to read that as 1→0, or the file would unroll again on its way out.
               t={1 - e}
               from={fileLeaving.current.from}
-              pane={fileHome(fileLeaving.current.from)?.inner ?? fileLeaving.current.pane}
               unitsPerPx={unitsPerPx}
+              paneAspect={paneAspect}
               selected={null}
               mode={mode}
               ranks={ranks}
@@ -705,8 +690,8 @@ export function Sunburst({
             root={root}
             t={e}
             from={fileFrom.current}
-            pane={fileHome(fileFrom.current)?.inner ?? filePane}
             unitsPerPx={unitsPerPx}
+            paneAspect={paneAspect}
             selected={selected}
             mode={mode}
             ranks={ranks}
@@ -1097,42 +1082,45 @@ export function Sunburst({
         )}
         </g>
 
-        {/* The way back — the ring's hub, an open file's edge bar, or any point between.
-            One shape rather than two that swap: see `HomeMark`. Which end it sits at is
-            just `t`, so it morphs out to the edge as a file opens and rolls back to the
-            middle as one closes, without either direction being written twice.
+        {/* The hub is the way back out: double-click it to go up a level, the mirror of
+            double-clicking a wedge to go in. Grouped with its labels so the whole disc is
+            the target, not just the ring under the text. The pointer only appears when
+            there is somewhere to go, so it never promises a level that isn't there.
 
-            The file being CLOSED wins while it is leaving, because during that transition
-            the mark still belongs to it: the ring arriving underneath has a hub, but the
-            hub is where this is going, not where it is. */}
-        {(() => {
-          const closing = moving && fileLeaving.current
-          const home = fileHome(
-            closing && fileLeaving.current
-              ? fileLeaving.current.from
-              : root.kind === 'file'
-                ? fileFrom.current
-                : null,
-          )
-          // The name is ALWAYS the level being arrived at, never the one being left. The
-          // mark cross-fades between them itself, and it does that on `fade` rather than on
-          // `t` because the two run opposite ways when a file closes: the shape retracts
-          // while the name still travels forwards. Handing it the outgoing name here would
-          // have the words go backwards with the geometry.
-          return (
-            <HomeMark
-              // No bar to travel to — an ordinary ring, or a file that was never a wedge —
-              // so the mark stays the disc it has always been.
-              t={!home ? 0 : closing ? 1 - e : root.kind === 'file' ? e : 0}
-              fade={e}
-              hubR={R_INNER - 4}
-              bar={home ? home.bar : { x: 0, y: 0, w: 0, h: 0 }}
-              name={root.name}
-              lines={root.loc}
-              onUp={onUp}
-            />
-          )
-        })()}
+            An open file has one too, and it is this one — the fan's core is the hub, in
+            the same place, at the same size. There was briefly a `HomeMark` here that
+            morphed the disc into a bar at the pane's edge, which the rectangular file view
+            needed because a treemap has no middle to spare. A fan does: it opens AROUND
+            the core, so the affordance the rest of the app uses is simply still there and
+            the special case is gone with the rectangle that required it. */}
+        <g
+          onDoubleClick={onUp ? (ev) => { ev.stopPropagation(); onUp() } : undefined}
+          style={onUp ? { cursor: 'zoom-out' } : undefined}
+        >
+        <circle r={R_INNER - 4} fill="var(--card)" stroke="var(--border)" />
+        {onUp && <title>Double-click to go up a level</title>}
+        {/* The disc is solid throughout — it is what the directory you clicked is turning
+            INTO, so it has to be there to be turned into. Its label is not: swapping the
+            name on the first frame would announce the destination before the thing that is
+            travelling has arrived. It fades up with the rest of the detail. */}
+        <g className="patches-in" key={`hub-${root.id}`}>
+        {/* Sized to the hub rather than fixed: a long repo name at a fixed size either
+            overflows the circle or gets truncated to nothing useful. Shrinking to fit
+            keeps the whole name, which is the one label that must always be readable. */}
+        <text
+          textAnchor="middle"
+          y={-4}
+          fontSize={Math.max(9, Math.min(15, 150 / Math.max(root.name.length, 5)))}
+          fill="var(--foreground)"
+          fontWeight={600}
+        >
+          {root.name}
+        </text>
+        <text textAnchor="middle" y={13} fontSize={9.5} fill="var(--muted-foreground)">
+          {root.loc.toLocaleString()} lines
+        </text>
+        </g>
+        </g>
       </svg>
 
       {/* The tooltip. Instant, because it is ours: it appears the moment a wedge is
