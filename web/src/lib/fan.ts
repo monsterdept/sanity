@@ -98,6 +98,25 @@ const STEP = 5
 const deg = (r: number) => (r * 180) / Math.PI
 
 /**
+ * Where a file opens when there is no wedge to open OUT of.
+ *
+ * Keeping the bearing answers "where am I" from the picture — but only when there was a
+ * picture. Three routes into a file have none: a restored session, a project opened
+ * straight into a file, and History, where the rings are rebuilt from a different tree
+ * and the file's wedge in the LIVE map is not a wedge this composition ever drew.
+ *
+ * That case was written down and then not handled — `fileFrom` said "drawn where it lands
+ * rather than flown in from a wedge that was never there" and set null, which every
+ * consumer read as "draw nothing". The result was a file view holding only its own hub,
+ * with the viewBox fitted to a 58-unit disc and blowing it up to fill the pane: the whole
+ * file, present in the tree and counted under the transport, drawn as an empty circle.
+ *
+ * Straight up, because with no wedge to inherit from there is nothing to be faithful to,
+ * and up is the one bearing that is not a claim about where you came from.
+ */
+const NO_WEDGE_BEARING = 0
+
+/**
  * Where a file's wedge opens to: same bearing, as much of the pane as its shape can hold.
  *
  * Keeping the bearing is the point. It answers "where am I" from the picture rather than
@@ -112,8 +131,9 @@ const deg = (r: number) => (r * 180) / Math.PI
  * the same thing as "holds the most functions", since a patch has a floor in real pixels
  * and capacity is area over that floor.
  */
-export function fanFor(src: Sector, paneAspect = 1): Sector {
-  const mid = (src.a0 + src.a1) / 2
+export function fanFor(src: Sector | null, paneAspect = 1): Sector {
+  // Null is a file with no wedge behind it — see `NO_WEDGE_BEARING`.
+  const mid = src ? (src.a0 + src.a1) / 2 : NO_WEDGE_BEARING
   const rim = RIM
   const core = rim * CORE_SHARE
   let best = { span: MIN_SPAN, area: -1 }

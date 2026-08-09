@@ -447,10 +447,3 @@ export function realOf(frames: number[], pos: number, fallback: number): number 
   return pos < 0 ? frames[0] - 1 : frames[Math.min(pos, frames.length - 1)]
 }
 
-/** Functions alive anywhere under `node` — the counter under the transport. Walked from
- *  the tree rather than replayed a second time: two counts of one thing are two things
- *  that can disagree, and the tree is the one on screen. */
-export function countFunctions(node: Node): number {
-  if (node.kind === 'func') return 1
-  return node.children.reduce((n, c) => n + countFunctions(c), 0)
-}

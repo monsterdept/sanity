@@ -23,7 +23,6 @@ import {
   type Upgrade,
 } from './lib/api'
 import {
-  countFunctions,
   frameTree,
   onHistoryProgress,
   scanHistory,
@@ -740,18 +739,13 @@ export default function App() {
               scrub bar needs the full width or it cannot address the commits it draws. */}
           {historyOn && history && historyKey === activeKey && history.commits.length > 0 && (
             <HistoryBar
-              hist={history}
               frames={frames}
-              scope={scope}
               index={histIndex}
               onIndex={setHistIndex}
               playing={playing}
               onPlaying={setPlaying}
               duration={duration}
               onDuration={setDuration}
-              // Counted from `focus`, like the legend above: drilled into a directory the
-              // number has to describe the rings in front of you, not the repo behind them.
-              functions={focus ? countFunctions(focus) : 0}
             />
           )}
         </main>

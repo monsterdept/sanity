@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { type Node } from '../lib/api'
 import { colorFor, type ColorMode } from '../lib/colorMode'
+import { CHROME_INK } from '../lib/ink'
 import { arcPath, tileFunctions, type Slot } from '../lib/sunburst'
 import {
   arcOf,
@@ -48,9 +49,12 @@ export interface FileZoomProps {
   root: Node
   /** Eased progress, 0 at the wedge and 1 at the fan. */
   t: number
-  /** The file's wedge as it last stood on screen. Null when the file was never a wedge —
-   *  a restored session, or a project opened straight into a file — in which case there is
-   *  nothing to grow out of and nothing is drawn. */
+  /** The file's wedge as it last stood on screen. Null when the file was never a wedge in
+   *  THIS composition — a restored session, a project opened straight into a file, or
+   *  History, whose rings are built from a different tree than the one the file was drilled
+   *  into. Null means no journey, not no picture: the fan opens on a default bearing and is
+   *  drawn where it lands. It used to mean nothing was drawn at all, which is how a file in
+   *  History came to render as an empty circle. */
   from: Sector | null
   selected: Node | null
   mode: ColorMode
@@ -76,9 +80,13 @@ export interface FileZoomProps {
  *
  *  `paneAspect` is width over height. The span is chosen against it — a fan that fills a
  *  wide window is not the fan that fills a tall one — so both callers have to pass the same
- *  number or the box would be fitted to a shape the cells were never laid out for. */
-export function fanOf(from: Sector | null, paneAspect: number): Sector | null {
-  return from ? fanFor(from, paneAspect) : null
+ *  number or the box would be fitted to a shape the cells were never laid out for.
+ *
+ *  A null source is a file with no wedge behind it and still gets a fan — `fanFor` opens it
+ *  on a default bearing. This used to return null, which is what left the History file view
+ *  drawing nothing but its own hub. */
+export function fanOf(from: Sector | null, paneAspect: number): Sector {
+  return fanFor(from, paneAspect)
 }
 
 export function FileZoom({
@@ -109,7 +117,6 @@ export function FileZoom({
    *  across every file at once. Priced against one file that argument does not reach, and
    *  here the patches ARE the movement rather than detail that can arrive at the end. */
   const cells = useMemo<Slot[]>(() => {
-    if (!dest) return []
     const g = arcOf(dest)
     return tileFunctions(root.children, g.r0, g.r1, g.a0, g.a1, { minPatchArea })
   }, [root, dest, minPatchArea])
@@ -120,9 +127,13 @@ export function FileZoom({
     return m
   }, [cells, mode, ranks])
 
-  if (!from || !dest || cells.length === 0) return null
+  if (cells.length === 0) return null
 
-  const live = lerpSector(from, dest, Math.max(0, Math.min(1, t)))
+  // With no source wedge there is no journey, so the fan is simply AT its destination —
+  // and `settled` has to say so too, or the labels wait out a transition that is not
+  // happening and the file arrives nameless. See `fanFor`'s default bearing.
+  const live = from ? lerpSector(from, dest, Math.max(0, Math.min(1, t))) : dest
+  const arrived = settled || !from
 
   return (
     <g>
@@ -198,9 +209,10 @@ export function FileZoom({
 
           At rest only. A name that slides and rescales for 260ms is unreadable for exactly
           as long as it is moving, so it arrives at the moment it becomes worth reading. */}
-      {settled && (
+      {arrived && (
         <g className="patches-in">
           {cells.map((c) => {
+            const paint = fills.get(c.node.id)
             const at = fitLabel(place(c, dest, live), c.node.name, {
               weight: WEIGHT,
               max: FUNC_MAX,
@@ -215,6 +227,11 @@ export function FileZoom({
                 key={c.node.id}
                 id={`fl-${c.node.id}`}
                 at={at}
+                // The patch decides the ink — this is where the whole ramp is on screen at
+                // once and a single foreground was worst, names on the hot end sunk into
+                // their own cells. An unread patch is `--unanalyzed` at 0.4, near enough to
+                // the ground that the chrome's own foreground is the right answer.
+                fill={paint ? paint.ink : CHROME_INK}
                 // A clipped name is a weaker claim than a whole one and is drawn as one, so
                 // the eye lands on the complete labels first.
                 opacity={at.clipped ? 0.62 : 0.88}
