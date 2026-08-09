@@ -212,13 +212,69 @@ fn client() -> Result<reqwest::blocking::Client, RetryableError> {
         .map_err(|e| RetryableError::Fatal(e.to_string()))
 }
 
+/// Read a response, or say what was wrong with it in words the caller can act on.
+///
+/// **A rejected call used to arrive as "error decoding response body".** Every response was
+/// parsed as JSON regardless of status, so a request axum's extractor turned away — 422,
+/// body in plain text, naming the exact field — failed at `r.json()` and the one useful
+/// sentence on the wire was thrown away in favour of the decode error. What reached the
+/// agent said nothing about its arguments, nothing about whether anything had been
+/// recorded, and nothing about what to do; and this is a file whose standing rule is that
+/// models fill silence with invention. It cost a real debugging session here: a report
+/// nested one level too deep read as a transport fault.
+///
+/// The status is the discriminator because it answers the question that decides the
+/// response. **4xx is the caller's arguments and nothing was recorded** — so fix and resend
+/// is not just safe but required, and a reading already made must survive the round trip.
+/// **5xx is Sanity's fault and may have recorded something**, so the advice inverts: do not
+/// resend blindly. That distinction is the same one `NO_PROJECT` draws and exists for the
+/// same reason — the expensive mistake is the one that discards a reading somebody paid a
+/// prediction, a read and a grade for.
+fn decode(r: reqwest::blocking::Response) -> Result<Value, RetryableError> {
+    let status = r.status();
+    if status.is_success() {
+        return r.json().map_err(|e| {
+            RetryableError::Fatal(format!(
+                "Sanity answered {status} but its body did not parse: {e}. Your arguments were \
+                 not at fault. Keep any reading you made and report that Sanity replied with \
+                 something unreadable."
+            ))
+        });
+    }
+    // The extractor's own message is the valuable part — it names the missing or misplaced
+    // field. Truncated because it is occasionally a wall of serde path detail.
+    let detail = r.text().unwrap_or_default();
+    let detail = detail.trim();
+    let detail: String = if detail.is_empty() {
+        "no detail given".into()
+    } else {
+        detail.chars().take(400).collect()
+    };
+    Err(RetryableError::Fatal(if status.is_client_error() {
+        format!(
+            "Sanity REJECTED this call ({status}) and recorded NOTHING: {detail}. Your arguments \
+             were wrong, so sending them again unchanged will fail again. Fix them and call the \
+             same tool again. Every field goes at the TOP level of the arguments — there is no \
+             wrapper object around them. If this was sanity_report, you still hold a reading you \
+             have already paid for: correct the arguments and resend it, do not discard it and \
+             do not start the function over."
+        )
+    } else {
+        format!(
+            "Sanity FAILED on this call ({status}): {detail}. This is a fault in Sanity, not in \
+             your arguments, and it may or may not have recorded something — so do NOT simply \
+             send it again. Stop, keep any reading you made, and report this to the human."
+        )
+    }))
+}
+
 fn get(path: &str) -> Result<Value, String> {
     with_retry(|base| {
         let r = client()?
             .get(format!("{base}{path}"))
             .send()
             .map_err(|_| RetryableError::Transient)?;
-        r.json().map_err(|e| RetryableError::Fatal(e.to_string()))
+        decode(r)
     })
 }
 
@@ -229,7 +285,7 @@ fn post(path: &str, body: Value) -> Result<Value, String> {
             .json(&body)
             .send()
             .map_err(|_| RetryableError::Transient)?;
-        r.json().map_err(|e| RetryableError::Fatal(e.to_string()))
+        decode(r)
     })
 }
 
