@@ -240,6 +240,59 @@ textarea,
   -webkit-user-select: text;
 }
 
+/* LINE Seed JP, vendored.
+ *
+ * Vendored rather than linked, because the app fetches nothing at runtime: it is a Tauri
+ * window, and a `fonts.googleapis.com` stylesheet is a network dependency between the user
+ * and a chart that otherwise works on a plane. Naming the family alone did not work either
+ * — it is not a system face, so the stack silently fell through and the option in the
+ * label workbench looked broken rather than absent.
+ *
+ * **The latin subsets only, and that is the whole trick.** Google serves this face as 248
+ * files, because a Japanese face has to cover the CJK planes and no browser should fetch
+ * all of that to draw a heading. Labels here are function and directory names — ASCII —
+ * so the two latin files are the entire useful subset, and they come to 68 KB rather than
+ * several megabytes. A label that needed a kanji would fall through to the system face;
+ * none does.
+ *
+ * Under the SIL Open Font License, which is what being on Google Fonts requires.
+ */
+/* The four weights this family actually ships: 100, 400, 700, 800. The others Google
+ * accepts in a URL and quietly rounds — asking for 500 returns the 400 file — so declaring
+ * a 500 face here would be a promise the file cannot keep, and the browser would synthesise
+ * a fake bold instead of picking the real 700. Four real faces beat six, two of which lie. */
+@font-face {
+  font-family: 'LINE Seed JP';
+  font-style: normal;
+  font-weight: 100;
+  /* `block`, not `swap`. This face is only ever chosen deliberately in the workbench, and
+   * the point of choosing it is to see it — a swap would show the system face first and
+   * re-lay every label a moment later, which is a comparison against the wrong thing. */
+  font-display: block;
+  src: url('/fonts/line-seed-jp-100-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'LINE Seed JP';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('/fonts/line-seed-jp-400-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'LINE Seed JP';
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url('/fonts/line-seed-jp-700-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'LINE Seed JP';
+  font-style: normal;
+  font-weight: 800;
+  font-display: block;
+  src: url('/fonts/line-seed-jp-800-latin.woff2') format('woff2');
+}
+
 /* A voice, not a body font — used only on the agent status and the wordmark. No custom
  * face vendored; the tracking does the work. */
 .font-display {

@@ -35,6 +35,7 @@ import { Sunburst } from './components/Sunburst'
 import { CommitLog } from './components/CommitLog'
 import { HistoryBar } from './components/HistoryBar'
 import { Crumbs } from './components/Crumbs'
+import { LabelLab } from './components/LabelLab'
 import { TopRow } from './components/shell/TopRow'
 import {
   legendFor,
@@ -125,6 +126,8 @@ export default function App() {
   /** The file whose code is open over the map, by node id. */
   const [codeFile, setCodeFile] = useState<string | null>(null)
   const [showAgents, setShowAgents] = useState(false)
+  /** The label workbench — see `LabelLab`. Not persisted: it is a bench, not a setting. */
+  const [showLabels, setShowLabels] = useState(false)
   // One geometry, five encodings. The sunburst was never the thing worth swapping out —
   // what changes the question is what the colour MEANS, and the same rings answer five
   // different ones depending on that.
@@ -648,7 +651,13 @@ export default function App() {
               TopRow it can do neither. */}
           {busy && focus && <ProgressStrip progress={progress} />}
           {historyBusy && <ProgressStrip progress={historyProgress} label="Replaying the history…" />}
-          {tree && focus && <Crumbs trail={trail} onGo={goTo} onUp={goUp} />}
+          {tree && focus && <Crumbs
+              trail={trail}
+              onGo={goTo}
+              onUp={goUp}
+              onLabels={() => setShowLabels((v) => !v)}
+              labelsOpen={showLabels}
+            />}
 
           <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
             {/* The ground the map is drawn on. It is the only surface in the window that
@@ -666,6 +675,11 @@ export default function App() {
                 actually rendering: a file stack, the empty state and the error all fill
                 their pane, and a keep-out for a circle nothing is drawing would push the
                 ants into the margins for no visible reason. */}
+            {/* The label workbench, over the chart it is tuning — see `LabelLab`. It has to
+                sit on the picture rather than beside it: every control in it is judged
+                against the labels behind it, and a panel that pushed the chart aside would
+                change the very layout being looked at. */}
+            {showLabels && <LabelLab onClose={() => setShowLabels(false)} />}
             <PartyAnts avoid={!error && focus && focus.kind !== 'file' ? 'rings' : undefined} />
             <div className="relative z-10 h-full">
             {error ? (

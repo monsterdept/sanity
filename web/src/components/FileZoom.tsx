@@ -13,6 +13,9 @@ import {
   type Sector,
 } from '../lib/fan'
 import { RollupDots, dotsId, ROLLUP_TEXTURE_PX } from './RollupDots'
+import { WedgeLabel } from './WedgeLabel'
+import { fitLabel } from '../lib/label'
+import { WEIGHT } from '../lib/labelStyle'
 
 /**
  * One file, opened out of its own wedge into a fan.
@@ -33,6 +36,14 @@ import { RollupDots, dotsId, ROLLUP_TEXTURE_PX } from './RollupDots'
  * a valid tiling — nothing is re-tessellated to move, nothing is matched by id, and no
  * frame has a function in two places.
  */
+/** The type a function's name is set in.
+ *
+ *  Lighter than the structure labels. A function name is the most numerous thing on this
+ *  screen and the least load-bearing — the colour is the reading, the name is how you find
+ *  it again — so it is set to be legible and then to get out of the way. */
+const FUNC_MAX = 15
+const FUNC_BEND = 0.45
+
 export interface FileZoomProps {
   root: Node
   /** Eased progress, 0 at the wedge and 1 at the fan. */
@@ -180,36 +191,34 @@ export function FileZoom({
       })}
 
       {/* Names, once the movement has finished.
-          Horizontal and upright rather than bound to the arc, which is what the fan buys
-          over the band: out here a patch is wide enough to hold a name across it, where in
-          the ring it had to be shrunk to an arc and truncated when that still did not fit.
-          A trapezoid is a worse frame for a horizontal name than a rectangle was — that is
-          the price of staying one geometry — so `room` measures conservatively and anything
-          that does not clear it goes without, exactly as the ring's labels do.
+          Turned to whichever of the wedge's own two axes holds them — see `fitLabel`. Room
+          is the fan's whole advantage over the band: out here a patch is big enough for a
+          real name, where in the ring it had to be shrunk onto an arc and cut short when
+          that still did not fit.
 
-          At rest only. A name that slides and rescales for 260ms is unreadable for as long
-          as it is moving, and this way it arrives at the moment it becomes worth reading. */}
+          At rest only. A name that slides and rescales for 260ms is unreadable for exactly
+          as long as it is moving, so it arrives at the moment it becomes worth reading. */}
       {settled && (
-        <g className="patches-in" pointerEvents="none">
+        <g className="patches-in">
           {cells.map((c) => {
-            const g = place(c, dest, live)
-            const mid = centre(g)
-            const size = room(g)
-            const fs = Math.min(13, size.h * 0.42)
-            if (fs < 7 || size.w < c.node.name.length * fs * 0.55) return null
+            const at = fitLabel(place(c, dest, live), c.node.name, {
+              weight: WEIGHT,
+              max: FUNC_MAX,
+              // Tight. There is no ring here for a curve to belong to — the fan is a
+              // treemap that happens to be drawn in polar coordinates — so a name bending
+              // through a cell is distortion rather than convention.
+              maxBend: FUNC_BEND,
+            })
+            if (!at) return null
             return (
-              <text
+              <WedgeLabel
                 key={c.node.id}
-                x={mid.x}
-                y={mid.y}
-                textAnchor="middle"
-                dominantBaseline="central"
-                fontSize={fs}
-                fill="var(--foreground)"
-                opacity={0.78}
-              >
-                {c.node.name}
-              </text>
+                id={`fl-${c.node.id}`}
+                at={at}
+                // A clipped name is a weaker claim than a whole one and is drawn as one, so
+                // the eye lands on the complete labels first.
+                opacity={at.clipped ? 0.62 : 0.88}
+              />
             )
           })}
         </g>

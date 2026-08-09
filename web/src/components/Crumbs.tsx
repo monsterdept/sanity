@@ -22,11 +22,16 @@ export function Crumbs({
   trail,
   onGo,
   onUp,
+  onLabels,
+  labelsOpen,
 }: {
   /** Root first, current last. */
   trail: Node[]
   onGo: (index: number) => void
   onUp?: () => void
+  /** Opens the label workbench — see `LabelLab`. */
+  onLabels?: () => void
+  labelsOpen?: boolean
 }) {
   return (
     <nav className="flex shrink-0 items-center gap-1 px-3 py-1.5 text-xs">
@@ -71,6 +76,20 @@ export function Crumbs({
           )
         })}
       </ol>
+
+      {onLabels && (
+        <button
+          type="button"
+          onClick={onLabels}
+          aria-pressed={labelsOpen}
+          title="Label workbench"
+          className={`shrink-0 rounded-[var(--radius-sm)] border border-[var(--border)] px-2 py-0.5 text-[11px] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)] ${
+            labelsOpen ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'
+          }`}
+        >
+          Aa
+        </button>
+      )}
 
       <button
         type="button"

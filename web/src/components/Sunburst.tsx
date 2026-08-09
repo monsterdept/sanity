@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type Node } from '../lib/api'
 import { colorFor, type ColorMode } from '../lib/colorMode'
-import { arcPath, labelArc, layout, tileFunctions, type Wedge } from '../lib/sunburst'
+import { arcPath, layout, tileFunctions, type Wedge } from '../lib/sunburst'
 import { FileZoom, fanOf } from './FileZoom'
 import { arcOf, sectorOf, type Sector } from '../lib/fan'
 import {
@@ -22,11 +22,26 @@ import {
   type Geo,
 } from '../lib/zoom'
 import { RollupDots, dotsId, ROLLUP_TEXTURE_PX } from './RollupDots'
+import { WedgeLabel } from './WedgeLabel'
+import { fitLabel } from '../lib/label'
+import { WEIGHT } from '../lib/labelStyle'
 import { StaleHatch } from './StaleHatch'
 import { WedgeTip } from './WedgeTip'
 
 /** Rings drawn at once. Deeper than this and the outer annuli are hairlines; the
  *  answer is to drill in, which is what clicking a directory does. */
+/** A function's name inside its file's band: the same treatment the fan gives it, at the
+ *  smaller scale the ring can afford. The WEIGHT is not here — it is live, in
+ *  `labelStyle`, and it has to be, because `fitLabel` measures in the weight
+ *  `WedgeLabel` draws in and a constant on one side of that pair is the same bug as a
+ *  constant face was. */
+const FUNC_MAX = 11
+const FUNC_BEND = 0.45
+
+/** A file's name never outgrows the band it hangs off — see `LABEL_BAND`, which must stay
+ *  at least `FILE_MAX × LINE` deep or nothing fits in it. */
+const FILE_MAX = 11
+
 const RINGS = 5
 const R_INNER = 62
 const R_OUTER = 340
@@ -136,11 +151,50 @@ const MIN_PATCH_PX = 12
 const SIZE_STEP = 160
 
 /** Space left around the composition, as a fraction of its own half-extent. */
+/** Where a file's name hangs, just past its own rim.
+ *
+ *  A file is the outermost structural level, so the annulus past its edge is drawn by
+ *  nothing — which makes it the one place a name can go without covering the thing it
+ *  names. The gap keeps the type off the wedge's own stroke; the band is the depth the
+ *  name is fitted into.
+ *
+ *  `extentOf` is given file wedges grown by this much, so the viewBox reserves the room
+ *  rather than relying on `MARGIN` to happen to cover it — a label cropped by the fit is a
+ *  label that reads as a bug. */
+/** How much of its own angular width a rim name gives up, per side, so two neighbours read
+ *  as two names rather than one run of letters. */
+const RIM_INSET = 0.06
+
+/** Arc a file's rim needs before it is worth reserving a label band above it.
+ *
+ *  `MIN_KEPT` characters at `MIN_SIZE`, roughly — the shortest name this app will draw. A
+ *  wedge narrower than that cannot be labelled however much room is set aside for it, so
+ *  setting room aside only moves the picture. */
+const RIM_MIN_ARC = 28
+
+export const LABEL_GAP = 4
+/** Deep enough to hold the type it exists for.
+ *
+ *  This is the cross-axis of every rim label, so `LINE` divides it: at 13 units the biggest
+ *  a filename could be set was 7.6px, under the 8px floor, and every one of them silently
+ *  failed to fit. The band and `FILE_MAX` are one decision — a band shallower than
+ *  `FILE_MAX × LINE` cannot draw a name at all, and the failure looks exactly like the
+ *  labels having been turned off. */
+export const LABEL_BAND = 20
+
 const MARGIN = 0.05
 
 /** Extra room at the bottom for the legend and the hidden-count chip — HTML overlays in
- *  the same box, invisible to `getBBox`, which the rings would otherwise grow behind. */
-const CHROME_BOTTOM = 0.1
+ *  the same box, invisible to `getBBox`, which the rings would otherwise grow behind.
+ *
+ *  A share of REACH, which is the trouble with it: the overlays are about 28 real pixels
+ *  tall and do not care how big the composition is, so a fraction over-reserves on exactly
+ *  the repos where the picture is already large. At a tenth it was pushing the whole
+ *  composition up by more than the chip it was protecting — the top of the map sat against
+ *  the crumbs while a third of the pane went unused below it. Three per cent is roughly the
+ *  chip at a typical scale; the honest version measures the overlay and converts through
+ *  `unitsPerPx`, which is worth doing if this ever needs to be exact. */
+const CHROME_BOTTOM = 0.03
 
 /** How strongly each level carries the heat ramp.
  *
@@ -529,6 +583,11 @@ export function Sunburst({
   /** Where the box wants to be for the level being drawn, and where it was for the last
    *  one. Interpolated together with the wedges, so the zoom and the movement are one
    *  thing rather than two that happen to overlap. */
+  /** Which wedges will hang a name outside themselves. */
+  const fileIds = useMemo(
+    () => new Set(fileWedges.map((w) => w.node.id)),
+    [fileWedges],
+  )
   const viewTo = useMemo(
     () => {
       // An open file is fitted to the FAN it is opening into, not to a ring's extent —
@@ -536,10 +595,25 @@ export function Sunburst({
       // the frame the movement ends. `extentOf` already folds the hub in, which is exactly
       // right here: the fan's core IS the hub.
       const fan = root.kind === 'file' ? fanOf(fileFrom.current, paneAspect) : null
-      const geos = fan ? [arcOf(fan)] : [...target.values()]
+      // File wedges are handed to the fit GROWN by the label ring they hang a name off.
+      // Without it the box is fitted to the wedges alone and the outermost names sit in
+      // whatever `MARGIN` happens to leave — which is a crop that depends on the repo.
+      // Only files that could actually HOLD a rim name reserve the band for one.
+      //
+      // Growing every file wedge meant a hairline reserved 24 units of label ring it will
+      // never use — invisible, because no name fits there, and the fit has no way to know
+      // that the extent it is being handed is mostly empty reservation. On a composition
+      // with one long thin wedge that is the whole asymmetry: the box was fitted to a
+      // sliver plus a label that was never drawn.
+      const grown = [...target.entries()].map(([id, g]) =>
+        fileIds.has(id) && (g.a1 - g.a0) * g.r1 >= RIM_MIN_ARC
+          ? { ...g, r1: g.r1 + LABEL_GAP + LABEL_BAND }
+          : g,
+      )
+      const geos = fan ? [arcOf(fan)] : grown
       return viewFor(extentOf(geos, R_INNER), MARGIN, CHROME_BOTTOM)
     },
-    [target, root.kind, root.id, paneAspect],
+    [target, root.kind, root.id, paneAspect, fileIds],
   )
   const viewFrom = useRef(viewTo)
   const viewNow = useRef(viewTo)
@@ -985,6 +1059,32 @@ export function Sunburst({
                       />
                     </>
                   )}
+                {/* And its name, if the patch can hold one.
+                    The old rule was that functions are never labelled here, on the grounds
+                    that they are laid out angularly by `layout` but DRAWN tiled inside
+                    their file's band — so a name placed from the layout angle lands nowhere
+                    near the patch it names. True, and it argued against the wrong thing:
+                    the tiling hands back the patch's REAL geometry, which is what the fan
+                    has always labelled from. Fitting to `slot` rather than to the wedge is
+                    the whole difference, and a file drawn large enough has room for several.
+
+                    The fan's tight bend, not the ring's generous one. These are treemap
+                    cells that happen to sit in a band; there is no ring for a curve to
+                    belong to at this scale — see `DEFAULT_BEND`. */}
+                {(() => {
+                  const at = fitLabel(slot, slot.node.name, {
+                    weight: WEIGHT,
+                    max: FUNC_MAX,
+                    maxBend: FUNC_BEND,
+                  })
+                  return at ? (
+                    <WedgeLabel
+                      id={`fn-${slot.node.id}`}
+                      at={at}
+                      opacity={at.clipped ? 0.6 : 0.85}
+                    />
+                  ) : null
+                })()}
                 </g>
               )
             })
@@ -992,80 +1092,73 @@ export function Sunburst({
 
         </g>
 
-        {/* Labels last so they sit above every wedge, and only where one fits. Only
-            directories are labelled — see the filter.
-            Functions are excluded because they are laid out angularly by `layout` but
-            DRAWN as a radial stack across their file's whole span — labelling them from
-            their layout angle puts the name nowhere near the band it names. It never
-            showed before because functions sit below the depth cut in a normal tree; a
-            file opened as the root puts them at depth 1, right inside it. */}
+        {/* Labels last, so they sit above every wedge.
+            Both kinds are here — directories inside their plate, files curled just outside
+            theirs — because they compete for the same ground and the one rule that decides
+            them has to see both.
+
+            Functions are not labelled from this pass. They are laid out angularly by
+            `layout` but DRAWN tiled inside their file's band, so a name placed from the
+            layout angle lands nowhere near the patch it names. The fan labels them, where
+            they have room to be read. */}
         {(moving ? [] : wedges)
-          .filter(
-            (w) =>
-              // Directories only, at ANY depth that has room. The old rule was a depth
-              // cut standing in for "will this fit", which the arc-length test below now
-              // answers directly — `src-tauri/src/bin` sat unlabelled in a wedge with
-              // plenty of room purely because it was one ring too deep.
-              //
-              // Files are never labelled. A directory's band is a structural plate with
-              // nothing behind it; a file's band is its own function stack, so the label
-              // is printed over the data it names. Worse, a shallow file's wedge is
-              // usually narrow and steep, and a name set on that arc runs near-vertical —
-              // `sql_query.rs` reading bottom-to-top across its own bands costs the
-              // legibility of the stack to say what one hover says better.
-              w.node.kind === 'dir',
-          )
+          .filter((w) => w.node.kind === 'dir' || w.node.kind === 'file')
           .map((w) => {
-            // Fixed to where the wedge is THIS frame, like everything else. A label left
-            // at its settled angle while its wedge travels is text sitting on a
-            // neighbouring directory for the length of the transition.
-            const { a0, a1, r0, r1 } = geo(w.node.id)
-            const r = (r0 + r1) / 2
-            // Bound to the arc, so the type can be sized against the BAND rather than
-            // against the chord a straight label would have to fit inside.
-            const want = Math.max(10, Math.min(15, band * 0.3))
-            // Fit by SHRINKING first and truncating only as a last resort. A name that
-            // overruns its wedge is worse than a slightly smaller one, and clipping
-            // "components" to "componen…" loses the word for the sake of one type size.
-            // 0.62em is about the average advance of this face at weight 600.
-            const arc = (a1 - a0) * r
-            const advance = 0.62
-            const size = Math.max(
-              7.5,
-              Math.min(want, arc / Math.max(w.node.name.length * advance, 1)),
-            )
-            const room = Math.floor(arc / (size * advance))
-            const name =
-              w.node.name.length > room ? w.node.name.slice(0, Math.max(1, room - 1)) + '…' : w.node.name
-            if (room < 2) return null
-            const pathId = `lp-${w.node.id}`
+            // Fixed to where the wedge is THIS frame, like everything else. A label left at
+            // its settled angle while its wedge travels is text sitting on a neighbouring
+            // directory for the length of the transition.
+            const g = geo(w.node.id)
+            const isDir = w.node.kind === 'dir'
+            // A directory is a structural plate with nothing behind it, so its name sits in
+            // the middle of it.
+            //
+            // A file is the opposite: its band is its own function tiling, and a name
+            // printed over that is printed over the data it names. Files were therefore not
+            // labelled at all. What they have instead is the one thing nothing else on the
+            // ring has — a file is the outermost structural level, so the ground just past
+            // its rim belongs to nobody. The name goes THERE, curled around the outside,
+            // where it costs the tiling nothing.
+            //
+            // A rim name is confined to its OWN wedge's angular slice, inset on both
+            // sides. Beyond the rim there is no plate to hold it, so the only thing
+            // separating one file's name from the next is the wedge each belongs to —
+            // without the inset, adjacent names run together into a single unreadable
+            // band, which is what `command.rs browse.rs event_loop.rs app.rs` had become.
+            // The inset is what makes the gap between two names visibly a gap.
+            const pad = (g.a1 - g.a0) * RIM_INSET
+            const cell = isDir
+              ? g
+              : {
+                  a0: g.a0 + pad,
+                  a1: g.a1 - pad,
+                  r0: g.r1 + LABEL_GAP,
+                  r1: g.r1 + LABEL_GAP + LABEL_BAND,
+                }
+            const at = fitLabel(cell, w.node.name, {
+              weight: WEIGHT,
+              max: isDir ? Math.max(11, Math.min(17, band * 0.34)) : FILE_MAX,
+              // Arc only out here. The rim band is a thin annulus and whatever lies past it
+              // belongs to somebody else, so a radial run leaves this file's territory on
+              // its first character.
+              only: isDir ? undefined : 'arc',
+            })
+            if (!at) return null
             return (
-              // Hidden outright while the ring moves, rather than faded per frame. A
-              // name is read, not glanced at, and text that is re-sizing and re-fitting
-              // its arc every frame is unreadable anyway — so it costs a `<defs>` and a
-              // textPath per wedge per frame to render something nobody can use.
-              <g
+              // Hidden outright while the ring moves, rather than faded per frame. A name is
+              // read, not glanced at, and text re-fitting its arc every frame is unreadable
+              // anyway — so it would cost a `<defs>` and a textPath per wedge per frame to
+              // render something nobody can use.
+              <WedgeLabel
                 key={`l-${w.node.id}`}
-                className="patches-in pointer-events-none select-none"
-              >
-                <defs>
-                  <path id={pathId} d={labelArc(a0, a1, r, size)} />
-                </defs>
-                <text
-                  fontSize={size}
-                  // Directories are `--structure`, a near-background plate, so the label
-                  // takes the foreground — background-on-background is why the directory
-                  // names went invisible the moment the plates stopped being outlined in
-                  // white.
-                  fill="var(--foreground)"
-                  fillOpacity={0.8}
-                  style={{ fontWeight: 600 }}
-                >
-                  <textPath href={`#${pathId}`} startOffset="50%" textAnchor="middle">
-                    {name}
-                  </textPath>
-                </text>
-              </g>
+                id={`lp-${w.node.id}`}
+                at={at}
+                // Directories are `--structure`, a near-background plate, so their names
+                // take the foreground — background-on-background is why they went invisible
+                // the moment the plates stopped being outlined in white. A file's name is
+                // annotation hanging off the rim and is set quieter than the structure it
+                // labels.
+                opacity={(isDir ? 0.9 : 0.62) * (at.clipped ? 0.72 : 1)}
+              />
             )
           })}
 
@@ -1141,22 +1234,43 @@ export function Sunburst({
       )}
 
 
-      {hidden.files + hidden.dirs > 0 && (
-        /* Never let the picture imply it showed everything. This only counts whole
-           directories or files too narrow to be an arc, which is a rare and honest
-           omission — and it names WHICH, because "4 not shown" leaves the reader to
-           guess whether they lost a stray file or a quarter of the repo. Boxed in the
-           corner rather than floated under the graph: it is a caveat about the picture,
-           so it reads as a note attached to it and not as a caption of it. */
-        <p className="absolute bottom-2 left-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-[11px] text-[var(--muted-foreground)]">
-          {[
-            hidden.files > 0 && `${hidden.files.toLocaleString()} file${hidden.files === 1 ? '' : 's'}`,
-            hidden.dirs > 0 && `${hidden.dirs.toLocaleString()} dir${hidden.dirs === 1 ? '' : 's'}`,
-          ]
-            .filter(Boolean)
-            .join(' · ')}{' '}
-          not shown
-        </p>
+      {(hidden.files + hidden.dirs > 0 || collapsed.size > 0) && (
+        /* Never let the picture imply it showed everything.
+           Two different omissions live here and they are not the same kind of thing.
+           Wedges too thin to draw are the tool's doing and there is nothing to be done
+           about them, so they are stated and left. A FOLDED directory is the reader's own
+           doing — and it was missing from this note entirely, which is the worse of the
+           two: option-clicking a subtree shut removes it from the picture with no standing
+           record that it is gone, and the count of what the map is showing quietly stops
+           meaning what it did. Somebody returning to a window they folded an hour ago has
+           no way to tell a repo without tests from a repo whose tests they hid.
+
+           So it says both, and the one the reader can undo carries the way to undo it.
+           Boxed in the corner rather than floated under the graph: it is a caveat about
+           the picture, so it reads as a note attached to it and not a caption of it. */
+        <div className="absolute bottom-2 left-2 flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-[11px] text-[var(--muted-foreground)]">
+          <span>
+            {[
+              collapsed.size > 0 &&
+                `${collapsed.size.toLocaleString()} dir${collapsed.size === 1 ? '' : 's'} folded`,
+              hidden.files > 0 &&
+                `${hidden.files.toLocaleString()} file${hidden.files === 1 ? '' : 's'} too thin`,
+              hidden.dirs > 0 &&
+                `${hidden.dirs.toLocaleString()} dir${hidden.dirs === 1 ? '' : 's'} too thin`,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+          {collapsed.size > 0 && (
+            <button
+              type="button"
+              className="rounded-[var(--radius-sm)] px-1 text-[var(--foreground)] underline decoration-dotted underline-offset-2 hover:bg-[var(--secondary)]"
+              onClick={() => setCollapsed(new Set())}
+            >
+              unfold all
+            </button>
+          )}
+        </div>
       )}
     </div>
   )
