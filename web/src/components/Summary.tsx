@@ -470,7 +470,7 @@ export function Summary({
             above was already asking. Now the key chooses and this follows. */}
         {lens ? (
           bucket && bucket.nodes.length > 0 && (
-            <div className="flex min-h-0 flex-1 flex-col border-t border-[var(--border)] pt-3">
+            <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-[var(--border)] pt-3">
               <div className="mb-2 flex items-baseline justify-between gap-2">
                 <p
                   className="truncate text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]"
@@ -500,7 +500,7 @@ export function Summary({
           )
         ) : (
           list.length > 0 && (
-          <div className="flex min-h-0 flex-1 flex-col border-t border-[var(--border)] pt-3">
+          <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-[var(--border)] pt-3">
             <div className="mb-2 flex items-baseline justify-between">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
                 {HEAT_WORDS[shown]}
