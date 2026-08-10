@@ -37,6 +37,7 @@ import {
   legendFor,
   MODE_LABEL,
   rankCategories,
+  ageSpanOf,
   type ColorMode,
 } from './lib/colorMode'
 import { loadTheme, saveTheme, watchSystemTheme, type Theme } from './lib/theme'
@@ -689,6 +690,11 @@ export default function App() {
                 selected={selected}
                 mode={viewMode}
                 ranks={tree ? rankCategories(tree, viewMode) : undefined}
+                // The age ramp spans the REPO, not a fixed year — so it comes from the
+                // whole tree even when the view is drilled into one directory. Scoping it
+                // to `focus` would make a wedge change colour on the way in, which is the
+                // one thing drilling must not do.
+                ageSpan={tree ? ageSpanOf(tree) : undefined}
                 onSelect={(n) => setPicked(n)}
                 onClear={() => setPicked(null)}
                 onDrill={drill}
@@ -783,6 +789,7 @@ export default function App() {
             model={scan?.stats.model ?? null}
             mode={viewMode}
             ranks={tree ? rankCategories(tree, viewMode) : undefined}
+            ageSpan={tree ? ageSpanOf(tree) : undefined}
             onSelect={setPicked}
             onDrill={drill}
           />

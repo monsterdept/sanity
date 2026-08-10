@@ -262,6 +262,7 @@ export function Sunburst({
   onClear,
   mode,
   ranks,
+  ageSpan,
   onUp,
 }: {
   root: Node
@@ -271,6 +272,9 @@ export function Sunburst({
   onClear: () => void
   mode: ColorMode
   ranks?: Map<string, number>
+  /** The repo's age span — see `ageSpanOf`. Comes from the whole tree, not from `root`,
+   *  so drilling into a directory does not recalibrate the colours on the way in. */
+  ageSpan?: number
   /** Undefined at the top level, which is what disables the hub's go-up affordance. */
   onUp?: () => void
 }) {
@@ -463,9 +467,9 @@ export function Sunburst({
    *  of hundred wedges sixty times a second is work with no output. */
   const fills = useMemo(() => {
     const m = new Map<string, ReturnType<typeof colorFor>>()
-    for (const w of wedges) if (w.node.kind !== 'func') m.set(w.node.id, colorFor(w.node, mode, ranks))
+    for (const w of wedges) if (w.node.kind !== 'func') m.set(w.node.id, colorFor(w.node, mode, ranks, ageSpan))
     return m
-  }, [wedges, mode, ranks])
+  }, [wedges, mode, ranks, ageSpan])
 
   const target = useMemo(
     () => geoOf(wedges, R_INNER, band, (kind) => (kind === 'dir' ? RING_GAP : RING_GAP * 0.4)),
@@ -709,7 +713,7 @@ export function Sunburst({
         {moving &&
           leaving.current.map((x) => {
             const g = lerpGeo(x.from, x.to, e)
-            const c = colorFor(x.node, mode, ranks)
+            const c = colorFor(x.node, mode, ranks, ageSpan)
             return (
               <path
                 key={`leaving-${x.node.id}`}
@@ -729,7 +733,7 @@ export function Sunburst({
             thing it turned into, which is what "became the core" should look like. */}
         {moving && coring.current && (() => {
           const g = lerpGeo(coring.current.from, coring.current.to, e)
-          const c = colorFor(coring.current.node, mode, ranks)
+          const c = colorFor(coring.current.node, mode, ranks, ageSpan)
           return (
             <path
               d={arcPath(g.a0, g.a1, g.r0, g.r1)}
@@ -763,6 +767,7 @@ export function Sunburst({
               selected={null}
               mode={mode}
               ranks={ranks}
+              ageSpan={ageSpan}
               minPatchArea={minPatchArea}
               onSelect={() => {}}
               onDrill={() => {}}
@@ -781,6 +786,7 @@ export function Sunburst({
             selected={selected}
             mode={mode}
             ranks={ranks}
+            ageSpan={ageSpan}
             minPatchArea={minPatchArea}
             onSelect={onSelect}
             onDrill={onDrill}
@@ -979,7 +985,7 @@ export function Sunburst({
               return null
             }
             return tileFunctions(w.node.children, r0, r1, fa0, fa1, { minPatchArea }).map((slot) => {
-              const c = colorFor(slot.node, mode, ranks)
+              const c = colorFor(slot.node, mode, ranks, ageSpan)
               const isSel = selected?.id === slot.node.id
               const isHover = hover?.node.id === slot.node.id
               const d = arcPath(slot.a0, slot.a1, slot.r0, slot.r1)
@@ -1280,6 +1286,7 @@ export function Sunburst({
           box={box}
           mode={mode}
           ranks={ranks}
+          ageSpan={ageSpan}
           folded={hover.node.kind === 'dir' ? collapsed.has(hover.node.id) : undefined}
         />
       )}

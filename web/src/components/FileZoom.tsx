@@ -60,6 +60,9 @@ export interface FileZoomProps {
   selected: Node | null
   mode: ColorMode
   ranks?: Parameters<typeof colorFor>[2]
+  /** The repo's age span — see `ageSpanOf`. A file opened out of its wedge is the same
+   *  functions, so it cannot be on a different scale from the ring it came from. */
+  ageSpan?: number
   minPatchArea?: number
   /** User units to a screen pixel, for the roll-up texture's legibility floor. */
   unitsPerPx?: number | null
@@ -97,6 +100,7 @@ export function FileZoom({
   selected,
   mode,
   ranks,
+  ageSpan,
   minPatchArea,
   unitsPerPx,
   paneAspect,
@@ -124,9 +128,9 @@ export function FileZoom({
 
   const fills = useMemo(() => {
     const m = new Map<string, ReturnType<typeof colorFor>>()
-    for (const c of cells) m.set(c.node.id, colorFor(c.node, mode, ranks))
+    for (const c of cells) m.set(c.node.id, colorFor(c.node, mode, ranks, ageSpan))
     return m
-  }, [cells, mode, ranks])
+  }, [cells, mode, ranks, ageSpan])
 
   if (cells.length === 0) return null
 

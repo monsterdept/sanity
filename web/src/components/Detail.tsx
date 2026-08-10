@@ -235,12 +235,14 @@ function Contents({
   node,
   mode,
   ranks,
+  ageSpan,
   onSelect,
   onDrill,
 }: {
   node: Node
   mode: ColorMode
   ranks?: Map<string, number>
+  ageSpan?: number
   onSelect?: (n: Node) => void
   onDrill?: (n: Node) => void
 }) {
@@ -277,7 +279,7 @@ function Contents({
         >
           <span
             className="h-2 w-2 shrink-0 translate-y-px rounded-[2px]"
-            style={{ background: colorFor(c, mode, ranks)?.fill ?? 'var(--unanalyzed)' }}
+            style={{ background: colorFor(c, mode, ranks, ageSpan)?.fill ?? 'var(--unanalyzed)' }}
           />
           <span className="mono flex-1 truncate text-[11px]">{c.name}</span>
           {/* Never shrinks, and the name gives way — this column is the mode's own
@@ -302,6 +304,7 @@ export function Detail({
   model,
   mode,
   ranks,
+  ageSpan,
   onSelect,
   onDrill,
 }: {
@@ -314,6 +317,8 @@ export function Detail({
   model: string | null
   mode: ColorMode
   ranks?: Map<string, number>
+  /** The repo's age span — see `ageSpanOf`. */
+  ageSpan?: number
   onSelect?: (n: Node) => void
   onDrill?: (n: Node) => void
 }) {
@@ -332,6 +337,7 @@ export function Detail({
         // The pane describes the picture, so it has to know which picture is on screen.
         mode={mode}
         ranks={ranks}
+        ageSpan={ageSpan}
         onSelect={onSelect}
         onDrill={onDrill}
       />
@@ -692,7 +698,14 @@ export function Detail({
         </>
       )}
 
-      <Contents node={node} mode={mode} ranks={ranks} onSelect={onSelect} onDrill={onDrill} />
+      <Contents
+        node={node}
+        mode={mode}
+        ranks={ranks}
+        ageSpan={ageSpan}
+        onSelect={onSelect}
+        onDrill={onDrill}
+      />
       </div>
 
       {/* Pinned to the bottom, a flex sibling of the scroller rather than the last thing

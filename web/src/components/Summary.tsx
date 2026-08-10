@@ -335,6 +335,7 @@ export function Summary({
   commits,
   mode,
   ranks,
+  ageSpan,
   onSelect,
   onDrill,
 }: {
@@ -352,11 +353,14 @@ export function Summary({
   mode: ColorMode
   /** Category → colour slot, so a row's swatch is the wedge's own colour. */
   ranks?: Map<string, number>
+  /** The repo's age span — see `ageSpanOf`. Threaded rather than derived from `node`,
+   *  which is the drilled-into subtree and would put this panel on its own scale. */
+  ageSpan?: number
   onSelect?: (n: Node) => void
   onDrill?: (n: Node) => void
 }) {
   const s = summarize(node)
-  const buckets = useMemo(() => bucketsFor(node, mode, ranks), [node, mode, ranks])
+  const buckets = useMemo(() => bucketsFor(node, mode, ranks, ageSpan), [node, mode, ranks, ageSpan])
   // Go to it AND open the file around it: a name in this list is useless if clicking it
   // selects something off-screen. Drill first so the map moves, then select so the panel
   // fills in — the panel replacing this one is the point of the click.
@@ -496,7 +500,7 @@ export function Summary({
                 onSelect={onSelect}
                 goTo={goTo}
                 paint={(n) => {
-                  const c = colorFor(n, mode, ranks)
+                  const c = colorFor(n, mode, ranks, ageSpan)
                   return { fill: c?.fill ?? 'var(--unanalyzed)', label: c?.label ?? '—' }
                 }}
               />

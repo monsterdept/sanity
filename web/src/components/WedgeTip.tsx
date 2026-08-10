@@ -43,6 +43,7 @@ export function WedgeTip({
   box,
   mode,
   ranks,
+  ageSpan,
   folded,
 }: {
   node: Node
@@ -53,12 +54,14 @@ export function WedgeTip({
   box: { w: number; h: number }
   mode: ColorMode
   ranks?: Map<string, number>
+  /** The repo's age span, so the tooltip's swatch is the colour the wedge is wearing. */
+  ageSpan?: number
   /** Whether this node is folded shut, for geometries that fold. `undefined` means the
    *  geometry has no such gesture, and the card offers none — an affordance named in a
    *  view that does not have it is worse than silence. */
   folded?: boolean
 }) {
-  const c = colorFor(n, mode, ranks)
+  const c = colorFor(n, mode, ranks, ageSpan)
   const sc = n.score
   const analyzed = isAnalyzed(n)
   // The whole path, with the node's own segment picked out — showing the name and

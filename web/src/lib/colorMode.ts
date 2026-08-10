@@ -120,11 +120,53 @@ function ramped(v: number, ramp: Ramp = 'heat'): Paint {
   return { fill: heatColor(v, ramp), stop, ink: inkOn(stop) }
 }
 
-/** Older reads cooler. Anything past a year is simply "old" — the difference between two
- *  and three years is not something anyone acts on, and a linear scale would spend most
- *  of its range on it. */
-function ageRamp(days: number): number {
-  return 1 - Math.min(1, Math.log10(Math.max(days, 1) + 1) / Math.log10(366))
+/** What the ramp spans for a caller that has a node but not the tree it came from. A
+ *  year, which is what the scale was fixed at before it was normalised. */
+const SPAN_UNKNOWN_DAYS = 365
+
+/** How far back this repo goes, in days, as the age ramp should span it.
+ *
+ *  `ageDays` rolls up as the MAX of a node's children — see `Node::aggregate` — so the
+ *  root's is the oldest thing anybody has touched, which is the repo's own lifespan as far
+ *  as blame can see it. No extra walk.
+ *
+ *  **No floor.** A floor was tried and it was wrong: in a repo three days old, the thing
+ *  written on day one really has been left alone for two thirds of the project's life, and
+ *  a scale that refuses to say so is answering a question about some other repo. The span
+ *  is whatever the repo is, however short. */
+export function ageSpanOf(root: Node): number {
+  return Math.max(root.score?.ageDays ?? 0, 0)
+}
+
+/** Older reads cooler, across the span the REPO actually covers.
+ *
+ *  It was a fixed 366 days, and on a young project that is a scale with nothing on it: this
+ *  repo is a week old, so every wedge landed in the top few percent and the map was one flat
+ *  green. The lens worked and the calibration was borrowed from somebody else's repo.
+ *
+ *  Normalising costs something real and it is worth saying out loud: a green wedge here and
+ *  a green wedge in a ten-year-old repo are no longer the same fact. That is already true of
+ *  every other lens on this map — surprise is calibrated per repo, churn is a share of a
+ *  window, blame slots are ranked within one project — and a colour that means "old FOR
+ *  THIS CODEBASE" is the reading anybody actually wants. Cross-repo comparison was never
+ *  something this app offered.
+ *
+ *  The span is the repo's, however short, and the oldest thing in it always lands at the
+ *  cold end. That is the point rather than a rough edge: in a project three days old, what
+ *  somebody wrote on day one HAS been left alone for two thirds of its life, and a scale
+ *  with a minimum span would refuse to say so — answering, at that point, a question about
+ *  some other repo.
+ *
+ *  Still logarithmic within the span, for the reason it always was: the difference between
+ *  the oldest thing here and the second oldest is not what anyone opens this mode to see. */
+function ageRamp(days: number, span: number): number {
+  const s = Math.max(span, 0)
+  // Everything here is younger than a day, so there is no span to spread anything across
+  // and every wedge is equally recent. Without this the ratio is 0/0 at the bottom of the
+  // scale and a repo where all the work happened this morning would paint itself ancient.
+  if (s < 1) return 1
+  const d = Math.min(Math.max(days, 0), s)
+  return 1 - Math.log10(d + 1) / Math.log10(s + 1)
 }
 
 /**
@@ -185,6 +227,10 @@ export function colorFor(
   node: Node,
   mode: ColorMode,
   ranks?: Map<string, number>,
+  /** The repo's own span for the age ramp, from `ageSpanOf(root)`. Optional because a
+   *  caller that has a node but not the tree it came from should still get a colour —
+   *  it falls back to the floor, which is the old fixed scale's short end. */
+  ageSpan?: number,
 ): (Paint & { label: string }) | null {
   const s = node.score
 
@@ -249,7 +295,7 @@ export function colorFor(
     if (!s || s.lastTouchedDays === null) return null
     const d = s.lastTouchedDays
     return {
-      ...ramped(ageRamp(d), 'age'),
+      ...ramped(ageRamp(d, ageSpan ?? SPAN_UNKNOWN_DAYS), 'age'),
       label: d < 1 ? 'touched today' : `touched ${Math.round(d)}d ago`,
     }
   }
@@ -329,9 +375,20 @@ const AGE_BANDS: { label: string; under: number }[] = [
  * being dropped. Absence is stated, never filled in — and never quietly excluded from a
  * total either, which is how a breakdown comes to describe a subset of the picture.
  */
-export function bucketsFor(root: Node, mode: ColorMode, ranks?: Map<string, number>): Bucket[] {
+export function bucketsFor(
+  root: Node,
+  mode: ColorMode,
+  ranks?: Map<string, number>,
+  /** The REPO's span, when the caller has it. `root` here is whatever is on screen, which
+   *  under a drill is one directory — deriving the span from it would put the panel on a
+   *  different scale from the map beside it the moment you drilled in. */
+  ageSpan?: number,
+): Bucket[] {
   if (mode === 'surprise') return []
 
+  // The caller's span when there is one, and this subtree's only as a fallback for a caller
+  // that has no tree above it.
+  const span = ageSpan ?? ageSpanOf(root)
   const bucket = new Map<string, Bucket>()
   /** Ramp inputs per bucket, kept only long enough to average them into a fill. */
   const ramps = new Map<string, number[]>()
@@ -350,7 +407,15 @@ export function bucketsFor(root: Node, mode: ColorMode, ranks?: Map<string, numb
     }
   }
 
-  const UNKNOWN = ' unknown'
+  /** The bucket key for "no author" / "no language", kept out of the namespace real keys
+   *  live in: an author genuinely called `unknown` must not land in the absence row.
+   *
+   *  Written as the ESCAPE, never as a literal NUL. It was a literal one, which made this
+   *  file BINARY to every tool that samples for a zero byte — `grep` and `rg` matched
+   *  nothing in it and said so only if asked, `git diff` refused to show it, and one editor
+   *  round-trip would have dropped the byte and folded the absence row into a real category
+   *  with nothing failing. Identical at runtime, legible in the source. */
+  const UNKNOWN = '\u0000unknown'
   const walk = (n: Node, out: boolean) => {
     const outOfScope = out || n.excluded
     if (n.kind === 'func' && !outOfScope) {
@@ -396,7 +461,7 @@ export function bucketsFor(root: Node, mode: ColorMode, ranks?: Map<string, numb
         if (s && s.lastTouchedDays !== null) {
           const d = s.lastTouchedDays
           const band = AGE_BANDS.find((b) => d < b.under) ?? AGE_BANDS[AGE_BANDS.length - 1]
-          put(band.label, band.label, '', n, ageRamp(d))
+          put(band.label, band.label, '', n, ageRamp(d, span))
         } else {
           put(UNKNOWN, 'no git history', 'var(--unanalyzed)', n)
         }
