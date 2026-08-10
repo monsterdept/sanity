@@ -465,6 +465,40 @@ second metric, and the line between those is the whole design.
 - New language = a `Lang` variant, a grammar in Cargo.toml, an entry in
   `parse::func_kinds`, and a test in `parse.rs`. The kind names are matched literally,
   so a grammar bump that renames a node goes red rather than silently returning nothing.
+  **Read the kinds off the grammar, never off memory** — a kind that doesn't exist matches
+  nothing and looks exactly like a language with no functions in it, which is the failure
+  the literal matching exists to make loud. Parse a snippet, print the sexp, then write the
+  arm. Three constraints decide whether a grammar can ship at all, and all three were hit
+  in one sitting:
+  - **A grammar that depends on `tree-sitter` as a normal dependency cannot be used.**
+    `tree-sitter` carries `links = "tree-sitter"`, so two versions cannot coexist in one
+    binary at any price — the resolver refuses rather than miscompiling, which is the good
+    case. Grammars that depend only on `tree-sitter-language` are fine at any version.
+    `tree-sitter-clojure` fell to this and its `-orchard` fork did not; `tree-sitter-just`
+    had no fork and is simply absent.
+  - **Extension collisions are decided, not guessed.** `.m` is Objective-C and `.v` is
+    Verilog, so MATLAB and V ship nowhere — the loser of a shared extension would have
+    functions invented in every one of its repos, and `from_extension` returning `None` is
+    the documented default for exactly this. Sniffing the content to break the tie is a
+    guess wearing a hat. Prolog took `.pro` because Perl has the stronger claim on `.pl`.
+  - **A language with no function unit is not a language here.** HCL blocks, Make targets
+    and Nickel's term chain parse fine and mean nothing on a sunburst.
+  Grammars are cheap in time and expensive in bytes: 45 of them compile in 16s, and they
+  took the release binary from 44MB to 150MB, over a third of it Verilog and SystemVerilog
+  alone. Measure the linked binary before adding a big one — the `.o` totals overstate it.
+- **`body_span` returns bytes, not a node, because some languages have no body node.**
+  Julia, Fortran, the lisps and Visual Basic hang their statements straight off the
+  definition, so there is nothing to point at and the body is "everything after the
+  header". `header_end` finds that boundary through the grammar's own FIELDS rather than by
+  counting children: an optional piece — Visual Basic's return type, Emacs Lisp's docstring
+  — shifts every positional index the moment it appears, and the body would silently start
+  in the middle of the signature. For every language that does have a body node the bytes
+  are identical, which is what makes the span safe to have introduced under the existing
+  scores.
+- **Adding a language moves `.sanity/` denominators.** A repo holding the new extension
+  gains functions it never had, so a finished assessment stops reading as finished. That is
+  the staleness rules working, not breaking — but add languages in deliberate batches, or
+  the coverage shift cannot be attributed to anything.
 
 ## Commits
 

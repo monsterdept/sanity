@@ -548,6 +548,41 @@ pub struct Report {
     /// and make it a liar. A lexical score cannot ask this; a reader can.
     #[serde(default)]
     pub derivable: bool,
+    /// How clear the body was ONCE OPEN — the second axis.
+    ///
+    /// `predicted` asks whether the intent was reachable before opening the file, which is
+    /// the question the whole predict-then-read protocol is built to answer. It cannot
+    /// distinguish two repos that fail it for opposite reasons: one whose bodies are plain
+    /// the moment you look, and one that is unreadable all the way down. Those deserve
+    /// different verdicts and scored identically.
+    ///
+    /// It is free to ask, because by the time this is filled in the reader has read the
+    /// body anyway. And it is the half that inline comments legitimately count towards —
+    /// they are invisible to `predicted` by construction, since they live inside the thing
+    /// being predicted, and feeding them to the predictor would be handing over the answer.
+    #[serde(default)]
+    pub legible: Option<Grade>,
+    /// Something here will bite whoever edits this next.
+    ///
+    /// Not "I was surprised" — a surprise is about the reader, and a trap is about the
+    /// code: an ordering assumption nothing enforces, a silent no-op, an unguarded index, a
+    /// resource that leaks on one path.
+    ///
+    /// **A wrong doc is not a trap**, and the first version of this field said it was. It
+    /// read as an invitation on a repo whose commonest defect is exactly that, and a third
+    /// of the traps in the first corpus were documentation drift — which `documented` and
+    /// `derivable` already grade. Counting it twice inflated the one number whose whole
+    /// value is being rare enough to work through.
+    ///
+    /// Separate from `legible`,
+    /// because the two are independent and the dangerous quadrant is the one where they
+    /// disagree: a perfectly clear body with a mine under it reads as safe.
+    ///
+    /// It is also what makes a notes list usable. Notes conflate defects, missing
+    /// documentation and readers apologising for their own misreadings; nothing but the
+    /// reader knows which it wrote, and this is it saying so.
+    #[serde(default)]
+    pub trap: bool,
     /// One sentence a human can read. Optional — a correct prediction needs no note.
     #[serde(default)]
     pub note: String,
@@ -612,6 +647,8 @@ impl Report {
             predicted: None,
             documented: None,
             derivable: false,
+            legible: None,
+            trap: false,
             note: String::new(),
             cold: false,
             position: None,
@@ -920,6 +957,47 @@ pub struct OpenRequest {
     /// person at the window wanted to stop looking at the one they had.
     #[serde(default)]
     pub focus: Option<bool>,
+    /// The tool contract the CALLING shim is serving, as a fingerprint.
+    ///
+    /// Absent means the caller predates this check, which is itself the answer: a shim old
+    /// enough not to send it is old enough to be serving a schema this backend has moved
+    /// past. See [`contract_note`].
+    #[serde(default)]
+    pub contract: Option<String>,
+}
+
+/// What to say about the caller's tool contract, if anything.
+///
+/// **The failure this exists for produced no error at all.** `tools/list` is answered from
+/// the shim's own process image, so a shim left running across a rebuild keeps offering the
+/// schema it was compiled with. Two fields were added to `report`; the shim serving readers
+/// had never heard of them; the readers could not send what they were not offered; and the
+/// store recorded the absence as "no opinion", which is a legitimate value. Eighty readings
+/// were taken before anyone noticed, and only because someone read an aggregate and saw a
+/// column of zeroes.
+///
+/// Every part of that chain behaved correctly. The only place the mismatch was knowable was
+/// here, where both halves are in one process and neither was being asked.
+fn contract_note(sent: Option<&str>) -> Option<String> {
+ let mine = crate::mcp::contract_fingerprint();
+ match sent {
+ Some(f) if f == mine => None,
+ Some(_) => Some(
+ "Your MCP server is serving a DIFFERENT tool contract from this backend. It \
+             was almost certainly started before the binary was rebuilt, and `tools/list` \
+             is answered from its own process image — so readers are being offered an \
+             older schema and will silently omit any field it does not know about. \
+             Restart or reconnect the sanity MCP server before assessing; readings taken \
+             now may be missing fields nobody will notice are absent."
+ .to_string(),
+ ),
+ None => Some(
+ "Your MCP server predates the contract check and may be serving an older \
+             schema than this backend. If it has been running since before the last \
+             rebuild, restart or reconnect it before assessing."
+ .to_string(),
+ ),
+ }
 }
 
 /// The instruction handed back on every open.
@@ -1154,6 +1232,7 @@ async fn open_project(
     // moved. `load_reports` resolves the durable `key_of` entries onto the new ids, which
     // is the same thing `restore` does and the only correct way to cross a rescan.
     let reports = load_reports(&path, &scan);
+    let marks = stamp_marks(&path, &scan);
     // The index ships to strangers, and `save` only rewrites it when a reading lands — so
     // a FINISHED repo keeps whatever prose its last reading was written with, forever. An
     // open is the moment we certainly have both the repo and its readings in hand, so it
@@ -1178,7 +1257,7 @@ async fn open_project(
             // work that was never really held costs coverage.
             leased: HashMap::new(),
             recent_files: HashMap::new(),
-            file_marks: HashMap::new(),
+            file_marks: marks,
             touched,
             last_agent: Some(Instant::now()),
         },
@@ -1194,6 +1273,9 @@ async fn open_project(
         // grounds as a failed `save_reports`: an index that quietly failed to update is a
         // document claiming to be current while saying something else.
         "index": index.as_str(),
+        // Absent when the two halves agree, so a healthy run says nothing. A field that is
+        // always present is one an orchestrator learns to skip.
+        "contract_warning": contract_note(req.contract.as_deref()),
         "functions": functions, "assessed": assessed,
         // Both, always. `functions` is what a full pass costs and what a percentage
         // divides by; `excluded` is what somebody decided is not this assessment's
@@ -1537,6 +1619,32 @@ fn resync_file(root: &mut Node, repo: &Path, rel_path: &str) -> bool {
 ///
 /// The first pass over a file only records what it looks like — the tree came straight
 /// from a scan, so there is nothing to correct yet.
+/// What each file looked like at the moment the scan cut its positions.
+///
+/// **Stamped at the scan, not lazily on the first resync — and that distinction was a real
+/// bug.** `resync_changed` used to populate this map itself, treating a first sighting as
+/// unchanged: `HashMap::insert` returns `None` for a key it has never held, and
+/// `is_some_and` reads that as "not moved". So a file edited between the scan and the first
+/// `sanity_next` had its POST-edit mark recorded as though it matched the PRE-edit
+/// positions, and was never re-cut for the life of that project.
+///
+/// Three readers in one wave were handed ranges off by the length of an edit made minutes
+/// earlier; one was given a function's doc comment in place of its body and graded a
+/// prediction against ten lines of prose. That is the failure `resync_changed` exists to
+/// prevent, arriving through its own first line. A mark belongs to the moment the positions
+/// were cut, which is the scan.
+pub fn stamp_marks(repo: &Path, scan: &Scan) -> HashMap<String, (std::time::SystemTime, u64)> {
+    let mut out = HashMap::new();
+    scan.root.visit(&mut |n| {
+        if n.kind == NodeKind::File {
+            if let Some(m) = mark_of(repo, &n.path) {
+                out.insert(n.path.clone(), m);
+            }
+        }
+    });
+    out
+}
+
 fn resync_changed(project: &mut Project) -> usize {
     let repo = project.repo.clone();
     let mut seen: Vec<(String, (std::time::SystemTime, u64))> = Vec::new();
@@ -1812,6 +1920,9 @@ async fn status(
                 .take(OUTSTANDING_SHOWN)
                 .map(|(id, age)| serde_json::json!({ "id": id, "held_for_s": age }))
                 .collect();
+            // One walk. Both halves came from separate calls on adjacent lines, so the
+            // whole tree was counted twice to answer one question.
+            let (functions, excluded) = count_funcs(&p.scan);
             Json(serde_json::json!({
                 "open": true,
                 // Named `project`, not `active`: this answer is about the caller's repo,
@@ -1820,11 +1931,14 @@ async fn status(
                 // so a mismatch is visible even to a caller that supplied no key.
                 "project": p.name,
                 "repo": p.repo.to_string_lossy(),
-                "functions": count_funcs(&p.scan).0,
-                "excluded": count_funcs(&p.scan).1,
+                "functions": functions,
+                "excluded": excluded,
                 // Stale readings excluded, so this agrees with the sidebar and with
-                // `remaining` — see [`assessed`].
-                "assessed": p.reports.len().saturating_sub(stale),
+                // `remaining`. Through `assessed`, not spelled out again: this handler
+                // carried its own `reports.len() - stale` a few lines from a call to the
+                // function that exists to be the one definition, which is the divergence
+                // `assessed` was written to end.
+                "assessed": assessed(p),
                 // Lease-independent, so two callers a second apart agree. It only falls
                 // when a reading actually lands.
                 "remaining": remaining,
@@ -1920,6 +2034,18 @@ struct Tally {
     /// share of the `documented: none` above that came from the rule rather than from
     /// missing comments.
     derivable: usize,
+    /// The second axis: how clear the body was once the reader had opened it.
+    ///
+    /// Reported alongside `predicted` rather than folded into it, because the pair is the
+    /// finding. Low `predicted` with high `legible` is a repo you cannot navigate but can
+    /// read; both low is one you cannot work in at all; and high `legible` beside a pile of
+    /// `traps` is the dangerous one — clear on the surface, mined underneath.
+    ///
+    /// Readings banked before this field existed carry no opinion, so they land in
+    /// `ungraded` rather than defaulting to a grade nobody gave.
+    legible: GradeCounts,
+    /// Readings whose reader said something here will bite the next person to edit it.
+    traps: usize,
     /// Readings whose reader said it had not seen that file before.
     cold: usize,
 }
@@ -1931,6 +2057,8 @@ impl Tally {
         self.predicted.add(Some(predicted));
         self.documented.add(documented);
         self.derivable += usize::from(r.derivable);
+        self.legible.add(r.legible);
+        self.traps += usize::from(r.trap);
         self.cold += usize::from(r.cold);
     }
 }
@@ -2059,11 +2187,12 @@ async fn summary(State(state): State<Shared>, Query(p): Query<SummaryParams>) ->
 
     let agg = aggregate(project);
     let WorkLeft { remaining, .. } = work_left(project);
+    let (functions, excluded) = count_funcs(&project.scan);
     Json(serde_json::json!({
         "open": true,
         "repo": project.repo.to_string_lossy(),
-        "functions": count_funcs(&project.scan).0,
-        "excluded": count_funcs(&project.scan).1,
+        "functions": functions,
+        "excluded": excluded,
         "assessed": agg.total.readings,
         "stale": agg.stale,
         "remaining": remaining,
@@ -2137,6 +2266,7 @@ impl ProjectList {
             .iter()
             .map(|(key, p)| {
                 let stale = count_stale(&p.scan, &p.reports);
+                let (functions, excluded) = count_funcs(&p.scan);
                 ProjectSummary {
                     // Same window as `agent_activity`: a reader predicting, opening a
                     // file and writing a report goes quiet for tens of seconds inside one
@@ -2147,8 +2277,8 @@ impl ProjectList {
                     key: key.clone(),
                     name: p.name.clone(),
                     repo: p.repo.to_string_lossy().to_string(),
-                    functions: count_funcs(&p.scan).0,
-                    excluded: count_funcs(&p.scan).1,
+                    functions,
+                    excluded,
                     assessed: p.reports.len().saturating_sub(stale),
                     stale,
                     touched: p.touched,
@@ -2361,6 +2491,7 @@ pub fn restore(state: Shared) {
                 settled(&mut lock(&state));
                 continue;
             };
+            let marks = stamp_marks(&path, &scan);
             let mut s = lock(&state);
             settled(&mut s);
             let reports = load_reports(&path, &scan);
@@ -2373,7 +2504,7 @@ pub fn restore(state: Shared) {
                     reports,
                     leased: HashMap::new(),
                     recent_files: HashMap::new(),
-                    file_marks: HashMap::new(),
+                    file_marks: marks,
                     touched: known.touched,
                     last_agent: None,
                 },
@@ -2462,6 +2593,7 @@ pub(crate) mod tests {
             crate::scan::Fidelity::Ordering,
         )
         .unwrap();
+        let marks = stamp_marks(dir, &scan);
         Project {
             repo: dir.to_path_buf(),
             name: "t".into(),
@@ -2469,10 +2601,74 @@ pub(crate) mod tests {
             reports: HashMap::new(),
             leased: HashMap::new(),
             recent_files: HashMap::new(),
-            file_marks: HashMap::new(),
+            file_marks: marks,
             touched: 0,
             last_agent: None,
         }
+    }
+
+    /// A shim serving a different contract is told so; a matching one is not.
+    ///
+    /// The bug this guards produced no error anywhere. A shim left running across a rebuild
+    /// kept serving a schema without `legible` or `trap`; the readers omitted what they were
+    /// never offered; the store recorded the absence as "no opinion", which is a real value;
+    /// and eighty readings landed before an aggregate of zeroes gave it away. Silence on the
+    /// happy path is part of the contract too — a warning that is always present is one an
+    /// orchestrator stops reading.
+    #[test]
+    fn a_shim_serving_a_stale_contract_is_told_to_restart() {
+        let mine = crate::mcp::contract_fingerprint();
+        assert!(contract_note(Some(&mine)).is_none(), "a matching contract must say nothing");
+
+        let stale = contract_note(Some("0000000000000000")).expect("a mismatch must be reported");
+        assert!(
+            stale.to_lowercase().contains("restart"),
+            "the warning has to say what to do: {stale}"
+        );
+
+        // A shim too old to send one at all is the same hazard wearing a different face.
+        assert!(contract_note(None).is_some(), "a caller that cannot say must still be warned");
+    }
+
+    /// An edit made BEFORE the first handout still has to be re-cut.
+    ///
+    /// The sibling test above edits after calling `resync_changed` once, which is the case
+    /// that always worked — and that gap is why this shipped. `file_marks` was populated
+    /// lazily by `resync_changed` itself, and its "has this moved" test is
+    /// `HashMap::insert(..).is_some_and(|was| was != now)`: `insert` returns `None` for a
+    /// key it has never held, so the FIRST sighting of any file recorded whatever the file
+    /// looked like at that moment and reported no movement. A file edited between the scan
+    /// and the first `sanity_next` therefore had its post-edit mark stored against pre-edit
+    /// positions, and could never be seen to move again.
+    ///
+    /// Three readers in one wave hit it on the same file: two were handed ranges eight
+    /// lines short, and one was given a function's doc comment where its body should have
+    /// been. Marks are stamped at the scan now, so the first look has something true to
+    /// compare against.
+    #[test]
+    fn a_file_edited_before_the_first_handout_is_still_re_cut() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.rs");
+        std::fs::write(&path, "fn first() {}
+fn second() { println!(\"2\"); }\n").unwrap();
+        let mut p = project_of(dir.path());
+
+        // The edit lands before anything is handed out — no `resync_changed` has run.
+        std::fs::write(
+            &path,
+            "// one\n// two\n// three\nfn first() {}\nfn second() { println!(\"2\"); }\n",
+        )
+        .unwrap();
+
+        assert_eq!(resync_changed(&mut p), 1, "the file moved before the first look and was not re-cut");
+
+        let mut line = None;
+        p.scan.root.visit(&mut |n| {
+            if n.kind == NodeKind::Func && n.name == "second" {
+                line = n.line;
+            }
+        });
+        assert_eq!(line, Some(5), "re-cut did not move `second` to its new line");
     }
 
     /// A save from a half-restored session must not erase the projects it has not got to.

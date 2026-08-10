@@ -331,7 +331,10 @@ fn parse_raw(line: &str) -> Option<Change> {
 
     let mut names = paths.split('\t');
     let first = names.next()?.to_string();
-    match status.as_bytes()[0] {
+    // `first()?`, not `[0]`. Every other field here is pulled with `?` and this one
+    // indexed, so a `--raw` line with an empty status panicked the replay rather than
+    // skipping a change it could not read.
+    match *status.as_bytes().first()? {
         b'D' => Some(Change { path: first, sha: None, from: None }),
         b'R' | b'C' => {
             let to = names.next()?.to_string();
@@ -339,7 +342,7 @@ fn parse_raw(line: &str) -> Option<Change> {
                 path: to,
                 sha: Some(dst_sha.to_string()),
                 // A copy leaves the source in place; only a rename removes it.
-                from: (status.as_bytes()[0] == b'R').then_some(first),
+                from: (status.starts_with('R')).then_some(first),
             })
         }
         _ => Some(Change { path: first, sha: Some(dst_sha.to_string()), from: None }),

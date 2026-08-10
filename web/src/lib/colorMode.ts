@@ -1,4 +1,6 @@
 import {
+  GRADE_SURPRISE,
+  LEGIBLE_WORDS,
   heatColor,
   isAnalyzed,
   rampStop,
@@ -10,23 +12,65 @@ import {
 } from './api'
 import { inkOn } from './ink'
 
-/** What the colour in the sunburst means. One geometry, five encodings. */
-export type ColorMode = 'surprise' | 'churn' | 'age' | 'blame' | 'language'
+/** What the colour in the sunburst means. One geometry, seven encodings.
+ *
+ *  `surprise`, `legible` and `traps` all come from a reader's report and answer three
+ *  different questions about it: could you reach the intent from outside, was the body clear
+ *  once open, and will it bite the next person to edit it. They are lenses rather than one
+ *  blended number because they disagree — a body can be unguessable and plain, or guessable,
+ *  plain, and mined. Blending them would average away the exact distinction they exist for;
+ *  switching between them makes it a blink comparison. */
+export type ColorMode =
+  | 'surprise'
+  | 'legible'
+  | 'traps'
+  | 'language'
+  | 'blame'
+  | 'churn'
+  | 'age'
 
+/**
+ * The order on screen, and therefore the ⌘-digits — the switcher, its tooltips and the key
+ * handler all read this one list, so there is nothing for them to drift from.
+ *
+ * **The right-hand end is a widening time window.** Blame is a point (who touched it last),
+ * churn is a 90-day span, age is unbounded, and History — the mode past the end of the row —
+ * is the whole timeline. Entering it is then a continuation of the gesture rather than a
+ * mode change out of nowhere.
+ *
+ * The three lenses painted from a reader's report lead, because Surprise is what the app is
+ * for. `language` divides them from the git-derived three: it is the only lens painted from
+ * neither a reading nor a commit, which makes it the seam rather than an orphan on the end.
+ */
 export const MODE_LABEL: Record<ColorMode, string> = {
   surprise: 'Surprise',
+  legible: 'Legibility',
+  traps: 'Traps',
+  language: 'Language',
+  blame: 'Blame',
   churn: 'Churn',
   age: 'Age',
-  blame: 'Blame',
-  language: 'Language',
 }
 
 export const MODE_HINT: Record<ColorMode, string> = {
   surprise: 'what a reader didn’t see coming',
+  legible: 'how clear it is once you open it',
+  traps: 'what will bite whoever edits it next',
+  language: 'what it is written in',
+  blame: 'who committed to it last',
   churn: 'how much it has changed lately',
   age: 'how long since anyone touched it',
-  blame: 'who committed to it last',
-  language: 'what it is written in',
+}
+
+/** Which lenses are painted from a reader's report rather than from git or the parse.
+ *
+ *  They share the things that follow from that: a wedge with no reading is grey rather than
+ *  coloured, a stale reading is hatched because its grade describes a body that has changed,
+ *  and the legend has to say so. Asking it once here stops three call sites each deciding
+ *  for themselves and drifting — the stale hatch was `mode === 'surprise'` in two places and
+ *  would have silently stopped marking anything under the two new lenses. */
+export function paintsFromReadings(mode: ColorMode): boolean {
+  return mode === 'surprise' || mode === 'legible' || mode === 'traps'
 }
 
 /**
@@ -75,6 +119,41 @@ function ageRamp(days: number): number {
   return 1 - Math.min(1, Math.log10(Math.max(days, 1) + 1) / Math.log10(366))
 }
 
+/**
+ * The share of a subtree's READ lines that a reader found hard to get through.
+ *
+ * The analogue of `hot_share`, computed here rather than in Rust because `legible` arrives
+ * with the readings rather than with the scan — the tree is folded in the browser, so this
+ * is the only side that has it.
+ *
+ * **Denominator is lines that were READ, not lines that exist.** A directory where one
+ * function of forty has been read and came back opaque is not 2.5% opaque; it is opaque as
+ * far as anyone has looked. Dividing by everything would let coverage masquerade as quality
+ * and make every unread repo look pristine — the same trap `assessed` avoids by excluding
+ * stale rather than counting it as progress.
+ *
+ * `null` when nothing under it has been read, which the caller paints grey. Absence stated,
+ * never filled in.
+ *
+ * Walks the subtree on each call. That is affordable because every caller memoises container
+ * fills per mode — see `Sunburst`'s `fills` — so this runs once per lens change, not per
+ * frame. If that ever stops being true this wants precomputing at fold time.
+ */
+function opaqueShare(node: Node): number | null {
+  let read = 0
+  let opaque = 0
+  const walk = (n: Node) => {
+    if (n.kind === 'func' && n.agent && !n.agentStale && n.agent.legible) {
+      read += n.loc
+      // `some` and `none` are the two grades that mean a reader had to work for it.
+      if (n.agent.legible === 'some' || n.agent.legible === 'none') opaque += n.loc
+    }
+    n.children.forEach(walk)
+  }
+  walk(node)
+  return read === 0 ? null : opaque / read
+}
+
 /** What a wedge is painted with, and what a name printed ON it has to be set in.
  *
  *  `stop` is the fill as a custom-property NAME, which `inkOn` can read and a
@@ -117,6 +196,37 @@ export function colorFor(
         ? `${Math.round(t * 100)}% hot`
         : (readingWords(node)?.heat ?? `${Math.round(t * 100)}°`),
     }
+  }
+
+  if (mode === 'legible') {
+    // Containers roll up, exactly as they do under surprise.
+    //
+    // An earlier version left them neutral, on the argument that half a subtree being
+    // unreadable is not "somewhat readable". That was wrong for the same reason it would be
+    // wrong for surprise: nobody asks a directory to have a legibility, they ask HOW MUCH OF
+    // IT is hard to read — and that is a share, which aggregates honestly. Leaving the inner
+    // rings grey also threw away the one thing the map can say that a list cannot, which is
+    // where the unreadable code CLUSTERS.
+    if (showsShare(node)) {
+      const share = opaqueShare(node)
+      if (share === null) return null
+      return { ...ramped(shareRamp(share), 'legible'), label: `${Math.round(share * 100)}% opaque` }
+    }
+    const g = node.agent && !node.agentStale ? node.agent.legible : undefined
+    if (!g) return null
+    return { ...ramped(GRADE_SURPRISE[g], 'legible'), label: LEGIBLE_WORDS[g] }
+  }
+
+  if (mode === 'traps') {
+    // Two states and an absence, not a ramp: a trap is a boolean and shading it would
+    // invent degrees of danger nobody reported. Read-and-clear is drawn in the structural
+    // neutral rather than left grey, because "a reader looked and found nothing" and
+    // "nobody has looked" are opposite facts and this is the one lens where confusing them
+    // would read as an all-clear.
+    if (!node.agent || node.agentStale) return null
+    const trap = node.agent.trap === true
+    const fill = trap ? 'var(--trap)' : 'var(--structure)'
+    return { fill, stop: fill, ink: inkOn(fill), label: trap ? 'trap' : 'no trap reported' }
   }
 
   if (mode === 'churn') {
@@ -237,7 +347,28 @@ export function bucketsFor(root: Node, mode: ColorMode, ranks?: Map<string, numb
     const outOfScope = out || n.excluded
     if (n.kind === 'func' && !outOfScope) {
       const s = n.score
-      if (mode === 'blame' || mode === 'language') {
+      if (mode === 'legible' || mode === 'traps') {
+        // Both are read straight off the reading, so both share one absence: a function
+        // nobody has read yet. It is a bucket rather than a drop, for the same reason the
+        // map greys it rather than hiding it — a breakdown that silently omits the unread
+        // reports a coverage it has not got.
+        const r = n.agent && !n.agentStale ? n.agent : undefined
+        if (!r) {
+          put(UNKNOWN, 'not read yet', 'var(--unanalyzed)', n)
+        } else if (mode === 'traps') {
+          const trap = r.trap === true
+          put(
+            trap ? 'trap' : 'clear',
+            trap ? 'trap' : 'no trap reported',
+            trap ? 'var(--trap)' : 'var(--structure)',
+            n,
+          )
+        } else if (r.legible) {
+          put(r.legible, LEGIBLE_WORDS[r.legible], heatColor(GRADE_SURPRISE[r.legible], 'legible'), n)
+        } else {
+          put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
+        }
+      } else if (mode === 'blame' || mode === 'language') {
         const key = mode === 'blame' ? n.lastAuthor : n.lang
         if (key) {
           const rank = ranks?.get(key)
@@ -279,6 +410,12 @@ export function bucketsFor(root: Node, mode: ColorMode, ranks?: Map<string, numb
     // By lines, matching `legendFor` — so the panel lists them in the order the map's own
     // legend does, and the biggest slice of the picture is the first row in both.
     out.sort((a, b) => b.lines - a.lines)
+  } else if (mode === 'traps') {
+    // Traps first: it is the only row anybody opens this lens to find.
+    out.sort((a, b) => Number(b.key === 'trap') - Number(a.key === 'trap'))
+  } else if (mode === 'legible') {
+    const order: string[] = ['none', 'some', 'most', 'full']
+    out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
   } else {
     const order = mode === 'churn' ? CHURN_BANDS.map((b) => b.label) : AGE_BANDS.map((b) => b.label)
     out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))

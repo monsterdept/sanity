@@ -17,10 +17,10 @@ agent can both work from them as they are.
 
 | area | read | of | surprising | stale |
 |---|---|---|---|---|
-| [scripts](scripts.md) | 2 | 2 | 1 | 0 |
-| [src-tauri](src-tauri.md) | 287 | 409 | 13 | 43 |
-| [web](web.md) | 97 | 188 | 1 | 22 |
-| **total** | **386** | **599** | **15** | **65** |
+| [scripts](scripts.md) | 1 | 2 | 0 | 0 |
+| [src-tauri](src-tauri.md) | 37 | 417 | 1 | 0 |
+| [web](web.md) | 42 | 190 | 7 | 0 |
+| **total** | **80** | **609** | **8** | **0** |
 
 ## Seeing it as a map
 

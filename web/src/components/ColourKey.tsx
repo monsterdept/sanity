@@ -3,8 +3,7 @@ import {
   MODE_LABEL,
   OTHER_LABEL,
   slotColor,
-  type ColorMode,
-} from '../lib/colorMode'
+  type ColorMode, paintsFromReadings } from '../lib/colorMode'
 import { heatColor, type Ramp } from '../lib/api'
 
 /** The legend follows the mode. A heat ramp under a categorical encoding would be a
@@ -33,15 +32,35 @@ function Legend({ mode, categories }: { mode: ColorMode; categories: string[] })
       </div>
     )
   }
+  // Traps is not a scale, so it does not get a scale's key.
+  //
+  // A gradient with two ends says "these are the extremes of a continuum" — and a trap is a
+  // boolean somebody either reported or did not. Shading it would invent degrees of danger
+  // nobody graded, and a two-ended label would ask the reader to find the middle of a set
+  // with no middle. One filled bar in the colour the map is actually using, named once.
+  if (mode === 'traps') {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="h-2 w-24 overflow-hidden rounded-full" style={{ background: 'var(--trap)' }} />
+        <span className="shrink-0 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
+          trap
+        </span>
+      </div>
+    )
+  }
+
   const ends: Record<string, [string, string]> = {
     surprise: ['clear', 'unclear'],
+    // Same direction as heat: the bright end is the one you have to do something about.
+    legible: ['plain', 'opaque'],
     churn: ['settled', 'churning'],
     age: ['old', 'recent'],
   }
   const [lo, hi] = ends[mode] ?? ['', '']
   // The swatch has to walk the SAME ramp the wedges do, now that each reading owns a
   // hue — otherwise the key under a blue map is an amber gradient.
-  const ramp: Ramp = mode === 'churn' ? 'churn' : mode === 'age' ? 'age' : 'heat'
+  const ramp: Ramp =
+    mode === 'churn' ? 'churn' : mode === 'age' ? 'age' : mode === 'legible' ? 'legible' : 'heat'
   // Spans the widget rather than sitting in a fixed 96px well in the middle of it. The
   // ramp is the scale for the control directly above, and a short bar floating inside a
   // wider row read as two unrelated things stacked rather than one thing explaining the
@@ -154,7 +173,7 @@ export function ColourLegend({
   return (
     <div className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-2 py-1.5">
       <Legend mode={mode} categories={categories} />
-      {mode === 'surprise' && (stale > 0 || unread > 0) && (
+      {paintsFromReadings(mode) && (stale > 0 || unread > 0) && (
         /* The two things the ramp above cannot explain: a wedge can be hatched, or it can
            be uncoloured. Both are absences of a reading rather than positions on the
            scale, which is exactly why they need saying — a reader who takes the grey for

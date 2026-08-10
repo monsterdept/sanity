@@ -150,6 +150,7 @@ pub async fn scan_repo(
     if let Ok(scan) = scanned.as_ref() {
         let mut shared = crate::agentapi::lock(&state);
         let key = crate::agentapi::project_key(&root_for_state);
+        let key_path = root_for_state.clone();
         let name = root_for_state
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -172,7 +173,8 @@ pub async fn scan_repo(
                 reports,
                 leased: std::collections::HashMap::new(),
                 recent_files: std::collections::HashMap::new(),
-                file_marks: std::collections::HashMap::new(),
+                // Stamped from the scan that just cut these positions — see `stamp_marks`.
+                file_marks: crate::agentapi::stamp_marks(&key_path, scan),
                 touched: 0,
                 last_agent: None,
             },

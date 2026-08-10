@@ -100,6 +100,9 @@ export interface ScanStats {
   /** No git history: the stability axis is missing, so every quadrant is half a
    *  verdict. The UI has to say so rather than quietly showing a confident label. */
   withoutHistory: boolean
+  /** Commits reachable from HEAD. 0 when there is no history — the header reads that as
+   *  "say nothing" rather than as a repo with no commits. */
+  commits: number
   model: string
 }
 
@@ -149,6 +152,7 @@ interface WireScan {
     files_skipped: number
     functions: number
     without_history: boolean
+    commits?: number
     model: string
   }
 }
@@ -312,6 +316,11 @@ export interface AgentReport {
   documented?: Grade
   /** Whether those docs say anything the code didn't already. */
   derivable?: boolean
+  /** How clear the body was once open — the second axis. Absent on readings banked before
+   *  the field existed; absent is "no opinion", never a grade. */
+  legible?: Grade
+  /** The reader says something here will bite whoever edits it next. */
+  trap?: boolean
   note: string
   /** Was the reader seeing this file for the first time? Self-declared. */
   cold: boolean
@@ -390,6 +399,25 @@ export const HEAT_WORDS: Record<Grade, string> = {
   most: 'warm',
   some: 'hot',
   none: 'blazing',
+}
+
+/**
+ * How readable the body was once open, in words of its own.
+ *
+ * **Not `HEAT_WORDS`.** Legibility reused those at first, so the panel offered rows reading
+ * "hot once open" and "cold once open" — which asks the reader to know that hot means hard,
+ * a mapping that exists nowhere and that surprise only gets away with because a temperature
+ * is the thing it is actually measuring. Nobody can say from "hot once open" whether that
+ * function was easy or difficult, which is the entire question.
+ *
+ * The same four steps, named for what they mean here, and matched to the ends already
+ * printed on the legend: `plain` at one end, `opaque` at the other.
+ */
+export const LEGIBLE_WORDS: Record<Grade, string> = {
+  full: 'plain',
+  most: 'readable',
+  some: 'murky',
+  none: 'opaque',
 }
 
 /** How well documented, in the reader's own words. Post-provenance, so a doc it judged
@@ -560,6 +588,26 @@ export interface RepoSummary {
   byGrade: Record<Grade, Node[]>
   /** Where to send someone who wants to deal with the expiries, or null if there are none. */
   firstStale: Node | null
+  /** The second axis: how clear each body was once open.
+   *
+   *  Counted separately from `spread` and never merged with it. `predicted` asks whether
+   *  the intent was reachable BEFORE opening; this asks what was there once it was. A repo
+   *  can fail the first and pass the second — unnavigable but plain — and the gap between
+   *  the two bars is the finding. Averaging them would delete exactly that. */
+  legible: Record<Grade, number>
+  /** Readings carrying a `legible` grade at all. The denominator for the bar above, which
+   *  is NOT `read`: every reading banked before the field existed has no opinion, and a bar
+   *  drawn against the wrong total would report those as a grade nobody gave. */
+  legibleRead: number
+  /** Readings whose reader said something there will bite the next person to edit it. */
+  traps: number
+  /** Functions whose reader left a note, hottest first.
+   *
+   *  `note` is filled only when a reading surprised its reader, so this is not a sample of
+   *  the repo — it is the set of things somebody thought worth saying out loud. Stale
+   *  readings are excluded: the note describes a body that has since changed, and a remark
+   *  about code that no longer exists is worse than none. */
+  notes: Node[]
 }
 
 export function summarize(root: Node): RepoSummary {
@@ -573,6 +621,10 @@ export function summarize(root: Node): RepoSummary {
     hot: [],
     byGrade: { full: [], most: [], some: [], none: [] },
     firstStale: null,
+    legible: { full: 0, most: 0, some: 0, none: 0 },
+    legibleRead: 0,
+    traps: 0,
+    notes: [],
   }
   const walk = (n: Node, out: boolean) => {
     const outOfScope = out || n.excluded
@@ -591,6 +643,12 @@ export function summarize(root: Node): RepoSummary {
         s.spread[g]++
         s.byGrade[g].push(n)
         s.read++
+        if (n.agent?.legible) {
+          s.legible[n.agent.legible]++
+          s.legibleRead++
+        }
+        if (n.agent?.trap) s.traps++
+        if (n.agent?.note?.trim()) s.notes.push(n)
         if (temperature(n.score) > HOT) s.hot.push(n)
       } else {
         s.unread++
@@ -603,6 +661,23 @@ export function summarize(root: Node): RepoSummary {
     temperature(b.score) - temperature(a.score) || b.loc - a.loc
   s.hot.sort(hottestFirst)
   for (const g of Object.keys(s.byGrade) as Grade[]) s.byGrade[g].sort(hottestFirst)
+  // Traps first, then the readings that could not be predicted, then everything else.
+  //
+  // Temperature alone put a reader's "I misread this, the docs were clear" above a doc
+  // that describes a threshold the code does not implement. Notes are three different
+  // things in one pile — defects, unreachable intent, and readers reporting their own
+  // misses — and `trap` is the reader saying which it wrote. `predicted` breaks the
+  // remaining tie: a note on a reading nobody could predict is a finding about the code,
+  // where a note on a `full` is usually a remark.
+  const GRADE_RANK: Record<Grade, number> = { none: 0, some: 1, most: 2, full: 3 }
+  s.notes.sort((a, b) => {
+    const trap = Number(b.agent?.trap ?? false) - Number(a.agent?.trap ?? false)
+    if (trap) return trap
+    const rank =
+      GRADE_RANK[a.agent?.predicted ?? 'none'] - GRADE_RANK[b.agent?.predicted ?? 'none']
+    if (rank) return rank
+    return hottestFirst(a, b)
+  })
   return s
 }
 
@@ -623,6 +698,7 @@ function toScan(w: WireScan): Scan {
       filesSkipped: w.stats.files_skipped,
       functions: w.stats.functions,
       withoutHistory: w.stats.without_history,
+      commits: w.stats.commits ?? 0,
       model: w.stats.model,
     },
   }
@@ -886,7 +962,7 @@ export function isAnalyzed(node: Node): boolean {
 
 /** Which ramp a reading walks. Each is five CSS stops of a single hue, sharing one
  *  lightness profile — see index.css. */
-export type Ramp = 'heat' | 'churn' | 'age'
+export type Ramp = 'heat' | 'legible' | 'churn' | 'age'
 
 /** Interpolate a ramp's five CSS stops. Returns a `var(...)` mix so the ramps stay
  *  defined in one place (index.css) and re-theme with the rest of the app. */

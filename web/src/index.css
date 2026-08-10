@@ -80,6 +80,14 @@
   --accent-foreground: #f5f1ea;
 
   --destructive: #8f5753; /* Danger */
+  /* Traps get their own colour rather than borrowing `--destructive`.
+   *
+   * Destructive is the app's error red — it marks things that went wrong for the user, and
+   * a wedge is not an error. A trap is a warning about the CODE, it is meant to be the
+   * loudest thing in its lens, and it needs to stay distinct from `--cat-3` pink so Blame
+   * and Traps cannot be confused at a glance. Hot pink is louder than any ramp end here,
+   * which is the point: this is the one lens where the answer is "look at these". */
+  --trap: #ff4f95;
   --warning: #bf965d;
   --success: #597244;
 
@@ -128,6 +136,19 @@
   --churn-2: #688cb1;
   --churn-3: #7ba9da;
   --churn-4: #8ac4ff;
+
+  /* legible — violet. Its own hue, not surprise's amber, and that is the whole point:
+   * the pair is meant to be TOGGLED, and a blink comparison between two identically
+   * coloured maps cannot tell you whether the picture changed or you imagined it. Violet
+   * because amber, blue and green are taken and red belongs to traps — and it takes the
+   * same dark→light climb as the others, which is what carries the reading for anyone who
+   * cannot separate the hues. Same direction as heat, too: bright means harder, so an
+   * unreadable repo glows under both lenses rather than one of them inverting. */
+  --legible-0: #574d5e;
+  --legible-1: #6b5c7d;
+  --legible-2: #86709e;
+  --legible-3: #a189c2;
+  --legible-4: #b79ae0;
 
   --age-0: #4d574d; /* age — green */
   --age-1: #5c765f;
@@ -206,6 +227,7 @@
    * than shipping an unchecked second palette. */
 
   --unanalyzed: #4a4642;
+  --trap: #ff5ea1;
   --agent-mark: #42a2ab; /* Teal */
   --structure: #38342f;
 }
@@ -414,3 +436,29 @@ textarea,
 .tok-string { color: color-mix(in oklch, var(--accent) 78%, var(--foreground)); }
 .tok-key { color: var(--accent); font-weight: 600; }
 .tok-num { color: color-mix(in oklch, var(--accent-dim) 70%, var(--foreground)); }
+
+/* A trap breathes, so the eye finds it without hunting.
+ *
+ * `opacity` on the group, not `fill-opacity` on the path: opacity is compositable, so the
+ * pulse runs on the GPU and never touches layout or paint. That matters because a repo can
+ * hold hundreds of these at once, and this app has a standing rule that nothing decorative
+ * gets to own a frame budget — the history replay turns any per-frame JS into a visible
+ * stutter. A CSS animation costs nothing per frame on the main thread.
+ *
+ * Slow and shallow. A wedge that flashes is an alarm; one that breathes is a marker, and
+ * the map has to stay readable while it does it.
+ *
+ * Off entirely under reduced motion, where the colour alone carries the meaning — the trap
+ * pink is already the loudest thing in its lens, so nothing is lost but the movement. */
+@keyframes trap-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.trap-pulse {
+  animation: trap-pulse 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trap-pulse { animation: none; }
+}

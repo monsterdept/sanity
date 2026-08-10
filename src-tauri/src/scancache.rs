@@ -440,8 +440,13 @@ impl ScanCache {
             return;
         }
         use std::io::Write;
+        // `create` as well as `append`. The append path relied on the rewrite branch
+        // having built the file, so deleting the cache while the process was live made
+        // every later save a silent no-op — the log the appends were going to no longer
+        // existed, and nothing here reads the error.
         let appended = std::fs::OpenOptions::new()
             .append(true)
+            .create(true)
             .open(path)
             .and_then(|mut f| f.write_all(s.as_bytes()));
         if appended.is_ok() {

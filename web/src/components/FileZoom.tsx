@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { type Node } from '../lib/api'
-import { colorFor, type ColorMode } from '../lib/colorMode'
+import { clsx } from '../lib/cn'
+import { colorFor, type ColorMode, paintsFromReadings } from '../lib/colorMode'
 import { CHROME_INK } from '../lib/ink'
 import { arcPath, tileFunctions, type Slot } from '../lib/sunburst'
 import {
@@ -150,7 +151,12 @@ export function FileZoom({
         return (
           <g key={c.node.id}>
             <path
-              className="wedge"
+              // Same marker as the ring — a file opened out of its wedge is the same
+              // functions, so a trap cannot stop pulsing because you drilled into it.
+              className={clsx(
+                'wedge',
+                mode === 'traps' && c.node.agent?.trap && !c.node.agentStale && 'trap-pulse',
+              )}
               d={d}
               // Unread patches fall back to `--unanalyzed` at low opacity, exactly as they
               // do in the ring. Without the fallback an unscored function got `undefined`
@@ -179,7 +185,7 @@ export function FileZoom({
                 Surprise only, and for the same reason as in `Sunburst`: staleness is a fact
                 about a reading, and this is the one mode painted from readings. The two
                 views draw one map and have to agree about when the texture means anything. */}
-            {mode === 'surprise' && c.node.agentStale && (
+            {paintsFromReadings(mode) && c.node.agentStale && (
               <path className="pointer-events-none" d={d} fill="url(#stale-hatch)" />
             )}
             {/* An aggregate, standing for the functions the tiling could not draw one by

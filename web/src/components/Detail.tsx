@@ -2,7 +2,10 @@ import { Summary } from './Summary'
 import { Bloom } from './Bloom'
 import { colorFor, type ColorMode } from '../lib/colorMode'
 import { elide } from '../lib/text'
+import { clsx } from '../lib/cn'
 import {
+  GRADE_SURPRISE,
+  LEGIBLE_WORDS,
   heatColor,
   isAnalyzed,
   readingWords,
@@ -285,26 +288,24 @@ export function Detail({
   focus,
   title,
   repo,
-  working,
+  commits,
   model,
   mode,
   ranks,
   onSelect,
   onDrill,
-  onConnect,
 }: {
   node: Node | null
   /** The subtree the map is showing, for the pane with no selection to describe. */
   focus?: Node | null
   title?: string
   repo?: string | null
-  working?: boolean
+  commits?: number
   model: string | null
   mode: ColorMode
   ranks?: Map<string, number>
   onSelect?: (n: Node) => void
   onDrill?: (n: Node) => void
-  onConnect?: () => void
 }) {
   if (!node) {
     // With nothing selected the pane describes the whole picture instead. The gestures
@@ -317,13 +318,12 @@ export function Detail({
         node={focus}
         title={title ?? focus.name}
         repo={repo ?? null}
-        working={working ?? false}
+        commits={commits ?? 0}
         // The pane describes the picture, so it has to know which picture is on screen.
         mode={mode}
         ranks={ranks}
         onSelect={onSelect}
         onDrill={onDrill}
-        onConnect={onConnect}
       />
     ) : (
       // No scan yet — nothing to summarise, so the pane says nothing rather than showing a
@@ -344,6 +344,12 @@ export function Detail({
   // Null unless a reader actually read this one, which is what keeps the words off a
   // proxy estimate — those are continuous and mean something else.
   const words = readingWords(node)
+  // Only from a reading that still describes this body. A stale grade describes code that
+  // has since changed, and the panel already refuses to colour a wedge from one.
+  const legibleWord =
+    node.agent && !node.agentStale && node.agent.legible
+      ? LEGIBLE_WORDS[node.agent.legible]
+      : null
 
   return (
     <div className="flex h-full flex-col">
@@ -370,6 +376,20 @@ export function Detail({
         <span className="shrink-0 rounded-full border border-[var(--border)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
           {KIND_LABEL[node.kind]}
         </span>
+        {/* In the header, not among the dials.
+            A trap is the one thing here that is not a measurement on a scale — it is a
+            warning about this specific function, and it was reachable only by finding the
+            same function again in the notes list. Beside the name is where it is unmissable,
+            and it is the same badge the list uses so the two read as one fact. */}
+        {node.agent?.trap && !node.agentStale && (
+          <span
+            className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+            style={{ background: 'var(--trap)', color: 'var(--card)' }}
+            title="A reader said something here will bite whoever edits it next."
+          >
+            trap
+          </span>
+        )}
       </div>
       {/* Two lines, and the path elided rather than wrapped — the same treatment the
           ring's hover gives it. Wrapped, a deep path took three lines and split its own
@@ -389,7 +409,12 @@ export function Detail({
         // Three, in a row. Read is gone: `analyzedShare` is bimodal in practice — a repo
         // is assessed or it is not, so the dial read ~100 everywhere or ~0 everywhere and
         // distinguished nothing between two wedges you would want to tell apart.
-        <div className="mt-3 grid grid-cols-3 gap-1">
+        //
+        // Four when a reader graded legibility. The row does not reflow on whether a repo
+        // has git — see the churn dial — but it does on whether this function has been
+        // read, because a fourth dial reading "—" beside three real ones is a slot
+        // advertising an absence rather than a measurement, on every unread function.
+        <div className={clsx('mt-3 grid gap-1', legibleWord ? 'grid-cols-4' : 'grid-cols-3')}>
           {isLeaf ? (
             <Gauge
               label="Surprise"
@@ -439,6 +464,18 @@ export function Detail({
             unread={s.ageDays === null}
             hint="How much this code has moved lately. Without git history there is no second axis, and the dial says so rather than reading zero."
           />
+          {/* The other half of the reading, and the reason the pair is worth having: this
+              one is graded AFTER opening the body, where `Surprise` is graded before. A
+              function that reads hot here and plain there is unreachable rather than
+              unreadable, which is a documentation problem and not a code one. */}
+          {legibleWord && (
+            <Gauge
+              label="Legible"
+              value={GRADE_SURPRISE[node.agent!.legible!]}
+              word={legibleWord}
+              hint="How clear the body was once the reader had opened it — the second axis. Surprise asks whether the intent was reachable from outside; this asks what was there when they looked."
+            />
+          )}
         </div>
       )}
       </div>

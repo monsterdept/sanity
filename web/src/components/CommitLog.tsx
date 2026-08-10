@@ -1,5 +1,6 @@
 import { memo, useCallback, useLayoutEffect, useRef } from 'react'
 import { posOf, type HistoryCommit, type HistoryScan } from '../lib/history'
+import { compactCount, elide } from '../lib/text'
 
 /** One row's height, in pixels, fixed rather than measured.
  *
@@ -93,8 +94,14 @@ export function CommitLog({
   playing,
   onIndex,
   name,
+  repo,
+  loc,
+  functions,
 }: {
   hist: HistoryScan
+  repo?: string | null
+  loc: number
+  functions: number
   /** The commits in scope, as indices into `hist.commits`. Drilling into a directory asks
    *  a narrower question, and a log still listing the whole repo answers a different one —
    *  most of its rows would be commits that change nothing on screen. */
@@ -171,9 +178,18 @@ export function CommitLog({
   return (
     <div className="flex h-full flex-col">
       <div className="shrink-0 border-b border-[var(--border)] px-3 py-2">
-        <p className="truncate text-sm text-[var(--foreground)]">{name}</p>
-        <p className="text-[11px] text-[var(--muted-foreground)]">
-          {frames.length} commits
+        {/* The same three lines the readings pane prints — name, path, then what the repo
+            IS. The two panes are the same column under two modes, and a header that changed
+            shape between them made switching feel like switching app. */}
+        <p className="mono truncate text-sm font-semibold text-[var(--foreground)]">{name}</p>
+        {repo && (
+          <p className="mono mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
+            {elide(repo, 40)}
+          </p>
+        )}
+        <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
+          {compactCount(loc)} lines · {compactCount(functions)} functions ·{' '}
+          {compactCount(frames.length)} commits
           {/* Said out loud whenever the list is a subset, so a short log reads as a
               narrowed question rather than as a repo with little history. */}
           {scope && <> touching this, of {hist.commits.length}</>}

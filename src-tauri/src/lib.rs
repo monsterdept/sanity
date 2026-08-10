@@ -128,11 +128,18 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<(tauri::menu::Menu<tauri:
             &PredefinedMenuItem::quit(app, None)?,
         ],
     )?;
-    // Opening a repo by hand. Projects otherwise only appear when an agent calls
-    // `sanity_open`, which is the intended path — but it left no way to look at a repo
-    // nothing is currently driving, and the picker that does exist was reachable only
-    // from the empty state, so having one project hid the way to open a second.
-    let open_item = MenuItem::with_id(app, "open-project", "Open Project…", true, Some("CmdOrCtrl+O"))?;
+    // "Connect an Agent…", not "Open Project…".
+    //
+    // Opening by hand is gone: a project arrives when an agent calls `sanity_open`. The item
+    // was left saying "Open Project…" and quietly repointed at the connect sheet, which is
+    // worse than either removing it or renaming it — it promises a repo and delivers a
+    // dialog, and a menu that does something other than what it says is the same failure as
+    // a doc comment describing a function it no longer belongs to.
+    //
+    // Kept on ⌘O rather than deleted, because the shortcut is muscle memory and connecting
+    // is now the one thing that leads to a project. The name is what had to change.
+    let open_item =
+        MenuItem::with_id(app, "open-project", "Connect an Agent…", true, Some("CmdOrCtrl+O"))?;
     let file_menu = Submenu::with_items(app, "File", true, &[&open_item])?;
 
     // Without an Edit menu the standard clipboard shortcuts stop working in text fields —

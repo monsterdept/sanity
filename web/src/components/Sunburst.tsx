@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type Node } from '../lib/api'
-import { colorFor, type ColorMode } from '../lib/colorMode'
+import { clsx } from '../lib/cn'
+import { colorFor, type ColorMode, paintsFromReadings } from '../lib/colorMode'
 import { CHROME_INK, inkOn } from '../lib/ink'
 import { arcPath, layout, tileFunctions, type Wedge } from '../lib/sunburst'
 import { FileZoom, fanOf } from './FileZoom'
@@ -988,7 +989,13 @@ export function Sunburst({
               return (
                 <g key={slot.node.id}>
                 <path
-                  className="wedge"
+                  // The pulse is a CLASS, not a prop: `opacity` animated in CSS is
+                  // compositor-only, so hundreds of these cost nothing per frame — which is
+                  // the bar anything decorative has to clear in this app.
+                  className={clsx(
+                    'wedge',
+                    mode === 'traps' && slot.node.agent?.trap && !slot.node.agentStale && 'trap-pulse',
+                  )}
                   d={d}
                   fill={c ? c.fill : 'var(--unanalyzed)'}
                   fillOpacity={isSel || isHover ? 1 : c ? 0.92 : 0.4}
@@ -1027,7 +1034,7 @@ export function Sunburst({
                     was edited is not in doubt. It read as damage to the layer underneath,
                     which is the same sin as a stale reading keeping its colour, pointed the
                     other way. */}
-                {mode === 'surprise' && slot.node.agentStale && (
+                {paintsFromReadings(mode) && slot.node.agentStale && (
                   <path
                     className="pointer-events-none"
                     d={d}

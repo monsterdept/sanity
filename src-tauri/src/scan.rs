@@ -144,6 +144,10 @@ pub struct ScanStats {
     /// and every quadrant verdict is really only half a verdict. The UI must say so —
     /// silently downgrading the finding is how a map starts lying.
     pub without_history: bool,
+    /// Commits reachable from HEAD. Part of what a repo IS, alongside its lines and its
+    /// functions — and cheap: one `git rev-list --count`, milliseconds even on a large
+    /// history, where `churn` walks a capped window and could not answer this anyway.
+    pub commits: usize,
     pub model: String,
 }
 
@@ -151,6 +155,20 @@ pub struct ScanStats {
 pub struct Scan {
     pub root: Node,
     pub stats: ScanStats,
+}
+
+/// How many commits HEAD can reach. Zero when there is no history, which the UI reads as
+/// "do not print a commit count" rather than as a repo with none.
+fn commit_count(repo: &Path) -> usize {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["rev-list", "--count", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
+        .unwrap_or(0)
 }
 
 /// One function's score, the moment it is known.
@@ -936,6 +954,7 @@ pub fn scan(
             files_skipped: total_found.saturating_sub(files_scanned),
             functions,
             without_history: history.is_empty(),
+            commits: commit_count(root),
             model: model.label(),
         },
     })

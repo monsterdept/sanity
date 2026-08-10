@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { clsx } from '../lib/cn'
-import { elide } from '../lib/text'
+import { compactCount, elide } from '../lib/text'
 import {
   GRADE_SURPRISE,
   HEAT_WORDS,
@@ -20,6 +20,8 @@ const GRADES: Grade[] = ['full', 'most', 'some', 'none']
  *  and this is naming the rows underneath it, which are authors. A heading that repeated
  *  the tab would tell the reader something they can already see. */
 const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
+  legible: 'Legible once open',
+  traps: 'Traps',
   blame: 'Authors',
   language: 'Languages',
   churn: 'Commits in 90d',
@@ -312,44 +314,6 @@ function Buckets({
   )
 }
 
-/** One thing to do, and the fact that makes it worth doing.
- *
- *  A row with no handler is a statement, not a button: some of what belongs in this list
- *  is something the app cannot do for you, and dressing it as clickable would promise an
- *  action that isn't there. */
-function Action({
-  children,
-  detail,
-  onClick,
-}: {
-  children: React.ReactNode
-  detail?: string
-  onClick?: () => void
-}) {
-  const body = (
-    <>
-      <span className="text-[11px] leading-snug">{children}</span>
-      {detail && (
-        <span className="mt-0.5 block text-[10px] leading-snug text-[var(--muted-foreground)]">
-          {detail}
-        </span>
-      )}
-    </>
-  )
-  if (!onClick) {
-    return <div className="rounded-[var(--radius-sm)] px-1 py-1">{body}</div>
-  }
-  return (
-    <button
-      type="button"
-      className="block w-full rounded-[var(--radius-sm)] px-1 py-1 text-left hover:bg-[var(--secondary)]"
-      onClick={onClick}
-    >
-      {body}
-    </button>
-  )
-}
-
 /**
  * The pane when nothing is selected: what this repo adds up to, and what to do next.
  *
@@ -368,20 +332,19 @@ export function Summary({
   node,
   title,
   repo,
-  working,
+  commits,
   mode,
   ranks,
   onSelect,
   onDrill,
-  onConnect,
 }: {
   /** The subtree on screen. */
   node: Node
   /** What to call it — the project when at the root, the directory when drilled in. */
   title: string
   repo: string | null
-  /** An agent is reading this project right now. */
-  working: boolean
+  /** Commits reachable from HEAD; 0 when the scan found no history. */
+  commits: number
   /** The lens the map is under. The panel describes the picture, so it has to follow —
    *  readings, expiries and "connect an agent" are answers to the surprise map and to
    *  nothing else, and under Blame they were a page of confident numbers about a quantity
@@ -391,7 +354,6 @@ export function Summary({
   ranks?: Map<string, number>
   onSelect?: (n: Node) => void
   onDrill?: (n: Node) => void
-  onConnect?: () => void
 }) {
   const s = summarize(node)
   const buckets = useMemo(() => bucketsFor(node, mode, ranks), [node, mode, ranks])
@@ -420,8 +382,20 @@ export function Summary({
    *  Held per mode — a key picked under Language means nothing under Age, and a remembered
    *  one would resolve to an empty list. */
   const [pickedBucket, setPickedBucket] = useState<string | null>(null)
+  /** Show only the notes their reader marked as traps.
+   *
+   *  A filter rather than a paint. Traps are sparse and specific — the tier somebody would
+   *  actually work through — and a map where danger and surprise are both colour cannot say
+   *  which it means. */
+  /** The notes list follows the lens instead of carrying its own filter.
+   *
+   *  It had a `traps` toggle while Surprise was the only panel showing notes. With Traps a
+   *  lens of its own, the toggle and the tab were two controls for one question — so the tab
+   *  is the control, and under it the list is exactly the trap notes. */
+  const trapsOnly = mode === 'traps'
   useEffect(() => setPickedBucket(null), [mode])
   const bucket = buckets.find((b) => b.key === pickedBucket) ?? buckets[0] ?? null
+  const shownNotes = trapsOnly ? s.notes.filter((n) => n.agent?.trap) : s.notes
   const lens = mode !== 'surprise'
 
   return (
@@ -442,8 +416,13 @@ export function Summary({
           </p>
         )}
         <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
-          {node.loc.toLocaleString()} lines · {s.functions.toLocaleString()}{' '}
+          {/* One shape for what a repo IS: lines, functions, commits — the same three the
+              history header prints, so switching between them is not switching layouts.
+              `compactCount` keeps it on one line whatever the project's size; a header that
+              wraps on a big repo and not a small one is a layout tested against one repo. */}
+          {compactCount(node.loc)} lines · {compactCount(s.functions)}{' '}
           {s.functions === 1 ? 'function' : 'functions'}
+          {commits > 0 && <> · {compactCount(commits)} commits</>}
           {/* Never on its own line and never omitted: `functions` is what the readings
               below are counted against, and a denominator somebody narrowed months ago
               has to be visible beside it. */}
@@ -463,6 +442,9 @@ export function Summary({
             {lens ? (
               <Buckets buckets={buckets} picked={bucket?.key ?? null} onPick={setPickedBucket} />
             ) : (
+              // No legibility bar and no traps chip here any more: both are lenses of their
+              // own, and a panel that also summarises the other two makes the Surprise tab a
+              // dashboard rather than an answer to one question.
               <Spread
                 spread={s.spread}
                 read={s.read}
@@ -549,74 +531,67 @@ export function Summary({
         )}
       </div>
 
-      {/* Last, and only as tall as it is. It is a short list of things to do — pinning it
-          to the bottom of the pane rather than letting it float on the end of a scroll is
-          what makes it findable without reading past everything above it.
+      {/* What readers actually said, in place of Next Steps.
+          Next Steps restated the three counts the key above already gives — expired, unread,
+          hot — as sentences. A count is not a finding, and the panel's most valuable payload
+          was going somewhere else entirely: `note` is written only when a reading surprised
+          its reader, so every line here is something a stranger thought worth saying out
+          loud about a specific function, and until now it was visible one wedge at a time.
 
-          Surprise only. Every item here is reading work — expiries, unread functions,
-          hot results — which is a fact about the assessment and not about the lens. Under
-          Blame it was offering to connect an agent underneath a picture of who wrote what,
-          which reads as though the authors were the thing an agent would go and fix. */}
-      {!lens ? (
-      <div className="shrink-0 border-t border-[var(--border)] px-4 pb-5 pt-3">
-          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-            Next Steps
-          </p>
+          Attributed, not asserted. These are claims a reader made, not conclusions the app
+          reached — a reader in this repo's own last wave quoted a file it had never opened —
+          so the note keeps the function's name next to it and clicking goes there to check.
 
-          {/* Expiries first. They are the only item here that is work already done going
-              off — everything else is work not started, which keeps. */}
-          {s.stale > 0 && (
-            <Action
-              detail="The code moved under them, so they no longer colour their wedges. A reader picks them up before anything unread."
-              onClick={s.firstStale ? () => goTo(s.firstStale as Node) : undefined}
-            >
-              <span className="mono">{s.stale}</span>{' '}
-              {s.stale === 1 ? 'reading has' : 'readings have'} expired
-            </Action>
-          )}
-
-          {s.unread > 0 && (
-            <Action
-              detail={
-                working
-                  ? 'An agent is reading this project now.'
-                  : 'Readings come from agents over MCP — there is no model in the app.'
-              }
-              onClick={working ? undefined : onConnect}
-            >
-              <span className="mono">{s.unread}</span>{' '}
-              {s.unread === 1 ? 'function has' : 'functions have'} never been read
-              {!working && <span className="text-[var(--muted-foreground)]"> — connect an agent</span>}
-            </Action>
-          )}
-
-          {s.hot.length > 0 && (
-            <Action
-              detail={`Hottest: ${s.hot[0].name} — ${HEAT_WORDS[s.hot[0].agent?.predicted ?? 'none']}`}
-              onClick={() => goTo(s.hot[0])}
-            >
-              <span className="mono">{s.hot.length}</span>{' '}
-              {s.hot.length === 1 ? 'reading' : 'readings'} came back hot
-            </Action>
-          )}
-
-          {/* Nothing to do is a finding, and it has to be stated rather than left as an
-              empty box — an empty list reads as "not loaded yet". Only reachable when
-              there is genuinely nothing outstanding: read everything, none expired, and
-              nothing above HOT. */}
-          {s.stale === 0 && s.unread === 0 && s.hot.length === 0 && (
-            <Action
-              detail={
-                s.read === 0
-                  ? 'Nothing here to read.'
-                  : 'Every function has a current reading, and no reading came back hot.'
-              }
-            >
-              Nothing outstanding
-            </Action>
-          )}
-      </div>
-      ) : null}
+          Scrollable and bounded rather than growing: it shares the pane with the readings
+          list above, which is the thing you came to browse. */}
+      {(!lens || mode === 'traps') && shownNotes.length > 0 && (
+        <div className="flex max-h-[45%] shrink-0 flex-col border-t border-[var(--border)] px-4 pb-4 pt-3">
+          <div className="mb-1.5 flex shrink-0 items-baseline justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+              Notes
+            </p>
+            <div className="flex items-baseline gap-2">
+              <p className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
+                {shownNotes.length}
+              </p>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto [overscroll-behavior:contain]">
+            {shownNotes.map((n) => (
+              <button
+                key={n.id}
+                type="button"
+                onClick={() => onSelect?.(n)}
+                onDoubleClick={() => goTo(n)}
+                className="block w-full rounded-[var(--radius-sm)] px-1 py-0.5 text-left hover:bg-[var(--secondary)]"
+              >
+                <span className="mono flex items-baseline gap-1.5 text-[10.5px] text-[var(--foreground)]">
+                  <span
+                    className="mt-1 h-1.5 w-1.5 shrink-0 rounded-[2px]"
+                    style={{ background: heatColor(temperature(n.score)) }}
+                  />
+                  <span className="truncate">{n.name}</span>
+                  {/* Marked, not just sorted. The order carries the ranking, but a reader
+                      scrolling past the first few needs to know which kind of thing they
+                      are looking at without inferring it from position. */}
+                  {n.agent?.trap && (
+                    <span
+                      className="shrink-0 rounded-[3px] px-1 text-[9px] font-semibold uppercase tracking-wide"
+                      style={{ background: 'var(--trap)', color: 'var(--card)' }}
+                      title="The reader says this will bite whoever edits it next."
+                    >
+                      trap
+                    </span>
+                  )}
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-snug text-[var(--muted-foreground)]">
+                  {n.agent?.note}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

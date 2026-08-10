@@ -399,13 +399,22 @@ pub fn tools() -> Value {
                         "type": "boolean",
                         "description": "True if those docs say nothing you could not have worked out from the code alone. Answer honestly even when they read well: documentation a model could regenerate from the body explains nothing that was not already there, and this is the only thing stopping a generated-docs pass from turning the map green and making it a liar."
                     },
+                    "legible": {
+                        "type": "string",
+                        "enum": ["full", "most", "some", "none"],
+                        "description": "Now that you HAVE read the body: how clear is it on its own terms? Same scale. This is a different question from `predicted` — that one asks whether you could get there without opening the file. A body can be unguessable from outside and perfectly plain once open, or the reverse. Judge the code in front of you, inline comments included."
+                    },
+                    "trap": {
+                        "type": "boolean",
+                        "description": "True ONLY if the CODE will bite whoever edits it next: an ordering assumption nothing enforces, a silent failure, an unguarded index or unchecked arithmetic, a resource that leaks on one path, a cache key missing something the value depends on. A documentation problem is NOT a trap — a doc describing behaviour the body does not have is `documented: none`, and flagging it here counts one defect twice. Nor is 'this surprised me', which is about you. Default to false; this field is only useful if it stays rare."
+                    },
                     "surprised": { "type": "boolean", "description": "Superseded by `predicted` — send that instead. Kept so older callers still work." },
                     "note": { "type": "string", "description": "One sentence a human can read, only if surprised." },
                     "model": { "type": "string", "description": "Which model you are, name and version, e.g. claude-haiku-4.5. A grade from a small fast model and one from a large one are not the same evidence. Say what you are; omit it rather than guess." },
                     "cold": { "type": "boolean", "description": "True if you had NOT read this file before predicting. Answer honestly — a warm reading is worth less, and Sanity marks it rather than discarding it." },
                     "position": { "type": "number", "description": "Where this function sat in your run — 1 for the first you assessed, 2 for the second, and so on up to the batch size. Report the truth, and report it even if you took more than you were asked for: `cold` only asks whether you had opened this FILE, and cannot see that a reader deep into a batch has learned the repo's idioms and predicts better for reasons that are nothing to do with the code. A reading that says where it sat can be weighed; one that does not silently widens the scale." }
                 },
-                "required": ["id", "expected", "found", "predicted", "documented", "derivable", "cold", "position", "model"]
+                "required": ["id", "expected", "found", "predicted", "documented", "derivable", "legible", "trap", "cold", "position", "model"]
             }
         },
         {
@@ -414,6 +423,32 @@ pub fn tools() -> Value {
             "inputSchema": { "type": "object", "properties": {} }
         }
     ])
+}
+
+/// A fingerprint of the tool contract this process is serving.
+///
+/// **The thing worth comparing is the CONTRACT, not the version.** `tools/list` is answered
+/// from the shim's own process image, so a shim started before a rebuild keeps serving the
+/// schema it was compiled with — and nothing anywhere says so. That is how eighty readings
+/// were taken against a schema missing two required fields: the readers could not send what
+/// they were never offered, the store recorded the absence as "no opinion", and the only
+/// symptom was a column of zeroes in an aggregate somebody happened to check.
+///
+/// A version string would not have caught it. Two builds can share a version and differ in
+/// the schema, and a version that changed on every build would cry wolf on rebuilds that
+/// touched nothing a reader sees. Hashing the schema asks the only question that matters:
+/// do the two halves agree about what a reader may say?
+///
+/// FNV over the serialised tools, which is enough to detect difference; nothing here needs
+/// to resist an adversary.
+pub fn contract_fingerprint() -> String {
+    let text = serde_json::to_string(&tools()).unwrap_or_default();
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in text.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("{h:016x}")
 }
 
 fn call(name: &str, args: &Value) -> Result<Value, String> {
@@ -438,7 +473,15 @@ fn call(name: &str, args: &Value) -> Result<Value, String> {
             // a second error path here would be a second thing to keep saying the right
             // thing.
             let _ = crate::cli::ensure_backend();
-            let out = post("/open", json!({ "path": args.get("path").and_then(|v| v.as_str()).unwrap_or("") }))?;
+            let out = post(
+                "/open",
+                json!({
+                    "path": args.get("path").and_then(|v| v.as_str()).unwrap_or(""),
+                    // What this shim believes the contract to be. The backend compares it
+                    // with its own and says so when they differ — see `contract_fingerprint`.
+                    "contract": contract_fingerprint(),
+                }),
+            )?;
             // Remember what we opened. Every later call carries it, so this session's
             // work lands in this session's repo however many other agents are running.
             if let Some(key) = out.get("project").and_then(|v| v.as_str()) {

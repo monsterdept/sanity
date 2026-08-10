@@ -159,6 +159,14 @@ export default function App() {
    *  describe a sleeping agent that does not exist. Polled rather than fetched once
    *  because the fix happens in another application — the user connects Claude Code in the
    *  setup sheet, or edits a config by hand — and the window has no way to be told. */
+  /** Has the project list been fetched even once?
+   *
+   *  The onboarding gate is shown when `projects` is empty — and it is empty for the first
+   *  poll of every launch, including one with a dozen projects. So a populated app opened
+   *  with "connect an agent, then ask it to study a project" on screen, addressed to
+   *  somebody who did both weeks ago, and swapped it for their map a moment later. An empty
+   *  list and a list not yet fetched are different states and only one of them is news. */
+  const [projectsLoaded, setProjectsLoaded] = useState(false)
   const [connected, setConnected] = useState(false)
   useEffect(() => {
     let alive = true
@@ -198,9 +206,15 @@ export default function App() {
   // making the user find the directory again.
   const lastPath = useRef<string | null>(null)
 
-  // Cmd-1..5 for the lenses, in the order they appear in the switcher.
+  // Cmd-1..7 for the lenses, in the order they appear in the switcher.
   //
-  // The whole app is one geometry under five encodings, and the question you are asking
+  // Derived from `MODE_LABEL`'s key order rather than a second list, so the digit always
+  // matches the position on screen — the two cannot drift because there is only one order.
+  // The cost is that reordering renumbers: the row is grouped by what paints it — readings,
+  // then language, then the git-derived three in widening time windows — so the digits
+  // follow meaning rather than history. See `MODE_LABEL`.
+  //
+  // The whole app is one geometry under seven encodings, and the question you are asking
   // changes far more often than anything else you can do here — reaching for the mouse
   // to change it costs more than the change is worth. Cmd rather than a bare digit
   // because a bare digit is a character, and one text field anywhere later would make
@@ -237,6 +251,10 @@ export default function App() {
         // sunburst of several thousand arcs — every 1.5 seconds. During a replay that is a
         // stutter on a fixed period; the rest of the time it is just waste.
         setProjects((prev) => (sameProjects(prev, list.projects) ? prev : list.projects))
+        // Marked once the list has actually been fetched, empty or not — see the state's
+        // own comment. Set after `setProjects` so the two land in one render and an empty
+        // repo list does not flash the gate before the loading line.
+        setProjectsLoaded(true)
         if (!list.active || list.active === showing) return
         showing = list.active
         setActiveKey(list.active)
@@ -688,6 +706,13 @@ export default function App() {
                     : null
                 }
               />
+            ) : !projectsLoaded ? (
+              // Not "no projects" — "not asked yet". Deliberately quiet: on a warm start
+              // this is on screen for one poll, and anything with a headline in it would
+              // flash.
+              <div className="flex h-full items-center justify-center p-8">
+                <p className="text-xs text-[var(--muted-foreground)]">Loading projects…</p>
+              </div>
             ) : (
               <Empty connected={connected} onConnect={() => setShowAgents(true)} />
             )}
@@ -741,6 +766,9 @@ export default function App() {
             playing={playing}
             onIndex={scrubTo}
             name={scope || (activeProject?.name ?? 'History')}
+            repo={repoPath}
+            loc={focus?.loc ?? 0}
+            functions={activeProject?.functions ?? 0}
           />
           ) : (
           <Detail
@@ -751,13 +779,12 @@ export default function App() {
             focus={focus}
             title={focus && tree && focus.id === tree.id ? (activeProject?.name ?? focus.name) : focus?.name}
             repo={repoPath}
-            working={activeProject?.working ?? false}
+            commits={scan?.stats.commits ?? 0}
             model={scan?.stats.model ?? null}
             mode={viewMode}
             ranks={tree ? rankCategories(tree, viewMode) : undefined}
             onSelect={setPicked}
             onDrill={drill}
-            onConnect={() => setShowAgents(true)}
           />
           )}
         </aside>
@@ -964,36 +991,31 @@ function HistoryToggle({
 /**
  * The window with no projects in it — which is to say, the first run.
  *
- * What an empty window owes you is the next action, not the premise. It used to open with
- * a headline and a paragraph about what the rings mean: a pitch, on the screen of someone
- * who has already installed the thing.
+ * What an empty window owes you is the next action, not the premise. It used to open with a
+ * headline and a paragraph about what the rings mean: a pitch, on the screen of someone who
+ * has already installed the thing.
  *
- * **But the one instruction it then gave was circular.** It said to tell Claude Code
- * "study this project in sanity" — which only works once sanity is registered as an MCP
- * server, and the only thing that registers it is a dialog behind a small gear this screen
- * never mentioned. So the screen written for the person who has nothing assumed the one
- * thing they had not done, and sent them to a client that would answer "no such tool" with
- * nothing here explaining why. A first run cannot depend on a step it does not offer.
+ * **A gate, not a choice.** For a while this screen offered two doors — connect an agent, or
+ * open a repo by hand — and its rationale argued that "not now" had to be survivable because
+ * four of the five lenses work without a reader. That argument was sound and the product went
+ * the other way: opening by hand is gone, because a repo opened that way gets four lenses and
+ * a grey map, which is this app with its reason for existing removed. So there is one way in,
+ * and a gate owes you the steps and your position in them.
  *
- * Three facts, because between them they cover every way out of this screen — and two of
- * them are set under the button they are about rather than in a block after both, because
- * prose that answers two questions in one voice makes the reader sort out which sentence
- * belongs to which choice before they can use any of it:
+ * The two steps are numbered because they are ordered — the second cannot be done until the
+ * first is — and the first ticks green off `connected`, so which half you are on is readable
+ * without parsing either sentence. Step two's phrase is on a copy button because it is the
+ * one thing here that has to arrive verbatim in another application.
  *
- * 1. **It works without an agent.** Churn, age, blame and language are read from the repo
- *    and its git history, so four of the five lenses are live the moment a repo opens.
- *    Saying so first is what makes "not now" a real option rather than a way to get a
- *    broken app — and it is true, which the old copy never got round to mentioning.
- * 2. **Surprise is the one that needs a reader**, and it is the reason this exists. Said
- *    plainly, including what you get if you skip it: grey. A wedge that stays uncoloured
- *    with no explanation reads as a bug in the map.
- * 3. **The offer keeps.** Declining here has to be survivable, so the way back is named
- *    and pointed at — the gear, in the panel it lives in. An offer with no stated second
- *    chance is a modal wearing a screen's clothing.
+ * **This docstring was itself the finding that produced this rewrite.** A reader was handed
+ * the version above — three facts about a choice the body had stopped offering two hours
+ * earlier — and graded it `some`, noting it had been given a rationale the code already
+ * overruled. That is the exact failure the metric exists to expose, caught on the file that
+ * draws the metric's own front door.
  *
  * No remembered "declined" flag, deliberately. This screen only exists while there are no
- * projects, so opening one dismisses it for good; a persisted dismissal would be state
- * that can only ever go wrong, guarding a screen nobody will see again anyway.
+ * projects, so opening one dismisses it for good; a persisted dismissal would be state that
+ * can only ever go wrong, guarding a screen nobody will see again anyway.
  */
 function Empty({ connected, onConnect }: { connected: boolean; onConnect: () => void }) {
   return (

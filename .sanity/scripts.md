@@ -1,6 +1,6 @@
 # scripts — sanity assessment
 
-2 of 2 functions read · 1 surprising
+1 of 2 functions read · 0 surprising
 
 Each entry below is one **reading**. An agent was given a function's name,
 signature, neighbouring function names and comments — never its body — and wrote
@@ -15,14 +15,8 @@ What this is and how to add to it: [README.md](README.md)
 ## scripts/make-icon.py
 
 ### `pixel` — nearly
-- read at `ae8cc24a920f` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: pixel computes the RGB color for a specific position (x, y) in an icon image. Given the filename make-icon.py and single peer main(), this is likely part of an icon generation script that calculates colors based on position to create a pattern or gradient.
-- found: Converts pixel coordinates to polar coordinates (distance r and angle theta from center), then determines which ring and wedge the pixel falls in, adds thin separator gaps at spoke boundaries, and returns the appropriate color from a RAMP based on the ring index or a background color.
-- predicted: most · documented: none · derivable: no
-- note: Generates a radial sunburst pattern with concentric rings, angular wedges, and thin separator gaps between spokes.
-
-### `main` — surprising
-- read at `409b7ffe876b` · commit `61cf1b2` · read by claude-haiku-4-5-20251001 · by ross@rossturk.com · cold reading · reading 8 of its run
-- expected: This is the entry point for an icon-generation script. It will likely set up parameters and call the pixel function to generate pixels, then write the result to a file.
-- found: The function builds a PNG image from scratch by iterating through all pixels, calling pixel(x, y) to get RGB data for each. It creates PNG chunks (IHDR for metadata, IDAT for compressed pixel data, IEND for end marker), writes the complete PNG file to src-tauri/icons/source.png, and prints a message about the written file size.
-- predicted: some · documented: none · derivable: no
+- read at `ae8cc24a920f` · commit `837e620` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: A per-pixel colour function for a procedurally generated sunburst app icon: convert x,y to centre-relative coords, derive normalised radius and angle, colour by angle (wedges) and band by radius (rings), background outside the disc.
+- found: Exactly that. Computes cx/cy from SIZE, normalised radius r = hypot/(SIZE/2) and theta = atan2 normalised to 0..1. Walks RINGS bands; inside a band it uses SPOKES[i] to find the fractional position within a wedge and returns BG for a thin 3.5% gap at each spoke boundary, else RAMP[min(i+1, last)]. Inner hub (r below the first ring) is RAMP[0]; everything outside is BG.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: The colour comes from the ring index only, not the angle — I expected hue to vary by wedge; the `min(i + 1, len(RAMP) - 1)` clamp means RINGS longer than RAMP silently paints the last colour repeatedly.

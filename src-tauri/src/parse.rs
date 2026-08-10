@@ -76,6 +76,47 @@ fn language(lang: Lang) -> tree_sitter::Language {
         Lang::ObjC => tree_sitter_objc::LANGUAGE.into(),
         Lang::Shell => tree_sitter_bash::LANGUAGE.into(),
         Lang::Sql => tree_sitter_sequel::LANGUAGE.into(),
+        Lang::GdScript => tree_sitter_gdscript::LANGUAGE.into(),
+        Lang::GdShader => tree_sitter_gdshader::LANGUAGE.into(),
+        Lang::Haskell => tree_sitter_haskell::LANGUAGE.into(),
+        Lang::Nix => tree_sitter_nix::LANGUAGE.into(),
+        Lang::PowerShell => tree_sitter_powershell::LANGUAGE.into(),
+        Lang::Solidity => tree_sitter_solidity::LANGUAGE.into(),
+        Lang::R => tree_sitter_r::LANGUAGE.into(),
+        Lang::OCaml => tree_sitter_ocaml::LANGUAGE_OCAML.into(),
+        Lang::OCamlLex => tree_sitter_ocamllex::LANGUAGE.into(),
+        Lang::Cmake => tree_sitter_cmake::LANGUAGE.into(),
+        Lang::Julia => tree_sitter_julia::LANGUAGE.into(),
+        Lang::Erlang => tree_sitter_erlang::LANGUAGE.into(),
+        Lang::Pascal => tree_sitter_pascal::LANGUAGE.into(),
+        Lang::Clojure => tree_sitter_clojure_orchard::LANGUAGE.into(),
+        Lang::FSharp => tree_sitter_fsharp::LANGUAGE_FSHARP.into(),
+        Lang::Groovy => tree_sitter_groovy::LANGUAGE.into(),
+        Lang::Elm => tree_sitter_elm::LANGUAGE.into(),
+        Lang::Fortran => tree_sitter_fortran::LANGUAGE.into(),
+        Lang::Starlark => tree_sitter_starlark::LANGUAGE.into(),
+        Lang::Verilog => tree_sitter_verilog::LANGUAGE.into(),
+        Lang::SystemVerilog => tree_sitter_systemverilog::LANGUAGE.into(),
+        Lang::Gleam => tree_sitter_gleam::LANGUAGE.into(),
+        Lang::Odin => tree_sitter_odin::LANGUAGE.into(),
+        Lang::Perl => tree_sitter_perl::LANGUAGE.into(),
+        Lang::VisualBasic => tree_sitter_vb_dotnet::LANGUAGE.into(),
+        Lang::Elisp => tree_sitter_elisp::LANGUAGE.into(),
+        Lang::Qml => tree_sitter_qmljs::LANGUAGE.into(),
+        Lang::Scheme => tree_sitter_scheme::LANGUAGE.into(),
+        Lang::Racket => tree_sitter_racket::LANGUAGE.into(),
+        Lang::CommonLisp => tree_sitter_commonlisp::LANGUAGE_COMMONLISP.into(),
+        Lang::Cfml => tree_sitter_cfml::LANGUAGE_CFSCRIPT.into(),
+        Lang::Glsl => tree_sitter_glsl::LANGUAGE_GLSL.into(),
+        Lang::Hlsl => tree_sitter_hlsl::LANGUAGE_HLSL.into(),
+        Lang::Slang => tree_sitter_slang::LANGUAGE_SLANG.into(),
+        Lang::Ada => tree_sitter_ada::LANGUAGE.into(),
+        Lang::D => tree_sitter_d::LANGUAGE.into(),
+        Lang::Vhdl => tree_sitter_vhdl::LANGUAGE.into(),
+        Lang::Zsh => tree_sitter_zsh::LANGUAGE.into(),
+        Lang::Luau => tree_sitter_luau::LANGUAGE.into(),
+        Lang::Prolog => tree_sitter_prolog::LANGUAGE.into(),
+        Lang::Jq => tree_sitter_jq::LANGUAGE.into(),
     }
 }
 
@@ -126,6 +167,56 @@ fn func_kinds(lang: Lang) -> &'static [&'static str] {
         Lang::ObjC => &["method_definition"],
         Lang::Shell => &["function_definition"],
         Lang::Sql => &["create_function"],
+        // Godot has no separate constructor node — `_init` is an ordinary
+        // `function_definition`, and so are the `_ready`/`_process` engine callbacks that
+        // make up most of a game's code. One kind covers the language.
+        Lang::GdScript => &["function_definition"],
+        // The C-family shader languages parse exactly like C, declarator chain and all.
+        Lang::Glsl | Lang::Hlsl | Lang::Slang | Lang::GdShader => &["function_definition"],
+        Lang::Solidity => {
+            &["function_definition", "constructor_definition", "modifier_definition"]
+        }
+        Lang::Starlark | Lang::Julia | Lang::Perl | Lang::Zsh | Lang::Jq | Lang::Groovy => {
+            &["function_definition"]
+        }
+        Lang::PowerShell => &["function_statement"],
+        Lang::Cfml | Lang::Qml | Lang::Luau => &["function_declaration"],
+        Lang::Gleam => &["function"],
+        Lang::Haskell => &["function"],
+        Lang::D => &["function_declaration"],
+        Lang::Odin => &["procedure_declaration"],
+        Lang::VisualBasic => &["method_declaration"],
+        Lang::Elisp => &["function_definition"],
+        Lang::CommonLisp => &["defun"],
+        // Erlang's unit is the CLAUSE, not the declaration: `fun_decl` holds one
+        // `function_clause` per head, and only the clause carries a name and a body.
+        // A multi-clause function therefore yields one wedge per clause — which is
+        // right, since each clause is separately readable, and `key_of`'s `#2`/`#3`
+        // ordinals already keep same-named twins apart.
+        Lang::Erlang => &["function_clause"],
+        Lang::Pascal => &["defProc"],
+        Lang::Elm => &["value_declaration"],
+        Lang::Fortran => &["function", "subroutine"],
+        Lang::Cmake => &["function_def", "macro_def"],
+        Lang::Ada => &["subprogram_body"],
+        Lang::Vhdl => &["subprogram_definition"],
+        Lang::OCamlLex => &["lexer_entry"],
+        Lang::Verilog | Lang::SystemVerilog => {
+            &["function_body_declaration", "task_body_declaration"]
+        }
+        // `let` binds values and functions with one node in both languages, so the kind
+        // cannot decide it — `accepts` looks for a parameter.
+        Lang::OCaml => &["let_binding"],
+        Lang::FSharp => &["function_or_value_defn"],
+        // Assignment-shaped, like JS's `const f = () => {}`: the name is on the left and
+        // the function on the right, so `accepts` has to look at what is being bound.
+        Lang::R => &["binary_operator"],
+        Lang::Nix => &["binding"],
+        // The lisps have no function node at all — `defun` is a list whose first element
+        // happens to be a symbol. Same shape as Elixir, and `accepts` carries the test.
+        Lang::Clojure => &["list_lit"],
+        Lang::Scheme | Lang::Racket => &["list"],
+        Lang::Prolog => &["clause"],
     }
 }
 
@@ -400,13 +491,58 @@ fn accepts(node: TsNode, lang: Lang, kinds: &[&str], src: &str) -> bool {
     if !kinds.contains(&node.kind()) {
         return false;
     }
-    if lang == Lang::Elixir {
-        return node
+    match lang {
+        Lang::Elixir => node
             .child_by_field_name("target")
             .map(|t| matches!(text(t, src), "def" | "defp" | "defmacro" | "defmacrop"))
-            .unwrap_or(false);
+            .unwrap_or(false),
+        // `let add a = a + 1` is a function; `let x = 5` is a value with the same node.
+        // The parameter is the only structural difference.
+        Lang::OCaml => node.children(&mut node.walk()).any(|c| c.kind() == "parameter"),
+        // Same distinction in F#, spelled as two different left-hand sides.
+        Lang::FSharp => first_of_kind(node, "function_declaration_left").is_some(),
+        // `add <- function(a) {}` — accept the assignment only when what is bound is a
+        // function, exactly as `declarator_is_function` does for `const f = () => {}`.
+        Lang::R => node
+            .child_by_field_name("rhs")
+            .is_some_and(|v| v.kind() == "function_definition"),
+        Lang::Nix => node
+            .child_by_field_name("expression")
+            .is_some_and(|v| v.kind() == "function_expression"),
+        // A lisp `defun` is an ordinary list whose head is a symbol, so the head is the
+        // only thing that separates a definition from a function CALL. Without this every
+        // list in the file — every `(+ a 1)` — would become a wedge.
+        Lang::Clojure => lisp_head(node, src)
+            .is_some_and(|h| matches!(h, "defn" | "defn-" | "defmacro" | "definline")),
+        Lang::Scheme | Lang::Racket => {
+            if !matches!(lisp_head(node, src), Some("define" | "define-syntax")) {
+                return false;
+            }
+            // `(define (add a) ...)` defines a function; `(define x 5)` defines a value.
+            // The parenthesised head is the difference.
+            node.named_child(1).is_some_and(|c| c.kind() == "list")
+        }
+        // A Prolog `clause` is a rule (`head :- body`) or a bare fact. A fact has no body
+        // to measure, so only rules are chunks.
+        Lang::Prolog => node
+            .child_by_field_name("term")
+            .is_some_and(|t| t.kind() == "binary_operation"),
+        _ => true,
     }
-    true
+}
+
+/// The first named child of `kind`, searched one level down only.
+fn first_of_kind<'a>(node: TsNode<'a>, kind: &str) -> Option<TsNode<'a>> {
+    node.children(&mut node.walk()).find(|c| c.kind() == kind)
+}
+
+/// The leading symbol of a lisp list — `defn` in `(defn add [a] ...)`.
+///
+/// The grammars disagree about how deep a symbol sits: Clojure wraps it in `sym_lit`
+/// around a `sym_name`, Scheme and Racket use a bare `symbol`. Taking the text of the
+/// first named child covers both, because in either case the text IS the symbol.
+fn lisp_head<'a>(node: TsNode, src: &'a str) -> Option<&'a str> {
+    Some(text(node.named_child(0)?, src).trim())
 }
 
 /// The node holding the chunk's name.
@@ -450,12 +586,96 @@ fn name_node<'a>(node: TsNode<'a>, lang: Lang) -> Option<TsNode<'a>> {
             let first = args.named_child(0)?;
             first.child_by_field_name("target").or(Some(first))
         }
+        // The C-family shader languages name themselves through the same declarator chain
+        // as C — except GDShader, which puts a bare identifier there.
+        Lang::Glsl | Lang::Hlsl | Lang::Slang => {
+            let mut n = node.child_by_field_name("declarator")?;
+            while let Some(inner) = n.child_by_field_name("declarator") {
+                n = inner;
+            }
+            Some(n)
+        }
+        Lang::GdShader => node.child_by_field_name("declarator"),
+        // Bound on the left of an assignment, like a JS `const`.
+        Lang::R => node.child_by_field_name("lhs"),
+        Lang::Nix => node.child_by_field_name("attrpath"),
+        Lang::OCaml => node.child_by_field_name("pattern"),
+        Lang::FSharp => first_of_kind(node, "function_declaration_left")?.named_child(0),
+        // `(defn add [a] ...)` — the name is the symbol after the head.
+        Lang::Clojure => node.named_child(1),
+        // `(define (add a) ...)` — the name is the head of the inner list.
+        Lang::Scheme | Lang::Racket => node.named_child(1)?.named_child(0),
+        Lang::CommonLisp => {
+            first_of_kind(node, "defun_header")?.child_by_field_name("function_name")
+        }
+        // Julia hangs the call — and so the name — off a signature node.
+        Lang::Julia => {
+            let sig = first_of_kind(node, "signature")?;
+            first_of_kind(sig, "call_expression")?.named_child(0)
+        }
+        // Fortran and Ada both name themselves on their opening statement rather than on
+        // the enclosing node.
+        Lang::Fortran => first_of_kind(node, "function_statement")
+            .or_else(|| first_of_kind(node, "subroutine_statement"))?
+            .child_by_field_name("name"),
+        Lang::Ada => first_of_kind(node, "procedure_specification")
+            .or_else(|| first_of_kind(node, "function_specification"))?
+            .child_by_field_name("name"),
+        Lang::Vhdl => first_of_kind(node, "function_specification")?
+            .child_by_field_name("function"),
+        Lang::Pascal => first_of_kind(node, "declProc")?.child_by_field_name("name"),
+        Lang::Elm => first_of_kind(node, "function_declaration_left")?.named_child(0),
+        // `function(add a)` — CMake's name is simply the first argument.
+        Lang::Cmake => {
+            let cmd = node.named_child(0)?;
+            first_of_kind(cmd, "argument_list")?.named_child(0)
+        }
+        // Verilog wraps the identifier in another node of the same kind; SystemVerilog
+        // exposes a plain `name` field. Both are handled by falling through to `name`
+        // when the wrapper is absent.
+        Lang::Verilog => {
+            let id = first_of_kind(node, "function_identifier")
+                .or_else(|| first_of_kind(node, "task_identifier"))?;
+            Some(first_of_kind(id, id.kind()).unwrap_or(id))
+        }
+        // A Prolog rule names itself through the functor of its head.
+        Lang::Prolog => {
+            let term = node.child_by_field_name("term")?;
+            term.child_by_field_name("left")?.child_by_field_name("functor")
+        }
+        Lang::PowerShell => first_of_kind(node, "function_name"),
+        // Odin and D lead with a bare identifier and no field at all.
+        Lang::Odin | Lang::D => first_of_kind(node, "identifier"),
         _ => node.child_by_field_name("name"),
     }
 }
 
 /// The node holding the chunk's body.
 fn body_node<'a>(node: TsNode<'a>, lang: Lang) -> Option<TsNode<'a>> {
+    match lang {
+        // These bind the function one level down — the name is on the node, the body is
+        // inside whatever the name was bound TO.
+        Lang::R => {
+            return node
+                .child_by_field_name("rhs")?
+                .child_by_field_name("body")
+        }
+        Lang::Nix => {
+            return node
+                .child_by_field_name("expression")?
+                .child_by_field_name("body")
+        }
+        Lang::Odin => return first_of_kind(first_of_kind(node, "procedure")?, "block"),
+        // A Prolog rule is `head :- body`; the body is the right operand.
+        Lang::Prolog => {
+            return node
+                .child_by_field_name("term")?
+                .child_by_field_name("right")
+        }
+        // Godot's shader grammar spells the field `block` where C spells it `body`.
+        Lang::GdShader => return node.child_by_field_name("block"),
+        _ => {}
+    }
     if let Some(b) = node.child_by_field_name("body") {
         return Some(b);
     }
@@ -465,6 +685,15 @@ fn body_node<'a>(node: TsNode<'a>, lang: Lang) -> Option<TsNode<'a>> {
         Lang::ObjC => "compound_statement",
         Lang::Sql => "function_body",
         Lang::Elixir => "do_block",
+        // Haskell's body is the right-hand side of the equation.
+        Lang::Haskell => "match",
+        Lang::D => "function_body",
+        Lang::Vhdl => "sequential_block",
+        Lang::PowerShell => "script_block",
+        Lang::Ada => "handled_sequence_of_statements",
+        // CMake calls it `body` too, but as a node kind rather than a field — so the
+        // field lookup above misses it and it has to be matched by name.
+        Lang::Cmake => "body",
         // `const Foo = () => {}` hangs the body off the initialiser, not the declarator.
         _ => {
             return node
@@ -475,15 +704,78 @@ fn body_node<'a>(node: TsNode<'a>, lang: Lang) -> Option<TsNode<'a>> {
     node.children(&mut node.walk()).find(|c| c.kind() == kind)
 }
 
+/// Where the chunk's body starts and ends, in bytes.
+///
+/// Most grammars wrap the body in a node and this is just that node's extent. A handful
+/// do not — Julia, Fortran, the lisps and Visual Basic hang the statements directly off
+/// the definition, so there is no single node to point at and the body is "everything
+/// after the header". Returning a SPAN rather than a node is what lets those languages be
+/// measured at all; for every language that has a body node the bytes are identical to
+/// what the node would have given, which is why this refactor changes no existing score.
+fn body_span(node: TsNode, lang: Lang) -> Option<(usize, usize)> {
+    if let Some(b) = body_node(node, lang) {
+        return Some((b.start_byte(), b.end_byte()));
+    }
+    let start = header_end(node, lang)?;
+    let end = node.end_byte();
+    (start < end).then_some((start, end))
+}
+
+/// The byte the header stops at, for the languages whose body is unwrapped.
+///
+/// Each of these is read off the grammar's own fields rather than by counting children:
+/// a definition with an optional piece — Visual Basic's return type, Emacs Lisp's
+/// docstring — would shift every positional index the moment it appeared, and the body
+/// would silently start in the middle of the signature.
+fn header_end(node: TsNode, lang: Lang) -> Option<usize> {
+    let end_of = |n: Option<TsNode>| n.map(|n| n.end_byte());
+    match lang {
+        Lang::Julia => end_of(first_of_kind(node, "signature")),
+        Lang::Fortran => end_of(
+            first_of_kind(node, "function_statement")
+                .or_else(|| first_of_kind(node, "subroutine_statement")),
+        ),
+        // The docstring is documentation, not body — start after it when it is there.
+        Lang::Elisp => end_of(
+            node.child_by_field_name("docstring")
+                .or_else(|| node.child_by_field_name("parameters")),
+        ),
+        Lang::CommonLisp => end_of(first_of_kind(node, "defun_header")),
+        Lang::VisualBasic => end_of(
+            node.child_by_field_name("return_type")
+                .or_else(|| node.child_by_field_name("parameters"))
+                .or_else(|| node.child_by_field_name("name")),
+        ),
+        Lang::Verilog | Lang::SystemVerilog => end_of(
+            first_of_kind(node, "tf_port_list").or_else(|| name_node(node, lang)),
+        ),
+        Lang::OCamlLex => end_of(node.child_by_field_name("name")),
+        // `(define (add a) body...)` — the header is the name-and-parameters list.
+        Lang::Scheme | Lang::Racket => end_of(node.named_child(1)),
+        // `(defn add [a] body...)` — the header runs through the argument vector.
+        Lang::Clojure => end_of(first_of_kind(node, "vec_lit").or_else(|| node.named_child(1))),
+        _ => None,
+    }
+}
+
 fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
     let name = text(name_node(node, lang)?, src).to_string();
-    let body = body_node(node, lang)?;
+    let (body_start, body_end) = body_span(node, lang)?;
 
-    let sig_end = body.start_byte().min(src.len());
+    let sig_end = body_start.min(src.len());
     let signature = src.get(node.start_byte()..sig_end)?.trim().to_string();
+    let body_text = src.get(body_start..body_end)?.to_string();
 
     let doc = match lang {
-        Lang::Python => python_docstring(body, src).or_else(|| leading_doc(node, src)),
+        Lang::Python => body_node(node, lang)
+            .and_then(|b| python_docstring(b, src))
+            .or_else(|| leading_doc(node, src)),
+        // Emacs Lisp puts its docstring inside the definition, like Python, but exposes it
+        // as a field rather than as the first statement.
+        Lang::Elisp => node
+            .child_by_field_name("docstring")
+            .map(|d| text(d, src).trim_matches('"').trim().to_string())
+            .or_else(|| leading_doc(node, src)),
         // A `const Foo = …` declarator carries no comment of its own: the doc sits above
         // the enclosing `lexical_declaration`, and above *that* again when the
         // declaration is exported. Walk out through those wrappers — stopping at the
@@ -495,7 +787,7 @@ fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
     Some(FuncDef {
         name,
         signature,
-        body: text(body, src).to_string(),
+        body: body_text,
         doc,
         owner: owner_of(node, lang, src),
         start_line: node.start_position().row as u32 + 1,
@@ -806,11 +1098,107 @@ extension Thing {
                 "@implementation A\n- (int)add:(int)a { return a; }\n@end\n",
                 vec!["add"],
             ),
+            (
+                Lang::GdScript,
+                "extends Node\n\nfunc _ready() -> void:\n\tpass\n\nfunc add(a: int) -> int:\n\treturn a\n",
+                vec!["_ready", "add"],
+            ),
+            (Lang::GdShader, "void fragment() {\n  COLOR = vec4(1.0);\n}\n", vec!["fragment"]),
+            (Lang::Glsl, "int add(int a) {\n  return a;\n}\n", vec!["add"]),
+            (Lang::Hlsl, "int add(int a) {\n  return a;\n}\n", vec!["add"]),
+            (Lang::Slang, "int add(int a) {\n  return a;\n}\n", vec!["add"]),
+            (Lang::Haskell, "add :: Int -> Int\nadd a = a + 1\n", vec!["add"]),
+            (Lang::Nix, "{ add = a: a + 1; }\n", vec!["add"]),
+            (
+                Lang::PowerShell,
+                "function Add-Thing {\n  param($a)\n  return $a\n}\n",
+                vec!["Add-Thing"],
+            ),
+            (
+                Lang::Solidity,
+                "contract C {\n  function add(uint a) public returns (uint) { return a; }\n}\n",
+                vec!["add"],
+            ),
+            (Lang::R, "add <- function(a) {\n  a + 1\n}\n", vec!["add"]),
+            (Lang::OCaml, "let add a = a + 1\nlet x = 5\n", vec!["add"]),
+            (Lang::OCamlLex, "rule token = parse\n  | \"a\" { A }\n", vec!["token"]),
+            (
+                Lang::Cmake,
+                "function(add a)\n  message(${a})\nendfunction()\n",
+                vec!["add"],
+            ),
+            (Lang::Julia, "function add(a)\n  a + 1\nend\n", vec!["add"]),
+            (Lang::Erlang, "-module(m).\nadd(A) -> A + 1.\n", vec!["add"]),
+            (
+                Lang::Pascal,
+                "function Add(a: Integer): Integer;\nbegin\n  Add := a;\nend;\n",
+                vec!["Add"],
+            ),
+            (Lang::Clojure, "(defn add [a] (+ a 1))\n", vec!["add"]),
+            (Lang::FSharp, "let add a =\n  a + 1\n", vec!["add"]),
+            (Lang::Groovy, "def add(a) {\n  return a\n}\n", vec!["add"]),
+            (Lang::Elm, "add : Int -> Int\nadd a =\n  a + 1\n", vec!["add"]),
+            (
+                Lang::Fortran,
+                "function add(a)\n  integer :: a\n  add = a\nend function add\n",
+                vec!["add"],
+            ),
+            (Lang::Starlark, "def add(a):\n    return a\n", vec!["add"]),
+            (
+                Lang::Verilog,
+                "module m;\nfunction integer add(input integer a);\nbegin add = a; end\nendfunction\nendmodule\n",
+                vec!["add"],
+            ),
+            (
+                Lang::SystemVerilog,
+                "module m;\nfunction int add(input int a);\n  return a;\nendfunction\nendmodule\n",
+                vec!["add"],
+            ),
+            (Lang::Gleam, "pub fn add(a: Int) -> Int {\n  a + 1\n}\n", vec!["add"]),
+            (Lang::Odin, "add :: proc(a: int) -> int {\n  return a\n}\n", vec!["add"]),
+            (Lang::Perl, "sub add {\n  return 1;\n}\n", vec!["add"]),
+            (
+                Lang::VisualBasic,
+                "Module M\n  Function Add(a As Integer) As Integer\n    Return a\n  End Function\nEnd Module\n",
+                vec!["Add"],
+            ),
+            (Lang::Elisp, "(defun add (a)\n  \"Docs.\"\n  (+ a 1))\n", vec!["add"]),
+            (
+                Lang::Qml,
+                "Item {\n  function add(a) { return a }\n}\n",
+                vec!["add"],
+            ),
+            (Lang::Scheme, "(define (add a) (+ a 1))\n(define x 5)\n", vec!["add"]),
+            (Lang::Racket, "(define (add a) (+ a 1))\n(define x 5)\n", vec!["add"]),
+            (Lang::CommonLisp, "(defun add (a) (+ a 1))\n", vec!["add"]),
+            (Lang::Cfml, "function add(a) {\n  return a;\n}\n", vec!["add"]),
+            (
+                Lang::Ada,
+                "function Add(A : Integer) return Integer is\nbegin\n  return A;\nend Add;\n",
+                vec!["Add"],
+            ),
+            (Lang::D, "int add(int a) {\n  return a;\n}\n", vec!["add"]),
+            (
+                Lang::Vhdl,
+                "architecture a of e is\n  function add(x: integer) return integer is\n  begin\n    return x;\n  end function;\nbegin\nend architecture;\n",
+                vec!["add"],
+            ),
+            (Lang::Zsh, "add() {\n  echo 1\n}\n", vec!["add"]),
+            (Lang::Luau, "function add(a)\n  return a\nend\n", vec!["add"]),
+            (Lang::Prolog, "add(A, B) :- B is A + 1.\nfact(x).\n", vec!["add"]),
+            (Lang::Jq, "def add(a): a + 1;\n", vec!["add"]),
         ];
+        // Every language is checked before anything fails. Asserting per case stops at the
+        // first one, and with this many grammars that turns "which languages are broken?"
+        // into one bisect per language.
+        let mut broken = Vec::new();
         for (lang, src, want) in cases {
             let got: Vec<String> = parse_functions(lang, src).into_iter().map(|f| f.name).collect();
-            assert_eq!(got, want, "{} parsed the wrong chunks", lang.label());
+            if got != want {
+                broken.push(format!("{}: wanted {:?}, got {:?}", lang.label(), want, got));
+            }
         }
+        assert!(broken.is_empty(), "grammars parsed the wrong chunks:\n{}", broken.join("\n"));
     }
 
     /// A container must never become a wedge. Listing `class_declaration` alongside the
