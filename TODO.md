@@ -1,3 +1,48 @@
+# TODO — the map is silent about what it could not read
+
+Found while fixing a Windows CI failure, by grep and by measurement rather than by
+reading — kept above the assessment pass below so that section's claim about its own
+provenance stays true.
+
+**A repo the scanner mostly cannot parse still draws a confident map.** `KeyV2` is 110
+`.scad` files and 3 `.rb`. Point sanity at it and it draws the three Ruby files: a
+well-formed sunburst that is wrong about 97% of the repo, with nothing on screen saying
+so. This is the hazard the no-git-history warning already exists for — "a repo with no
+git history gets a visible warning, never a confident-looking half-verdict" — reached
+through a different door, and this door has no warning on it. Files are dropped in
+`collect_files`' `filter_map` (`scan.rs:222`): no extension, or an extension
+`from_extension` does not know. Nothing counts them, so nothing can report them.
+
+**Do not report a percentage.** Measured over text files (git's own binary verdict), the
+unscanned share is 30% of this repo, 37% of tally, 21% of slooth, 24% of tonepoet — and
+it is lockfiles, markdown, JSON and YAML almost everywhere. None of that has a function
+unit, and markdown already reaches the metric through the prompt. A headline "30%
+unmeasured" would be a frightening number that means nothing, which is the same sin as a
+term claiming confidence it hasn't got, run in reverse.
+
+**Report the shape and let the reader judge.** Count dropped files by extension in
+`collect_files` — those entries are already walked and discarded, so it is a tally and no
+extra I/O — and surface it as a list, not a verdict: `unparsed: [{ext, files}]` on
+`ProjectSummary` and in `sanity_open`'s `shape`. "110 `.scad` files not parsed" supports a
+decision; "30% unscanned" does not. Same division of labour `.sanityignore` already uses:
+mechanism here, judgement from the reader, decision with the person. A threshold-triggered
+banner for the acute case (unparsed kinds dominate the repo) is the one part that needs a
+number argued for, and it is unargued.
+
+**Nothing can currently tell you which grammar is worth adding.** Across the 60 repos in
+`~/projects`, the unscanned kinds that do have a function unit are `.erb` (334 files),
+`.scad` (110) and `justfile` (19). That list had to be assembled by hand from outside the
+tool, and the tool is the thing that should know.
+
+**Six grammars were compiled into the binary and never wired up** — `v`, `matlab`, `hcl`,
+`make`, `nickel`, `fsm`, all from the batch in `8f0d1f0`, none with a `Lang` variant or a
+`from_extension` entry. `tree-sitter-v`'s `build.rs` shells out to `ar`, which MSVC does
+not have, so an unused dependency broke Windows CI for five commits. Removed. `fsm` is the
+one with no recorded rationale — if an FSM grammar was intended, that line was the only
+reminder and it is gone now.
+
+---
+
 # TODO — findings from the full assessment pass
 
 Everything here came out of one complete reading of this repo: 613 of 613 functions,
