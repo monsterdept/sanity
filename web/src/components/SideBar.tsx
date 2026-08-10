@@ -202,16 +202,13 @@ export function SideBar({
                   {p.assessed}/{p.functions}
                 </span>
               </div>
-              {/* Why the bar moved BACKWARDS. A finished project that gains stale
-                  readings drops below full, and without this the only reading of that is
-                  "the tool lost my work" — which is the one thing it must never look
-                  like, given the whole point of committing the assessment. */}
-              {p.stale > 0 && (
-                <p className="mb-1 text-[10px] opacity-70">
-                  {p.stale} {p.stale === 1 ? 'reading has' : 'readings have'} gone stale —
-                  the code changed under {p.stale === 1 ? 'it' : 'them'}
-                </p>
-              )}
+              {/* No sentence about staleness here. It was written to explain a bar moving
+                  BACKWARDS — a finished project gaining expiries drops below full, and the
+                  worst reading of that is "the tool lost my work". But this strip is a
+                  progress row two lines tall, and the panel says it in three other places
+                  that have room to: the readings key counts them, the map hatches them, and
+                  the summary lists the first one to go to. A paragraph in the smallest type
+                  on screen was the fourth telling and the only one nobody asked for. */}
               <div className="h-1 w-full overflow-hidden rounded-full bg-black/25">
                 <div
                   className="h-full rounded-full transition-[width] duration-500"

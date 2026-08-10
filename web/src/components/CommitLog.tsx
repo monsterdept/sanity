@@ -40,7 +40,7 @@ const Row = memo(function Row({
   return (
     <button
       onClick={() => onPick(real)}
-      className="relative z-10 block w-full overflow-hidden border-b border-[var(--border)] px-3 text-left"
+      className="relative z-10 block w-full overflow-hidden border-b border-[var(--border)] px-4 text-left"
       style={{
         height: ROW_H,
         // The same fill a selected project gets in the sidebar (`.shell-chrome--active`).
@@ -177,10 +177,15 @@ export function CommitLog({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="shrink-0 border-b border-[var(--border)] px-3 py-2">
+      <div className="shrink-0 px-4 pt-4">
         {/* The same three lines the readings pane prints — name, path, then what the repo
             IS. The two panes are the same column under two modes, and a header that changed
-            shape between them made switching feel like switching app. */}
+            shape between them made switching feel like switching app.
+
+            Pixel-identical, not merely alike: the padding, the type and the rule below all
+            come from `Summary`'s header, because the two are one column and the switch
+            between them is a change of CONTENT. Anything that moves by three pixels reads
+            as the pane being rebuilt. */}
         <p className="mono truncate text-sm font-semibold text-[var(--foreground)]">{name}</p>
         {repo && (
           <p className="mono mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
@@ -199,13 +204,24 @@ export function CommitLog({
             <> · {hist.truncated} earlier ones folded into the first frame</>
           )}
         </p>
+
+        {/* The same rule that sits under the readings header, at the same offset — `mt-4`
+            over `pt-3`, drawn here rather than as a border on the header box so the gap
+            above it exists in both panes. A border hard against the last line of text put
+            history's divider a dozen pixels higher than age's.
+
+            Full-bleed (`-mx-4`) where the readings pane's is inset, because of what sits
+            under each. There it introduces a heading; here it introduces a list whose rows
+            carry full-width rules of their own, and an inset rule a dozen pixels above a
+            full-width one reads as two different dividers rather than one list starting. */}
+        <div className="-mx-4 mt-4 border-t border-[var(--border)] pt-3" />
       </div>
 
       {frames.length === 0 ? (
         /* A file that exists only because commits before the window built it. The rings
            still draw it; nothing in the replayed window ever touched it, and saying that
            is better than an empty pane that reads as a failure. */
-        <p className="p-3 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+        <p className="px-4 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
           Nothing in this window touched {scope || 'the repo'} — it was already here when
           the replay starts.
         </p>

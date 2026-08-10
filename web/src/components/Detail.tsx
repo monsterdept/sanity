@@ -6,17 +6,25 @@ import { clsx } from '../lib/cn'
 import {
   GRADE_SURPRISE,
   LEGIBLE_WORDS,
-  heatColor,
   isAnalyzed,
   readingWords,
   temperature,
-  paintHeat,
   wedgeHeat,
   type AgentReport,
   type Grade,
   type Node,
 } from '../lib/api'
 
+
+/** Functions under a node, itself included when it is one.
+ *
+ *  A plain walk rather than `summarize`, which crosses the same subtree to build four lists
+ *  and a spread this header has no use for. Excluded functions count: they are inside the
+ *  wedge whose line total sits next to this number, and a header whose two figures described
+ *  different sets of code would be the quiet kind of wrong. */
+function countFuncs(n: Node): number {
+  return (n.kind === 'func' ? 1 : 0) + n.children.reduce((a, c) => a + countFuncs(c), 0)
+}
 
 /**
  * One reading, as a dial.
@@ -248,7 +256,9 @@ function Contents({
   const label = node.kind === 'dir' ? 'Contents' : 'Functions'
 
   return (
-    <div className="mt-4 border-t border-[var(--border)] pt-3">
+    /* Full-bleed and re-padded, so the rule reaches both edges of the pane exactly as the
+       readings pane's and the history log's do. */
+    <div className="-mx-4 mt-4 border-t border-[var(--border)] px-4 pt-3">
       <div className="mb-2 flex items-baseline justify-between">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
           {label}
@@ -340,6 +350,11 @@ export function Detail({
   const s = node.score
   const t = temperature(s)
   const isLeaf = node.kind === 'func'
+  // Counted here rather than taken from `summarize`, which walks the same subtree to build
+  // four lists this header does not want. Excluded functions are counted in: they are drawn
+  // in the wedge whose lines are printed beside this number, and a total that silently
+  // disagreed with the picture would be worse than none.
+  const funcCount = countFuncs(node)
   const analyzed = isAnalyzed(node)
   // Null unless a reader actually read this one, which is what keeps the words off a
   // proxy estimate — those are continuous and mean something else.
@@ -363,12 +378,20 @@ export function Detail({
           rubber-banding carried the header with it — the pinned block bounced away from
           the top edge and left a gap of panel behind it. Outside the box it cannot move,
           and the bounce happens under it where it belongs. */}
-      <div className="shrink-0 border-b border-[var(--border)] px-4 pb-3 pt-4">
-      <div className="mb-1 flex items-center gap-2">
-        <span
-          className="inline-block h-3 w-3 shrink-0 rounded-full"
-          style={{ background: analyzed ? heatColor(paintHeat(node)) : 'var(--unanalyzed)' }}
-        />
+      {/* `px-4 pt-4` and no bottom border, which is the readings pane's header and the
+          history pane's to the pixel. The three are one column under three subjects, and the
+          rule below the header belongs to the section it introduces — drawn here as well it
+          put two dividers a dozen pixels apart. */}
+      <div className="shrink-0 px-4 pt-4">
+      {/* No bottom margin: the path's own `mt-0.5` is the whole gap, which pulls the name and
+          the thing it names into one block and leaves the `mt-2` above the counts as the only
+          real break in the header. Two groups, not three lines — the same spacing the repo and
+          history headers get, where a name and its path were never further apart than a path
+          and its totals. */}
+      <div className="flex items-center gap-2">
+        {/* No swatch. It was the wedge's own colour repeated beside its name, and the dial
+            directly under it already says that — in words, on the scale the reading actually
+            has. Two encodings of one number, the smaller of which cannot be read. */}
         <h2 className="mono truncate text-sm font-semibold">{node.name}</h2>
         {/* Three ring kinds are hard to tell apart in a sunburst, and hue can't be
             borrowed to distinguish them — hue is the chart's entire message. So the
@@ -394,11 +417,27 @@ export function Detail({
       {/* Two lines, and the path elided rather than wrapped — the same treatment the
           ring's hover gives it. Wrapped, a deep path took three lines and split its own
           filename across two of them, and the size hid at the end of the run-on. */}
-      <p className="mono truncate text-[11px] text-[var(--muted-foreground)]">
+      <p className="mono mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
         {elide(`${node.path}${node.line !== null ? `:${node.line}` : ''}`, 40)}
       </p>
-      <p className="mono text-[11px] tabular-nums text-[var(--muted-foreground)]">
+      {/* The repo header's shape — lines · functions — scoped to what is selected, so moving
+          between the whole project and one directory is a change of SUBJECT and not of layout.
+          A function gets lines alone: it has no function count to give.
+
+          No commits, where the repo header has them. The only per-node figure that exists is
+          `score.commits`, the 90-day window `churn` is built on, and printing that under the
+          same word the repo line uses for all of history would have a directory read "0
+          commits" because nobody touched it this quarter. Qualifying it inline said so
+          honestly and wrapped the header onto a second line. The churn dial states that
+          window already, on a scale that admits what it is. */}
+      <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
         {node.loc.toLocaleString()} lines
+        {!isLeaf && (
+          <>
+            {' '}
+            · {funcCount.toLocaleString()} {funcCount === 1 ? 'function' : 'functions'}
+          </>
+        )}
       </p>
 
       {/* The two bars ride WITH the header, above the verdict rather than below it.
@@ -414,7 +453,16 @@ export function Detail({
         // has git — see the churn dial — but it does on whether this function has been
         // read, because a fourth dial reading "—" beside three real ones is a slot
         // advertising an absence rather than a measurement, on every unread function.
-        <div className={clsx('mt-3 grid gap-1', legibleWord ? 'grid-cols-4' : 'grid-cols-3')}>
+        // Under its own full-bleed rule, the same one the section below it gets. The dials are
+        // a section of the pane rather than a continuation of the header — what the thing IS
+        // above the line, what was measured of it below — and without the rule they read as a
+        // third line of the header set in a much larger type.
+        <div
+          className={clsx(
+            '-mx-4 mt-4 grid gap-1 border-t border-[var(--border)] px-4 pt-3',
+            legibleWord ? 'grid-cols-4' : 'grid-cols-3',
+          )}
+        >
           {isLeaf ? (
             <Gauge
               label="Surprise"
@@ -635,14 +683,12 @@ export function Detail({
             </div>
           )}
 
-          {/* Say plainly what the tool cannot do yet, and never misreport which
-              instrument produced the numbers directly above it. */}
-          {!analyzed && (
-            <p className="mt-3 text-[11px] leading-snug text-[var(--muted-foreground)]">
-              These come from the offline proxy, which measurably tracks file length more
-              than surprise. A reader has to look at it for a number worth acting on.
-            </p>
-          )}
+          {/* The proxy caveat used to be repeated here, guarded on `!analyzed` — inside the
+              branch the ternary above only reaches when `analyzed` is TRUE, so it had never
+              rendered for anybody. The pinned footer states which instrument produced these
+              numbers on every node, which is where that belongs: it is a fact about the whole
+              panel, not a paragraph at the end of one section. Two readers found this
+              independently in one pass, which is the metric doing its job. */}
         </>
       )}
 

@@ -435,7 +435,11 @@ export function Summary({
         </p>
 
         {s.functions > 0 && (
-          <div className="mt-4 border-t border-[var(--border)] pt-3">
+          /* Full-bleed (`-mx-4`, re-padded with `px-4`) so the rule reaches both edges of the
+             pane. Inset, it read as a rule belonging to the text column; the header above it
+             is the pane's subject and the break under it separates two sections of the pane,
+             which is the width the history log's own divider already had. */
+          <div className="-mx-4 mt-4 border-t border-[var(--border)] px-4 pt-3">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
               {lens ? BREAKDOWN_TITLE[mode as Exclude<ColorMode, 'surprise'>] : 'Readings'}
             </p>
