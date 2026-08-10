@@ -470,7 +470,7 @@ export function Detail({
               unreadable, which is a documentation problem and not a code one. */}
           {legibleWord && (
             <Gauge
-              label="Legible"
+              label="Opacity"
               value={GRADE_SURPRISE[node.agent!.legible!]}
               word={legibleWord}
               hint="How clear the body was once the reader had opened it — the second axis. Surprise asks whether the intent was reachable from outside; this asks what was there when they looked."

@@ -20,7 +20,7 @@ const GRADES: Grade[] = ['full', 'most', 'some', 'none']
  *  and this is naming the rows underneath it, which are authors. A heading that repeated
  *  the tab would tell the reader something they can already see. */
 const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
-  legible: 'Legible once open',
+  legible: 'Opacity',
   traps: 'Traps',
   blame: 'Authors',
   language: 'Languages',

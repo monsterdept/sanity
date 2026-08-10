@@ -410,14 +410,18 @@ export const HEAT_WORDS: Record<Grade, string> = {
  * is the thing it is actually measuring. Nobody can say from "hot once open" whether that
  * function was easy or difficult, which is the entire question.
  *
- * The same four steps, named for what they mean here, and matched to the ends already
- * printed on the legend: `plain` at one end, `opaque` at the other.
+ * The same four steps, named for what they mean here, and matched to the ends printed on the
+ * legend: `crystal` at one end, `nonsense` at the other.
+ *
+ * Display only. `.sanity/` records the GRADE a reader sent — `legible: full` — so renaming
+ * these can never invalidate a committed corpus, and the store never has to know which lens
+ * is asking.
  */
 export const LEGIBLE_WORDS: Record<Grade, string> = {
-  full: 'plain',
+  full: 'crystal',
   most: 'readable',
   some: 'murky',
-  none: 'opaque',
+  none: 'nonsense',
 }
 
 /** How well documented, in the reader's own words. Post-provenance, so a doc it judged

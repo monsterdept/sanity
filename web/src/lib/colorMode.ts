@@ -38,13 +38,21 @@ export type ColorMode =
  * is the whole timeline. Entering it is then a continuation of the gesture rather than a
  * mode change out of nowhere.
  *
+ * Every lens is named for its BRIGHT end, because the map has one invariant — bright is the
+ * thing you have to do something about. `Surprise` obeyed it and `Legibility` did not: more
+ * colour meant LESS of what that tab was called, so the two lenses ran in opposite polarity
+ * while painting bad-as-bright identically. Surprise and opacity are the parallel pair.
+ *
+ * The mode KEY stays `legible`, matching `Report.legible` — the wire field and the committed
+ * store both say `legible: full`, and renaming the display word must never reach them.
+ *
  * The three lenses painted from a reader's report lead, because Surprise is what the app is
  * for. `language` divides them from the git-derived three: it is the only lens painted from
  * neither a reading nor a commit, which makes it the seam rather than an orphan on the end.
  */
 export const MODE_LABEL: Record<ColorMode, string> = {
   surprise: 'Surprise',
-  legible: 'Legibility',
+  legible: 'Opacity',
   traps: 'Traps',
   language: 'Language',
   blame: 'Blame',
@@ -54,7 +62,7 @@ export const MODE_LABEL: Record<ColorMode, string> = {
 
 export const MODE_HINT: Record<ColorMode, string> = {
   surprise: 'what a reader didn’t see coming',
-  legible: 'how clear it is once you open it',
+  legible: 'how hard it is to follow once you open it',
   traps: 'what will bite whoever edits it next',
   language: 'what it is written in',
   blame: 'who committed to it last',

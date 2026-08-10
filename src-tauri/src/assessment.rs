@@ -671,7 +671,31 @@ pub fn save(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> std:
 
 fn render_entry(name: &str, ord: usize, r: &Report, stale: bool) -> String {
     let mut s = String::new();
-    let tail = if stale { " — STALE" } else { "" };
+    // Markers for the things somebody skimming has to be able to find.
+    //
+    // The heading carried the surprise verdict and nothing else, so opacity and traps were
+    // invisible to a human reading `.sanity/` — they sat in the metadata line four rows down,
+    // in a bullet written for the parser. A skim is the only way anyone reads a shard of two
+    // hundred entries, and the two facts most worth stopping for were the two it did not say.
+    //
+    // Only the loud end of each. `crystal` and `readable` need no marker — a heading that
+    // annotated every entry would annotate none of them — so this marks a body a reader had
+    // to work at, one it could not follow, and a footgun. Everything after the em-dash is
+    // decoration `parse_shard` splits off and recomputes on write, so these cost nothing
+    // durable and cannot drift from the record they summarise.
+    let mut marks = String::new();
+    match r.legible {
+        Some(Grade::None) => marks.push_str(" — NONSENSE"),
+        Some(Grade::Some) => marks.push_str(" — MURKY"),
+        _ => {}
+    }
+    if r.trap {
+        marks.push_str(" — TRAP");
+    }
+    if stale {
+        marks.push_str(" — STALE");
+    }
+    let tail = marks;
     // The ordinal is only printed when there IS a twin, so the overwhelming majority of
     // entries read as a plain function name and the marker means something where it
     // appears. Parsed back as part of the key — see `key_of`.

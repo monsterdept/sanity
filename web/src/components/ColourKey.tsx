@@ -41,18 +41,25 @@ function Legend({ mode, categories }: { mode: ColorMode; categories: string[] })
   if (mode === 'traps') {
     return (
       <div className="flex items-center gap-2">
-        <div className="h-2 w-24 overflow-hidden rounded-full" style={{ background: 'var(--trap)' }} />
-        <span className="shrink-0 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
-          trap
-        </span>
+        {/* A square, the same shape as the stale and unread swatches below it — not the
+            ramp's rounded bar. A bar spans, and spanning is what a scale does; this is one
+            state a wedge either has or does not. The pill said "somewhere along here" about
+            a value with no along. */}
+        <span
+          className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+          style={{ background: 'var(--trap)' }}
+        />
+        <span className="text-[10px] text-[var(--muted-foreground)]">trap</span>
       </div>
     )
   }
 
   const ends: Record<string, [string, string]> = {
-    surprise: ['clear', 'unclear'],
+    // The row words this key sits above, not a fifth vocabulary: it read
+    // `clear → unclear` while the rows beneath said cold/warm/hot/blazing.
+    surprise: ['cold', 'blazing'],
     // Same direction as heat: the bright end is the one you have to do something about.
-    legible: ['plain', 'opaque'],
+    legible: ['crystal', 'nonsense'],
     churn: ['settled', 'churning'],
     age: ['old', 'recent'],
   }
