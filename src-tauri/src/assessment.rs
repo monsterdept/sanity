@@ -99,6 +99,25 @@ fn shard_of(path: &str) -> String {
 
 /// A shard name as a filename. Top-level directory names are already single path
 /// segments, so this only has to defend against the odd hostile character.
+/// The shard files an index links to, from its Markdown.
+///
+/// The index is the tool's own record of what it wrote, so parsing it back is how `save`
+/// knows which files in a shared directory are its to remove. Matches `[label](name.md)`,
+/// which is what `row` renders — if that ever changes shape, this has to move with it, and
+/// the failure is visible: the sweep stops removing anything rather than removing too much.
+fn shard_links(readme: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for (_, rest) in readme.match_indices("](").map(|(i, _)| (i, &readme[i + 2..])) {
+        if let Some(end) = rest.find(')') {
+            let name = &rest[..end];
+            if name.ends_with(".md") && !name.contains('/') && name != "README.md" {
+                out.push(name.to_string());
+            }
+        }
+    }
+    out
+}
+
 fn shard_file(shard: &str) -> String {
     let safe: String = shard
         .chars()
@@ -319,6 +338,10 @@ fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
                     r.documented = parse_grade(v);
                 } else if let Some(v) = seg.strip_prefix("derivable:") {
                     r.derivable = v.trim() == "yes";
+                } else if let Some(v) = seg.strip_prefix("legible:") {
+                    r.legible = parse_grade(v);
+                } else if let Some(v) = seg.strip_prefix("trap:") {
+                    r.trap = v.trim() == "yes";
                 }
             }
         }
@@ -607,19 +630,42 @@ pub fn save(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> std:
         index.push(c.row());
     }
 
-    // Shards that lost their last reading leave a file behind claiming coverage that is
-    // no longer there. Cleared, not left to rot.
-    if let Ok(existing) = std::fs::read_dir(&root) {
-        let keep: Vec<String> = compiled.iter().map(|c| shard_file(&c.shard)).collect();
-        for e in existing.flatten() {
-            let name = e.file_name().to_string_lossy().to_string();
-            if name.ends_with(".md") && name != "README.md" && !keep.contains(&name) {
-                let _ = std::fs::remove_file(e.path());
-            }
-        }
-    }
+    // What the OUTGOING index linked to — read before it is overwritten, because that list
+    // is the only record of which files in here this tool created.
+    let ours = shard_links(&std::fs::read_to_string(root.join("README.md")).unwrap_or_default());
 
     std::fs::write(root.join("README.md"), render_index(&repo_name(repo), &index))?;
+
+    // Shards that lost their last reading leave a file behind claiming coverage that is no
+    // longer there. Cleared, not left to rot — but only ours, and only after the index that
+    // replaces them is safely on disk.
+    //
+    // **It used to delete every `.md` that was not `README.md` or a current shard**, which
+    // is a much wider net than the sentence above describes: `.sanity/` is a directory this
+    // tool SHARES with a human, and any note left in it was removed on the next report, with
+    // the result thrown away so nothing said so. Deriving the list from the previous index
+    // means the sweep can only ever remove a file this tool put there and then stopped
+    // claiming — a file nobody linked is a file nobody here owns.
+    //
+    // After the write, not before: a failed index used to leave the shards already pruned,
+    // so the one moment the two could disagree was also the moment the evidence went. Now a
+    // failure leaves both halves as they were and `?` reports it.
+    //
+    // And the error is returned rather than discarded. A permissions problem left a dead
+    // shard on disk that the new index does not link, which is an orphan claiming coverage
+    // with nothing pointing at it and nobody told.
+    let keep: Vec<String> = compiled.iter().map(|c| shard_file(&c.shard)).collect();
+    for name in ours {
+        if keep.contains(&name) {
+            continue;
+        }
+        match std::fs::remove_file(root.join(&name)) {
+            Ok(()) => {}
+            // Already gone is the outcome we wanted.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
     Ok(())
 }
 
@@ -661,10 +707,14 @@ fn render_entry(name: &str, ord: usize, r: &Report, stale: bool) -> String {
     let (predicted, documented) = r.grades();
     let doc = documented.map_or("not judged".to_string(), |g| grade_word(g).to_string());
     s.push_str(&format!(
-        "- predicted: {} · documented: {} · derivable: {}\n",
+        "- predicted: {} · documented: {} · derivable: {} · legible: {} · trap: {}\n",
         grade_word(predicted),
         doc,
         if r.derivable { "yes" } else { "no" },
+        // "not judged", not a default grade: every reading banked before this field existed
+        // has no opinion about legibility, and printing one would invent a measurement.
+        r.legible.map_or("not judged".to_string(), |g| grade_word(g).to_string()),
+        if r.trap { "yes" } else { "no" },
     ));
 
     if !r.note.trim().is_empty() {
@@ -822,6 +872,48 @@ pub fn who(repo: &Path) -> String {
 mod tests {
     use super::*;
 
+    /// A human's file in `.sanity/` survives a report; a shard that lost its readings does not.
+    ///
+    /// The sweep used to remove every `.md` that was not `README.md` or a current shard, and
+    /// discard the result. `.sanity/` is a directory this tool shares with a person — it is
+    /// committed, and the whole point is that a human can read it — so a note left there
+    /// disappeared on the next reading with nothing said. Deriving the list from the
+    /// outgoing index is what makes the sweep incapable of touching a file it did not write.
+    #[test]
+    fn a_human_file_in_the_assessment_survives_a_save() {
+        let _home = crate::agentapi::tests::data_home();
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let scan = crate::scan::scan(
+            repo.path(),
+            &crate::surprise::HeuristicModel,
+            &|_| {},
+            &|_, _: &crate::surprise::Reading| {},
+            &std::sync::atomic::AtomicBool::new(false),
+            crate::scan::Memos {
+                scores: &crate::cache::Cache::ephemeral(),
+                scans: &crate::scancache::ScanCache::ephemeral(),
+            },
+            crate::scan::Fidelity::Ordering,
+        )
+        .unwrap();
+
+        save(repo.path(), &scan, &HashMap::new()).unwrap();
+
+        let mine = dir(repo.path()).join("NOTES.md");
+        std::fs::write(&mine, "# my notes\n").unwrap();
+        // A shard this tool wrote and has since stopped claiming.
+        let orphan = dir(repo.path()).join("gone.md");
+        std::fs::write(&orphan, "# an old shard\n").unwrap();
+
+        save(repo.path(), &scan, &HashMap::new()).unwrap();
+
+        assert!(mine.exists(), "a human's note was deleted by a save");
+        // `gone.md` was never linked by an index this tool wrote, so it is not ours to
+        // remove either — the rule is "what we claimed", not "what we recognise".
+        assert!(orphan.exists(), "a file this tool never linked was removed");
+    }
+
     fn report(id: &str, note: &str) -> Report {
         Report {
             id: id.to_string(),
@@ -830,6 +922,8 @@ mod tests {
             predicted: Some(Grade::Some),
             documented: Some(Grade::Full),
             derivable: false,
+            legible: Some(Grade::Most),
+            trap: true,
             note: note.to_string(),
             cold: true,
             position: Some(3),
@@ -858,6 +952,12 @@ mod tests {
         assert_eq!(got.by, "ross@rossturk.com");
         assert!(got.cold);
         assert!(!got.derivable);
+        // The second axis has to survive the store, not just the wire. This repo has
+        // already lost four fields once — the schema declared them, `Report` held them,
+        // and the copy of the contract in between dropped them silently. A field that
+        // round-trips through neither is indistinguishable from a field nobody sent.
+        assert_eq!(got.legible, Some(Grade::Most), "legible did not survive the round trip");
+        assert!(got.trap, "trap did not survive the round trip");
         assert_eq!(got.predicted, Some(Grade::Some));
         assert_eq!(got.documented, Some(Grade::Full));
         // Where the reading sat in its reader's run. `read at`, `read by` and `reading N`
@@ -1026,6 +1126,7 @@ mod tests {
         Scan {
             root,
             stats: crate::scan::ScanStats {
+                commits: 0,
                 files_scanned: 0,
                 files_skipped: 0,
                 functions: funcs.len(),
