@@ -29,8 +29,9 @@ function countFiles(n: Node): number {
  *
  * Extracted when the treemap arrived rather than copied into it. The card is a contract
  * about what the map is willing to claim for a node: the reading is the SWATCH and never
- * a number, absence reads "not measured yet", and a stale reading says so on hover rather
- * than making you click for it. Two copies of that would drift the way the two copies of
+ * a number, never-read reads "not measured yet", expired reads "stale", and a stale reading
+ * says so on hover rather than making you click for it. Two copies of that would drift the
+ * way the two copies of
  * the MCP schema did, and the half that drifted would be the one nobody was looking at.
  *
  * Geometry-independent by construction: it takes a node and a pointer position, and knows
@@ -154,12 +155,29 @@ export function WedgeTip({
           Size is deliberately the quiet half: it is the axis you already know, and
           the swatch beside it is the axis that is worth reading. */}
       <div className="mb-1 flex items-baseline gap-1.5">
+        {/* Hatched when the reading has expired, the same 45° rule the wedge and the key
+            both wear. The swatch's whole job is to be the colour you are pointing at, and a
+            flat square beside the word `stale` described a wedge that is not on screen —
+            the one on screen is hatched. Reproduced in CSS rather than reaching into the
+            SVG's <defs>: it only has to look alike, but it does have to STAY alike, so the
+            angle and the pitch are `#stale-hatch`'s. */}
         <span
           className="h-2.5 w-2.5 shrink-0 translate-y-px rounded-[2px]"
-          style={{ background: analyzed && c ? c.fill : 'var(--unanalyzed)' }}
+          style={{
+            background: analyzed && c ? c.fill : 'var(--unanalyzed)',
+            backgroundImage: n.agentStale
+              ? 'repeating-linear-gradient(45deg, var(--foreground) 0 1.2px, transparent 1.2px 4px)'
+              : undefined,
+          }}
         />
+        {/* A stale wedge says `stale`, not `not measured yet`. Both are absences of a
+            CURRENT reading and the wedge falls back to the proxy for either, but they are
+            not the same absence: one has never been looked at, the other was read and the
+            code moved out from under it. Saying "not measured yet" over a hatched wedge
+            contradicted the sentence directly beneath it, which was explaining why the
+            reading no longer counts. */}
         <span className="truncate text-[11px]">
-          {analyzed && c ? c.label : 'not measured yet'}
+          {n.agentStale ? 'stale' : analyzed && c ? c.label : 'not measured yet'}
         </span>
         {/* Never shrinks, and the label gives way instead — under Owner or Language
             the label is a category name of unbounded length, and letting it push the
@@ -179,8 +197,7 @@ export function WedgeTip({
           click charged for reading the map. */}
       {n.agentStale && (
         <p className="mb-1 text-[10px] leading-snug text-[var(--warning)]">
-          Read before, but the code has changed since — that reading no longer colours
-          this wedge.
+          Changed since last reading
         </p>
       )}
 
