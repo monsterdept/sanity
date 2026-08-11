@@ -1204,6 +1204,25 @@ repeating them here would only bill every reader twice for one contract.\n\n";
 ///
 /// Terse on purpose. It used to restate every `sanity_report` field, which the tool schema
 /// already carries — one contract, billed to each reader twice.
+///
+/// **The brief clause is about DISCLOSURE, not access, and that is not a softening.** A
+/// `CLAUDE.md` is injected into a subagent's context by the harness before the reader does
+/// anything, so "do not read it" is a rule that cannot be followed — and a rule that cannot
+/// be followed is how readers learn to treat the rest of this as advisory. What a reader can
+/// actually do is notice, discount, and say so.
+///
+/// It is here rather than nowhere because the question keeps arriving from outside: two
+/// separate users' agents reported the same thing, that a repo's brief names specific
+/// functions and readers then predict them from it. The measurement was defensible — a new
+/// teammate reads the brief too, and documentation reaching the instrument is the whole
+/// design — but "defensible" is not the same as "recorded", and the honest answer to a
+/// recurring question is a field in the record rather than a paragraph in a reply.
+///
+/// What it costs: the reader's fixed prefix went 2,212 → 2,315 tokens, ~103 per reading, or
+/// about 65k across a full pass of this repo. What it buys is the one thing the corpus could
+/// not otherwise say — WHICH readings leaned on the brief — and it narrows what `predicted`
+/// claims from "predictable to a new teammate" to "predictable from the handout", which is
+/// the only half this tool controls.
 pub const READER_PROMPT: &str = "\
   You are reading a codebase you have never seen, and you are assessing EXACTLY TEN \
   THINGS, ONE AT A TIME. Repeat this ten times: call sanity_next with no arguments and \
@@ -1220,6 +1239,11 @@ pub const READER_PROMPT: &str = "\
   you assess them.\n\n\
   Grade `predicted` against what you WROTE, not against what you understand now: the \
   question is what the code told a stranger.\n\n\
+  THE PROJECT'S OWN BRIEF IS NOT THE HANDOUT. A CLAUDE.md or AGENTS.md may already be in \
+  your context, and some of them explain specific functions by name. Do not open one, and \
+  do not let it carry a prediction: predict from the name, owner, signature, peers and docs \
+  you were given. Where you notice you knew something from the brief rather than from the \
+  handout, grade on the handout alone and say so in `note`.\n\n\
   Do not read any other file, do not spawn subagents, and do NOT read the `.sanity/` \
   directory — it holds the previous reader's findings, and seeing them makes everything \
   you say afterwards worthless. If a tool errors, read the message: connection failures \
@@ -1542,20 +1566,35 @@ fn count_stale(scan: &Scan, reports: &HashMap<String, Report>) -> usize {
     n
 }
 
-/// Functions whose reading still describes them.
+/// Things in the scan whose reading still describes them.
 ///
-/// `reports.len()` is not this number, and reporting it as one is the same failure as
-/// counting leased work in `done`: a reading whose body has moved is history, not
-/// coverage, and `collect_tasks` has already put that function back in the queue.
-/// `ProjectSummary` subtracted stale and `/status` did not, so the sidebar and the agent
-/// driving the assessment disagreed about how far along it was — and the agent's copy was
-/// the optimistic one. An instrument that overstates its own coverage is worse than one
-/// that measures nothing.
+/// Counted from the SCAN, not from the reports, and that is the whole of it. `reports.len()`
+/// is not this number and neither is `reports.len() - stale`, which is what it used to be:
+/// `count_stale` walks the scan to find expired readings, so a reading whose function was
+/// DELETED is never stale — nothing walks past it — and it sat in the total forever. A repo
+/// that removed code could report `assessed` above its own function count, and this one did:
+/// `/status` said 241 while `sanity_summary`, which counts differently, said 217 a minute
+/// later, after an afternoon of deleting and renaming.
+///
+/// Walking the live side fixes both halves at once. A deleted function has no node to be
+/// found from, so its orphaned reading cannot be counted; a moved one fails `is_stale`
+/// against its own node. It is the same direction `save` takes for the same reason — iterate
+/// what exists, look up its reading — and the same rule the queue follows: a reading whose
+/// body has moved is history, not coverage. An instrument that overstates its own coverage
+/// is worse than one that measures nothing.
 fn assessed(project: &Project) -> usize {
-    project
-        .reports
-        .len()
-        .saturating_sub(count_stale(&project.scan, &project.reports))
+    let mut n = 0;
+    project.scan.root.visit(&mut |node| {
+        if !matches!(node.kind, NodeKind::Func | NodeKind::File) {
+            return;
+        }
+        if let Some(r) = project.reports.get(&node.id) {
+            if !crate::assessment::is_stale(r, node.body.as_deref()) {
+                n += 1;
+            }
+        }
+    });
+    n
 }
 
 /// Functions in scope, and functions `.sanityignore` set aside.
@@ -2465,7 +2504,9 @@ impl ProjectList {
                     functions,
                     files,
                     excluded,
-                    assessed: p.reports.len().saturating_sub(stale),
+                    // The same walk `assessed` does, and for the reason written there:
+                    // `reports.len() - stale` counts readings whose function was deleted.
+                    assessed: assessed(p),
                     stale,
                     touched: p.touched,
                     loading: false,
@@ -3196,6 +3237,45 @@ fn second() { println!(\"2\"); }\n").unwrap();
         let tests = shape.iter().find(|r| r["dir"] == "tests").expect("tests/ in the shape");
         assert_eq!(tests["excluded"], 2);
         assert_eq!(tests["functions"], 0);
+    }
+
+    /// A reading for code that is gone must not count as coverage.
+    ///
+    /// `assessed` was `reports.len() - stale`, and `count_stale` walks the SCAN — so a
+    /// reading whose function had been deleted was never stale, because nothing walked past
+    /// it, and it stayed in the numerator forever. A repo that removed code could report
+    /// more assessed than it has functions. Found by the disagreement it caused: `/status`
+    /// said 241 where `sanity_summary` said 217.
+    #[test]
+    fn a_reading_for_a_deleted_function_is_not_coverage() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gate.rs");
+        std::fs::write(&path, "fn open() { println!(\"1\"); }\nfn shut() { println!(\"2\"); }\n")
+            .unwrap();
+        let mut p = project_of(dir.path());
+
+        // Both read, against their own bodies.
+        let mut ids = Vec::new();
+        p.scan.root.visit(&mut |n| {
+            if n.kind == NodeKind::Func {
+                ids.push((n.id.clone(), n.body.clone().unwrap_or_default()));
+            }
+        });
+        assert_eq!(ids.len(), 2);
+        for (id, body) in &ids {
+            p.reports.insert(id.clone(), Report { id: id.clone(), body: body.clone(), ..Report::blank() });
+        }
+        assert_eq!(assessed(&p), 2, "two live readings");
+
+        // One function is deleted and the repo rescanned. Its reading is now about nothing.
+        std::fs::write(&path, "fn open() { println!(\"1\"); }\n").unwrap();
+        let rescanned = project_of(dir.path());
+        p.scan = rescanned.scan;
+        assert_eq!(
+            assessed(&p),
+            1,
+            "the survivor counts; the orphan is history, not coverage"
+        );
     }
 
     /// A file is handed out as its own reading, with the header and the whole list.

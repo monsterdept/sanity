@@ -134,6 +134,21 @@ export const OTHER_LABEL = 'other'
  *  own copy of the palette's size is a legend that can disagree with the map. */
 export const SLOTS = CATEGORICAL.length
 
+/** The name git puts on a line that is in the working tree and not in a commit.
+ *
+ *  It arrives as an author string and it is not an author: it is a STATE, and treating it
+ *  as a person cost this map twice over. It sorted second by lines in a repo mid-session
+ *  and took `--cat-2`, so one of eight measured colour slots went to a non-person and a
+ *  real author was pushed toward "Other" — while the legend listed it among people. Now it
+ *  is an absence, like a file with no blame at all, and the two say which they are. */
+const UNCOMMITTED = 'Not Committed Yet'
+
+/** Neither an author nor a language: a fact about git's view of the line, not about who
+ *  wrote it. Both are drawn in the unanalysed neutral and named for what they are. */
+export function isAuthor(key: string | null): key is string {
+  return key !== null && key !== UNCOMMITTED
+}
+
 /** Rank → colour. Beyond the palette, everything is "Other". */
 export function slotColor(rank: number): string {
   return rank < CATEGORICAL.length ? CATEGORICAL[rank] : OTHER
@@ -373,7 +388,16 @@ export function colorFor(
       const share = undocShare(node)
       if (share === null) return null
       const n = Math.round(share * 100)
-      return { ...ramped(shareRamp(share), 'docs'), label: `${n}% of files undescribed` }
+      // LINEAR, not `shareRamp`. That curve is `min(1, share/0.25)^0.7` and its band is a
+      // measured claim about HOT share, where a quarter of a directory being hot is extreme
+      // and exactly one directory in tonepoet saturated. Documentation is not distributed
+      // like that: half the directories in a normal repo are 40–100% undescribed, so every
+      // one of them pinned to the brightest cyan and the ring stopped being a ranking —
+      // which is the failure `shareRamp`'s own doc warns about, inherited by reusing its
+      // constants in a place nobody measured them for. A share of files is already 0..1 on
+      // its own terms and wants no curve; `0` still maps to `0`, so a fully described
+      // directory reads as fine.
+      return { ...ramped(share, 'docs'), label: `${n}% of files undescribed` }
     }
     const g = docGrade(node)
     if (!g) return null
@@ -411,6 +435,15 @@ export function colorFor(
 
   const key = mode === 'blame' ? node.lastAuthor : node.lang
   if (!key) return null
+  // Uncommitted lines are a state, never a slot — see `UNCOMMITTED`.
+  if (mode === 'blame' && !isAuthor(key)) {
+    return {
+      fill: 'var(--unanalyzed)',
+      stop: 'var(--unanalyzed)',
+      ink: inkOn('var(--unanalyzed)'),
+      label: 'uncommitted lines',
+    }
+  }
   const rank = ranks?.get(key)
   const slot = rank === undefined ? OTHER : slotColor(rank)
   return {
@@ -556,11 +589,17 @@ export function bucketsFor(
         }
       } else if (mode === 'blame' || mode === 'language') {
         const key = mode === 'blame' ? n.lastAuthor : n.lang
-        if (key) {
+        if (key && (mode !== 'blame' || isAuthor(key))) {
           const rank = ranks?.get(key)
           put(key, key, rank === undefined ? OTHER : slotColor(rank), n)
+        } else if (mode === 'blame' && key) {
+          // Written to but not committed. Its own row, because "these lines are yours and
+          // unsaved" and "this file is not in git" are different things to be told.
+          put('\u0000uncommitted', 'uncommitted lines', 'var(--unanalyzed)', n)
         } else {
-          put(UNKNOWN, mode === 'blame' ? 'uncommitted' : 'unknown', 'var(--unanalyzed)', n)
+          // No blame at all: untracked, a symlink, or not a repo. It was labelled
+          // `uncommitted`, which is the other thing entirely.
+          put(UNKNOWN, mode === 'blame' ? 'not in git' : 'unknown', 'var(--unanalyzed)', n)
         }
       } else if (mode === 'churn') {
         // Same gate `colorFor` uses, so a wedge the map left grey is not given a band here.
@@ -617,7 +656,10 @@ export function legendFor(root: Node, mode: ColorMode): string[] {
   const seen = new Map<string, number>()
   const walk = (n: Node) => {
     const key = mode === 'blame' ? n.lastAuthor : n.lang
-    if (key && n.kind === 'func') seen.set(key, (seen.get(key) ?? 0) + n.loc)
+    // Uncommitted lines never enter the ranking, so they cannot hold a colour slot.
+    if (key && n.kind === 'func' && (mode !== 'blame' || isAuthor(key))) {
+      seen.set(key, (seen.get(key) ?? 0) + n.loc)
+    }
     n.children.forEach(walk)
   }
   walk(root)

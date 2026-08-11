@@ -112,7 +112,12 @@ export function Gauge({
           {unread ? '—' : (word ?? Math.round(v * 100))}
         </text>
       </svg>
-      <span className="mt-0.5 cursor-help text-center text-[9.5px] font-semibold uppercase leading-tight tracking-wide text-[var(--muted-foreground)]">
+      {/* Wraps rather than overflows. At three columns every label was one short word; at
+          four, `UNDOCUMENTED` is wider than its column and ran into `HOT SHARE` beside it.
+          `break-words` lets the long ones take two lines, and the tracking comes off so
+          they need fewer — a label that collides is worse than a label set slightly tighter
+          than its neighbours. */}
+      <span className="mt-0.5 w-full cursor-help break-words text-center text-[9px] font-semibold uppercase leading-tight tracking-tight text-[var(--muted-foreground)]">
         {label}
       </span>
     </div>
@@ -237,7 +242,11 @@ export function Dials({ node }: { node: Node }) {
           nobody has described. A dial that averaged something else would disagree with the
           wedge it is standing next to. */}
       <Gauge
-        label={node.kind === 'dir' ? 'Files undescribed' : 'Undocumented'}
+        // Named for what the dial PRINTS, not for what the ramp paints. A function shows
+        // the reader's coverage grade (`most`), a directory the share of its files nobody
+        // described — the colour runs the other way in both, because bright is what wants
+        // doing, and the hint says so.
+        label={node.kind === 'dir' ? 'Files undescribed' : 'Documented'}
         value={
           node.kind === 'dir'
             ? (docs ?? 0)

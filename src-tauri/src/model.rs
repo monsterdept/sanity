@@ -552,7 +552,14 @@ impl Node {
             // heat up as work arrived, which reads as the code changing rather than our
             // knowledge of it changing.
             if c.kind == NodeKind::Func {
-                if s.source == Source::Model {
+                // Anything that is not the PROXY is a real measurement. Named as an
+                // exclusion rather than as `== Model`, which is what it was: nothing in Rust
+                // sets `Source::Agent` today — readings are folded in the browser — so the
+                // omission was latent rather than live, but `reaggregate` in `api.ts` is the
+                // hand-maintained twin of this function and it already counts both. Two
+                // implementations of one answer, disagreeing, with only the unwatched one
+                // wrong. A reader found it from the far end.
+                if s.source != Source::Proxy {
                     analyzed += cw;
                     if s.temperature() > HOT {
                         hot += cw;

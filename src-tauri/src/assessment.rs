@@ -141,6 +141,23 @@ fn shard_file(shard: &str) -> String {
     format!("{safe}.md")
 }
 
+/// What a file's own reading is filed under: its path, with no `#`.
+///
+/// Free by construction — every function key contains a `#`, so a bare path can never
+/// collide with one — and it is the same string the scan uses as the file node's id, which
+/// is what lets one report map hold both kinds without a second index.
+pub fn file_key(path: &str) -> String {
+    path.to_string()
+}
+
+/// How a file's own reading is titled in the store.
+///
+/// Prose rather than an identifier, and printed without backticks, because it is not one:
+/// a heading that read `` `parse.rs` `` inside a section already headed `parse.rs` would
+/// look like a function of that name. Matched on the way back in — see `parse_shard` — so
+/// this string is part of the store's format and not a label.
+const FILE_ENTRY: &str = "the file itself";
+
 /// The durable key for a reading: `path#name`, and `path#name#2` for the second
 /// same-named function in that file, `#3` for the third, and so on.
 ///
@@ -160,23 +177,6 @@ fn shard_file(shard: &str) -> String {
 /// functions does swap their readings, which is the one case this cannot see — and a
 /// swapped reading between two functions of the same name in the same file is a far
 /// smaller error than the one it replaces.
-/// What a file's own reading is filed under: its path, with no `#`.
-///
-/// Free by construction — every function key contains a `#`, so a bare path can never
-/// collide with one — and it is the same string the scan uses as the file node's id, which
-/// is what lets one report map hold both kinds without a second index.
-pub fn file_key(path: &str) -> String {
-    path.to_string()
-}
-
-/// How a file's own reading is titled in the store.
-///
-/// Prose rather than an identifier, and printed without backticks, because it is not one:
-/// a heading that read `` `parse.rs` `` inside a section already headed `parse.rs` would
-/// look like a function of that name. Matched on the way back in — see `parse_shard` — so
-/// this string is part of the store's format and not a label.
-const FILE_ENTRY: &str = "the file itself";
-
 fn key_of(path: &str, name: &str, ord: usize) -> String {
     if ord == 0 {
         format!("{path}#{name}")
@@ -868,12 +868,13 @@ fn render_shard(
     format!(
         "# {shard} — sanity assessment\n\
          \n\
-         {read} of {total} functions read · {surprising} surprising{stale_note}\n\
+         {read} of {total} read · {surprising} surprising{stale_note}\n\
          \n\
-         Each entry below is one **reading**. An agent was given a function's name,\n\
-         signature, neighbouring function names and comments — never its body — and wrote\n\
-         down what it expected to find. Then it opened the file. The gap between the two\n\
-         is the finding.\n\
+         Each entry below is one **reading**, of a function or of a whole file. An agent was\n\
+         given its name, signature, neighbouring names and comments — never its body — and\n\
+         wrote down what it expected to find. Then it opened the file. The gap between the\n\
+         two is the finding. A file's own entry is titled `the file itself` and asks whether\n\
+         the header at the top describes what is actually in there.\n\
          \n\
          `read at` is a hash of the body as it was when the reading was made. When it\n\
          stops matching the code, the reading is marked STALE and goes back in the queue.\n\

@@ -63,6 +63,9 @@ function rowNote(n: Node, mode: ColorMode): string {
     if (!s || s.lastTouchedDays === null) return '—'
     return s.lastTouchedDays < 1 ? 'today' : `${Math.round(s.lastTouchedDays)}d ago`
   }
+  // Guarded on the field it PRINTS. It asked `ageDays` — "does this have git history at
+  // all" — and then printed `commits`, so the em dash and the number were answering two
+  // different questions one line apart.
   if (mode === 'churn') return s && s.ageDays !== null ? `${s.commits} in 90d` : '—'
   return `${compactCount(n.loc)} lines`
 }
