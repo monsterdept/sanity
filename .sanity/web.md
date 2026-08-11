@@ -1,6 +1,8 @@
 # web — sanity assessment
 
-236 of 236 read · 29 surprising
+236 of 237 read · 29 surprising · 7 stale
+
+228 of these graded legibility under an earlier question and are not counted; see the note below.
 
 Each entry below is one **reading**, of a function or of a whole file. An agent was
 given its name, signature, neighbouring names and comments — never its body — and
@@ -10,6 +12,12 @@ the header at the top describes what is actually in there.
 
 `read at` is a hash of the body as it was when the reading was made. When it
 stops matching the code, the reading is marked STALE and goes back in the queue.
+
+`spec` is which version of the questions a reading answered. `legible` used to ask
+"how clear is it on its own terms", which defined no rung but the top one; it now
+asks what reading it was like — one pass, a second look, jumping around, or never
+being sure. Grades from before that are kept here, because they are what a reader
+said, but they no longer colour the map. Re-read those functions to replace them.
 
 What this is and how to add to it: [README.md](README.md)
 
@@ -373,12 +381,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly that, plus one thing I did not cover: the sort key and the trailing number are not fixed to surprise/loc but follow the current ColorMode via rank(n, mode) and measure(n, mode), with loc only as the final tiebreak. Also a header row labelled 'Contents' for dirs and 'Functions' otherwise with a child count.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `Detail` — QUIRKY
+### `Detail` — QUIRKY — STALE
 - read at `6d0973c69582` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: The right-hand inspector pane: with no node it describes the focused subtree; with a node it renders an owners breadcrumb, temperature/rank, age/churn scaled by ageSpan, signature and docs via Markdown, the agent reading with grades and provenance, a stale marker, a source view with copy button, and a children list wired to onSelect/onDrill/onShowIn, branching on mode.
 - found: Three return branches. No node: renders Summary over `focus`, or a Bloom ground pattern when there is no scan at all. A non-leaf node: the SAME Summary component scoped to that container, passed kindBadge, pathLine, provenance footer and an `about` block that shows a file's expected/found reading. A leaf: its own layout — sticky-by-flex header with name, kind badge and a trap badge, clickable owners breadcrumb (falling back to an elided path string), line count, Dials, then a scroller holding the not-scored / not-yet-read messages, the agent block (stale warning, warm-read pill, Expected and Found via Markdown with CopyButtons, a note box whose tab turns pink when the reading is a live trap), a `hotspots` "evidence" list of forced-decoding positions, and Contents; provenance is pinned as a footer outside the scroller. No signature or doc-header block at all — a comment states that quoting the file's own banner back is deliberately refused.
 - predicted: some · documented: none · derivable: no · legible: most · trap: no
 - note: There is no doc comment on the function; the only documentation is prop-level comments inside the signature, and they are the non-obvious kind (why an empty `owners` makes the plain path a fallback rather than dead code) — so `documented: none` here understates what the handout actually carried.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/components/Dials.tsx
 
@@ -396,12 +406,14 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: Unusually well documented at the prop level — each optional prop's doc states the failure it exists to prevent, which is why the prediction landed; the docstring's claim of "three of these side by side" is contradicted by a comment in the body about four columns.
 
-### `graded`
+### `graded` — STALE
 - read at `aba9cf13e738` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: Pulls the agent reading attached to the node and returns its legible or documented grade for the requested dial, undefined when there is no reading, and probably also when the reading is stale since a stale reading must not colour the view.
 - found: Returns undefined unless the node passes matches(), has an agent reading, and is not stale. For 'documented' it forces 'none' when the reading marked the docs derivable, otherwise returns the documented grade; for 'legible' it returns the legible grade (absent on file readings, so files read as unread).
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: I did not predict the derivable override — docs a model could regenerate are downgraded to 'none' here, which is the metric's rule enforced at the dial.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `fileDocShare`
 - read at `0a0470425d18` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -737,12 +749,14 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/api.ts
 
-### the file itself
+### the file itself — STALE
 - read at `51cdf71fe325` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: The frontend's single boundary to the Rust backend: thin invoke wrappers (listProjects, projectScan, scanRepo, readSource, mcp*, agentReports), event listeners for scan progress/theme/open-project, wire-to-domain conversions (toNode, toScan), and the colour/temperature helpers (temperature, wedgeHeat, heatColor, ramps) mapping a score to a wedge colour. No file header.
 - found: All of that, plus a large third responsibility I underweighted: it is the canonical TypeScript mirror of model.rs/agentapi.rs — Node/Score/AgentReport/ProjectSummary types with long doc comments, the Grade vocabulary (GRADE_SURPRISE, DOC_GAP, HEAT_WORDS, LEGIBLE_WORDS, DOC_WORDS), and real tree logic: applyAgentReports (stale fallback to proxyScore), summarize/countPending (scope-aware walks), applyScores and reaggregate (a full mirror of Node::aggregate).
 - predicted: most · documented: none · derivable: no · legible: most · trap: no
 - note: No module header at all on a 1015-line file that is the app's type mirror, grade vocabulary, tree aggregation and colour ramp in one — the per-declaration comments are excellent, but nothing states the file's scope, and `reaggregate` is a hand-maintained duplicate of Rust's `Node::aggregate` that has already drifted once (the hardcoded lastTouchedDays null).
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `showsShare`
 - read at `92308d117684` · commit `81eb6d5` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -859,12 +873,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly that. Two closure-captured counters and a `walk(n, out)` whose `out` flag is inherited downward — exclusion set on a directory propagates to every descendant rather than being checked per function. Stale and unread are mutually exclusive (`else if`), so a stale reading counts as stale and never also as unread.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `summarize` — QUIRKY
+### `summarize` — QUIRKY — STALE
 - read at `196985d9aa76` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: A pure helper walking the folded node tree once, accumulating repo-wide totals into a RepoSummary — file and function counts, total lines, a lines-weighted mean temperature, and a list of hottest functions/files for the sidebar; recursive descent treating function leaves differently from containers.
 - found: It is a recursive descent accumulating into RepoSummary, but the content is assessment coverage rather than size: functions vs excluded (exclusion inherited down the tree), read/stale/unread, the predicted-grade spread plus per-grade node lists, legibility spread, trap count, first stale node, and a `hot` list of nodes above a HOT temperature threshold. It ends by sorting hot and every byGrade bucket hottest-first with a loc tiebreak. It also carries a legacy fallback deriving a grade from the old `surprised` boolean when `predicted` is absent.
 - predicted: some · documented: none · derivable: yes · legible: most · trap: no
 - note: The name promises a size/temperature summary; the body is entirely about assessment coverage, and with no doc comment the only clue is the RepoSummary type.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `scanRepo`
 - read at `252492de7a28` · commit `81eb6d5` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 8 of its run
@@ -1042,12 +1058,14 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 - note: The docstring is attached at line 126 but the function starts at 162, so it is a long prose block explaining the repo-relative normalisation decision rather than the body — excellent, and not derivable from the code.
 
-### `opaqueShare`
+### `opaqueShare` — STALE
 - read at `7278be878d5a` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 8 of its run
 - expected: Recursive subtree walk summing loc of every func node carrying a legible reading into a `read` total, and into an `opaque` total when the grade is low (some/none). Returns null when read is 0, else opaque/read.
 - found: Exactly that, with one extra guard I did not name: stale readings are excluded too (`n.agent && !n.agentStale && n.agent.legible`), consistent with the repo rule that a stale reading must not colour anything. some/none are the opaque grades.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: Not cold: colorMode.ts was my first reading this run (legendFor), though I read only those 12 lines and nothing near this function.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `docGrade`
 - read at `307b4c5bd3c1` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -1070,12 +1088,14 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: Incidental correction to my earlier note on Dials: `opaqueShare` does exist, it lives in this file — it is just no longer what Dials calls for its fourth dial.
 
-### `colorFor`
+### `colorFor` — STALE
 - read at `a15aa28d5915` · commit `6366346` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: A large dispatch over ColorMode: one branch per mode (surprise/temperature, age via ageRamp/ageSpanOf, language and author as categorical slots via slotColor keyed through the ranks map, docs via docGrade/undocShare, churn), each returning a Paint plus a human label, with null wherever the node has no datum; containers averaging or taking shares of children.
 - found: Exactly that structure, with two modes I did not name (legible, traps) and three refinements I did not cover: docs is deliberately INVERTED (bright means undescribed) and uses a linear ramp rather than shareRamp; a file under docs answers only for its own header and never averages its functions; traps is two flat states plus absence, restricted to kind === 'func'. Surprise labels leaves with words and containers with a percentage. Blame and lang share the fallthrough, with uncommitted lines painted as a state rather than a slot.
 - predicted: most · documented: none · derivable: yes · legible: most · trap: no
 - note: Roughly half the 158 lines are inline commentary arguing past mistakes; the handed-over doc comment states only the contract, so nothing warned that one lens deliberately runs its ramp backwards.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `rankCategories`
 - read at `43639d96a85f` · commit `81eb6d5` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -1083,12 +1103,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: Delegates entirely to legendFor(root, mode), which returns the already-ordered category names, and just indexes that array into a Map name→i.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `bucketsFor`
+### `bucketsFor` — STALE
 - read at `5b5e702a3ea7` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: One walk over the subtree collecting non-excluded function leaves, assigning each to a fixed band for the current mode (grade bands, age bands via ageRamp on the passed repo ageSpan, doc grades, author slots, rank categories), returning Bucket[] with label, count/lines and a swatch colour from the same ramp colorFor uses — ramped modes taking the ramp colour at the mean of the band's members' inputs — plus a final neutral bucket for whatever the mode cannot colour.
 - found: That, plus four things I did not cover: it returns [] outright for the `surprise` mode (that panel has its own Spread); under `docs` a FILE is bucketed too, on its header's grade, alongside functions; the absence key is a NUL-escape-prefixed ` unknown` so a real author named "unknown" cannot land in the absence row, with a separate ` uncommitted` row for blame; and the tail is a four-way sort — by lines for blame/language, traps first for traps, best-first full/most/some/none for legible/docs, band order otherwise — with the unknown bucket filtered to the end regardless.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 - note: The doc says bucket counts add up to the `functions` total in the header, but under `docs` mode files are bucketed beside functions and `b.lines += n.loc` adds a file's whole line count on top of its own functions' — so that one lens is the exception to the sentence, and nothing in the docs says so.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `legendFor`
 - read at `dd8b74f0eee8` · commit `9c38c96` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run

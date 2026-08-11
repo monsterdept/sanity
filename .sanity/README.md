@@ -15,12 +15,12 @@ a comment or a second look.
 of them: open one and read it like notes from a code review. A human and an
 agent can both work from them as they are.
 
-| area | read | of | surprising | stale |
-|---|---|---|---|---|
-| [scripts](scripts.md) | 3 | 3 | 1 | 0 |
-| [src-tauri](src-tauri.md) | 476 | 476 | 23 | 0 |
-| [web](web.md) | 236 | 236 | 29 | 0 |
-| **total** | **715** | **715** | **53** | **0** |
+| area | read | of | surprising | stale | dated |
+|---|---|---|---|---|---|
+| [scripts](scripts.md) | 3 | 3 | 1 | 0 | 2 |
+| [src-tauri](src-tauri.md) | 476 | 482 | 23 | 15 | 466 |
+| [web](web.md) | 236 | 237 | 29 | 7 | 228 |
+| **total** | **715** | **722** | **53** | **22** | **696** |
 
 ## Seeing it as a map
 

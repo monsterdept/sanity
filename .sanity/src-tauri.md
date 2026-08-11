@@ -1,6 +1,8 @@
 # src-tauri — sanity assessment
 
-476 of 476 read · 23 surprising
+476 of 482 read · 23 surprising · 15 stale
+
+466 of these graded legibility under an earlier question and are not counted; see the note below.
 
 Each entry below is one **reading**, of a function or of a whole file. An agent was
 given its name, signature, neighbouring names and comments — never its body — and
@@ -10,6 +12,12 @@ the header at the top describes what is actually in there.
 
 `read at` is a hash of the body as it was when the reading was made. When it
 stops matching the code, the reading is marked STALE and goes back in the queue.
+
+`spec` is which version of the questions a reading answered. `legible` used to ask
+"how clear is it on its own terms", which defined no rung but the top one; it now
+asks what reading it was like — one pass, a second look, jumping around, or never
+being sure. Grades from before that are kept here, because they are what a reader
+said, but they no longer colour the map. Re-read those functions to replace them.
 
 What this is and how to add to it: [README.md](README.md)
 
@@ -115,11 +123,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly a four-arm match returning 0.95 / 0.7 / 0.35 / 0.0 — Full stops short of 1.0, which is the only choice here that carries an opinion.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `blank`
+### `blank` — STALE
 - read at `f85f9477da07` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: A constructor returning a Report with every field zeroed — empty strings for id/expected/found/note/by/at/body/model, None for optional grades and position, false for booleans — so Markdown parsers and tests can fill fields one at a time instead of needing Default.
 - found: Exactly that: sixteen fields, empty String for id/expected/found/note/model/body/by/at, None for predicted/documented/legible/position, false for surprised/derivable/trap/cold.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `grades`
 - read at `ff2b681f16b3` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
@@ -270,12 +280,14 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 - note: An unresolvable project returns `Json([])`, which a reader cannot distinguish from "the assessment is finished" — the one case the `:done` ping is careful to separate is invisible on the wire.
 
-### `report`
+### `report` — STALE
 - read at `5220179e4860` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: Handler storing one reading: resolve project via session key (for_client), find the function by node id, key it, stamp provenance server-side (body hash from the scan, `by` from git, `at`), insert into reports, drop the lease, persist to .sanity/ and return ok/error/hint plus remaining/in_flight/repo counts.
 - found: All of that, keyed by node id in the in-memory map (key_of happens inside save_reports), plus two things I did not predict: a mascot `ping` classifying the outcome as hot/cold/stale, and a contamination hint fired when repo-wide surprise rate is under 10% — with the write error overriding the hint and the ping.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 - note: 105 lines of which roughly half are commentary; the reasoning is excellent but the body would be easier to hold if the hint/ping block were its own function.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `status`
 - read at `b6ea85df359a` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
@@ -290,11 +302,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly that, with the None arm incrementing an explicit `ungraded` counter rather than being dropped.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `add` #2
+### `add` #2 — STALE
 - read at `3653ec134746` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 7 of its run
 - expected: Tally::add folds one Report into the repo-wide aggregate behind sanity_summary: bumps the total, pushes predicted/documented/legible into GradeCounts, and counts the booleans (cold, traps, derivable) plus per-position buckets.
 - found: Just that, minus the positions: it takes (predicted, documented) from r.grades() rather than the raw fields — so the derivable-forces-documented-to-none rule is applied once, centrally — bumps readings, adds the three grades, and sums derivable, traps and cold as usize::from. Position bucketing lives elsewhere.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `aggregate`
 - read at `73f05887e215` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
@@ -576,12 +590,14 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/assessment.rs
 
-### the file itself
+### the file itself — STALE
 - read at `cee8321f30c0` · commit `6366346` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: The .sanity/ store layer: keys (key_of path#name#ord) and hashes (reading_hash over docs+body, whitespace-collapsed) deciding staleness; sharding by top-level directory into Markdown plus a README index; render/parse round trip with damage tolerance; coverage arithmetic; server-side git provenance; refresh-on-open that never creates; and a test suite pinning key uniqueness, line independence, format-insensitive hashing and round-tripping.
 - found: All of that, and the file is roughly 60% prose. Reading half (reading_hash/body_hash, shard_of/shard_file/file_key/key_of, grade_word/parse_grade, flat, load/read_all/parse_shard) then writing half (Live/live_funcs/live_files, is_stale, Placed, Compiled/compile, refresh with an Index enum reporting current/refreshed/absent/failed, save, render_entry/render_shard/render_index), a small git provenance trio, then ~450 lines of tests. Things I did not predict: shard_links parses the OUTGOING index's Markdown links so the orphan sweep can only remove files this tool itself claimed (a human's NOTES.md survives); files themselves get readings, titled in prose as "the file itself" and keyed by bare path so they cannot collide with a function key; render_index emits the full user-facing README including brew install instructions and the "study this project in sanity" sentence; and the entry heading deliberately carries NO verdict, only markers (OBSCURE/QUIRKY/UNCLEAR/TANGLED/TRAP/STALE) for the loud end of each axis.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 - note: Grading honestly: this repo's CLAUDE.md is in my context and describes .sanity/ by name, so my prediction was better informed than the handout alone would have made it — on the header and peers alone I would not have got sharding-for-merge-conflicts or the file-level readings. The header covers the store's identity, sharding and staleness but says nothing about the index being a user-facing README or about the shard-link ownership rule, which is the file's most surprising mechanism.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `reading_hash`
 - read at `06911bed7259` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -667,12 +683,14 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 - note: The one-line doc says keys are `path#name`, but per the project's own rule keys are `key_of(path, name, ord)` and same-named twins carry a `#2`/`#3` suffix — the doc understates the key.
 
-### `parse_shard`
+### `parse_shard` — STALE
 - read at `8c6f058797a2` · commit `1b80d39` · read by claude-opus-5 · by ross@rossturk.com · warm reading · reading 10 of its run
 - expected: A line-by-line state machine over one shard's Markdown: a heading line carrying path#name starts a new entry and flushes the previous, subsequent bullet lines are matched by label prefix (expected, found, predicted, documented, derivable, legible, cold, trap, by, at, body, position, model) and parsed into the Report, grades via parse_grade and booleans by word. Unrecognised lines are skipped silently and an entry lacking expected or found is dropped at the flush rather than inserted.
 - found: Close, with the structure two levels deeper than I guessed: `## ` sets the current FILE and `### ` opens an entry, so a key is built from file + name rather than read off one heading. The entry heading carries a human verdict after an em dash (decoration, recomputed on write) and an optional " #2" ordinal, printed 1-based and keyed 0-based; a name equal to FILE_ENTRY keys through file_key instead of key_of. Only expected/found/note are their own bullets — every other field arrives as a middle-dot-separated segment inside one of two bullets, matched by segment prefix ("read at", "commit", "read by", "by", "cold reading"/"warm reading", "reading N of its run", then the grades) so a reordered hand-edit costs one segment. The flush guard is OR, not AND: an entry survives with either expected or found present.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 - note: The doc says an entry "missing its expected/found is dropped on its own", but the guard keeps any entry with EITHER field non-empty, so a reading with a found and no expected is loaded — and the doc also describes keys as `path#name` when they are really key_of(path, name, ord) with a file_key special case.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `live_funcs`
 - read at `3d7a51c31a86` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
@@ -694,19 +712,23 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 - note: The docs cover the no-hash arm but say nothing about the missing-node arm, where a vanished function is silently reported as not stale.
 
-### `row`
+### `row` — STALE
 - read at `72706358625c` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 9 of its run
 - expected: A tiny accessor on Compiled projecting it into the tuple render_index needs for one table row: the shard name plus four already-computed counts (total, read, stale, and one more), cloning the name and leaving the shard's Markdown body out.
 - found: Exactly that — one expression returning (shard.clone(), read, total, surprising, stale). The fourth count I could not name is `surprising`, and `read` comes before `total` rather than after.
 - predicted: most · documented: full · derivable: no · legible: most · trap: no
 - note: Five same-typed positional fields with no names — a caller that swaps `read` and `total` (they are adjacent and both usize) gets a silently wrong index table.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `compile`
+### `compile` — STALE
 - read at `4a22ea9c51f7` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Walks the scan's live functions, looks up each one's reading by key, buckets them into shards, and returns a Compiled per shard holding rendered Markdown plus read/stale counts for the index row — computing everything, writing nothing.
 - found: That, plus two things I did not cover: file-level readings are folded in beside functions (sorted to lead their file's section via line 0) and counted in the denominator, and it also tallies `surprising` from the first grade. Uses BTreeMap throughout for byte-stable output.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: The per-shard `total` re-scans every live function and file once per shard, so the denominator work is shards x functions; fine at this size, but it is the one loop that grows badly.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `repo_name`
 - read at `e44c150f0a11` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
@@ -721,39 +743,49 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 - note: Failed returns the raw error string where the other arms return fixed tokens, so a consumer matching on known values sees an unbounded set.
 
-### `refresh`
+### `refresh` — STALE
 - read at `56a49170516c` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Returns early with an absent/default Index if .sanity/ doesn't exist; otherwise compiles index + shards once from scan+reports, writes each file only when bytes differ, skips shards not already on disk, returns the Index.
 - found: Exactly that: reads README.md (absence => Index::Absent), compiles, writes changed shards only if the shard file already exists, rewrites README.md if different, and returns Refreshed/Current/Failed(err).
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `save` — QUIRKY
+### `save` — QUIRKY — STALE
 - read at `8544e784b1ae` · commit `1b80d39` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: Rebuilds .sanity/ from the live scan rather than the reports map: walks live functions, keys each with key_of(path, name, ord), looks up its reading, marks stale on a hash mismatch, groups into per-file shards, renders the shards and the README index, creates the directory, writes only files whose bytes differ, leaves human-authored files alone, and returns io::Error so a failed write is reported rather than absorbed.
 - found: The grouping, keying and staleness arithmetic are all delegated to `compile` (shared with refresh so the index and shards cannot disagree); save itself only does the IO. What I missed entirely is the orphan sweep: before overwriting README.md it parses the OUTGOING index's shard links, and that link list is the only record of which files this tool owns — so the post-write cleanup can delete only files it previously claimed, never a human's note left in the shared directory. Order matters and is argued in comments: index written first, prune after, errors returned via `?`, NotFound treated as success. It also writes unconditionally rather than diffing bytes (that is refresh's rule, not save's).
 - predicted: some · documented: none · derivable: yes · legible: full · trap: no
 - note: save() carries no doc comment at all even though it is the durable-write entry point for .sanity/; everything explaining it is inline, so the ownership rule (only files the previous index linked may be deleted) is invisible from the signature.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `render_entry`
+### `render_entry` — STALE
 - read at `a28770ceed86` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Builds the Markdown block for one reading: a heading from `name`, disambiguated with the `ord` suffix for twins, flagged differently when `is_file`, a STALE marker when `stale`, plus bullet lines carrying the Report's fields (expected, found, grades, provenance by/at, body hash). Returns a string the shard renderer appends.
 - found: As predicted in shape, with a marker vocabulary I did not cover: after the em-dash it appends only the LOUD end of each axis — OBSCURE/QUIRKY for predicted, UNCLEAR/TANGLED for legible, TRAP, STALE — deliberately nothing for the calm grades. Ordinal prints only when ord != 0, as ` #{ord+1}`. File entries use a fixed unbackticked FILE_ENTRY heading. Then a single `·`-joined meta bullet (body hash, commit, model, by, cold/warm, position), expected/found bullets, one bullet with all five grades where absent documented/legible print "not judged" rather than a default grade, an optional note, and a prose warning when stale.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: The function carries no doc comment of its own; everything explaining it is inline commentary inside the body, which a caller reading the signature never sees. I also had the project's CLAUDE.md in context, which mentions the em-dash/parse_shard split — I graded my prediction on the handout alone and claimed no credit for that.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `render_shard`
+### `render_shard` — STALE
 - read at `92852263f6c8` · commit `9c38c96` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: Builds the full Markdown text of one shard file: a heading naming the shard, a summary line of read/total/surprising/stale counts, then the pre-rendered body of entries appended, returned as a String.
 - found: Exactly that, with one detail I did not cover: the stale count is conditional — omitted entirely when zero rather than printed as "0 stale". It also emits a fixed explanatory preamble (what a reading is, what `read at` and STALE mean, a link to README.md) before the body.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 - note: The function had no docs of its own; the file_doc I was handed is about `.sanity/` as a store, which is context but not a description of this function.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `render_index`
+### `render_index` — STALE
 - read at `03f451900124` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: Builds the .sanity/README.md string — heading with the repo name, prose explaining what the assessment is and that a reader must not read it before predicting, plus a Markdown table with one row per shard linking to its file and reporting four counts (functions, read, stale, one more), with totals summed.
 - found: Exactly the table (area/read/of/surprising/stale, linked via shard_file, with a bolded total row) and a long prose index. The prose is aimed at a HUMAN arriving at the repo — what a reading is, install/brew instructions, how to ask an agent to update it, that anyone may extend it, and a plea to commit the directory. My guess that it warns readers off pre-reading .sanity/ was wrong: that rule lives in the MCP descriptions, not here.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 - note: The five-tuple parameter is positional and undocumented — five same-typed fields where a struct would stop a caller silently swapping `surprising` and `stale`.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `git`
 - read at `15b063d45267` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
@@ -787,12 +819,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly that: a fixture Report with a deliberately multi-line `expected`, every grade populated with a distinct variant (Some/Full/Most), derivable false, trap true, position 3, a body hash, a real git identity and commit, filling the rest from Report::blank(). The distinct values per grade field are what make round-trip tests able to catch a field swap.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `round_trips`
+### `round_trips` — STALE
 - read at `ae60d42cb537` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 8 of its run
 - expected: A test rendering Report entries into the Markdown store and parsing them back, asserting every field survives — key, the grades, expected/found prose, by, at, body hash, position — proving the Markdown is the store rather than a lossy rendering.
 - found: Exactly that, for a single entry: builds a shard from `render_entry` + `render_shard`, parses it with `parse_shard`, and asserts expected/found/note/body/at/by/cold/derivable/legible/trap/predicted/documented/position all come back. Notably the lookup key is `src/a.rs#foo` — the `@12` line is dropped, so this doubles as a check that keys ignore line numbers.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 - note: Warm: I read a helper in this file at position 4, though not this region.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `a_reading_without_a_position_does_not_claim_to_be_the_first`
 - read at `5acab90a066a` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
@@ -1420,12 +1454,14 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 - note: Marked warm: this is my second reading in cli.rs, and the project brief in my context already described the idempotent-serve, supersede and fail-closed-idle rules by name, so my prediction was not made from the handout alone.
 
-### `study`
+### `study` — STALE
 - read at `20be813bcfdb` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 6 of its run
 - expected: Resolves the path to an absolute repo, calls ensure_backend(), POSTs /open with the repo and the `show` flag, and on success prints a human sentence naming the repo with its counts (functions, assessed, remaining) plus the instruction to hand the work to an agent — explicitly not spawning one; errors print and return non-zero.
 - found: That, plus one thing I did not cover: the counts do NOT come from the /open response — it makes a second GET to /status keyed by project_key, with an inline comment saying /open's `assessed` is raw reports.len() and would count stale readings as finished, disagreeing with the sidebar. Only `name`, `functions` and `excluded` come from the open. It also prints excluded only when non-zero, a stale parenthetical when non-zero, the backend port with either "Sanity is pointed here" or "left pointed at another repo" from the `showing` flag, and branches the closing line between "every function has an up-to-date reading" and the literal agent prompt `study this project in sanity`.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: Fourth function from cli.rs in this run, so I am warm on its idioms; the /status round-trip is the part I would not have guessed, and the `.unwrap_or(Value::Null)` there means a failed status silently prints zeros rather than reporting.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `read_verb`
 - read at `d384d930466f` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
@@ -1524,12 +1560,14 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: yes
 - note: The label is derived from rel_path only, not repo, so the same relative path in two different repos collides and the second call focuses the first repo's window instead of opening the file asked for.
 
-### `agent_reports`
+### `agent_reports` — STALE
 - read at `770e1123811e` · commit `9c38c96` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Locks shared agentapi state, resolves the project by optional key falling back to the window's showing project rather than `active`, returns that project's reports cloned into a Vec, empty if unknown.
 - found: Locks state; `key.or_else(|| s.active.clone())`, early-returning an empty Vec if both are absent; then looks the project up in `s.projects` and collects `reports.values().cloned()`, defaulting to empty.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 - note: The doc says answering for `active` was the bug that rendered a thousand assessed functions grey, but the body still falls back to `s.active` when `key` is None — safe only as long as every caller passes a key.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `agent_activity`
 - read at `9961e7b7663e` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run

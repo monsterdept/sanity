@@ -2,6 +2,8 @@
 
 3 of 3 read · 1 surprising
 
+2 of these graded legibility under an earlier question and are not counted; see the note below.
+
 Each entry below is one **reading**, of a function or of a whole file. An agent was
 given its name, signature, neighbouring names and comments — never its body — and
 wrote down what it expected to find. Then it opened the file. The gap between the
@@ -10,6 +12,12 @@ the header at the top describes what is actually in there.
 
 `read at` is a hash of the body as it was when the reading was made. When it
 stops matching the code, the reading is marked STALE and goes back in the queue.
+
+`spec` is which version of the questions a reading answered. `legible` used to ask
+"how clear is it on its own terms", which defined no rung but the top one; it now
+asks what reading it was like — one pass, a second look, jumping around, or never
+being sure. Grades from before that are kept here, because they are what a reader
+said, but they no longer colour the map. Re-read those functions to replace them.
 
 What this is and how to add to it: [README.md](README.md)
 

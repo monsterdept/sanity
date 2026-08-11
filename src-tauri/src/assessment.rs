@@ -593,13 +593,22 @@ struct Compiled {
     total: usize,
     surprising: usize,
     stale: usize,
+    /// Readings holding a `legible` grade that answers a question since rewritten.
+    ///
+    /// Counted rather than marked per entry. The grade a reader gave is still printed —
+    /// it is what they said, and the store's job is to record that — but a human reading
+    /// a shard has no way to know the app has stopped honouring it, and a store whose
+    /// numbers quietly diverge from the map is the failure this whole file exists against.
+    /// One count in the header, where `read`, `surprising` and `stale` already answer
+    /// "how much of this still counts".
+    dated: usize,
     body: String,
 }
 
 impl Compiled {
     /// The tuple `render_index` wants. The body is the shard file's business.
-    fn row(&self) -> (String, usize, usize, usize, usize) {
-        (self.shard.clone(), self.read, self.total, self.surprising, self.stale)
+    fn row(&self) -> (String, usize, usize, usize, usize, usize) {
+        (self.shard.clone(), self.read, self.total, self.surprising, self.stale, self.dated)
     }
 }
 
@@ -645,6 +654,7 @@ fn compile(scan: &Scan, reports: &HashMap<String, Report>) -> Vec<Compiled> {
         let mut read = 0usize;
         let mut surprising = 0usize;
         let mut stale = 0usize;
+        let mut dated = 0usize;
         let mut body = String::new();
         for (path, entries) in files {
             let mut entries: Vec<_> = entries.iter().collect();
@@ -666,6 +676,12 @@ fn compile(scan: &Scan, reports: &HashMap<String, Report>) -> Vec<Compiled> {
                 if e.stale {
                     stale += 1;
                 }
+                // A grade that is present and no longer answers today's question. Both
+                // halves matter: a reading that never graded legibility is not dated, it
+                // is ungraded, and folding the two together would report work nobody did.
+                if e.report.legible.is_some() && !legible_current(e.report.spec) {
+                    dated += 1;
+                }
                 body.push_str(&render_entry(&e.name, e.ord, e.is_file, e.report, e.stale));
             }
         }
@@ -677,7 +693,7 @@ fn compile(scan: &Scan, reports: &HashMap<String, Report>) -> Vec<Compiled> {
             .chain(readable_files.values())
             .filter(|l| shard_of(&l.path) == *shard)
             .count();
-        out.push(Compiled { shard: shard.clone(), read, total, surprising, stale, body });
+        out.push(Compiled { shard: shard.clone(), read, total, surprising, stale, dated, body });
     }
     out
 }
@@ -759,7 +775,7 @@ pub fn refresh(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> I
     };
 
     for c in &compiled {
-        let fresh = render_shard(&c.shard, c.read, c.total, c.surprising, c.stale, &c.body);
+        let fresh = render_shard(&c.shard, c.read, c.total, c.surprising, c.stale, c.dated, &c.body);
         if let Err(e) = write_if_changed(root.join(shard_file(&c.shard)), fresh) {
             return Index::Failed(e);
         }
@@ -795,7 +811,7 @@ pub fn save(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> std:
     for c in &compiled {
         std::fs::write(
             root.join(shard_file(&c.shard)),
-            render_shard(&c.shard, c.read, c.total, c.surprising, c.stale, &c.body),
+            render_shard(&c.shard, c.read, c.total, c.surprising, c.stale, c.dated, &c.body),
         )?;
         index.push(c.row());
     }
@@ -958,6 +974,7 @@ fn render_shard(
     total: usize,
     surprising: usize,
     stale: usize,
+    dated: usize,
     body: &str,
 ) -> String {
     let stale_note = if stale > 0 {
@@ -965,10 +982,34 @@ fn render_shard(
     } else {
         String::new()
     };
+    // Said in the header, not on every entry. Three repos would gain 6,900 identical lines
+    // saying the same thing about the same release, which is decoration pretending to be
+    // per-reading information — and the question a person actually has here is "how much of
+    // this still counts", which is what the rest of this line answers.
+    let dated_note = if dated > 0 {
+        format!(
+            "\n\n{dated} of these graded legibility under an earlier question and are not \
+             counted; see the note below."
+        )
+    } else {
+        String::new()
+    };
+    // Only when there are some. A paragraph explaining an expiry that has not happened is
+    // release notes in somebody's repo.
+    let spec_note = if dated > 0 {
+        "\n\n\
+         `spec` is which version of the questions a reading answered. `legible` used to ask\n\
+         \"how clear is it on its own terms\", which defined no rung but the top one; it now\n\
+         asks what reading it was like — one pass, a second look, jumping around, or never\n\
+         being sure. Grades from before that are kept here, because they are what a reader\n\
+         said, but they no longer colour the map. Re-read those functions to replace them."
+    } else {
+        ""
+    };
     format!(
         "# {shard} — sanity assessment\n\
          \n\
-         {read} of {total} read · {surprising} surprising{stale_note}\n\
+         {read} of {total} read · {surprising} surprising{stale_note}{dated_note}\n\
          \n\
          Each entry below is one **reading**, of a function or of a whole file. An agent was\n\
          given its name, signature, neighbouring names and comments — never its body — and\n\
@@ -977,32 +1018,44 @@ fn render_shard(
          the header at the top describes what is actually in there.\n\
          \n\
          `read at` is a hash of the body as it was when the reading was made. When it\n\
-         stops matching the code, the reading is marked STALE and goes back in the queue.\n\
+         stops matching the code, the reading is marked STALE and goes back in the queue.\
+         {spec_note}\n\
          \n\
          What this is and how to add to it: [README.md](README.md)\n\
          {body}"
     )
 }
 
-fn render_index(repo: &str, shards: &[(String, usize, usize, usize, usize)]) -> String {
-    let mut table = String::from("| area | read | of | surprising | stale |\n|---|---|---|---|---|\n");
-    let (mut tr, mut tt, mut ts, mut tx) = (0, 0, 0, 0);
-    for (shard, read, total, surprising, stale) in shards {
-        table.push_str(&format!(
-            "| [{}]({}) | {} | {} | {} | {} |\n",
-            shard,
-            shard_file(shard),
-            read,
-            total,
-            surprising,
-            stale
-        ));
+fn render_index(repo: &str, shards: &[(String, usize, usize, usize, usize, usize)]) -> String {
+    // The `dated` column appears only when some reading is. A column of zeros in every
+    // repo forever would be this release's footnote carved into everybody's index — and
+    // the index and the shards have to agree, so it appears exactly when their headers say
+    // it does.
+    let any_dated = shards.iter().any(|(_, _, _, _, _, d)| *d > 0);
+    let head = if any_dated {
+        "| area | read | of | surprising | stale | dated |\n|---|---|---|---|---|---|\n"
+    } else {
+        "| area | read | of | surprising | stale |\n|---|---|---|---|---|\n"
+    };
+    let mut table = String::from(head);
+    let (mut tr, mut tt, mut ts, mut tx, mut td) = (0, 0, 0, 0, 0);
+    for (shard, read, total, surprising, stale, dated) in shards {
+        table.push_str(&format!("| [{}]({}) | {} | {} | {} | {}", shard, shard_file(shard), read, total, surprising, stale));
+        if any_dated {
+            table.push_str(&format!(" | {dated}"));
+        }
+        table.push_str(" |\n");
         tr += read;
         tt += total;
         ts += surprising;
         tx += stale;
+        td += dated;
     }
-    table.push_str(&format!("| **total** | **{tr}** | **{tt}** | **{ts}** | **{tx}** |\n"));
+    table.push_str(&format!("| **total** | **{tr}** | **{tt}** | **{ts}** | **{tx}**"));
+    if any_dated {
+        table.push_str(&format!(" | **{td}**"));
+    }
+    table.push_str(" |\n");
 
     format!(
         "# Sanity assessment — {repo}\n\
@@ -1163,7 +1216,7 @@ mod tests {
         let r = report("src/a.rs#foo@12", "a note");
         let mut body = String::from("\n## src/a.rs\n");
         body.push_str(&render_entry("foo", 0, false, &r, false));
-        let text = render_shard("src", 1, 1, 1, 0, &body);
+        let text = render_shard("src", 1, 1, 1, 0, 0, &body);
 
         let mut back = HashMap::new();
         parse_shard(&text, &mut back);
@@ -1300,6 +1353,51 @@ mod tests {
         assert_eq!(r.by, "dana@example.com");
         assert_eq!(r.legible, Some(Grade::Full));
         assert_eq!(r.spec, 9);
+    }
+
+    /// The shard says how many of its grades no longer answer today's question.
+    ///
+    /// Because the store is the copy people read without the app, and a shard printing
+    /// `legible: clean` beside a map that has gone grey is the same failure as an index
+    /// claiming a coverage it has not got — two records of one thing, disagreeing, with the
+    /// unwatched one wrong.
+    ///
+    /// A reading that never graded legibility is NOT dated, it is ungraded. Folding those
+    /// together would report an expiry over work nobody did, and would put a number in the
+    /// header of every shard in every repo that has readings from before the field existed.
+    #[test]
+    fn a_shard_counts_grades_that_answer_an_older_question() {
+        let scan = scan_of(&[
+            ("src/a.rs", "old", 10, "one"),
+            ("src/a.rs", "fresh", 20, "two"),
+            ("src/a.rs", "never", 30, "three"),
+        ]);
+        let mut reports = HashMap::new();
+        for (id, l) in live_funcs(&scan) {
+            let mut r = report(&id, &l.name);
+            r.body = l.body.clone();
+            match l.name.as_str() {
+                // Graded under the question we have since rewritten.
+                "old" => r.legible = Some(Grade::Full),
+                // Graded under today's.
+                "fresh" => {
+                    r.legible = Some(Grade::Full);
+                    r.spec = SPEC;
+                }
+                // Never graded at all.
+                _ => r.legible = None,
+            }
+            reports.insert(id, r);
+        }
+        let compiled = compile(&scan, &reports);
+        let src = compiled.iter().find(|c| c.shard == "src").expect("one shard");
+        assert_eq!(src.dated, 1, "only the pre-spec GRADE counts, not the ungraded reading");
+
+        let text = render_shard(&src.shard, src.read, src.total, src.surprising, src.stale, src.dated, &src.body);
+        assert!(text.contains("1 of these graded legibility under an earlier question"), "{text}");
+        // And nothing about it when there is nothing to say.
+        let quiet = render_shard("src", 1, 1, 0, 0, 0, "");
+        assert!(!quiet.contains("earlier question"), "no release notes in a clean repo");
     }
 
     /// The key is `path#name`, never the node id: a reading must survive somebody adding
