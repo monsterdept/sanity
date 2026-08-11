@@ -33,6 +33,7 @@ pub mod reports;
 pub mod scan;
 pub mod scancache;
 pub mod surprise;
+pub mod watch;
 
 /// Where the macOS traffic lights sit inside the overlay titlebar.
 ///

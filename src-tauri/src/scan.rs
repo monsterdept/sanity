@@ -511,6 +511,7 @@ fn score_dir(
 
             let file_blame = blame.get(&file.rel_path);
 
+            let ords = ordinals(&file.funcs);
             let children: Vec<Node> = file
                 .funcs
                 .iter()
@@ -581,7 +582,7 @@ fn score_dir(
                     };
 
                     let node = Node {
-                        id: format!("{}#{}@{}", file.rel_path, func.name, func.start_line),
+                        id: crate::assessment::key_of(&file.rel_path, &func.name, ords[i]),
                         name: func.name.clone(),
                         kind: NodeKind::Func,
                         excluded: false,
@@ -665,6 +666,30 @@ fn score_dir(
                     children,
                 },
             )
+        })
+        .collect()
+}
+
+/// Which same-named function in this file each one is, counting from zero in file order.
+///
+/// The other half of [`crate::assessment::key_of`], and the reason a function's identity can
+/// be its durable key rather than its line: `path#name` is not unique — Swift files hold a
+/// dozen `init`s and Rust files hold same-named methods in different `impl` blocks — so the
+/// position among twins is what tells them apart, and unlike a line number it survives every
+/// edit above them.
+///
+/// Computed once per file and shared by the two places an id is minted. They were two
+/// `format!` calls with the same string in them, which is one drift away from a tree whose
+/// nodes and whose scores are keyed differently.
+pub fn ordinals(funcs: &[crate::parse::FuncDef]) -> Vec<usize> {
+    let mut seen: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    funcs
+        .iter()
+        .map(|f| {
+            let n = seen.entry(f.name.as_str()).or_insert(0);
+            let this = *n;
+            *n += 1;
+            this
         })
         .collect()
 }
@@ -886,8 +911,9 @@ pub fn scan(
         for parsed in &parsed_dirs {
             for file in parsed {
                 let peer_names: Vec<String> = file.funcs.iter().map(|f| f.name.clone()).collect();
+                let ords = ordinals(&file.funcs);
                 for (i, func) in file.funcs.iter().enumerate() {
-                    let id = format!("{}#{}@{}", file.rel_path, func.name, func.start_line);
+                    let id = crate::assessment::key_of(&file.rel_path, &func.name, ords[i]);
                     let ck = cache::key(&file.rel_path, &func.name, &func.body, func.doc.as_deref());
                     // Already scored by this model, and unchanged since — reuse it.
                     // Resuming an interrupted scan and rescanning a repo you edited two
@@ -1143,6 +1169,76 @@ mod tests {
                 assert_eq!(score.age_days, None);
             }
         });
+    }
+
+    /// A function keeps its identity when the code above it moves.
+    ///
+    /// Ids used to carry `@line`, so adding an import re-minted every id below it. Nothing
+    /// ever read the line back out; what it cost was everything that keys on identity — the
+    /// report map rebuilt on every scan, leases voided, the window's selection and drill-in
+    /// dropped for anything that had shifted a row. With a watcher rescanning on every save
+    /// that stopped being an occasional cost and became the normal case.
+    #[test]
+    fn an_edit_above_a_function_does_not_change_its_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let ids = |src: &str| {
+            std::fs::write(dir.path().join("a.rs"), src).unwrap();
+            let (cache, scans) = Memos::ephemeral();
+            let scan = scan(
+                dir.path(),
+                &crate::surprise::HeuristicModel,
+                &|_| {},
+                &|_, _: &crate::surprise::Reading| {},
+                &std::sync::atomic::AtomicBool::new(false),
+                Memos { scores: &cache, scans: &scans },
+                Fidelity::Ordering,
+            )
+            .unwrap();
+            let mut out = Vec::new();
+            scan.root.visit(&mut |n| {
+                if n.kind == NodeKind::Func {
+                    out.push(n.id.clone());
+                }
+            });
+            out.sort();
+            out
+        };
+
+        let before = ids("fn one() { println!(\"1\"); }\nfn two() { println!(\"2\"); }\n");
+        assert_eq!(before, vec!["a.rs#one", "a.rs#two"]);
+        let after = ids("use std::fmt;\n\nfn one() { println!(\"1\"); }\nfn two() { println!(\"2\"); }\n");
+        assert_eq!(before, after, "an import above them is not a new pair of functions");
+    }
+
+    /// Two functions of one name in one file are still told apart — by position, which the
+    /// line number was only ever a proxy for.
+    #[test]
+    fn same_named_functions_keep_separate_identities() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("a.rs"),
+            "impl A { fn go(&self) -> u8 { 1 } }\nimpl B { fn go(&self) -> u16 { 2 } }\n",
+        )
+        .unwrap();
+        let (cache, scans) = Memos::ephemeral();
+        let scan = scan(
+            dir.path(),
+            &crate::surprise::HeuristicModel,
+            &|_| {},
+            &|_, _: &crate::surprise::Reading| {},
+            &std::sync::atomic::AtomicBool::new(false),
+            Memos { scores: &cache, scans: &scans },
+            Fidelity::Ordering,
+        )
+        .unwrap();
+        let mut ids = Vec::new();
+        scan.root.visit(&mut |n| {
+            if n.kind == NodeKind::Func {
+                ids.push(n.id.clone());
+            }
+        });
+        ids.sort();
+        assert_eq!(ids, vec!["a.rs#go", "a.rs#go#2"], "the twins do not collide");
     }
 
     #[test]

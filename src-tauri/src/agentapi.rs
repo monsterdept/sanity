@@ -84,6 +84,19 @@ pub struct Project {
     /// Monotonic counter, not a clock: the UI follows whichever project was touched last
     /// and `Instant` would need a baseline to serialise. A counter is enough to order them.
     pub touched: u64,
+    /// What the repo looked like when this scan was taken — see `watch::probe`.
+    ///
+    /// The comparison the tick makes. Held per project rather than globally because two repos
+    /// move independently and a single mark would rescan both whenever either did.
+    pub marks: crate::watch::Marks,
+    /// Bumped every time a scan lands. The window follows it.
+    ///
+    /// A counter rather than a timestamp for the same reason `touched` is one: the UI has to
+    /// tell "this is a different tree" from "this is the same tree", and equality on a counter
+    /// is the whole test. It rides in `ProjectSummary`, which the window already polls, so a
+    /// rescan needs no second channel to reach the picture — and a channel that only the
+    /// windowed build had would leave `sanity serve` unable to do this at all.
+    pub scanned: u64,
     /// When an agent last called about THIS project.
     ///
     /// `AppState::last_agent` is one clock for the whole app, which was enough while only
@@ -1387,6 +1400,11 @@ async fn open_project(
     // is where an out-of-date index gets caught. It refreshes, never creates: opening a
     // repo with no assessment must not leave a `.sanity/` directory in somebody's tree.
     let index = crate::assessment::refresh(&path, &scan, &reports);
+    // Taken AFTER the scan and after `refresh`, so anything either of them wrote is already
+    // in the marks and cannot read as a change on the first tick. `refresh` only writes when
+    // the bytes differ, but "only sometimes fires a spurious rescan" is not a property worth
+    // having when the alternative is one stat walk here.
+    let probe_path = path.clone();
     let stale = count_stale(&scan, &reports);
     // Minus stale, like everywhere else. It was `reports.len()` raw — the same bug
     // `/status` was fixed for and the same consequence: the window said 142 while the agent
@@ -1402,14 +1420,18 @@ async fn open_project(
             name: name.clone(),
             scan,
             reports,
-            // Dropped, not carried. A lease is a claim on a node id, and the ids just
-            // moved — a lease that survives a rescan reserves whatever now sits at that
-            // line. They expire in ten minutes regardless, and a reader whose function is
-            // released twice costs one duplicate reading; a reader silently blocked from
-            // work that was never really held costs coverage.
+            // Dropped, not carried, and now for one reason rather than two. Ids no longer
+            // move when a function does — see `assessment::key_of` — so a lease is no longer
+            // a claim on a line. What it is is a claim taken against a BODY that this rescan
+            // may have replaced: the reader is out reading text that has changed, and its
+            // report would be stamped with the hash of code it never saw. Releasing costs one
+            // duplicate reading; keeping it costs a reading that describes nothing and says
+            // it is current.
             leased: HashMap::new(),
             recent_files: HashMap::new(),
             file_marks: marks,
+            marks: crate::watch::probe(&probe_path),
+            scanned: 1,
             touched,
             last_agent: Some(Instant::now()),
         },
@@ -2451,6 +2473,13 @@ pub struct ProjectSummary {
     /// is what the repo IS, and `functions + files` is how much there is to read. The
     /// sidebar divides by the sum; the header still names them separately.
     pub files: usize,
+    /// Bumped whenever a scan lands — see `Project::scanned`.
+    ///
+    /// The window polls this list already, so a rescan reaches the picture without a second
+    /// channel: the poll notices the number moved and refetches the tree. A Tauri event would
+    /// be faster and would exist only in the windowed build, leaving `sanity serve` unable to
+    /// do the one thing this is for.
+    pub scanned: u64,
     /// Functions `.sanityignore` set aside. Shown beside `functions`, never folded into
     /// it — the sidebar's `81/377` is a claim about coverage, and a denominator that
     /// silently shrank is the same lie as a reading that outlived its code.
@@ -2503,6 +2532,7 @@ impl ProjectList {
                     repo: p.repo.to_string_lossy().to_string(),
                     functions,
                     files,
+                    scanned: p.scanned,
                     excluded,
                     // The same walk `assessed` does, and for the reason written there:
                     // `reports.len() - stale` counts readings whose function was deleted.
@@ -2539,6 +2569,10 @@ impl ProjectList {
                         // read as a measurement.
                         functions: 0,
                         files: 0,
+                        // Nothing has been scanned, so there is no revision to report. The
+                        // window reads a change in this as "refetch"; starting at zero means
+                        // the first real scan is a change from it.
+                        scanned: 0,
                         excluded: 0,
                         assessed: 0,
                         stale: 0,
@@ -2726,6 +2760,7 @@ pub fn restore(state: Shared) {
             let mut s = lock(&state);
             settled(&mut s);
             let reports = load_reports(&path, &scan);
+            let probe_path = path.clone();
             s.projects.insert(
                 known.key.clone(),
                 Project {
@@ -2736,6 +2771,8 @@ pub fn restore(state: Shared) {
                     leased: HashMap::new(),
                     recent_files: HashMap::new(),
                     file_marks: marks,
+                    marks: crate::watch::probe(&probe_path),
+                    scanned: 1,
                     touched: known.touched,
                     last_agent: None,
                 },
@@ -2773,6 +2810,90 @@ pub fn restore(state: Shared) {
 /// 127.0.0.1 only, and port 0 so the OS picks a free one. This exposes a read-mostly view
 /// of a scan the user already opened, but it is still an open socket on their machine and
 /// it has no business being reachable from anywhere else.
+/// How often the repo is looked at. See `watch::probe` for what a look costs.
+const WATCH_TICK: Duration = Duration::from_millis(1500);
+
+/// Re-scan a project whose files have moved, and tell the window.
+///
+/// **It refuses to run while anything is leased, and that refusal is the whole design.** A
+/// rescan re-mints node ids — they embed `@line` — and a reader in flight is holding one. Drop
+/// the tree underneath it and the report it sends a minute later finds no node to stamp, so
+/// `report` writes an EMPTY body hash; `is_stale` reads an empty hash as "predates this store,
+/// take it at its word", and that reading can then never expire. A reading that does not know
+/// it is stale is the one failure this store is built to prevent, and a background timer that
+/// manufactured them on every edit would be the worst possible way to arrive at it.
+///
+/// `open_project` rescans regardless and drops the leases, which is right there: a human or an
+/// agent asked for it, and one duplicated reading is a smaller cost than an open that lies. A
+/// timer nobody asked for does not get to make that trade — it waits, and the leases expire on
+/// their own within `LEASE`.
+///
+/// The probe and the scan both run off the lock. Holding the mutex across a directory walk would
+/// stall every reader in the wave behind a rescan they are the reason we are not doing.
+async fn watch_tick(state: &Shared) {
+    let watching: Vec<(String, PathBuf, crate::watch::Marks)> = {
+        let s = lock(state);
+        s.projects
+            .iter()
+            // Something is out with a reader. Not now.
+            .filter(|(_, p)| p.leased.values().all(|t| t.elapsed() >= LEASE))
+            .map(|(k, p)| (k.clone(), p.repo.clone(), p.marks))
+            .collect()
+    };
+    for (key, repo, was) in watching {
+        let probe_repo = repo.clone();
+        let Ok(now) = tokio::task::spawn_blocking(move || crate::watch::probe(&probe_repo)).await
+        else {
+            continue;
+        };
+        if now == was {
+            continue;
+        }
+        let scan_repo = repo.clone();
+        let scanned = tokio::task::spawn_blocking(move || {
+            let scans = crate::scancache::ScanCache::open(&scan_repo);
+            crate::scan::scan(
+                &scan_repo,
+                &crate::surprise::HeuristicModel,
+                &|_| {},
+                &|_, _: &crate::surprise::Reading| {},
+                &std::sync::atomic::AtomicBool::new(false),
+                crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
+                crate::scan::Fidelity::Ordering,
+            )
+        })
+        .await;
+        let Ok(Ok(scan)) = scanned else {
+            // A repo that has been deleted or moved out from under us fails here every tick.
+            // The marks are left alone deliberately: retrying is what recovers a `git
+            // checkout` caught mid-write, and there is nothing to report to anyone about a
+            // walk that failed on a directory the user is in the middle of changing.
+            continue;
+        };
+        // Reloaded against the fresh tree, exactly as `open_project` does and for the same
+        // reason: in-memory reports are keyed by node id, ids carry `@line`, and carrying them
+        // across a rescan would orphan every reading in a file where anything moved.
+        let reports = load_reports(&repo, &scan);
+        let file_marks = stamp_marks(&repo, &scan);
+        let fresh = crate::watch::probe(&repo);
+
+        let mut s = lock(state);
+        // Checked again under the lock. A reader can have taken work during the walk, and the
+        // whole point is not to pull the tree out from under one.
+        let Some(p) = s.projects.get_mut(&key) else { continue };
+        if p.leased.values().any(|t| t.elapsed() < LEASE) {
+            continue;
+        }
+        p.scan = scan;
+        p.reports = reports;
+        p.file_marks = file_marks;
+        // From after the scan, not the `now` from before it: anything the walk itself touched
+        // is then already accounted for and cannot read as a change on the next tick.
+        p.marks = fresh;
+        p.scanned = p.scanned.wrapping_add(1);
+    }
+}
+
 pub async fn serve(state: Shared) -> anyhow::Result<u16> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
@@ -2782,9 +2903,20 @@ pub async fn serve(state: Shared) -> anyhow::Result<u16> {
             serde_json::json!({ "port": port, "pid": std::process::id() }).to_string(),
         );
     }
-    let app = router(state);
+    let app = router(state.clone());
     tokio::spawn(async move {
         let _ = axum::serve(listener, app).await;
+    });
+    // The repo does not stand still, and until this existed nothing told the app so: you
+    // committed and Blame went on reporting lines as uncommitted, because that was true when
+    // the scan ran. Here rather than in the Tauri layer because the backend is where the state
+    // lives — `sanity serve` has no window and still holds projects — and because the signal
+    // reaches the window through `ProjectSummary`, which it already polls.
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(WATCH_TICK).await;
+            watch_tick(&state).await;
+        }
     });
     Ok(port)
 }
@@ -2836,6 +2968,8 @@ pub(crate) mod tests {
             leased: HashMap::new(),
             recent_files: HashMap::new(),
             file_marks: marks,
+            marks: crate::watch::probe(dir),
+            scanned: 1,
             touched: 0,
             last_agent: None,
         }

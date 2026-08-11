@@ -276,6 +276,12 @@ export interface ProjectSummary {
    *  denominator is `functions + files`, because both are queued, reported and expired the
    *  same way; `functions` alone let the bar fill while file readings were outstanding. */
   files: number
+  /** Which scan this is, counting up. Moves when the repo did — an edit, a commit, a pull.
+   *
+   *  The map was a photograph nobody re-took: the window fetched a tree when the ACTIVE
+   *  project changed and never again, so committing left Blame reporting lines as
+   *  uncommitted forever. Comparing this is how the poll knows to fetch a new one. */
+  scanned: number
   /** Functions whose reading still describes them. Stale ones are NOT counted — a
    *  project cannot be finished and hold expired readings. */
   assessed: number

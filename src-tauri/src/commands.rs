@@ -175,6 +175,8 @@ pub async fn scan_repo(
                 recent_files: std::collections::HashMap::new(),
                 // Stamped from the scan that just cut these positions — see `stamp_marks`.
                 file_marks: crate::agentapi::stamp_marks(&key_path, scan),
+                marks: crate::watch::probe(&key_path),
+                scanned: 1,
                 touched: 0,
                 last_agent: None,
             },

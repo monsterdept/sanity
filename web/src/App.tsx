@@ -67,6 +67,7 @@ function sameProjects(a: ProjectSummary[], b: ProjectSummary[]): boolean {
       p.assessed === q.assessed &&
       p.functions === q.functions &&
       p.files === q.files &&
+      p.scanned === q.scanned &&
       p.stale === q.stale &&
       p.working === q.working &&
       p.loading === q.loading &&
@@ -245,6 +246,8 @@ export default function App() {
   // between the loopback server and the webview.
   useEffect(() => {
     let showing: string | null = null
+    // Which scan of that project is on screen. See `ProjectSummary.scanned`.
+    let revision = 0
     const timer = setInterval(() => {
       void listProjects().then(async (list) => {
         // Replaced only when it differs. The poll returns fresh objects whether or not
@@ -256,8 +259,14 @@ export default function App() {
         // own comment. Set after `setProjects` so the two land in one render and an empty
         // repo list does not flash the gate before the loading line.
         setProjectsLoaded(true)
-        if (!list.active || list.active === showing) return
+        // A new project, or the same project rescanned. The second case is the repo moving
+        // under a picture that was taken before it — an edit, a commit, a pull — and it used
+        // to be invisible: the tree was fetched when `active` changed and never again.
+        const rev = list.projects.find((p) => p.key === list.active)?.scanned ?? 0
+        const moved = list.active !== showing
+        if (!list.active || (!moved && rev === revision)) return
         showing = list.active
+        revision = rev
         setActiveKey(list.active)
         // Both, together. `project_scan` returns the tree as Rust scored it — proxy
         // only — so fetching it without the readings shows an assessed repo as entirely
@@ -267,10 +276,16 @@ export default function App() {
           agentReports(list.active),
         ])
         if (!s) return
-        // A different project means a different tree; stale drill-in and selection would
-        // point at nodes that no longer exist.
-        setStack([])
-        setPicked(null)
+        // A DIFFERENT project means a different tree, and a stale drill-in or selection
+        // would point at nodes that no longer exist. A rescan of the same project must not
+        // do this: you are watching your own repo rebuild itself, and having the view jump
+        // to the root and drop your selection on every save is the feature making itself
+        // unusable. Ids are resolved against the fresh tree by `findById`, and anything that
+        // genuinely went takes the fallback the selection state already carries.
+        if (moved) {
+          setStack([])
+          setPicked(null)
+        }
         setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
       })
     }, 1500)

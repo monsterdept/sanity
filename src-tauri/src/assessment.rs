@@ -158,11 +158,19 @@ pub fn file_key(path: &str) -> String {
 /// this string is part of the store's format and not a label.
 const FILE_ENTRY: &str = "the file itself";
 
-/// The durable key for a reading: `path#name`, and `path#name#2` for the second
-/// same-named function in that file, `#3` for the third, and so on.
+/// The identity of a function, durable and in-memory alike: `path#name`, and `path#name#2`
+/// for the second same-named function in that file, `#3` for the third, and so on.
 ///
-/// Node ids carry `@line`, which cannot be the key — adding an import above a function
-/// changes its id and orphans every reading of it.
+/// **One scheme, not two.** Node ids used to carry `@line`, so the tree keyed functions one
+/// way and the store keyed them another, and everything between the two spent its time
+/// translating: a rescan re-minted every id, so the in-memory report map had to be rebuilt
+/// from this key on every scan, leases became claims on ids that no longer existed and had
+/// to be dropped, and the window lost its selection and its drill-in for any function that
+/// had moved by a line. None of that bought anything — nothing ever read the line back out
+/// of an id — and it made a background rescan into a hazard rather than a refresh.
+///
+/// The line lives in `Node::line`, where it is a fact about the code rather than half of a
+/// name.
 ///
 /// But `path#name` alone is not unique, and assuming it was did real damage: Swift files
 /// hold a dozen `init`s and Rust files hold same-named methods in different `impl`
@@ -177,7 +185,7 @@ const FILE_ENTRY: &str = "the file itself";
 /// functions does swap their readings, which is the one case this cannot see — and a
 /// swapped reading between two functions of the same name in the same file is a far
 /// smaller error than the one it replaces.
-fn key_of(path: &str, name: &str, ord: usize) -> String {
+pub fn key_of(path: &str, name: &str, ord: usize) -> String {
     if ord == 0 {
         format!("{path}#{name}")
     } else {
@@ -1297,15 +1305,20 @@ mod tests {
         assert!(ok.derivable);
     }
 
-    /// Build a scan holding one function per named `path#name@line`.
+    /// Build a scan holding one function per named `key_of(path, name, ord)` — the same
+    /// identity the real scan mints, so a fixture cannot pass under a scheme the app does
+    /// not use.
     fn scan_of(funcs: &[(&str, &str, u32, &str)]) -> Scan {
         use crate::model::Node;
         let mut root = Node::dir("", "");
         let mut by_file: BTreeMap<String, Vec<Node>> = BTreeMap::new();
+        let mut ords: HashMap<(&str, &str), usize> = HashMap::new();
         for (path, name, line, body) in funcs {
             let mut n = Node::dir(path, name);
             n.kind = NodeKind::Func;
-            n.id = format!("{path}#{name}@{line}");
+            let ord = ords.entry((path, name)).or_insert(0);
+            n.id = key_of(path, name, *ord);
+            *ord += 1;
             n.path = path.to_string();
             n.line = Some(*line);
             n.body = Some(body_hash(body));
@@ -1426,9 +1439,12 @@ mod tests {
         ]);
         let back = load(&tmp, &moved);
         assert_eq!(back.len(), 2, "both readings found their functions again");
-        let walk = back.get("src-tauri/src/scan.rs#walk@118").unwrap();
+        // Keyed by identity, not by position — the move is invisible here now, where it used
+        // to be the thing this resolution had to survive. What still has to hold is the
+        // distinction the move was hiding: same body, still current; changed body, expired.
+        let walk = back.get("src-tauri/src/scan.rs#walk").unwrap();
         assert!(!is_stale(walk, Some(&body_hash("fn walk() {}"))), "unchanged body, still current");
-        let app = back.get("web/src/app.jsx#App@9").unwrap();
+        let app = back.get("web/src/app.jsx#App").unwrap();
         assert!(is_stale(app, Some(&body_hash("return <span/>"))), "body changed, reading expired");
 
         let _ = std::fs::remove_dir_all(&tmp);
