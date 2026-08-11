@@ -333,6 +333,29 @@ export function Sunburst({
     () => (unitsPerPx === null ? undefined : (MIN_ARC_PX * unitsPerPx) / R_OUTER),
     [unitsPerPx],
   )
+  /** Every container between what is drawn and what is selected, by id.
+   *
+   *  Only the ANCESTORS: the selection's own id is deliberately absent, so a wedge that is
+   *  both drawn and selected takes the real outline below and never the stand-in. Empty
+   *  when the selection is somewhere else entirely — another directory, or a synthesised
+   *  roll-up that is in no tree — and an empty trail draws nothing, which is correct.
+   *  Nothing on screen is better than a ring around a wedge that does not hold it. */
+  const selTrail = useMemo(() => {
+    if (!selected) return null
+    const ids = new Set<string>()
+    const walk = (n: Node): boolean => {
+      if (n.id === selected.id) return true
+      for (const c of n.children) {
+        if (walk(c)) {
+          ids.add(n.id)
+          return true
+        }
+      }
+      return false
+    }
+    walk(root)
+    return ids
+  }, [root, selected])
   /** The function tiling's floor, same conversion SQUARED — it is an area, so a unit that
    *  is `k` pixels makes a square unit `k²` square pixels. Getting that exponent wrong is
    *  invisible at one window size and wrong at every other, which is exactly the bug
@@ -659,7 +682,18 @@ export function Sunburst({
    *  kept its full width because the ring gap leaves it free, which is what made one
    *  edge of a hovered wedge look thinner than the rest. Collected as the wedges are
    *  built below and rendered after them, so nothing can paint over it. */
-  let highlight: { d: string; width: number } | null = null
+  let highlight: { d: string; width: number; sel: boolean } | null = null
+  /** Where the selection IS, when the selection itself is not drawn.
+   *
+   *  Selecting from the panel's list is the case the outline alone could not serve. On the
+   *  map you already know where you clicked; from a list you do not, and a function is a
+   *  two-pixel patch in a ring of four thousand — worse, its file may be too thin to tile
+   *  at all (`OPEN_PATCHES`), in which case there is no patch to outline and the map
+   *  answers a click with nothing. Falling back to the deepest ANCESTOR that is drawn says
+   *  "in here" instead of saying nothing, which is the honest answer and the one that tells
+   *  you where to drill. Dashed, and never with the selected wedge's own outline, so a
+   *  container standing in for its contents cannot be mistaken for the thing itself. */
+  let selCoarse: { d: string; depth: number } | null = null
 
   return (
     // Clicking the empty space around the chart clears the selection. Without it the
@@ -827,7 +861,12 @@ export function Sunburst({
           const foldable = w.node.kind === 'dir' && w.node.children.length > 0
           const isFolded = foldable && collapsed.has(w.node.id)
           if (isSel || isHover) {
-            highlight = { d: arcPath(a0, a1, r0, r1), width: isSel ? 2 : 1.6 }
+            highlight = { d: arcPath(a0, a1, r0, r1), width: isSel ? 2 : 1.6, sel: isSel }
+          }
+          // Deepest wins: the file that holds the selection beats the directory that holds
+          // the file, because a narrower answer to "where is it" is a better one.
+          if (selTrail?.has(w.node.id) && (!selCoarse || w.depth > selCoarse.depth)) {
+            selCoarse = { d: arcPath(a0, a1, r0, r1), depth: w.depth }
           }
           return (
             <g key={w.node.id}>
@@ -990,7 +1029,7 @@ export function Sunburst({
               const isHover = hover?.node.id === slot.node.id
               const d = arcPath(slot.a0, slot.a1, slot.r0, slot.r1)
               if (isSel || isHover) {
-                highlight = { d, width: isSel ? 1.6 : 1.2 }
+                highlight = { d, width: isSel ? 1.6 : 1.2, sel: isSel }
               }
               return (
                 <g key={slot.node.id}>
@@ -1212,11 +1251,39 @@ export function Sunburst({
         {/* Evaluated after both wedge passes, so `highlight` is already set — and drawn
             after them, so no sibling's fill can eat half its width. */}
         {highlight && (
+          <g className="pointer-events-none">
+            {/* A halo under the outline, in the ground the cuts between wedges are already
+                drawn in. A 1.6-unit stroke is legible on a directory and invisible on a
+                function patch two pixels wide, which is the size of the thing you most often
+                arrive at from the list — so the mark has to be bigger than the wedge rather
+                than a border on it. Selection only: hover already tells you where it is,
+                because your pointer is there. */}
+            {(highlight as { sel: boolean }).sel && (
+              <path
+                d={(highlight as { d: string }).d}
+                fill="none"
+                stroke="var(--background)"
+                strokeWidth={(highlight as { width: number }).width + 3}
+                strokeOpacity={0.85}
+              />
+            )}
+            <path
+              d={(highlight as { d: string }).d}
+              fill="none"
+              stroke="var(--foreground)"
+              strokeWidth={(highlight as { width: number }).width}
+            />
+          </g>
+        )}
+        {/* Only when the selection itself was not drawn — see `selCoarse`. */}
+        {!(highlight as { sel: boolean } | null)?.sel && selCoarse && (
           <path
-            d={(highlight as { d: string }).d}
+            d={(selCoarse as { d: string }).d}
             fill="none"
             stroke="var(--foreground)"
-            strokeWidth={(highlight as { width: number }).width}
+            strokeWidth={1.4}
+            strokeDasharray="4 3"
+            strokeOpacity={0.7}
             className="pointer-events-none"
           />
         )}

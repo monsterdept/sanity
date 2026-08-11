@@ -460,14 +460,62 @@ pub struct Task {
     /// a complete one. Zero when the file fits.
     #[serde(default)]
     pub peers_omitted: usize,
-    /// The comment stack a reader has before opening the body: this chunk's own doc
-    /// first, then the file's. Handed over BEFORE the prediction on purpose — an
-    /// agentic reader reads the comments before the code, so predicting without them
-    /// measures a harder question than anyone actually faces.
+    /// The documentation OF THIS THING: a function's own comment, or a file's header.
+    ///
+    /// Handed over BEFORE the prediction on purpose — an agentic reader reads the comments
+    /// before the code, so predicting without them measures a harder question than anyone
+    /// actually faces.
+    ///
+    /// It used to be the whole stack, the chunk's doc and then the file's, in one unlabelled
+    /// array. That was fine while file headers were rare and became a defect the day they
+    /// were collected for every file: two readers in one wave reported a module's header as
+    /// the function's own documentation, and one of them graded it against the wrong subject.
+    /// An array whose meaning depends on its length is a contract that has to be explained;
+    /// two fields explain themselves.
     #[serde(default)]
     pub docs: Vec<String>,
+    /// The header of the file this lives in, as CONTEXT rather than as its documentation.
+    ///
+    /// Empty on a file task, where the header is the subject and arrives in `docs`. Also
+    /// empty when the file has none, which is common and is a finding rather than a gap.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub file_doc: String,
     pub lines: u32,
+    /// Whether this task is a FILE rather than a function.
+    ///
+    /// A file reading asks the same three questions one level up: predict what this file is
+    /// for from its name, its header and its declarations; then open it and grade whether
+    /// the header covers what is actually in there, and whether that header could have been
+    /// written from the code alone. It exists because nothing measured the header — it was
+    /// handed to every function reader as context and judged by none of them, so a file with
+    /// a superb banner and bare functions painted exactly like a file with no banner at all.
+    ///
+    /// A separate flag rather than a separate endpoint: the queue, the lease, the report and
+    /// the store all do the same thing with it, and the one thing that differs is what the
+    /// reader is being asked about. `peers` carries the declarations, `docs` carries the
+    /// header, and `name` is the file's own name.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub file: bool,
+    /// What to do differently, sent only with a file task.
+    ///
+    /// On the WIRE and only on the tasks it applies to, which is the whole argument. The
+    /// alternative was a paragraph in `READER_PROMPT` explaining a kind of task most
+    /// readers in a wave never receive — that text is multiplied by the function count,
+    /// where this is multiplied by the file count and reaches exactly the reading that
+    /// needs it. The same reasoning that put `protocol` and `next_step` in responses
+    /// rather than in tool descriptions.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ask: String,
 }
+
+/// The one sentence a file reading needs that a function reading does not.
+const FILE_ASK: &str = "\
+This task is the FILE, not a function. Predict what the whole file is FOR — its \
+responsibility and its shape — from its name, its header in `docs` (empty means it has \
+none, which is itself the finding) and the declarations in `peers`, before opening it. Then read it and grade: `predicted` against what you wrote, \
+`documented` for whether that header covers what is actually in here, `derivable` for \
+whether the header could have been written from the code alone. Leave `legible` and `trap` \
+unset — both are judgements about one body.";
 
 /// A four-step ordinal, for the two things a reader can judge but not measure.
 ///
@@ -800,13 +848,17 @@ fn collect_tasks(
                 signature: node.signature.clone().unwrap_or_default(),
                 peers: Vec::new(),
                 peers_omitted: 0,
-                docs: [node.doc.as_deref(), file_doc]
-                    .into_iter()
-                    .flatten()
+                docs: node
+                    .doc
+                    .as_deref()
                     .map(|d| d.trim().to_string())
                     .filter(|d| !d.is_empty())
+                    .into_iter()
                     .collect(),
+                file_doc: file_doc.unwrap_or_default().trim().to_string(),
                 lines: node.loc,
+                file: false,
+                ask: String::new(),
             },
         ));
         return;
@@ -816,6 +868,71 @@ fn collect_tasks(
         // the denominator, still parsed and still on the map — see `Node::excluded`.
         if node.excluded {
             return;
+        }
+        // The file itself, as its own reading. Same staleness rule as a function: a header
+        // that no longer describes the declarations under it is evidence about a file that
+        // no longer exists, and goes back in the queue.
+        // Read and still current, or out with a reader: nothing to hand over. Written the
+        // same way as the function branch above so the two cannot drift on what "done"
+        // means — a stale reading is not done, it is first in line.
+        let queue_file = match done.get(&node.id) {
+            Some(prior) => crate::assessment::is_stale(prior, node.body.as_deref()),
+            None => true,
+        } && !leased.get(&node.id).is_some_and(|t| t.elapsed() < LEASE)
+            // A file with nothing in it has no declarations to describe, so there is no
+            // reading to take: the header would be graded against an empty surface.
+            && !node.children.is_empty();
+        if queue_file {
+            let stale = done.contains_key(&node.id);
+            // Below every function of its own file and above nothing: a file reading is
+            // context for the functions inside it, so a reader that takes one first is
+            // better placed — but the queue interleaves by file anyway, and a file task
+            // that outranked real functions would put a wave of them ahead of the work.
+            let priority = node.score.map_or(0.5, |s| s.hot_share) + if stale { 1.0 } else { 0.0 };
+            out.push((
+                priority,
+                Task {
+                    id: node.id.clone(),
+                    abs_path: root
+                        .map(|r| r.join(&node.path).to_string_lossy().to_string())
+                        .unwrap_or_else(|| node.path.clone()),
+                    path: node.path.clone(),
+                    line: 1,
+                    // The last line anything in it reaches. A file reading is the one task
+                    // that legitimately wants the whole file, and this is the honest bound
+                    // on "the whole file" that the scan actually knows.
+                    end_line: node
+                        .children
+                        .iter()
+                        .filter_map(|c| c.end_line)
+                        .max()
+                        .unwrap_or(node.loc),
+                    name: node.name.clone(),
+                    owner: None,
+                    signature: String::new(),
+                    // Every declaration, not a window. The window exists because a function
+                    // needs its NEIGHBOURS and a file's list of two hundred is mostly noise
+                    // to it; a file reading is a judgement about exactly that list, so
+                    // truncating it would be asking about a file while hiding part of it.
+                    peers: node
+                        .children
+                        .iter()
+                        .map(|c| qualify(&c.name, c.owner.as_deref(), c.lang))
+                        .collect(),
+                    peers_omitted: 0,
+                    docs: node
+                        .doc
+                        .as_deref()
+                        .map(|d| d.trim().to_string())
+                        .filter(|d| !d.is_empty())
+                        .into_iter()
+                        .collect(),
+                    file_doc: String::new(),
+                    lines: node.loc,
+                    file: true,
+                    ask: FILE_ASK.to_string(),
+                },
+            ));
         }
         // Qualified by owner, and kept in FILE ORDER rather than sorted. Order is what
         // makes the window below mean something: the functions either side of this one are
@@ -827,6 +944,8 @@ fn collect_tasks(
             .iter()
             .map(|c| qualify(&c.name, c.owner.as_deref(), c.lang))
             .collect();
+        // AFTER the file's own task, which already carries the complete list and must not
+        // have it replaced by a function's window.
         let before = out.len();
         // Which child produced which task, so each one gets its own neighbourhood. Not
         // every child yields a task — read and leased ones are skipped — so the index
@@ -1045,9 +1164,9 @@ and neither found it, while the cost falls from ~26,000 tokens per function at o
 at a time, because the saving comes from the shared context, not the shared handout: \
 fetching ten at once costs the same and shows the reader nine functions it has not \
 predicted yet.\n\n\
-ON A LARGE REPO, ASK. `functions` in the sanity_open response is the real size of the \
-job: at ten functions per reader, ten thousand functions is over a thousand \
-subagents. If that is more than the user has agreed to spend, say what a full pass would \
+ON A LARGE REPO, ASK. `functions` PLUS `files` in the sanity_open response is the real \
+size of the job — a file is a reading too, graded on whether its header describes what is \
+in it — and at ten per reader, ten thousand of them is over a thousand subagents. If that is more than the user has agreed to spend, say what a full pass would \
 cost and ask how far to go BEFORE starting, then stop where they said and report how many \
 are left. A partial assessment is a normal outcome; an unannounced one is not.\n\n\
 IF YOU RUN OUT OF SUBAGENTS, THE ASSESSMENT IS NOT OVER — it is paused, and resuming it \
@@ -1087,8 +1206,10 @@ repeating them here would only bill every reader twice for one contract.\n\n";
 /// already carries — one contract, billed to each reader twice.
 pub const READER_PROMPT: &str = "\
   You are reading a codebase you have never seen, and you are assessing EXACTLY TEN \
-  functions, ONE AT A TIME. Repeat this ten times: call sanity_next with no arguments and \
-  it hands you exactly one function; write what you expect its body to do from the name, \
+  THINGS, ONE AT A TIME. Repeat this ten times: call sanity_next with no arguments and \
+  it hands you exactly one — usually a function, occasionally a whole file, which carries \
+  an `ask` field saying how its question differs and is the only case where you read more \
+  than the lines you were given; write what you expect its body to do from the name, \
   owner, signature, siblings and docs alone — two or three sentences, no more — THEN open \
   abs_path, bounded to the `line`..`end_line` you were given and nothing more, read it, \
   and call sanity_report. Only then call sanity_next again. After the tenth report, \
@@ -1223,6 +1344,9 @@ async fn open_project(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| key.clone());
     let (functions, excluded) = count_funcs(&scan);
+    // Files are readings too, and this response is what the protocol tells an orchestrator
+    // to size the job from — so it has to be the whole job, not the function half of it.
+    let (files, _) = count_files(&scan);
     let shape = shape_of(&scan);
 
     let mut s = lock(&state);
@@ -1239,8 +1363,12 @@ async fn open_project(
     // is where an out-of-date index gets caught. It refreshes, never creates: opening a
     // repo with no assessment must not leave a `.sanity/` directory in somebody's tree.
     let index = crate::assessment::refresh(&path, &scan, &reports);
-    let assessed = reports.len();
     let stale = count_stale(&scan, &reports);
+    // Minus stale, like everywhere else. It was `reports.len()` raw — the same bug
+    // `/status` was fixed for and the same consequence: the window said 142 while the agent
+    // driving the assessment was told 608, and the optimistic number was the one making
+    // decisions about whether to keep going. `assessed` has one definition.
+    let assessed = reports.len().saturating_sub(stale);
     // Keep its place in the history; the reopen is not a new project.
     let touched = s.projects.get(&key).map(|p| p.touched).unwrap_or(0);
     s.projects.insert(
@@ -1276,7 +1404,7 @@ async fn open_project(
         // Absent when the two halves agree, so a healthy run says nothing. A field that is
         // always present is one an orchestrator learns to skip.
         "contract_warning": contract_note(req.contract.as_deref()),
-        "functions": functions, "assessed": assessed,
+        "functions": functions, "files": files, "assessed": assessed,
         // Both, always. `functions` is what a full pass costs and what a percentage
         // divides by; `excluded` is what somebody decided is not this assessment's
         // business. A denominator quietly narrowed months ago is how a map ends up
@@ -1399,7 +1527,10 @@ fn work_left(project: &Project) -> WorkLeft {
 fn count_stale(scan: &Scan, reports: &HashMap<String, Report>) -> usize {
     let mut n = 0;
     scan.root.visit(&mut |node| {
-        if node.kind != NodeKind::Func {
+        // Files as well as functions: both are handed out, both are reported, and both
+        // expire. Counting only functions left an expired FILE reading in the numerator
+        // — `assessed` subtracts this from `reports.len()`, which holds every kind.
+        if !matches!(node.kind, NodeKind::Func | NodeKind::File) {
             return;
         }
         if let Some(r) = reports.get(&node.id) {
@@ -1438,6 +1569,34 @@ fn count_funcs(scan: &Scan) -> (usize, usize) {
         let out_of_scope = out_of_scope || node.excluded;
         if node.kind == NodeKind::Func {
             *(if out_of_scope { dropped } else { kept }) += 1;
+            return;
+        }
+        for c in &node.children {
+            walk(c, out_of_scope, kept, dropped);
+        }
+    }
+    let (mut kept, mut dropped) = (0, 0);
+    walk(&scan.root, false, &mut kept, &mut dropped);
+    (kept, dropped)
+}
+
+/// Files that are their own reading, and files `.sanityignore` set aside.
+///
+/// The same shape and the same rule as [`count_funcs`], for the same reason: a file is a
+/// unit of work now — queued, leased, reported and expired exactly as a function is — so a
+/// coverage figure that divides by functions alone is an instrument overstating itself. The
+/// sidebar read `150/631` while the queue held 62 file readings nobody had taken, which is
+/// a bar that can fill completely with work outstanding.
+///
+/// A file with no declarations is not counted, matching `collect_tasks` and `live_files`:
+/// there is nothing for its header to be graded against, so it is never handed out.
+fn count_files(scan: &Scan) -> (usize, usize) {
+    fn walk(node: &Node, out_of_scope: bool, kept: &mut usize, dropped: &mut usize) {
+        let out_of_scope = out_of_scope || node.excluded;
+        if node.kind == NodeKind::File {
+            if !node.children.is_empty() {
+                *(if out_of_scope { dropped } else { kept }) += 1;
+            }
             return;
         }
         for c in &node.children {
@@ -1577,6 +1736,11 @@ fn resync_file(root: &mut Node, repo: &Path, rel_path: &str) -> bool {
     // The same ordinal `key_of` uses, and for the same reason: a file holds a dozen
     // `parse`s and the name alone cannot say which of them moved where.
     let defs = crate::parse::parse_functions(lang, &src);
+    // Re-cut from the same bytes as the functions. The header is half of what a reading is
+    // hashed against, so refreshing the bodies while leaving a stale banner on the file node
+    // would make every re-hash below disagree with the one the scan takes — the readings
+    // would flip to expired and back on alternate opens.
+    let fresh_file_doc = crate::parse::file_doc(lang, &src);
     let mut counts: HashMap<&str, usize> = HashMap::new();
     let mut fresh: HashMap<(&str, usize), &crate::parse::FuncDef> = HashMap::new();
     for d in &defs {
@@ -1585,6 +1749,16 @@ fn resync_file(root: &mut Node, repo: &Path, rel_path: &str) -> bool {
         *ord += 1;
     }
 
+    file.doc = fresh_file_doc.clone();
+    // And the file's own reading hash, from the same bytes. Left behind, a file reading
+    // taken before an edit would keep looking current against a surface that has changed —
+    // and the scan's own hash would disagree with this one, so the reading would flip
+    // between current and expired depending on which pass last touched the node.
+    file.body = Some(crate::assessment::reading_hash(
+        None,
+        fresh_file_doc.as_deref(),
+        &crate::scan::file_surface(&defs),
+    ));
     let mut counts: HashMap<String, usize> = HashMap::new();
     file.children.retain_mut(|c| {
         let ord = counts.entry(c.name.clone()).or_insert(0);
@@ -1601,7 +1775,11 @@ fn resync_file(root: &mut Node, repo: &Path, rel_path: &str) -> bool {
                 // Re-hashed here so a reading taken after this points at what the reader
                 // actually read. Left stale, `report` would stamp the hash of a body that
                 // is already gone and the reading would look current forever.
-                c.body = Some(crate::assessment::reading_hash(d.doc.as_deref(), &d.body));
+                c.body = Some(crate::assessment::reading_hash(
+                    fresh_file_doc.as_deref(),
+                    d.doc.as_deref(),
+                    &d.body,
+                ));
                 true
             }
             None => false,
@@ -1895,6 +2073,7 @@ async fn status(
                 "name": p.name,
                 "repo": p.repo.to_string_lossy(),
                 "functions": count_funcs(&p.scan).0,
+                "files": count_files(&p.scan).0,
                 "assessed": assessed(p),
             })
         })
@@ -2228,6 +2407,11 @@ pub struct ProjectSummary {
     pub name: String,
     pub repo: String,
     pub functions: usize,
+    /// Files that are their own reading — see [`count_files`]. Beside `functions` rather
+    /// than folded into it, because the two are different things to say: "631 functions"
+    /// is what the repo IS, and `functions + files` is how much there is to read. The
+    /// sidebar divides by the sum; the header still names them separately.
+    pub files: usize,
     /// Functions `.sanityignore` set aside. Shown beside `functions`, never folded into
     /// it — the sidebar's `81/377` is a claim about coverage, and a denominator that
     /// silently shrank is the same lie as a reading that outlived its code.
@@ -2267,6 +2451,7 @@ impl ProjectList {
             .map(|(key, p)| {
                 let stale = count_stale(&p.scan, &p.reports);
                 let (functions, excluded) = count_funcs(&p.scan);
+                let (files, _) = count_files(&p.scan);
                 ProjectSummary {
                     // Same window as `agent_activity`: a reader predicting, opening a
                     // file and writing a report goes quiet for tens of seconds inside one
@@ -2278,6 +2463,7 @@ impl ProjectList {
                     name: p.name.clone(),
                     repo: p.repo.to_string_lossy().to_string(),
                     functions,
+                    files,
                     excluded,
                     assessed: p.reports.len().saturating_sub(stale),
                     stale,
@@ -2307,7 +2493,11 @@ impl ProjectList {
                         key: known.key.clone(),
                         name: known.name.clone(),
                         repo: known.repo.clone(),
+                        // Zeroed behind `loading`, like every other count here: the walk
+                        // has not run, so there is no denominator yet and a guess would be
+                        // read as a measurement.
                         functions: 0,
+                        files: 0,
                         excluded: 0,
                         assessed: 0,
                         stale: 0,
@@ -2575,7 +2765,10 @@ pub(crate) mod tests {
             peers: Vec::new(),
             peers_omitted: 0,
             docs: Vec::new(),
+            file_doc: String::new(),
             lines: 10,
+            file: false,
+            ask: String::new(),
         }
     }
 
@@ -2817,7 +3010,9 @@ fn second() { println!(\"2\"); }\n").unwrap();
         let ids: Vec<String> = {
             let mut out = Vec::new();
             collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, None, &mut out);
-            out.into_iter().map(|(_, t)| t.id).collect()
+            // Functions only. The file itself is queued too — see `Task::file` — and this
+            // test is about what a lease does to unread work, not about which kinds exist.
+            out.into_iter().filter(|(_, t)| !t.file).map(|(_, t)| t.id).collect()
         };
         assert_eq!(ids.len(), 2, "fixture should offer two functions");
 
@@ -2828,7 +3023,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
         // One out with a reader: counted, itemised, and by its id.
         p.leased.insert(ids[0].clone(), Instant::now());
         let w = work_left(&p);
-        assert_eq!(w.remaining, 2, "a lease is not a reading; remaining holds");
+        assert_eq!(w.remaining, 3, "a lease is not a reading; remaining holds (two functions and their file)");
         assert_eq!(w.in_flight, 1);
         assert_eq!(w.outstanding.len(), w.in_flight);
         assert_eq!(w.outstanding[0].0, ids[0]);
@@ -2843,7 +3038,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
             },
         );
         let w = work_left(&p);
-        assert_eq!(w.remaining, 1);
+        assert_eq!(w.remaining, 2, "one function read; its twin and their file are left");
         assert_eq!(w.in_flight, 0, "the reading landed; the stale lease is moot");
         assert!(w.outstanding.is_empty());
     }
@@ -2937,7 +3132,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
 
         let mut out = Vec::new();
         collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, None, &mut out);
-        let tasks: Vec<Task> = out.into_iter().map(|(_, t)| t).collect();
+        let tasks: Vec<Task> = out.into_iter().map(|(_, t)| t).filter(|t| !t.file).collect();
         assert_eq!(tasks.len(), 2);
 
         let owners: Vec<Option<&str>> = tasks.iter().map(|t| t.owner.as_deref()).collect();
@@ -2992,7 +3187,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
         // The queue works from the narrowed set.
         let mut out = Vec::new();
         collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, None, &mut out);
-        let names: Vec<String> = out.into_iter().map(|(_, t)| t.name).collect();
+        let names: Vec<String> = out.into_iter().filter(|(_, t)| !t.file).map(|(_, t)| t.name).collect();
         assert_eq!(names, vec!["one"], "excluded functions are never handed out");
 
         // And the shape a reader would use to propose one still shows both halves, or it
@@ -3001,6 +3196,81 @@ fn second() { println!(\"2\"); }\n").unwrap();
         let tests = shape.iter().find(|r| r["dir"] == "tests").expect("tests/ in the shape");
         assert_eq!(tests["excluded"], 2);
         assert_eq!(tests["functions"], 0);
+    }
+
+    /// A file is handed out as its own reading, with the header and the whole list.
+    ///
+    /// The header was collected and fed to every function reader as context, and judged by
+    /// nobody — so a file with a careful banner over bare functions painted exactly like a
+    /// file with no banner at all. This is the reading that closes that.
+    #[test]
+    fn a_file_is_queued_as_its_own_reading() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("gate.rs"),
+            "//! The gate module.\n//! Opens and closes.\n\n             fn open() { println!(\"1\"); }\nfn shut() { println!(\"2\"); }\n",
+        )
+        .unwrap();
+        let p = project_of(dir.path());
+
+        let mut out = Vec::new();
+        collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, None, &mut out);
+        let file: Vec<&Task> = out.iter().map(|(_, t)| t).filter(|t| t.file).collect();
+        assert_eq!(file.len(), 1, "one file, one file reading");
+        let t = file[0];
+
+        assert_eq!(t.id, "gate.rs", "keyed by path — a function id always holds a `#`");
+        assert_eq!(t.docs, vec!["The gate module.\nOpens and closes."]);
+        assert_eq!(t.peers, vec!["open", "shut"], "every declaration, not a window");
+        assert_eq!(t.peers_omitted, 0);
+        assert!(!t.ask.is_empty(), "a file task says how its question differs");
+        // The functions still come through unchanged, and say nothing about being files.
+        assert_eq!(out.iter().filter(|(_, t)| !t.file).count(), 2);
+    }
+
+    /// What expires a file reading, and what must not.
+    ///
+    /// A file reading answers "does this banner describe what is in here". Rewriting the
+    /// banner or changing the declarations makes that a different question; rewriting a
+    /// body does not, and expiring on it would put every file back in the queue on every
+    /// commit — which teaches people to ignore the flag.
+    #[test]
+    fn a_file_reading_expires_on_its_header_and_its_surface() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gate.rs");
+        let hash = |src: &str| {
+            std::fs::write(&path, src).unwrap();
+            let p = project_of(dir.path());
+            let mut found = None;
+            p.scan.root.visit(&mut |n| {
+                if n.path == "gate.rs" && n.kind == crate::model::NodeKind::File {
+                    found = n.body.clone();
+                }
+            });
+            found.expect("a file carries the hash its reading is checked against")
+        };
+
+        let base = hash("//! The gate.\n\nfn open(a: u8) { println!(\"1\"); }\n");
+        assert_ne!(
+            base,
+            hash("//! The valve.\n\nfn open(a: u8) { println!(\"1\"); }\n"),
+            "a rewritten header is a different file to describe"
+        );
+        assert_ne!(
+            base,
+            hash("//! The gate.\n\nfn open(a: u16) { println!(\"1\"); }\n"),
+            "a changed declaration is a different file to describe"
+        );
+        assert_ne!(
+            base,
+            hash("//! The gate.\n\nfn open(a: u8) { println!(\"1\"); }\nfn shut() {}\n"),
+            "a new declaration is a different file to describe"
+        );
+        assert_eq!(
+            base,
+            hash("//! The gate.\n\nfn open(a: u8) { println!(\"changed\"); }\n"),
+            "rewriting a body does not change what the header has to describe"
+        );
     }
 
     /// A big file hands over its neighbourhood, and says how much it left out.

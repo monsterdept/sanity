@@ -1,7 +1,7 @@
 import { clsx } from '../lib/cn'
 import { AgentMascot } from './AgentMascot'
 import { SideBarHeader } from './shell/SideBarHeader'
-import type { AgentActivity, ProjectSummary } from '../lib/api'
+import { readable, type AgentActivity, type ProjectSummary } from '../lib/api'
 
 /**
  * Full-height left column. Its right border is the one uninterrupted vertical gutter from
@@ -63,7 +63,7 @@ export function SideBar({
   // look at completeness, a full bar under a sleeping mascot on any finished project you
   // happened to have selected. Absent, the bar means one thing and its absence means
   // nobody is reading.
-  const bars = projects.filter((p) => p.working && p.functions > 0)
+  const bars = projects.filter((p) => p.working && readable(p) > 0)
 
   return (
     <aside
@@ -199,7 +199,7 @@ export function SideBar({
               <div className="mb-1 flex items-baseline justify-between text-[10px] opacity-70">
                 <span className="mono truncate">{p.name}</span>
                 <span className="shrink-0 tabular-nums">
-                  {p.assessed}/{p.functions}
+                  {p.assessed}/{readable(p)}
                 </span>
               </div>
               {/* No sentence about staleness here. It was written to explain a bar moving
@@ -213,7 +213,7 @@ export function SideBar({
                 <div
                   className="h-full rounded-full transition-[width] duration-500"
                   style={{
-                    width: `${Math.max(1.5, (p.assessed / p.functions) * 100)}%`,
+                    width: `${Math.max(1.5, (p.assessed / readable(p)) * 100)}%`,
                     background: 'var(--agent-mark)',
                   }}
                 />
@@ -237,7 +237,7 @@ function ProjectItem({
   active: boolean
   onClick: () => void
 }) {
-  const done = project.functions > 0 && project.assessed >= project.functions
+  const done = readable(project) > 0 && project.assessed >= readable(project)
   return (
     <button
       type="button"
@@ -245,7 +245,7 @@ function ProjectItem({
       title={
         project.loading
           ? `${project.repo} · reading…`
-          : `${project.repo} · ${project.assessed} of ${project.functions} read` +
+          : `${project.repo} · ${project.assessed} of ${readable(project)} read` +
             (project.stale > 0 ? ` · ${project.stale} stale` : '')
       }
       className={clsx(
@@ -271,7 +271,7 @@ function ProjectItem({
           className="shrink-0 text-[10px] tabular-nums"
           style={{ color: done ? 'var(--agent-mark)' : 'inherit', opacity: done ? 1 : 0.55 }}
         >
-          {project.assessed}/{project.functions}
+          {project.assessed}/{readable(project)}
         </span>
       )}
     </button>

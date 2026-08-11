@@ -69,7 +69,7 @@ use crate::parse::FuncDef;
 /// migrated — the same rule `cache.rs` states for scores, and for a stronger reason here:
 /// a half-understood parse entry would put functions at lines they are not at, and every
 /// reading taken against those lines would be a reading about nothing.
-const FORMAT_VERSION: u32 = 1;
+const FORMAT_VERSION: u32 = 2;
 
 /// Stand-in oid for "not touched inside the churn window". See the module docs.
 const ANCIENT: &str = "-";
@@ -100,6 +100,10 @@ struct Entry {
     hash: u64,
     lang: Lang,
     funcs: Vec<FuncDef>,
+    /// The module's own banner — see [`crate::parse::file_doc`]. Cached with the parse
+    /// because it is derived from the same bytes by the same pass.
+    #[serde(default)]
+    file_doc: Option<String>,
     head: String,
     /// Absent when blame failed or was invalidated on its own. Untracked files, symlinks
     /// and non-repos are a per-file blame failure by design, and caching the absence would
@@ -134,6 +138,7 @@ pub enum Look {
 pub struct Hit {
     pub lang: Lang,
     pub funcs: Vec<FuncDef>,
+    pub file_doc: Option<String>,
     pub head: String,
     pub ident: Ident,
     /// `None` means blame was invalidated on its own and must be re-taken even though the
@@ -266,6 +271,7 @@ impl ScanCache {
                     return Look::Hit(Hit {
                         lang: e.lang,
                         funcs: e.funcs.clone(),
+                        file_doc: e.file_doc.clone(),
                         head: e.head.clone(),
                         ident: Ident { mtime, len, hash: e.hash },
                         blame: if e.blame_commit == want { e.blame.clone() } else { None },
@@ -290,6 +296,7 @@ impl ScanCache {
                     return Look::Hit(Hit {
                         lang: e.lang,
                         funcs: e.funcs.clone(),
+                        file_doc: e.file_doc.clone(),
                         head: e.head.clone(),
                         ident,
                         blame: if e.blame_commit == want { e.blame.clone() } else { None },
@@ -323,6 +330,7 @@ impl ScanCache {
         ident: &Ident,
         lang: Lang,
         funcs: &[FuncDef],
+        file_doc: Option<&str>,
         head: &str,
     ) {
         let Ok(mut inner) = self.inner.lock() else {
@@ -343,6 +351,7 @@ impl ScanCache {
                 hash: ident.hash,
                 lang,
                 funcs: funcs.to_vec(),
+                file_doc: file_doc.map(str::to_string),
                 head: head.to_string(),
                 blame,
                 blame_commit,
@@ -566,7 +575,7 @@ mod tests {
         let Look::Miss { ident, .. } = cache.look("a.rs", &path, None) else {
             panic!("an empty cache must miss");
         };
-        cache.put_parse("a.rs", &ident, Lang::Rust, &[func("one")], "head");
+        cache.put_parse("a.rs", &ident, Lang::Rust, &[func("one")], None, "head");
         (cache, path)
     }
 
@@ -653,7 +662,7 @@ mod tests {
             let Look::Miss { ident, .. } = cache.look(name, &path, None) else {
                 panic!("an empty cache must miss");
             };
-            cache.put_parse(name, &ident, Lang::Rust, &[func("one")], "head");
+            cache.put_parse(name, &ident, Lang::Rust, &[func("one")], None, "head");
         }
         cache.save();
         cache
@@ -680,7 +689,7 @@ mod tests {
             let Look::Miss { ident, .. } = cache.look(name, &p, None) else {
                 panic!("miss")
             };
-            cache.put_parse(name, &ident, Lang::Rust, &[func("one")], "head");
+            cache.put_parse(name, &ident, Lang::Rust, &[func("one")], None, "head");
             cache.save();
         }
 

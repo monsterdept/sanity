@@ -1,4 +1,6 @@
 import {
+  DOC_GAP,
+  DOC_WORDS,
   GRADE_SURPRISE,
   LEGIBLE_WORDS,
   heatColor,
@@ -7,6 +9,7 @@ import {
   readingWords,
   shareRamp,
   showsShare,
+  type Grade,
   type Node,
   type Ramp,
 } from './api'
@@ -23,6 +26,7 @@ import { inkOn } from './ink'
 export type ColorMode =
   | 'surprise'
   | 'legible'
+  | 'docs'
   | 'traps'
   | 'language'
   | 'blame'
@@ -53,6 +57,7 @@ export type ColorMode =
 export const MODE_LABEL: Record<ColorMode, string> = {
   surprise: 'Surprise',
   legible: 'Opacity',
+  docs: 'Docs',
   traps: 'Traps',
   language: 'Language',
   blame: 'Blame',
@@ -63,6 +68,7 @@ export const MODE_LABEL: Record<ColorMode, string> = {
 export const MODE_HINT: Record<ColorMode, string> = {
   surprise: 'what a reader didn’t see coming',
   legible: 'how hard it is to follow once you open it',
+  docs: 'what nobody has explained',
   traps: 'what will bite whoever edits it next',
   language: 'what it is written in',
   blame: 'who committed to it last',
@@ -78,7 +84,7 @@ export const MODE_HINT: Record<ColorMode, string> = {
  *  for themselves and drifting — the stale hatch was `mode === 'surprise'` in two places and
  *  would have silently stopped marking anything under the two new lenses. */
 export function paintsFromReadings(mode: ColorMode): boolean {
-  return mode === 'surprise' || mode === 'legible' || mode === 'traps'
+  return mode === 'surprise' || mode === 'legible' || mode === 'docs' || mode === 'traps'
 }
 
 /**
@@ -91,20 +97,42 @@ export function paintsFromReadings(mode: ColorMode): boolean {
  * coverage saturated colours are unreadable.
  */
 /**
- * Four slots, assigned by rank — biggest category first — and never cycled.
+ * Eight slots, assigned by rank — biggest category first — and never cycled.
  *
- * Four is a measured ceiling, not a preference: in a sunburst any wedge can end up
- * beside any other, so the palette must hold under all-pairs comparison, and no larger
- * set clears it on this surface. Hashing a name to a slot, which is what this used to
- * do, is worse still — it cycles, so two languages can collide by luck no matter how
- * few there are. That is what put rust and python on near-identical browns.
+ * It was four, and four was a measured ceiling measured wrong: the number came from one
+ * hand-picked set of eight colliding, which says nothing about what eight CAN do. Re-run
+ * as a search — CIEDE2000 under normal vision and all three dichromacies, over an OKLCH
+ * grid held to this app's muted range — the eight in `index.css` separate better than the
+ * four they replace did (worst pair 14.3 against 7.9). The blame lens is what forced the
+ * question: a repo with forty authors spent thirty-six of them in "Other".
  *
- * Everything past the fourth folds into "Other" in the structural neutral. The skill's
- * rule and the honest one: a fifth series is never an invented hue.
+ * Rank order is the palette's own order and both are chosen for their PREFIXES, because a
+ * repo with three authors only ever sees the first three. See `index.css`.
+ *
+ * Hashing a name to a slot, which this used to do, remains wrong at any size — it cycles,
+ * so two categories can collide by luck no matter how few there are. That is what put rust
+ * and python on near-identical browns.
+ *
+ * Everything past the eighth still folds into "Other" in the structural neutral: a ninth
+ * hue costs 15% of the worst pair and keeps falling, and the tail is reachable by picking
+ * it in the panel instead. A ninth series is never an invented hue.
  */
-const CATEGORICAL = ['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-4)']
+const CATEGORICAL = [
+  'var(--cat-1)',
+  'var(--cat-2)',
+  'var(--cat-3)',
+  'var(--cat-4)',
+  'var(--cat-5)',
+  'var(--cat-6)',
+  'var(--cat-7)',
+  'var(--cat-8)',
+]
 export const OTHER = 'var(--structure)'
 export const OTHER_LABEL = 'other'
+/** How many categories get a colour of their own. Exported because the legend has to
+ *  name exactly the ones that have one — it counted to four itself, and a legend with its
+ *  own copy of the palette's size is a legend that can disagree with the map. */
+export const SLOTS = CATEGORICAL.length
 
 /** Rank → colour. Beyond the palette, everything is "Other". */
 export function slotColor(rank: number): string {
@@ -204,6 +232,53 @@ function opaqueShare(node: Node): number | null {
   return read === 0 ? null : opaque / read
 }
 
+/** The reader's documentation grade for one function, or undefined.
+ *
+ *  **`derivable` forces it to `none`.** A doc a model could write from the body explains
+ *  nothing that was not already there, so it must not paint a wedge as covered — the same
+ *  rule `reportGrades` applies to the number, applied here to the colour, because a lens
+ *  that disagreed with the dial beside it would be two answers to one question. */
+function docGrade(n: Node): Grade | undefined {
+  if (!n.agent || n.agentStale) return undefined
+  return n.agent.derivable ? 'none' : (n.agent.documented ?? undefined)
+}
+
+/**
+ * The share of a directory's FILES whose header does not describe them.
+ *
+ * A directory has no documentation of its own, so it reports what is underneath — and what
+ * is underneath a directory is FILES. It used to roll up the functions instead, which made
+ * this lens ask two different questions one ring apart: a file's band meant "this header
+ * covers most of what is in here" and its parent's meant "38% of the functions in here are
+ * undocumented". Both honest, neither the same, and a lens whose rings disagree about the
+ * question is the failure this design avoids everywhere else.
+ *
+ * **Counted by reading, not weighted by lines.** Everywhere else in this file a share is
+ * line-weighted, because a wedge's width is lines and the two should agree. Not here: a
+ * file's own reading carries the whole file's line count, so one 1,100-line component would
+ * outweigh forty small files that nobody has described. The question is "how many of these
+ * files are described", and that is one vote each.
+ *
+ * `null` when no file underneath has been read, which the caller paints grey — absence
+ * stated, never filled in.
+ */
+function undocShare(node: Node): number | null {
+  let graded = 0
+  let bare = 0
+  const walk = (n: Node) => {
+    if (n.kind === 'file') {
+      const g = docGrade(n)
+      if (g) {
+        graded += 1
+        if (g === 'some' || g === 'none') bare += 1
+      }
+    }
+    n.children.forEach(walk)
+  }
+  walk(node)
+  return graded === 0 ? null : bare / graded
+}
+
 /** What a wedge is painted with, and what a name printed ON it has to be set in.
  *
  *  `stop` is the fill as a custom-property NAME, which `inkOn` can read and a
@@ -271,6 +346,40 @@ export function colorFor(
     return { ...ramped(GRADE_SURPRISE[g], 'legible'), label: LEGIBLE_WORDS[g] }
   }
 
+  if (mode === 'docs') {
+    // Opacity's twin, and deliberately built the same way: both are a reader's four-step
+    // grade on a function and a share of graded lines on a container.
+    //
+    // The one difference is the DIRECTION, and it is the whole reason the lens is worth
+    // having. Every other ramp brightens toward more of what it measures; this one paints
+    // the GAP, so bright is what nobody has explained. The map's invariant is not "more is
+    // brighter", it is "bright is what you have to do something about" — and a Docs map
+    // that glowed where the docs already are would send you to the finished half.
+    // A FILE answers for its own header first. It is the only container that has one, and
+    // a reader has now graded it — so averaging its functions here would report on the
+    // file's contents while the lens is asking about the file's description of itself. The
+    // functions inside it are still each painted by their own grade, which is the same
+    // split Blame draws: a file's band is its own last author, not a mixture of its
+    // functions'. A directory has no header, so it stays the share.
+    if (node.kind === 'file') {
+      const own = docGrade(node)
+      if (own) return { ...ramped(DOC_GAP[own], 'docs'), label: `header covers ${DOC_WORDS[own]}` }
+      // A file nobody has read yet is grey, not an average of its functions. Its own header
+      // is the thing this lens asks a file about, and guessing it from the contents would
+      // be the map answering a question nobody put to it.
+      return null
+    }
+    if (showsShare(node)) {
+      const share = undocShare(node)
+      if (share === null) return null
+      const n = Math.round(share * 100)
+      return { ...ramped(shareRamp(share), 'docs'), label: `${n}% of files undescribed` }
+    }
+    const g = docGrade(node)
+    if (!g) return null
+    return { ...ramped(DOC_GAP[g], 'docs'), label: `${DOC_WORDS[g]} docs` }
+  }
+
   if (mode === 'traps') {
     // Two states and an absence, not a ramp: a trap is a boolean and shading it would
     // invent degrees of danger nobody reported. Read-and-clear is drawn in the structural
@@ -309,7 +418,7 @@ export function colorFor(
     stop: slot,
     ink: inkOn(slot),
     // The label names the value even when the colour is "Other", so identity is never
-    // carried by colour alone — which is what makes the 6.9 CVD margin legal.
+    // carried by colour alone — which is what makes the 14.3 CVD margin legal.
     label: key,
   }
 }
@@ -420,7 +529,7 @@ export function bucketsFor(
     const outOfScope = out || n.excluded
     if (n.kind === 'func' && !outOfScope) {
       const s = n.score
-      if (mode === 'legible' || mode === 'traps') {
+      if (mode === 'legible' || mode === 'docs' || mode === 'traps') {
         // Both are read straight off the reading, so both share one absence: a function
         // nobody has read yet. It is a bucket rather than a drop, for the same reason the
         // map greys it rather than hiding it — a breakdown that silently omits the unread
@@ -436,6 +545,10 @@ export function bucketsFor(
             trap ? 'var(--trap)' : 'var(--structure)',
             n,
           )
+        } else if (mode === 'docs') {
+          const g = docGrade(n)
+          if (g) put(g, `${DOC_WORDS[g]} docs`, heatColor(DOC_GAP[g], 'docs'), n)
+          else put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
         } else if (r.legible) {
           put(r.legible, LEGIBLE_WORDS[r.legible], heatColor(GRADE_SURPRISE[r.legible], 'legible'), n)
         } else {
@@ -486,7 +599,7 @@ export function bucketsFor(
   } else if (mode === 'traps') {
     // Traps first: it is the only row anybody opens this lens to find.
     out.sort((a, b) => Number(b.key === 'trap') - Number(a.key === 'trap'))
-  } else if (mode === 'legible') {
+  } else if (mode === 'legible' || mode === 'docs') {
     const order: string[] = ['none', 'some', 'most', 'full']
     out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
   } else {

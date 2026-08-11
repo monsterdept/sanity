@@ -1,103 +1,19 @@
+import { useEffect, useState } from 'react'
 import { Summary } from './Summary'
 import { Bloom } from './Bloom'
 import { colorFor, type ColorMode } from '../lib/colorMode'
 import { elide } from '../lib/text'
-import { clsx } from '../lib/cn'
+import { PAPER } from '../lib/ink'
+import { Dials } from './Dials'
 import {
-  GRADE_SURPRISE,
-  LEGIBLE_WORDS,
   isAnalyzed,
   readingWords,
-  temperature,
   wedgeHeat,
   type AgentReport,
   type Grade,
   type Node,
 } from '../lib/api'
 
-
-/** Functions under a node, itself included when it is one.
- *
- *  A plain walk rather than `summarize`, which crosses the same subtree to build four lists
- *  and a spread this header has no use for. Excluded functions count: they are inside the
- *  wedge whose line total sits next to this number, and a header whose two figures described
- *  different sets of code would be the quiet kind of wrong. */
-function countFuncs(n: Node): number {
-  return (n.kind === 'func' ? 1 : 0) + n.children.reduce((a, c) => a + countFuncs(c), 0)
-}
-
-/**
- * One reading, as a dial.
- *
- * Three of these side by side, where there were four stacked bars. A bar is a length, and
- * three lengths in a column invite the eye to compare them — but these three measure
- * different things on different scales, so comparing them is exactly the reading nobody
- * should take. A dial reads as its own instrument: you take each one on its own terms,
- * which is what they are.
- *
- * Fixed 180°, and the value spelled out in the middle. The arc is for the glance — is
- * this near the top or the bottom — and the number is there because a glance at an arc is
- * not a measurement and this panel is where you come when the map was not enough.
- */
-function Gauge({
-  label,
-  value,
-  hint,
-  unread,
-  word,
-}: {
-  label: string
-  value: number
-  hint: string
-  /** No value to show — draw the track and say so, rather than a needle at zero, which
-   *  claims a reading of nought where there is no reading at all. */
-  unread?: boolean
-  /** Say it in words instead of digits, for a reading that has four steps and no more.
-   *
-   *  The arc stays: it is the glance, and it wants the uneven spacing that makes `cold`
-   *  and `warm` sit close together. It is the printed number that was the problem —
-   *  `62` reads as a measurement to one part in a hundred, and four wedges at `30` look
-   *  like four measurements agreeing rather than one grade repeated. */
-  word?: string | null
-}) {
-  const R = 40
-  const LEN = Math.PI * R
-  const v = Math.max(0, Math.min(1, value))
-  const arc = `M ${50 - R} 50 A ${R} ${R} 0 0 1 ${50 + R} 50`
-  return (
-    <div className="flex min-w-0 flex-col items-center" title={hint}>
-      <svg viewBox="0 0 100 58" className="w-full overflow-visible">
-        <path d={arc} fill="none" stroke="var(--secondary)" strokeWidth={7} strokeLinecap="round" />
-        {!unread && (
-          <path
-            d={arc}
-            fill="none"
-            stroke="var(--accent)"
-            strokeWidth={7}
-            // Butt at zero: a round cap on an empty arc draws a dot, which reads as a
-            // small value rather than none.
-            strokeLinecap={v > 0.01 ? 'round' : 'butt'}
-            strokeDasharray={`${LEN * v} ${LEN}`}
-          />
-        )}
-        <text
-          x={50}
-          y={48}
-          textAnchor="middle"
-          className="mono"
-          fontSize={word ? 15 : 22}
-          fontWeight={600}
-          fill="var(--foreground)"
-        >
-          {unread ? '—' : (word ?? Math.round(v * 100))}
-        </text>
-      </svg>
-      <span className="mt-0.5 cursor-help text-center text-[9.5px] font-semibold uppercase leading-tight tracking-wide text-[var(--muted-foreground)]">
-        {label}
-      </span>
-    </div>
-  )
-}
 
 /**
  * The small slice of markdown an agent actually writes.
@@ -118,7 +34,13 @@ function Markdown({ text }: { text: string }) {
         out.push(
           <code
             key={`${key}-c${i}`}
-            className="mono rounded bg-[var(--secondary)] px-1 py-px text-[0.92em]"
+            // A wash of whatever ink this paragraph is set in, not a fixed grey. The
+            // trap note is a solid pink box with its own inherited colour, and a
+            // `--secondary` chip on it is a swatch of the panel's chrome sitting in the
+            // middle of a sentence. Derived from `currentColor`, it is right on every
+            // ground this renderer is used on without any of them being told about it.
+            className="mono rounded px-1 py-px text-[0.92em]"
+            style={{ background: 'color-mix(in oklch, currentColor 15%, transparent)' }}
           >
             {chunk.slice(1, -1)}
           </code>,
@@ -150,6 +72,58 @@ function Markdown({ text }: { text: string }) {
           </p>
         ))}
     </>
+  )
+}
+
+/**
+ * Take this paragraph somewhere else.
+ *
+ * A reading is written to be acted on — pasted into an issue, a commit message, a prompt —
+ * and until now the only way to get one out of the panel was to select prose that has
+ * `<code>` spans in it and hope the selection came out clean. What goes on the clipboard is
+ * the agent's own MARKDOWN, backticks and all, not the rendered text: the destination is
+ * usually another markdown box, and the round trip is lossless only if nothing renders it
+ * on the way.
+ *
+ * **"Copied" is only said when the write resolves.** The clipboard can refuse — no secure
+ * context, no permission — and a button that flashes success either way is the same lie as
+ * a save that reports `Ok` without reading itself back.
+ */
+function CopyButton({ text, title }: { text: string; title: string }) {
+  const [done, setDone] = useState(false)
+  useEffect(() => {
+    if (!done) return
+    const t = setTimeout(() => setDone(false), 1200)
+    return () => clearTimeout(t)
+  }, [done])
+  return (
+    <button
+      type="button"
+      title={done ? 'Copied' : title}
+      aria-label={title}
+      onClick={(e) => {
+        e.stopPropagation()
+        void navigator.clipboard.writeText(text).then(
+          () => setDone(true),
+          () => setDone(false),
+        )
+      }}
+      // Quiet until wanted: it sits in the corner of a box whose whole job is to be read,
+      // so it takes the muted ink and comes up to full on hover. It inherits `color` on the
+      // trap tab, where the ground is pink and the panel's own foreground would disappear.
+      className="ml-auto shrink-0 rounded-[3px] p-0.5 opacity-45 transition-opacity hover:opacity-100 focus-visible:opacity-100"
+    >
+      {done ? (
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden>
+          <path d="M2.5 6.4 4.8 8.8 9.5 3.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden>
+          <rect x="1.2" y="1.2" width="6.6" height="6.6" rx="1.2" stroke="currentColor" strokeWidth="1.1" />
+          <path d="M4.2 10.8h5.4a1.2 1.2 0 0 0 1.2-1.2V4.2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+        </svg>
+      )}
+    </button>
   )
 }
 
@@ -307,6 +281,8 @@ export function Detail({
   ageSpan,
   onSelect,
   onDrill,
+  owners,
+  onShowIn,
 }: {
   node: Node | null
   /** The subtree the map is showing, for the pane with no selection to describe. */
@@ -321,6 +297,12 @@ export function Detail({
   ageSpan?: number
   onSelect?: (n: Node) => void
   onDrill?: (n: Node) => void
+  /** The containers between the repo and this node, outermost first — see `owners` in
+   *  `App`. Empty for a node the tree does not hold, which is what makes the plain path
+   *  below a fallback rather than dead code. */
+  owners?: Node[]
+  /** Show the map one of them, keeping this selection. */
+  onShowIn?: (n: Node) => void
 }) {
   if (!node) {
     // With nothing selected the pane describes the whole picture instead. The gestures
@@ -354,23 +336,133 @@ export function Detail({
   }
 
   const s = node.score
-  const t = temperature(s)
   const isLeaf = node.kind === 'func'
-  // Counted here rather than taken from `summarize`, which walks the same subtree to build
-  // four lists this header does not want. Excluded functions are counted in: they are drawn
-  // in the wedge whose lines are printed beside this number, and a total that silently
-  // disagreed with the picture would be worse than none.
-  const funcCount = countFuncs(node)
   const analyzed = isAnalyzed(node)
-  // Null unless a reader actually read this one, which is what keeps the words off a
-  // proxy estimate — those are continuous and mean something else.
-  const words = readingWords(node)
-  // Only from a reading that still describes this body. A stale grade describes code that
-  // has since changed, and the panel already refuses to colour a wedge from one.
-  const legibleWord =
-    node.agent && !node.agentStale && node.agent.legible
-      ? LEGIBLE_WORDS[node.agent.legible]
-      : null
+  /** The same gate the header badge takes: a stale trap describes a body that has changed,
+   *  so it must not colour anything, here or on the map. */
+  const trapped = node.agent?.trap === true && !node.agentStale
+
+  /** The path is the way back to where the thing IS.
+   *
+   *  It was static text, and that left the panel able to name a function it could not take
+   *  you to: arriving from a list, the wedge is a sliver in a ring of four thousand, and
+   *  even outlined it is a sliver. Every segment is the container the map can be drilled
+   *  to, so "I found it, now show me it" is one click at whatever level makes it big — the
+   *  file, usually. The selection survives the trip; that is `showIn`.
+   *
+   *  Segments are the tree's NODES, not the path string's pieces, so a collapsed
+   *  single-child chain reads as the one node it is (`cli/flox-config`) rather than as two
+   *  crumbs one of which goes nowhere. It wraps rather than eliding, and only at
+   *  separators: the reason not to wrap was a filename split across two lines, which cannot
+   *  happen when the breaks are chosen.
+   *
+   *  The line number stays plain. It is a position in a file, not a place on the map. */
+  const pathLine =
+    owners && owners.length > 0 && onShowIn ? (
+      <p className="mono mt-0.5 flex flex-wrap items-baseline text-[10px] text-[var(--muted-foreground)]">
+        {owners.map((o, i) => (
+          <span key={o.id} className="contents">
+            {i > 0 && <span aria-hidden>/</span>}
+            <button
+              type="button"
+              onClick={() => onShowIn(o)}
+              title={`Show ${o.name} on the map`}
+              className="max-w-[180px] truncate rounded-[3px] px-0.5 hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+            >
+              {o.name}
+            </button>
+          </span>
+        ))}
+        {node.line !== null && <span>:{node.line}</span>}
+      </p>
+    ) : (
+      <p className="mono mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
+        {elide(`${node.path}${node.line !== null ? `:${node.line}` : ''}`, 40)}
+      </p>
+    )
+
+  /** Three ring kinds are hard to tell apart in a sunburst, and hue cannot be borrowed to
+   *  distinguish them — hue is the chart's entire message. So the panel says it outright. */
+  const kindBadge = (
+    <span className="shrink-0 rounded-full border border-[var(--border)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
+      {KIND_LABEL[node.kind]}
+    </span>
+  )
+
+  /* A selected container is described by the SAME pane the repo is, scoped to it.
+     They were two designs for one job: `Summary` for the whole project, and a dial row
+     plus a `Contents` list here. But a directory IS a subtree exactly as the root is, and
+     the question either pane answers is the same one — what is this made of, under the
+     lens I am looking through, and which things are they. So drilling in is a change of
+     SUBJECT and not of layout, which is what the header line already claimed to be.
+     What a container loses is the list of its immediate children; what it gains is the
+     mode's own breakdown and a list that follows it, which is what the map is coloured by. */
+  /* What a reader made of this container.
+     No HEADER block. The file's own banner is the file's own text — one click into the
+     source and it is right there at the top, in its own syntax, unwrapped and untruncated.
+     Reprinting it here spends the pane's most valuable space on something the reader
+     already has, and it is not what this panel is for: everywhere else, this pane shows
+     what was MEASURED about a thing, not the thing. The header still reaches the reader as
+     context, is still graded, and still colours the wedge under Docs — it is just not
+     quoted back at you.
+
+     A directory has no reading of its own, so it gets nothing rather than an empty frame. */
+  const about =
+    node.kind === 'file' && node.agent ? (
+      <div className="-mx-4 mt-4 space-y-3 border-t border-[var(--border)] px-4 pt-3">
+        {/* The same caveat the function pane prints, for the same reason: everything below
+            describes a file whose declarations have since changed. */}
+        {node.agentStale && (
+          <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
+            This file has changed since it was read, so the reading below no longer colours
+            it.
+          </p>
+        )}
+        <div>
+          <div className="mb-0.5 flex items-center gap-2 text-[var(--muted-foreground)]">
+            <p className="text-[10px] font-semibold uppercase tracking-wide">Expected</p>
+            <CopyButton text={node.agent.expected} title="Copy what the reader expected" />
+          </div>
+          <div className="text-xs leading-relaxed">
+            <Markdown text={node.agent.expected} />
+          </div>
+        </div>
+        <div>
+          <div className="mb-0.5 flex items-center gap-2 text-[var(--muted-foreground)]">
+            <p className="text-[10px] font-semibold uppercase tracking-wide">Found</p>
+            <CopyButton text={node.agent.found} title="Copy what the reader found" />
+          </div>
+          <div className="text-xs leading-relaxed">
+            <Markdown text={node.agent.found} />
+          </div>
+        </div>
+      </div>
+    ) : null
+
+  if (!isLeaf) {
+    return (
+      <Summary
+        node={node}
+        title={node.name}
+        repo={null}
+        // The repo header's third figure. A directory has no commit count of its own —
+        // `score.commits` is the 90-day churn window, and printing it under the same word
+        // the repo line uses for all of history would have a folder read "0 commits"
+        // because nobody touched it this quarter. The churn dial states that window on a
+        // scale that admits what it is.
+        commits={0}
+        mode={mode}
+        ranks={ranks}
+        ageSpan={ageSpan}
+        onSelect={onSelect}
+        onDrill={onDrill}
+        kind={kindBadge}
+        path={pathLine}
+        footer={provenance(node, model)}
+        about={about}
+      />
+    )
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -399,12 +491,7 @@ export function Detail({
             directly under it already says that — in words, on the scale the reading actually
             has. Two encodings of one number, the smaller of which cannot be read. */}
         <h2 className="mono truncate text-sm font-semibold">{node.name}</h2>
-        {/* Three ring kinds are hard to tell apart in a sunburst, and hue can't be
-            borrowed to distinguish them — hue is the chart's entire message. So the
-            panel states it outright. */}
-        <span className="shrink-0 rounded-full border border-[var(--border)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
-          {KIND_LABEL[node.kind]}
-        </span>
+        {kindBadge}
         {/* In the header, not among the dials.
             A trap is the one thing here that is not a measurement on a scale — it is a
             warning about this specific function, and it was reachable only by finding the
@@ -420,118 +507,19 @@ export function Detail({
           </span>
         )}
       </div>
-      {/* Two lines, and the path elided rather than wrapped — the same treatment the
-          ring's hover gives it. Wrapped, a deep path took three lines and split its own
-          filename across two of them, and the size hid at the end of the run-on. */}
-      <p className="mono mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
-        {elide(`${node.path}${node.line !== null ? `:${node.line}` : ''}`, 40)}
-      </p>
-      {/* The repo header's shape — lines · functions — scoped to what is selected, so moving
-          between the whole project and one directory is a change of SUBJECT and not of layout.
-          A function gets lines alone: it has no function count to give.
-
-          No commits, where the repo header has them. The only per-node figure that exists is
-          `score.commits`, the 90-day window `churn` is built on, and printing that under the
-          same word the repo line uses for all of history would have a directory read "0
-          commits" because nobody touched it this quarter. Qualifying it inline said so
-          honestly and wrapped the header onto a second line. The churn dial states that
-          window already, on a scale that admits what it is. */}
+      {pathLine}
+      {/* A function gets lines alone: it has no function count to give. The container
+          panes print `lines · functions` from `Summary`. */}
       <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
         {node.loc.toLocaleString()} lines
-        {!isLeaf && (
-          <>
-            {' '}
-            · {funcCount.toLocaleString()} {funcCount === 1 ? 'function' : 'functions'}
-          </>
-        )}
       </p>
 
-      {/* The two bars ride WITH the header, above the verdict rather than below it.
-          They were under the verdict box, which put the panel's only two numbers
-          three paragraphs down and off the bottom of a short pane — the verdict is a
-          reading OF them, so it cannot come first. */}
-      {s && analyzed && (
-        // Three, in a row. Read is gone: `analyzedShare` is bimodal in practice — a repo
-        // is assessed or it is not, so the dial read ~100 everywhere or ~0 everywhere and
-        // distinguished nothing between two wedges you would want to tell apart.
-        //
-        // Four when a reader graded legibility. The row does not reflow on whether a repo
-        // has git — see the churn dial — but it does on whether this function has been
-        // read, because a fourth dial reading "—" beside three real ones is a slot
-        // advertising an absence rather than a measurement, on every unread function.
-        // Under its own full-bleed rule, the same one the section below it gets. The dials are
-        // a section of the pane rather than a continuation of the header — what the thing IS
-        // above the line, what was measured of it below — and without the rule they read as a
-        // third line of the header set in a much larger type.
-        <div
-          className={clsx(
-            '-mx-4 mt-4 grid gap-1 border-t border-[var(--border)] px-4 pt-3',
-            legibleWord ? 'grid-cols-4' : 'grid-cols-3',
-          )}
-        >
-          {isLeaf ? (
-            <Gauge
-              label="Surprise"
-              value={t}
-              word={words?.heat}
-              hint="How little of this body a reader could predict from its name, signature, neighbours and docs. This is the colour. A reader's judgement has four steps, so it is named rather than numbered — a printed 62 would invite a comparison the scale cannot make."
-            />
-          ) : (
-            /* The LOC-weighted mean of what is inside. It was the hot share — the
-               FRACTION of analysed lines that are hot — and the two were on screen
-               together saying different things about the same word.
-
-               Worth knowing: the wedge's COLOUR is still the hot share, because a mean
-               temperature flattens every inner ring toward the repo average and makes the
-               loudest thing on screen the thing that means least. So this dial no longer
-               explains the colour, and its hint says so rather than claiming it does. */
-            <Gauge
-              label="Avg surprise"
-              value={s.surprise}
-              hint="The line-weighted mean surprise of everything inside. The wedge's colour is a different figure — the share of analysed lines that are hot."
-            />
-          )}
-          {/* Documentation is a REPORT, not a discount. It no longer multiplies into the
-              colour — the reader who graded it had the docs in hand, so a good comment
-              already lowered the surprise beside it. Shown because "surprising and
-              undocumented" and "surprising but well covered" are different situations,
-              and only one of them is anyone's fault. */}
-          {/* Named on the same terms and for the same reason: an agent's `documented` is
-              the same four steps, so 95 / 70 / 35 / 0 was the identical false precision
-              one column over. The proxy's estimate is continuous and keeps its digits. */}
-          <Gauge
-            label="Documented"
-            value={s.documented}
-            word={words?.documented}
-            hint="How well the attached docs cover what the code actually does — graded by the reader that read both, not counted in comment lines. A doc the reader judged derivable from the code reads none, whatever grade it gave."
-          />
-          {/* The second axis. Surprise alone cannot tell a subtle algorithm from a mess —
-              both are unpredictable — and churn is what separates them.
-
-              Drawn as an empty dial reading "—" without git history, not as a needle at
-              zero: no history means no second axis at all, and a zero claims "settled"
-              where the truth is "unknown". Keeping the slot also keeps the row at three,
-              so the panel does not reflow depending on whether a repo has a .git. */}
-          <Gauge
-            label="Churn"
-            value={s.churn}
-            unread={s.ageDays === null}
-            hint="How much this code has moved lately. Without git history there is no second axis, and the dial says so rather than reading zero."
-          />
-          {/* The other half of the reading, and the reason the pair is worth having: this
-              one is graded AFTER opening the body, where `Surprise` is graded before. A
-              function that reads hot here and plain there is unreachable rather than
-              unreadable, which is a documentation problem and not a code one. */}
-          {legibleWord && (
-            <Gauge
-              label="Opacity"
-              value={GRADE_SURPRISE[node.agent!.legible!]}
-              word={legibleWord}
-              hint="How clear the body was once the reader had opened it — the second axis. Surprise asks whether the intent was reachable from outside; this asks what was there when they looked."
-            />
-          )}
-        </div>
-      )}
+      {/* The two bars ride WITH the header, above the verdict rather than below it. They
+          were under the verdict box, which put the panel's only two numbers three
+          paragraphs down and off the bottom of a short pane — the verdict is a reading OF
+          them, so it cannot come first. Same row the container panes open with; see
+          `Dials`. */}
+      <Dials node={node} />
       </div>
 
       {/* `min-h-0` because a flex child's default `min-height:auto` refuses to shrink
@@ -540,9 +528,7 @@ export function Detail({
           chaining out to whatever is behind the panel. */}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 [overscroll-behavior:contain]">
       {!s ? (
-        <p className="text-xs text-[var(--muted-foreground)]">
-          Not scored — no parseable functions underneath.
-        </p>
+        <p className="text-xs text-[var(--muted-foreground)]">Not scored.</p>
       ) : !analyzed ? (
         /* Say what grey means rather than showing proxy numbers under a grey swatch —
            the numbers exist, but presenting them here is how a proxy reading gets
@@ -554,12 +540,9 @@ export function Detail({
            impossible. Readings come from agents over MCP now, and the only thing that
            produces one here is a reader being pointed at this repo. */
         <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
-          Nobody has read this yet.
-          {isLeaf
-            ? ' The queue is ordered by how promising each function looks, and it hasn’t got here.'
-            : ' Nothing inside it has been read.'}{' '}
-          Readings come from an agent working through the repo over MCP — point one at
-          this project and it will fill in.
+          Nobody has read this yet. The queue is ordered by how promising each function
+          looks, and it hasn’t got here. Readings come from an agent working through the
+          repo over MCP — point one at this project and it will fill in.
         </p>
       ) : (
         <>
@@ -607,18 +590,25 @@ export function Detail({
                   paragraphs of prose read as one run-on — and Expected is shown even when
                   the agent got it right, because "expected X, found X" is the evidence
                   that a wedge is genuinely boring. */}
+              {/* The copy button rides in the heading rather than floating over the corner
+                  of the prose. Absolutely positioned it would sit on top of the first line
+                  of text at exactly the width where the pane is narrowest; the heading row
+                  is already there, already the full width, and already the thing that says
+                  which paragraph this is. */}
               <div>
-                <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-                  Expected
-                </p>
+                <div className="mb-0.5 flex items-center gap-2 text-[var(--muted-foreground)]">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide">Expected</p>
+                  <CopyButton text={node.agent.expected} title="Copy what the reader expected" />
+                </div>
                 <div className="text-xs leading-relaxed">
                   <Markdown text={node.agent.expected} />
                 </div>
               </div>
               <div>
-                <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-                  Found
-                </p>
+                <div className="mb-0.5 flex items-center gap-2 text-[var(--muted-foreground)]">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide">Found</p>
+                  <CopyButton text={node.agent.found} title="Copy what the reader found" />
+                </div>
                 <div className="text-xs leading-relaxed">
                   <Markdown text={node.agent.found} />
                 </div>
@@ -632,17 +622,57 @@ export function Detail({
                   chose to write one; that is the condition. */}
               {node.agent.note && (
                 /* The takeaway, marked as one. It reads as a quote of the paragraph above
-                   it otherwise — the icon is what says "this is the bit that matters",
-                   and it is the same warning colour the warm-read caveat uses so the
-                   panel has one vocabulary for "pay attention here". */
-                <div className="flex gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--secondary)] px-2 py-1.5">
-                  <span
-                    aria-hidden
-                    className="mt-px shrink-0 text-[13px] leading-none text-[var(--warning)]"
+                   it otherwise — the mark on the left is what says "this is the bit that
+                   matters", and it is the same warning colour the warm-read caveat uses so
+                   the panel has one vocabulary for "pay attention here".
+
+                   **A trap's note is pink, because the note IS the trap.** `trap` is a
+                   boolean; the note is the only thing that says what will bite you, so the
+                   badge in the header should not announce one and then hand you to a
+                   paragraph in the same neutral grey every other reading gets.
+
+                   The colour goes on the TAB and nowhere else. Filling the box was tried and
+                   it is wrong twice over: `--trap` is set to be the loudest thing on the map
+                   and a ground for prose is the one job it is not for, and reversing a
+                   paragraph out of it makes the note harder to read the more it matters. */
+                <div className="overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--secondary)]">
+                  {/* One box, one mark, and exactly one thing that changes: the tab across
+                      the top goes pink. Same glyph, same word position, same border, same
+                      ground, same prose — so the difference reads as this note being flagged
+                      rather than as a different kind of note.
+
+                      LABELLED, because a colour is not a word. The pink says "this one" and
+                      the ⚠ says "careful", and neither says which of the two things this
+                      panel can put in a box you are looking at; the reader would have to have
+                      seen the other kind to know this is the other kind.
+
+                      No `--warning` amber. Amber was the app's colour for "pay attention"
+                      before traps had one; now they do, and a second alert colour beside it
+                      means the panel says "careful" in two vocabularies that do not agree.
+                      Paper on the pink tab, `--foreground` off it — which is Ink on the light
+                      ground and follows the theme on the dark one, where a literal black
+                      would vanish. Paper is a literal because the tab's ground is `--trap` in
+                      both themes, which is the same argument `ink.ts` makes for its pair. */}
+                  <div
+                    className="flex items-center gap-1.5 px-2 py-1"
+                    style={
+                      trapped
+                        ? { background: 'var(--trap)', color: PAPER }
+                        : { color: 'var(--foreground)' }
+                    }
                   >
-                    ⚠
-                  </span>
-                  <div className="text-[11px] leading-snug">
+                    <span aria-hidden className="text-[11px] leading-none">
+                      ⚠
+                    </span>
+                    <span className="text-[9px] font-semibold uppercase tracking-[0.08em] leading-none">
+                      {trapped ? 'trap' : 'note'}
+                    </span>
+                    <CopyButton
+                      text={node.agent.note}
+                      title={trapped ? 'Copy this trap' : 'Copy this note'}
+                    />
+                  </div>
+                  <div className="px-2 pb-1.5 pt-1 text-[11px] leading-snug">
                     <Markdown text={node.agent.note} />
                   </div>
                 </div>

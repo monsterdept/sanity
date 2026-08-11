@@ -1,6 +1,6 @@
 # scripts — sanity assessment
 
-2 of 2 functions read · 0 surprising
+3 of 3 functions read · 1 surprising
 
 Each entry below is one **reading**. An agent was given a function's name,
 signature, neighbouring function names and comments — never its body — and wrote
@@ -13,6 +13,13 @@ stops matching the code, the reading is marked STALE and goes back in the queue.
 What this is and how to add to it: [README.md](README.md)
 
 ## scripts/make-icon.py
+
+### the file itself — surprising
+- read at `fbea559dbc3a` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: A standalone asset script generating Sanity's app icon programmatically rather than shipping designed artwork: a pixel(x, y) returning an RGBA colour per point, almost certainly a sunburst/ring motif in the app's temperature palette with alpha for a mask, and a main rendering it at the icon sizes Tauri wants, writing PNGs (perhaps an icns/iconset) into src-tauri/icons/. Expected little module documentation since none was handed over.
+- found: The sunburst-in-the-temperature-ramp guess was right, but the shape differs in three ways: it writes exactly ONE 1024px file, src-tauri/icons/source.png, leaving the size derivatives to `just icons`; pixel returns opaque RGB with no alpha, painting an ink background instead of masking; and main hand-encodes the PNG with struct and zlib — scanlines with filter byte 0, IHDR/IDAT/IEND chunks with CRC32 — specifically to avoid a Pillow dependency, on the argument that an icon generator needing pip install never gets re-run. The rings are four fixed radius bands with 3/5/8/13 spokes and thin BG wedge separators, and the file DOES carry a module docstring, contrary to the empty `docs` I was handed.
+- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
+- note: The task handed me an empty `docs` for this file, but it opens with a module docstring that states its purpose, its output path and the reason it avoids Pillow — so the scanner appears not to collect Python module-level docstrings as file docs.
 
 ### `pixel` — as expected
 - read at `ae8cc24a920f` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run

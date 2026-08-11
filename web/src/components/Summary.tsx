@@ -11,6 +11,7 @@ import {
   type Node,
 } from '../lib/api'
 import { bucketsFor, colorFor, type Bucket, type ColorMode } from '../lib/colorMode'
+import { Dials } from './Dials'
 
 const GRADES: Grade[] = ['full', 'most', 'some', 'none']
 
@@ -21,6 +22,7 @@ const GRADES: Grade[] = ['full', 'most', 'some', 'none']
  *  the tab would tell the reader something they can already see. */
 const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
   legible: 'Opacity',
+  docs: 'Documentation',
   traps: 'Traps',
   blame: 'Authors',
   language: 'Languages',
@@ -35,6 +37,35 @@ const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
  *  scrollbar — slowly at first, and by whole rows near the bottom. The rows carry `h-5` to
  *  make it true. */
 const ROW_H = 20
+
+/**
+ * What a row can say that the heading above it does not.
+ *
+ * The trailing column used to be `colorFor`'s label — the same string the mode paints the
+ * wedge by — and under a list that is already grouped BY that value it is a hundred and
+ * nineteen repetitions of the heading: every row under DAVID SAWYER read "David Sawyer",
+ * every row under `blazing` read `blazing`, every row under `rust` read `rust`. A column
+ * that restates its own header is a column of nothing.
+ *
+ * So each lens says the part of itself the bucket cannot. `age` and `churn` are bands, so
+ * the row still has a value inside its band worth printing — and it prints only the part
+ * the band leaves open: "5d ago" under `this week`, "11 in 90d" under `10+ commits`, where
+ * both used to repeat the word the heading had just used.
+ *
+ * Everything else is a category — an author, a language, a grade, a trap — and a category
+ * is the same for every row by construction. Those get LINES, which is not a restatement of
+ * anything: it is the map's other axis, the one that decides how much of the picture each
+ * row is, and it is the only way to tell the big function in a bucket from the small one.
+ */
+function rowNote(n: Node, mode: ColorMode): string {
+  const s = n.score
+  if (mode === 'age') {
+    if (!s || s.lastTouchedDays === null) return '—'
+    return s.lastTouchedDays < 1 ? 'today' : `${Math.round(s.lastTouchedDays)}d ago`
+  }
+  if (mode === 'churn') return s && s.ageDays !== null ? `${s.commits} in 90d` : '—'
+  return `${compactCount(n.loc)} lines`
+}
 
 /**
  * The readings list, rendering only what is on screen.
@@ -52,15 +83,17 @@ function ListWindow({
   onSelect,
   goTo,
   paint,
+  mode,
 }: {
   rows: Node[]
   onSelect?: (n: Node) => void
   goTo: (n: Node) => void
-  /** Swatch and trailing word for one row. Defaults to the reading's heat and grade, which
-   *  is what the surprise panel wants; the other lenses pass their own so a row says
-   *  "touched 4d ago" rather than restating a temperature the map is not currently
-   *  showing. Same source as the wedge — see `colorFor`. */
-  paint?: (n: Node) => { fill: string; label: string }
+  /** The row's swatch — the same colour the wedge is wearing, from `colorFor`. Defaults to
+   *  the reading's heat, which is what the surprise panel wants. The trailing text is not a
+   *  caller's business: it is `rowNote`, so no list can end up restating its own heading. */
+  paint?: (n: Node) => { fill: string }
+  /** Which lens the trailing column should answer for. */
+  mode: ColorMode
 }) {
   const box = useRef<HTMLDivElement | null>(null)
   const [view, setView] = useState({ top: 0, h: 0 })
@@ -100,10 +133,7 @@ function ListWindow({
           that happens to exist. */}
       <div style={{ height: first * ROW_H }} />
       {shown.map((h) => {
-        const p = paint?.(h) ?? {
-          fill: heatColor(temperature(h.score)),
-          label: HEAT_WORDS[h.agent?.predicted ?? 'none'],
-        }
+        const fill = paint?.(h).fill ?? heatColor(temperature(h.score))
         return (
           <button
             key={h.id}
@@ -112,10 +142,10 @@ function ListWindow({
             onClick={() => onSelect?.(h)}
             onDoubleClick={() => goTo(h)}
           >
-            <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: p.fill }} />
+            <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: fill }} />
             <span className="mono flex-1 truncate text-[11px]">{h.name}</span>
             <span className="mono shrink-0 truncate text-[10px] text-[var(--muted-foreground)]">
-              {p.label}
+              {rowNote(h, mode)}
             </span>
           </button>
         )
@@ -276,7 +306,14 @@ function Buckets({
           />
         ))}
       </div>
-      <div className="mt-2 space-y-0.5">
+      {/* Scrolled, and bounded to a third of the pane.
+          `Spread`'s key is six rows and always will be — a grade is one of four. A bucket
+          list is however many authors a repo has, and flox has forty: the key alone was
+          taller than the pane, so it pushed the list of the picked author's functions off
+          the bottom and the row you clicked answered somewhere you could not see. The cap
+          is a share of the height rather than a row count, because what has to fit is the
+          list underneath, and how much room that needs is the window's business. */}
+      <div className="mt-2 max-h-[33vh] space-y-0.5 overflow-y-auto [overscroll-behavior:contain]">
         {buckets.map((b) => {
           const on = b.key === picked
           return (
@@ -317,10 +354,10 @@ function Buckets({
 /**
  * The pane when nothing is selected: what this repo adds up to, and what to do next.
  *
- * It used to be the ants and nothing else, on the argument that the gestures were already
- * stated on the wedges they apply to. That is still true of the gestures — and it left
- * the panel saying nothing at the one moment the question is "what am I looking at", which
- * is exactly when you have not picked a wedge yet. The ants stay, underneath.
+ * It used to be empty, on the argument that the gestures were already stated on the wedges
+ * they apply to. That is still true of the gestures — and it left the panel saying nothing
+ * at the one moment the question is "what am I looking at", which is exactly when you have
+ * not picked a wedge yet.
  *
  * Everything here is counted off `node` — the subtree the map is currently showing — for
  * the same reason `ColourLegend` counts its hatches off `focus`: drilled two levels in,
@@ -338,9 +375,25 @@ export function Summary({
   ageSpan,
   onSelect,
   onDrill,
+  kind,
+  path,
+  footer,
+  about,
 }: {
   /** The subtree on screen. */
   node: Node
+  /** Named beside the title, when this pane is describing a SELECTED container rather than
+   *  the picture as a whole. Three ring kinds are hard to tell apart in a sunburst and hue
+   *  is spoken for, so the panel says it outright. */
+  kind?: React.ReactNode
+  /** Where it lives, as the clickable crumbs `Detail` builds. Undefined at the root, which
+   *  is not inside anything. */
+  path?: React.ReactNode
+  /** Which instrument produced these numbers, pinned to the bottom. */
+  footer?: React.ReactNode
+  /** What this container says about ITSELF — a file's header and the reading of it.
+   *  Built by `Detail`, which owns the markdown renderer and the copy button. */
+  about?: React.ReactNode
   /** What to call it — the project when at the root, the directory when drilled in. */
   title: string
   repo: string | null
@@ -386,20 +439,8 @@ export function Summary({
    *  Held per mode — a key picked under Language means nothing under Age, and a remembered
    *  one would resolve to an empty list. */
   const [pickedBucket, setPickedBucket] = useState<string | null>(null)
-  /** Show only the notes their reader marked as traps.
-   *
-   *  A filter rather than a paint. Traps are sparse and specific — the tier somebody would
-   *  actually work through — and a map where danger and surprise are both colour cannot say
-   *  which it means. */
-  /** The notes list follows the lens instead of carrying its own filter.
-   *
-   *  It had a `traps` toggle while Surprise was the only panel showing notes. With Traps a
-   *  lens of its own, the toggle and the tab were two controls for one question — so the tab
-   *  is the control, and under it the list is exactly the trap notes. */
-  const trapsOnly = mode === 'traps'
   useEffect(() => setPickedBucket(null), [mode])
   const bucket = buckets.find((b) => b.key === pickedBucket) ?? buckets[0] ?? null
-  const shownNotes = trapsOnly ? s.notes.filter((n) => n.agent?.trap) : s.notes
   const lens = mode !== 'surprise'
 
   return (
@@ -411,14 +452,18 @@ export function Summary({
        window it would stop just as short. Only the middle one grows. */
     <div className="relative flex h-full flex-col">
       <div className="shrink-0 px-4 pt-4">
-        <h2 className="mono truncate text-sm font-semibold" title={title}>
-          {title}
-        </h2>
-        {repo && (
-          <p className="mono mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
-            {elide(repo, 40)}
-          </p>
-        )}
+        <div className="flex items-center gap-2">
+          <h2 className="mono truncate text-sm font-semibold" title={title}>
+            {title}
+          </h2>
+          {kind}
+        </div>
+        {path ??
+          (repo && (
+            <p className="mono mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
+              {elide(repo, 40)}
+            </p>
+          ))}
         <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
           {/* One shape for what a repo IS: lines, functions, commits — the same three the
               history header prints, so switching between them is not switching layouts.
@@ -437,6 +482,12 @@ export function Summary({
             </span>
           )}
         </p>
+
+        {/* What was measured of this subtree, above what it is made of. The row a selected
+            directory used to have to itself — see `Dials`, which is where it lives now so
+            the repo and a folder inside it cannot end up with two versions of it. */}
+        <Dials node={node} />
+        {about}
 
         {s.functions > 0 && (
           /* Full-bleed (`-mx-4`, re-padded with `px-4`) so the rule reaches both edges of the
@@ -499,10 +550,10 @@ export function Summary({
                 rows={bucket.nodes}
                 onSelect={onSelect}
                 goTo={goTo}
-                paint={(n) => {
-                  const c = colorFor(n, mode, ranks, ageSpan)
-                  return { fill: c?.fill ?? 'var(--unanalyzed)', label: c?.label ?? '—' }
-                }}
+                mode={mode}
+                paint={(n) => ({
+                  fill: colorFor(n, mode, ranks, ageSpan)?.fill ?? 'var(--unanalyzed)',
+                })}
               />
             </div>
           )
@@ -533,73 +584,34 @@ export function Summary({
                 reason: uniform height is what lets the first visible index be arithmetic
                 instead of measurement, and the two spacers hold the scrollbar at the size
                 the whole list would have had. */}
-            <ListWindow rows={list} onSelect={onSelect} goTo={goTo} />
+            <ListWindow rows={list} onSelect={onSelect} goTo={goTo} mode={mode} />
           </div>
           )
         )}
       </div>
 
-      {/* What readers actually said, in place of Next Steps.
-          Next Steps restated the three counts the key above already gives — expired, unread,
-          hot — as sentences. A count is not a finding, and the panel's most valuable payload
-          was going somewhere else entirely: `note` is written only when a reading surprised
-          its reader, so every line here is something a stranger thought worth saying out
-          loud about a specific function, and until now it was visible one wedge at a time.
-
-          Attributed, not asserted. These are claims a reader made, not conclusions the app
-          reached — a reader in this repo's own last wave quoted a file it had never opened —
-          so the note keeps the function's name next to it and clicking goes there to check.
-
-          Scrollable and bounded rather than growing: it shares the pane with the readings
-          list above, which is the thing you came to browse. */}
-      {(!lens || mode === 'traps') && shownNotes.length > 0 && (
-        <div className="flex max-h-[45%] shrink-0 flex-col border-t border-[var(--border)] px-4 pb-4 pt-3">
-          <div className="mb-1.5 flex shrink-0 items-baseline justify-between gap-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-              Notes
-            </p>
-            <div className="flex items-baseline gap-2">
-              <p className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
-                {shownNotes.length}
-              </p>
-            </div>
-          </div>
-          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto [overscroll-behavior:contain]">
-            {shownNotes.map((n) => (
-              <button
-                key={n.id}
-                type="button"
-                onClick={() => onSelect?.(n)}
-                onDoubleClick={() => goTo(n)}
-                className="block w-full rounded-[var(--radius-sm)] px-1 py-0.5 text-left hover:bg-[var(--secondary)]"
-              >
-                <span className="mono flex items-baseline gap-1.5 text-[10.5px] text-[var(--foreground)]">
-                  <span
-                    className="mt-1 h-1.5 w-1.5 shrink-0 rounded-[2px]"
-                    style={{ background: heatColor(temperature(n.score)) }}
-                  />
-                  <span className="truncate">{n.name}</span>
-                  {/* Marked, not just sorted. The order carries the ranking, but a reader
-                      scrolling past the first few needs to know which kind of thing they
-                      are looking at without inferring it from position. */}
-                  {n.agent?.trap && (
-                    <span
-                      className="shrink-0 rounded-[3px] px-1 text-[9px] font-semibold uppercase tracking-wide"
-                      style={{ background: 'var(--trap)', color: 'var(--card)' }}
-                      title="The reader says this will bite whoever edits it next."
-                    >
-                      trap
-                    </span>
-                  )}
-                </span>
-                <span className="mt-0.5 block text-[11px] leading-snug text-[var(--muted-foreground)]">
-                  {n.agent?.note}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* Pinned to the bottom, a flex sibling of the list rather than the last thing inside
+          it. Who produced these numbers is the one line that should not require scrolling
+          past a hundred and fifty functions to reach — and a footer that moves with the
+          list is not a footer, it is the end of the list. */}
+      {footer && (
+        <p className="shrink-0 border-t border-[var(--border)] px-4 py-2 text-[10px] leading-snug text-[var(--muted-foreground)]">
+          {footer}
+        </p>
       )}
+
+      {/* No notes list here.
+          It ran every note a reader had written down the pane, and a note is written ABOUT a
+          function — "the name reads as generic attrset manipulation", "any reordering
+          silently changes which package wins". Stacked forty deep with only a name beside
+          them, they are sentences about nothing: the reader cannot see the signature, the
+          docs, the grades or the body any of them is qualifying, which is exactly the
+          context the panel supplies when you have a wedge selected. The list said WHICH
+          functions have something to say — and the map already says that, in the colour it
+          is painted, and the readings list above says it by name.
+
+          So a note is shown where it means something: on the function it was written about,
+          with the reading it belongs to. See `Detail`. */}
     </div>
   )
 }

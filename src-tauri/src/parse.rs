@@ -260,6 +260,20 @@ fn leading_doc(node: TsNode, src: &str) -> Option<String> {
         if !k.contains("comment") {
             break;
         }
+        // An INNER doc comment is the module talking about itself, never about whatever
+        // happens to follow it. Rust's `//!` is the only form of this, and without the rule
+        // a file that opens with module docs and then declares a function hands those docs
+        // to that one function — arbitrarily, since a `use` line above it would have severed
+        // them. Worse now that `file_doc` also collects them: the same paragraph would reach
+        // a reader twice in one payload, which reads as emphasis rather than as duplication.
+        //
+        // The blank-line rule below does not catch it, and cannot: tree-sitter-rust gives an
+        // inner doc comment a trailing newline that a `//` comment does not have, so its end
+        // row is already one past its text and the gap looks closed.
+        let raw = text(prev, src);
+        if raw.starts_with("//!") || raw.starts_with("/*!") {
+            break;
+        }
         if prev.end_position().row + 1 < cur.start_position().row {
             break; // blank line — not attached to this definition
         }
@@ -408,7 +422,19 @@ fn owner_of(node: TsNode, lang: Lang, src: &str) -> Option<String> {
 
 /// Python attaches its documentation *inside* the body, as the first statement.
 fn python_docstring(body: TsNode, src: &str) -> Option<String> {
-    let first = body.named_child(0)?;
+    // The first named child that is not a COMMENT. Comments are named nodes in this
+    // grammar, so a module opening `#!/usr/bin/env python3` put a comment in slot zero and
+    // the docstring under it went unseen — every Python file with a shebang read as
+    // undocumented at file level, which is most scripts. Harmless for a function body,
+    // where a comment before the docstring is rare and skipping it is still right.
+    let mut i = 0;
+    let first = loop {
+        let n = body.named_child(i)?;
+        if !n.kind().contains("comment") {
+            break n;
+        }
+        i += 1;
+    };
     let expr = if first.kind() == "expression_statement" {
         first.named_child(0)?
     } else {
@@ -441,6 +467,172 @@ fn strip_comment_markers(raw: &str) -> String {
         .join("\n")
         .trim()
         .to_string()
+}
+
+/// How much of a module header a reader is handed, in characters.
+///
+/// Headers are unbounded — this repo's own run to several thousand characters — and the
+/// text is priced per READING: it reaches every function in the file, on every turn of
+/// every reader. So the cap is not a tidiness rule, it is the whole cost of the feature,
+/// and it was measured with `just tokens` rather than picked:
+///
+/// | cap  | median payload | median docs | repo payloads |
+/// |------|----------------|-------------|---------------|
+/// | none | 873 ch         | 158 ch      | 144.5k tok    |
+/// | 450  | 1251 ch        | 477 ch      | 195.7k tok    |
+/// | 600  | 1354 ch        | 606 ch      | 210.1k tok    |
+/// | 900  | 1551 ch        | 907 ch      | 235.2k tok    |
+///
+/// 600 buys the opening paragraph — which is where a module header states what it is, every
+/// time — for 45% of what the payload cost before, against 63% for 900. Past the first
+/// paragraph a header is arguing with itself about design decisions, which is worth reading
+/// and is not what a reader needs in order to predict one function. The cap is binding on
+/// nearly every file in THIS repo and on almost none in a normal one; re-run `just tokens`
+/// against both kinds before moving it.
+///
+/// Truncation is marked, because a header cut off mid-sentence that looks complete is a
+/// reader predicting confidently from half a description.
+const FILE_DOC_MAX: usize = 600;
+
+/// Markers that say a header is a licence rather than an explanation.
+///
+/// A licence block is the single most common thing at the top of a file and it explains
+/// nothing about the code — feeding it to a reader would spend the payload on boilerplate
+/// and, worse, dress every file in the repo in identical prose, which is exactly the kind
+/// of text that makes unrelated functions look like they share context.
+const LICENCE_MARKERS: &[&str] = &[
+    "copyright",
+    "spdx-license-identifier",
+    "licensed under",
+    "all rights reserved",
+    "permission is hereby granted",
+    "without warranties",
+    "gnu general public",
+    "apache license",
+];
+
+/// The banner at the top of a file — what the module says about itself.
+///
+/// The comment stack a reader is handed was one deep: the chunk's own doc and nothing
+/// else. That is wrong wherever a codebase explains a module once at the top and leaves its
+/// functions bare, which is the normal Rust idiom (`//!`), the normal Python idiom (a module
+/// docstring) and common everywhere else. The reader graded those functions as undocumented
+/// and unpredictable, and both were artefacts of the instrument: a person opening that file
+/// has read the header before they reach the function.
+///
+/// **Rust and Python are read from the grammar's own header forms; everything else is the
+/// leading comment run.** `//!` and a module docstring cannot be anything but a file-level
+/// doc, so they are taken outright. A leading `//` run is more ambiguous — it may be the
+/// first item's own doc comment — so it is taken only when a blank line separates it from
+/// whatever follows, which is the same adjacency rule [`leading_doc`] uses from the other
+/// side. Between them the two rules cannot both claim one comment, which matters because
+/// the same text arriving twice in `docs` would read to a reader as emphasis.
+pub fn file_doc(lang: Lang, src: &str) -> Option<String> {
+    let mut parser = Parser::new();
+    if parser.set_language(&language(lang)).is_err() {
+        return None;
+    }
+    let tree = parser.parse(src, None)?;
+    let root = tree.root_node();
+
+    let raw = match lang {
+        // A module docstring, by the same rule a function's is found — the root node IS the
+        // body here, so the existing helper applies unchanged.
+        Lang::Python => python_docstring(root, src),
+        _ => {
+            // Past the imports first. This is the whole of what was wrong: the loop stopped
+            // at the first non-comment child, and in TypeScript, Go, Java and most of C the
+            // first thing in a file is an import — so the module header, which conventionally
+            // sits UNDER them, was never reached. Every `.tsx` file in this repo read as
+            // having no header, and a wave of readers reported it from the far end: they were
+            // asked to predict a file from a header they had been handed as empty.
+            //
+            // Comments before the imports still count. A file may put its banner above them
+            // (C does) or below (TypeScript does), and both are the same claim about the same
+            // file; what a header cannot be is attached to a declaration, which is the rule
+            // below and the one `leading_doc` applies from the other side.
+            let mut cursor = root.walk();
+            let mut runs: Vec<(Vec<String>, usize)> = Vec::new();
+            let mut open_run: Vec<String> = Vec::new();
+            let mut last_end = 0usize;
+            let mut attached_last = false;
+            for child in root.children(&mut cursor) {
+                let k = child.kind();
+                if k.contains("comment") {
+                    // A blank line ends a run. Without this a licence, a banner and the
+                    // first item's own doc comment all merge into one block, and the
+                    // adjacency rule below then throws away the banner along with the doc.
+                    if !open_run.is_empty() && child.start_position().row > last_end + 1 {
+                        runs.push((std::mem::take(&mut open_run), last_end));
+                    }
+                    let t = text(child, src);
+                    // Rust says which comments are the module's own: `//!` and `/*!`. A `///`
+                    // run belongs to whatever follows, wherever it sits.
+                    if lang == Lang::Rust && !(t.starts_with("//!") || t.starts_with("/*!")) {
+                        last_end = child.end_position().row;
+                        continue;
+                    }
+                    open_run.push(strip_comment_markers(t));
+                    last_end = child.end_position().row;
+                    continue;
+                }
+                // An import is not a declaration a comment can document, so a run that ends
+                // at one is still a candidate header — and the scan carries on past it.
+                let importish = k.contains("import")
+                    || k.contains("include")
+                    || k == "use_declaration"
+                    || k == "package_clause"
+                    || k == "package_declaration";
+                if !open_run.is_empty() {
+                    runs.push((std::mem::take(&mut open_run), last_end));
+                }
+                if importish {
+                    continue;
+                }
+                // The first real declaration. A comment run touching it is ITS doc — see
+                // `leading_doc` — and must not also be handed over as the file's.
+                attached_last = runs
+                    .last()
+                    .is_some_and(|(_, end)| end + 1 >= child.start_position().row);
+                break;
+            }
+            if !open_run.is_empty() {
+                runs.push((open_run, last_end));
+            }
+            // Rust's `//!` is unambiguous, so adjacency cannot disqualify it.
+            if attached_last && lang != Lang::Rust {
+                runs.pop();
+            }
+            let joined = runs
+                .into_iter()
+                .map(|(lines, _)| lines.join("\n"))
+                .collect::<Vec<_>>()
+                .join("\n\n")
+                .trim()
+                .to_string();
+            (!joined.is_empty()).then_some(joined)
+        }
+    }?;
+
+    let doc = raw.trim();
+    // A licence is not an explanation. Checked over the whole header rather than line by
+    // line: stripping the matching lines leaves fragments — "This file is part of Foo", a
+    // lone asterisk — that read as a description and are not one.
+    let lower = doc.to_lowercase();
+    if LICENCE_MARKERS.iter().any(|m| lower.contains(m)) {
+        return None;
+    }
+    if doc.is_empty() {
+        return None;
+    }
+    Some(if doc.chars().count() > FILE_DOC_MAX {
+        let cut: String = doc.chars().take(FILE_DOC_MAX).collect();
+        // On a word boundary, so the last thing a reader sees is not half an identifier.
+        let cut = cut.rsplit_once(char::is_whitespace).map_or(cut.clone(), |(h, _)| h.to_string());
+        format!("{cut} …")
+    } else {
+        doc.to_string()
+    })
 }
 
 /// Extract every top-level-ish function in `src`.
@@ -859,6 +1051,103 @@ class Store {
             .find(|f| f.name == "Panel")
             .unwrap();
         assert_eq!(panel.doc.as_deref(), Some("The component."));
+    }
+
+    /// Rust says which comments are the module's own, so nothing has to be guessed.
+
+
+    #[test]
+    fn rust_module_docs_are_the_file_doc() {
+        let src = "//! The gate module.\n//! Opens and closes.\n\n/// Opens it.\npub fn open() {}\n";
+        assert_eq!(
+            file_doc(Lang::Rust, src).as_deref(),
+            Some("The gate module.\nOpens and closes.")
+        );
+        // And the function keeps its own, undisturbed: the two docs are different fields
+        // of the payload and the same sentence must never arrive in both.
+        assert_eq!(parse_functions(Lang::Rust, src)[0].doc.as_deref(), Some("Opens it."));
+    }
+
+    /// A `///` run above the first item belongs to that item, wherever it sits in the file.
+    #[test]
+    fn rust_item_docs_are_not_the_file_doc() {
+        let src = "/// Opens it.\npub fn open() {}\n";
+        assert_eq!(file_doc(Lang::Rust, src), None);
+    }
+
+    /// The one comment every file has, and the one that explains nothing.
+    ///
+    /// A licence at the top of a file would otherwise become the module header of most of
+    /// the open-source world — priced per reading, identical across every file in the repo,
+    /// and describing none of them.
+    #[test]
+    fn a_licence_header_is_not_documentation() {
+        let src = "// Copyright 2019 Someone\n// Licensed under the Apache License.\n\nfunc go() {}\n";
+        assert_eq!(file_doc(Lang::Go, src), None);
+    }
+
+    /// The adjacency rule, from the other side of `leading_doc`.
+    ///
+    /// A comment run with no blank line under it is the first item's doc comment, and
+    /// `leading_doc` is about to hand it over as exactly that. Taken here as well, the same
+    /// sentence would reach the reader twice in one payload, which reads as emphasis.
+    #[test]
+    fn a_comment_attached_to_the_first_item_is_not_the_file_doc() {
+        let attached = "// Goes.\nfunc go() {}\n";
+        assert_eq!(file_doc(Lang::Go, attached), None);
+        let detached = "// The gate package.\n\n// Goes.\nfunc go() {}\n";
+        assert_eq!(file_doc(Lang::Go, detached).as_deref(), Some("The gate package."));
+    }
+
+    /// The header sits UNDER the imports in most of the world, and that is where it was
+    /// being missed.
+    ///
+    /// Found from the far end by a wave of readers: every `.tsx` file in this repo was
+    /// handed over with an empty header, so file readings were being asked to predict from
+    /// the one input the task tells them to use and grading `documented: none` against text
+    /// they could only see after opening. Four readers reported it independently.
+    #[test]
+    fn a_header_below_the_imports_is_still_the_file_doc() {
+        let src = "import { a } from './a'\nimport { b } from './b'\n\n\
+                   /** Opening one file's wedge into a fan. */\n\n\
+                   /** A wedge as a rectangle. */\nexport interface Sector { a0: number }\n";
+        assert_eq!(
+            file_doc(Lang::TypeScript, src).as_deref(),
+            Some("Opening one file's wedge into a fan."),
+            "the run under the imports is the header; the one touching the declaration is its doc"
+        );
+    }
+
+    /// A shebang must not eat the module docstring beneath it.
+    ///
+    /// Comments are NAMED nodes in tree-sitter-python, so `named_child(0)` was the `#!`
+    /// line and every script with one read as undocumented at file level.
+    #[test]
+    fn a_shebang_does_not_hide_a_python_module_docstring() {
+        let src = "#!/usr/bin/env python3\n\"\"\"Generate the placeholder app icon.\"\"\"\n\n\
+                   def go(n):\n    return n\n";
+        assert_eq!(
+            file_doc(Lang::Python, src).as_deref(),
+            Some("Generate the placeholder app icon.")
+        );
+    }
+
+    /// Python's module header is a docstring, by the same rule a function's is.
+    #[test]
+    fn python_module_docstrings_are_the_file_doc() {
+        let src = "\"\"\"The gate module.\"\"\"\n\n\ndef go(n):\n    return n\n";
+        assert_eq!(file_doc(Lang::Python, src).as_deref(), Some("The gate module."));
+    }
+
+    /// Truncation is MARKED. A header cut off mid-sentence that looks complete is a reader
+    /// predicting confidently from half a description — see `FILE_DOC_MAX`.
+    #[test]
+    fn a_long_header_is_cut_and_says_so() {
+        let long = "word ".repeat(400);
+        let src = format!("//! {long}\n\npub fn go() {{}}\n");
+        let doc = file_doc(Lang::Rust, &src).unwrap();
+        assert!(doc.chars().count() <= FILE_DOC_MAX + 2, "bounded: {}", doc.chars().count());
+        assert!(doc.ends_with('…'), "a truncated header says it was truncated");
     }
 
     #[test]

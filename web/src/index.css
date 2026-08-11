@@ -84,7 +84,7 @@
    *
    * Destructive is the app's error red — it marks things that went wrong for the user, and
    * a wedge is not an error. A trap is a warning about the CODE, it is meant to be the
-   * loudest thing in its lens, and it needs to stay distinct from `--cat-3` pink so Blame
+   * loudest thing in its lens, and it needs to stay distinct from `--cat-8` pink so Blame
    * and Traps cannot be confused at a glance. Hot pink is louder than any ramp end here,
    * which is the point: this is the one lens where the answer is "look at these". */
   --trap: #ff4f95;
@@ -150,6 +150,21 @@
   --legible-3: #a189c2;
   --legible-4: #b79ae0;
 
+  /* docs — cyan, and the one ramp whose bright end is an ABSENCE. Surprise, opacity, churn
+   * and age all brighten toward more of the thing they measure; this one brightens toward
+   * LESS, because the invariant the map keeps is not "more is brighter", it is "bright is
+   * the thing you have to do something about" — and what you do something about is the
+   * undocumented end. So the input is the gap, never the coverage. Cyan because amber,
+   * blue, violet and green are taken and pink belongs to traps; solved on the same
+   * lightness profile as the rest, ΔE ≥ 19 from both unanalysed greys, 12.1 from the
+   * nearest other cold end and 17.7 from the nearest other hot end, spanning 40.8
+   * cold→hot, which is heat's 41.4 to within rounding. Re-solve, don't eyeball. */
+  --docs-0: #2f5b62;
+  --docs-1: #277b87;
+  --docs-2: #2499a9;
+  --docs-3: #24b9cc;
+  --docs-4: #1cd6ed;
+
   --age-0: #4d574d; /* age — green */
   --age-1: #5c765f;
   --age-2: #6e9473;
@@ -158,20 +173,37 @@
 
   /* ── Categorical: owner, language ─────────────────────────────────────────────
    *
-   * FOUR slots, and that is a measured ceiling rather than a preference. In a
-   * sunburst any wedge can end up beside any other, so the palette has to hold under
-   * all-pairs comparison — and no larger set clears it: eight slots put red beside
-   * orange at ΔE 7.1 for NORMAL vision, which is exactly the rust/python collision
-   * that prompted this. Past four, categories fold into "Other" rather than inventing
-   * a fifth hue.
+   * EIGHT slots. It was four, on the claim that no larger set clears all-pairs
+   * comparison — and that was a claim about one hand-picked eight, not about eight.
+   * Searched properly (CIEDE2000 under normal vision plus all three dichromacies,
+   * Machado severity 1.0, candidates from an OKLCH grid held to this app's muted
+   * range) the ceiling is much further out than the four it was defending: the four
+   * shipped here scored a worst pair of 7.9 — protanope, blue against pink — and
+   * these eight score 14.3. Twice the separation and twice the categories.
    *
-   * Assigned in fixed order by size, never cycled. Worst all-pairs CVD ΔE is 6.9,
-   * which is legal only with secondary encoding — hence the legend and the tooltips,
-   * which name every value so identity is never colour alone. */
+   * `--cat-1` and `--cat-2` are the blue and amber this map already wore; keeping
+   * them costs 2 points of worst-pair against a free search and keeps the picture
+   * recognisable between versions.
+   *
+   * Assigned in fixed order by size, never cycled — so the ORDER matters as much as
+   * the set. A repo with three authors only ever sees the first three, so the list is
+   * sorted by prefix separation: the first three clear 20.2, the first four 15.3, and
+   * it only reaches 14.3 at the eighth. Every slot also clears 12.6 against the "Other"
+   * neutral and the unanalysed grey, which are the two things every wedge sits beside.
+   *
+   * Past eight, categories still fold into "Other" rather than inventing a ninth hue —
+   * a ninth costs 15% of the worst pair and it keeps falling. The tail is reachable by
+   * PICKING it in the panel, which is identity by selection rather than by a colour too
+   * close to another one to trust. Identity is never colour alone anyway: the legend and
+   * the tooltips name every value. */
   --cat-1: #3987e5;
   --cat-2: #c98500;
-  --cat-3: #c85a7c;
-  --cat-4: #008300;
+  --cat-3: #4a6d51;
+  --cat-4: #af2f02;
+  --cat-5: #6c5594;
+  --cat-6: #7f946e;
+  --cat-7: #966c81;
+  --cat-8: #c89abc;
 
   --unanalyzed: #b3aca3;
   /* Outlines wedges an AGENT judged, so they are distinguishable from model-scored ones

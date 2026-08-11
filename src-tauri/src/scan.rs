@@ -283,6 +283,10 @@ struct ParsedFile {
     rel_path: String,
     lang: Lang,
     funcs: Vec<FuncDef>,
+    /// The module's own banner, if it has one — see [`parse::file_doc`]. It reaches the
+    /// file node's `doc`, every function's `reading_hash`, and through both the comment
+    /// stack a reader is handed before it predicts.
+    file_doc: Option<String>,
     prints: Vec<Fingerprint>,
     head: String,
     /// FNV of the file's bytes, carried out of the parse so the blame pass can ask the
@@ -379,9 +383,9 @@ fn parse_file(
     let excluded =
         scope.is_some_and(|s| s.matched_path_or_any_parents(path, false).is_ignore());
 
-    let (funcs, head, hash) = match cache.look(&rel_path, path, None) {
+    let (funcs, file_doc, head, hash) = match cache.look(&rel_path, path, None) {
         Look::Unreadable => return None,
-        Look::Hit(hit) => (hit.funcs, hit.head, hit.ident.hash),
+        Look::Hit(hit) => (hit.funcs, hit.file_doc, hit.head, hit.ident.hash),
         Look::Miss { src, ident } => {
             if src.lines().any(|l| l.len() > MINIFIED_LINE_BYTES) {
                 return None;
@@ -390,13 +394,17 @@ fn parse_file(
             if funcs.is_empty() {
                 return None;
             }
+            // The module's banner, parsed here beside its functions — one pass over the
+            // bytes, one cache entry, so a file's header cannot go stale against its own
+            // parse. See `parse::file_doc`.
+            let file_doc = parse::file_doc(lang, &src);
             let head = src
                 .lines()
                 .take(CONTEXT_HEAD_LINES)
                 .collect::<Vec<_>>()
                 .join("\n");
-            cache.put_parse(&rel_path, &ident, lang, &funcs, &head);
-            (funcs, head, ident.hash)
+            cache.put_parse(&rel_path, &ident, lang, &funcs, file_doc.as_deref(), &head);
+            (funcs, file_doc, head, ident.hash)
         }
     };
     let prints = print(&funcs);
@@ -404,6 +412,7 @@ fn parse_file(
         rel_path,
         lang,
         funcs,
+        file_doc,
         prints,
         head,
         hash,
@@ -580,6 +589,7 @@ fn score_dir(
                         signature: Some(func.signature.clone()),
                         owner: func.owner.clone(),
                         body: Some(crate::assessment::reading_hash(
+                            file.file_doc.as_deref(),
                             func.doc.as_deref(),
                             &func.body,
                         )),
@@ -623,14 +633,27 @@ fn score_dir(
                     name,
                     kind: NodeKind::File,
                     excluded: file.excluded,
-                    // No file-level doc yet: `parse` extracts the comment attached to
-                    // each chunk, not the banner at the top of a module. The stack a
-                    // reader is handed is therefore one deep for now, and widens here
-                    // when file docs are parsed rather than anywhere downstream.
-                    doc: None,
+                    // The module's banner, and the second half of the comment stack a
+                    // reader is handed — `collect_tasks` reads it straight off this field
+                    // and appends it under the function's own doc. See `parse::file_doc`.
+                    doc: file.file_doc.clone(),
                     signature: None,
                     owner: None,
-                    body: None,
+                    // What a reading OF THIS FILE was taken against: its header, and the
+                    // surface that header claims to describe.
+                    //
+                    // Not the file's text. A file reading answers "does this banner describe
+                    // what is in here", and editing one function body does not change the
+                    // answer — hashing the bytes would expire every file reading on every
+                    // commit and train people to ignore the flag. The surface is what a
+                    // reader is handed: the signatures, in order. Add, remove, rename or
+                    // re-type a function and the file genuinely became a different file to
+                    // describe; rewrite an implementation and it did not.
+                    body: Some(crate::assessment::reading_hash(
+                        None,
+                        file.file_doc.as_deref(),
+                        &file_surface(&file.funcs),
+                    )),
                     end_line: None,
                     path: file.rel_path.clone(),
                     loc: 0, // filled by aggregate()
@@ -644,6 +667,19 @@ fn score_dir(
             )
         })
         .collect()
+}
+
+/// What a file's header claims to describe: its declarations, in file order.
+///
+/// The stable half of a file. Shared by the scan and by `resync_changed`, which has to
+/// produce the identical string from the identical bytes — two implementations of this
+/// would make a file reading flip between current and expired on alternate opens.
+pub fn file_surface(funcs: &[crate::parse::FuncDef]) -> String {
+    funcs
+        .iter()
+        .map(|f| f.signature.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// One function queued for the model, with everything the call needs.

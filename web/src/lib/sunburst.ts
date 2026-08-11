@@ -298,6 +298,8 @@ function aggregate(fns: Node[], filePath: string): Node {
     // Not inherited from the members: the flag sits on the FILE node, and this stand-in
     // hangs under that same file, so it is out of scope exactly when its parent is.
     excluded: false,
+    // The roll-up stands in for many functions and has no comment of its own.
+    doc: null,
     lastAuthor: first.lastAuthor,
     body: null,
     hotspots: [],

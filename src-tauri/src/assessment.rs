@@ -40,7 +40,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// What a reading was taken against: the body, and the docs it was predicted from.
+/// What a reading was taken against: the body, and every doc it was predicted from.
 ///
 /// The docs belong here and their absence was a hole. `documented` and `derivable` grade
 /// the comment directly, and `predicted` is made *from* it — the comment stack is handed
@@ -52,10 +52,25 @@ use std::process::Command;
 ///
 /// Found the moment it mattered — six doc comments were about to be corrected on the
 /// strength of readings that would have gone on describing them.
-pub fn reading_hash(doc: Option<&str>, body: &str) -> String {
-    match doc {
-        Some(d) => body_hash(&format!("{d} {body}")),
-        None => body_hash(body),
+///
+/// **The whole stack, module header included.** `collect_tasks` hands a reader its own doc
+/// AND the file's, so both are in front of it when it predicts; a hash covering only the
+/// nearer one would let a rewritten module banner leave every reading in that file reading
+/// as current against a description that no longer exists.
+///
+/// Widening it expired work, and exactly the right work: a file with no header hashes
+/// byte-identically to before — `None` contributes nothing to the stack, so the string is
+/// the one the two-argument version built — while a file with one expired every reading in
+/// it, because those readings were taken without text their replacements will be given.
+/// Measured on this repo the day it shipped: 458 of 625 expired, and the 167 that survived
+/// were the TypeScript half, which opens with imports rather than a banner. A staleness
+/// check whose inputs widen should cost exactly the readings whose inputs widened.
+pub fn reading_hash(file_doc: Option<&str>, doc: Option<&str>, body: &str) -> String {
+    let stack: Vec<&str> = [doc, file_doc].into_iter().flatten().collect();
+    if stack.is_empty() {
+        body_hash(body)
+    } else {
+        body_hash(&format!("{} {body}", stack.join(" ")))
     }
 }
 
@@ -145,6 +160,23 @@ fn shard_file(shard: &str) -> String {
 /// functions does swap their readings, which is the one case this cannot see — and a
 /// swapped reading between two functions of the same name in the same file is a far
 /// smaller error than the one it replaces.
+/// What a file's own reading is filed under: its path, with no `#`.
+///
+/// Free by construction — every function key contains a `#`, so a bare path can never
+/// collide with one — and it is the same string the scan uses as the file node's id, which
+/// is what lets one report map hold both kinds without a second index.
+pub fn file_key(path: &str) -> String {
+    path.to_string()
+}
+
+/// How a file's own reading is titled in the store.
+///
+/// Prose rather than an identifier, and printed without backticks, because it is not one:
+/// a heading that read `` `parse.rs` `` inside a section already headed `parse.rs` would
+/// look like a function of that name. Matched on the way back in — see `parse_shard` — so
+/// this string is part of the store's format and not a label.
+const FILE_ENTRY: &str = "the file itself";
+
 fn key_of(path: &str, name: &str, ord: usize) -> String {
     if ord == 0 {
         format!("{path}#{name}")
@@ -206,7 +238,11 @@ pub fn load(repo: &Path, scan: &Scan) -> HashMap<String, Report> {
         return HashMap::new();
     }
     let mut out = HashMap::new();
-    for (key, live) in live_funcs(scan) {
+    // Both kinds, resolved the same way: the store is keyed durably and the map the app
+    // runs on is keyed by node id, so every reading is looked up from the LIVE side. A file
+    // whose reading exists but which is no longer in the scan simply does not come back,
+    // which is the same rule a deleted function follows.
+    for (key, live) in live_funcs(scan).into_iter().chain(live_files(scan)) {
         if let Some(r) = stored.get(&key) {
             let mut r = r.clone();
             r.id = live.id.clone();
@@ -287,7 +323,12 @@ fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
             if name.is_empty() {
                 continue;
             }
-            let id = key_of(&file, name, ord);
+            // The file's own reading, filed under the bare path — see `FILE_ENTRY`.
+            let id = if name.eq_ignore_ascii_case(FILE_ENTRY) {
+                file_key(&file)
+            } else {
+                key_of(&file, name, ord)
+            };
             cur = Some((
                 id.clone(),
                 Report { id, ..Report::blank() },
@@ -400,6 +441,35 @@ fn live_funcs(scan: &Scan) -> BTreeMap<String, Live> {
     out
 }
 
+/// Every readable FILE in the scan, keyed by its durable [`file_key`].
+///
+/// Excluded files are left out for the same reason their functions are: `.sanityignore`
+/// says they are not this assessment's business, and a file reading would put them back in
+/// the denominator by a side door.
+///
+/// A file with no declarations is skipped, matching `collect_tasks` — there is nothing for
+/// a header to be graded against.
+fn live_files(scan: &Scan) -> BTreeMap<String, Live> {
+    let mut out = BTreeMap::new();
+    scan.root.visit(&mut |n| {
+        if n.kind != NodeKind::File || n.excluded || n.children.is_empty() {
+            return;
+        }
+        out.insert(
+            file_key(&n.path),
+            Live {
+                id: n.id.clone(),
+                path: n.path.clone(),
+                name: n.name.clone(),
+                line: 0,
+                ord: 0,
+                body: n.body.clone().unwrap_or_default(),
+            },
+        );
+    });
+    out
+}
+
 /// Whether a reading still describes the code it was made against.
 ///
 /// A reading with no hash predates this store and is taken at its word — the alternative
@@ -417,6 +487,9 @@ pub fn is_stale(report: &Report, node_body: Option<&str>) -> bool {
 struct Placed<'a> {
     line: u32,
     name: String,
+    /// The file's own reading rather than one of its functions — rendered first in the
+    /// section and titled as prose. See [`FILE_ENTRY`].
+    is_file: bool,
     /// Which same-named function in the file this is — printed beside the name so a
     /// human reading two `init` entries can tell which one is which.
     ord: usize,
@@ -467,8 +540,13 @@ fn compile(scan: &Scan, reports: &HashMap<String, Report>) -> Vec<Compiled> {
     // resolving each one back to a function by name, which is exactly where twins got
     // confused; from this direction each function looks up its own reading by the key
     // that already distinguishes it, and staleness compares against its own body.
+    let readable_files = live_files(scan);
     let mut shards: BTreeMap<String, BTreeMap<String, Vec<Placed>>> = BTreeMap::new();
-    for l in live.values() {
+    for (l, is_file) in live
+        .values()
+        .map(|l| (l, false))
+        .chain(readable_files.values().map(|l| (l, true)))
+    {
         let Some(r) = reports.get(&l.id) else { continue };
         shards
             .entry(shard_of(&l.path))
@@ -479,6 +557,7 @@ fn compile(scan: &Scan, reports: &HashMap<String, Report>) -> Vec<Compiled> {
                 line: l.line,
                 name: l.name.clone(),
                 ord: l.ord,
+                is_file,
                 report: r,
                 stale: is_stale(r, Some(l.body.as_str())),
             });
@@ -492,7 +571,15 @@ fn compile(scan: &Scan, reports: &HashMap<String, Report>) -> Vec<Compiled> {
         let mut body = String::new();
         for (path, entries) in files {
             let mut entries: Vec<_> = entries.iter().collect();
-            entries.sort_by(|a, b| a.line.cmp(&b.line).then_with(|| a.name.cmp(&b.name)));
+            // The file's own reading leads its section — it is the thing the rest are
+            // inside of, and it sorts there for free: `line` is 0 for a file and 1-based
+            // for everything else.
+            entries.sort_by(|a, b| {
+                b.is_file
+                    .cmp(&a.is_file)
+                    .then_with(|| a.line.cmp(&b.line))
+                    .then_with(|| a.name.cmp(&b.name))
+            });
             body.push_str(&format!("\n## {path}\n"));
             for e in entries {
                 read += 1;
@@ -502,11 +589,17 @@ fn compile(scan: &Scan, reports: &HashMap<String, Report>) -> Vec<Compiled> {
                 if e.stale {
                     stale += 1;
                 }
-                body.push_str(&render_entry(&e.name, e.ord, e.report, e.stale));
+                body.push_str(&render_entry(&e.name, e.ord, e.is_file, e.report, e.stale));
             }
         }
-        // Total functions in this shard, so "12 of 400 read" is honest about the rest.
-        let total = live.values().filter(|l| shard_of(&l.path) == *shard).count();
+        // Everything readable in this shard, so "12 of 400 read" is honest about the rest.
+        // Files count: they are handed out, reported and stored exactly as functions are,
+        // and a denominator that left them out would report a coverage nobody has.
+        let total = live
+            .values()
+            .chain(readable_files.values())
+            .filter(|l| shard_of(&l.path) == *shard)
+            .count();
         out.push(Compiled { shard: shard.clone(), read, total, surprising, stale, body });
     }
     out
@@ -669,7 +762,7 @@ pub fn save(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> std:
     Ok(())
 }
 
-fn render_entry(name: &str, ord: usize, r: &Report, stale: bool) -> String {
+fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) -> String {
     let mut s = String::new();
     // Markers for the things somebody skimming has to be able to find.
     //
@@ -704,7 +797,13 @@ fn render_entry(name: &str, ord: usize, r: &Report, stale: bool) -> String {
     } else {
         format!(" #{}", ord + 1)
     };
-    s.push_str(&format!("\n### `{}`{} — {}{}\n", name, nth, verdict(r), tail));
+    if is_file {
+        // Prose, unbackticked — see `FILE_ENTRY`. The heading is what `parse_shard` keys
+        // the reading off, so this string is format rather than presentation.
+        s.push_str(&format!("\n### {FILE_ENTRY} — {}{}\n", verdict(r), tail));
+    } else {
+        s.push_str(&format!("\n### `{}`{} — {}{}\n", name, nth, verdict(r), tail));
+    }
 
     let mut meta = Vec::new();
     if !r.body.is_empty() {
@@ -962,7 +1061,7 @@ mod tests {
     fn round_trips() {
         let r = report("src/a.rs#foo@12", "a note");
         let mut body = String::from("\n## src/a.rs\n");
-        body.push_str(&render_entry("foo", 0, &r, false));
+        body.push_str(&render_entry("foo", 0, false, &r, false));
         let text = render_shard("src", 1, 1, 1, 0, &body);
 
         let mut back = HashMap::new();
@@ -1061,6 +1160,46 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    /// A file's own reading survives the round trip, and cannot collide with a function's.
+    ///
+    /// The two live in one map and one shard. A file is keyed by its bare path — every
+    /// function key holds a `#` — and titled as prose so a human reading the shard does not
+    /// take it for a function of that name.
+    #[test]
+    fn a_file_reading_round_trips_beside_its_functions() {
+        let scan = scan_of(&[("gate.rs", "open", 10, "one"), ("gate.rs", "shut", 20, "two")]);
+        let files = live_files(&scan);
+        assert_eq!(files.len(), 1);
+        assert!(files.contains_key("gate.rs"), "keyed by the bare path");
+
+        let mut reports: HashMap<String, Report> = live_funcs(&scan)
+            .values()
+            .map(|l| (l.id.clone(), Report { body: l.body.clone(), ..report(&l.id, &l.name) }))
+            .collect();
+        let f = &files["gate.rs"];
+        reports.insert(
+            f.id.clone(),
+            Report { body: f.body.clone(), ..report(&f.id, "gate.rs") },
+        );
+
+        let tmp = std::env::temp_dir().join(format!("sanity-fileread-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        save(&tmp, &scan, &reports).unwrap();
+
+        // The shard says which entry is the file, in prose rather than as an identifier.
+        let shard =
+            std::fs::read_to_string(dir(&tmp).join(shard_file(&shard_of("gate.rs")))).unwrap();
+        assert!(shard.contains(&format!("### {FILE_ENTRY}")), "{shard}");
+        assert!(shard.contains("### `open`"));
+
+        let back = load(&tmp, &scan);
+        assert_eq!(back.len(), 3, "two functions and their file all came back");
+        assert!(back.contains_key("gate.rs"), "the file's reading is keyed by its path");
+        assert!(!is_stale(&back["gate.rs"], f.body.as_str().into()));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     /// A reformat must not expire a repo's worth of honest readings.
     #[test]
     fn hash_ignores_formatting() {
@@ -1080,20 +1219,50 @@ mod tests {
     fn a_reading_expires_when_its_documentation_changes() {
         let body = "if x { go() }";
         assert_ne!(
-            reading_hash(Some("Goes, if x."), body),
-            reading_hash(Some("Goes, unless x."), body),
+            reading_hash(None, Some("Goes, if x."), body),
+            reading_hash(None, Some("Goes, unless x."), body),
             "a rewritten doc is a different reading"
         );
         assert_ne!(
-            reading_hash(None, body),
-            reading_hash(Some("Goes, if x."), body),
+            reading_hash(None, None, body),
+            reading_hash(None, Some("Goes, if x."), body),
             "documenting an undocumented function is a change too"
         );
         // But reflowing one is not. A doc rewrapped to a different column says the same
         // thing, and expiring honest work over it teaches people to ignore the flag.
         assert_eq!(
-            reading_hash(Some("Goes,\nif x."), body),
-            reading_hash(Some("Goes, if x."), body)
+            reading_hash(None, Some("Goes,\nif x."), body),
+            reading_hash(None, Some("Goes, if x."), body)
+        );
+    }
+
+    /// The module banner is in the stack a reader predicts from, so it is in the hash.
+    ///
+    /// It reaches the reader through `collect_tasks`, which appends the file's doc under
+    /// the function's own — so a rewritten banner changes what every function in that file
+    /// was predicted from, and a hash that ignored it would leave the whole file reading as
+    /// current against a description nobody can find any more.
+    #[test]
+    fn a_reading_expires_when_its_module_header_changes() {
+        let body = "if x { go() }";
+        let doc = Some("Goes, if x.");
+        assert_ne!(
+            reading_hash(Some("The gate module."), doc, body),
+            reading_hash(Some("The valve module."), doc, body),
+            "a rewritten module header is a different reading"
+        );
+        assert_ne!(
+            reading_hash(None, doc, body),
+            reading_hash(Some("The gate module."), doc, body),
+            "gaining a header is a change too"
+        );
+        // The two docs are distinguishable from each other, not just concatenated: moving a
+        // sentence from the function's doc up to the file's is a real change to what a
+        // reader is handed FIRST, and the stack has an order for that reason.
+        assert_ne!(
+            reading_hash(Some("A."), Some("B."), body),
+            reading_hash(Some("B."), Some("A."), body),
+            "which doc a sentence sits in is part of the reading"
         );
     }
 
@@ -1144,6 +1313,10 @@ mod tests {
         for (path, kids) in by_file {
             let mut f = Node::dir(&path, &path);
             f.kind = NodeKind::File;
+            f.path = path.to_string();
+            // What a reading of the FILE is checked against — see `scan`, which builds this
+            // from the header and the declarations.
+            f.body = Some(body_hash(&format!("header of {path}")));
             f.children = kids;
             root.children.push(f);
         }

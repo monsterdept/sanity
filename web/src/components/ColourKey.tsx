@@ -2,6 +2,7 @@ import {
   MODE_HINT,
   MODE_LABEL,
   OTHER_LABEL,
+  SLOTS,
   slotColor,
   type ColorMode, paintsFromReadings } from '../lib/colorMode'
 import { heatColor, type Ramp } from '../lib/api'
@@ -15,17 +16,17 @@ function Legend({ mode, categories }: { mode: ColorMode; categories: string[] })
         {/* Only the slots that have their own colour are named individually. Listing
             the rest would imply they are distinguishable on screen, and they are not —
             they all share the "Other" neutral. */}
-        {categories.slice(0, 4).map((c, i) => (
+        {categories.slice(0, SLOTS).map((c, i) => (
           <span key={c} className="flex items-center gap-1">
             <span className="h-2 w-2 rounded-full" style={{ background: slotColor(i) }} />
             <span className="text-[10px] text-[var(--muted-foreground)]">{c}</span>
           </span>
         ))}
-        {categories.length > 4 && (
+        {categories.length > SLOTS && (
           <span className="flex items-center gap-1">
             <span className="h-2 w-2 rounded-full" style={{ background: 'var(--structure)' }} />
             <span className="text-[10px] text-[var(--muted-foreground)]">
-              {OTHER_LABEL} ({categories.length - 4})
+              {OTHER_LABEL} ({categories.length - SLOTS})
             </span>
           </span>
         )}
@@ -60,6 +61,9 @@ function Legend({ mode, categories }: { mode: ColorMode; categories: string[] })
     surprise: ['cold', 'blazing'],
     // Same direction as heat: the bright end is the one you have to do something about.
     legible: ['crystal', 'nonsense'],
+    // Named for the ends the ramp actually paints, and the bright one is an absence: this
+    // is the only lens whose input is the GAP. See the `--docs-*` ramp.
+    docs: ['covered', 'undocumented'],
     churn: ['settled', 'churning'],
     age: ['old', 'recent'],
   }
@@ -67,7 +71,15 @@ function Legend({ mode, categories }: { mode: ColorMode; categories: string[] })
   // The swatch has to walk the SAME ramp the wedges do, now that each reading owns a
   // hue — otherwise the key under a blue map is an amber gradient.
   const ramp: Ramp =
-    mode === 'churn' ? 'churn' : mode === 'age' ? 'age' : mode === 'legible' ? 'legible' : 'heat'
+    mode === 'churn'
+      ? 'churn'
+      : mode === 'age'
+        ? 'age'
+        : mode === 'legible'
+          ? 'legible'
+          : mode === 'docs'
+            ? 'docs'
+            : 'heat'
   // Spans the widget rather than sitting in a fixed 96px well in the middle of it. The
   // ramp is the scale for the control directly above, and a short bar floating inside a
   // wider row read as two unrelated things stacked rather than one thing explaining the

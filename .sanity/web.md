@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-190 of 190 functions read · 15 surprising
+211 of 234 functions read · 25 surprising · 13 stale
 
 Each entry below is one **reading**. An agent was given a function's name,
 signature, neighbouring function names and comments — never its body — and wrote
@@ -14,12 +14,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/App.tsx
 
-### `sameProjects` — as expected
-- read at `df1387c3874a` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Length comparison first, returning false if lengths differ, then a loop over indices comparing each ProjectSummary field by field — key/name/path plus the progress numbers the sidebar shows (functions, assessed, stale) — returning false at the first mismatch and true otherwise.
-- found: Exactly that: length check, then `a.every` comparing eleven fields of the paired element — key, name, touched, repo, assessed, functions, stale, working, loading, read_done, read_total.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-- note: The docs handed over open with a sentence about finding a node by id for the drill-in stack, which belongs to the neighbouring findById, not to this function.
+### `sameProjects` — as expected — TRAP
+- read at `6fd29197698a` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: Length check, then index-by-index field comparison of each ProjectSummary's displayed fields (key/name, repo, progress counts), returning false on any mismatch — so a poll returning an unchanged list doesn't trigger a re-render.
+- found: Exactly that: length guard then a.every comparing twelve named fields (key, name, touched, repo, assessed, functions, files, stale, working, loading, read_done, read_total) with ===.
+- predicted: full · documented: most · derivable: no · legible: full · trap: yes
+- note: The docs handed over were spliced: the first two lines describe findById, not this function; also the hand-enumerated field list silently goes stale the moment a field is added to ProjectSummary and shown in the sidebar, which is exactly the failure the doc warns about.
 
 ### `findById` — as expected
 - read at `79803b48606a` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
@@ -33,12 +33,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly that, in five lines — a for-loop over children returning `node` on an id match, recursing otherwise, null at the end. No memoisation, no guard against a cyclic tree (there is none to guard).
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `App` — nearly
-- read at `efd20da82ac6` · commit `9fe6ccf` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: The top-level component holding all app state (project/tree, selection, drill stack, view mode, history playhead, hover, theme), polling the backend for projects and agent readings via Tauri invoke, folding reports into the tree, and laying out the shell — sidebar with projects/progress, sunburst pane, detail panel, history transport — with keyboard wiring and an empty state when no project is open.
-- found: Essentially that, at 736 lines. State for scan, error, picked node, drill stack, reveal nonce, code overlay, theme, agent activity, projects, MCP connectedness, and the whole history subsystem (timeline, key, busy, progress, playhead, playing, duration). Effects: theme menu sync, Cmd-1..7 lens shortcuts (pinned during history), a 1.5s project poll that switches to whatever an agent opened, a 2s readings/activity poll suppressed during replay, a 400ms batched stream-score flush, a 4s MCP-client poll, history warm/scan/drop-on-project-change. Derived memos for repoPath, activeProject, frame tree, focus, scoped commit list, breadcrumb trail walked up the tree, and drill/goTo/goUp callbacks. Renders sidebar, TopRow with mode switcher and history toggle, sunburst or progress/empty/error pane, ColourLegend, HistoryBar, and either CommitLog or Detail in the aside, plus an AgentSetup sheet and a modal CodeView.
-- predicted: most · documented: none · derivable: yes · legible: most · trap: no
-- note: A 736-line component with no doc comment of its own, though nearly every state hook and branch carries a paragraph explaining why it is shaped that way.
+### `App` — surprising — TRAP
+- read at `4dc77dd6d8dd` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: The root component: holds all top-level state (scan result, selected node, drill stack, active project, error), polls the backend for projects and agent reports, wires keyboard shortcuts and menu events, and renders the sidebar, breadcrumb, sunburst, detail panel and any modals.
+- found: All of that plus a great deal more: theme state synced to a Rust menu, MCP-client connection polling, batched streamed-score flushing, an entire history-replay mode (warm/scan/frame tree/scoped commits/transport/commit log), a code-view modal with pop-out, drill semantics that treat functions and synthesised overflow aggregates specially, and breadcrumb/owner trails walked via parentOf.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: yes
+- note: The code-view backdrop puts onKeyDown={Escape} on a non-focusable, non-tabindexed div, so the comment's promise that "Escape and the backdrop both put it down" is likely only half true — the key never reaches it unless something inside is focused.
 
 ### `useProgress` — as expected
 - read at `022713725cb5` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
@@ -73,12 +73,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly that: a single button, onClick=onToggle, disabled when busy, a title that swaps between "Back to the repo as it stands now" and a replay explanation, inline style tokens (accent background, weight, shadow, dimmed opacity when busy), and label "Reading…" vs "History".
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
-### `Empty` — as expected
+### `Empty` — as expected — STALE
 - read at `04124f0a9c2c` · commit `23b1218` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: The first-run gate screen: a centred card with two numbered Step rows — step one "connect an agent", ticking green off `connected` and offering a button that calls onConnect; step two a CopyPhrase holding the verbatim sentence to paste into the agent, probably dimmed until step one is done. No hand-open door and no dismissal.
 - found: Essentially exactly that: a bordered card headed "Study your first project" (LINE Seed JP, negative tracking), Step 1 "Connect an agent" with done={connected} and swapped prose, a conditional accent button calling onConnect indented to the text column, a line pointing at the gear in the Agent panel, then Step 2 "Ask it to study a project" (always done={false}) with a CopyPhrase of "study this project in sanity". Step two is not gated or dimmed, and the card also exists to give the animated background a floor.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 - note: Comment volume outweighs code roughly two to one, and most of it records rejected alternatives rather than what the code does.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `CopyPhrase` — nearly
 - read at `5bf31e10f2cf` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 8 of its run
@@ -95,6 +97,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/CodeWindow.tsx
 
+### the file itself — nearly
+- read at `762905383664` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
+- expected: A small top-level React entry for a popped-out code window: fileByPath walks the scan tree to find a file node by path, CodeWindow loads that file's source and renders it with the selected function's extent highlighted, reacting to selection from the main window.
+- found: Right about the shape and about fileByPath (recursive search for kind==='file' with matching path). CodeWindow takes repo + relPath from the URL, re-resolves the file by listing projects, finding the one whose repo matches, fetching its scan and locating the node — deliberately NOT accepting a serialised subtree. It renders error and loading states, its own Tauri drag-region titlebar with traffic-light padding, and delegates all rendering to CodeView with selected/reveal null and a no-op onSelect. It also re-applies the stored theme because a second window is a separate JS context. No highlighted selection at all — that was my miss.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: The file was handed over with an empty `docs` header even though both declarations inside carry substantial doc comments — the file itself has no module-level header.
+
 ### `fileByPath` — as expected
 - read at `b2957f945f19` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: Depth-first recursive search: return the node if it is a file whose path matches, otherwise recurse into children returning the first non-null hit, else null.
@@ -109,6 +118,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/AgentMascot.tsx
 
+### the file itself — surprising
+- read at `09e7db32db54` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: A small React component file exporting one AgentMascot that renders the mascot bundle, picking a pose from props reflecting assessment state and sized by a prop; almost no logic, a lookup and a render.
+- found: It is a lazy-loading boundary, not a renderer: the actual drawing lives in MascotFigure, which is React.lazy'd because the neo-mascots + three.js chunk is ~1.2MB and only needed while a scan runs. AgentMascot wraps it in Suspense with a fixed-size empty span fallback so the row does not reflow, and forwards size/events/active straight through.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: The file's whole reason to exist — a code-split boundary whose benefit evaporates if anything imports MascotFigure eagerly — is invisible from the name and the single exported symbol.
+
 ### `AgentMascot` — as expected
 - read at `61eafacdfe15` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: Lazily loads the heavy mascot bundle and, until it resolves, renders an empty size x size box to reserve the row's layout; once loaded renders the mascot driven by `events` and `active`. Probably a Suspense boundary with a fixed-size fallback.
@@ -116,6 +132,13 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ## web/src/components/AgentSetup.tsx
+
+### the file itself — nearly
+- read at `72cacff1c4c5` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: A settings/onboarding overlay explaining how to point an MCP client at this install: a list of known clients as ClientRows, each showing whether it is already configured with a button to add it, plus a copyable config snippet for clients not listed and a short explanation of the reading protocol.
+- found: That, with more state than I allowed for. Detection and configuration are deliberately one list (the doc on AgentSetup argues the point): each row is fetched from `mcpClients()` and resolves to one of four presentations — not installed, not writable (honest label instead of a button that cannot work), connected, or STALE, meaning registered but pointing at a different sanity binary, which "looks configured, won't connect" and offers Repoint. The button is a toggle, so it disconnects as well as connects, with per-row busy state and an error line. Below that: prose that clients read config at startup (Claude Desktop needs a full quit), a caveat that only user-level config is visible so a repo `.mcp.json` connects invisibly, the instruction to say "study this project in sanity" with the fresh-subagent rationale, and the raw `mcpCommand()` JSON in a selectable pre with a copy button whose clipboard failure is deliberately silent because the block can be copied by hand.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: The file has no header — the docs field handed over was empty — yet the argument for its whole shape (detection and configuration must be one list) is written on the AgentSetup function inside it, so a reader looking at the file from outside sees nothing.
 
 ### `AgentSetup` — nearly
 - read at `bbd9d4cb2fd5` · commit `23b1218` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 2 of its run
@@ -132,47 +155,58 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Bloom.tsx
 
-### `petals` — surprising
-- read at `48518f1f3d27` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: An SVG-generation helper in a decorative flower component: loop over a fixed petal count, compute an angle per petal, and concatenate path/ellipse markup with rotate transforms into one string for Flower to inline.
-- found: Builds a single SVG path `d` string for a rose/rhodonea-style polar curve: 240 samples of theta over a full turn, radius r = A * |cos(K*th)|^(1/P), converted to cartesian M/L commands and closed with Z. One closed path, not per-petal elements, and no transforms.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
-- note: The petal count lives entirely in the module constants A, K and P, so the name gives no hint that this is one polar curve rather than a set of shapes.
+### `petals` — as expected
+- read at `bdcec771d555` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: Builds an SVG path `d` string by stepping theta over one revolution, computing r = A*|cos(K*theta)|^(1/P), converting to cartesian, and joining samples into an M/L polyline closed with Z.
+- found: Exactly that: 240 steps over 0..2pi, r = A * |cos(K*th)|^(1/P), pushes 'M'/'L' with coords rounded to 2 decimals, joins with spaces and appends ' Z'.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `seedHead` — as expected
+### `seedHead` — as expected — STALE
 - read at `9941badd8f72` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: A phyllotaxis spiral of seed circles for a flower centre: golden-angle steps, radial distance growing as sqrt(i), each seed a small circle, returned as an array for Flower to render.
 - found: Exactly that: 13 seeds, theta = n * GOLDEN, radial distance A * 0.115 * sqrt(n), constant seed radius A * 0.05, cx/cy from cos/sin, returned as an array.
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `Flower` — nearly
-- read at `d47529b9df6d` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A small React SVG component drawing one flower at scale s: a &lt;g&gt; with transform scale(s), rendering the petals helper's path plus a seedHead circle, coloured from a palette.
-- found: A &lt;g scale(s)&gt; containing the precomputed PETALS rose path filled translucent with a stroke, then the SAME path nested inside a scale(0.45) group as an unfilled inner outline (with a comment arguing a rose is self-similar under scaling about the origin, so this is not a second shape to maintain), then SEEDS mapped to translucent circles. All colour is currentColor, not a palette.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: The peers list names `petals` and `seedHead` as functions but the body consumes constants PETALS and SEEDS instead, so the sibling names mislead about how the shape is produced.
+- read at `f42f709857ff` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 10 of its run
+- expected: A small presentational SVG component composing the file doc's two pieces: petals(...) for the rhodonea path and seedHead(...) for the phyllotaxis dots, rendered in a &lt;g&gt; scaled by `s`, petals as a filled path and the seed head as small circles at the centre.
+- found: That shape, but the curve and dots are precomputed module constants (PETALS, SEEDS) rather than called per render, and there is a third element I did not predict: the SAME petal path drawn again inside a scale(0.45) group as a stroke-only inner rose, with a comment noting that a rose scaled about the origin is still the same rose so no second curve has to be kept in step.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `Leaf` — nearly
+### `Leaf` — nearly — STALE
 - read at `837dd46c66e8` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: A tiny presentational SVG component drawing the vesica piscis: two symmetric arc segments in one path (M .. A r r 0 0 1 .. A r r 0 0 1 Z) with the arc radius tied to the circle radius, wrapped in a scale(s) transform, filled/stroked with a theme colour, no state.
 - found: That, plus a second path I did not predict: a straight midrib line across the leaf at 0.45 stroke width. The arc radius is R = L * 1.16, which is the true vesica ratio (2/sqrt(3) = 1.1547) rounded, so the docstring's geometric claim does hold. Colour is `currentColor` throughout with fillOpacity 0.18.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 - note: 1.16 is a rounded 2/sqrt(3) with nothing in the code saying so, so the one constant that makes it a true vesica reads as a magic number.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `Tile` — as expected
+### `Tile` — as expected — STALE
 - read at `27138f34720a` · commit `23b1218` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: A no-argument SVG sub-component returning one repeating unit of the wallpaper pattern — a group placing a few Flower and Leaf elements at fixed coordinates and rotations inside a square cell, arranged so the cell tiles seamlessly.
 - found: Returns a single `<g>` built from three precomputed coordinate tables named for wallpaper-group symmetry orders: SIXFOLD sites get a large `Flower` (s=1.45), THREEFOLD sites a small one rotated 30 degrees (s=0.72), and TWOFOLD sites a `Leaf` at a per-site angle (s=0.62). Coordinates are formatted to two decimals in the transform strings.</found> <parameter name="predicted">full
 - predicted: full · documented: none · derivable: yes · legible: most · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `Bloom` — surprising
-- read at `0e2a112d96ee` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: Exported top-level React component of a decorative flower illustration taking an optional className; returns an SVG composing the sibling pieces — Leafs, Flowers built from petals and seedHead, over a Tile background — with a fixed viewBox and className on the root, as a static splash/empty-state graphic.
-- found: Returns a 100%x100% aria-hidden SVG with preserveAspectRatio slice, whose defs hold a single userSpaceOnUse `pattern` tiling `Tile` at a 3x3-ish grid of OFFSETS translations, filled into a full-size rect. It is a repeating wallpaper pattern, not a single illustration; Flower/Leaf/petals/seedHead are reached only indirectly through Tile. A long comment explains why patternTransform rotate(-6) was removed.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
-- note: The OFFSETS x OFFSETS duplication inside one pattern tile is the one thing the body does not explain — presumably wrap-around so motifs crossing the tile edge repeat, but nothing says so.
+- read at `c1095e1ce844` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: A top-level React component that renders the scattered flower field into the empty pane: an SVG sized to its container, taking className, generating a deterministic set of positions/rotations/scales and mapping them onto Tile/Flower/Leaf children.
+- found: An SVG filling 100%x100%, aria-hidden, preserveAspectRatio slice, whose defs hold a single userSpaceOnUse &lt;pattern id="bloom"&gt; tiling module-level OFFSETS x OFFSETS copies of &lt;Tile /&gt;; the body is one rect filled with url(#bloom). Scatter comes from the tile's own motif rotations, not from this function — and a long comment records that patternTransform rotate(-6) was removed for making the lattice read crooked rather than irregular.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: No doc on the function itself; the file_doc covers the rose/phyllotaxis maths but says nothing about the tiling strategy this function actually implements.
 
 ## web/src/components/CodeView.tsx
+
+### the file itself — nearly
+- read at `66673a4454f9` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
+- expected: The source-viewer panel: tokenize does regex syntax highlighting, ownerByLine maps line numbers to owning functions, rampStops/rampAt define and sample the cold-to-hot ramp, Minimap draws the file as a clickable heat strip, and CodeView composes them — rendering the file, highlighting the selected function's extent and scrolling it into view.
+- found: All of that, and the shape was right down to why: the tokenizer is deliberately small and stateless (documented as mis-colouring multi-line strings, acceptable for scenery), rampStops exists specifically because heatColor returns color-mix() which canvas fillStyle cannot parse, so the five --heat-N custom properties are read as hex and interpolated in JS. Minimap fits the WHOLE file (never scrolls), draws one bar per line from its indent so the indentation profile reads, fades comments, overlays the viewport box, and drag-seeks centred on the pointer. CodeView fetches source via readSource, renders a table with a full-strength heat gutter plus a fixed-16% wash behind the code, labels unmeasured chunks in words, and carries pop-out/close buttons plus an insetTop the minimap uses to clear them. Extra beyond my prediction: the scroll-to-reveal effect deliberately depends on two primitives (a nonce and a readiness flag) with the node read through a ref, because depending on the file object made the poll-rebuilt tree snap the view back.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: The tokenizer's header says "the six languages the scanner parses" while parse.rs now ships dozens of grammars, so the comment has been overtaken; the keyword list is Rust/JS/Python/Go only.
 
 ### `tokenize` — as expected
 - read at `d364f0c54271` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 10 of its run
@@ -215,12 +249,19 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/ColourKey.tsx
 
-### `Legend` — nearly
-- read at `9105da004da9` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: Renders the key beneath the sunburst, branching on mode: categorical modes map `categories` to swatch-plus-label chips coloured by the same hashing the map uses; the heat mode draws a continuous gradient bar with cool/warm end labels; at 80 lines probably also age/churn and an unread/stale hatch marker, returning nothing for an unknown mode.
-- found: Three branches, and the first is chosen by `categories.length > 0` rather than by mode: a chip list capped at the first FOUR named categories with the remainder collapsed into one "Other" swatch, because only four slots have distinct colours. `traps` gets a deliberate non-scale — a single square swatch, square specifically to differ from the ramp's pill. Everything else is a 24-segment gradient bar between two mode-specific end words (cold/blazing, crystal/nonsense, settled/churning, old/recent) walking whichever named Ramp the wedges use. No stale/unread swatches here, and unknown modes fall through to a gradient with blank labels rather than rendering nothing.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The comment at the bottom claims the ramp "spans the widget rather than sitting in a fixed 96px well in the middle of it" and the line it introduces is `w-24`, which is exactly a fixed 96px well in the middle of the row — the change it argues for was reverted or never landed, and the comment now describes the opposite of the code.
+### the file itself — nearly
+- read at `7801f0beaf20` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: The colour-key UI for the sunburst: a Legend that renders either categorical swatches or a heat ramp depending on the active colour mode, a ModeSwitcher segmented control listing the lenses from MODE_LABEL, and an exported ColourLegend wrapper that boxes the legend and adds counts (e.g. unread/pending). No file header, which is itself the finding.
+- found: Exactly that shape. Legend branches three ways — categorical slots with an "Other" rollup past SLOTS, a single square swatch for the boolean `traps` mode, and otherwise a 24-step gradient built from heatColor on a per-mode Ramp with named ends. ModeSwitcher is a tablist of pills with per-mode tooltips carrying ⌘1..n, greyed when history pins the mode. ColourLegend adds a stale-hatch and unread-grey row, gated on paintsFromReadings and on the counts being non-zero.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+- note: The file has no header doc, and its inline comments still say "five words"/"four of the five lenses" while MODE_LABEL now drives seven (App.tsx binds ⌘1..7) — the prose has fallen behind the mode list.
+
+### `Legend` — surprising
+- read at `fd2f3fbcac71` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Branches on `mode`: categorical modes render one labelled swatch per category using the sunburst's palette; continuous modes render a gradient bar with two end labels (cold/hot, old/new). Never a gradient under a categorical encoding.
+- found: Right shape, three branches not two, and the first switches on `categories.length > 0` rather than on mode. Categorical: only the first SLOTS categories get named dots via `slotColor(i)`, the remainder collapse into one neutral "Other (n)" chip because they are genuinely indistinguishable on screen. `traps` gets its own branch — a single square swatch, deliberately not a bar, since a boolean has no continuum. Only then the ramp: a lookup table of end-word pairs for surprise/legible/docs/churn/age, a per-mode `Ramp` selection so the key walks the same hue the wedges do, and 24 flex spans of `heatColor(i/23, ramp)`.
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+- note: The categorical branch is chosen by `categories.length > 0`, not by the mode, so a categorical mode that happens to yield zero categories falls through to whichever gradient the ramp chain defaults to ('heat') with blank end labels.
 
 ### `ModeSwitcher` — as expected
 - read at `7c0381eeb3d3` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
@@ -237,6 +278,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/CommitLog.tsx
 
+### the file itself — nearly
+- read at `368f71e8ef43` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: A React component file for History mode's commit list panel: `stamp` a small date formatter, `CommitLog` rendering the timeline's commits as a scrollable list — short sha, date, author, subject per row — highlighting the frame the playhead is on, auto-scrolling it into view as replay advances, and seeking on click. Receiving an already-scoped commit list and speaking positions within it.
+- found: That, plus three things I did not cover. Rows are a memoised `Row` subcomponent with a fixed ROW_H so the playhead is positioned by arithmetic rather than DOM queries. Everything after the playhead is dimmed by a single absolutely-positioned scrim sized to exactly the remaining rows, not per-row styling. And the file carries a header block duplicating the readings pane's header pixel-for-pixel — name, repo path, lines/functions/commits counts, with the scoped subset and the truncated-window count said out loud — plus an explicit empty state for a scope no commit in the window touched. Scroll-following is a layout effect that centres while playing, minimally reveals while paused, and stands aside for clicks via a ref flag.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: There is no file header, and the CommitLog docstring is partly stale: it says the moving parts are "a cursor on the current commit, and a scrim", but the cursor overlay was replaced by a background on the row itself — Row's own comment says the overlay was tried twice and abandoned.
+
 ### `stamp` — as expected
 - read at `007bc6229dfa` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: A three-line date formatter: unix seconds times 1000 into a Date, returning a short human date string for the commit row via toLocaleDateString with a compact day/month format.
@@ -252,6 +300,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Crumbs.tsx
 
+### the file itself — nearly
+- read at `f854d81892ed` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
+- expected: A single-component file exporting Crumbs, the breadcrumb trail above the sunburst: takes the drill-down path (root to file), renders each ancestor as a clickable segment separated by a slash/chevron with the last inert, clicking pops the view back to that node; ~65 lines of Tailwind JSX, possibly truncating long paths.
+- found: Right shape and responsibility, with two things I got wrong or missed. The last crumb is NOT inert — it is still a button, deliberately, because clicking where you already are should re-centre the view (it only differs by aria-current and weight). And a collapsed single-child directory chain is one node whose name still holds slashes, so each crumb splits its own name and renders those inner slashes dimmed to opacity-40 so they lose against the real separators. There is also a separate disabled-able "↑ Up" button held out of the truncating region by min-w-0 on the list, so the way out is never what gets cut.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
 ### `Crumbs` — nearly
 - read at `899166c24f97` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: A breadcrumb bar rendering trail root-first as buttons, every level clickable via onGo(index) — the last either clickable or emphasised as current — separated by a dimmed slash, with a collapsed chain's inner slashes rendered dimmer still than the separators, and an `up` control that appears only when onUp is given and is styled as a button like the rest.
@@ -260,18 +314,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Detail.tsx
 
-### `Gauge` — nearly
-- read at `b7cad1632125` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
-- expected: A small SVG semicircular 180-degree gauge: a background track arc plus a foreground arc filled to the clamped value, the value printed in the centre as `word` when given and otherwise the number, `label` beneath, `hint` as a title tooltip, and an unread branch that draws only the track with a dash instead of a needle at zero.
-- found: Exactly that. Fill is done with strokeDasharray over the半 circle length rather than a needle; the value is clamped to 0..1; the printed centre text is '—' when unread, else word ?? Math.round(v*100), with a smaller font size for words. One detail I did not cover: strokeLinecap switches from 'round' to 'butt' below v=0.01 so an empty arc does not draw a dot that reads as a small value.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-
-### `Markdown` — as expected
-- read at `1e73cdef74d4` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 5 of its run
-- expected: A tiny React renderer: split text on blank lines into paragraphs, then split each paragraph on a backtick code-span regex first, emitting <code> for those segments; remaining plain segments get a second pass applying **bold** and *italic* via regex, producing keyed strong/em/span nodes wrapped in a <p> per paragraph.
-- found: Exactly that: an `inline` helper splitting on a capturing code-span regex, then on a combined bold/italic regex, pushing keyed code/strong/em/span nodes with a Tailwind-styled code element; the component splits on two-or-more newlines, drops blank paragraphs and renders each in a <p> with top margin after the first.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- note: Warm: I had already read a bounded slice of Detail.tsx for `provenance` earlier in this run, though not this range.
+### `Markdown` — nearly
+- read at `01041ca9fd9e` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: A React component rendering a restricted markdown subset: split on backtick code spans first (so a * inside an identifier is safe), rendering those as <code>; remaining segments get **bold** then *italic* by regex split; blank lines become separate <p> blocks; keyed children.
+- found: Exactly that structure — an inner `inline(t, key)` splits on /(`[^`]+`)/ for <code>, then /(\*\*...\*\*|\*...\*)/ for <strong>/<em>/<span>; the body splits on /\n{2,}/, drops blank paragraphs, and renders <p> with mt-1.5 after the first. One detail I did not cover: the code chip's background is color-mix on currentColor rather than a fixed token, deliberately so it works on the pink trap box.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `rank` — nearly
 - read at `ebcfd7520cf3` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
@@ -305,14 +352,36 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly that, plus one thing I did not cover: the sort key and the trailing number are not fixed to surprise/loc but follow the current ColorMode via rank(n, mode) and measure(n, mode), with loc only as the final tiebreak. Also a header row labelled 'Contents' for dirs and 'Functions' otherwise with a child count.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `Detail` — nearly
-- read at `dbcbf66ffcd3` · commit `9fe6ccf` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 6 of its run
-- expected: The right-hand pane: with node null it delegates to a summary of focus; otherwise a header with name, path and line range, a Gauge for temperature or the mode's quantity, a breakdown of the score's terms, the agent reading if present (expected vs found through Markdown, grade chips, a trap flag, a provenance by/at/model line), a stale warning when the reading no longer matches, and the Contents list of children — probably with a source view too.
-- found: Broadly that. Null node renders Summary of focus, or a decorative Bloom pattern when there is no scan at all. Otherwise: sticky header (name, KIND_LABEL pill, trap badge, elided path:line, lines/functions), a 3-or-4 column Gauge row — Surprise or Avg surprise depending on leaf/container, Documented, Churn, and Opacity only when a non-stale reading graded legibility — then a scroller with 'not scored' / 'nobody has read this' fallbacks, the agent block (stale banner first, warm-read chip, Expected, Found, a warning-marked note or a 'read as expected' line when grade is full), a 'The evidence' hotspots section printing per-token collapse points and alternatives, the Contents list, and a pinned provenance footer. I did not predict the Bloom idle state, the hotspots section, or the mode being ignored by the gauges (Detail's dials are always the surprise/doc/churn set; mode is only forwarded to Contents).
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: The body is roughly 40% inline commentary explaining rejected earlier designs — unusually well annotated, but it means the 423-line count overstates the logic by a lot.
+### `Detail` — surprising
+- read at `1e0c8da125b9` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: The right-hand detail panel React component. With no node selected it renders a summary of focus/the repo (title, commit count, model). With a node it renders breadcrumbs from owners (falling back to the plain path), the node's name/signature, lines and score, a temperature/rank readout using ranks and mode, age/churn from ageSpan and commits, the agent reading with grades and provenance, plus a Contents child list wired to onSelect/onDrill/onShowIn.
+- found: Broadly that, with a three-way dispatch I did not predict: no node and no focus renders a decorative `Bloom` idle state rather than nothing; no node with focus, AND any non-leaf node, both delegate to the SAME `Summary` component (a directory is a subtree exactly as the root is) with kind/path/footer/about slots. Only a leaf function gets the bespoke layout: clickable owner-breadcrumbs, a trap badge beside the name, `Dials`, then a scroller holding stale/warm caveats, Expected/Found markdown with copy buttons, a note box whose tab turns pink when `trapped`, `hotspots` token evidence, `Contents`, and a pinned provenance footer. No signature is shown — the panel deliberately shows what was measured about a thing, not the thing. `trapped` re-gates trap colouring on `!agentStale`.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: A 479-line component with no doc comment above it, though the body is the most heavily commented code in the repo; also line 500 gates the header trap badge on `node.agent?.trap && !node.agentStale` inline while the identical `trapped` const sits three lines above unused there.
+
+## web/src/components/Dials.tsx
+
+### `fileDocShare` — as expected
+- read at `4ad16b742bf6` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: Walks the subtree counting file nodes that carry a reading, returning the fraction whose own header doc grade is poor (none/some) — an unweighted count of files rather than lines — and null when nothing under it has been read.
+- found: Exactly that: recursive walk, `graded(n, 'documented')` gates the denominator, `some`/`none` count as bare, `null` when read === 0.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `badShare` — as expected
+- read at `53a6f96217bd` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: Recursively walks the subtree, summing lines of functions with a usable grade for `which` and the subset whose grade is on the bad side (some/none), returning bad/graded or null when nothing was graded so the dial reads no-data rather than zero.
+- found: Exactly that: closure `walk` accumulates n.loc into graded_ when graded(n, which) returns a grade, into bad when that grade is 'some' or 'none', recurses over children unconditionally, returns null if graded_ is 0 else bad/graded_.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: The doc says it matches opaqueShare/undocShare in colorMode but the some/none cut is duplicated here rather than shared, so the two can drift silently.
 
 ## web/src/components/FileZoom.tsx
+
+### the file itself — surprising
+- read at `3fb3d24d93f0` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
+- expected: The drill-in view for a single file: fanOf computes the layout — one segment per function, width proportional to line count, laid out along a horizontal axis (the 'fan' label.ts contrasts with the ring) — and FileZoom renders those as SVG, coloured by temperature, stale ones hatched, labels via fitLabel, click/hover wiring to select a function.
+- found: Right about the responsibility and most of the parts (fan layout, per-function colour, stale hatch, fitLabel labels, select/drill/hover), but wrong about the shape and about what the file is mostly ABOUT. The fan is POLAR, not horizontal — an annular sector opened out of the file's wedge — and the file's real subject is the animated transition: cells are tiled once against the destination fan (`tileFunctions`) and carried back to the live interpolated sector by an affine `place`, so no frame re-tessellates. I also missed the roll-up dot texture for aggregated remainders and the per-patch ink choice.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: The file header is placed above `FUNC_MAX` rather than above `FileZoom`, so the module-level essay is attached to a font-size constant and the constant's own doc comment sits second.
 
 ### `fanOf` — nearly
 - read at `4c58496076c4` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
@@ -330,6 +399,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/HistoryBar.tsx
 
+### the file itself — nearly
+- read at `9826f2e9470c` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
+- expected: The history replay transport: play/pause, a scrub slider over the (possibly directory-scoped) commit list, a commit caption, and duration buttons rather than rate buttons. `pace` turns a chosen duration plus commit count into a frame interval and per-tick step, capping at a max FPS and skipping commits rather than falling behind.
+- found: Right about the responsibility, the duration-not-rate control, the MAX_FPS skip and the scoped frames list. Two misses: `pace` is only a label formatter (seconds to "3s"/"1m"); the skipping logic lives inline in a requestAnimationFrame clock that accumulates a fractional cursor in a ref. And there is deliberately NO commit caption — the header explains it was removed because the log beside it already captions itself. Also unpredicted: full keyboard transport (space, both arrow axes, shift stride of 10, guards against the range input's native arrow handling), and a rewind-on-play-from-end in `toggle`.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: Handed over with an empty file `docs` although the constants and the component carry unusually rich reasoning comments; the docs I was given said nothing, so `documented` is none by the rule.
+
 ### `pace` — nearly
 - read at `f97e230c1fec` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: Formats a replay duration (seconds) into a short human label such as "12s" or "1m 30s", since the transport is a duration rather than a rate.
@@ -344,6 +420,13 @@ What this is and how to add to it: [README.md](README.md)
 - note: The keydown effect closes over `toggle` (and thus `playing`/`pos`) but `toggle` is not in its dependency list — it works only because `playing`, `pos` and `index` happen to be listed, so anyone who trims those deps silently gets a stale space bar; the clock effect likewise depends on `rate`, so changing duration mid-play restarts the clock and drops the current tick's fraction.
 
 ## web/src/components/MascotFigure.tsx
+
+### the file itself — surprising
+- read at `5f3896c40a27` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
+- expected: A component file drawing the monster-dept mascot from the committed mascot bundle. loadOrMint reads a persisted mascot identity from localStorage and mints a random one on first run so a machine keeps the same character; pick chooses from a parts list; moodFor maps app state — assessment progress or how hot the repo reads — onto an expression; MascotFigure composes them and renders at a given size, degrading gracefully since the bundle is a placeholder.
+- found: loadOrMint is exactly as predicted. The rest is a live agent-activity indicator, not a decoration: moodFor maps the NAME OF THE MCP CALL an agent just made (via a first-match-wins RegExp table over next:done, report:hot, report:stale, report:cold, open, next, status, error) to a set of animations, pick randomises within the set so a long run is not a looping GIF, and MascotFigure replays the backlog of AgentCall events since a monotonic `seq` watermark, capped at 4 and spaced 520ms, plus a sleep/wake effect driven by an `active` prop. Two design rules are stated in comments: loudness follows rarity (status is quietest, done and a surprising reading loudest) and the mascot may not claim more than the call did (an error reads as confusion, never celebration). The module is deliberately isolated so the mascot bundle lands in a lazy chunk.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: The file has no header at all, so nothing outside says the mascot is an agent-activity instrument keyed to MCP call names — from the name and exports it reads as ornament, and the two rules governing it are buried mid-file on a const.
 
 ### `loadOrMint` — nearly
 - read at `296f66e763ec` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
@@ -373,6 +456,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Overlay.tsx
 
+### the file itself — as expected — TRAP
+- read at `dc471b0c1afa` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
+- expected: A single-component file: a shared full-bleed dimmed backdrop that centres modal-ish UI, taking children and a click-to-dismiss handler.
+- found: Exactly that, in nine lines: fixed inset-0 z-50 flex-centred div with a 50% black background and onClick={onClose}, rendering children. Its comment shifts one obligation outward — the panel inside must stop propagation itself or a click inside dismisses.
+- predicted: full · documented: full · derivable: no · legible: full · trap: yes
+- note: The stop-propagation requirement is enforced only by a comment, so a new caller that forgets it gets a modal that closes when you click inside it.
+
 ### `Overlay` — as expected — TRAP
 - read at `9b14ec9655fd` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
 - expected: A fixed full-screen div with semi-transparent black background and flex centering, onClick={onClose}, wrapping children — possibly with an inner stopPropagation wrapper, though the doc hints that is the caller's job.
@@ -380,35 +470,14 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: yes
 - note: The contract that every child must call stopPropagation is enforced nowhere — a new caller that forgets it gets a panel that closes when you click inside it, and nothing here fails.
 
-## web/src/components/PartyAnts.tsx
-
-### `wanted` — as expected
-- read at `827bd46826fe` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
-- expected: A tiny arrow function computing how many ant sprites to render for a given viewport width and height — a density formula over the area, clamped between a min and a max so a large window doesn't spawn hundreds.
-- found: Exactly that, in one expression: floor(w*h / AREA_PER_ANT) clamped between MIN_ANTS (3) and MAX_ANTS (5).
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-
-### `resolveCoats` — as expected
-- read at `d4bcd53369a2` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Reads colour information off the given element — CSS custom properties via computed style — and returns a list of colour groups, one array per ant coat/layer, mapping over a list of coat variable names with a fallback when a variable is unset.
-- found: Exactly that: takes getComputedStyle(el), maps the module-level COATS (an array of arrays of CSS custom-property names) to their resolved trimmed values, defaulting to '#888' when empty.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-
-### `inkOf` — nearly
-- read at `8a03023905f9` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
-- expected: A one-liner reading the computed --foreground CSS custom property off the element (getComputedStyle(el).getPropertyValue('--foreground').trim()) and returning it as the limb stroke colour so ink follows the theme.
-- found: It reads getComputedStyle(el).color — the inherited text colour — rather than the --foreground variable directly. Same intent, resolved one level further down: whatever the pane's text ink currently is.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The doc says it "reads `--foreground`" but the body reads the element's resolved `color`; equivalent only while the pane's colour is set from that variable.
-
-### `PartyAnts` — surprising
-- read at `fd96c55e7ec1` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: A canvas React component: ref sized by ResizeObserver and devicePixelRatio, a rAF loop cancelled on unmount, ~seven ant agents with position, heading, speed, leg phase and wander bias. Per frame: small constant heading noise, occasional brief pauses, stay in bounds, and when avoid==='rings' push out of a central circle of radius min(w,h)/2. Flat pastel drawing — rounded body segments with no outline, six legs in an alternating tripod gait, antennae, coats from resolveCoats/inkOf.
-- found: All the machinery I named, plus a great deal I did not. Feet are stored in WORLD coordinates and left planted while the body moves over them, with a strain threshold forcing an off-phase step after a sharp turn — that is what stops the skating I never considered. Population is a density from wanted(w,h) recomputed on resize without re-seeding existing ants; each ant has a `roam` cast timer and a three-state `walk` ('in'/'about'/'out') so ants leave the pane and re-enter from a random edge, reusing the object with a new coat and scale so the count never dips. Avoidance is not a push-out but a `skirt` that blends radial and tangential headings by penetration depth, tangent signed by the ant's existing direction, so the resting state is a lap of the rim; mapR divides by a FIT constant of 1.1 and adds KEEP_OUT. There is a seeded LCG for determinism, a MutationObserver re-reading ink/coats on theme change, a prefers-reduced-motion early return, dt clamped at 50ms for tab restores, gait phase advanced per unit DISTANCE, legs drawn as quadratics through an outward knee, elbowed antennae, three overlapping segments (gaster/thorax/head) plus a white highlight, and edge behaviour that reflects for 'about' ants but not for arriving or departing ones.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: 478 lines of canvas animation where nearly every constant carries a comment saying which wrong-looking behaviour it fixed; the doc block is unusually good but still could not have led anyone to planted world-space feet or the enter/exit lifecycle.
-
 ## web/src/components/RollupDots.tsx
+
+### the file itself — nearly
+- read at `8d0f27c10624` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
+- expected: A small React/SVG component marking rollup wedges — the 'everything too small to draw separately' arc — with a dot texture instead of a label. dotsId a helper making a unique or deterministic SVG pattern id so the defs and the fill='url(#…)' reference match without colliding, and RollupDots rendering the pattern definition, probably drawing nothing visible on its own.
+- found: That, and the file is far more considered than the guess: dotsId escapes every non-alphanumeric to '-charCode-' specifically because the obvious replace is not injective and two paths would then share one rotated grid; a measured constant ROLLUP_TEXTURE_PX = 10 lives here (two clean populations either side of ten) so both the ring and the unrolled file view apply the same legibility floor; and RollupDots emits a per-rollup <defs><pattern> that is both ROTATED to the wedge's mid-angle and TRANSLATED so a dot lands exactly on the patch centre — T = C − R(θ)·(HALF,HALF) — because patternUnits='userSpaceOnUse' anchors the lattice to the chart hub otherwise. Dots rather than stripes because the stale hatch already owns 45° stripes on the same ring, painted in --background so the texture reads in the tiling's own language for 'these are separate'.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: The long doc block that reads as the component's own header (lines 28-47, explaining why the texture exists) is separated from `RollupDots` by an unrelated `const HALF` and its comment, so the block attaches to HALF instead — and my handout carried no file docs at all despite this being one of the best-documented files in the repo.
 
 ### `dotsId` — as expected
 - read at `d813a04c4855` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
@@ -425,20 +494,25 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/SideBar.tsx
 
 ### `SideBar` — nearly
-- read at `67b6fdc79dc5` · commit `81eb6d5` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: A React sidebar rendering the project list as ProjectItem rows, marking the active one and calling onSelect on click; showing agent activity somewhere (what's being read, maybe a progress count); and when connected is false, a prominent not-connected state with a button wired to onConnect. Tailwind-heavy JSX with a few small derived values.
-- found: Exactly that shape, plus specifics I did not name: an always-present agent panel at the bottom holding an AgentMascot aligned on `last baseline`, a three-state label (not connected / working / sleeping), a gear button for onConnect, and per-project progress bars derived from `projects.filter(p => p.working && p.functions > 0)` living in that panel rather than on the rows. Also an empty-state line for zero projects. Roughly half the 195 lines are rationale comments explaining choices that were reverted or narrowed.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The only doc handed to me was a comment on one prop (`connected`); the component itself has none, yet the body carries extensive in-line rationale that would have made a far better handout.
+- read at `86a116c821a9` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: A sidebar rendering projects as ProjectItem rows (highlighting active, calling onSelect), an agent-activity section with progress, and a connection state area with a Connect action when not connected.
+- found: That, in detail: a header, an empty-state line, the mapped ProjectItem list, then a permanently-present agent panel with a mascot, a three-way label (not connected / working / sleeping), a gear button calling onConnect, and one progress bar per project that is `working && readable(p) > 0` — the per-project bars, rather than a single app-wide one, being the part I did not anticipate. Roughly two-thirds of the 195 lines are design-rationale comments.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: No doc comment on the component itself, yet the inline commentary is unusually thorough — the docs field was empty only because the prose sits inside the body.
 
 ### `ProjectItem` — nearly
-- read at `f27112610f1c` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: A presentational row: a clickable button styled as a rounded 28px strip, truncated project name on the left, right-aligned count (assessed/total) and active-state highlight classes, possibly with progress.
-- found: That, plus a loading branch: while the project is still being rescanned it shows a read_done/read_total percentage or 'reading…' instead of a count, on the stated grounds that 0/0 would be a false measurement. Also a leading ◍ icon, a title tooltip carrying repo, assessed/functions and a stale count, and the count tinted with --agent-mark when assessed >= functions.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The docs describe only the strip's geometry and say nothing about the loading state, which is where the reasoning in this function actually is.
+- read at `78f84f93e3e4` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: A React row rendering one project as a clickable ~28px rounded strip: truncated name left, a count (assessed/total) right-aligned, active/hover styling from the `active` prop, onClick on click.
+- found: That, plus three things I did not cover: a loading branch that shows a scan percentage or 'reading…' instead of a 0/0 count, a `done` state (assessed >= readable) that recolours the count to --agent-mark, and a title tooltip carrying repo, assessed/readable and stale count.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ## web/src/components/StaleHatch.tsx
+
+### the file itself — as expected
+- read at `c7b7b8e9ed73` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: A tiny presentational module exporting one component StaleHatch that emits an SVG defs block with a diagonal-stripe pattern id="stale-hatch", rendered once in the sunburst SVG so expired-reading wedges can fill url(#stale-hatch); theme-variable colours, no props.
+- found: Exactly that: a 6x6 userSpaceOnUse pattern rotated 45deg with a single --foreground line at 0.45 opacity. The file header argues three things the code does not state — texture rather than a second hue because the map has one colour encoding, why a per-wedge mark is acceptable here (stale is rare by construction), and why it is a component rather than a per-geometry defs block (duplicate document ids would make url(#stale-hatch) resolve by mount order).
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `StaleHatch` — nearly
 - read at `bbc24a833314` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 5 of its run
@@ -449,11 +523,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Summary.tsx
 
-### `ListWindow` — nearly
-- read at `ccfadb61f757` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A windowed list: a scroll container ref plus scrollTop state updated on scroll, first/last indices from a fixed row height plus overscan and container height, a total-height spacer with the visible slice offset, and each row drawn with a swatch and trailing label from paint(n) (defaulting to reading heat/grade), onSelect on click and goTo on double-click.
-- found: Exactly that shape: useRef box, view {top,h} state read on scroll and via a ResizeObserver (with cleanup), overscan of 8, first/last from ROW_H, leading and trailing spacer divs rather than absolute positioning, rows as buttons with a swatch from paint ?? heatColor(temperature(score)) and HEAT_WORDS[agent?.predicted ?? 'none'], onClick -> onSelect, onDoubleClick -> goTo. One thing I did not predict: a second effect resetting scrollTop to 0 whenever `rows` changes, so switching lens does not open the list mid-scroll.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+### `ListWindow` — nearly — TRAP
+- read at `b01f264c6a80` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: A windowed list: scroll-container ref, scrollTop state updated on scroll, first/last visible index from a fixed row height plus overscan, a full-height spacer so the scrollbar is correct, and only the visible slice mapped to rows showing a paint(n) swatch, the name, and rowNote(n, mode), with click handlers calling onSelect and goTo.
+- found: That, with three details I did not cover: view height is tracked too and refreshed by a ResizeObserver as well as the scroll listener; a second effect resets scrollTop to 0 whenever `rows` changes so switching lists does not open mid-list; and the two callbacks are split by gesture — single click is onSelect, double click is goTo. Spacers are top and bottom rather than one total-height element, and the swatch falls back to heatColor(temperature(score)) when no paint is given.
+- predicted: most · documented: most · derivable: no · legible: full · trap: yes
+- note: The scroll-reset effect depends on the `rows` ARRAY IDENTITY, so any caller that builds that array inline (filter/sort per render) resets scrollTop to 0 on every render and the list cannot be scrolled at all — the same identity hazard CLAUDE.md records for `activeProject`.
 
 ### `Spread` — nearly
 - read at `02498c946b1c` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
@@ -462,21 +537,29 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 - note: The doc comment is thorough about the encoding but silent about the half of the body that matters most to a user — that the key is the filter control and that two of its rows are intentionally dead; that argument only exists in an inline comment.
 
-### `Buckets` — as expected
-- read at `b763f0dfc9be` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A stacked horizontal bar with each bucket's width its share of total LINES, plus a legend below listing swatch, label and a count/percentage; each row a button calling onPick(key), toggling to null when the picked row is re-clicked, picked row highlighted.
-- found: Exactly that. Sums lines, returns null if total is 0, renders an h-2 stacked bar with per-segment width percentages and a title tooltip carrying both function count and line count, then a list of buttons with aria-pressed, swatch, truncated label, and the FUNCTION COUNT (not lines) as the numeral — so the bar is weighted by lines while the number beside it is a count.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-- note: The doc argues at length that widths must be lines rather than counts, yet the only number shown in the key is the count — defensible (the tooltip has both) but the two encodings sit adjacent unlabelled.
+### `Buckets` — nearly
+- read at `1088b6d3dd29` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: A stacked bar plus legend mirroring Spread: sum bucket lines, return null on zero total, render one segment per bucket sized by share of lines, then a key of clickable rows (swatch, label, count) where clicking the picked key clears to null and the picked row is highlighted.
+- found: Exactly that. Extra detail I did not predict: the key list is scrollable and capped at max-h-[33vh] with overscroll containment, with a long inline comment explaining that a forty-author repo (flox) made the key taller than the pane. Row shows function count only; lines appear in the segment's title tooltip.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `Summary` — surprising
+### `Summary` — surprising — STALE
 - read at `3c6f86ff4cde` · commit `9fe6ccf` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: A component walking the subtree to render the empty-selection pane: totals (files, functions, lines, commits), read/unread/stale counts, a spread or bucket histogram, and a top-N hottest list whose rows select and drill; branching on mode so Churn/Blame show their own framing; plus a 'connect an agent' call-to-action, the gesture 'ants', and a no-history warning when commits === 0.
 - found: Header (title, elided repo path, lines/functions/commits/excluded), then a mode-dependent key — Spread with grade tabs under Surprise, Buckets under any other lens — then a single growing windowed list (ListWindow) of whichever grade or bucket is picked, with unchosen state falling back to the first non-empty grade / first bucket and pickedBucket reset on mode change. There is no CTA, no ants, and no commits===0 warning. The part I missed entirely is the bottom section: a scrollable, attributed Notes list of reader notes (trap-only under the traps lens), each row a heat swatch, function name, optional TRAP chip and the note text, click to select and double-click to go to.
 - predicted: some · documented: some · derivable: no · legible: most · trap: no
 - note: The doc comment promises "the ants stay, underneath" and "what to do next", but the body has no ants and its inline comments say Next Steps was replaced by the Notes list — the docs describe a version of this panel that no longer exists.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/components/Sunburst.tsx
+
+### the file itself — surprising
+- read at `03e55ee39942` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: The main visualization component: a partition/arc layout over the folded tree, arcs sized by LOC and coloured by temperature, hover highlight, click-to-drill with breadcrumbs, a #stale-hatch pattern, labels hidden when arcs are small, and heatShare mapping a score onto a colour ramp. Likely SVG with memoised layout and history-frame support.
+- found: All of that plus a great deal more: it owns the whole ring renderer and the level-to-level MOTION. It carries ~30 tuned geometry constants each with a paragraph of measured rationale (rim widths, patch area floors in real pixels via a quantised unitsPerPx, label bands); detects level changes during render rather than in an effect; animates leaving wedges, a "coring" directory becoming the hub, and a closing file retracting via FileZoom; drives a rAF loop keyed on a run counter with prefers-reduced-motion honoured; writes the viewBox straight to the element to avoid a second render per frame; skips function tiling entirely while moving; adds option-click directory folding with an "unfold all" chip that also counts wedges too thin to draw. heatShare turned out to be a per-kind damping factor applied only under the surprise mode, not a ramp lookup. No history-frame code lives here.
+- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
+- note: A 1,400-line component with no file header at all, while nearly every constant inside it carries a three-paragraph essay — the one document that would orient a newcomer is the one that is missing.
 
 ### `heatShare` — as expected
 - read at `cbcc1020c953` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
@@ -485,14 +568,21 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 - note: The doc opens mid-sentence ("...but only under Surprise") — it continues a comment on the constant above and does not stand alone at this function.
 
-### `Sunburst` — surprising
-- read at `8a00d5a8a16e` · commit `9fe6ccf` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: The main React component: compute a partition/hierarchy layout from `root` (memoised on root identity), map each node to an SVG arc path filled by colorFor(node, mode, ranks, ageSpan), render a central hub showing the current root that doubles as the go-up button when `onUp` is defined. Handlers for hover, onSelect, double-click to onDrill, background click to onClear; probably a tooltip, a stale hatch pattern, and some transition on layout change.
-- found: All of that, and roughly five more subsystems: a ResizeObserver-measured pane feeding a units-per-pixel conversion that drives minimum arc AND minimum patch AREA thresholds; a hand-rolled rAF level-change transition detected DURING render (refs for live/from/leaving/coring/fileLeaving, direction-aware enter and exit geometry, the clicked directory animating into the hub); a viewBox fitted to the measured drawn extent and written straight to the element to avoid a second render per frame; FileZoom for an opened file plus a reversed instance for one being closed; treemap tiling of functions inside each file's band with roll-up dot textures, per-patch labels and a stale hatch limited to reading-painted modes; curved rim labels for files versus in-plate labels for dirs; option-click directory folding with a corner note counting folded and too-thin wedges; and a custom tooltip replacing SVG <title>.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
-- note: A 1,079-line component with no doc comment of its own, holding at least five separable subsystems (layout, rAF transition, viewBox fit, function tiling, labelling) — the inline commentary is excellent but there is no way to guess the scope from the outside.
+### `Sunburst` — surprising — TRAP
+- read at `d178fea0fea9` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: The main sunburst renderer: compute an arc layout from `root` memoised on root identity, render SVG paths coloured per `mode` with `ranks`/`ageSpan` feeding the alternative lenses, a `#stale-hatch` overlay for expired readings, labels on wedges wide enough, hover/tooltip state, click to onSelect, double-click to onDrill, background click to onClear, and a hub offering go-up only when onUp is passed.
+- found: All of that is there, but it is a minority of the body. The bulk is a hand-rolled level-change choreography: a level change is detected DURING render (prevRoot vs root), geometry starts from `live` (where every wedge is on screen right now, rewritten every frame so an interrupted transition does not snap back), a `coring` ref flies the opened directory into the hub, `leaving` animates the departing level outward, `fileFrom`/`fileLeaving` hand an opened/closed file its source sector so `FileZoom` unrolls a treemap fan instead of a ring, and a rAF loop keyed on a `run` counter (never on `t`) drives easing with a reduced-motion bail. Alongside: a ResizeObserver-measured pane feeding a `unitsPerPx` quantiser that converts every pixel threshold (min arc, min patch AREA — squared, deliberately) into user units; a viewBox fitted to the drawn extent and written straight to the element in a layout effect to avoid a second React render per frame; option-click directory folding with a `collapsed` set that survives drilling; function patches suppressed entirely while moving and faded in by CSS; a `selCoarse` dashed fallback outline on the deepest drawn ancestor when the selection itself is not drawn; RollupDots texture gated on a measured pixel threshold; rim labels for files inset within their own slice; and a corner caveat box counting folded dirs and wedges too thin to draw, with an "unfold all" button.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: yes
+- note: 1,146 lines in one component and the only docs handed to a reader are two comments on props; the `viewTo` useMemo reads the mutable ref `fileFrom.current` while listing only `[target, root.kind, root.id, paneAspect, fileIds]`, so it is correct solely because the level-change block that writes that ref runs earlier in the same render — an ordering nothing enforces if either moves.
 
 ## web/src/components/WedgeLabel.tsx
+
+### the file itself — nearly
+- read at `80d8479138b2` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: A one-component file exporting WedgeLabel, an SVG label for a sunburst wedge: decides whether the wedge can hold text, picks arc-textPath vs radial placement, flips so text never reads backwards, truncates/drops names that don't fit, colours with the wedge ink.
+- found: One component, two render paths driven by an already-decided `Placement`: arc labels emit a `<defs>` path from `labelArc` and hang a centred `<textPath>` on it; radial labels use `rotate(deg) translate(0,-r) rotate(±90)`, flipping in the left half so text always reads left-to-right. Fitting, truncation and placement are explicitly NOT here — that is `fitLabel`. Typography (family, weight, tracking, opacity) is imported live from `labelStyle`, and the comments record three rejected label separations (halo, plate, shadow) that were built, compared on real repos and removed.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: The doc comment on the `opacity` prop (lines 28-32) describes a `weight` prop that no longer exists — "WHICH kind of label this is, not how heavy it should be" says nothing about opacity, and the file itself has no header, only a component docstring.
 
 ### `WedgeLabel` — nearly
 - read at `8ce325b7d515` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
@@ -502,6 +592,13 @@ What this is and how to add to it: [README.md](README.md)
 - note: The `opacity` prop's doc comment describes a prop that no longer exists — it says "WHICH kind of label this is, not how heavy it should be" and argues about weight, which is about a removed `kind`/weight prop, not about opacity; and the header doc still credits `labelStyle` for face and weight, which the body reads from module constants instead.
 
 ## web/src/components/WedgeTip.tsx
+
+### the file itself — surprising
+- read at `3d34c1f8ccbb` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: A hover tooltip for a sunburst wedge: renders the node's path/name and line count, plus mode-dependent detail (temperature, churn/age figures, whether a reading exists and whether it is stale). `countFiles` walks a container's subtree so directories can report "N files", so the component branches between directory and function nodes. Positioning handled by the caller. No file header.
+- found: Right responsibility, and it owns more than I gave it. It is the geometry-independent hover card shared by sunburst and treemap: it takes a node, a pointer position and the pane box, and does its OWN edge flipping via an estimated card height that tracks the content. It computes the wedge's colour with `colorFor` and shows the reading as a SWATCH plus word — never a number — hatched in CSS matching `#stale-hatch` when the reading expired, with 'stale' distinguished from 'not measured yet'. Two title layouts (function: name first then path:line; dir/file: elided leading path with the own segment bold), driven by hand-measured character budgets FITS_SMALL/FITS_LARGE. Mode-specific extras rows for surprise/churn/age only. A size cell that never shrinks, carrying lines, `countFiles`, and roll-up `rest` functions. Finally fold/drill affordance lines for directories, suppressed when `folded` is undefined because the geometry has no such gesture.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: The task handed me an empty `docs` for the file — there is no file header; the equivalent prose sits on the `WedgeTip` component's own JSDoc, which is where a reader would actually find it.
 
 ### `countFiles` — as expected
 - read at `84865977315d` · commit `23b1218` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -518,6 +615,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Wordmark.tsx
 
+### the file itself — surprising
+- read at `43bbe6381ea5` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
+- expected: A small presentational component file exporting one Wordmark — the app name as styled text, likely 'sanity' with a differently-weighted or dimmed suffix per the monster-dept branding, Tailwind classes for both grounds, select-none, sitting in the custom titlebar near the traffic lights. No state, minimal props.
+- found: Right responsibility, wrong medium: it is not text at all but an inlined SVG of the brand wordmark — six <path> elements in a 329x125 viewBox, fill="currentColor", role="img" with aria-label, one optional `height` prop defaulting to 18. The file is 31 lines only because the paths are enormous; the actual logic is a single return. Its header is a design argument: inlined rather than <img> or CSS mask precisely so currentColor covers ink and white variants without shipping two files, the shape matches tally's so blocks transplant, and the default height of 18 vs tally's 14 is an OPTICAL correction because a light geometric lowercase reads smaller than heavy title-case at matched extent.
+- predicted: some · documented: full · derivable: no · legible: full · trap: no
+- note: The header explains the two things nobody could recover from the code — why currentColor rather than an asset, and why the default height is 18 and not tally's 14 — which is exactly the kind of doc the code could never have written for itself.
+
 ### `Wordmark` — as expected
 - read at `a8bc0df9a246` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
 - expected: An inline SVG of the "sanity" wordmark: a fixed brand viewBox, height from the prop with width derived from the ratio, fill="currentColor" so it inherits ink/white, role/aria-label for accessibility, and path elements holding the letterforms. No state, no other props.
@@ -527,6 +631,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/shell/SideBarHeader.tsx
 
+### the file itself — surprising
+- read at `cef9ad3d6d95` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: A tiny single-export presentational component for the top of the sidebar: the app name or logo mark, maybe a subtitle, and one or two chrome affordances such as an open-project or collapse button, using the shell's colour tokens. One JSX block, few or no props, no state.
+- found: It renders only the Wordmark, but it is window chrome rather than decoration: the div is a Tauri drag region matched to --titlebar-h so it lines up with the TopRow, its left padding reserves space for macOS overlay traffic lights (minus 3px, deliberately), and it subscribes to onFullscreenChange so that reserve collapses in fullscreen where the traffic lights are hidden. The wordmark itself is pointer-events-none so it does not punch a dead spot in the drag region.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: No file header was handed over, though the component's own docstring inside the file explains the traffic-light reserve well; the platform-specific chrome work is invisible from the filename.
+
 ### `SideBarHeader` — as expected
 - read at `048333edc686` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: A fixed-height sidebar header strip matching TopRow, holding the wordmark, with left padding conditional on Tauri-on-macOS (~92px traffic-light reserve, collapsed in fullscreen via an onFullscreenChange useState/useEffect pair), and probably a titlebar drag region.
@@ -534,6 +645,13 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ## web/src/components/shell/TopRow.tsx
+
+### the file itself — surprising
+- read at `017ffc141fa9` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
+- expected: The app shell's title bar row — a TopRow laying out the header strip: the Tauri drag region, a left gutter reserved for the macOS traffic lights that collapses in fullscreen, the Wordmark, and controls on the right. Mostly a flex container with Tailwind classes, no state of its own.
+- found: Much thinner than I predicted. It is the RIGHT column's top strip, not the whole title bar — the traffic-light gutter and the wordmark belong to a separate SideBarHeader, which this only matches in height so the two read as one bar. The component is a single <header> with data-tauri-drag-region, centred flex, height from --titlebar-h, rendering nothing but {children}. No fullscreen awareness, no layout of named parts. The header comment is mostly a record of what was REMOVED: a tab rail that could disagree with the sidebar about what was open, an open button that moved to the empty state, and a theme toggle dropped in favour of following the OS. It also notes the one non-obvious mechanic — Tauri drags only when the event target carries the attribute, so nested buttons keep their clicks without opting out.
+- predicted: some · documented: full · derivable: no · legible: full · trap: no
+- note: Nine lines of code carry seventeen lines of comment, and the comment is almost entirely about things that are no longer in the file — which is the only place that history could live, but it also means the doc describes a component richer than the one that exists.
 
 ### `TopRow` — as expected
 - read at `059a0f998b8c` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
@@ -552,9 +670,9 @@ What this is and how to add to it: [README.md](README.md)
 - note: `rest !== undefined` as the overflow marker is the one part not legible from the body alone; the doc carries the whole reason.
 
 ### `toNode` — nearly
-- read at `29f688e199ed` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 9 of its run
-- expected: Converts a Rust-side wire node into the frontend Node shape: copies id, name, kind, lines/value, maps snake_case score fields to camelCase Score, sets proxyScore from the incoming score so a later report fold is reversible, and recurses over children (defaulting to an empty array when absent).
-- found: A flat object literal doing exactly the snake_case-to-camelCase mapping, with `?? null` / `?? false` / `?? []` defaults on every optional wire field, a nested ten-field Score mapping guarded by a ternary so an unscored node stays null, and a plain recursive children.map(toNode) with no default (children is required on the wire). It does NOT set proxyScore — that must be established elsewhere in the fold.
+- read at `abb099812d1f` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Converts a wire node from Rust into the frontend Node: snake_case to camelCase, defaults for optional fields, recursion over children, and proxyScore stashed from the score.
+- found: A flat field-by-field mapping with ?? defaults, a nested score object mapped the same way (null when absent), and children mapped recursively. No proxyScore is set here.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ### `agentActivity` — as expected
@@ -641,11 +759,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `applyAgentReports` — nearly
-- read at `7c816acefcf4` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: Builds a lookup from report key to report, walks function nodes, sets each matched node's score to an end of the scale (hot when surprised, cold when predicted) while stashing the original in node.proxyScore so it is reversible; stale reports (isReportStale, body-hash mismatch) keep no colour — the node falls back to its proxy score and is flagged stale for the hatch — then re-aggregates up the tree and returns the new root.
-- found: That, plus three things I did not cover. The map is keyed on the NODE ID (r.id), not a path/name/ord key. The score is not written as a bare hot/cold value: reportGrades(r) supplies surprise and, only when the reader actually graded the docs, documented — with source:'agent' and analyzedShare:1 — so the panel never mixes an agent surprise with a lexical documentation number. And the recursion is identity-preserving: a parent whose children all came back referentially unchanged is returned as-is rather than reaggregated, so untouched subtrees keep their object identity.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The docs promise a binary verdict mapped to the ends of the scale, but the body delegates entirely to reportGrades and also carries a documentation grade, so the doc describes an older and narrower behaviour than the code has.
+- read at `12906019a736` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 10 of its run
+- expected: Returns a new tree with readings folded in: index reports by a path#name#ord key rather than node id, walk the function nodes, attach each match; a stale report (isReportStale) is marked agentStale and does not colour — the node falls back to a preserved proxyScore — while a live one sets the score to one end of a binary scale, keeping proxyScore so the fold is reversible; then re-aggregate ancestors.
+- found: The staleness half is exactly as predicted, including proxyScore being stashed on the live path and consumed (set back to undefined) on the stale one, and reaggregate running only when a child actually changed so unaffected subtrees keep object identity. Three things I did not have. It keys by `r.id`, the node id itself, not a path#name#ord key. It does not merely set a surprise number: `reportGrades` supplies BOTH surprise and documented, and documented is written only when the reader actually graded the docs — the comment explains that overwriting surprise while leaving a lexical documented behind is what produced an incoherent panel, so both numbers must come from one instrument, with source: 'agent' and analyzedShare: 1. And a CONTAINER — a file — can carry a reading of its own about its header, which attaches but deliberately does not touch the score, because a file's temperature is the roll-up of its contents and a header judgement is a different measurement.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: Cold on the file, but the repo's CLAUDE.md describes this function's staleness and proxyScore design directly, so that part of my prediction was recall rather than inference — the part I had to infer, the node-id keying, I got wrong.
 
 ### `countPending` — as expected
 - read at `18fe27cd2352` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 10 of its run
@@ -654,11 +772,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `summarize` — surprising
-- read at `b211533d0e99` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 9 of its run
-- expected: A single walk of the folded tree accumulating repo-wide totals — function count, total lines, assessed/stale/unread counts, a lines-weighted average temperature, plus hottest wedges and per-quadrant tallies — returned as one RepoSummary for the sidebar.
-- found: One recursive walk threading an out-of-scope flag (excluded functions are counted separately and never enter the denominator), tallying functions/read/stale/unread plus a `predicted` spread, a `legible` spread with its own denominator, traps, and node lists per grade. There is no average temperature and no quadrant tally at all — instead it collects node arrays (hot, byGrade, notes, firstStale) and sorts them: hottest-then-largest for wedges, and a three-key sort for notes (traps first, then worst `predicted`, then hottest) with a comment explaining that temperature alone ranked a reader's self-reported miss above a real doc defect.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
-- note: No doc comment on a 70-line function that defines every number the sidebar reports, including the `excluded`/`functions` split that CLAUDE.md treats as load-bearing.
+- read at `196985d9aa76` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: A pure helper walking the folded node tree once, accumulating repo-wide totals into a RepoSummary — file and function counts, total lines, a lines-weighted mean temperature, and a list of hottest functions/files for the sidebar; recursive descent treating function leaves differently from containers.
+- found: It is a recursive descent accumulating into RepoSummary, but the content is assessment coverage rather than size: functions vs excluded (exclusion inherited down the tree), read/stale/unread, the predicted-grade spread plus per-grade node lists, legibility spread, trap count, first stale node, and a `hot` list of nodes above a HOT temperature threshold. It ends by sorting hot and every byGrade bucket hottest-first with a loc tiebreak. It also carries a legacy fallback deriving a grade from the old `surprised` boolean when `predicted` is absent.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+- note: The name promises a size/temperature summary; the body is entirely about assessment coverage, and with no doc comment the only clue is the RepoSummary type.
 
 ### `scanRepo` — as expected
 - read at `252492de7a28` · commit `81eb6d5` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 8 of its run
@@ -775,6 +893,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/cn.ts
 
+### the file itself — surprising
+- read at `82b9285f7d8d` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: The standard shadcn-style class-name helper: a three-line module exporting `cn(...inputs)` that runs `clsx` over its arguments and passes the result through `twMerge` so conflicting Tailwind utilities resolve last-wins.
+- found: Not a wrapper over the library at all — it REIMPLEMENTS the two lines it needs: `export function clsx(...parts)` filtering falsy values and joining with a space. No `clsx` dependency, no `tailwind-merge`, so no last-wins conflict resolution. The peer entry `clsx` was the local declaration, not an import.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: The file is named `cn.ts` but exports nothing called `cn` — it exports `clsx`, which is also the name of the npm package it deliberately does not use, so an importer reading either the filename or the symbol gets the wrong idea about which one they have.
+
 ### `clsx` — as expected
 - read at `e8933499c48d` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 7 of its run
 - expected: parts.filter(Boolean).join(' ') — drop falsy varargs, join the rest with a space.
@@ -783,11 +908,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/colorMode.ts
 
-### `paintsFromReadings` — as expected
+### `paintsFromReadings` — as expected — STALE
 - read at `eff5c407e8c5` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: A one-line predicate returning true for the reader-report lenses — 'surprise' plus the two newer ones (something like legible/documented) — as a literal set membership or a || chain.
 - found: Exactly a three-way || chain: mode === 'surprise' || 'legible' || 'traps'.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `slotColor` — as expected
 - read at `ce80239a770a` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
@@ -816,10 +943,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: Not cold: colorMode.ts was my first reading this run (legendFor), though I read only those 12 lines and nothing near this function.
 
 ### `colorFor` — nearly
-- read at `0b8ded17ef51` · commit `9fe6ccf` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: A dispatch over the ColorMode variants — surprise/temperature, age or recency, language, maybe churn — each branch pulling the relevant field off `node`, returning null early when that field is missing (no touch date, unknown language, unscored). Colours from the sibling helpers: ramped/ageRamp for continuous scales (age using ageSpan with a floor fallback), slotColor plus `ranks` for categorical ones, each returning a Paint spread with a human-readable label.
-- found: Exactly that shape — a chain of `if (mode === ...)` returns with a categorical fallthrough at the end — but with more modes and more nuance than predicted: `surprise` switches between a container hot-SHARE (percentage label) and a leaf reading, and deliberately keeps the label uncalibrated while the fill is ramped; `legible` also rolls containers up as an opaque share and otherwise uses the agent grade, skipping stale readings; `traps` is two flat colours plus an absence, painting read-and-clear in the structural neutral so "looked and found nothing" is distinct from "nobody looked"; `churn` and `age` are the predicted ramps; the tail covers BOTH `blame` (lastAuthor) and language via ranks/slotColor.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- read at `0f318d6c7c90` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: A dispatch over ColorMode variants — surprise/temperature, age/recency, language, docs, churn — each producing a Paint plus a human label via ramped/ageRamp/slotColor, returning null where the node lacks the datum.
+- found: Exactly that shape, with more modes than I listed: surprise, legible, docs, traps, churn, age, then a shared categorical tail for blame/lang using ranks + slotColor with OTHER fallback. Containers roll up as shares (showsShare) in surprise/legible/docs; docs inverts the ramp to paint the GAP and a file answers for its own header only; traps is two flat colours plus absence rather than a ramp.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Unusually dense inline reasoning: most of the 124 lines are comments arguing why each lens is shaped as it is, and they hold up against the code.
 
 ### `rankCategories` — nearly
 - read at `43639d96a85f` · commit `81eb6d5` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -828,11 +956,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `bucketsFor` — nearly
-- read at `6945cc4bc17f` · commit `9fe6ccf` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 5 of its run
-- expected: One walk over the subtree collecting leaf functions (skipping .sanityignore'd ones), split per mode: categorical modes (language, blame) grouped by key and coloured with slotColor(ranks.get(key)); ramped modes (surprise, legible, churn, age) dropped into fixed bands, each band coloured by ramped() at the MEAN of its members' ramp inputs; anything uncolourable into a final structural-neutral bucket rather than dropped. Returns Bucket[] with label, colour and a count or line total, probably sorted by size.
-- found: Essentially that, with three things I did not cover. `surprise` returns an EMPTY array immediately — the one mode the panel does not break down. Buckets carry `nodes` and a `lines` sum rather than a count, and the mean-ramp pass is a separate loop over a side map afterwards. Sorting is per-mode rather than by size: lines for blame/language, traps-first for traps, a fixed grade order for legible, band order for churn/age — and the absence bucket is always moved to the end regardless. legible/traps read off the agent reading (skipping stale) with 'not read yet' versus 'not graded' as distinct absences, and the unknown key is a NUL-escape prefix so a real author named 'unknown' cannot collide.
+- read at `0eb06e2866d7` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
+- expected: One recursive walk gathering the subtree's non-excluded functions, then a switch on mode. Ramped modes (temperature, age, churn) put each function in a fixed band by its ramp input and colour the band at the MEAN of its members' inputs, using the caller's ageSpan rather than the on-screen root's. Categorical modes (language, author, grade) group by key with colours from rankCategories/slotColor so the panel matches colorFor. Anything the mode cannot colour lands in a final neutral bucket rather than being dropped; each Bucket carries a label, count, line total and fill.
+- found: All of that, and more modes than I guessed: surprise returns an empty array outright (the map's own lens needs no breakdown), and legible/docs/traps read straight off the agent reading, sharing one "not read yet" bucket and a separate "not graded" one. Buckets hold the nodes themselves plus a line total, not a count. The absence key is a NUL-escape-prefixed sentinel so a real author literally named "unknown" cannot land in the absence row — with a comment recording that it was once a literal NUL byte, which made the whole file read as binary to grep and git diff. Each mode also gets its own sort — lines descending for blame/language to match legendFor, traps first, grade order for legible/docs, band order otherwise — and the absence row is appended last regardless.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Five paragraphs of doc and none of them mention the first line of the body: `surprise` returns no buckets at all.
+- note: The doc is a good account of the design but says nothing about the per-mode sort orders or the early return for the surprise lens, which are half the body.
 
 ### `legendFor` — nearly
 - read at `673cd639d481` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -841,6 +969,13 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ## web/src/lib/fan.ts
+
+### the file itself — nearly
+- read at `aad3a344a715` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: The geometry for the annular fan an opened file unrolls into: a Sector type with sectorOf/arcOf converting between it and the sunburst's arc geometry, fanFor choosing the destination fan for a pane aspect, lerp/lerpSector interpolating between source wedge and fan for the open/close transition, deg for radian conversion, and share/place/centre/room subdividing a sector into cells.
+- found: That, in a (theta, v) space where v = r squared over 2 so that area is linear in both coordinates — which is the load-bearing idea I did not have. Because source and destination are both rectangles in (theta, v), the map between them is affine, so `place` can carry a tiling squarified against the fan back into the wedge and every intermediate frame is still a valid tiling: no morph, no re-tessellation, no sampled polygons. `lerpSector` interpolates in v for the same reason (even growth in area). `fanFor` does not pick a span, it SEARCHES one: it steps 55 to 150 degrees in 5-degree increments, fits each candidate exactly as the viewBox will, and keeps the one putting the most area on screen — because RIM cancels under the fit and only SHAPE decides capacity. The bearing of the source wedge is preserved so the fan grows in place, with NO_WEDGE_BEARING = 0 (straight up) for the three routes into a file that have no wedge behind them. `share` is a normalised fraction rather than a weight split, and `centre`/`room` are label-placement helpers, `room` taking arc width at MID radius as the conservative read of a trapezoid.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The file has a substantial header at lines 4-29 and the `docs` field of this task was EMPTY — the same happened on the AgentSetup.tsx file task, so file-level tasks appear not to be handing over the header the `ask` instructs the reader to predict from.
 
 ### `sectorOf` — nearly
 - read at `7019919acd9b` · commit `81eb6d5` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
@@ -975,17 +1110,16 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `dirNode` — as expected
-- read at `03c8aa3058bc` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: Builds a fresh container Node for the history frame tree with kind 'dir', the given path and name, empty children, zero loc, null line/score/agent fields, and an id derived from the path — freshly allocated per frame rather than pooled, since the sunburst relayouts when its root's identity changes.
-- found: Exactly that: a single object literal with id = path, the given name, kind 'dir', loc 0, null line/endLine/lang/lastAuthor/score/body, excluded false, empty hotspots and children.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- note: Nothing in or near the function records the reason it must not be pooled the way function nodes are — the constraint lives only in project notes.
+- read at `fc1e136bdb1a` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: Constructs a fresh directory Node: id/path from path, given name, kind 'dir', empty children, zeroed lines/score defaults, freshly allocated each call since containers are not pooled.
+- found: Exactly that — a literal Node with every field explicitly nulled/zeroed (loc 0, line/endLine/lang/lastAuthor/doc/score/body null, excluded false, hotspots and children empty), with an inline comment arguing doc is deliberately null because a comment is a reading's input rather than a fact about a commit.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ### `frameTree` — as expected
-- read at `a7efbd30f6f9` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Takes the folded state at index (via memoised advance/replay), then builds a fresh Node tree: buckets surviving functions by path into file and directory nodes (dirNode, collapse), colours each function by recency of its touch stamp against that frame's own date (scoreInto, daysBetween), aggregates line totals upward (aggregate), returns a root named repoName, with function nodes pooled and containers freshly allocated.
-- found: Exactly that: replay(hist, index) for the frame, dirNode('', repoName) root, lazy recursive dirFor/fileFor memo maps that create and link parents on demand, a function-node pool keyed on the HistoryScan identity (reset when hist changes), iteration over frame.loc sorted by intern index so wedge order is stable across the replay, per-frame mutation of only loc/lastAuthor/score (scoreInto), then aggregate(root) and collapse(root).
-- predicted: full · documented: some · derivable: no · legible: full · trap: no
+- read at `ef25db43c51a` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Folds the history to the given frame (memoised forward replay), then builds a fresh sunburst Node tree: freshly allocated dir/file containers via dirNode, function nodes taken from a pool and mutated in place, coloured by recency as of the frame's date, returning a root named repoName.
+- found: Just that. `replay(hist, index)` gets the frame; lazy recursive `dirFor`/`fileFor` build fresh containers (files carry lang and the frame's last author); a module-level `pool` keyed on the HistoryScan identity holds function nodes, created once and thereafter only `loc`, `lastAuthor` and `score` (via `scoreInto`) are rewritten — identity/path/lang deliberately not. Functions are emitted in interned order so wedge order is stable across the replay. Ends with `aggregate(root)` then returns `collapse(root)`.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `scopedCommits` — nearly
 - read at `3602f169da67` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -1008,100 +1142,119 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/ink.ts
 
 ### `inkOn` — nearly
-- read at `c90ed237aaf5` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
-- expected: Normalise the token (stripping var(...)), resolve the custom property to a concrete colour, return chrome ink if that fails; otherwise composite over the pane background at `alpha` and return whichever of the two ink colours wins on luminance/contrast.
-- found: That, with the var() stripping delegated to `resolve`, and one thing I missed: it is memoised in a module cache keyed `theme|token|alpha`. `over` returns a LUMINANCE rather than a colour, and is skipped entirely when alpha >= 1 or the background will not resolve. Choice is contrast(y, PAPER) >= contrast(y, INK) ? PAPER : INK, falling back to CHROME_INK when the fill is unresolvable.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- read at `b99ba883c8b2` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
+- expected: Resolve the custom property to an sRGB colour, falling back to the chrome ink if that fails; otherwise composite it over the pane background at alpha, take the luminance, and return whichever of the two inks (Ink vs Paper) has the better contrast — a per-wedge choice, not a per-theme one.
+- found: That, plus memoisation I did not predict: results are cached under a `theme()|token|alpha` key, with the theme in the key precisely so a theme switch does not serve stale inks. Compositing is skipped when alpha >= 1 or the background will not resolve, `over` returns a luminance directly rather than a colour, and the tie on equal contrast goes to PAPER.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: `y` holds a luminance on one branch and the result of `over` on the other, so the name and the two paths only agree because `over` happens to return a luminance rather than a colour.
 
-### `theme` — nearly
+### `theme` — nearly — STALE
 - read at `e9a53e5e7f29` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: A one-liner returning the current theme ('dark'|'light'), read from a data-theme/class on the document element or prefers-color-scheme, so the ink colour helpers know which ground they draw on.
 - found: Returns document.documentElement.className verbatim (the whole class string, not a parsed theme), falling back to a single space when there is no document (SSR/test). Used as a cache key rather than a theme enum.
 - predicted: most · documented: none · derivable: no · legible: most · trap: no
 - note: The fallback is a single space rather than an empty string, which reads as a deliberate sentinel but nothing says why.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `resolve` — nearly
-- read at `d458e5fd6f73` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Reads the CSS custom property named by `token` off the document root via getComputedStyle().getPropertyValue(), trims it, returns it only if it is a plain hex colour, otherwise null so callers fall back (e.g. a color-mix stop).
-- found: Exactly that, plus two details I did not name: an SSR/no-document guard returning null, and it strips a wrapping `var( ... )` and requires the name to start with `--` before looking it up. The hex test is a strict 6-digit `/^#[0-9a-f]{6}$/i`.
+- read at `55f91d723736` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: Reads the named CSS custom property off the document root's computed style, trims it, returns null when empty or not a plain hex colour (e.g. a color-mix), so the caller falls back.
+- found: Exactly that, plus two guards I did not name: an SSR/no-document check returning null, and unwrapping a `var(--x)` wrapper before requiring the name to start with `--`. Hex check is a strict 6-digit regex.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `luminance` — as expected
+### `luminance` — as expected — STALE
 - read at `2bb31705d74a` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: Parses the hex colour into r/g/b, converts each through the sRGB-to-linear transfer function (via the `srgb` peer), and returns 0.2126*R + 0.7152*G + 0.0722*B — WCAG relative luminance in 0..1.
 - found: Exactly that, written as a reduce over the array `srgb(hex)` returns, indexing the coefficient list [0.2126, 0.7152, 0.0722] by channel position — so the linearisation lives entirely in `srgb` and this is just the weighted sum.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `over` — as expected
+### `over` — as expected — STALE
 - read at `af45ee2bd823` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Converts hex and ground into linear-light RGB channels via srgb(), blends per channel with alpha (c*alpha + bg*(1-alpha)), and returns the relative luminance of the composite using 0.2126/0.7152/0.0722 weights.
 - found: Exactly that: destructures [srgb(hex), srgb(ground)], then a single reduce that multiplies each blended channel by the inline coefficient array and sums. It inlines the weights rather than calling the peer `luminance`.
 - predicted: full · documented: full · derivable: no · legible: most · trap: no
 - note: The coefficient array is reallocated inside the reduce and duplicates whatever `luminance` uses, so the two could drift apart.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `srgb` — as expected
-- read at `2805cb2700d8` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: Parse a hex string into three 0-1 channels and apply the sRGB inverse gamma transfer (c/12.92 below the knee, ((c+0.055)/1.055)**2.4 above), returning the linearised triple used by luminance/contrast.
-- found: Exactly that, written as [1,3,5].map over byte offsets into the "#rrggbb" string, with the threshold at 0.04045 (I guessed 0.03928, the other constant from the same WCAG text).
+- read at `190a8a42c92f` · commit `1b80d39` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: Parses the hex string into three 0-255 byte channels, normalises each to 0-1, applies the sRGB-to-linear transfer function (c <= 0.04045 ? c/12.92 : ((c+0.055)/1.055)**2.4), and returns the three linear values as an array for luminance.
+- found: Exactly that, written as [1,3,5].map over byte offsets in a "#rrggbb" string. It assumes the full six-digit form with a leading '#' — a three-digit shorthand or a missing '#' silently yields NaN rather than throwing.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- note: Assumes a full 7-char #rrggbb literal with no validation — a 3-digit shorthand or a named colour silently yields NaN channels.
 
-### `contrast` — as expected
+### `contrast` — as expected — STALE
 - read at `48b374d2cfba` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
 - expected: Takes two relative luminances and returns the WCAG ratio (lighter + 0.05) / (darker + 0.05), using Math.max/Math.min so argument order does not matter.
 - found: Character for character that: `(Math.max(a,b) + 0.05) / (Math.min(a,b) + 0.05)`.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/lib/label.ts
 
 ### `widthPerPx` — nearly — TRAP
-- read at `8a929cff67e8` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 9 of its run
-- expected: Keys a module-level Map on weight+text, returns the cached ratio if present; otherwise lazily makes a 2D canvas context, sets font to a reference size, measures the text and divides by the reference to get width-per-px-of-font-size, falling back to text.length * ~0.6 with no canvas. Caches and returns.
-- found: All of that, key `${weight}|${text}`, REF-relative measure, 0.6/char fallback. Two things beyond my prediction: the measured advance is deliberately inflated by 6% because measureText reports advance rather than ink, and the policy is that a name which does not clearly fit is not drawn at all. And the leading comment claims the cache is keyed on the FACE too — it is not; FAMILY appears in the font string but never in the key.
+- read at `0269c2721d0c` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 9 of its run
+- expected: Returns the rendered width of text at font-size 1 for the given weight — measureText(text).width / fontSize — memoised in a Map keyed by weight and text because the chart re-measures the same few hundred names every transition frame. Lazily creates a single module-level canvas 2D context, sets font to a reference size in the app's face, and falls back to a constant-per-character estimate where there is no canvas rather than throwing.
+- found: All of that, plus one deliberate fudge I did not predict: the measured advance is multiplied by 1.06, because measureText reports advance rather than ink and side bearings, hinting and subpixel rounding push the painted run past it — the policy being that a name which does not clearly fit is not drawn. Reference size REF, family FAMILY, fallback 0.6 chars, cache `widths` keyed `${weight}|${text}`.
 - predicted: most · documented: most · derivable: no · legible: full · trap: yes
-- note: The comment says the cache is "keyed on the FACE too ... a cache that ignored it would answer every question after the first with the width the first face happened to have" — but the key is only `${weight}|${text}`, so if FAMILY is genuinely live that is exactly the bug the comment describes, sitting one line above it.
+- note: The comment says 'Keyed on the FACE too. The face is now live, and a cache that ignored it would answer every question after the first with the width the first face happened to have' — but the key is `${weight}|${text}` and FAMILY appears nowhere in it, so the code does exactly the thing its own comment says it must not.
 
 ### `middleTruncate` — nearly
-- read at `057f6ebaee05` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: Returns the name unchanged if it fits in `keep`; otherwise splits the budget between a head slice and a tail slice with an ellipsis between them, head taking the extra character on odd budgets.
-- found: Exactly that — early return when keep >= length, head = ceil(keep/2), tail = remainder, joined with '…'. Plus one thing I did not predict: below a MIN_KEPT floor it returns the empty string rather than a stub, and the tail slice is guarded for tail === 0.
+- read at `4add0a3a74a1` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: Returns name unchanged if it fits within keep chars; otherwise splits the budget between head and tail (roughly half each, allowing for the ellipsis) and joins with a middle ellipsis.
+- found: That, plus a MIN_KEPT floor: below it the function returns the empty string rather than a stub. head = ceil(keep/2), tail = the remainder, ellipsis not counted against keep.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The doc argues the design well but says nothing about the MIN_KEPT floor that makes the function return '' — the one behaviour a caller could be caught by.
+- note: The docs argue at length for keeping both ends, but say nothing about the MIN_KEPT case where the function drops the label entirely.
 
 ### `fitLabel` — nearly
-- read at `b2373ee57957` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: Tries the full name along the wedge's arc first, then turned 90 degrees radially; only if neither fits does it fall back to middleTruncate on whichever axis has more room, returning null if even the truncated form drops below a minimum. Uses widthPerPx to convert font size to text width against the cell's extent, returning a Placement with orientation, size and text.
-- found: That, plus the geometry I did not have: it computes a max size per axis from three or four simultaneous caps — length, thickness at right angles (LINE), and for arc labels a maximum angular BEND, all clamped by opts.max. The radial size is the closed-form fixed point of LINE*s = span*(midR - wpp*s/2), because a radial name must be CENTRED in the wedge, and the doc comment records two earlier wrong answers (measuring at r0, and sliding the label outward). Axis preference is by cell shape (outer arc vs depth), overridable by opts.only for rim bands. Truncation only ever runs at MIN_SIZE, on the preferred axis, scanning keep downward to a floor of MIN_KEPT / MIN_SHARE of the name.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: The handed docs state the ordering policy well but say nothing about the three-way size caps or the centred-radial fixed point, which is where all the actual difficulty lives.
+- read at `de24ecebad1b` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Measure arc length and radial depth, pick a preferred axis by which is larger, then try in order: full name on preferred, full name on other, middle-truncated on preferred, middle-truncated on other, each against a minimum font size; return a Placement or null.
+- found: The ordering is as predicted except truncation is only ever attempted on the PREFERRED axis, never the other. Three things I did not cover: a bend cap (maxBend/DEFAULT_BEND) limiting how much a label may curve, which can knock arc out even in a wide cell; the radial size solved as a fixed point so the name is CENTRED in the wedge rather than fitted at r0 or slid outward; and an `only` option pinning an axis (rim labels are arc-only). Truncation searches keep-lengths downward from name.length-1 to a floor of max(MIN_KEPT, name.length*MIN_SHARE) at fixed MIN_SIZE.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The handed doc states the priority order but not that clipping is confined to the preferred axis, which is the one place the stated policy ("full on either axis beats clipped on either") stops short of describing the code.
 
 ## web/src/lib/runtime.ts
 
 ### `isTauri` — as expected
-- read at `90484e71e848` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: A one-expression arrow returning whether the app runs inside a Tauri webview rather than a plain browser, almost certainly checking that window.__TAURI_INTERNALS__ (or __TAURI__) is defined, coerced to boolean.
-- found: Exactly that: `typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window`, with the extra SSR/non-DOM guard on window itself.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- read at `33a9a1078966` · commit `1b80d39` · read by claude-opus-4.6 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Arrow function returning whether we run inside the Tauri shell by checking a Tauri-injected global on window (__TAURI_INTERNALS__/__TAURI__), guarded against window being undefined, with no Tauri API import.
+- found: Exactly that: typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: No function-level docs; the file_doc carries the intent instead.
 
 ### `isMac` — as expected
-- read at `263dee010e59` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A one-liner returning whether the platform is macOS by testing navigator.platform/userAgent for "Mac", guarded against a non-browser environment, used by isTauriMac.
-- found: Exactly that: guards `typeof navigator !== 'undefined'` then tests `/Mac|iPhone|iPad/i` against navigator.userAgent.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- read at `18634f7d04cb` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 8 of its run
+- expected: A one-line platform sniff returning true on macOS, testing navigator.platform or userAgent for "Mac", guarded so it is safe where navigator does not exist.
+- found: Exactly that: a typeof guard on navigator plus a case-insensitive /Mac|iPhone|iPad/ test of navigator.userAgent — so it is really "Apple platform" rather than strictly macOS.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `isTauriMac` — as expected
+### `isTauriMac` — as expected — STALE
 - read at `78541b5becc9` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 7 of its run
 - expected: A one-line arrow returning isTauri() && isMac(), the conjunction of its two neighbours, so traffic-light room is reserved only in the desktop shell on macOS.
 - found: Exactly that: `export const isTauriMac = (): boolean => isTauri() && isMac()`.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `onFullscreenChange` — nearly
-- read at `09d0c2b498ce` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: Subscribes to the Tauri window resize event, asks the window whether it is fullscreen on each resize and calls cb with the boolean, fires once immediately for an initial value, returns an unsubscribe; no-ops with a dummy unsubscribe off Tauri/macOS.
-- found: All of that, plus careful async teardown: the Tauri window API is dynamically imported inside a floating async IIFE, so the returned disposer may run before the listener exists. A `dead` flag both suppresses late cb calls and, if the disposer already ran, immediately unsubscribes the listener the moment it registers.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- read at `3bca05eb1d24` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Subscribes to the window resize event and on each one (plus once immediately) asks the Tauri window whether it is fullscreen, via a dynamic import of @tauri-apps/api/window so the module stays browser-safe, invoking cb with the boolean; returns a teardown removing the listener, and no-ops outside Tauri.
+- found: That, plus careful async-unsubscribe handling: it bails to a no-op closure unless isTauriMac(), then runs an async IIFE that dynamic-imports getCurrentWindow, defines read() as isFullscreen().then(f => !dead && cb(f)), reads once, awaits win.onResized(read), and — if the caller already disposed while the import was in flight — immediately calls the unlistener instead of storing it. The returned teardown sets dead and calls stop if it exists.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: The `dead` flag guards both the in-flight listener registration and the in-flight isFullscreen promise — the one detail I did not predict, and the reason this is 18 lines rather than 6.
 
 ## web/src/lib/sunburst.ts
+
+### the file itself — nearly
+- read at `d29118dbd0ff` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: A pure geometry/layout module for the sunburst: turn the folded tree into wedges with angles proportional to lines, build SVG arc path strings, pack a file's functions into its wedge with something squarified (worstRatio/rowPlacement/tileFunctions), aggregate the overflow, and produce label arcs. No React, no fetching; heat only as an ordering/colour input.
+- found: That, and more carefully than I guessed. Angles come from a recursive walk starting at 9 o'clock, biggest-first, culling sub-minAngle arcs (never functions) and counting the hidden subtree by kind. Function tiling is a genuine squarified treemap done in (θ, v=r²/2) coordinates so area is conserved exactly, with a per-patch MAX_STRETCH floor rule, a promote-then-roll-up policy, and a want/scale pass instead of a remainder budget. sliceFunctions is the drilled-in angular variant, aggregate builds a synthetic Node for the overflow, labelArc offsets the radius by an eyeballed baseline constant and reverses bottom-half arcs.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+- note: The file has no header doc, and two TSDoc blocks are attached to the wrong declaration: "Partition the tree into rings" (L37-44) sits on `LayoutOpts` rather than `layout`, and the "arc for a label to sit ON" block (L669-682) sits on the BASELINE_TO_CENTRE constants rather than `labelArc`, so both functions read as undocumented to any tool that reads the attached comment.
 
 ### `heatOf` — surprising
 - read at `72fdba84ea74` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
@@ -1124,11 +1277,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `aggregate` — nearly
-- read at `4b2eb8e74c45` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
-- expected: Builds one synthetic function Node standing for the functions that did not fit: a name like "+N more", an id from filePath, loc summed over members, and a Score whose temperature (and likely other numeric fields) is the LOC-weighted mean over only members carrying a real reading, falling back to something neutral when none were read; probably keeps the member list on the node for hover/the panel.
-- found: As predicted in shape, with more machinery than I covered. "Read" is defined precisely as score.source of 'model' or 'agent'; a LOC-weighted mean helper (with Math.max(loc,1) so zero-line functions still weigh) is applied field by field — surprise, documented, churn, ageDays, lastTouchedDays, commits (rounded) — while provenance and source are copied from the first read member. Two fields I did not anticipate: hotShare is recomputed as the LOC share of read members above HOT rather than a mean, and analyzedShare = read LOC / total LOC so a mostly-unread pool renders unread instead of borrowing the confidence of the few read members. Name is `${fns.length}+`, id `${path}#rest`, `rest` carries the count so colorFor can tell it is a collection, `children` keeps the members so the detail panel can reach them, and `excluded` is hard-coded false rather than inherited. Extensive inline comments explain each choice, including a past bug where hotShare held mean(surprise).
+- read at `95b97563182d` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: Builds one synthetic Node standing in for functions that didn't fit: total LOC as size, LOC-weighted mean score over only members carrying a real reading (neutral/undefined if none read), a name like "+N more", id derived from filePath, and a flag marking it an aggregate for hover/click.
+- found: All of that, plus three things I did not cover: it keeps `children: fns` so the detail panel can reach the hidden members; it recomputes `hotShare` as hot LOC over read LOC (not a mean of surprise) and `analyzedShare` as read LOC over total LOC so a mostly-unread pool renders unread; and it hardcodes excluded:false and doc:null rather than inheriting from members. "read" is defined as score.source being 'model' or 'agent'. Name is "N+", id is `path#rest`, marker field is `rest`.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The doc says the score is the LOC-weighted mean of read members, but hotShare and analyzedShare are deliberately not means — the doc undersells the one place it matters most.
+- note: The doc comment stops at the weighted-mean rationale and says nothing about analyzedShare or the children roll-up, which are the two things that make the wedge honest and navigable.
 
 ### `vOf` — as expected
 - read at `52de10c15242` · commit `81eb6d5` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -1178,6 +1331,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/text.ts
 
+### the file itself — nearly
+- read at `81445c50569e` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 7 of its run
+- expected: A tiny shared string-formatting module for the UI: elide truncating a label to a max length with an ellipsis, probably preserving the tail of a path rather than cutting blindly, and compactCount rendering large numbers compactly for wedge labels and the sidebar (1.2k, 17k) so counts fit small spaces.
+- found: Both, at the shape predicted, with the parameters chosen more deliberately than expected: elide shortens from the MIDDLE keeping both ends, weighted 65% to the tail because the filename and line are what a path is read for and the leading directories are inferable from what was clicked, counting characters rather than pixels because every caller is monospace. compactCount only switches to a unit once the digits stop fitting — plain toLocaleString with separators below 100,000, then k, then M at one decimal — on the argument that a unit is a loss of precision worth paying only when the exact digits would not fit, sized against a 290px header column printing three counts on one line.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: Third file task in a row handed to me with an empty `docs` array while the file itself is thoroughly documented — here every export carries a full rationale, so `documented: none` is a fact about the handout, not the file.
+
 ### `elide` — as expected
 - read at `199d5d451e32` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: Returns s unchanged when within max; otherwise splits the budget unevenly — smaller head, larger tail — joined by an ellipsis so the filename and line at the end survive. A guard, two slice offsets from max, a template-literal return.
@@ -1193,43 +1353,55 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/theme.ts
 
 ### `loadTheme` — as expected
-- read at `a0cd551989f5` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Reads a persisted theme preference from localStorage under a module-level key, validates it is one of 'light'/'dark'/'system', returns it; otherwise returns a default of 'system'. Expected a try/catch around the storage read.
-- found: Exactly that: try { localStorage.getItem(KEY); if raw is 'light'|'dark'|'system' return raw } catch { comment only } return 'system'.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- read at `326426743cdb` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: Reads the stored theme preference from localStorage under a module key, validates the raw string against the three Theme values, returns 'system' as the fallback when missing or unrecognised, wrapped in try/catch because localStorage can throw.
+- found: Exactly that: try { localStorage.getItem(KEY) }, literal check against 'light'|'dark'|'system', empty catch with a comment, return 'system'.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: The docs are a file-level essay about why a theme toggle exists at all, not about this function; they cover it only by implication (the 'system' default), but they say things no reader could derive from the code.
 
 ### `saveTheme` — nearly
-- read at `3513dcd2632b` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: Writes the theme to localStorage under a module-level KEY inside a try/catch that swallows storage failures, then calls applyTheme(t) so the change takes effect immediately.
-- found: Just the localStorage.setItem(KEY, t) in a try/catch whose empty body carries the reason ("the preference just won't survive a restart"). It does NOT apply the theme — persistence only; applying is applyTheme's job and the caller's to sequence.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- read at `064c9b357299` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
+- expected: Persists the three-way choice: writes t to localStorage under a module-level key, removing the key when t is 'system' so the default stores nothing, then applies the theme so the dark class on html updates immediately; guarded against a missing localStorage.
+- found: Just localStorage.setItem(KEY, t) inside a try/catch whose empty body carries a comment saying the preference simply will not survive a restart. No special case for 'system' — it is stored like any other value — and it does not apply anything; that is applyTheme's job.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `prefersDark` — as expected
-- read at `b277b2c40cd8` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A one-line helper returning window.matchMedia('(prefers-color-scheme: dark)').matches, possibly guarded against a missing matchMedia.
-- found: Exactly that, unguarded — a single return of window.matchMedia('(prefers-color-scheme: dark)').matches.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- read at `d1c5dd0259c2` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 8 of its run
+- expected: A one-liner returning window.matchMedia('(prefers-color-scheme: dark)').matches, possibly guarded for a missing matchMedia.
+- found: Exactly that, unguarded — one return statement.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `applyTheme` — as expected
+### `applyTheme` — as expected — STALE
 - read at `13fa2a14f29b` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: Resolves the Theme — with 'system' falling through to prefersDark() — and stamps the result on document.documentElement, as a class or data-theme attribute, possibly also setting style.colorScheme.
 - found: Exactly that, minus the colorScheme: one line computing `dark` from t === 'system' ? prefersDark() : t === 'dark', one line calling classList.toggle('dark', dark) on documentElement.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `applyStoredTheme` — as expected
+### `applyStoredTheme` — as expected — STALE
 - read at `c2bf76ae3f89` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 10 of its run
 - expected: A three-line wrapper: read the persisted preference with loadTheme() and hand it to applyTheme(), which sets the class on documentElement, with the system fallback already handled inside those two — so the body is a single call, run at module load to re-assert what index.html's blocking script already did.
 - found: Exactly one statement: applyTheme(loadTheme()).
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `watchSystemTheme` — nearly
-- read at `27a18420c8ba` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: Returns a no-op teardown if t is not 'system'; otherwise takes the prefers-color-scheme:dark MediaQueryList, adds a change listener that re-applies the theme, and returns a closure removing that listener.
-- found: Exactly that, with one extra step I did not mention: it calls applyTheme(t) unconditionally on entry, so the function also does the initial application rather than only subscribing.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: The name and docs both say "watch", but the body also applies the theme up front — a side effect the name does not carry.
+- read at `49cc65416df4` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: If t is not 'system', return a no-op teardown; otherwise subscribe to matchMedia('(prefers-color-scheme: dark)') change and re-apply the theme, returning an unsubscribe function.
+- found: Exactly that, plus an eager applyTheme(t) on entry before the mode check — so the function both applies and subscribes, which the docs ("keep following the OS") do not mention.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The doc describes only the subscription; the function also applies the theme immediately, which is why it works as a one-call effect.
 
 ## web/src/lib/zoom.ts
+
+### the file itself — nearly
+- read at `2c896828e2cd` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
+- expected: The pure-geometry module behind drilling in and out of the sunburst: per-node ring geometry (geoOf, hubGeo), whether a navigation is a descent or ascent (direction, under, ancestors), start/end geometries for the animation (enterFrom, exitTo), interpolators (lerp, lerpGeo, ease) so a frame at t is a valid layout, and extentOf/viewFor/lerpView/viewBoxOf doing the same for the SVG viewBox so camera and arcs arrive together. No React, no rendering.
+- found: All of that, and the shape was as predicted. Two things I did not anticipate: `direction` has a third answer, `across`, for jumps between unrelated nodes (the summary panel's hot list) rather than collapsing to in/out; and `extentOf` is computed analytically from annular-sector corners plus the quarter-turn crossings inside each span, deliberately replacing getBBox because a measured box fits a half-finished animation. The module also carries ZOOM_MS and an Exiting interface, and geoOf deliberately skips func wedges because layout gives them a phantom ring they are never drawn in.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: Lines 197-210 are a full doc comment attached to nothing — it documents the absence of a constant that was deleted, so it binds to the `Exiting` interface below it.
 
 ### `under` — as expected
 - read at `c4d3ff9b9a40` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run

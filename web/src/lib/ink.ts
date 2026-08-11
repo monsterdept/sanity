@@ -24,8 +24,8 @@
  *  of the app's own scale, taken as literals because what they have to be is the thing
  *  index.css names them; a `var(--foreground)` would resolve to whichever the current
  *  theme has face up, which is precisely the bug. */
-const PAPER = '#f5f1ea'
-const INK = '#1a1a1a'
+export const PAPER = '#f5f1ea'
+export const INK = '#1a1a1a'
 
 /** What a label takes when nothing said what it is standing on — the app's own chrome
  *  colour, which is the right answer for anything drawn on the pane rather than on a

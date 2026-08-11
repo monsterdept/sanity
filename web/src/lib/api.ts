@@ -51,6 +51,12 @@ export interface Node {
   excluded: boolean
   /** Who last committed to this file. */
   lastAuthor: string | null
+  /** The comment attached to this node: a function's own doc, or a FILE's module header.
+   *
+   *  Already on the wire — `Node::doc` has been serialised all along — and dropped here,
+   *  so the browser had a file's header and could not show it. It is what the Docs lens
+   *  grades on a file and what the pane prints under HEADER. */
+  doc: string | null
   score: Score | null
   /** Hash of this function's body — what a committed reading is checked against. */
   body: string | null
@@ -140,6 +146,7 @@ interface WireNode {
   end_line: number | null
   excluded?: boolean
   last_author: string | null
+  doc?: string | null
   body: string | null
   score: WireScore | null
   hotspots?: Hotspot[]
@@ -169,6 +176,7 @@ function toNode(w: WireNode): Node {
     lang: w.lang ?? null,
     excluded: w.excluded ?? false,
     lastAuthor: w.last_author ?? null,
+    doc: w.doc ?? null,
     body: w.body ?? null,
     score: w.score
       ? {
@@ -248,11 +256,26 @@ export function mcpDisconnect(id: string): Promise<string> {
   return invoke<string>('mcp_disconnect', { id })
 }
 
+/** How much there is to read in a project: its functions AND its files.
+ *
+ *  One helper because the sum is a claim, and three call sites each adding two fields is
+ *  three places for it to stop agreeing. A file is queued, leased, reported and expired
+ *  exactly as a function is, so a bar that divided by functions alone could fill to 100%
+ *  with sixty-two file readings outstanding — the same failure as counting leased work
+ *  as done. */
+export function readable(p: ProjectSummary): number {
+  return p.functions + p.files
+}
+
 export interface ProjectSummary {
   key: string
   name: string
   repo: string
   functions: number
+  /** Files that are their own reading — see `count_files` in Rust. The coverage
+   *  denominator is `functions + files`, because both are queued, reported and expired the
+   *  same way; `functions` alone let the bar fill while file readings were outstanding. */
+  files: number
   /** Functions whose reading still describes them. Stale ones are NOT counted — a
    *  project cannot be finished and hold expired readings. */
   assessed: number
@@ -357,6 +380,13 @@ export function isReportStale(r: AgentReport, node: Node): boolean {
  *  swatches from an even 0/⅓/⅔/1 would show four colours the map never uses. */
 export const GRADE_SURPRISE: Record<Grade, number> = { full: 0.08, most: 0.3, some: 0.62, none: 0.92 }
 const GRADE_DOCUMENTED: Record<Grade, number> = { full: 0.95, most: 0.7, some: 0.35, none: 0 }
+
+/** The same four steps as the GAP they leave — what the Docs lens paints.
+ *
+ *  Not `1 - GRADE_DOCUMENTED`, though it is nearly that: a ramp input is a position on a
+ *  scale and wants the ends pinned, so `none` is 1 rather than 0.95's complement. The
+ *  direction is the point — see the `--docs-*` ramp. Bright is what needs writing. */
+export const DOC_GAP: Record<Grade, number> = { full: 0.05, most: 0.3, some: 0.65, none: 1 }
 
 /** The report's two grades, with two rules applied that the grades themselves do not carry.
  *
@@ -508,8 +538,17 @@ export function applyAgentReports(root: Node, reports: AgentReport[]): Node {
       }
     }
     const children = node.children.map(visit)
-    if (children.every((c, i) => c === node.children[i])) return node
-    return reaggregate(node, children)
+    const folded = children.every((c, i) => c === node.children[i])
+      ? node
+      : reaggregate(node, children)
+    // A FILE can carry a reading of its own — see `Task.file`. It attaches, and it does
+    // NOT touch the score: a file's temperature is the roll-up of what is inside it, and a
+    // judgement about its header is a different measurement that must not overwrite one it
+    // did not make. What reads it is the Docs lens, which asks the file about its own
+    // header rather than averaging its functions, and the pane, which shows the reading.
+    const own = byId.get(node.id)
+    if (!own) return folded
+    return { ...folded, agent: own, agentStale: isReportStale(own, node) }
   }
   return visit(root)
 }
@@ -605,13 +644,9 @@ export interface RepoSummary {
   legibleRead: number
   /** Readings whose reader said something there will bite the next person to edit it. */
   traps: number
-  /** Functions whose reader left a note, hottest first.
-   *
-   *  `note` is filled only when a reading surprised its reader, so this is not a sample of
-   *  the repo — it is the set of things somebody thought worth saying out loud. Stale
-   *  readings are excluded: the note describes a body that has since changed, and a remark
-   *  about code that no longer exists is worse than none. */
-  notes: Node[]
+  /** No `notes` list. A note is written ABOUT a function and reads as a sentence about
+   *  nothing without the signature, docs and grades beside it — so it is shown on the
+   *  function, in `Detail`, and nowhere a summary could stack forty of them. */
 }
 
 export function summarize(root: Node): RepoSummary {
@@ -628,7 +663,6 @@ export function summarize(root: Node): RepoSummary {
     legible: { full: 0, most: 0, some: 0, none: 0 },
     legibleRead: 0,
     traps: 0,
-    notes: [],
   }
   const walk = (n: Node, out: boolean) => {
     const outOfScope = out || n.excluded
@@ -652,7 +686,6 @@ export function summarize(root: Node): RepoSummary {
           s.legibleRead++
         }
         if (n.agent?.trap) s.traps++
-        if (n.agent?.note?.trim()) s.notes.push(n)
         if (temperature(n.score) > HOT) s.hot.push(n)
       } else {
         s.unread++
@@ -665,23 +698,6 @@ export function summarize(root: Node): RepoSummary {
     temperature(b.score) - temperature(a.score) || b.loc - a.loc
   s.hot.sort(hottestFirst)
   for (const g of Object.keys(s.byGrade) as Grade[]) s.byGrade[g].sort(hottestFirst)
-  // Traps first, then the readings that could not be predicted, then everything else.
-  //
-  // Temperature alone put a reader's "I misread this, the docs were clear" above a doc
-  // that describes a threshold the code does not implement. Notes are three different
-  // things in one pile — defects, unreachable intent, and readers reporting their own
-  // misses — and `trap` is the reader saying which it wrote. `predicted` breaks the
-  // remaining tie: a note on a reading nobody could predict is a finding about the code,
-  // where a note on a `full` is usually a remark.
-  const GRADE_RANK: Record<Grade, number> = { none: 0, some: 1, most: 2, full: 3 }
-  s.notes.sort((a, b) => {
-    const trap = Number(b.agent?.trap ?? false) - Number(a.agent?.trap ?? false)
-    if (trap) return trap
-    const rank =
-      GRADE_RANK[a.agent?.predicted ?? 'none'] - GRADE_RANK[b.agent?.predicted ?? 'none']
-    if (rank) return rank
-    return hottestFirst(a, b)
-  })
   return s
 }
 
@@ -966,7 +982,7 @@ export function isAnalyzed(node: Node): boolean {
 
 /** Which ramp a reading walks. Each is five CSS stops of a single hue, sharing one
  *  lightness profile — see index.css. */
-export type Ramp = 'heat' | 'legible' | 'churn' | 'age'
+export type Ramp = 'heat' | 'legible' | 'churn' | 'age' | 'docs'
 
 /** Interpolate a ramp's five CSS stops. Returns a `var(...)` mix so the ramps stay
  *  defined in one place (index.css) and re-theme with the rest of the app. */

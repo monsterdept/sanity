@@ -44,7 +44,6 @@ import { loadTheme, saveTheme, watchSystemTheme, type Theme } from './lib/theme'
 import { CodeView } from './components/CodeView'
 import { ColourLegend, ModeSwitcher } from './components/ColourKey'
 import { Detail } from './components/Detail'
-import { PartyAnts } from './components/PartyAnts'
 import { SideBar } from './components/SideBar'
 import { AgentSetup } from './components/AgentSetup'
 
@@ -67,6 +66,7 @@ function sameProjects(a: ProjectSummary[], b: ProjectSummary[]): boolean {
       p.repo === q.repo &&
       p.assessed === q.assessed &&
       p.functions === q.functions &&
+      p.files === q.files &&
       p.stale === q.stale &&
       p.working === q.working &&
       p.loading === q.loading &&
@@ -547,6 +547,39 @@ export default function App() {
     return out
   }, [tree, focus])
 
+  /** What CONTAINS the selection, root-side first and the repo itself left off.
+   *
+   *  Walked with `parentOf` rather than split off `node.path`, for the reason `trail` gives:
+   *  the scan collapses single-child directory chains, so a path's segments are not all
+   *  nodes. Splitting the string would produce crumbs that cannot be navigated to — which
+   *  is the entire point of these ones.
+   *
+   *  Empty for anything the tree does not hold, which is the synthesised roll-up a file's
+   *  band collapses into. The panel falls back to the plain path there rather than offering
+   *  a route that does not exist. */
+  const owners = useMemo(() => {
+    if (!tree || !selected) return []
+    const out: Node[] = []
+    let n = parentOf(tree, selected.id)
+    while (n && n.id !== tree.id) {
+      out.unshift(n)
+      n = parentOf(tree, n.id)
+    }
+    return out
+  }, [tree, selected])
+
+  /** Show the map this container, WITHOUT dropping the selection.
+   *
+   *  That is the one thing separating it from `goTo`, and it is the whole gesture: a
+   *  function found from a list is a two-pixel sliver of a four-thousand-function ring, so
+   *  the outline lands on something too small to see. Drilling to the file it lives in makes
+   *  the same wedge a band — but only if the selection survives the trip, or you arrive
+   *  somewhere correct with nothing marked. */
+  const showIn = useCallback(
+    (n: Node) => setStack(tree && n.id === tree.id ? [] : [n.id]),
+    [tree],
+  )
+
   /** Jump to any level of the ancestry. Index 0 is the root. */
   const goTo = useCallback(
     (i: number) => {
@@ -648,22 +681,6 @@ export default function App() {
           {tree && focus && <Crumbs trail={trail} onGo={goTo} onUp={goUp} />}
 
           <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-            {/* The ground the map is drawn on. It is the only surface in the window that
-                is genuinely mostly empty — the rings are a circle in a rectangle — which
-                is what makes it the right place for something ambient.
-
-                Explicitly z-layered rather than left to DOM order. Paint order only
-                falls out of document order for elements that are all POSITIONED, and
-                these branches are not: `Sunburst` is `relative`, `Empty` and
-                `ProgressPane` are static, so an absolutely-positioned canvas would have
-                gone under the chart and over the empty state — ants walking across the
-                one screen that is trying to tell you what to do next. */}
-            {/* Told what is on the ground with them, so they walk round the rings
-                rather than under the middle of them. Only when the rings are the branch
-                actually rendering: a file stack, the empty state and the error all fill
-                their pane, and a keep-out for a circle nothing is drawing would push the
-                ants into the margins for no visible reason. */}
-            <PartyAnts avoid={!error && focus && focus.kind !== 'file' ? 'rings' : undefined} />
             <div className="relative z-10 h-full">
             {error ? (
               <div className="flex h-full items-center justify-center p-6">
@@ -792,6 +809,8 @@ export default function App() {
             ageSpan={tree ? ageSpanOf(tree) : undefined}
             onSelect={setPicked}
             onDrill={drill}
+            owners={owners}
+            onShowIn={showIn}
           />
           )}
         </aside>
@@ -1026,12 +1045,8 @@ function HistoryToggle({
  */
 function Empty({ connected, onConnect }: { connected: boolean; onConnect: () => void }) {
   return (
-    /* Boxed, and the box is what the ants pass behind.
-       They are drawn at `z-0` under a `z-10` content layer, so the stacking was already
-       right — what was missing was a ground. Over bare pane an ant crossed the middle of a
-       sentence, which reads as a rendering fault rather than as something living on the
-       desk. A card gives the copy an opaque floor to sit on and turns the ants back into
-       what they are: behind it, at the edges, incidental. */
+    /* Boxed. The copy needs a ground of its own: over bare pane it read as text lying on
+       the desk rather than as a card asking for something. */
     <div className="flex h-full items-center justify-center p-8">
       <div className="flex w-full max-w-[54ch] flex-col items-center gap-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-8 py-9">
       {/* A heading, not the wordmark.
