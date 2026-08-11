@@ -141,6 +141,15 @@ readings (1.4 MB) parse in 30ms, once, on open.
   would be the worst trade available. A dated grade is kept and shown as history; what it
   does not do is colour, count or bucket. `legibleOf` is the single accessor so the lens, the
   breakdown, the dial and the spread cannot disagree.
+  **There is no single-axis re-read pass, and the reason is not cost.** Backfilling one
+  expired axis by asking readers only that question is the obvious move — `legible` is
+  graded after the body is open, so it looks like the cheap half of a reading. It is not the
+  same measurement. A reader grades legibility having just predicted this function and been
+  caught out or not, and that context is part of the answer; one that only ever opens the
+  body is a different instrument. Its grades would land in the same column, under the
+  current spec, looking comparable — which is the exact failure `spec` exists to make
+  visible, reintroduced one layer down. A bumped axis refills by ordinary re-reading, and
+  otherwise stays honestly grey.
   **It degrades in both directions on purpose**: `>=`. A reading from an older build carries
   no spec and is not trusted; one from a NEWER build is, because a later spec refines the
   question and greying out a colleague's fresh work would punish them for updating first. An
