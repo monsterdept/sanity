@@ -34,14 +34,6 @@ export interface Layout {
  *  honest about being in pixels — is the model. */
 const MIN_ANGLE = 0.0025
 
-/**
- * Partition the tree into rings, angles proportional to lines.
- *
- * Children are laid out in the order the backend produced them, which is directory
- * order — deliberately not sorted by size or heat. A ring that reorders itself between
- * two scans destroys the one thing that makes a second visit useful: recognising the
- * shape you saw last time and spotting what changed.
- */
 /** How siblings are laid out around the circle. */
 export interface LayoutOpts {
   /** Angle by lines (the default) or give every sibling the same room.
@@ -85,6 +77,14 @@ function heatOf(n: Node): number {
   return showsShare(n) ? s.hotShare : s.surprise
 }
 
+/**
+ * Partition the tree into rings, angles proportional to lines.
+ *
+ * Children are laid out in the order the backend produced them, which is directory
+ * order — deliberately not sorted by size or heat. A ring that reorders itself between
+ * two scans destroys the one thing that makes a second visit useful: recognising the
+ * shape you saw last time and spotting what changed.
+ */
 export function layout(root: Node, maxDepth: number, opts: LayoutOpts = {}): Layout {
   const wedges: Wedge[] = []
   const hidden = { files: 0, dirs: 0 }
@@ -666,6 +666,18 @@ export function sliceFunctions(
   return out
 }
 
+/** Where a label's optical centre sits relative to its baseline, as a fraction of font
+ *  size — and it is not the same in both directions.
+ *
+ *  Cap height is about 0.7em, so the arithmetic answer is half of that either way. The
+ *  reversed case wants less, because on a reversed arc the DESCENDERS point outward
+ *  while on a forward one they point in, so the ink is not distributed symmetrically
+ *  about the baseline in the two cases. These two are eyeballed against the running app
+ *  rather than derived; they are optical constants and the only honest way to set them
+ *  is to look. */
+const BASELINE_TO_CENTRE_FORWARD = 0.35
+const BASELINE_TO_CENTRE_REVERSED = 0.28
+
 /**
  * An arc for a label to sit ON, rather than a point to rotate a label about.
  *
@@ -680,18 +692,6 @@ export function sliceFunctions(
  * comes out upside down; drawing that span right-to-left instead keeps every label
  * readable without rotating the glyphs.
  */
-/** Where a label's optical centre sits relative to its baseline, as a fraction of font
- *  size — and it is not the same in both directions.
- *
- *  Cap height is about 0.7em, so the arithmetic answer is half of that either way. The
- *  reversed case wants less, because on a reversed arc the DESCENDERS point outward
- *  while on a forward one they point in, so the ink is not distributed symmetrically
- *  about the baseline in the two cases. These two are eyeballed against the running app
- *  rather than derived; they are optical constants and the only honest way to set them
- *  is to look. */
-const BASELINE_TO_CENTRE_FORWARD = 0.35
-const BASELINE_TO_CENTRE_REVERSED = 0.28
-
 export function labelArc(a0: number, a1: number, r: number, fontSize: number): string {
   // Normalised, because the layout starts at -π/2 and midpoints can be negative — an
   // un-normalised comparison silently stops flipping the labels that need it.

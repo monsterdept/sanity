@@ -207,6 +207,10 @@ export function ease(t: number): number {
  * They mount when the movement ends and fade in through CSS (`.patches-in`), which costs
  * one composited property and no React work at all. The constant that used to say when
  * the fade began is gone with it: the answer is "when the ring stops".
+ *
+ * Kept as a note on the file rather than on the interface below it: the constant this was
+ * written for is gone, and a doc comment adjacent to the next declaration is a doc comment
+ * ABOUT it — to rustdoc, to an editor, and to the reader this repo hands it to.
  */
 
 /** A wedge that is on its way out, carried through the transition with its own geometry. */

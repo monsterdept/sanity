@@ -47,8 +47,6 @@ import { Detail } from './components/Detail'
 import { SideBar } from './components/SideBar'
 import { AgentSetup } from './components/AgentSetup'
 
-/** Find a node by id so the drill-in stack survives a rescan — the user's position in
- *  the tree shouldn't reset just because they re-ran the scan. */
 /** Do two project lists say the same thing?
  *
  *  Field by field rather than by identity, because the poll that produces them allocates a
@@ -77,6 +75,8 @@ function sameProjects(a: ProjectSummary[], b: ProjectSummary[]): boolean {
   })
 }
 
+/** Find a node by id so the drill-in stack survives a rescan — the user's position in the
+ *  tree shouldn't reset just because they re-ran the scan. */
 function findById(node: Node, id: string): Node | null {
   if (node.id === id) return node
   for (const c of node.children) {
@@ -535,10 +535,6 @@ export default function App() {
     [projects, activeKey],
   )
 
-  /** Go up exactly one level. The stack is rewritten to the parent's id rather than
-   *  popped, because `focus` resolves the whole stack from the root every render — a
-   *  single id is the canonical way to say "we are here". Undefined at the top, which
-   *  is what hides the affordance. */
   /** The ancestry of what is on screen: root first, focus last.
    *
    *  Walked up the TREE, not read off the drill stack. The stack records where you
@@ -604,6 +600,10 @@ export default function App() {
     [trail],
   )
 
+  /** Go up exactly one level. The stack is rewritten to the parent's id rather than popped,
+   *  because `focus` resolves the whole stack from the root every render — a single id is the
+   *  canonical way to say "we are here". Undefined at the top, which is what hides the
+   *  affordance. */
   const goUp = useMemo(() => {
     if (!tree || !focus || focus.id === tree.id) return undefined
     return () => {

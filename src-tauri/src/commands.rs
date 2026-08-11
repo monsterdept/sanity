@@ -336,13 +336,12 @@ pub fn open_code_window(app: tauri::AppHandle, repo: String, rel_path: String) -
     builder.build().map(|_| ()).map_err(|e| e.to_string())
 }
 
-/// Everything agents have reported for the open repo.
+/// Readings for one project — the one the WINDOW is showing, which is not always the one an
+/// agent last opened.
 ///
 /// Polled rather than pushed: an agent reports every several seconds at best, so a poll
-/// costs nothing and avoids threading an AppHandle into the loopback server purely to
-/// emit events.
-/// Readings for one project — the one the WINDOW is showing, which is not always the one
-/// an agent last opened.
+/// costs nothing and avoids threading an AppHandle into the loopback server purely to emit
+/// events.
 ///
 /// This used to answer for `active` only. The moment a second project existed that was
 /// wrong: an agent opening a repo makes it active, so the window — still showing the
@@ -425,12 +424,6 @@ pub fn project_scan(
     crate::agentapi::lock(&state).projects.get(&key).map(|p| p.scan.clone())
 }
 
-/// What Sanity has written on this machine, itemised for the panel that offers to
-/// delete it.
-///
-/// Itemised on purpose. A single "clear 400 KB" is not something anyone can agree to,
-/// because the interesting question is not the size — it is whether the thing about to
-/// be deleted can be got back. Scores can (slowly). Legacy readings cannot.
 /// Tick the appearance item the webview is actually using.
 ///
 /// The preference is stored in localStorage, so Rust cannot know it when the menu is

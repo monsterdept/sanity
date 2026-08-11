@@ -149,9 +149,6 @@ const PAD = 0.9
  */
 const DEFAULT_BEND = 0.9
 
-/** Below this a name is decoration: you can tell text is there and not what it says. */
-
-
 /** Real characters a truncated name must keep to be worth drawing.
  *
  *  The ring was producing `d…to…`, `s…` and `pr…`, which cost ink and say nothing — a

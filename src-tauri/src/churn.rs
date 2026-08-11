@@ -74,9 +74,6 @@ impl History {
         (h.recent_commits as f32 / CHURN_SATURATION).clamp(0.0, 1.0)
     }
 
-    /// `None` when the file has no history — untracked, or not a git repo at all. A
-    /// missing age must stay missing rather than defaulting to zero, because "brand
-    /// new" is a claim that moves code into the Trouble quadrant.
     /// Raw commits in the window. The normalised `churn_of` is what the maths uses; this
     /// is what a person can act on — "changed 14 times since May" means something,
     /// "churn 100%" does not.
@@ -97,6 +94,11 @@ impl History {
             .filter(|a| !a.is_empty())
     }
 
+    /// How long ago the oldest commit touching this file landed.
+    ///
+    /// `None` when the file has no history — untracked, or not a git repo at all. A missing
+    /// age must stay missing rather than defaulting to zero, because "brand new" is a claim
+    /// that moves code into the Trouble quadrant.
     pub fn age_of(&self, path: &str) -> Option<f32> {
         self.files.get(path).map(|h| h.age_days)
     }

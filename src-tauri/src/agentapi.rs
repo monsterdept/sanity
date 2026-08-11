@@ -256,6 +256,29 @@ impl AppState {
         }
     }
 
+    /// A keyless caller gets the most recently OPENED project, never the window's.
+    ///
+    /// This used to be `active`, which was the same thing only for as long as opening a
+    /// repo also pointed the window at it. Splitting those apart (see [`Self::focus`])
+    /// broke the equivalence in the dangerous direction: with the window left on an
+    /// earlier repo, a caller that supplied no key would resolve to whatever somebody was
+    /// LOOKING at rather than what this session had opened — and `report` takes that same
+    /// path, so a reading would be written into another repo's `.sanity/`, attributed and
+    /// hashed and looking entirely genuine.
+    ///
+    /// `touched` is the right fallback because it means what this needs it to mean: every
+    /// open bumps it, nothing else does, and no view moves it. It restores exactly the
+    /// behaviour keyless callers had before the split, without tying it back to a pane.
+    ///
+    /// It remains a fallback and not a mechanism. A shim that handled `sanity_open` sends
+    /// its key on every call and never comes through here.
+    fn most_recent(&self) -> Option<String> {
+        self.projects
+            .iter()
+            .max_by_key(|(_, p)| p.touched)
+            .map(|(key, _)| key.clone())
+    }
+
     /// Which project a call belongs to.
     ///
     /// The client's own answer wins; `active` is the fallback for anything that did not
@@ -280,29 +303,6 @@ impl AppState {
     /// So it returns `None`, and the callers say "not loaded, retry" — the same answer
     /// they give when nothing is open at all, because from the caller's side it is the
     /// same situation: wait, do not throw the reading away.
-    /// A keyless caller gets the most recently OPENED project, never the window's.
-    ///
-    /// This used to be `active`, which was the same thing only for as long as opening a
-    /// repo also pointed the window at it. Splitting those apart (see [`Self::focus`])
-    /// broke the equivalence in the dangerous direction: with the window left on an
-    /// earlier repo, a caller that supplied no key would resolve to whatever somebody was
-    /// LOOKING at rather than what this session had opened — and `report` takes that same
-    /// path, so a reading would be written into another repo's `.sanity/`, attributed and
-    /// hashed and looking entirely genuine.
-    ///
-    /// `touched` is the right fallback because it means what this needs it to mean: every
-    /// open bumps it, nothing else does, and no view moves it. It restores exactly the
-    /// behaviour keyless callers had before the split, without tying it back to a pane.
-    ///
-    /// It remains a fallback and not a mechanism. A shim that handled `sanity_open` sends
-    /// its key on every call and never comes through here.
-    fn most_recent(&self) -> Option<String> {
-        self.projects
-            .iter()
-            .max_by_key(|(_, p)| p.touched)
-            .map(|(key, _)| key.clone())
-    }
-
     pub fn for_client(&self, project: Option<&str>) -> Option<String> {
         match project {
             Some(k) => self.projects.contains_key(k).then(|| k.to_string()),
@@ -1861,15 +1861,6 @@ fn resync_file(root: &mut Node, repo: &Path, rel_path: &str) -> bool {
     true
 }
 
-/// Re-cut every file that has moved since we last looked.
-///
-/// Called before anything is handed out, which is the only place it can be: a range is
-/// wrong from the moment the file changes, and the queue is what turns a range into a
-/// reader's instruction. Doing it here rather than on a file-watcher keeps it to one
-/// mechanism with no background thread to be out of date in its own way.
-///
-/// The first pass over a file only records what it looks like — the tree came straight
-/// from a scan, so there is nothing to correct yet.
 /// What each file looked like at the moment the scan cut its positions.
 ///
 /// **Stamped at the scan, not lazily on the first resync — and that distinction was a real
@@ -1896,6 +1887,21 @@ pub fn stamp_marks(repo: &Path, scan: &Scan) -> HashMap<String, (std::time::Syst
     out
 }
 
+/// Re-cut every file that has moved since we last looked.
+///
+/// Called before anything is handed out, which is the only place it can be: a range is
+/// wrong from the moment the file changes, and the queue is what turns a range into a
+/// reader's instruction.
+///
+/// **There is a file watcher now, and it does not replace this.** `watch_tick` rescans the
+/// whole project when the repo moves, which re-cuts everything — but it deliberately refuses
+/// to run while a reading is out with a reader, because a rescan under a lease produces a
+/// report stamped against a body its reader never saw. So the one moment this matters most
+/// is exactly the moment the watcher stands down, and this is what covers it: a cheap,
+/// targeted re-cut on the path that is about to hand a range to somebody.
+///
+/// The first pass over a file only records what it looks like — the tree came straight
+/// from a scan, so there is nothing to correct yet.
 fn resync_changed(project: &mut Project) -> usize {
     let repo = project.repo.clone();
     let mut seen: Vec<(String, (std::time::SystemTime, u64))> = Vec::new();
