@@ -84,6 +84,31 @@ readings (1.4 MB) parse in 30ms, once, on open.
   deleted the source because `Ok` looked like proof. Two rules fall out: never key
   anything durable on a node id (that is what `key_of` is for), and never gate a
   destructive step on a write returning `Ok` — read the result back and check it.
+- **A format change is not a data change, and there is never a migrator. `sanity refresh
+  <repo>` is the whole mechanism.** The store is Markdown that is parsed back, so a shard
+  written by an older renderer reads fine and comes out in today's format: `parse_shard`
+  takes a heading as everything before the em-dash and recomputes what follows it on write.
+  Rewriting is therefore reading and writing, which is exactly what a translator is not —
+  and a translator is the thing that destroyed a project's readings above. **When the format
+  changes, run `refresh` over the corpus and read the diff.** Headings and prose moving is
+  the change working; a changed BULLET is a reading that did not survive, and one entry
+  vanishing should be a function that no longer exists.
+  It runs **in-process, never through the backend**, and that is the point of it existing at
+  all: the daemon answering may be an app somebody started this morning from a binary that
+  renders the format you are leaving, and `serve` is idempotent, so a newer binary politely
+  declines to replace it. A verb whose job is "apply THIS build's format" cannot be a
+  formatter over a server of unknown vintage.
+  The one durable constraint this rests on: a shard must still PARSE under the old reader
+  long enough to be re-rendered by the new one. Adding a bullet, or moving decoration after
+  the em-dash, is free. Changing what a key is made of is not — that is the same class of
+  change as the migration that failed.
+  **Adding a graded INPUT is a different thing and does cost readings.** `reading_hash` now
+  covers the file header, so the first refresh after that landed expired every function in a
+  file that has one — 24 of 24 in one shard of a real user's repo, 0 of 1,654 in another
+  where the sources carry no headers. That is the staleness rules working: a reader saw a
+  different prompt from the one the reading was made against. Expect it, say so out loud
+  before handing the diff to somebody, and never confuse it with the format rewrite it
+  arrives beside.
 - **A failed write is reported, never absorbed.** `save_reports` returns an error and the
   `report` handler puts it in `ok`/`error`/`hint` so the agent stops. Silently diverting
   to a hidden file is how a reading looks saved and isn't.

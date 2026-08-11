@@ -553,6 +553,97 @@ pub fn summary(path: &str) -> i32 {
     0
 }
 
+/// Rewrite a repo's `.sanity/` in the CURRENT format, in place.
+///
+/// **This is the migration mechanism, and there will never be a migrator.** `.sanity/` is
+/// Markdown that is parsed back, so a format change is not a data change: `parse_shard`
+/// reads a heading as everything before the em-dash and recomputes what follows it on write,
+/// so every reading survives a round trip through a renderer that has moved on. Rewriting is
+/// therefore reading and writing, not translating — and a translator is precisely the thing
+/// that once destroyed a project's readings by matching legacy entries on node ids that had
+/// moved. **When the format changes, run this. Do not write a migration.**
+///
+/// The one durable rule it depends on: whatever changes, the shard must still parse under
+/// the OLD reader long enough to be re-rendered by the new one. Adding a bullet or moving
+/// decoration after the em-dash is free. Changing what a key is made of is not, and would be
+/// the same class of change as the migration that failed — see `key_of`.
+///
+/// **In-process, not through the backend, and that is the whole reason it exists.** Every
+/// other write verb would go through `/open`, which refreshes as a matter of course. But the
+/// backend that answers may be an app somebody started this morning, from a binary that
+/// renders the format you are trying to leave — and `serve` is idempotent, so a newer binary
+/// politely declines to replace it. A verb whose entire job is "apply THIS build's format"
+/// cannot be a formatter over a daemon of unknown vintage.
+///
+/// Nothing is created: `assessment::refresh` writes only files that are already there, so a
+/// repo with no assessment comes back untouched and says so.
+pub fn refresh(path: &str) -> i32 {
+    let path = match std::fs::canonicalize(path) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("sanity: {path}: {e}");
+            return 2;
+        }
+    };
+    if !crate::assessment::dir(&path).is_dir() {
+        println!();
+        println!("{} has no .sanity/ — nothing to rewrite.", path.to_string_lossy());
+        println!();
+        return 0;
+    }
+    let scans = crate::scancache::ScanCache::open(&path);
+    let scan = match crate::scan::scan(
+        &path,
+        &crate::surprise::HeuristicModel,
+        &|_| {},
+        &|_, _: &crate::surprise::Reading| {},
+        &std::sync::atomic::AtomicBool::new(false),
+        crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
+        // Ordering, matching an open. The proxy scores decide nothing that is written here —
+        // a shard holds readings, and a reading is an agent's — so paying for the all-pairs
+        // term would buy a number this verb does not print.
+        crate::scan::Fidelity::Ordering,
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("sanity: could not scan {}: {e}", path.to_string_lossy());
+            return 1;
+        }
+    };
+    let reports = crate::assessment::load(&path, &scan);
+    println!();
+    match crate::assessment::refresh(&path, &scan, &reports) {
+        // Reported, never absorbed — the same rule `save_reports` follows. A rewrite that
+        // failed halfway leaves an index and its shards disagreeing, which is the one state
+        // this whole file is written to prevent.
+        crate::assessment::Index::Failed(e) => {
+            eprintln!("sanity: {e}");
+            println!();
+            1
+        }
+        crate::assessment::Index::Absent => {
+            println!("{} has no index — nothing to rewrite.", path.to_string_lossy());
+            println!();
+            0
+        }
+        crate::assessment::Index::Current => {
+            println!("{} — already current, nothing written.", path.to_string_lossy());
+            println!("  {} readings", commas(reports.len() as u64));
+            println!();
+            0
+        }
+        crate::assessment::Index::Refreshed => {
+            println!("{} — rewritten.", path.to_string_lossy());
+            println!("  {} readings, all of them re-rendered", commas(reports.len() as u64));
+            println!();
+            println!("Read the diff before committing it. A format change should move headings");
+            println!("and prose; a change in the BULLETS is a reading that did not survive.");
+            println!();
+            0
+        }
+    }
+}
+
 /// One grade histogram on one line, in scale order.
 ///
 /// Named rather than positional: four bare numbers in a row is a thing you have to go and
@@ -574,6 +665,7 @@ sanity — see where the thinking in your codebase actually is
                              (--show also points the window at it)
   sanity status <path>       how far along that repo's assessment is
   sanity summary <path>      what the assessment found, in aggregate
+  sanity refresh <path>      rewrite that repo's .sanity/ in the current format
   sanity serve               run the backend with no window (idempotent)
   sanity mcp                 the stdio MCP server, for an agent to launch
 ";
@@ -589,6 +681,7 @@ pub fn main(args: &[String]) -> i32 {
         "study" => study(path, rest.contains(&"--show")),
         "status" => status(path),
         "summary" => summary(path),
+        "refresh" => refresh(path),
         "help" | "--help" | "-h" => {
             print!("{USAGE}");
             0
