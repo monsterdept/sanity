@@ -402,7 +402,7 @@ pub fn tools() -> Value {
                     "legible": {
                         "type": "string",
                         "enum": ["full", "most", "some", "none"],
-                        "description": "Now that you HAVE read the body: how clear is it on its own terms? Same scale. This is a different question from `predicted` — that one asks whether you could get there without opening the file. A body can be unguessable from outside and perfectly plain once open, or the reverse. Judge the code in front of you, inline comments included."
+                        "description": "What READING it was like, judged by what you actually did, not by how clear it seems now. full — one pass, in order, nothing to go back for. most — one part needed a second look: a name that misleads, a branch whose purpose is not local. some — you had to jump around, or hold several things at once, to be sure what it does. none — after reading it you still could not say what it does. Different question from `predicted`, which asks whether you could get here without opening the file; a body can be unguessable from outside and a single pass once open, or the reverse."
                     },
                     "trap": {
                         "type": "boolean",

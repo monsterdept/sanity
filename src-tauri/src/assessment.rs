@@ -212,17 +212,14 @@ fn parse_grade(s: &str) -> Option<Grade> {
     }
 }
 
-/// The heading verdict — for the human skimming, never parsed back.
-///
-/// Derived rather than stored so it cannot drift from the grade underneath it.
-fn verdict(r: &Report) -> &'static str {
-    match r.grades().0 {
-        Grade::Full => "as expected",
-        Grade::Most => "nearly",
-        Grade::Some => "surprising",
-        Grade::None => "unrecognisable",
-    }
-}
+// There is no `verdict` here any more.
+//
+// It turned one of five grades into the entry's title — "`open` — nearly" — so a reader
+// skimming a shard was told what the prediction scored and had to go four rows down for
+// whether the docs covered anything, whether they were derivable, whether the body could be
+// followed, or whether the thing is a footgun. Surprise is what the MAP is coloured by; it is
+// not what a reading IS. See `render_entry`, where the loud end of any axis earns a marker
+// and nothing earns the title.
 
 /// Flatten prose to one line.
 ///
@@ -772,22 +769,35 @@ pub fn save(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> std:
 
 fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) -> String {
     let mut s = String::new();
-    // Markers for the things somebody skimming has to be able to find.
+    // Markers for the things somebody skimming has to be able to find, and NOTHING that is
+    // merely one of the five grades.
     //
-    // The heading carried the surprise verdict and nothing else, so opacity and traps were
-    // invisible to a human reading `.sanity/` — they sat in the metadata line four rows down,
-    // in a bullet written for the parser. A skim is the only way anyone reads a shard of two
-    // hundred entries, and the two facts most worth stopping for were the two it did not say.
+    // The heading used to print the surprise verdict — "`open` — nearly" — which is one axis
+    // wearing the title while `documented`, `derivable`, `legible` and `trap` sat in a bullet
+    // four rows down. That was already known to be wrong: these markers exist because opacity
+    // and traps were invisible to a skim, and bolting them on beside the verdict fixed the
+    // symptom while leaving surprise as the headline. A reading is five judgements and none of
+    // them is the finding.
     //
-    // Only the loud end of each. `crystal` and `readable` need no marker — a heading that
-    // annotated every entry would annotate none of them — so this marks a body a reader had
-    // to work at, one it could not follow, and a footgun. Everything after the em-dash is
-    // decoration `parse_shard` splits off and recomputes on write, so these cost nothing
-    // durable and cannot drift from the record they summarise.
+    // So the heading is the NAME, and a marker appears only for the loud end of any axis —
+    // the entries somebody skimming two hundred of them should stop at. `as expected` and
+    // `nearly` get nothing, `crystal` and `readable` get nothing: a heading that annotated
+    // every entry would annotate none of them.
+    //
+    // Everything after the em-dash is decoration `parse_shard` splits off and recomputes on
+    // write, so these cost nothing durable and cannot drift from the record they summarise.
     let mut marks = String::new();
+    // Named for the CODE, like the app's own words — see `HEAT_WORDS`. A skim is looking for
+    // the thing that caught somebody out, and `predicted: none` is the alarming end while
+    // reading as the calm one.
+    match r.grades().0 {
+        Grade::None => marks.push_str(" — OBSCURE"),
+        Grade::Some => marks.push_str(" — QUIRKY"),
+        _ => {}
+    }
     match r.legible {
-        Some(Grade::None) => marks.push_str(" — NONSENSE"),
-        Some(Grade::Some) => marks.push_str(" — MURKY"),
+        Some(Grade::None) => marks.push_str(" — UNCLEAR"),
+        Some(Grade::Some) => marks.push_str(" — TANGLED"),
         _ => {}
     }
     if r.trap {
@@ -808,9 +818,9 @@ fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) 
     if is_file {
         // Prose, unbackticked — see `FILE_ENTRY`. The heading is what `parse_shard` keys
         // the reading off, so this string is format rather than presentation.
-        s.push_str(&format!("\n### {FILE_ENTRY} — {}{}\n", verdict(r), tail));
+        s.push_str(&format!("\n### {FILE_ENTRY}{tail}\n"));
     } else {
-        s.push_str(&format!("\n### `{}`{} — {}{}\n", name, nth, verdict(r), tail));
+        s.push_str(&format!("\n### `{name}`{nth}{tail}\n"));
     }
 
     let mut meta = Vec::new();

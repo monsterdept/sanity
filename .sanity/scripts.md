@@ -1,11 +1,12 @@
 # scripts — sanity assessment
 
-3 of 3 functions read · 1 surprising
+3 of 3 read · 1 surprising
 
-Each entry below is one **reading**. An agent was given a function's name,
-signature, neighbouring function names and comments — never its body — and wrote
-down what it expected to find. Then it opened the file. The gap between the two
-is the finding.
+Each entry below is one **reading**, of a function or of a whole file. An agent was
+given its name, signature, neighbouring names and comments — never its body — and
+wrote down what it expected to find. Then it opened the file. The gap between the
+two is the finding. A file's own entry is titled `the file itself` and asks whether
+the header at the top describes what is actually in there.
 
 `read at` is a hash of the body as it was when the reading was made. When it
 stops matching the code, the reading is marked STALE and goes back in the queue.

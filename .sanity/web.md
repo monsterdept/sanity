@@ -1,11 +1,12 @@
 # web — sanity assessment
 
-234 of 234 functions read · 29 surprising
+234 of 235 read · 27 surprising
 
-Each entry below is one **reading**. An agent was given a function's name,
-signature, neighbouring function names and comments — never its body — and wrote
-down what it expected to find. Then it opened the file. The gap between the two
-is the finding.
+Each entry below is one **reading**, of a function or of a whole file. An agent was
+given its name, signature, neighbouring names and comments — never its body — and
+wrote down what it expected to find. Then it opened the file. The gap between the
+two is the finding. A file's own entry is titled `the file itself` and asks whether
+the header at the top describes what is actually in there.
 
 `read at` is a hash of the body as it was when the reading was made. When it
 stops matching the code, the reading is marked STALE and goes back in the queue.
@@ -21,18 +22,17 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: no · legible: not judged · trap: no
 - note: Two doc comments are stranded on the wrong declaration: the "Find a node by id so the drill-in stack survives a rescan" comment at line 50 sits above sameProjects (it describes findById), and "Go up exactly one level..." at line 523 sits above trail (it describes goUp) — the same defect this file's own useProgress docstring records having been fixed.
 
-### `sameProjects` — as expected — TRAP
-- read at `6fd29197698a` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: Length check, then index-by-index field comparison of each ProjectSummary's displayed fields (key/name, repo, progress counts), returning false on any mismatch — so a poll returning an unchanged list doesn't trigger a re-render.
-- found: Exactly that: length guard then a.every comparing twelve named fields (key, name, touched, repo, assessed, functions, files, stale, working, loading, read_done, read_total) with ===.
-- predicted: full · documented: most · derivable: no · legible: full · trap: yes
-- note: The docs handed over were spliced: the first two lines describe findById, not this function; also the hand-enumerated field list silently goes stale the moment a field is added to ProjectSummary and shown in the sidebar, which is exactly the failure the doc warns about.
+### `sameProjects` — as expected
+- read at `c0379dae8ab7` · commit `9c38c96` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: Length check, then index-parallel field-by-field comparison of each ProjectSummary (key/name/path plus progress counts like functions, assessed, stale), false on first mismatch, order-sensitive.
+- found: Exactly that: length guard then `a.every` comparing thirteen named fields of the paired element — key, name, touched, repo, assessed, functions, files, scanned, stale, working, loading, read_done, read_total.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `findById` — as expected
-- read at `79803b48606a` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
-- expected: Recursive depth-first search: return node if its id matches, else recurse into children returning the first non-null hit, else null.
-- found: Exactly that, five lines of it.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- read at `977918682157` · commit `9c38c96` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 8 of its run
+- expected: A plain recursive depth-first search: return the node if its id matches, otherwise recurse into each child and return the first non-null hit, else null.
+- found: Exactly that, verbatim.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `parentOf` — as expected
 - read at `c0cda91e70f7` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
@@ -40,12 +40,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly that, in five lines — a for-loop over children returning `node` on an id match, recursing otherwise, null at the end. No memoisation, no guard against a cyclic tree (there is none to guard).
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `App` — surprising — TRAP
-- read at `4dc77dd6d8dd` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: The root component: holds all top-level state (scan result, selected node, drill stack, active project, error), polls the backend for projects and agent reports, wires keyboard shortcuts and menu events, and renders the sidebar, breadcrumb, sunburst, detail panel and any modals.
-- found: All of that plus a great deal more: theme state synced to a Rust menu, MCP-client connection polling, batched streamed-score flushing, an entire history-replay mode (warm/scan/frame tree/scoped commits/transport/commit log), a code-view modal with pop-out, drill semantics that treat functions and synthesised overflow aggregates specially, and breadcrumb/owner trails walked via parentOf.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: yes
-- note: The code-view backdrop puts onKeyDown={Escape} on a non-focusable, non-tabindexed div, so the comment's promise that "Escape and the backdrop both put it down" is likely only half true — the key never reaches it unless something inside is focused.
+### `App` — as expected
+- read at `f23b6df4d243` · commit `9c38c96` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
+- expected: The root React component: holds all app state (loaded tree, selected/drilled node, hovered wedge, project list, scan progress, history mode and playhead, theme), wires Tauri invoke calls and event listeners for scan/report/project polling with cleanup, derives the visible subtree and breadcrumb, and renders sidebar, sunburst, detail panel, history transport and empty/onboarding state. At 783 lines expect a long stack of useState/useEffect/useMemo with heavy comments rather than decomposition.
+- found: Exactly that shape: ~20 useState, ~15 useEffect subscriptions and polls, ~12 useMemo/useCallback derivations (focus from a drill stack resolved from the root each render, trail, owners, histRoot, frames, goTo/goUp/showIn/drill), then a single ~350-line JSX return rendering the no-git-history warning banner, SideBar, TopRow with ModeSwitcher and HistoryToggle, Crumbs, and the chart/error/empty states. Comments are dense and are mostly post-mortems of specific bugs (the progress strip stealing the titlebar row, selection gated on a tree that had not loaded, readings fetched with the scan so the repo does not render grey).
+- predicted: full · documented: none · derivable: yes · legible: most · trap: no
+- note: A 783-line component carrying every piece of the app's state has no doc comment at all, in a repo where seven-line helpers get thirty lines of rationale — the one function where a reader most needs a map of what state exists and who owns it is the one with nothing at the top.
 
 ### `useProgress` — as expected
 - read at `022713725cb5` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
@@ -388,12 +388,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: no · legible: not judged · trap: no
 - note: The file has no header comment at all, yet its two exported components carry unusually long design-rationale doc comments — the "what is this file for" answer exists, just scattered below the imports.
 
-### `Gauge` — nearly
-- read at `817efa3d611a` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: An SVG half-circle dial: fixed 180 degree arc path, a muted background track plus a foreground arc swept to `value`, coloured by sampling `ramp` at that value with a neutral fallback when ramp is undefined; centre shows `word` or the value as a percentage, and when `unread` only the track plus a placeholder like an em dash. Label below, hint as a tooltip.
-- found: Exactly that. R=40 in a 100x58 viewBox, one arc path drawn twice — track in --border at width 4, value arc in heatColor(v, ramp) (or --accent with no ramp, --secondary when unread) at width 7, swept by strokeDasharray `LEN*v LEN` rather than by generating a partial path. Value clamped to 0..1. Two details I did not predict: strokeLinecap switches to butt below 0.01 so a round cap cannot draw a dot that reads as a small value, and the centre text is one fixed 16px size for both words and numbers, the comment recording that 15 vs 22 made `warm` look like the quieter measurement.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: The doc says the dial wears its lens's ramp, but the label's `cursor-help` styling promises a tooltip on the text while `title` is on the outer div — cosmetically fine, just not where the cursor implies.
+### `Gauge` — as expected
+- read at `122345284a15` · commit `9c38c96` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 5 of its run
+- expected: An SVG semicircular gauge: a background track path plus a foreground arc drawn to `value` across a fixed 180°, stroked with the lens ramp's colour at that value via heatColor; the centre prints `word` if given else the value as a percentage, an em dash with track-only when unread; label below, hint as a title tooltip.
+- found: Exactly that. Radius 40, half-circumference used as the dash length so the value arc is a strokeDasharray fraction of one path; fill is heatColor(v, ramp), --accent with no ramp, --secondary when unread; value clamped to 0..1; strokeLinecap switches to butt below 0.01 so an empty arc does not draw a dot; centre text is em dash / word / rounded percent at one font size; label below in a wrapping uppercase span, hint on the wrapper's title.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: Warm: I read Dials in this same file earlier in the run, and its doc header describes this row, so the prediction was easier than a cold one; also the header says "three of these side by side" while Dials renders four.
 
 ### `graded` — nearly
 - read at `aba9cf13e738` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -422,11 +422,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: The doc says it matches opaqueShare/undocShare in colorMode but the some/none cut is duplicated here rather than shared, so the two can drift silently.
 
 ### `Dials` — nearly
-- read at `a0b0c9c10bf4` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: A React component rendering exactly four Gauge dials for a node — surprise, documentation, reading coverage and opacity/legibility — aggregating over descendants for containers via graded/fileDocShare/badShare/opaqueShare, and passing an absent value through so the Gauge draws a track and an em dash instead of reflowing.
-- found: Four Gauges: Surprise/Hot share, Undocumented/Files undescribed, Churn, Opacity. Returns null if unscored or unanalyzed. Container vs function branches per dial, `unread` flag for the em-dash state. My fourth guess was wrong — the third dial is Churn (the second axis), not reading coverage. Heavy inline comments carry the reasoning.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The doc names four dials and explains three of them; Churn is the one it never mentions, so a reader guesses the fourth from the lens list instead.
+- read at `825261b38626` · commit `9c38c96` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: A React component rendering a fixed row of exactly four Gauge dials for a node — surprise/temperature, documentation share, legibility/opacity (via opaqueShare for containers), and a fourth grade share — each computed from the node or the readings beneath it, drawing an empty track with an em dash when unmeasured.
+- found: Returns null if unscored/unanalysed, then renders a four-column grid of Gauge: Hot share/Surprise (wedgeHeat), Documented/Files undescribed (docGrade gap or fileDocShare), Churn (marked unread when ageDays is null), and Opacity (badShare or the legible grade). Each dial switches label, value, word and hint on whether the node is a container or a function, and passes `unread` rather than zero when nothing was measured.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: I predicted the four-dial fixture and the em-dash-for-absent rule, but not that churn (not opacity) is the fourth, nor that every dial forks its label and value on dir-vs-function; also the doc header names `opaqueShare` while the body uses `badShare`/`fileDocShare`, which a maintainer may want reconciled.
 
 ## web/src/components/FileZoom.tsx
 
@@ -591,12 +591,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: no · legible: full · trap: no
 - note: No file header at all, though every declaration inside carries an unusually thorough doc comment explaining the design choice it embodies.
 
-### `rowNote` — as expected
-- read at `b680adaa921f` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Switch on mode: age -> relative time like "5d ago"; churn -> "11 in 90d"; otherwise the node's line count. Empty/placeholder if data missing.
-- found: Exactly that: age returns 'today' or "Nd ago", churn returns "N in 90d", default returns compactCount(loc) + " lines"; missing data yields an em dash. Churn's guard checks ageDays, not commits.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- note: The churn branch guards on s.ageDays !== null but prints s.commits — a different field than the one checked.
+### `rowNote` — nearly — MURKY — TRAP
+- read at `61a3a5a88f3f` · commit `9c38c96` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: A small switch on ColorMode: 'age' returns a relative age like "5d ago", 'churn' returns a commit count like "11 in 90d", and every other mode falls through to the node's line count ("142 lines").
+- found: Exactly that, plus missing-data handling I did not predict: age returns '—' when there is no score or lastTouchedDays is null, and 'today' under one day; churn returns '—' when ageDays is null; default returns `${compactCount(n.loc)} lines`.
+- predicted: most · documented: most · derivable: no · legible: some · trap: yes
+- note: The inline comment on line 66-68 says the churn branch was fixed to guard on the field it prints, but line 69 still tests `s.ageDays !== null` and prints `s.commits` — the comment describes a change that is not in the code.
 
 ### `ListWindow` — nearly — TRAP
 - read at `b01f264c6a80` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
@@ -993,12 +993,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/colorMode.ts
 
-### the file itself — surprising
-- read at `4740a6970ae5` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: A module defining the sunburst's alternative colouring lenses — surprise/temperature by default, plus age (ageSpanOf/ageRamp) and documentation coverage (docGrade/undocShare) — exposing colorFor(node, mode) as the single entry point the renderer calls. Helpers ramped and slotColor build ramps; paintsFromReadings turns readings into per-node paint; rankCategories/bucketsFor/legendFor build the legend bands beside the map. No file header, which is itself the finding.
-- found: Exactly that responsibility, but eight lenses not three: surprise, legible (labelled "Opacity"), docs, traps, language, blame, churn, age. colorFor is one long mode-dispatch returning Paint+label or null; MODE_LABEL/MODE_HINT fix the on-screen order and the cmd-digit bindings. A large piece I did not predict is the CATEGORICAL eight-slot qualitative palette assigned by rank for blame/language, with OTHER beyond it, plus Paint carrying `ink` from ink.ts so labels stay readable over the ramp. paintsFromReadings is a mode predicate, not a paint function. bucketsFor does one scoped walk into panel rows with fills averaged from the members' own ramp inputs.
-- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
-- note: No file header at all, yet nearly every declaration carries a long doc comment arguing why it is shaped that way — the reasoning is dense and non-derivable, but a reader arriving at the top gets no orientation.
+### the file itself — nearly
+- read at `bf9f26530196` · commit `9c38c96` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
+- expected: The lens system: given a ColorMode (surprise, age, churn, author, language, doc grade, trap) decide a wedge's colour and how the legend and grouping read. A colorFor(node, mode) returning a fill; ramp helpers for continuous lenses with ageSpanOf normalising to the repo's own span; categorical slot assignment via slotColor and rankCategories ordered by size; doc-specific derivations docGrade/undocShare/opaqueShare; paintsFromReadings marking the modes that need agent readings; bucketsFor/legendFor producing the grouped rows the panel renders. No file header, which for a 353-line module carrying the second encoding is itself the finding.
+- found: That, essentially in full. Eight modes not seven (legible/"Opacity" and traps are separate reader-report lenses beside surprise and docs). Two things I did not name: MODE_LABEL/MODE_HINT are the single ordering the switcher, tooltips and cmd-digit handler all read, deliberately arranged as a widening time window toward History; and every lens returns a Paint triple of fill, stop and ink together so a label drawn on a wedge is legible against it. bucketsFor returns [] for surprise, which has its own panel.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: No module header at all on the file that defines every lens, while its individual declarations are the most thoroughly documented in the repo — and CATEGORICAL carries two consecutive doc blocks (lines 90-98 and 99-119), so the first one is orphaned and no tool will show it.
 
 ### `paintsFromReadings` — as expected
 - read at `1230a5cd0d28` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
@@ -1053,11 +1053,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `colorFor` — nearly
-- read at `0f318d6c7c90` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A dispatch over ColorMode variants — surprise/temperature, age/recency, language, docs, churn — each producing a Paint plus a human label via ramped/ageRamp/slotColor, returning null where the node lacks the datum.
-- found: Exactly that shape, with more modes than I listed: surprise, legible, docs, traps, churn, age, then a shared categorical tail for blame/lang using ranks + slotColor with OTHER fallback. Containers roll up as shares (showsShare) in surprise/legible/docs; docs inverts the ramp to paint the GAP and a file answers for its own header only; traps is two flat colours plus absence rather than a ramp.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Unusually dense inline reasoning: most of the 124 lines are comments arguing why each lens is shaped as it is, and they hold up against the code.
+- read at `cb41330b8440` · commit `9c38c96` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: A large switch over each ColorMode variant — heat/surprise, age via ageRamp/ageSpan, language and author as categorical slots keyed off the ranks map, documentation via docGrade/undocShare, reading coverage — each computing a Paint plus a human label, returning null when the node lacks the data that mode needs.
+- found: A sequence of early-return branches per mode: surprise (share vs per-function, calibrated fill but uncalibrated label), legible (container share vs a reader's four-step grade, dropped when stale), docs (a FILE answers for its own header, directories use a LINEAR undocumented share, functions use their grade, and the ramp is inverted so bright means unexplained), traps (two flat colours plus absence, no ramp), churn, age, then a shared tail for blame/lang that maps a rank to a slot colour, falls back to OTHER, and special-cases uncommitted lines as a state rather than a slot.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: I did not anticipate the legible and traps lenses at all, nor that the docs ramp is deliberately inverted so bright means undescribed; the inline comments carry more design argument than the doc comment does.
 
 ### `rankCategories` — nearly
 - read at `43639d96a85f` · commit `81eb6d5` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -1066,17 +1066,18 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `bucketsFor` — nearly
-- read at `0eb06e2866d7` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: One recursive walk gathering the subtree's non-excluded functions, then a switch on mode. Ramped modes (temperature, age, churn) put each function in a fixed band by its ramp input and colour the band at the MEAN of its members' inputs, using the caller's ageSpan rather than the on-screen root's. Categorical modes (language, author, grade) group by key with colours from rankCategories/slotColor so the panel matches colorFor. Anything the mode cannot colour lands in a final neutral bucket rather than being dropped; each Bucket carries a label, count, line total and fill.
-- found: All of that, and more modes than I guessed: surprise returns an empty array outright (the map's own lens needs no breakdown), and legible/docs/traps read straight off the agent reading, sharing one "not read yet" bucket and a separate "not graded" one. Buckets hold the nodes themselves plus a line total, not a count. The absence key is a NUL-escape-prefixed sentinel so a real author literally named "unknown" cannot land in the absence row — with a comment recording that it was once a literal NUL byte, which made the whole file read as binary to grep and git diff. Each mode also gets its own sort — lines descending for blame/language to match legendFor, traps first, grade order for legible/docs, band order otherwise — and the absence row is appended last regardless.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The doc is a good account of the design but says nothing about the per-mode sort orders or the early return for the surprise lens, which are half the body.
+- read at `dfc9e1294f2e` · commit `9c38c96` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 4 of its run
+- expected: One walk over the subtree's function nodes skipping .sanityignore'd ones, sorting each into a bucket: categorical modes key on author/language via ranks and slotColor, ramped modes use fixed bands coloured by the ramp at the mean of members' inputs, and whatever cannot be coloured lands in a final neutral unknown bucket. Returns labelled buckets with counts/lines and fills.
+- found: As predicted in structure, with more modes than I named: surprise returns [] outright; legible/docs/traps read straight off the agent reading (dropping stale ones into a 'not read yet' bucket); blame/language split into three absence cases (uncommitted vs not-in-git vs unknown); churn and age use CHURN_BANDS/AGE_BANDS and get their fills post-hoc from the mean ramp input. Then a per-mode sort — by lines, traps-first, grade order, or band order — with the UNKNOWN bucket forced last. The UNKNOWN key is a NUL escape kept out of the real key namespace.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: Warm: I had read legendFor in this file earlier in the run. I did not predict the mode-specific final sorts or the three distinct blame-absence rows, and the docs say nothing about ordering, which is a third of the body.
 
 ### `legendFor` — nearly
-- read at `673cd639d481` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: For categorical color modes it walks the tree collecting each node's distinct category label and returns them in a stable order for the legend; for ramp modes it returns an empty array since a continuous ramp needs no discrete legend.
-- found: Returns [] unless mode is 'blame' or 'language'. Otherwise walks the tree accumulating, per key (lastAuthor or lang) and only for kind==='func', a sum of loc, then returns the keys sorted descending by total lines — so the legend is ordered by visual share, not alphabetically or by first appearance.
+- read at `dd8b74f0eee8` · commit `9c38c96` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: For categorical modes it walks the node tree collecting distinct category values (likely via rankCategories/bucketsFor) and returns them ordered for a legend; ramp modes return an empty array.
+- found: Returns [] unless mode is 'blame' or 'language'. Walks the tree accumulating a Map of key -> summed loc over func nodes only, filtering blame keys through isAuthor (so uncommitted lines are excluded), then returns keys sorted by descending line count.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: I did not predict the ordering key: it is weighted by lines of code, not alphabetical or first-seen, so the legend reflects share of the picture.
 
 ## web/src/lib/fan.ts
 
@@ -1314,32 +1315,32 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/label.ts
 
 ### the file itself — nearly
-- read at `654770cdba05` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: A dependency-free text-fitting module for sunburst wedges: widthPerPx giving a glyph-width factor so text width can be estimated without measuring, middleTruncate ellipsising the middle so both ends stay readable, and fitLabel picking the axis from the wedge's larger dimension, computing a clamped font size, truncating to fit, and returning null when nothing legible fits.
-- found: That, but widthPerPx MEASURES via a cached canvas 2d context at a reference size (with a per-char estimate only as a no-canvas fallback), and fitLabel is richer than I said: padding and line-box constants, a bend cap in radians so arc runs near the hub lose to radial, a solved fixed point for the centred radial size, an `only` axis restriction, and a truncation floor of both MIN_KEPT characters and MIN_SHARE of the name.
-- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
-- note: Two loose ends: the cache comment at line 74 says the key is "keyed on the FACE too" but the key is `${weight}|${text}` with no face in it, and lines 152-153 are a doc comment ("Below this a name is decoration") attached to nothing since MIN_SIZE moved to labelStyle.
+- read at `0d1a191b1b3f` · commit `9c38c96` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
+- expected: A small text-fitting module for wedge labels: widthPerPx gives an approximate character-width factor for a font size so text can be measured without a canvas, middleTruncate shortens a name with a central ellipsis so both ends stay recognisable, and fitLabel picks the axis from the cell's aspect ratio — arc when wider than deep, radial otherwise — then returns the chosen orientation, font size and possibly truncated text, or nothing when even the floor size will not fit.
+- found: That, but widthPerPx is the reverse of my guess: it measures with a real canvas at a reference size of 100, caches per weight+string, inflates by 1.06 for bearing/hinting, and only falls back to a per-character estimate when there is no document. Three policies I did not predict: a maxBend cap in radians so an arc run that would curl loses to radial without a special case (ring and fan pass different values); a fixed-point solve for the radial size so the name is centred rather than pushed out to where it fits; and a two-part truncation floor (MIN_KEPT 8 characters AND MIN_SHARE 0.45 of the name) below which nothing is drawn at all. Order of preference is whole-name-on-either-axis before clipped-on-any-axis.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Lines 42-55 are a full doc block describing FAMILY — "the face labels are measured in, and the face they are DRAWN in" — but FAMILY was moved out to ./labelStyle and only imported here, so the comment now dangles above the unrelated REF constant and documents nothing; the argument in it is load-bearing (measure in one face, paint in another and every label is sized wrong) and has been orphaned from the declaration it defends.
 
-### `widthPerPx` — nearly — TRAP
-- read at `0269c2721d0c` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 9 of its run
-- expected: Returns the rendered width of text at font-size 1 for the given weight — measureText(text).width / fontSize — memoised in a Map keyed by weight and text because the chart re-measures the same few hundred names every transition frame. Lazily creates a single module-level canvas 2D context, sets font to a reference size in the app's face, and falls back to a constant-per-character estimate where there is no canvas rather than throwing.
-- found: All of that, plus one deliberate fudge I did not predict: the measured advance is multiplied by 1.06, because measureText reports advance rather than ink and side bearings, hinting and subpixel rounding push the painted run past it — the policy being that a name which does not clearly fit is not drawn. Reference size REF, family FAMILY, fallback 0.6 chars, cache `widths` keyed `${weight}|${text}`.
-- predicted: most · documented: most · derivable: no · legible: full · trap: yes
-- note: The comment says 'Keyed on the FACE too. The face is now live, and a cache that ignored it would answer every question after the first with the width the first face happened to have' — but the key is `${weight}|${text}` and FAMILY appears nowhere in it, so the code does exactly the thing its own comment says it must not.
+### `widthPerPx` — nearly
+- read at `ba81f995f47e` · commit `9c38c96` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Measures text width at a fixed reference font size via a lazily-created canvas 2D context, divides by that size, memoised in a Map keyed by weight+text; falls back to a per-character constant (~0.6 × length) when there is no canvas.
+- found: Exactly that, with one detail I did not cover: the measured advance is inflated by 1.06 deliberately, because measureText reports advance rather than ink and an overhanging label is worse than a dropped one. Fallback is text.length * 0.6.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The inline comment says the cache is "keyed on the FACE too" because the face is live, but the key is only `${weight}|${text}` — FAMILY is used in the font string and appears nowhere in the key, so if FAMILY can change at runtime this is the exact stale-cache bug the comment claims to prevent.
 
 ### `middleTruncate` — nearly
-- read at `4add0a3a74a1` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: Returns name unchanged if it fits within keep chars; otherwise splits the budget between head and tail (roughly half each, allowing for the ellipsis) and joins with a middle ellipsis.
-- found: That, plus a MIN_KEPT floor: below it the function returns the empty string rather than a stub. head = ceil(keep/2), tail = the remainder, ellipsis not counted against keep.
+- read at `b7213f9d08f3` · commit `9c38c96` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: Returns name unchanged when within keep; otherwise splits the budget between head and tail joined by an ellipsis, with a guard for tiny keep.
+- found: Exactly that: returns name if keep >= length, returns '' when keep < MIN_KEPT, head = ceil(keep/2), tail = keep - head, joined with '…' (so output is keep+1 glyphs, which the doc calls out as costing one glyph).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The docs argue at length for keeping both ends, but say nothing about the MIN_KEPT case where the function drops the label entirely.
+- note: The ellipsis is not counted against `keep`, so callers budgeting exact width get keep+1 glyphs; the doc mentions the cost but the signature does not.
 
 ### `fitLabel` — nearly
-- read at `de24ecebad1b` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: Measure arc length and radial depth, pick a preferred axis by which is larger, then try in order: full name on preferred, full name on other, middle-truncated on preferred, middle-truncated on other, each against a minimum font size; return a Placement or null.
-- found: The ordering is as predicted except truncation is only ever attempted on the PREFERRED axis, never the other. Three things I did not cover: a bend cap (maxBend/DEFAULT_BEND) limiting how much a label may curve, which can knock arc out even in a wide cell; the radial size solved as a fixed point so the name is CENTRED in the wedge rather than fitted at r0 or slid outward; and an `only` option pinning an axis (rim labels are arc-only). Truncation searches keep-lengths downward from name.length-1 to a floor of max(MIN_KEPT, name.length*MIN_SHARE) at fixed MIN_SIZE.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The handed doc states the priority order but not that clipping is confined to the preferred axis, which is the one place the stated policy ("full on either axis beats clipped on either") stops short of describing the code.
+- read at `d61b9ad90e15` · commit `9c38c96` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Compute arc length and radial depth, pick a preferred axis by cell shape, then try in order: whole name on preferred axis, whole name on the other, then middleTruncate'd text on each, returning the first Placement clearing a minimum size, else null.
+- found: Broadly that, with real maths I did not cover: a max font size per axis derived from three simultaneous caps (line height vs thickness, length vs PAD, and a bend cap `maxBend*r/w` for arc), and a closed-form fixed point for the radial size given the name must be CENTRED in the wedge. Preference is by outer arc vs depth, with an `only` option forcing an axis. Truncation happens only on the preferred axis (never the other), at fixed MIN_SIZE, walking `keep` down from name.length-1 to a floor of max(MIN_KEPT, name.length*MIN_SHARE).
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The doc says "full name on either axis beats a clipped name on either axis", but the clipped fallback only ever tries `prefer` — a name clipped on the other axis is never considered, so the stated policy is one case short of what the code does.
 
 ## web/src/lib/runtime.ts
 
@@ -1393,11 +1394,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: A node with no score returns 0, which draws as the coolest possible wedge rather than as undecided — the same "claiming confidence it hasn't got" shape the metric rules warn about, though it may be unreachable in practice.
 
 ### `layout` — surprising
-- read at `edc13ec63f43` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: A recursive sunburst layout: walk root to maxDepth, angular span proportional to aggregated lines, radii per depth ring, cull wedges below a minimum angle, emit a flat array of arcs with path strings and heat colour; leaf functions handled by tileFunctions/sliceFunctions; opts carrying size and min-angle.
-- found: A recursive `walk` pushing {node, depth, a0, a1, index} wedges — angles only, no radii, no path strings, no colour, no function tiling (those are separate peers). Children sorted biggest-loc-first (name tiebreak) or by heat when opts.byHeat; weight is 1 per child when opts.even; collapsed ids stop recursion; wedges under minAngle are culled UNLESS kind === 'func' (functions draw as dots), and a culled subtree is counted into hidden.files/hidden.dirs recursively, excluding functions. Starts at -PI/2 (9 o'clock) so the largest wedge sits across the top for label legibility. Returns {wedges, hidden, depth}.
+- read at `b35bd4e6353a` · commit `9c38c96` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: Walks the tree from root assigning each node an angular span proportional to its line count within its parent's span and a radial band by depth, stopping at maxDepth, visiting children in backend order with no sorting, returning a Layout of flat arc segments using opts for centre/radius/ring thickness.
+- found: Recursive walk pushing Wedge{node,depth,a0,a1,index} — angles only, no radii at all. Children are explicitly SORTED: by heat when opts.byHeat, otherwise by loc descending with a name tiebreak. opts.even makes spans equal, opts.collapsed prunes subtrees, and sub-MIN_ANGLE arcs are culled (functions exempt, they draw as dots) with the whole dropped subtree tallied into hidden.files/hidden.dirs. Sweep starts at 9 o'clock (-PI/2 to 3PI/2). Returns {wedges, hidden, depth}.
 - predicted: some · documented: none · derivable: no · legible: full · trap: no
-- note: No doc comment at all on the file's central layout function, yet the body carries four substantial inline rationales — the reasoning is there, just not where a caller looking at the signature would find it.
+- note: The header doc says children are laid out "in the order the backend produced them... deliberately not sorted by size or heat" and the body does exactly the opposite, sorting by loc or heat — and an inline comment inside argues for size order using the same stability reasoning the header uses against it, so the two are in open contradiction.
 
 ### `arcPath` — as expected
 - read at `e48073887a6d` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -1451,12 +1452,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: some · derivable: no · legible: most · trap: no
 - note: The long doc argues entirely for why angle beats radius and says nothing about the capacity/aggregate overflow path, which is more than half the body.
 
-### `labelArc` — nearly
-- read at `7cbf1b9a927f` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: An SVG path `d` string for a textPath to run along, at radius r between a0/a1; computes the arc midpoint, flips sweep direction when the label would read upside-down in the lower half, and possibly returns empty string if the arc is too small for text at fontSize.
-- found: Exactly that minus the empty-string case: normalises the midpoint into [0,2π) (commented as necessary because layout starts at -π/2), flags upsideDown when mid is in the left/lower half, then offsets the radius by a baseline-to-centre constant whose sign depends on direction (because WebKit ignores dominant-baseline:central on textPath), and emits an arc either forward (sweep 1) or reversed (sweep 0) with a large-arc flag.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: No doc comment, but the inline comments explain the two non-obvious choices (angle normalisation, manual baseline offset) better than a docstring would have.
+### `labelArc` — as expected
+- read at `9c6c93e41a2d` · commit `9c38c96` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Returns an SVG path `d` for a circular arc at radius r from a0 to a1, used as a textPath baseline; converts polar to x/y, emits M/A with a large-arc flag, and when the wedge midpoint is in the bottom half swaps endpoints and flips the sweep flag so text runs right-to-left and stays upright; fontSize nudges the radius so the baseline centres in the band.
+- found: Exactly that. The midpoint is normalised into [0,2π) first because the layout starts at -π/2; the radius offset differs by direction (two separate constants, BASELINE_TO_CENTRE_REVERSED added when flipped, BASELINE_TO_CENTRE_FORWARD subtracted otherwise) to compensate for WebKit ignoring dominant-baseline:central on textPath.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ## web/src/lib/text.ts
 
