@@ -346,12 +346,24 @@ const NO_PROJECT: &str = "No project is open for this call. If you were assessin
 
 /// How long a file is passed over after something is drawn from it.
 ///
-/// Long enough to outlast one reader's three functions, which take about seventy seconds
-/// together — that is the case this exists for, a reader coming back to a file it opened
-/// twenty seconds ago and honestly reporting the second reading warm. Short enough that
-/// it is a preference and not a lock: `queue` falls back to rested files when nothing
-/// else is left, so a repo with four files still finishes.
-const FILE_REST: Duration = Duration::from_secs(180);
+/// Long enough to outlast ONE READER'S WHOLE RUN, which is the case this exists for: a
+/// reader coming back to a file it opened a few minutes ago and honestly reporting the
+/// second reading warm. Short enough that it is a preference and not a lock — `queue` falls
+/// back to rested files when nothing else is left, so a repo with four files still finishes.
+///
+/// **It is tied to `default_n` and it was left behind when that moved.** At 180s the doc
+/// said what it was for — "one reader's three functions, about seventy seconds together" —
+/// and then the batch became ten and this did not follow. Ten readings take longer than
+/// three, so the window expired mid-run and the file came back round: five readers across
+/// two waves of a full pass reported being handed a second or third function from a file
+/// they had already opened, one of them four in a row, and each marked those readings warm.
+/// Warmth is the one thing the whole handout design exists to prevent, so a rest window that
+/// does not outlast a run is not a preference, it is a leak.
+///
+/// 300s against a measured 190-275s for ten readings, taken from sixty readers over a full
+/// pass of this repo. Re-measure it when `default_n` moves again — the two are one decision
+/// and this is the half that does not announce itself.
+const FILE_REST: Duration = Duration::from_secs(300);
 
 /// How many outstanding leases `sanity_status` itemises. A diagnostic, not an inventory:
 /// the oldest few answer "is a wave stuck", and the rest are the same answer again.
@@ -3414,6 +3426,65 @@ fn second() { println!(\"2\"); }\n").unwrap();
 
     /// A file is handed out as its own reading, with the header and the whole list.
     ///
+    /// Deleting one of two same-named functions must not silently move a reading onto the
+    /// other one.
+    ///
+    /// `resync_file` matches old children to fresh definitions by (name, ordinal), and an
+    /// ordinal is a position — so removing the FIRST of two `go`s makes the survivor's fresh
+    /// ordinal 0, which is the deleted one's old slot. A reader flagged it as a trap. What
+    /// saves it is the thing that saves every positional scheme here: a reading is checked
+    /// against a BODY, so one that lands on the wrong twin is expired rather than believed,
+    /// and expired work goes back to the front of the queue.
+    ///
+    /// The exception is two twins with identical bodies, where the transfer is undetectable
+    /// and also harmless — the reading describes that text either way. That is the caveat
+    /// `key_of` already carries about reordering, written down here where the mechanism can
+    /// be seen.
+    #[test]
+    fn deleting_a_twin_expires_the_survivors_reading_rather_than_moving_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.rs");
+        std::fs::write(
+            &path,
+            "impl A { fn go(&self) -> u8 { 1 } }\nimpl B { fn go(&self) -> u16 { 22222 } }\n",
+        )
+        .unwrap();
+        let mut p = project_of(dir.path());
+
+        let mut ids = Vec::new();
+        p.scan.root.visit(&mut |n| {
+            if n.kind == NodeKind::Func {
+                ids.push((n.id.clone(), n.body.clone().unwrap_or_default()));
+            }
+        });
+        assert_eq!(ids.len(), 2, "twins are separate readings");
+        for (id, body) in &ids {
+            p.reports
+                .insert(id.clone(), Report { id: id.clone(), body: body.clone(), ..Report::blank() });
+        }
+
+        // The FIRST twin goes. The survivor slides into its ordinal.
+        std::fs::write(&path, "impl B { fn go(&self) -> u16 { 22222 } }\n").unwrap();
+        resync_changed(&mut p);
+
+        let mut left = Vec::new();
+        p.scan.root.visit(&mut |n| {
+            if n.kind == NodeKind::Func {
+                let stale = p
+                    .reports
+                    .get(&n.id)
+                    .is_some_and(|r| crate::assessment::is_stale(r, n.body.as_deref()));
+                left.push((n.id.clone(), stale));
+            }
+        });
+        assert_eq!(left.len(), 1, "one function left");
+        assert!(
+            left[0].1,
+            "the reading it inherited describes the other twin's body, so it is expired — \
+             not silently believed"
+        );
+    }
+
     /// The header was collected and fed to every function reader as context, and judged by
     /// nobody — so a file with a careful banner over bare functions painted exactly like a
     /// file with no banner at all. This is the reading that closes that.

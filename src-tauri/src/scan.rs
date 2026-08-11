@@ -330,12 +330,29 @@ fn scope_of(root: &Path) -> Option<ignore::gitignore::Gitignore> {
 ///
 /// Excludes the function being scored, obviously: showing a model the answer and then
 /// measuring whether it guessed the answer measures nothing at all.
+///
+/// **The NEAREST siblings, not the first two in the file.** It filtered out the function
+/// being scored and then took from the top, so every function past the second was handed the
+/// same opening pair of the file while the first two got a window that shifted around them —
+/// the context a function was scored against depended on where in the file it happened to
+/// sit, which is a property of the layout rather than of the code. A reader found it from
+/// the far end.
+///
+/// Adjacency is the point, and it is the same argument `PEER_WINDOW` makes on the MCP side:
+/// what establishes house style is the handlers either side of this one, the ones a person
+/// scrolling past would see. The opening two functions of a file are not that unless you are
+/// near the top of it.
 fn context_for(file: &ParsedFile, skip: usize) -> String {
     let mut out = file.head.clone();
+    // Centred on the function, then clamped — so one near the top or the bottom still gets a
+    // full window, from whichever side has neighbours.
+    let half = CONTEXT_SIBLINGS / 2;
+    let start = skip.saturating_sub(half.max(1));
     for f in file
         .funcs
         .iter()
         .enumerate()
+        .skip(start)
         .filter(|(i, _)| *i != skip)
         .take(CONTEXT_SIBLINGS)
         .map(|(_, f)| f)
@@ -1169,6 +1186,46 @@ mod tests {
                 assert_eq!(score.age_days, None);
             }
         });
+    }
+
+    /// The prompt's siblings are the ones beside it, not the ones at the top of the file.
+    ///
+    /// It took from the start after excluding the scored function, so everything past the
+    /// second function in a file was scored against the same opening pair — the context
+    /// depended on position in the file, which is a fact about layout and not about code.
+    #[test]
+    fn a_functions_context_is_its_neighbours() {
+        let funcs: Vec<crate::parse::FuncDef> = (0..8)
+            .map(|i| crate::parse::FuncDef {
+                name: format!("f{i}"),
+                signature: format!("fn f{i}()"),
+                body: format!("{{ {i} }}"),
+                doc: None,
+                owner: None,
+                start_line: i as u32 * 3 + 1,
+                end_line: i as u32 * 3 + 2,
+            })
+            .collect();
+        let file = ParsedFile {
+            rel_path: "a.rs".into(),
+            lang: Lang::Rust,
+            funcs,
+            file_doc: None,
+            prints: Vec::new(),
+            head: String::new(),
+            hash: 0,
+            excluded: false,
+        };
+
+        let ctx = context_for(&file, 6);
+        assert!(ctx.contains("fn f5"), "the one before it: {ctx}");
+        assert!(!ctx.contains("fn f0"), "not the top of the file: {ctx}");
+        assert!(!ctx.contains("fn f6"), "and never itself: {ctx}");
+
+        // A function at the top still gets a full window, from the side that has neighbours.
+        let top = context_for(&file, 0);
+        assert!(top.contains("fn f1") && top.contains("fn f2"), "{top}");
+        assert!(!top.contains("fn f0"), "{top}");
     }
 
     /// A function keeps its identity when the code above it moves.
