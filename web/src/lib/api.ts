@@ -419,11 +419,26 @@ export function reportGrades(r: AgentReport): { surprise: number; documented: nu
  *  to agree, they are one grade. Two digits also need a legend before they mean anything,
  *  and the legend was never on screen.
  *
- *  Temperature words rather than the grade's own words, because `none` means opposite ends
- *  of this scale depending on which field you read it in: `predicted: none` is the hottest
- *  reading there is, and a wedge labelled "none" would say the reverse to anyone glancing.
- *  These match the vocabulary the app already uses for the ramp — hot lines, hottest
- *  wedges — and the colour beside them.
+ *  **What the CODE was like, not how much the reader scored.** They were temperatures — cold,
+ *  warm, hot, blazing — a fourth vocabulary that appeared in neither the store's bullet nor
+ *  its heading, so one four-step judgement had three names and `blazing` existed only on
+ *  screen. Then they were amounts of surprise, which was accurate and put `none` at the calm
+ *  end of one lens and the alarming end of the next.
+ *
+ *  These name the thing on the map. A wedge is `predictable`, `typical`, `quirky` or
+ *  `obscure` — properties of the code a person can go and look at — where "some surprise" is
+ *  a property of somebody's reading of it. It also sidesteps the inversion entirely: the
+ *  grade is `predicted` because that is what a reader can answer honestly about its own work,
+ *  the lens is Surprise because that is what a person wants to know, and these four words
+ *  belong to neither frame. Nothing has to be read backwards to be understood.
+ *
+ *  `nuanced` is no longer shared with `LEGIBLE_WORDS`, and the two second rungs are better
+ *  apart: here it is code that holds nothing its neighbours have not already taught you,
+ *  which is `typical`; there it is a body with one wrinkle to go back for, which is
+ *  `nuanced`. One word for both said they were the same finding.
+ *
+ *  `assessment::render_entry`'s markers are the twin — `QUIRKY` and `OBSCURE` are these words
+ *  shouting. If these move, those move.
  *
  *  They also carry no spacing, which is the point. `Grade.surprise` is deliberately uneven
  *  (0.08 / 0.30 / 0.62 / 0.92) because the two confident steps belong close together; a
@@ -431,40 +446,64 @@ export function reportGrades(r: AgentReport): { surprise: number; documented: nu
  *  asserting it underneath. Numbers stay where they are earned: on containers, which
  *  average many readings in surprise space and mean every digit they show. */
 export const HEAT_WORDS: Record<Grade, string> = {
-  full: 'cold',
-  most: 'warm',
-  some: 'hot',
-  none: 'blazing',
+  full: 'predictable',
+  most: 'typical',
+  some: 'quirky',
+  none: 'obscure',
 }
 
 /**
- * How readable the body was once open, in words of its own.
+ * What reading the body was like, in words of its own.
  *
- * **Not `HEAT_WORDS`.** Legibility reused those at first, so the panel offered rows reading
- * "hot once open" and "cold once open" — which asks the reader to know that hot means hard,
- * a mapping that exists nowhere and that surprise only gets away with because a temperature
- * is the thing it is actually measuring. Nobody can say from "hot once open" whether that
- * function was easy or difficult, which is the entire question.
+ * **Not `HEAT_WORDS`.** This reused those at first, so the panel offered rows reading "hot
+ * once open" and "cold once open" — which asks the reader to know that hot means hard, a
+ * mapping that exists nowhere and that surprise only gets away with because a temperature is
+ * the thing it is actually measuring.
  *
- * The same four steps, named for what they mean here, and matched to the ends printed on the
- * legend: `crystal` at one end, `nonsense` at the other.
+ * **And not optical words either, which is what replaced them.** `crystal` and `murky` are
+ * about light passing through, so they fought the ramp: clear means light gets through, and
+ * the ramp puts the thing you must act on at the BRIGHT end. `murky` therefore named a bright
+ * wedge with a word meaning cloudy, and `crystal` named a dark one with a word meaning
+ * transparent. Nothing was mis-coloured; the vocabulary was arguing with the colour. These
+ * are structural — how tangled it was to get through — and carry no brightness at all.
+ *
+ * `nuanced` was briefly shared with `HEAT_WORDS`, which read as the two scales making the
+ * same finding. They are not: surprise's second rung is code that holds nothing its
+ * neighbours have not already taught you, and this one is a body with one wrinkle to go back
+ * for. Surprise's is `typical` now, and the word belongs here.
  *
  * Display only. `.sanity/` records the GRADE a reader sent — `legible: full` — so renaming
  * these can never invalidate a committed corpus, and the store never has to know which lens
- * is asking.
+ * is asking. Worth knowing when reading old readings: the QUESTION behind the grade changed
+ * when these words did. It used to be "how clear is it on its own terms", which defined no
+ * rung but the top one and produced 84.5% `full` across two repos; it now asks what the
+ * reader actually did — one pass, a second look, jumping around, or never being sure. Grades
+ * banked before that answer a softer question.
  */
 export const LEGIBLE_WORDS: Record<Grade, string> = {
-  full: 'crystal',
-  most: 'readable',
-  some: 'murky',
-  none: 'nonsense',
+  full: 'clean',
+  most: 'nuanced',
+  some: 'tangled',
+  none: 'unclear',
 }
 
-/** How well documented, in the reader's own words. Post-provenance, so a doc it judged
- *  derivable reads `none` here — the same rule `reportGrades` applies to the number. */
+/**
+ * How well documented, in words of its own.
+ *
+ * Post-provenance, so a doc the reader judged derivable reads `none` here — the same rule
+ * `reportGrades` applies to the number.
+ *
+ * `most` displays as `decent`, and that is the only place these part company with the grade
+ * names. A ladder reads as a ladder — none, some, decent, full — where `most` sits oddly
+ * between `some` and `full` and invites the reading "most of them" rather than "most of it".
+ *
+ * Display only, exactly as `LEGIBLE_WORDS` is: `.sanity/` records the GRADE a reader sent,
+ * `documented: most`, so renaming these can never invalidate a committed corpus and the store
+ * never has to know which words a pane is using this week.
+ */
 export const DOC_WORDS: Record<Grade, string> = {
   full: 'full',
-  most: 'most',
+  most: 'decent',
   some: 'some',
   none: 'none',
 }

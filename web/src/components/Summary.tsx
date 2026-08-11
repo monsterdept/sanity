@@ -21,7 +21,7 @@ const GRADES: Grade[] = ['full', 'most', 'some', 'none']
  *  and this is naming the rows underneath it, which are authors. A heading that repeated
  *  the tab would tell the reader something they can already see. */
 const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
-  legible: 'Opacity',
+  legible: 'Legibility',
   docs: 'Documentation',
   traps: 'Traps',
   blame: 'Authors',
@@ -63,9 +63,14 @@ function rowNote(n: Node, mode: ColorMode): string {
     if (!s || s.lastTouchedDays === null) return '—'
     return s.lastTouchedDays < 1 ? 'today' : `${Math.round(s.lastTouchedDays)}d ago`
   }
-  // Guarded on the field it PRINTS. It asked `ageDays` — "does this have git history at
-  // all" — and then printed `commits`, so the em dash and the number were answering two
-  // different questions one line apart.
+  // Guarded on `ageDays` and printing `commits`, which is deliberate and reads as a mismatch
+  // until you know why: `commits` is 0 both for a file nobody has touched this quarter and
+  // for one git has never heard of, and only `ageDays` tells those apart. The em dash means
+  // "no history"; a zero means "no commits in the window".
+  //
+  // A reader flagged the mismatch, I wrote a comment claiming I had fixed it, and a later
+  // reader flagged the comment for asserting a property the body did not have. Both were
+  // right to. The guard was correct all along; what was missing was the sentence saying so.
   if (mode === 'churn') return s && s.ageDays !== null ? `${s.commits} in 90d` : '—'
   return `${compactCount(n.loc)} lines`
 }
@@ -499,7 +504,11 @@ export function Summary({
              which is the width the history log's own divider already had. */
           <div className="-mx-4 mt-4 border-t border-[var(--border)] px-4 pt-3">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-              {lens ? BREAKDOWN_TITLE[mode as Exclude<ColorMode, 'surprise'>] : 'Readings'}
+              {/* Named for the lens, like every other tab's heading. It read `Readings`,
+                  which names the CATEGORY of thing being counted rather than what is being
+                  asked about them — the one heading in the pane that did not answer "which
+                  lens am I looking at". */}
+              {lens ? BREAKDOWN_TITLE[mode as Exclude<ColorMode, 'surprise'>] : 'Surprise'}
             </p>
             {lens ? (
               <Buckets buckets={buckets} picked={bucket?.key ?? null} onPick={setPickedBucket} />

@@ -4,6 +4,7 @@ import { Bloom } from './Bloom'
 import { colorFor, type ColorMode } from '../lib/colorMode'
 import { elide } from '../lib/text'
 import { PAPER } from '../lib/ink'
+import { FAMILY } from '../lib/labelStyle'
 import { Dials } from './Dials'
 import {
   isAnalyzed,
@@ -359,7 +360,10 @@ export function Detail({
    *  The line number stays plain. It is a position in a file, not a place on the map. */
   const pathLine =
     owners && owners.length > 0 && onShowIn ? (
-      <p className="mono mt-0.5 flex flex-wrap items-baseline text-[10px] text-[var(--muted-foreground)]">
+      <p
+        className="mt-0.5 flex flex-wrap items-baseline text-[10px] text-[var(--muted-foreground)]"
+        style={{ fontFamily: FAMILY }}
+      >
         {owners.map((o, i) => (
           <span key={o.id} className="contents">
             {i > 0 && <span aria-hidden>/</span>}
@@ -376,7 +380,10 @@ export function Detail({
         {node.line !== null && <span>:{node.line}</span>}
       </p>
     ) : (
-      <p className="mono mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
+      <p
+        className="mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]"
+        style={{ fontFamily: FAMILY }}
+      >
         {elide(`${node.path}${node.line !== null ? `:${node.line}` : ''}`, 40)}
       </p>
     )
@@ -490,7 +497,14 @@ export function Detail({
         {/* No swatch. It was the wedge's own colour repeated beside its name, and the dial
             directly under it already says that — in words, on the scale the reading actually
             has. Two encodings of one number, the smaller of which cannot be read. */}
-        <h2 className="mono truncate text-sm font-semibold">{node.name}</h2>
+        {/* The label face, not the monospace one — see `FAMILY`. A name is a NAME here, the
+            same one the wedge is wearing three inches to the left, and setting it in the
+            code face made the panel read as a listing of source rather than as a caption on
+            the picture. Monospace stays where alignment is doing work: line counts, hashes,
+            the code view. */}
+        <h2 className="truncate text-sm font-semibold" style={{ fontFamily: FAMILY }}>
+          {node.name}
+        </h2>
         {kindBadge}
         {/* In the header, not among the dials.
             A trap is the one thing here that is not a measurement on a scale — it is a

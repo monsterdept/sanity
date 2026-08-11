@@ -80,10 +80,13 @@ function heatOf(n: Node): number {
 /**
  * Partition the tree into rings, angles proportional to lines.
  *
- * Children are laid out in the order the backend produced them, which is directory
- * order — deliberately not sorted by size or heat. A ring that reorders itself between
- * two scans destroys the one thing that makes a second visit useful: recognising the
- * shape you saw last time and spotting what changed.
+ * Children are ordered biggest-first, or by heat when the caller asks — see the comment on
+ * the sort itself, which carries the argument. This block used to claim the opposite, that
+ * children were laid out "in the order the backend produced them, deliberately not sorted by
+ * size or heat", and it was stale: it had come unstuck from whatever it once described and
+ * was floating on `LayoutOpts`, where nothing could contradict it. Reattaching it to the
+ * function it names put a claim above a body that disproves it four lines down, which is how
+ * a reader caught it — and is the argument for keeping docs attached rather than adrift.
  */
 export function layout(root: Node, maxDepth: number, opts: LayoutOpts = {}): Layout {
   const wedges: Wedge[] = []

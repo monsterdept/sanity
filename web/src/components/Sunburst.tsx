@@ -27,7 +27,7 @@ import {
 import { RollupDots, dotsId, ROLLUP_TEXTURE_PX } from './RollupDots'
 import { WedgeLabel } from './WedgeLabel'
 import { fitLabel } from '../lib/label'
-import { WEIGHT } from '../lib/labelStyle'
+import { FAMILY, WEIGHT } from '../lib/labelStyle'
 import { StaleHatch } from './StaleHatch'
 import { WedgeTip } from './WedgeTip'
 
@@ -681,8 +681,17 @@ export function Sunburst({
    *  neighbour had its outer half covered and came out at half width. The outer arc
    *  kept its full width because the ring gap leaves it free, which is what made one
    *  edge of a hovered wedge look thinner than the rest. Collected as the wedges are
-   *  built below and rendered after them, so nothing can paint over it. */
-  let highlight: { d: string; width: number; sel: boolean } | null = null
+   *  built below and rendered after them, so nothing can paint over it.
+   *
+   *  **Two slots, because there are two marks and they are not exclusive.** There was one,
+   *  and the wedges are walked once — so whichever of the selection and the pointer came
+   *  LATER in the walk overwrote the other. Pointing anywhere after selecting `bin` erased
+   *  `bin`'s outline, and because that slot then said `sel: false`, the "selection is not
+   *  drawn" stand-in fired and dashed its PARENT: the map dropped the mark for what you
+   *  chose and put a different mark on something you did not. Both are kept and both are
+   *  drawn; the selection's is the heavier one and goes on top. */
+  let selMark: { d: string; width: number } | null = null
+  let hoverMark: { d: string; width: number } | null = null
   /** Where the selection IS, when the selection itself is not drawn.
    *
    *  Selecting from the panel's list is the case the outline alone could not serve. On the
@@ -860,9 +869,8 @@ export function Sunburst({
           const isHover = hover?.node.id === w.node.id
           const foldable = w.node.kind === 'dir' && w.node.children.length > 0
           const isFolded = foldable && collapsed.has(w.node.id)
-          if (isSel || isHover) {
-            highlight = { d: arcPath(a0, a1, r0, r1), width: isSel ? 2 : 1.6, sel: isSel }
-          }
+          if (isSel) selMark = { d: arcPath(a0, a1, r0, r1), width: 2 }
+          else if (isHover) hoverMark = { d: arcPath(a0, a1, r0, r1), width: 1.6 }
           // Deepest wins: the file that holds the selection beats the directory that holds
           // the file, because a narrower answer to "where is it" is a better one.
           if (selTrail?.has(w.node.id) && (!selCoarse || w.depth > selCoarse.depth)) {
@@ -1028,9 +1036,8 @@ export function Sunburst({
               const isSel = selected?.id === slot.node.id
               const isHover = hover?.node.id === slot.node.id
               const d = arcPath(slot.a0, slot.a1, slot.r0, slot.r1)
-              if (isSel || isHover) {
-                highlight = { d, width: isSel ? 1.6 : 1.2, sel: isSel }
-              }
+              if (isSel) selMark = { d, width: 1.6 }
+              else if (isHover) hoverMark = { d, width: 1.2 }
               return (
                 <g key={slot.node.id}>
                 <path
@@ -1248,9 +1255,19 @@ export function Sunburst({
             )
           })}
 
-        {/* Evaluated after both wedge passes, so `highlight` is already set — and drawn
-            after them, so no sibling's fill can eat half its width. */}
-        {highlight && (
+        {/* Evaluated after both wedge passes, so both marks are already set — and drawn
+            after them, so no sibling's fill can eat half their width. Hover first, so a
+            wedge that is somehow both keeps the heavier selection stroke on top. */}
+        {hoverMark && (
+          <path
+            className="pointer-events-none"
+            d={(hoverMark as { d: string }).d}
+            fill="none"
+            stroke="var(--foreground)"
+            strokeWidth={(hoverMark as { width: number }).width}
+          />
+        )}
+        {selMark && (
           <g className="pointer-events-none">
             {/* A halo under the outline, in the ground the cuts between wedges are already
                 drawn in. A 1.6-unit stroke is legible on a directory and invisible on a
@@ -1258,25 +1275,23 @@ export function Sunburst({
                 arrive at from the list — so the mark has to be bigger than the wedge rather
                 than a border on it. Selection only: hover already tells you where it is,
                 because your pointer is there. */}
-            {(highlight as { sel: boolean }).sel && (
-              <path
-                d={(highlight as { d: string }).d}
-                fill="none"
-                stroke="var(--background)"
-                strokeWidth={(highlight as { width: number }).width + 3}
-                strokeOpacity={0.85}
-              />
-            )}
             <path
-              d={(highlight as { d: string }).d}
+              d={(selMark as { d: string }).d}
+              fill="none"
+              stroke="var(--background)"
+              strokeWidth={(selMark as { width: number }).width + 3}
+              strokeOpacity={0.85}
+            />
+            <path
+              d={(selMark as { d: string }).d}
               fill="none"
               stroke="var(--foreground)"
-              strokeWidth={(highlight as { width: number }).width}
+              strokeWidth={(selMark as { width: number }).width}
             />
           </g>
         )}
         {/* Only when the selection itself was not drawn — see `selCoarse`. */}
-        {!(highlight as { sel: boolean } | null)?.sel && selCoarse && (
+        {!selMark && selCoarse && (
           <path
             d={(selCoarse as { d: string }).d}
             fill="none"
@@ -1323,12 +1338,24 @@ export function Sunburst({
             be drawn. Elided from the middle, keeping the extension, for the reason `elide`
             gives: the tail is the answer. The full name is a hover away and is already in
             the crumbs and the panel. */}
+        {/* The label face, the same one every name on the map is drawn in — see `FAMILY`.
+            The hub was the one name in the chart still set in the UI's system stack, which
+            made the middle of the picture a different typeface from everything around it
+            while naming the same kind of thing. Imported rather than restated, because the
+            canvas measures in `FAMILY` and a second copy here would be a face that drifts
+            out of agreement with the one the widths were computed in.
+
+            `WEIGHT` too, for the same reason it is one constant for all three kinds of
+            label: it was 600, and a semibold hub in the middle of a chart of regular-weight
+            names read as emphasis rather than as the centre. Size and position already say
+            which one this is. */}
         <text
           textAnchor="middle"
           y={-4}
+          fontFamily={FAMILY}
           fontSize={Math.max(9, Math.min(15, 150 / Math.max(hubName.length, 5)))}
           fill="var(--foreground)"
-          fontWeight={600}
+          fontWeight={WEIGHT}
         >
           {hubName !== root.name && <title>{root.name}</title>}
           {hubName}

@@ -1,5 +1,5 @@
 import { isAnalyzed, type Node } from '../lib/api'
-import { colorFor, type ColorMode } from '../lib/colorMode'
+import { colorFor, saysNothing, type ColorMode } from '../lib/colorMode'
 import { elide } from '../lib/text'
 
 /** Characters that fit on one line of the tooltip, at its two type sizes.
@@ -76,14 +76,20 @@ export function WedgeTip({
   const isFunc = n.kind === 'func'
   const parts = n.path.split('/')
   const own = parts.pop() ?? n.name
-  // What is worth knowing changes with the question being asked. Under Surprise
-  // that's the two terms the reading is made of; under Churn and Age it's the raw
-  // counts behind the ramp; under Owner and Language the swatch's own label IS the
-  // value and anything else would be padding.
+  // What is worth knowing changes with the question being asked. Under Churn and Age
+  // that's the raw counts behind the ramp; under Owner and Language the swatch's own
+  // label IS the value and anything else would be padding.
+  //
+  // **Surprise adds nothing, and used to add `Documented 44`.** That was written when
+  // documentation was a TERM inside the temperature — `surprise × (1 − explained)` — so
+  // printing it beside the reading showed what the number was made of. It is not a term
+  // any more: docs reach the instrument through the reader's prompt, and a doc that
+  // explains the body lowers the surprise by being read, not by being subtracted. What
+  // was left was the offline proxy's own `documented`, on a 0–100 scale, under a lens
+  // that does not use it and beside a percentage that means something else entirely —
+  // two numbers, two scales, one card, and the Docs tab is where the second one lives.
   const extras: [string, string][] = []
-  if (sc && analyzed && mode === 'surprise') {
-    extras.push(['Documented', String(Math.round(sc.documented * 100))])
-  } else if (sc && sc.ageDays !== null && mode === 'churn') {
+  if (sc && sc.ageDays !== null && mode === 'churn') {
     extras.push(['Commits (90d)', String(sc.commits)])
     extras.push(['First seen', `${Math.round(sc.ageDays)}d ago`])
   } else if (sc && sc.lastTouchedDays !== null && mode === 'age') {
@@ -96,7 +102,12 @@ export function WedgeTip({
   // of the window and lands under the cursor. Base covers the path row and the
   // reading row; a function adds a name line above them, and size no longer has a
   // row of its own.
-  const H = 32 + extras.length * 16 + (n.kind === 'dir' ? 26 : 0) + (isFunc ? 16 : 0)
+  const H =
+    32 +
+    extras.length * 16 +
+    (n.kind === 'dir' ? 26 : 0) +
+    (isFunc ? 16 : 0) -
+    (saysNothing(n, mode) ? 16 : 0)
   const flipX = x + W + 18 > box.w
   const flipY = y + H + 18 > box.h
   return (
@@ -147,14 +158,15 @@ export function WedgeTip({
           number here would be describing the encoding rather than reading it. The
           label beside it names the value, which is what keeps identity off colour
           alone. */}
-      {/* Reading and size on one row. They were stacked, which gave a two-word
-          fact ("46 lines") a whole line of its own and pushed everything below it
-          down — on a card this small, three single-item rows in a column read as a
-          list of unrelated things rather than one description of one wedge.
-
-          Size is deliberately the quiet half: it is the axis you already know, and
-          the swatch beside it is the axis that is worth reading. */}
-      <div className="mb-1 flex items-baseline gap-1.5">
+      {/* The reading gets the row to itself, and size goes below it.
+          They shared a line, on the argument that "46 lines" is a two-word fact that does
+          not deserve one — true, and it cost the half that does. The reading is the only
+          thing on this card that changes with the lens, and it is the half that has to
+          EXPLAIN itself: `50% undescribed` and `12% surprising` are sentences, and sharing
+          a row with a size that never shrinks left them elided to `50% und…`. A number
+          nobody can read the units of is worse than one more line on the card. */}
+      {!saysNothing(n, mode) && (
+      <div className="flex items-baseline gap-1.5">
         {/* Hatched when the reading has expired, the same 45° rule the wedge and the key
             both wear. The swatch's whole job is to be the colour you are pointing at, and a
             flat square beside the word `stale` described a wedge that is not on screen —
@@ -179,18 +191,18 @@ export function WedgeTip({
         <span className="truncate text-[11px]">
           {n.agentStale ? 'stale' : analyzed && c ? c.label : 'not measured yet'}
         </span>
-        {/* Never shrinks, and the label gives way instead — under Owner or Language
-            the label is a category name of unbounded length, and letting it push the
-            size off the row would lose the one number that is always meaningful. */}
-        <span className="mono ml-auto shrink-0 text-[10px] tabular-nums text-[var(--muted-foreground)]">
-          {n.loc.toLocaleString()} lines
-          {n.kind !== 'func' && ` · ${countFiles(n).toLocaleString()} files`}
-          {/* A roll-up says how much it is standing in for, because its whole reason
-              to exist is that those members are not on screen. Without it the card
-              describes a wedge the reader cannot account for. */}
-          {n.rest !== undefined && ` · ${n.rest.toLocaleString()} functions`}
-        </span>
       </div>
+      )}
+      {/* Its own line, under the reading rather than beside it — the quiet half, and the
+          one that never changes with the lens. */}
+      <p className="mono mb-1 truncate text-[10px] tabular-nums text-[var(--muted-foreground)]">
+        {n.loc.toLocaleString()} lines
+        {n.kind !== 'func' && ` · ${countFiles(n).toLocaleString()} files`}
+        {/* A roll-up says how much it is standing in for, because its whole reason to
+            exist is that those members are not on screen. Without it the card describes a
+            wedge the reader cannot account for. */}
+        {n.rest !== undefined && ` · ${n.rest.toLocaleString()} functions`}
+      </p>
 
       {/* Said on hover, not only on click. A hatched wedge poses a question — why
           is this one different — and making you select it to get the answer is a

@@ -42,10 +42,13 @@ export type ColorMode =
  * is the whole timeline. Entering it is then a continuation of the gesture rather than a
  * mode change out of nowhere.
  *
- * Every lens is named for its BRIGHT end, because the map has one invariant — bright is the
- * thing you have to do something about. `Surprise` obeyed it and `Legibility` did not: more
- * colour meant LESS of what that tab was called, so the two lenses ran in opposite polarity
- * while painting bad-as-bright identically. Surprise and opacity are the parallel pair.
+ * Named for the SUBJECT, and the colour carries the direction. This tab was `Opacity` for a
+ * while, on the rule that a lens should be named for its bright end — and that rule cost more
+ * than it bought here, because `opaque` is an optical word and optically clear means light
+ * gets THROUGH. So the tab, its rows (`crystal`, `murky`) and the ramp were in a three-way
+ * argument: bright meant "act on this", the words meant "more light", and the two point
+ * opposite ways. `Legibility` names what is being asked about and lets the ramp say which end
+ * needs work, which is what every other tab does — `Churn` is not called `Churning`.
  *
  * The mode KEY stays `legible`, matching `Report.legible` — the wire field and the committed
  * store both say `legible: full`, and renaming the display word must never reach them.
@@ -56,7 +59,7 @@ export type ColorMode =
  */
 export const MODE_LABEL: Record<ColorMode, string> = {
   surprise: 'Surprise',
-  legible: 'Opacity',
+  legible: 'Legibility',
   docs: 'Docs',
   traps: 'Traps',
   language: 'Language',
@@ -67,7 +70,7 @@ export const MODE_LABEL: Record<ColorMode, string> = {
 
 export const MODE_HINT: Record<ColorMode, string> = {
   surprise: 'what a reader didn’t see coming',
-  legible: 'how hard it is to follow once you open it',
+  legible: 'what reading it was actually like',
   docs: 'what nobody has explained',
   traps: 'what will bite whoever edits it next',
   language: 'what it is written in',
@@ -259,29 +262,30 @@ function docGrade(n: Node): Grade | undefined {
 }
 
 /**
- * The share of a directory's FILES whose header does not describe them.
+ * The share of everything underneath — files AND functions — that nobody has described.
  *
- * A directory has no documentation of its own, so it reports what is underneath — and what
- * is underneath a directory is FILES. It used to roll up the functions instead, which made
- * this lens ask two different questions one ring apart: a file's band meant "this header
- * covers most of what is in here" and its parent's meant "38% of the functions in here are
- * undocumented". Both honest, neither the same, and a lens whose rings disagree about the
- * question is the failure this design avoids everywhere else.
+ * **Every graded thing, one vote each.** It counted only FILES for an afternoon, on the
+ * argument that a directory contains files; the pane then showed a dial saying "100% doc'd"
+ * over a list saying eight of thirteen functions have no docs, because the dial was counting
+ * four files and the list was counting thirteen functions. Both were true and neither was
+ * the other, which is the failure a single number is supposed to prevent. A person asking
+ * "how documented is this directory" means everything in it that could have been described.
  *
- * **Counted by reading, not weighted by lines.** Everywhere else in this file a share is
- * line-weighted, because a wedge's width is lines and the two should agree. Not here: a
- * file's own reading carries the whole file's line count, so one 1,100-line component would
- * outweigh forty small files that nobody has described. The question is "how many of these
- * files are described", and that is one vote each.
+ * **Counted by reading, not weighted by lines**, and this is the one share in this file that
+ * is. The population is heterogeneous: a file's reading is about its header, a function's is
+ * about its own comment, and a file's line count is the sum of its functions' — so weighting
+ * by lines would count the same lines twice and let one 1,100-line component outweigh forty
+ * small files nobody has described. One reading is one vote, which is also what makes files
+ * and functions addable at all.
  *
- * `null` when no file underneath has been read, which the caller paints grey — absence
+ * `null` when nothing underneath has been graded, which the caller paints grey — absence
  * stated, never filled in.
  */
 function undocShare(node: Node): number | null {
   let graded = 0
   let bare = 0
   const walk = (n: Node) => {
-    if (n.kind === 'file') {
+    if (n.kind === 'file' || n.kind === 'func') {
       const g = docGrade(n)
       if (g) {
         graded += 1
@@ -292,6 +296,34 @@ function undocShare(node: Node): number | null {
   }
   walk(node)
   return graded === 0 ? null : bare / graded
+}
+
+/**
+ * Whether this lens has nothing to say about this node — as opposed to something absent.
+ *
+ * The tooltip's swatch-and-label row states an absence rather than hiding it: `not measured
+ * yet` is a fact about a function nobody has read, and dropping it would let grey pass for
+ * cold. That rule needs an exception exactly where the absence is not a fact about the code
+ * but about the QUESTION.
+ *
+ * Traps over a container is the case. A trap is one boolean a reader reported against one
+ * body; a directory has no body and was never asked, so there is no reading to be missing.
+ * A count of the ones underneath was tried and read worse: `16 traps` beside a neutral
+ * swatch describes a colour nothing on screen is wearing, and it puts a roll-up in the one
+ * slot on this card reserved for what the wedge itself is. The panel lists the sixteen by
+ * name, which is what you would do with them anyway.
+ *
+ * Blame and Language over a DIRECTORY are the same shape and were missed with it. Both are
+ * categorical — a directory is not written in a language and was not last committed to by
+ * anybody; its files were. There is nothing to average and nothing to be missing, and
+ * "not measured yet" over `web/src` under Language is the map apologising for a measurement
+ * it correctly never took. A FILE has both and keeps its row, including the row that says
+ * `not in git`, which IS a fact about that file.
+ */
+export function saysNothing(node: Node, mode: ColorMode): boolean {
+  if (mode === 'traps') return node.kind !== 'func'
+  if (mode === 'blame' || mode === 'language') return node.kind === 'dir'
+  return false
 }
 
 /** What a wedge is painted with, and what a name printed ON it has to be set in.
@@ -337,7 +369,10 @@ export function colorFor(
     return {
       ...ramped(share ? shareRamp(t) : t),
       label: share
-        ? `${Math.round(t * 100)}% hot`
+        ? // `hot` was the last of the temperatures, left behind when the rows became
+          // `predictable / typical / quirky / obscure`. The threshold this counts is
+          // "quirky or worse", and `surprising` is the word for that on this tab.
+          `${Math.round(t * 100)}% surprising`
         : (readingWords(node)?.heat ?? `${Math.round(t * 100)}°`),
     }
   }
@@ -354,7 +389,10 @@ export function colorFor(
     if (showsShare(node)) {
       const share = opaqueShare(node)
       if (share === null) return null
-      return { ...ramped(shareRamp(share), 'legible'), label: `${Math.round(share * 100)}% opaque` }
+      return {
+        ...ramped(shareRamp(share), 'legible'),
+        label: `${Math.round(share * 100)}% tangled`,
+      }
     }
     const g = node.agent && !node.agentStale ? node.agent.legible : undefined
     if (!g) return null
@@ -378,7 +416,9 @@ export function colorFor(
     // functions'. A directory has no header, so it stays the share.
     if (node.kind === 'file') {
       const own = docGrade(node)
-      if (own) return { ...ramped(DOC_GAP[own], 'docs'), label: `header covers ${DOC_WORDS[own]}` }
+      // `header: none` rather than "covers none": the word is a rung on a ladder, and a
+      // sentence built round it has to bend for the bottom one.
+      if (own) return { ...ramped(DOC_GAP[own], 'docs'), label: `header: ${DOC_WORDS[own]}` }
       // A file nobody has read yet is grey, not an average of its functions. Its own header
       // is the thing this lens asks a file about, and guessing it from the contents would
       // be the map answering a question nobody put to it.
@@ -397,11 +437,11 @@ export function colorFor(
       // constants in a place nobody measured them for. A share of files is already 0..1 on
       // its own terms and wants no curve; `0` still maps to `0`, so a fully described
       // directory reads as fine.
-      return { ...ramped(share, 'docs'), label: `${n}% of files undescribed` }
+      return { ...ramped(share, 'docs'), label: `${n}% undescribed` }
     }
     const g = docGrade(node)
     if (!g) return null
-    return { ...ramped(DOC_GAP[g], 'docs'), label: `${DOC_WORDS[g]} docs` }
+    return { ...ramped(DOC_GAP[g], 'docs'), label: `docs: ${DOC_WORDS[g]}` }
   }
 
   if (mode === 'traps') {
@@ -410,10 +450,18 @@ export function colorFor(
     // neutral rather than left grey, because "a reader looked and found nothing" and
     // "nobody has looked" are opposite facts and this is the one lens where confusing them
     // would read as an all-clear.
-    if (!node.agent || node.agentStale) return null
-    const trap = node.agent.trap === true
-    const fill = trap ? 'var(--trap)' : 'var(--structure)'
-    return { fill, stop: fill, ink: inkOn(fill), label: trap ? 'trap' : 'no trap reported' }
+    // `kind === 'func'` and not merely "has a reading": a FILE has one too, and `trap` is
+    // one of the two fields `FILE_ASK` tells a reader to leave unset on it. Read as a leaf
+    // it came back `no traps reported` — an all-clear over a question nobody asked, printed
+    // in the same words a reader's real all-clear uses. It counts its contents instead.
+    if (node.kind === 'func' && node.agent && !node.agentStale) {
+      const trap = node.agent.trap === true
+      const fill = trap ? 'var(--trap)' : 'var(--structure)'
+      return { fill, stop: fill, ink: inkOn(fill), label: trap ? 'trap' : 'no trap reported' }
+    }
+    // A container gets no reading row at all — see `saysNothing`, which is where the card
+    // decides to stay quiet rather than print a swatch over a value that does not exist.
+    return null
   }
 
   if (mode === 'churn') {
@@ -560,6 +608,15 @@ export function bucketsFor(
   const UNKNOWN = '\u0000unknown'
   const walk = (n: Node, out: boolean) => {
     const outOfScope = out || n.excluded
+    // A FILE is a reading of its own under Docs — its header — so it is a row here beside
+    // the functions, and the list counts what the dial above it counts. Only Docs: `legible`
+    // and `trap` are never sent on a file reading (see `FILE_ASK`), and the other lenses ask
+    // questions a file has no answer to.
+    if (n.kind === 'file' && !outOfScope && mode === 'docs') {
+      const g = docGrade(n)
+      if (g) put(g, DOC_WORDS[g], heatColor(DOC_GAP[g], 'docs'), n)
+      else put(UNKNOWN, 'not read yet', 'var(--unanalyzed)', n)
+    }
     if (n.kind === 'func' && !outOfScope) {
       const s = n.score
       if (mode === 'legible' || mode === 'docs' || mode === 'traps') {
@@ -580,7 +637,7 @@ export function bucketsFor(
           )
         } else if (mode === 'docs') {
           const g = docGrade(n)
-          if (g) put(g, `${DOC_WORDS[g]} docs`, heatColor(DOC_GAP[g], 'docs'), n)
+          if (g) put(g, DOC_WORDS[g], heatColor(DOC_GAP[g], 'docs'), n)
           else put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
         } else if (r.legible) {
           put(r.legible, LEGIBLE_WORDS[r.legible], heatColor(GRADE_SURPRISE[r.legible], 'legible'), n)
@@ -639,7 +696,13 @@ export function bucketsFor(
     // Traps first: it is the only row anybody opens this lens to find.
     out.sort((a, b) => Number(b.key === 'trap') - Number(a.key === 'trap'))
   } else if (mode === 'legible' || mode === 'docs') {
-    const order: string[] = ['none', 'some', 'most', 'full']
+    // Best first, calm end first, dark end first — the direction `Spread` reads in and the
+    // direction each ramp's own legend reads in (`crystal → nonsense`, `covered →
+    // undocumented`). It was worst-first, so the same bar meant "getting worse" left to
+    // right under Surprise and "getting better" under the two lenses beside it. Nothing was
+    // mis-COLOURED — bright has always been the thing to act on — but a reader moving
+    // between tabs had to re-learn which way to read a row of five.
+    const order: string[] = ['full', 'most', 'some', 'none']
     out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
   } else {
     const order = mode === 'churn' ? CHURN_BANDS.map((b) => b.label) : AGE_BANDS.map((b) => b.label)

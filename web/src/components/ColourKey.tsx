@@ -57,10 +57,11 @@ function Legend({ mode, categories }: { mode: ColorMode; categories: string[] })
 
   const ends: Record<string, [string, string]> = {
     // The row words this key sits above, not a fifth vocabulary: it read
-    // `clear → unclear` while the rows beneath said cold/warm/hot/blazing.
-    surprise: ['cold', 'blazing'],
+    // `clear → unclear` while the rows beneath said something else entirely, and now the
+    // rows say what `.sanity/` says.
+    surprise: ['predictable', 'obscure'],
     // Same direction as heat: the bright end is the one you have to do something about.
-    legible: ['crystal', 'nonsense'],
+    legible: ['clean', 'unclear'],
     // Named for the ends the ramp actually paints, and the bright one is an absence: this
     // is the only lens whose input is the GAP. See the `--docs-*` ramp.
     docs: ['covered', 'undocumented'],

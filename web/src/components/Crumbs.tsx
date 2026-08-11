@@ -1,5 +1,6 @@
 import { type Node } from '../lib/api'
 import { clsx } from '../lib/cn'
+import { FAMILY } from '../lib/labelStyle'
 
 /**
  * Where you are, and every way back out of it.
@@ -50,8 +51,12 @@ export function Crumbs({
                 // you already are should do.
                 onClick={() => onGo(i)}
                 aria-current={last ? 'page' : undefined}
+                // The label face — the same one these names are drawn in on the map. The
+                // trail is a row of directory names, and a name is a name wherever it is
+                // shown; see the note on `Detail`'s heading.
+                style={{ fontFamily: FAMILY }}
                 className={clsx(
-                  'mono truncate rounded-[var(--radius-sm)] px-1 py-0.5 transition-colors',
+                  'truncate rounded-[var(--radius-sm)] px-1 py-0.5 transition-colors',
                   last
                     ? 'font-semibold text-[var(--foreground)]'
                     : 'text-[var(--accent)] hover:bg-[var(--secondary)]',

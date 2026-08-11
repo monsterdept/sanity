@@ -169,6 +169,17 @@ export default function App() {
    *  somebody who did both weeks ago, and swapped it for their map a moment later. An empty
    *  list and a list not yet fetched are different states and only one of them is news. */
   const [projectsLoaded, setProjectsLoaded] = useState(false)
+  /** Which project the map is actually showing.
+   *
+   *  A ref rather than state: the poll reads it every tick and must not be re-created to see
+   *  a change, and nothing renders from it. Written by both doors into a project — the poll
+   *  that follows the agent, and the sidebar click that overrules it. */
+  const shown = useRef<string | null>(null)
+  /** Which scan of that project the map was built from — see `ProjectSummary.scanned`.
+   *
+   *  Beside `shown` because the pair is one fact: WHICH tree is on screen. Split apart, the
+   *  poll can hold a revision belonging to a project nobody is looking at. */
+  const shownRev = useRef(0)
   const [connected, setConnected] = useState(false)
   useEffect(() => {
     let alive = true
@@ -245,9 +256,12 @@ export default function App() {
   // pushed because it is one small call every couple of seconds and needs no plumbing
   // between the loopback server and the webview.
   useEffect(() => {
-    let showing: string | null = null
-    // Which scan of that project is on screen. See `ProjectSummary.scanned`.
-    let revision = 0
+    // What this poll last FOLLOWED, which is not what is on screen. Two different
+    // questions, and answering both from one variable is what broke picking a project by
+    // hand: `active` is the backend's idea of what an agent is working on and a sidebar
+    // click does not move it, so comparing it against the screen made "the agent opened
+    // something new" permanently true and dragged the window back on the very next tick.
+    let followed: string | null = null
     const timer = setInterval(() => {
       void listProjects().then(async (list) => {
         // Replaced only when it differs. The poll returns fresh objects whether or not
@@ -259,33 +273,47 @@ export default function App() {
         // own comment. Set after `setProjects` so the two land in one render and an empty
         // repo list does not flash the gate before the loading line.
         setProjectsLoaded(true)
-        // A new project, or the same project rescanned. The second case is the repo moving
-        // under a picture that was taken before it — an edit, a commit, a pull — and it used
-        // to be invisible: the tree was fetched when `active` changed and never again.
-        const rev = list.projects.find((p) => p.key === list.active)?.scanned ?? 0
-        const moved = list.active !== showing
-        if (!list.active || (!moved && rev === revision)) return
-        showing = list.active
-        revision = rev
-        setActiveKey(list.active)
-        // Both, together. `project_scan` returns the tree as Rust scored it — proxy
-        // only — so fetching it without the readings shows an assessed repo as entirely
-        // grey until some later poll happens to repaint it.
-        const [s, reports] = await Promise.all([
-          projectScan(list.active),
-          agentReports(list.active),
-        ])
-        if (!s) return
-        // A DIFFERENT project means a different tree, and a stale drill-in or selection
-        // would point at nodes that no longer exist. A rescan of the same project must not
-        // do this: you are watching your own repo rebuild itself, and having the view jump
-        // to the root and drop your selection on every save is the feature making itself
-        // unusable. Ids are resolved against the fresh tree by `findById`, and anything that
-        // genuinely went takes the fallback the selection state already carries.
-        if (moved) {
+        const revOf = (key: string | null) =>
+          list.projects.find((p) => p.key === key)?.scanned ?? 0
+
+        // AN AGENT OPENED SOMETHING NEW. This is the inversion, and the only case that
+        // overrules what you are looking at. Compared against `followed` rather than against
+        // the screen, so a sidebar click — which does not move `active` — cannot be mistaken
+        // for one.
+        if (list.active && list.active !== followed) {
+          followed = list.active
+          shown.current = list.active
+          shownRev.current = revOf(list.active)
+          setActiveKey(list.active)
+          // A different project means a different tree; a stale drill-in or selection would
+          // point at nodes that no longer exist.
           setStack([])
           setPicked(null)
+          // Both, together. `project_scan` returns the tree as Rust scored it — proxy only —
+          // so fetching it without the readings shows an assessed repo as entirely grey
+          // until some later poll happens to repaint it.
+          const [s, reports] = await Promise.all([
+            projectScan(list.active),
+            agentReports(list.active),
+          ])
+          if (!s) return
+          setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
+          return
         }
+
+        // THE PROJECT ON SCREEN WAS RESCANNED — an edit, a commit, a pull; see
+        // `ProjectSummary.scanned` and the watcher that moves it. The tree is refetched and
+        // nothing else moves: you are watching your own repo rebuild itself, and jumping to
+        // the root and dropping your selection on every save would make the feature unusable
+        // exactly while it is working. Ids survive an edit now — see `assessment::key_of` —
+        // so the selection re-resolves against the fresh tree.
+        const here = shown.current
+        if (!here) return
+        const rev = revOf(here)
+        if (rev === shownRev.current) return
+        shownRev.current = rev
+        const [s, reports] = await Promise.all([projectScan(here), agentReports(here)])
+        if (!s) return
         setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
       })
     }, 1500)
@@ -644,6 +672,11 @@ export default function App() {
             // that the click landed. Selection is a statement about what you are looking
             // at; it does not depend on the thing having finished loading.
             setActiveKey(key)
+            // The poll follows what is on screen, and this IS the screen changing. Both
+            // halves, or the next tick sees a revision from the project you just left and
+            // refetches a tree you are not looking at.
+            shown.current = key
+            shownRev.current = projects.find((p) => p.key === key)?.scanned ?? 0
             setStack([])
             setPicked(null)
             // Readings fetched WITH the scan, not left to the next poll: `project_scan`

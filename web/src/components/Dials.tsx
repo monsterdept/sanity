@@ -40,16 +40,21 @@ import {
 export function Gauge({
   label,
   value,
+  rampValue,
   hint,
   ramp,
   unread,
   word,
 }: {
   label: string
-  /** 0..1, and it is the RAMP's input, not "how good this is". The docs ramp paints the
-   *  gap, so a well-documented function passes a small number here and gets a calm colour;
-   *  see `--docs-*`. */
+  /** 0..1 — what the dial PRINTS, and how far its arc sweeps. */
   value: number
+  /** 0..1 — where the ramp is sampled, when that is not the same thing.
+   *
+   *  Two dials count up for the good end (`Doc'd`, `Legible`) while their ramps must still
+   *  paint the gap, because bright means "there is work here" on every lens and that is not
+   *  a per-dial choice. Everywhere else the two are one number and this is left out. */
+  rampValue?: number
   hint: string
   /** Which lens this reading belongs to. Undefined for a figure with no lens behind it. */
   ramp?: Ramp
@@ -68,8 +73,12 @@ export function Gauge({
   const LEN = Math.PI * R
   const v = Math.max(0, Math.min(1, value))
   const arc = `M ${50 - R} 50 A ${R} ${R} 0 0 1 ${50 + R} 50`
-  // A ramp colour when the reading has a lens, the chrome's accent when it does not.
-  const fill = unread ? 'var(--secondary)' : ramp ? heatColor(v, ramp) : 'var(--accent)'
+  // A ramp colour when the reading has a lens, the chrome's accent when it does not. Sampled
+  // at `rampValue` where the printed number counts the other way — see the prop.
+  const c = Math.max(0, Math.min(1, rampValue ?? value))
+  const fill = unread ? 'var(--secondary)' : ramp ? heatColor(c, ramp) : 'var(--accent)'
+  // What the middle actually reads, worked out once so the fit below can measure it.
+  const shown = unread ? '—' : (word ?? String(Math.round(v * 100)))
   return (
     <div className="flex min-w-0 flex-col items-center" title={hint}>
       <svg viewBox="0 0 100 58" className="w-full overflow-visible">
@@ -96,20 +105,26 @@ export function Gauge({
             strokeDasharray={`${LEN * v} ${LEN}`}
           />
         )}
-        {/* One size for words and numbers. They were 15 and 22, so a row holding both —
-            which is most rows — had two type sizes competing inside one instrument, and the
-            dial reading `warm` looked like the quieter measurement. It is the same reading
-            either way; only its scale differs. */}
+        {/* One size for words and numbers — they were 15 and 22, so a row holding both, which
+            is most rows, had two type sizes competing inside one instrument and the worded
+            dial read as the quieter measurement. It is the same reading either way; only its
+            scale differs.
+
+            Shrunk to fit rather than clipped or truncated. The words are the ones `.sanity/`
+            prints now, and `unrecognisable` is fourteen characters where `warm` was four — a
+            fixed size would have run it off both ends of the arc. A name a reader cannot
+            finish is worse than one set a little smaller, and this is the same fit-or-shrink
+            the wedge labels make. */}
         <text
           x={50}
           y={47}
           textAnchor="middle"
           className="mono"
-          fontSize={16}
+          fontSize={Math.min(16, 88 / Math.max(1, String(shown).length * 0.58))}
           fontWeight={600}
           fill="var(--foreground)"
         >
-          {unread ? '—' : (word ?? Math.round(v * 100))}
+          {shown}
         </text>
       </svg>
       {/* Wraps rather than overflows. At three columns every label was one short word; at
@@ -137,13 +152,15 @@ function graded(node: Node, which: 'legible' | 'documented'): Grade | undefined 
   return node.agent.legible ?? undefined
 }
 
-/** The share of a directory's FILES whose header does not describe them — the twin of
- *  `undocShare` in `colorMode`, counted by reading rather than weighted by lines. */
+/** The share of everything underneath — files AND functions — that nobody has described.
+ *  The twin of `undocShare` in `colorMode`, counted by reading rather than weighted by
+ *  lines, and over the same population: a dial counting files above a list counting
+ *  functions is how one pane came to say 100% and 8-of-13 about the same directory. */
 function fileDocShare(node: Node): number | null {
   let read = 0
   let bare = 0
   const walk = (n: Node) => {
-    if (n.kind === 'file') {
+    if (n.kind === 'file' || n.kind === 'func') {
       const g = graded(n, 'documented')
       if (g) {
         read += 1
@@ -217,14 +234,20 @@ export function Dials({ node }: { node: Node }) {
       {/* Surprise. A container reports the share of its analysed lines sitting in hot code
           — `wedgeHeat` — which is the figure its wedge is painted with, so the dial and the
           ring agree. A function reports its own temperature. */}
+      {/* Adjectives on containers, nouns on functions, and the difference is not cosmetic:
+          a container prints a PERCENTAGE and a function prints a WORD.
+          `SURPRISING 15` reads as "15% surprising", which is what the number is; `SURPRISE
+          predictable` reads as the axis and the reader's grade, which is what those are.
+          One label for both would be wrong for one of them — `SURPRISING predictable` says
+          the opposite of itself. */}
       <Gauge
-        label={share ? 'Hot share' : 'Surprise'}
+        label={share ? 'Surprising' : 'Surprise'}
         value={wedgeHeat(node)}
         ramp="heat"
         word={words?.heat}
         hint={
           share
-            ? 'The share of analysed lines under here sitting in hot code — the figure this wedge is coloured by.'
+            ? 'The share of analysed lines under here sitting in surprising code — the figure this wedge is coloured by.'
             : 'How little of this body a reader could predict from its name, signature, neighbours and docs. This is the colour. A reader’s judgement has four steps, so it is named rather than numbered — a printed 62 would invite a comparison the scale cannot make.'
         }
       />
@@ -237,27 +260,33 @@ export function Dials({ node }: { node: Node }) {
           The VALUE is the gap, because that is what the ramp paints and what the lens is
           named for. The WORD is still the coverage grade a reader gave, which is the thing
           they actually said. */}
-      {/* The same question the Docs lens paints, at whichever level this node is: a
-          function or a file answers for its own doc, a directory for the share of its files
-          nobody has described. A dial that averaged something else would disagree with the
-          wedge it is standing next to. */}
+      {/* The same question the Docs lens paints, at whichever level this node is: a function
+          or a file answers for its own doc, a directory for its files.
+
+          **The NUMBER counts up for the good thing; the COLOUR still paints the gap.** A
+          directory reads `DOC'D 47`, and the ramp beside it is bright because 53% is not.
+          Those are two facts, not a contradiction: the number says how much you have, the
+          colour says whether there is work. Naming the dial `Files undescribed` and printing
+          the gap made the row read one way and the label another — `LEGIBILITY 0` meant
+          perfectly legible, which is the opposite of what it says. */}
       <Gauge
-        // Named for what the dial PRINTS, not for what the ramp paints. A function shows
-        // the reader's coverage grade (`most`), a directory the share of its files nobody
-        // described — the colour runs the other way in both, because bright is what wants
-        // doing, and the hint says so.
-        label={node.kind === 'dir' ? 'Files undescribed' : 'Documented'}
+        label={node.kind === 'dir' ? "Doc'd" : 'Docs'}
         value={
           node.kind === 'dir'
-            ? (docs ?? 0)
+            ? 1 - (docs ?? 0)
             : docGrade
               ? DOC_GAP[docGrade]
               : 1 - s.documented
         }
+        // The ramp always takes the GAP, whatever the number says — bright is the end with
+        // work in it, on every lens, and that invariant is not a per-dial decision.
+        rampValue={
+          node.kind === 'dir' ? (docs ?? 0) : docGrade ? DOC_GAP[docGrade] : 1 - s.documented
+        }
         ramp="docs"
         unread={node.kind === 'dir' ? docs === null : !docGrade && share}
         word={node.kind === 'dir' ? null : docGrade ? DOC_WORDS[docGrade] : null}
-        hint="How much of what this code does nobody has explained — graded by the reader that read both the docs and the body, not counted in comment lines. A directory reports the share of its files whose header does not describe them; a doc the reader judged derivable from the code reads none, whatever grade it gave."
+        hint="How much of what this code does somebody has explained — graded by the reader that read both the docs and the body, not counted in comment lines. A directory reports the share of its files whose header describes them; a doc the reader judged derivable from the code counts as none, whatever grade it gave. The colour runs the other way: bright is the part nobody has written."
       />
       {/* The second axis. Surprise alone cannot tell a subtle algorithm from a mess — both
           are unpredictable — and churn is what separates them.
@@ -266,7 +295,7 @@ export function Dials({ node }: { node: Node }) {
           no history means no second axis at all, and a zero claims "settled" where the
           truth is "unknown". */}
       <Gauge
-        label="Churn"
+        label={share ? 'Churning' : 'Churn'}
         value={s.churn}
         ramp="churn"
         unread={s.ageDays === null}
@@ -276,13 +305,16 @@ export function Dials({ node }: { node: Node }) {
           is graded AFTER opening the body, where Surprise is graded before. A function that
           reads hot there and plain here is unreachable rather than unreadable, which is a
           documentation problem and not a code one. */}
+      {/* Same construction as Doc'd, and for the same reason: `LEGIBILITY 0` read as
+          illegible while meaning nothing was tangled at all. */}
       <Gauge
-        label="Opacity"
-        value={share ? (legible ?? 0) : legibleGrade ? GRADE_SURPRISE[legibleGrade] : 0}
+        label={share ? 'Legible' : 'Legibility'}
+        value={share ? 1 - (legible ?? 0) : legibleGrade ? GRADE_SURPRISE[legibleGrade] : 0}
+        rampValue={share ? (legible ?? 0) : legibleGrade ? GRADE_SURPRISE[legibleGrade] : 0}
         ramp="legible"
         unread={share ? legible === null : !legibleGrade}
         word={share ? null : legibleGrade ? LEGIBLE_WORDS[legibleGrade] : null}
-        hint="How clear the body was once the reader had opened it — the second axis. Surprise asks whether the intent was reachable from outside; this asks what was there when they looked."
+        hint="What reading this was like, judged by what the reader actually did — one pass, a second look, jumping around, or never being sure. Surprise asks whether the intent was reachable from outside; this asks what was there when they looked. The colour runs the other way: bright is the tangled end."
       />
     </div>
   )
