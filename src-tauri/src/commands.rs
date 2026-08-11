@@ -360,7 +360,21 @@ pub fn agent_reports(
     };
     s.projects
         .get(&key)
-        .map(|p| p.reports.values().cloned().collect())
+        .map(|p| {
+            p.reports
+                .values()
+                .cloned()
+                .map(|mut r| {
+                    // Stamped on the way out, never stored: `legible_dated` is a judgement
+                    // THIS build makes about a fact the file records, so it has to be
+                    // recomputed every time the constants move. Writing it into `.sanity/`
+                    // would freeze one build's opinion into the store and make the next
+                    // bump invisible.
+                    r.legible_dated = !crate::assessment::legible_current(r.spec);
+                    r
+                })
+                .collect()
+        })
         .unwrap_or_default()
 }
 

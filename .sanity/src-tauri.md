@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-463 of 476 read · 23 surprising · 40 stale
+476 of 476 read · 23 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An agent was
 given its name, signature, neighbouring names and comments — never its body — and
@@ -452,6 +452,20 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: I did not predict the no-.sanityignore baseline assertion, which is the part that pins "no defaults, ever".
 
+### `a_reading_for_a_deleted_function_is_not_coverage`
+- read at `cf9d26a07bd4` · commit `6366346` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: A unit test building a project whose scan holds a few functions, inserting reports including one keyed to a function no longer present, then asserting assessed() counts only readings matching live functions so the orphan is not coverage.
+- found: That property, reached through a real temp repo: writes gate.rs with two functions, collects their ids and bodies from the scan, inserts a blank Report per function against its own body, asserts assessed == 2; then rewrites the file with one function, rescans, swaps in the new scan while keeping the old reports map, and asserts assessed == 1.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: I predicted the reports map would be keyed with key_of and it is keyed by node id here; I had read that rule in the project brief rather than from the handout, so I graded on the handout alone.
+
+### `deleting_a_twin_expires_the_survivors_reading_rather_than_moving_it`
+- read at `4e1be19ce4a0` · commit `6366346` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 8 of its run
+- expected: A test writing a file with two same-named functions with different bodies, recording a reading against each, then deleting the first and re-syncing; it asserts the survivor, now occupying the deleted twin's ordinal, does not inherit the dead reading as valid but comes back STALE on the body-hash check and is re-queued.
+- found: That, with two same-named `go` methods on different impl blocks as the twins. It seeds a blank Report per function against its own body, rewrites the file with only the second impl, calls resync_changed, then walks the scan and asserts exactly one function remains and that assessment::is_stale is true for it. It checks staleness directly and never asserts the re-queue or an assessed count.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The doc's first line — "A file is handed out as its own reading, with the header and the whole list" — describes a different test entirely (a neighbouring peer of that name); everything after it is an accurate account of this one.
+
 ### `a_file_is_queued_as_its_own_reading`
 - read at `154af36fe5c3` · commit `9c38c96` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 6 of its run
 - expected: A test building a small fixture project whose file carries a header comment, running the queue, and asserting that among the tasks there is one for the FILE itself — marked by kind/ask as the header reading — alongside the tasks for the functions inside it.
@@ -562,14 +576,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/assessment.rs
 
-### the file itself — STALE
-- read at `72452173bb81` · commit `9c38c96` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 8 of its run
-- expected: assessment.rs owns the .sanity/ on-disk store end to end: durable keys (key_of, file_key) and content hashes (reading_hash, body_hash) for staleness; sharding readings by top-level directory into Markdown files plus a linking README.md index; rendering (render_entry/render_shard/render_index) and parsing them back (load, read_all, parse_shard, parse_grade); save walking live functions to write, refresh rewriting an existing index/shards without creating one; git provenance helpers; and a substantial inline test module covering round-trips, twins, staleness and malformed entries.
-- found: That, essentially exactly. 1072 lines, roughly 60% implementation and 40% tests. One element I did not predict: an `Index` enum (Current / Refreshed / Absent / Failed(String)) so an open reports what became of README.md rather than absorbing it, with `refresh` writing only on a byte difference and only to files that already exist, and shards plus index coming out of one `compile` so they cannot disagree. `git`/`head`/`who` are thin Command wrappers; the actual provenance stamping happens in the caller, not here.
+### the file itself
+- read at `cee8321f30c0` · commit `6366346` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: The .sanity/ store layer: keys (key_of path#name#ord) and hashes (reading_hash over docs+body, whitespace-collapsed) deciding staleness; sharding by top-level directory into Markdown plus a README index; render/parse round trip with damage tolerance; coverage arithmetic; server-side git provenance; refresh-on-open that never creates; and a test suite pinning key uniqueness, line independence, format-insensitive hashing and round-tripping.
+- found: All of that, and the file is roughly 60% prose. Reading half (reading_hash/body_hash, shard_of/shard_file/file_key/key_of, grade_word/parse_grade, flat, load/read_all/parse_shard) then writing half (Live/live_funcs/live_files, is_stale, Placed, Compiled/compile, refresh with an Index enum reporting current/refreshed/absent/failed, save, render_entry/render_shard/render_index), a small git provenance trio, then ~450 lines of tests. Things I did not predict: shard_links parses the OUTGOING index's Markdown links so the orphan sweep can only remove files this tool itself claimed (a human's NOTES.md survives); files themselves get readings, titled in prose as "the file itself" and keyed by bare path so they cannot collide with a function key; render_index emits the full user-facing README including brew install instructions and the "study this project in sanity" sentence; and the entry heading deliberately carries NO verdict, only markers (OBSCURE/QUIRKY/UNCLEAR/TANGLED/TRAP/STALE) for the loud end of each axis.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: Two doc comments here link `[`refresh_index`]`, a function that no longer exists (it is `refresh` now), so the rustdoc link is broken and the prose points at a name a reader cannot find; the module header also stops short of the index/coverage table and the refresh-on-open repair, which are a third of what the file does. Warm: I had already read key_of in this file earlier in the run.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: Grading honestly: this repo's CLAUDE.md is in my context and describes .sanity/ by name, so my prediction was better informed than the handout alone would have made it — on the header and peers alone I would not have got sharding-for-merge-conflicts or the file-level readings. The header covers the store's identity, sharding and staleness but says nothing about the index being a user-facing README or about the shard-link ownership rule, which is the file's most surprising mechanism.
 
 ### `reading_hash`
 - read at `06911bed7259` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -722,14 +734,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: yes · legible: full · trap: no
 - note: save() carries no doc comment at all even though it is the durable-write entry point for .sanity/; everything explaining it is inline, so the ownership rule (only files the previous index linked may be deleted) is invisible from the signature.
 
-### `render_entry` — STALE
-- read at `8d69790154f7` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 6 of its run
-- expected: Build the Markdown block for one reading: a heading with the function name (backticked, with a #n suffix only when it has a twin, or a file marker when is_file), the verdict plus a STALE marker, then bullets for provenance (hash, commit, model, by, cold, position), expected/found, the grades (predicted/documented/derivable/legible/trap) and the note — in exactly the shape parse_shard reads back.
-- found: All of that. Extras I did not name: the heading also carries skim markers NONSENSE/MURKY for the loud end of `legible` and TRAP, all of which are decoration parse_shard strips and recomputes; grades come from r.grades() and both documented and legible print "not judged" rather than a default when absent; and a stale entry gets an extra explanatory bullet at the end.
+### `render_entry`
+- read at `a28770ceed86` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: Builds the Markdown block for one reading: a heading from `name`, disambiguated with the `ord` suffix for twins, flagged differently when `is_file`, a STALE marker when `stale`, plus bullet lines carrying the Report's fields (expected, found, grades, provenance by/at, body hash). Returns a string the shard renderer appends.
+- found: As predicted in shape, with a marker vocabulary I did not cover: after the em-dash it appends only the LOUD end of each axis — OBSCURE/QUIRKY for predicted, UNCLEAR/TANGLED for legible, TRAP, STALE — deliberately nothing for the calm grades. Ordinal prints only when ord != 0, as ` #{ord+1}`. File entries use a fixed unbackticked FILE_ENTRY heading. Then a single `·`-joined meta bullet (body hash, commit, model, by, cold/warm, position), expected/found bullets, one bullet with all five grades where absent documented/legible print "not judged" rather than a default grade, an optional note, and a prose warning when stale.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: No doc comment on a function that defines the on-disk record format, though the inline comments carry the reasoning well; `let tail = marks;` is a leftover rename.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: The function carries no doc comment of its own; everything explaining it is inline commentary inside the body, which a caller reading the signature never sees. I also had the project's CLAUDE.md in context, which mentions the em-dash/parse_shard split — I graded my prediction on the handout alone and claimed no credit for that.
 
 ### `render_shard`
 - read at `92852263f6c8` · commit `9c38c96` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
@@ -1303,204 +1313,174 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/cli.rs
 
-### the file itself — STALE
-- read at `994c26d56eee` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 10 of its run
-- expected: The headless entry point: arg dispatch in main over serve/study/status/summary/grades plus the client plumbing — an O_EXCL spawn lock with age-based theft, probe/live/await_backend/ensure_backend for idempotent startup, small get/post helpers against the endpoint file, formatting helpers so the read verbs are pure formatters over /status and /summary, and two spawn-lock tests.
-- found: Exactly that shape. Beyond the prediction: serve owns a watch loop with two stand-down conditions (endpoint file naming another pid, or gone) and a 30-minute idle timer whose check is deliberately unconditional so it cannot read a lock failure as "not idle"; ensure_backend re-probes under the lock, spawns this same binary with null stdio, and refuses to spawn when SANITY_BACKEND is set; study takes its counts from /status rather than the open response so stale readings are not counted as finished, and prints excluded alongside functions.
+### the file itself
+- read at `95e5f6e7e01e` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 7 of its run
+- expected: The headless entry point and backend lifecycle: main dispatching serve/study/status/summary/refresh (and probably mcp), a spawn-lock group making startup exclusive, ensure_backend/await_backend/probe/live to start one and wait on it, a thin get/post pair against the endpoint file, resolve canonicalising a path to a repo key, read_verb as shared plumbing so status and summary are pure formatters over the endpoints, small formatting helpers, refresh running in-process, study printing an instruction rather than spawning an agent, and two spawn-lock tests.
+- found: All of that, in that order. Two things I did not cover: `serve` is not just a bind — it owns a five-second watch loop that stands the daemon down when the endpoint file names another pid, when the file disappears, or when nothing has called in thirty minutes; and `main`'s match has no `mcp` arm at all, though USAGE advertises `sanity mcp`, so that verb must be intercepted before this dispatcher ever sees it. The lifetime constants (PROBE_TIMEOUT, START_WAIT, SPAWN_LOCK_STALE derived from START_WAIT, IDLE_FOR, WATCH_EVERY) each carry their derivation, and every printed line has a comment about what it must not claim.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The header names "`sanity serve`, `sanity study`, and the read-only verbs", but the file also holds `refresh`, which writes a repo's `.sanity/` in place — the one write verb here, and the one the header does not admit to; also warm, since three of my earlier readings came from this file.
+
+### `spawn_lock_path`
+- read at `e791874e7cbf` · commit `6366346` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: A three-line helper returning the spawn lock's path: the per-machine data dir (same place as the endpoint file) joined with a fixed lock filename, Option because resolving the data dir can fail, creating nothing.
+- found: Exactly that: Some(crate::reports::data_dir()?.join("backend.lock")).
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: The data dir comes from `reports::data_dir`, a module the project brief describes as deleted for holding a second copy of the store; the name is a leftover even though the function is fine.
+
+### `drop`
+- read at `79064e5f21c0` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 7 of its run
+- expected: The Drop impl for the spawn lock: removes the O_EXCL lock file, ignoring the error because an already-missing file (e.g. a lock stolen by age) is nothing to fail over — a single `let _ = std::fs::remove_file(...)`.
+- found: Exactly that: `let _ = std::fs::remove_file(&self.0)` over the path held in the tuple struct's single field.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: No docs at all here, but the neighbouring ensure_backend docstring I was handed earlier in this run explained the lock's whole lifecycle, so this was predictable for reasons outside the handout.
+
+### `take_spawn_lock`
+- read at `b2c40f308f31` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 6 of its run
+- expected: A three-line wrapper delegating to take_spawn_lock_after with the real staleness threshold (SPAWN_LOCK_STALE), the split existing so a test can inject an age, returning its Option&lt;SpawnLock&gt; unchanged.
+- found: Exactly one line: `take_spawn_lock_after(SPAWN_LOCK_STALE)`.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
-- note: The header's three properties are all real and load-bearing, but it says nothing about the spawn lock, which is the file's most delicate mechanism.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: The doc comment is a long argument about O_EXCL, staleness and steal-safety, none of which is in this body — it all lives in `take_spawn_lock_after`, so the explanation sits one call above the code it explains; and I had already read the same mechanism in the project brief, so this reading is warm.
 
-### `spawn_lock_path` — STALE
-- read at `68398470e769` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 9 of its run
-- expected: A one-liner joining a lock filename onto the same per-machine data dir the endpoint file uses, returning None when that dir cannot be resolved.
-- found: Exactly that: `reports::data_dir()?.join("backend.lock")`.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `drop` — STALE
-- read at `a46f00147a62` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: RAII release of the O_EXCL spawn lock: remove the lock file at the stored path, ignoring errors since it may already be gone or stolen by age, so an early return or panic still frees the lock.
-- found: `let _ = std::fs::remove_file(&self.0);` — exactly that, the path held in tuple field 0, error discarded.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `take_spawn_lock` — STALE
-- read at `8a628c40fe9d` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A three-line wrapper delegating to take_spawn_lock_after with the production staleness threshold SPAWN_LOCK_STALE, returning Some(SpawnLock) if the O_EXCL create won (possibly after stealing a lock older than that age) and None if another live process holds it. The parameterised inner form exists so tests can pass a different age.
-- found: Exactly that: one call, `take_spawn_lock_after(SPAWN_LOCK_STALE)`.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `take_spawn_lock_after` — TRAP — STALE
-- read at `c7240b27f43e` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 5 of its run
-- expected: Atomic O_EXCL create of the spawn-lock path; Some(SpawnLock) on success. On AlreadyExists, stat the file's mtime and if older than `stale` treat it as abandoned — remove and retry the exclusive create once — otherwise None so the loser waits for the winner's backend.
-- found: Exactly that, via a `claim` closure using create_new(true); the one detail I missed is that the winner writes its own pid into the lock file. Metadata/mtime failures fall through to `unwrap_or(false)`, i.e. not abandoned, which fails closed.
-- predicted: most · documented: some · derivable: no · legible: full · trap: yes
-- note: The steal path is remove-then-create, which is not atomic: two processes that both judge the lock abandoned can each delete the other's fresh claim and both return Some, so the O_EXCL exclusivity the rest of the design leans on does not hold once a lock ages out.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `await_backend` — STALE
-- read at `c9f63b2b9a62` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
-- expected: Polls in a sleep loop until the deadline, each pass reading the endpoint file and probing it for life, returning Some(endpoint) the moment one answers and None when the deadline expires — the loser's half of the O_EXCL spawn lock, waiting for the winner rather than starting a second backend.
-- found: Precisely that, in eleven lines: `live()` on each pass, deadline check after the probe (so one attempt always happens even with an already-expired deadline), 250ms sleep between tries.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `probe` — STALE
-- read at `17274227c383` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Takes an endpoint, issues a /health GET against its URL, and returns Some(pid) parsed from the JSON reply body — the pid the responding process reports — or None if nothing answers or the reply doesn't parse. Should not consult a pid recorded in the file.
-- found: Exactly that: builds a blocking reqwest client with PROBE_TIMEOUT, GETs {ep.url()}/health, parses JSON, pulls "pid" as u64 and narrows to u32, with every step short-circuiting to None via ok()?.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `live` — STALE
-- read at `158a291d5bb7` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: Read the published endpoint file via agentapi::read_endpoint(), then probe it, returning Some(endpoint) only if something actually answers and None otherwise — so callers can tell a live backend from a stale file.
-- found: That, with one detail I missed: `probe` returns the pid of whoever answered, and the endpoint is rebuilt with that pid (`Endpoint { pid, ..ep }`) rather than the pid the file claims — so the caller gets the pid actually serving, not the recorded one.
+### `take_spawn_lock_after`
+- read at `0ea5185ef782` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: Tries an O_EXCL create of spawn_lock_path(); on success returns Some(SpawnLock) whose drop removes the file. On AlreadyExists it stats the file and, if the mtime is older than `stale`, deletes the abandoned lock and retries the create once; otherwise returns None so the caller waits for the winner.
+- found: Exactly that, with `claim` as a closure doing `create_new(true)` and writing the current pid into the file; abandonment is decided from mtime elapsed >= stale, defaulting to not-abandoned when metadata or the clock fails; steal is remove-then-claim-once, else None.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: The one-line doc says nothing about the pid being taken from the probe rather than the file, which is the only non-obvious thing here.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: Disclosure: the project brief in my context already described this lock as an O_EXCL create stolen by age, so my prediction was warmer than the handout alone would make it; the handout's own doc, mentioning only "the steal" and an injected threshold, would still have got a stranger most of the way.
 
-### `get` — STALE
-- read at `87af1db3a9b4` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A 5-line HTTP GET helper: builds the URL from the Endpoint plus path, does a blocking request, parses JSON into Value, maps failures to a String error — read-side twin of `post`.
-- found: Exactly that, via reqwest::blocking::get on `{ep.url()}{path}`, chained with and_then(json) and map_err(to_string).
+### `await_backend`
+- read at `46d76f78a8ce` · commit `6366346` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: A poll loop: until the deadline passes, probe for a published endpoint via live(), sleeping a short interval between attempts; return Some(Endpoint) as soon as one answers, None once the deadline expires.
+- found: Exactly that, in five lines: loop { live() -> return Some; if now >= deadline return None; sleep 250ms }. The liveness check precedes the deadline check, so one attempt always happens even if the deadline has already passed.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
 
-### `post` — STALE
-- read at `d3be4e1b0b14` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 7 of its run
-- expected: An eight-line HTTP helper beside get: builds the URL from the endpoint's host/port and path, POSTs body as JSON with a minimal blocking client, and maps transport and non-2xx failures into a String error, returning the parsed JSON Value on success.
-- found: Exactly that shape — reqwest blocking client, url() + path, .json(&body).send(), parse, map_err to String — except it never checks the status: a non-2xx response is fed straight to .json(), so an error page either parses as some Value or surfaces as a decode error rather than a status error.
+### `probe`
+- read at `f2355a26ceaf` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: Sends a health request to the endpoint's URL and, on a successful reply, parses the pid out of the response body rather than trusting the endpoint file, returning Some(pid); any failure to reach or parse yields None.
+- found: Builds a blocking reqwest client with PROBE_TIMEOUT, GETs `{url}/health`, parses JSON, and returns the `pid` field narrowed to u32 — every fallible step short-circuits to None via `.ok()?`.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `live`
+- read at `d2536f381b43` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 8 of its run
+- expected: Reads this machine's endpoint file and returns the Endpoint only if a health probe against it answers, so a stale file naming a dead process yields None — roughly `read_endpoint().filter(probe)`.
+- found: That, plus a detail I did not cover: `probe` returns the PID the live server reports, and the returned Endpoint is rebuilt with that pid rather than the one recorded in the file — so the answer describes the process actually answering, not the file's claim about it.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: No error_for_status, so a 4xx/5xx from the backend is reported as a JSON decode failure — the repo's own rule that errors must say what to do gets no help from this path.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: Warm: this is my fourth function from cli.rs, and `live` had already appeared in `read_verb`'s body, which told me its contract before I predicted it.
 
-### `ensure_backend` — STALE
-- read at `b3ae49564834` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Probe for an already-running backend and return its endpoint if live; if SANITY_BACKEND is set, don't spawn anything; otherwise take the spawn lock — winner spawns `sanity serve` on the current exe with null stdio, losers wait for the winner's backend — then wait for the endpoint to publish and return it, or a String error on timeout.
-- found: Exactly that, plus two details I did not cover: with SANITY_BACKEND set and nothing answering it returns an Err rather than succeeding or spawning, and after acquiring the lock it re-probes `live()` because the previous holder may have finished in the gap. The lock is held across spawn AND wait (deliberately, per an inline comment), deadline is START_WAIT (15s).
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `commas` — STALE
-- read at `a3836f9d9d53` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Renders u64 decimal and inserts commas every three digits from the right, likely via reverse-chunk-join.
-- found: Exactly that, but forward: single pass over chars, pushing ',' when i>0 and (len-i) % 3 == 0. Pre-sized String.
+### `get`
+- read at `3dea6cd33daa` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 7 of its run
+- expected: A five-line HTTP GET helper: build the URL from the endpoint's host/port plus path, issue a blocking request, parse the body as JSON, mapping transport or parse failure into a String error — probably a one-expression chain.
+- found: Exactly that: `reqwest::blocking::get(format!("{}{path}", ep.url()))`, `.and_then(|r| r.json())`, `.map_err(|e| e.to_string())`. The URL prefix comes from `Endpoint::url()`; no status-code check, so a non-2xx response is only an error if its body fails to deserialize.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
 
-### `num` — STALE
-- read at `2ef5da1a266f` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: A tiny JSON accessor for the CLI's read verbs: get `key` from a serde_json Value as u64, defaulting to 0 when absent or not a number, so status/summary formatting can print counts off an endpoint response without unwrapping. Sibling of `text` and `commas`.
-- found: Exactly that, in one line: `v.get(key).and_then(|x| x.as_u64()).unwrap_or(0)`.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `text` — STALE
-- read at `d6dfd802029f` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: An undocumented 3-line JSON helper beside num/commas: pull `key` from a serde_json Value, return it as a borrowed &str, falling back to "" when the key is missing or not a string, so the read-only verbs can format output without unwrapping.
-- found: `v.get(key).and_then(|x| x.as_str()).unwrap_or("")` — exactly that.
+### `post`
+- read at `af9aacd701ee` · commit `6366346` · read by claude-opus-5 · by ross@rossturk.com · warm reading · reading 6 of its run
+- expected: Undocumented sibling of `get`: build the URL from the endpoint base plus path, blocking HTTP POST with body as JSON, return decoded JSON, mapping transport/decode errors to String.
+- found: Exactly that, as one expression chain: a fresh reqwest::blocking::Client, .post(format!("{}{path}", ep.url())), .json(&body), .send().and_then(|r| r.json()), .map_err(|e| e.to_string()).
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: Warm: this is my second reading in cli.rs. It has no docs and needs none, but it builds a new Client per call and sets no timeout, so a hung backend blocks a CLI verb indefinitely.
 
-### `resolve` — STALE
-- read at `017aee149817` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: Canonicalises the given path string so it agrees with project_key, returning the PathBuf or a formatted error string on failure.
-- found: Exactly that: std::fs::canonicalize(path).map_err(|e| format!("{path}: {e}")).
+### `ensure_backend`
+- read at `adb3fe3809ca` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 4 of its run
+- expected: Return the endpoint if `live()` already answers; if SANITY_BACKEND is set, do not spawn; otherwise take the spawn lock — the winner spawns `current_exe() serve` with all three stdio streams null and waits via await_backend, losers skip the spawn and wait for the winner's backend, erroring with a string if nothing comes up in time.
+- found: As predicted, with two things I did not cover: SANITY_BACKEND set with nothing answering is an outright error rather than a silent no-spawn path, and after winning the lock it probes `live()` a SECOND time, because the holder it queued behind may have finished between the first probe and the claim. The lock guard is bound for the whole call (spawn and wait together) so the next caller cannot enter while the port is still unpublished, and one `deadline` of START_WAIT covers both the queued wait and the post-spawn wait.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Not cold — this is the same file as my first reading (`probe`), though I had only opened eight unrelated lines of it; the long docstring, not the file, is what made this predictable.
+
+### `commas`
+- read at `da1fd4b095b7` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: Formats an integer with thousands separators: render n to a string, walk digits from the right inserting a comma every three, return the result — probably the reverse-chunk-rejoin idiom rather than a dependency.
+- found: Same result by a forward walk instead: pre-sized String, enumerate the decimal chars, and push a comma before any position where the remaining digit count is a multiple of three (using `is_multiple_of`). No reversal, no dependency.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `num`
+- read at `c3e28280c361` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 7 of its run
+- expected: A one-line JSON accessor: look up key in v, read it as u64, return 0 when absent or not a number — the numeric twin of text, so a missing field prints as zero rather than erroring.
+- found: Exactly that: v.get(key).and_then(as_u64).unwrap_or(0).
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Warm — I had already read cli.rs for summary, which is one of this helper's callers, though the signature alone determines the body.
+
+### `text`
+- read at `a6fb2eda2309` · commit `6366346` · read by claude-opus-5 · by ross@rossturk.com · warm reading · reading 7 of its run
+- expected: A three-line JSON accessor beside num/commas: v.get(key).and_then(as_str).unwrap_or(""), returning empty string when the key is missing or not a string.
+- found: Literally that one line: v.get(key).and_then(|x| x.as_str()).unwrap_or("").
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `resolve`
+- read at `5666377ab259` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 7 of its run
+- expected: std::fs::canonicalize(path) with the io error mapped to a String that names the path, so a CLI-supplied path matches the key the backend stored.
+- found: Exactly that: `std::fs::canonicalize(path).map_err(|e| format!("{path}: {e}"))`.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: Warm: third reading in cli.rs. The doc is not derivable from the body — it explains why canonicalisation is required (agreement with project_key across symlinks), which the one line does not say.
 
-### `serve` — STALE
-- read at `58da5e92b850` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
-- expected: Probe the endpoint; if something answers, print port and return 0. Otherwise take the spawn lock, build a tokio runtime, bind an ephemeral loopback port, write the endpoint file with pid+port, run an idle timer that stands down when idle or when the file stops naming its pid, and release the endpoint on exit.
-- found: All of that except the spawn lock (taken by callers, not here) and the endpoint write (done inside agentapi::serve). Adds agentapi::restore on a background thread and a deliberate `let _rt = rt` to keep the runtime alive; the watch loop returns 0 on supersede, on a missing endpoint file, and on idle, releasing the endpoint only in the idle case.
+### `serve`
+- read at `12d047bc45d6` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 5 of its run
+- expected: Probes for an already-answering backend, prints its address and returns 0 if one is live. Otherwise binds the loopback API on an ephemeral port, publishes the endpoint file with port and own pid, prints it, and blocks serving with a periodic idle check that stands the daemon down, plus a check that the endpoint file still names its own pid so a launching app supersedes it; releases the endpoint on exit, 0 on success and non-zero on bind failure.
+- found: As predicted: `live()` short-circuits with a message and 0; builds a tokio runtime (1 on failure), restores previously-open projects on a background thread, `agentapi::serve` binds and returns the port (1 on failure), and the runtime is deliberately held in `_rt` because dropping it would kill the listener. Then a watch loop sleeping WATCH_EVERY: stand down if the endpoint names another pid (app took over) or the file is gone; otherwise compute idle from `last_agent` or process start and, past IDLE_FOR, release the endpoint and exit. The idle read is deliberately unconditional — a long comment records that an earlier `ok()` made "cannot tell" read as "not idle" and kept the daemon up forever.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: Marked warm: this is my second reading in cli.rs, and the project brief in my context already described the idempotent-serve, supersede and fail-closed-idle rules by name, so my prediction was not made from the handout alone.
+
+### `study`
+- read at `20be813bcfdb` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 6 of its run
+- expected: Resolves the path to an absolute repo, calls ensure_backend(), POSTs /open with the repo and the `show` flag, and on success prints a human sentence naming the repo with its counts (functions, assessed, remaining) plus the instruction to hand the work to an agent — explicitly not spawning one; errors print and return non-zero.
+- found: That, plus one thing I did not cover: the counts do NOT come from the /open response — it makes a second GET to /status keyed by project_key, with an inline comment saying /open's `assessed` is raw reports.len() and would count stale readings as finished, disagreeing with the sidebar. Only `name`, `functions` and `excluded` come from the open. It also prints excluded only when non-zero, a stale parenthetical when non-zero, the backend port with either "Sanity is pointed here" or "left pointed at another repo" from the `showing` flag, and branches the closing line between "every function has an up-to-date reading" and the literal agent prompt `study this project in sanity`.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: Fourth function from cli.rs in this run, so I am warm on its idioms; the /status round-trip is the part I would not have guessed, and the `.unwrap_or(Value::Null)` there means a failed status silently prints zeros rather than reporting.
 
-### `study` — STALE
-- read at `a848e2443df5` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 8 of its run
-- expected: Resolves path, ensures a backend (non-zero exit if that fails), POSTs /open with the repo and the show flag, prints repo name, function/excluded counts, read and remaining, then prints the sentence a human pastes to point an agent at the repo, returning 0.
-- found: All of that, plus a detail I did not cover: the coverage numbers are deliberately fetched from a second call, GET /status?project=key, rather than taken from the /open response, because /open's assessed counts stale readings raw and would disagree with the sidebar. Also prints the backend port and whether Sanity is "pointed here" (never "the window"), and when remaining == 0 it prints a `sanity summary` pointer instead of the agent sentence.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The /status call uses unwrap_or(Value::Null), so a failed status request silently prints "0 read, 0 to go" and then the finished-message branch, claiming every function has an up-to-date reading.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `read_verb` — STALE
-- read at `bef6c1b9de43` · commit `1b80d39` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 6 of its run
-- expected: Resolves the repo path to a project key, probes for an already-running backend without starting one, and if nothing answers prints a message naming the command that would start it (`sanity study <path>`) and returns Err(exit code). Otherwise GETs the endpoint with the project key and returns the parsed JSON; if the backend is up but that repo is not open, prints the same hint and errors rather than opening it.
-- found: Exactly that, in that order: resolve -> live() -> agentapi::project_key -> get with ?project= urlencoded -> check the response's `open` boolean -> Ok(v). Every failure path prints to stderr and returns Err(1), so the exit code carries no distinction between "bad path", "nothing running", "transport error" and "not open" — the text does. Notably the openness test is a field on the response, not a status code, and a response missing `open` is treated as not open (fail closed).
+### `read_verb`
+- read at `d384d930466f` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: Resolves the repo path to a project key, probes for a live backend without ever starting one, and GETs `endpoint` for that repo. Returns the JSON on success; on failure returns Err(exit code) after printing a message — nothing running, or that repo is not open, run `sanity study <path>` — so a read verb never rescans or spawns.
+- found: Exactly that shape: `resolve(path)` (exit 1 on error), `live()` for an existing endpoint with the message "nothing is running. Start the app, or run `sanity study <path>`", then `agentapi::project_key(&repo)` GET of `{endpoint}?project=<urlencoded key>`, and finally a check that the response's `open` field is true — otherwise "<repo> is not open. Run `sanity study <path>`."
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: The docs' last line — "the answer to 'not open' is the name of the command that would open it" — is the whole design of the two error paths and could not be recovered from the code alone.
 
-### `status` — STALE
-- read at `c8e62bd6c7e8` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: Resolves the repo path to a project key, ensures a backend is up, GETs /status for that project and prints assessment progress — functions, assessed, remaining, in-flight, stale — via the commas/num/text helpers, returning an exit code that is non-zero if the backend is unreachable.
-- found: Exactly that, with the resolve/ensure-backend/GET all delegated to read_verb (whose Err IS the exit code, returned directly). Prints project — repo, function count with the .sanityignore exclusion count beside it, read/to-go/out-with-readers, a stale line only when non-zero, the assessment file path, and the server-supplied next_step. Always returns 0 on the success path.
+### `status`
+- read at `02a5431be822` · commit `6366346` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 6 of its run
+- expected: The CLI verb for `sanity status <path>`: resolve the path to a project, fetch /status through the shared read-verb helper, print a few formatted lines from the JSON via num/text/commas (assessed vs remaining, stale, in-flight, excluded, repo name), return 0 on success and a non-zero code when the backend is unreachable.
+- found: Exactly that: read_verb propagates its Err as the exit code, then it prints a project — repo heading, a function count with an excluded clause only when that is non-zero, a read/to-go/out-with-readers line, a stale line only when non-zero, the assessment file path, and the response's own next_step string; returns 0.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: I had opened this file earlier in the run for await_backend, so this reading is warm; the one thing I did not predict is that the human next-step sentence comes from the endpoint rather than being composed here.
+
+### `summary`
+- read at `8c2a2bae2b73` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: Resolve path to a project, GET /summary through read_verb, print the repo-wide aggregates — assessed/stale/remaining plus grade distributions via grades/commas/num/text — to stdout, returning 0 on success and the error code if the backend is unreachable.
+- found: That, with one thing I did not cover: it prints the .sanityignore exclusion count beside the function total whenever it is non-zero, so an exclusion never disappears from the tally. Otherwise repo name, functions, "read / to go / stale", and — only when the summary reports at least one reading — PREDICTED and DOCUMENTED grade lines. Always returns 0 once read_verb succeeds.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The docstring argues at length for what the function refuses to print and says nothing about what it does print; LEGIBLE grades exist elsewhere in the tool but are not among the aggregates shown here.
+
+### `refresh`
+- read at `fd92ae0d23c3` · commit `6366346` · read by claude-opus-5 · by ross@rossturk.com · warm reading · reading 9 of its run
+- expected: Resolves the path, then entirely in-process (no HTTP, no backend) scans the repo, loads the committed readings, and calls assessment::refresh so shards and index are re-rendered in this binary's format; prints refreshed / already current / no assessment here and returns an exit code, non-zero on failure.
+- found: That, with more care in the details: canonicalize failure exits 2 while a scan or rewrite failure exits 1; an absent .sanity/ short-circuits before the scan is even paid for; the scan uses an on-disk ScanCache but an ephemeral score cache and Fidelity::Ordering, with a comment explaining that proxy scores decide nothing a shard holds; each of the four Index variants gets its own message and code, and the Refreshed arm additionally prints the reading count and instructions to read the diff — moved headings are the change working, changed bullets are a lost reading.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: Warm on cli.rs (fourth reading here) and the project brief describes `sanity refresh` by name, so my prediction was better informed than the handout alone; the docstring is long but earns it, explaining why this cannot go through the backend, which no reader could derive from the body.
+
+### `grades`
+- read at `6ea80894ddb5` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: Takes an optional JSON object of grade counts and formats one line with each grade named, in scale order full/most/some/none (e.g. "full 12 most 5 some 3 none 1"); returns an empty string when the value is absent.
+- found: Exactly that, with two details I did not name: the absent case returns an em-dash "—" rather than empty, and each count goes through `commas` for thousands separators. Missing keys default to 0, joined by three spaces.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `main` — TRAP
+- read at `3102baf96966` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 5 of its run
+- expected: Matches the first argument against the verbs — serve, study, mcp, status, summary, refresh, grades — dispatching each to its function with the remaining args and a repo path defaulting to the cwd, printing usage for an unrecognised or missing verb, returning 0 on success and 1 on error.
+- found: Right shape: collects `args[1..]` as &str, takes the first non-flag argument as `path` defaulting to ".", and matches `args[0]` over serve/study/status/summary/refresh plus help/--help/-h printing USAGE and returning 0. Unknown verbs print to stderr, print USAGE, and return exit code 2 rather than 1. `mcp` and `grades` are not dispatched here despite `grades` being a sibling, and `study` is the only verb taking a flag (`--show`).
+- predicted: most · documented: none · derivable: yes · legible: full · trap: yes
+- note: Both `args[0]` and `args[1..]` panic on an empty slice and nothing in the signature or the one-line doc states the non-empty precondition — the caller happens to strip argv[0] and check, but an edit that calls this with no verb crashes rather than printing USAGE.
+
+### `only_one_caller_may_start_a_backend_at_a_time`
+- read at `0806f1ba0005` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 5 of its run
+- expected: A test that points the lock at a temp dir, takes the spawn lock twice, asserts the first wins and the second is refused (the O_EXCL create failing for the loser), then removes the lock and asserts a third call succeeds.
+- found: Exactly that shape: a `data_home()` guard held for the test, `take_spawn_lock()` must return Some, a second immediate call must be None, and after `drop(first)` a third must be Some. The release is by Drop rather than an explicit delete — the comment ties that to ensure_backend's error paths — and each assert carries the consequence as its message rather than a description.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: Warm: this is my second function from cli.rs, though from a different region of it, and the project brief in my context already describes the spawn lock as an O_EXCL create — I predicted the exclusion from that rather than purely from the handout, so treat the `full` with that discount.
 
-### `summary` — STALE
-- read at `111ef033eb8d` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
-- expected: Resolves path to a project key, ensures a backend, GETs /summary, prints the repo-wide aggregate — read/remaining counts, surprising, grade distributions via `grades` — and returns 0 or a non-zero exit code on failure.
-- found: Delegates all of the resolve/spawn/GET work to `read_verb(path, "/summary")`, propagating its error code, then formats: repo name, function count plus `.sanityignore` exclusions when non-zero, then "read / to go / stale", then PREDICTED and DOCUMENTED grade bars via `grades`, only when total.readings > 0. Always returns 0 on the success path. No "surprising" line.
+### `an_abandoned_spawn_lock_is_taken_rather_than_blocking_forever`
+- read at `1cd2739c4cbb` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
+- expected: A test over `take_spawn_lock_after`, the time-injectable form of `take_spawn_lock`: create a lock in a temp home, assert a lock younger than the threshold is respected (acquisition fails) and that the same lock past the threshold is stolen (acquisition succeeds). Both halves asserted because the doc says both matter.
+- found: That, with the age varied through the THRESHOLD rather than the file's mtime — a 3600s threshold makes the fresh lock untouchable, `Duration::ZERO` makes anything present by definition abandoned. Then a third assertion I did not predict: it drops both the original holder and the thief and checks a subsequent uncontended `take_spawn_lock` still succeeds, i.e. that release-by-path with two guards aliasing one file leaves nothing behind.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `grades` — STALE
-- read at `9e3e6bc661c1` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
-- expected: Takes an optional JSON value holding a grade histogram and renders one line in scale order — 'full N most N some N none N', labelled rather than bare — reading each key with a 0 default and returning an em-dash or empty string when absent.
-- found: Exactly that: early return of "—" for None, then map over the literal scale-ordered array, each key formatted as `{k} {count}` with a 0 default, joined by three spaces. The one thing I did not name is that counts go through `commas` for thousands separators.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `main` — STALE
-- read at `78657478fae5` · commit `1b80d39` · read by claude-opus-5 · by ross@rossturk.com · warm reading · reading 9 of its run
-- expected: A flat match on args[0] dispatching the subcommand names — serve, study, mcp, status, summary, grades — passing the remaining args (a repo path defaulting to ".", flags like --show) to the corresponding function and returning its exit code; unknown or missing verbs print usage to stderr and return non-zero.
-- found: That shape exactly: path is the first non-flag argument or ".", study takes rest.contains("--show"), serve/status/summary take what they need, help/--help/-h prints USAGE and returns 0, anything else prints the unknown-command line plus USAGE and returns 2. Two things off my prediction: `mcp` is not dispatched here (it must be intercepted before this), and `grades` — a sibling in the same file — has no arm either, so it is reachable only from inside summary, not as a verb.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: args[0] and args[1..] are indexed unguarded in a pub fn, so an empty slice panics rather than printing usage; nothing in the signature or doc says the caller must ensure a verb is present.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `only_one_caller_may_start_a_backend_at_a_time` — STALE
-- read at `a94dd62df363` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: A test calling take_spawn_lock twice against one temp path, asserting the first wins (Some/Ok) and the second loses (None/Err) — the O_EXCL exclusivity property.
-- found: That, plus a third leg: after dropping the first guard, take_spawn_lock succeeds again, asserting RAII release (which ensure_backend relies on for its error paths). Uses a data_home() temp fixture.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `an_abandoned_spawn_lock_is_taken_rather_than_blocking_forever` — STALE
-- read at `c944147b7e0d` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: A test that writes a spawn lock and asserts take_spawn_lock_after refuses while the lock is younger than the age threshold but succeeds once older — both halves of the doc, driven by an injected threshold rather than sleeping.
-- found: That, plus a third act I did not predict: after asserting a 3600s threshold does not steal and a ZERO threshold does, it drops the original holder and the thief and asserts a fresh take_spawn_lock still succeeds — i.e. release-by-path leaves nothing behind.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The comment at line 655 claims "the original holder's drop must not hand it to a third caller", but no assertion sits between `drop(held)` and `drop(stolen)` to test that — the property named in the comment is stated, not exercised.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: The third assertion checks only that the lock file is gone after everyone releases; it does not check the more interesting consequence of release-by-path, which is that the original holder's drop deletes a lock the thief still believes it holds — so exclusion during that window is untested and the test's name does not cover this half anyway.
 
 ## src-tauri/src/commands.rs
 
@@ -2174,122 +2154,100 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/mcp.rs
 
-### the file itself — STALE
-- read at `f852a028f930` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: The stdio MCP server shim hosted by the app binary: JSON-RPC on stdin/stdout, forwarding each tool call to the local HTTP backend (base_url, client, get/post, decode, urlencode) for the project this client opened; `tools` declares the full inputSchema contract for open/next/report/status/summary; with_retry/heal recover from a dead backend via a probe and re-open the shim's own PROJECT; `run` dispatches initialize/tools/list/tools/call.
-- found: Exactly that, plus one piece I did not name: `contract_fingerprint`, an FNV hash of the serialised schema sent on /open so the backend can detect a shim serving a stale contract from a pre-rebuild process image. Also notable: two distinct error constants (UNREACHABLE vs NOT_RUNNING) chosen by a live probe, a 600s request timeout sized past a full repo scan, status-discriminated decode (4xx nothing recorded / 5xx may have recorded), and `sanity_next` deliberately omitting `n` so serde's default_n decides the batch size.
+### the file itself
+- read at `9aece845730b` · commit `6366346` · read by claude-opus-5 · by ross@rossturk.com · warm reading · reading 8 of its run
+- expected: The stdio JSON-RPC shim: a run() loop over stdin/stdout handling initialize, tools/list and tools/call, with tools() as the single contract; call() translating each tool into an HTTP request against the per-machine backend via get/post/decode/base_url, holding the session's project in a PROJECT static and passing it as a query parameter via urlencode so a window click cannot retarget a headless run; with_retry/heal probing and restarting a dead backend once, with errors classified transient vs never-started so the text says what to do; contract_fingerprint hashing the schema so drift is visible.
+- found: All of that, and the file is about two-thirds commentary. The retry loop is subtler than I expected: a missing endpoint file is deliberately not an error (a restarting app looks exactly like that), the transient/fatal split is decided by a live /health PROBE rather than by the file existing, and healing re-POSTs /open with PROJECT because a fresh backend restores asynchronously and would answer NO_PROJECT. decode() branches on HTTP status — 4xx says nothing was recorded so fix and resend and keep your reading, 5xx says stop and tell the human — rather than parsing every response as JSON. REQUEST_TIMEOUT is 600s specifically so a 51s repo scan is not mistaken for silence. call() omits `n` unless the caller asked, so serde's default_n is the only place the batch size is decided; sanity_report gets `project` injected into the body while the read verbs get it as a query string. Tool errors come back as content with isError rather than as JSON-RPC errors, so the model can read them.
 - predicted: most · documented: most · derivable: no · legible: not judged · trap: no
-- note: The header is entirely about why there is only one server and says nothing about contract_fingerprint or the two-error split, which are the file's other load-bearing ideas.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: Warm — this was my second visit to mcp.rs, and CLAUDE.md (already in my context) names PROJECT, default_n and contract drift, so my prediction was better informed than the header alone would have made it; the header itself covers the one-server rule and the never-fail-quietly rule but says nothing about the retry, healing or status-classification machinery that is most of the file.
 
-### `project` — STALE
-- read at `ee7a20fb28a6` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: A lock-and-clone accessor over the shim's session-scoped PROJECT global, returning the opened repo key or None, so calls route by the session's own key rather than through `active`.
-- found: `PROJECT.lock().ok().and_then(|p| p.clone())` — exactly that, with a poisoned lock quietly collapsing to None.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- note: `.ok()` turns a poisoned mutex into None, which downstream reads as "no project opened" — the same NO_PROJECT the repo notes call Fatal.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `base_url` — STALE
-- read at `7cef72b9ecea` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 7 of its run
-- expected: Read the endpoint file the app publishes (port plus pid), parse the port fresh on every call rather than caching, return Some("http://127.0.0.1:<port>") or None if missing/unparseable; probably a SANITY_BACKEND env override first.
-- found: Exactly that, in three lines: SANITY_BACKEND wins outright, otherwise it delegates to agentapi::read_endpoint()?.url(). A comment records that parsing deliberately does not live here — once the CLI needed the pid too, a local parser would have been a second reader of one format, the mcp/sanity.mjs failure in miniature.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-- note: The handed docs describe re-reading and stale-file behaviour that now lives entirely in read_endpoint, so the header is about a mechanism this body only delegates to; also SANITY_BACKEND, the one branch actually implemented here, goes unmentioned.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `with_retry` — STALE
-- read at `addb4bd1eb3a` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Loop until a deadline, re-resolving the endpoint each pass via base_url(); call attempt(&base); return Ok immediately, return Fatal errors immediately, sleep and retry on transient/connection errors. Once per call, if nothing is answering, heal by starting a backend (and reopening the shim's PROJECT). On timeout return an error distinguishing UNREACHABLE from NOT_RUNNING via a probe rather than the endpoint file.
-- found: Exactly that: deadline = now + RETRY_FOR, `healed` flag, base_url() returning None is treated as "still starting" and waited through, Fatal returns, Transient falls through; on deadline it probes cli::live() to choose UNREACHABLE vs NOT_RUNNING; before sleeping, if not yet healed and probe says nothing is live, calls heal() once and continues without sleeping.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `heal` — STALE
-- read at `c5150cbb1daa` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Restarts a dead backend (spawn lock / start helper, wait for a probe to answer), then if PROJECT holds a repo path, synchronously reopens that repo against the fresh backend so a retried reader doesn't hit NO_PROJECT; Ok early if nothing was opened.
-- found: Calls cli::ensure_backend(), returns Ok early if project() is None, else builds base_url() and POSTs {"path": key} to /open with a raw client — deliberately bypassing the shim's own `post` helper to avoid recursing into the retry loop that called it.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- note: The inline comment about not routing through `post` to avoid recursion is the one thing outside the docs, and it earns its place.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `client` — STALE
-- read at `336bc1447f6d` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: Builds the blocking reqwest client used to talk to the local backend, with a timeout so a dead server fails fast instead of hanging a reader, mapping a build failure into a fatal RetryableError; possibly memoised in a OnceLock.
-- found: Exactly that, minus the memoisation: a fresh Client::builder().timeout(REQUEST_TIMEOUT).build(), errors mapped to RetryableError::Fatal(e.to_string()). A new client per call rather than a cached one.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `decode` — STALE
-- read at `9bea9c03b300` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: Branch on status before parsing. Success: parse JSON, turning a decode failure into an error. 4xx: read the body as text, return a non-retryable error saying arguments were rejected, nothing recorded, fix and resend. 5xx: Sanity's fault, may have recorded something, do not resend blindly. Body text included verbatim so the useful sentence survives.
-- found: As predicted, with two details I did not cover: the detail text is trimmed and truncated to 400 chars (serde paths get long), and EVERY arm returns RetryableError::Fatal — including 5xx and including an unparseable success body — so despite the type name decode never asks for a retry. The 4xx message also carries a concrete hint that all fields go at the top level with no wrapper object, which is the specific mistake that motivated the function.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `get` — STALE
-- read at `ea9a44997be4` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
-- expected: A tiny HTTP GET helper for the shim: base_url() + path, blocking send via the shared client(), decoded JSON returned, transport and non-success responses mapped to an error String so callers can decide whether to heal and retry.
-- found: That, with the retry inverted from my guess: `get` is itself the wrapper — it calls `with_retry`, which supplies the `base` and owns the heal-once logic, while the closure only sends and calls `decode`. A send failure becomes `RetryableError::Transient` rather than a plain string, which is what lets with_retry distinguish a dead backend from a real error.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `post` — STALE
-- read at `82810422dc13` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
-- expected: A thin HTTP helper: base_url + path, POST the JSON body with the shared client, decode the JSON response, map transport errors to String; retry/healing handled elsewhere by with_retry.
-- found: That, except the retry is not elsewhere: the whole body is a with_retry closure taking `base`, so healing is inside post rather than wrapped around it, and a send failure is classified as RetryableError::Transient.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `urlencode` — STALE
-- read at `dbe34d4d5504` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: A hand-rolled percent-encoder with no dependency: iterate bytes, pass through the unreserved set (alphanumerics, -, _, ., ~, possibly /), and emit everything else as uppercase %XX.
-- found: Precisely that — a byte-wise map over the unreserved set plus `/` (kept so path keys stay readable), everything else as `%{b:02X}`, collected into a String.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `tools` — STALE
-- read at `d1c0b2fa82f2` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Returns a serde_json Value array of the five MCP tool definitions (sanity_open, sanity_next, sanity_report, sanity_status, sanity_summary), each with name, description and inputSchema, as one json! literal.
-- found: Exactly that: one json! array of five tool objects in the order open, status, next, report, summary; report carries the full property set with the required list.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `contract_fingerprint` — STALE
-- read at `aaf29196be5a` · commit `1b80d39` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 5 of its run
-- expected: Serialises the tools() list to a JSON string, runs an FNV hash over its bytes, and returns the result as a short hex string — a cheap identity for the schema this process is actually serving, so a shim built against an older contract can be spotted.
-- found: Exactly that: serde_json::to_string(&tools()) with unwrap_or_default, FNV-1a 64-bit inline (offset basis 0xcbf29ce484222325, prime 0x100000001b3), formatted as 16 hex digits. Note there is a `fnv` helper in heuristic.rs; this one is open-coded rather than reusing it. A serialisation failure would silently fingerprint the empty string, though tools() cannot realistically fail to serialise.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
-
-### `call` — STALE
-- read at `9ab9bd3ca4dc` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: Tool dispatcher matching sanity_open/next/report/status/summary onto get/post against the backend, appending the session PROJECT key rather than trusting args, healing via with_retry, omitting n unless the caller asked, and erroring on an unknown tool.
-- found: Exactly that. sanity_open additionally calls ensure_backend (result deliberately discarded), sends a contract_fingerprint the backend compares against its own, and stores the returned project key into PROJECT. next clamps n to 1..25 and omits it otherwise; report injects the key into the cloned body; unknown tool errors. with_retry is applied inside get/post rather than here.
+### `project`
+- read at `828a0c7bf6ed` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 6 of its run
+- expected: A getter over the shim's process-global PROJECT: lock it and return a clone of the project key this client opened, None before any open. No other logic.
+- found: Exactly that — `PROJECT.lock().ok().and_then(|p| p.clone())`, so a poisoned lock also reads as None.
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
-- note: No doc comment on the function; all of its reasoning is inline comments, so the handout gave a reader nothing.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: Warm: second reading in mcp.rs. Worth noting the `.ok()` silently turns a poisoned lock into "no project", which elsewhere in this codebase is a Fatal condition for a reader — the neighbouring backend code deliberately recovers from poison instead.
 
-### `run` — STALE
-- read at `958606da10e3` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
-- expected: The stdio JSON-RPC loop: read stdin lines, parse each request, dispatch initialize / tools/list / tools/call to tools() and call(), skip notifications, write one JSON response line per request with a flush, exit at EOF.
-- found: Exactly that, plus two deliberate details: unknown methods get a -32601 error reply written inline before `continue`, and tool errors are returned as tool CONTENT with isError rather than a transport error, so the model can read and act on the message. Blank lines and unparseable lines are silently skipped; notifications are dropped by absence of `id`.
+### `base_url`
+- read at `9307f3f15219` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: Reads the endpoint file the app publishes, parses the port out of it (ignoring the pid also stored there), returns Some("http://127.0.0.1:{port}") or None when missing/unparseable; no caching; probably honours a SANITY_BACKEND override.
+- found: Returns SANITY_BACKEND verbatim when set, otherwise delegates to `agentapi::read_endpoint()?.url()` — deliberately not parsing the file here, because the CLI needs the pid too and two parsers of one format is the duplicated-contract failure in miniature.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The doc spends most of its length correcting a previous doc's false claim about a liveness check, and says nothing about the SANITY_BACKEND override that is the function's first branch.
+
+### `with_retry`
+- read at `72c9619e1d27` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Loops to a deadline re-resolving base_url each pass and calling attempt; Fatal returns Err at once, Transient sleeps and retries; once during the loop, if the backend looks gone, it calls heal/ensure_backend to restart it before continuing, and returns Err(String) if the window closes without success.
+- found: That, plus the part I did not cover: how the terminal error is chosen. A missing endpoint file simply skips the attempt rather than erroring. On deadline it probes `cli::live()` and returns UNREACHABLE if something answered, NOT_RUNNING if nothing did — deliberately not deciding by whether the endpoint file exists. The one-shot heal is gated on the same probe and, on success, loops immediately instead of sleeping.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `heal`
+- read at `893c3d008631` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: Restarts a dead backend (spawn + wait until it answers), then if the shim's PROJECT static holds a path, synchronously reopens that repo against the fresh backend so the caller's retry does not land in the NO_PROJECT window. Err(String) on spawn or reopen failure, Ok(()) when nothing was opened yet.
+- found: Calls cli::ensure_backend()?, returns Ok(()) early if project() is None, otherwise resolves base_url() and POSTs {"path": key} to /open using a raw client() call — deliberately not through the shim's own `post` helper, since post is the caller and re-entering the retry loop being repaired would recurse.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The one thing I did not predict — that it must bypass its own `post` helper to avoid recursing into the retry loop it is repairing — is the only non-obvious line, and it lives in an inline comment rather than the doc comment.
+
+### `client`
+- read at `0f6714dc0296` · commit `6366346` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 7 of its run
+- expected: A tiny constructor building a blocking reqwest client with an explicit timeout, mapping a builder failure into a RetryableError with a message and a transient/fatal classification.
+- found: Exactly that, four lines: builder, .timeout(REQUEST_TIMEOUT), .build(), and the error mapped to RetryableError::Fatal with the source error's string — a client that cannot be constructed is never worth retrying.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: Warm: I had opened this file earlier in the run for `call`, though only its lines 454-534.
+
+### `decode`
+- read at `397997e3c2b3` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 4 of its run
+- expected: Branches on the HTTP status before touching the body. 2xx parses JSON, a parse failure becoming its own error; 4xx reads the body as text and returns a non-retryable error carrying that sentence plus "your arguments are wrong, nothing was recorded, fix and resend"; 5xx returns an error saying it is Sanity's fault, something may already have been recorded, so do not blindly resend.
+- found: Exactly that shape. Details I did not cover: all three outcomes are `RetryableError::Fatal`, so nothing here is ever retried, including 5xx — the advice there is "stop and tell the human" rather than "retry". The body text is trimmed, defaulted to "no detail given" when empty, and truncated to 400 chars because the extractor message is sometimes a wall of serde path detail. The 4xx text also volunteers the most common actual mistake — every field goes at the top level, there is no wrapper object — and insists a paid-for reading be resent rather than discarded.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: Warm: I had already read a different function in this file (contract_fingerprint) this run, though not these lines.
+
+### `get`
+- read at `f8fa773a68b5` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 4 of its run
+- expected: A thin wrapper over with_retry: build {base}{path} (appending the shim's project key, urlencoded), GET through client(), map connection failures to RetryableError::Transient and others to Fatal, return the decoded JSON via decode.
+- found: Exactly that minus the query string — it formats {base}{path} verbatim, sends the GET, maps any send error to Transient, and hands the response to decode. The project key is the caller's job, not this function's.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: Warm: I had already opened this file for with_retry. The one thing my prediction got wrong — that the project key is appended here — came from the project's own brief rather than from the handout, and grading on the handout alone it was an unsupported guess.
+
+### `post`
+- read at `34314aa7895c` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 5 of its run
+- expected: A thin helper: JSON POST to the backend base URL plus `path` through the shared `client()`, response handed to `decode`, the whole thing wrapped in `with_retry` so a dead backend is healed once, flattening RetryableError into a plain String.
+- found: Exactly that, in six lines. `with_retry` supplies the base URL to the closure rather than the closure fetching it, and a send failure maps to `RetryableError::Transient` — deliberately discarding the reqwest error, since the transport-level failure is the retry signal and `decode` owns everything that has a status.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Warm again — third function handed to me from mcp.rs, and having read `decode` immediately before made this one easy in a way the code cannot take credit for.
+
+### `urlencode`
+- read at `6ead12706987` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 8 of its run
+- expected: A hand-rolled percent-encoder: iterate the bytes, pass the unreserved set (A-Z, a-z, 0-9, -_.~ and probably /) through unchanged, emit everything else as uppercase %XX hex, collect into a String.
+- found: Exactly that — `s.bytes().map(...)` with that literal allowlist including `/`, `format!("%{b:02X}")` otherwise, collected. Working on bytes rather than chars is what makes multi-byte UTF-8 in a directory name encode correctly.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `tools`
+- read at `52994caa9fe9` · commit `6366346` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: Returns a serde_json Value array of the five MCP tool definitions (sanity_open, sanity_next, sanity_report, sanity_status, sanity_summary), each with name, description and inputSchema; report's schema declares every graded field (predicted, documented, derivable, legible, trap, cold, position, model); no project/repo key in any schema.
+- found: Exactly that — a single json!([...]) literal, five tools, in the order open/status/next/report/summary. Every graded field is declared and all of them plus id/expected/found are in `required`. No project key anywhere. Two things I did not cover: a deprecated `surprised` boolean kept for older callers, and the descriptions are not terse at all — several are full paragraphs, with the open/status/summary ones aimed squarely at the orchestrator.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: The doc warns that 800 tokens once described tools a reader never calls, yet sanity_open, sanity_status and sanity_summary still carry the three longest descriptions in the array and every reader loads all five.
+
+### `contract_fingerprint`
+- read at `fc0982380099` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Serialises the `tools()` list to a JSON string and runs an FNV hash over its bytes, returning the digest as a short hex string — a stable fingerprint of the schema this process image was compiled with, so drift between two halves can be detected.
+- found: Exactly that: `serde_json::to_string(&tools())`, FNV-1a with the standard 64-bit offset basis and prime, wrapping multiply, formatted as 16 hex digits. A serialisation failure falls back to the empty string via `unwrap_or_default`.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `call`
+- read at `818050c8bf41` · commit `6366346` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: The shim's tool dispatcher: match the tool name across the five sanity_* tools, turn each into a get/post against the backend, attach the session's own PROJECT key rather than trusting args, pass n only when the caller supplied one, heal a dead backend, return decoded JSON or an error string.
+- found: A five-arm match doing that. sanity_open additionally calls ensure_backend (result deliberately discarded), posts a contract_fingerprint alongside the path, and stores the returned project key into the PROJECT mutex; status/next/summary are GETs with the key urlencoded into the query, next clamps a caller-supplied n to 1..25 and omits it otherwise so serde fills default_n; report clones args and injects the project key; unknown names return an error. Retry/heal is not here, it lives inside get/post.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: My prediction of the omit-n behaviour came from the project brief rather than the handout, which carried no doc comment at all; on the handout alone I would not have called it, so I graded down.
+
+### `run`
+- read at `d74877b869da` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
+- expected: The stdio JSON-RPC loop: read newline-delimited requests from stdin, dispatch initialize, tools/list (from tools()) and tools/call (to call), ignore notifications, write each response as a JSON line to stdout, return errors as JSON-RPC error objects, and end when stdin closes.
+- found: That loop, with one thing I got backwards: tool-call failures are returned as tool CONTENT with `isError: true`, not as transport errors, deliberately so the model can read and act on the message; only an unknown method gets a real JSON-RPC error (-32601). Notifications are skipped by absence of `id`, unparseable and blank lines are skipped silently, and initialize pins protocolVersion 2024-11-05 with the crate version as serverInfo.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: No docs on the function; the one non-obvious decision (errors as content, not transport failures) is explained in an inline comment instead.
 
 ## src-tauri/src/model.rs
 
@@ -2835,6 +2793,13 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: no · legible: most · trap: yes
 - note: `file.prints[i]` is indexed by the enumerate over `file.funcs` at lines 572 and 580, so it silently assumes prints and funcs are the same length and in the same order — an invariant nothing here enforces, and at Ordering fidelity (where the comment says no fingerprints exist) it is only unreachable because both call sites happen to sit behind a fidelity check; a fourth use added above one of those checks would panic on every scan.
 
+### `ordinals`
+- read at `6eedc9651175` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Walks the functions in file order with a HashMap<&str, usize> counter keyed by name, emitting the current count for each and then incrementing, returning a vector parallel to `funcs` giving each same-named function its zero-based ordinal among its twins.
+- found: Exactly that: a `seen` map from name to count, `.iter().map(...)` taking the entry, returning the pre-increment value and bumping it, collected into a parallel Vec<usize>.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: The docs' claim that ordinals are shared by both id-minting sites is not checkable from this body, but the body itself is exactly what the docstring promises; the doc's value is the why (durable keys), not the how.
+
 ### `file_surface`
 - read at `808877986a14` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: Joins the file's declarations in file order into one deterministic string — signature or qualified name per function, newline separated — so the scan and resync_changed can both produce identical bytes for a file-level reading's staleness hash.
@@ -2919,6 +2884,27 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Scans a fixture with no .git, asserts stats.without_history is true, and that age/churn-derived values are None/UNDECIDED rather than a confident default.
 - found: Exactly that: fixture() -> run(), asserts s.stats.without_history, then visits every node asserting any Some(score) has age_days == None.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `a_functions_context_is_its_neighbours`
+- read at `66b687ed9745` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 9 of its run
+- expected: A test building a file of several functions and asserting the context handed to a function late in the file is drawn from its immediate neighbours rather than always the file's opening functions — probably showing two functions get different sibling sets, or that a late one's context holds a nearby name and not the first.
+- found: Builds a synthetic ParsedFile of eight functions f0..f7 and checks `context_for(&file, 6)` contains `fn f5`, not `fn f0`, and never itself. It also asserts a case I did not cover: a function at index 0 still gets a FULL window, taken entirely from the side that has neighbours — `context_for(&file, 0)` contains f1 and f2 but not f0.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The docs describe the bug the test was written against but not the second property it actually pins — that an edge function's window is filled from one side rather than truncated.
+
+### `an_edit_above_a_function_does_not_change_its_identity`
+- read at `fb503dffef06` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 9 of its run
+- expected: A test that writes a small source file into a temp fixture repo, scans it, records the function ids, then rewrites the file with a line prepended above the functions, rescans, and asserts the ids are unchanged while the reported line numbers have moved.
+- found: Just that, minus the line-number half: a tempdir, a closure that writes `a.rs`, runs a full `scan` with the heuristic model, ephemeral memos and Fidelity::Ordering, collects sorted Func node ids, then asserts `before == ["a.rs#one", "a.rs#two"]` and that prepending `use std::fmt;` plus a blank line leaves the id list identical.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Nothing in the test asserts the second scan actually saw the edit — no line number or content is checked — so a scan that silently returned cached or stale results for the rewritten file would pass this test named for surviving an edit.
+
+### `same_named_functions_keep_separate_identities`
+- read at `42821d37e78b` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 8 of its run
+- expected: A test writing a fixture with two same-named functions (likely two methods in different impl blocks), scanning it, and asserting the two come back with distinct keys — the first plain, the second suffixed with an ordinal like #2 — probably also asserting the identity does not depend on line numbers.
+- found: Exactly that fixture — `impl A { fn go }` and `impl B { fn go }` in one a.rs — scanned with the heuristic model and ephemeral memos, collecting every Func node's id, sorting, and asserting they are ["a.rs#go", "a.rs#go#2"]. It checks node ids rather than key_of keys, and nothing in it moves any line, so the ordinal is exercised but the position-versus-line-number claim is not.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The docstring's second half — told apart "by position, which the line number was only ever a proxy for" — is not exercised: the test never perturbs line numbers, so it would still pass under a line-based scheme, and a sibling test named an_edit_above_a_function_does_not_change_its_identity looks like where that claim actually lives.
 
 ### `scanning_an_empty_directory_is_not_an_error`
 - read at `b0c1952516fb` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
@@ -3173,9 +3159,50 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/watch.rs
 
+### the file itself
+- read at `3bc87fd9322e` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 8 of its run
+- expected: A cheap polling change-detector rather than a filesystem watcher. `stamp` fingerprints a file by mtime and length, `hash` folds it, and `probe` walks the repo to say whether it moved, so the app can re-scan and stop showing stale blame. The three tests pin the boundaries: an ordinary edit moves it, a write into `.sanity/` deliberately does not, and a commit moves it though no working-tree file changed — only possible if git state is in the stamp.
+- found: Exactly that. FNV-1a over each in-scope file's path, mtime (nanoseconds) and length, walked with `ignore::WalkBuilder` configured to mirror the scan's own settings so the probe cannot disagree with the scan about what counts, with `.sanity/` filtered out because the app writes it on every reading. The one structural detail I got wrong: `probe` does not compare anything — it returns a `Marks { tree, git }` with git's HEAD and index hashed into a SEPARATE field, and the comparison lives in the caller. The header also argues the negative case at length: why `notify` loses on a 1.5s-granular delivery path, on filter duplication, and on platform-specific watch semantics.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: `a_commit_moves_the_marks_without_touching_a_file` does not test a commit — it rewrites `.git/HEAD` to point at another branch, which is a checkout; an actual commit on the current branch leaves HEAD byte-identical and moves `refs/heads/<branch>`, which this stamps nothing of, so the property the file's own header opens with ("you committed, and Blame went on reporting Not Committed Yet") is carried in practice only by `.git/index` and is not what the test exercises. (`legible`/`trap` are placeholders — the ask said to leave them unset but the schema requires them.)
+
+### `hash`
+- read at `ab046fa6235f` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 10 of its run
+- expected: Standard FNV-1a over bytes, seeded with the caller-supplied accumulator h so it chains across many inputs: XOR each byte into h, then wrapping-multiply by the 64-bit FNV prime 0x100000001b3, and return.
+- found: Exactly that, byte for byte, with the prime written as 0x0000_0100_0000_01b3.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: Warm on the file (my second function from watch.rs), though the algorithm was named outright in the docs anyway; the docs' interesting claim — that this twin is free to use the real constant because it stores nothing durable — is not derivable from the body.
+
+### `stamp`
+- read at `37e54f4bc220` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 9 of its run
+- expected: A fold step for the stat probe's rolling hash: take the running hash h and one file's Metadata, mix in its mtime and probably its length with a cheap primitive from the `hash` peer, and return the new hash, so a repo whose files kept their mtime and size produces the same stamp.
+- found: Exactly that: length folded in first, then the modification time as nanoseconds since the epoch, both little-endian, through the `hash` peer. An unreadable or pre-epoch mtime contributes 0 rather than failing.
+- predicted: full · documented: none · derivable: yes · legible: most · trap: no
+- note: The local is called `secs` but holds nanoseconds, which is the one thing that needed a second look in an otherwise transparent function.
+
 ### `probe`
 - read at `d105b40f71a7` · commit `9c38c96` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: Walks the repo with the scan's own settings (skipping .sanity/), stats each file for mtime and length, folds them into a cheap hash, and also stamps git HEAD/index so a commit moves the marks without a file changing. Returns a Marks comparable against a later probe.
 - found: Exactly that: an ignore::WalkBuilder honouring hidden/gitignore/global/parents with a filter_entry dropping `.sanity`, hashing each file's path bytes and then `stamp`ing its metadata into a rolling `tree` hash; separately stamps .git/HEAD and .git/index into a `git` hash. Returns Marks { tree, git }. Metadata errors are skipped silently, and walk order is deliberately not sorted.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 - note: The docs say it mirrors `scan::collect_files` but the walk settings are written out a second time here, so the two can drift with nothing failing.
+
+### `an_edit_moves_the_marks_and_an_untouched_repo_does_not`
+- read at `ed16a8152686` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 9 of its run
+- expected: A unit test building a temp directory with a source file, probing twice with nothing touched and asserting the marks are equal, then editing the file and asserting the mark changes — the pair of assertions the name promises.
+- found: That, plus a third case: after the edit it re-probes and adds a second file, asserting `tree` moves for a new file as well. Note the stability assertion compares the whole probe value while both change assertions compare only the `.tree` field.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: Both edits also change the file's byte length, so the test would still pass if the probe hashed only mtime and length and never the content — a same-length edit is the case it does not cover.
+
+### `writing_the_assessment_is_not_a_change_to_the_repo`
+- read at `f6a514b2c896` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: A test: build a temp repo, take a baseline probe, write a file inside `.sanity/`, probe again, and assert the mark is unchanged — proving `.sanity/` is excluded from the change probe so the app cannot fire on its own writes.
+- found: Exactly that: tempdir with one `a.rs`, `probe()` baseline, then creates `.sanity/README.md` and asserts `before == probe(...)` with the message "our own record is not the code".
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `a_commit_moves_the_marks_without_touching_a_file`
+- read at `657fd2f8a7b0` · commit `6366346` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
+- expected: A test making a temp git repo, taking a stamp of it, then creating a commit that alters no working-tree file, asserting the stamp differs afterwards because HEAD moved even though no mtime or length did.
+- found: The property, with no real git involved: it hand-builds a .git directory containing only a HEAD file plus one source file, probes, then rewrites .git/HEAD to point at a different branch and probes again. The probe result has two separate fields, and the test asserts before.tree == after.tree while before.git != after.git — so the split between "the working tree moved" and "the repo moved" is the thing being pinned, not a single fingerprint.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The name and doc both say "a commit", but what the body actually performs is a branch switch by rewriting .git/HEAD — the same observable to the probe, yet the test does not exercise a commit.

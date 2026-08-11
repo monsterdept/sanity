@@ -701,6 +701,32 @@ pub struct Report {
     /// rather than inventing an attribution.
     #[serde(default)]
     pub model: String,
+    /// Set on the way OUT when `legible` was graded under a superseded question.
+    ///
+    /// Computed here rather than in the browser, and that is the whole point of the split:
+    /// the store records which spec a reading was taken under, and the code decides what
+    /// each spec changed. Mirroring `LEGIBLE_SINCE` into TypeScript would put that decision
+    /// in two places, and the copy nobody is looking at is the one that goes wrong — which
+    /// is exactly how a whole repo's readings lost `derivable`.
+    ///
+    /// The grade itself is NOT cleared. It is what a reader said, and the panel shows it as
+    /// history the same way it shows a stale reading; what it must not do is colour a wedge
+    /// or count towards a dial. Deleting the reader's answer to make the display simpler
+    /// would be destroying evidence to avoid writing a conditional.
+    #[serde(default, rename = "legibleDated")]
+    pub legible_dated: bool,
+    /// Which reading spec this was taken under — see [`crate::assessment::SPEC`].
+    ///
+    /// Stamped server-side in the `report` handler, beside `body`, `by` and `at`, and for
+    /// the same reason those are: a field whose whole job is to be checkable later cannot
+    /// be self-certified. A reader asked to declare which question it was answering could
+    /// claim the one that makes its answer look current, which is precisely the claim this
+    /// exists to test.
+    ///
+    /// `0` on everything written before the spec existed, which is not a gap — it is the
+    /// answer. An unversioned reading was taken under an unknown question.
+    #[serde(default)]
+    pub spec: u32,
     /// Whose git identity was configured when the reading was made.
     #[serde(default)]
     pub by: String,
@@ -727,6 +753,8 @@ impl Report {
             position: None,
             model: String::new(),
             body: String::new(),
+            spec: 0,
+            legible_dated: false,
             by: String::new(),
             at: String::new(),
         }
@@ -1189,6 +1217,14 @@ and neither found it, while the cost falls from ~26,000 tokens per function at o
 at a time, because the saving comes from the shared context, not the shared handout: \
 fetching ten at once costs the same and shows the reader nine functions it has not \
 predicted yet.\n\n\
+WHICH MODEL READS IS PART OF THE MEASUREMENT — ASK BEFORE THE FIRST WAVE, unless the user \
+already said. Surprise is what a competent reader could predict, so the reader IS the \
+scale: a smaller model is surprised by more, and its readings are not comparable to the \
+ones already banked. Propose Sonnet and say why in one line, then spawn every reader in \
+this run on whatever they choose. Do not mix models within a repo to save money — a mixed \
+corpus gives you one map on two scales and nothing on screen says which wedge is which. \
+`model` is recorded on every reading, so an honest answer is available later; a mixture is \
+merely unreadable.\n\n\
 ON A LARGE REPO, ASK. `functions` PLUS `files` in the sanity_open response is the real \
 size of the job — a file is a reading too, graded on whether its header describes what is \
 in it — and at ten per reader, ten thousand of them is over a thousand subagents. If that is more than the user has agreed to spend, say what a full pass would \
@@ -2035,6 +2071,16 @@ async fn report(
         }
     });
     r.body = body.unwrap_or_default();
+    // Which question this answered — the same argument as the hash beside it. A reader
+    // asked to declare its own spec could name the one that makes its grade look current,
+    // and that claim is exactly what the field exists to test. This build asked, so this
+    // build stamps.
+    r.spec = crate::assessment::SPEC;
+    // And cleared, for the same reason it is stamped rather than accepted. It is a
+    // conclusion this build draws on the way out, never a claim a reader gets to make on
+    // the way in — a reader that sent `legibleDated: false` would otherwise be voting on
+    // whether its own grade still counts.
+    r.legible_dated = false;
     r.by = crate::assessment::who(&project.repo);
     r.at = crate::assessment::head(&project.repo);
 
@@ -2315,7 +2361,13 @@ impl Tally {
         self.predicted.add(Some(predicted));
         self.documented.add(documented);
         self.derivable += usize::from(r.derivable);
-        self.legible.add(r.legible);
+        // A grade from a superseded question lands in `ungraded`, not in its rung. The map
+        // stops colouring those wedges, and an aggregate that kept counting them would be
+        // the orchestrator's copy of the answer disagreeing with the human's — the same
+        // split `assessed` was fixed for, where the optimistic number was the one making
+        // decisions.
+        self.legible
+            .add(r.legible.filter(|_| crate::assessment::legible_current(r.spec)));
         self.traps += usize::from(r.trap);
         self.cold += usize::from(r.cold);
     }

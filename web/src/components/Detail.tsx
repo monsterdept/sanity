@@ -7,6 +7,7 @@ import { PAPER } from '../lib/ink'
 import { FAMILY } from '../lib/labelStyle'
 import { Dials } from './Dials'
 import {
+  LEGIBLE_WORDS,
   isAnalyzed,
   readingWords,
   wedgeHeat,
@@ -587,6 +588,31 @@ export function Detail({
                     proxy again. Kept below because what a reader expected last time is
                     still worth knowing. Ask an agent to update the assessment and it will
                     re-read this one first.
+                  </p>
+                </div>
+              )}
+
+              {/* A grade that answered a question we have since rewritten.
+                  Narrower than the stale block above it and shaped the same way, because it
+                  is the same kind of fact: a reading that is still true about what it was
+                  asked, and no longer about what we ask. The difference is scope — staleness
+                  retires the whole reading because the BODY moved, this retires one axis
+                  because the QUESTION moved, and saying "stale" for both would tell somebody
+                  their prediction had expired when it has not.
+                  Kept on screen rather than hidden: the reader did the work and said
+                  something, and a panel that silently dropped it would look like a reader
+                  that never answered. */}
+              {node.agent.legibleDated && node.agent.legible && !node.agentStale && (
+                <div className="rounded-[var(--radius-sm)] border border-[var(--border)] px-2 py-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                    Legibility asked differently
+                  </p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-[var(--muted-foreground)]">
+                    This reader answered “how clear is it on its own terms” and said{' '}
+                    <span className="font-semibold">{LEGIBLE_WORDS[node.agent.legible]}</span>.
+                    Legibility now asks what reading it was like — one pass, a second look,
+                    or never being sure — so the grade is kept as history and does not colour
+                    this wedge.
                   </p>
                 </div>
               )}

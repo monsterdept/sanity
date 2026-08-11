@@ -348,6 +348,17 @@ export interface AgentReport {
   /** How clear the body was once open — the second axis. Absent on readings banked before
    *  the field existed; absent is "no opinion", never a grade. */
   legible?: Grade
+  /** This grade answers a question that has since been rewritten — see `Report::spec`.
+   *
+   *  Decided in Rust and sent as a boolean, deliberately. Which spec changed the meaning of
+   *  which axis is a judgement, and mirroring the constants here would put it in two places
+   *  — the copy nobody is looking at being the one that goes wrong. The browser's whole job
+   *  is to paint what it is told.
+   *
+   *  Treated exactly like `agentStale`: the grade is kept and shown as history, but it does
+   *  not colour a wedge and does not count in a dial. A number whose question has moved is
+   *  a term claiming confidence it has not got. */
+  legibleDated?: boolean
   /** The reader says something here will bite whoever edits it next. */
   trap?: boolean
   note: string
@@ -393,6 +404,23 @@ const GRADE_DOCUMENTED: Record<Grade, number> = { full: 0.95, most: 0.7, some: 0
  *  scale and wants the ends pinned, so `none` is 1 rather than 0.95's complement. The
  *  direction is the point — see the `--docs-*` ramp. Bright is what needs writing. */
 export const DOC_GAP: Record<Grade, number> = { full: 0.05, most: 0.3, some: 0.65, none: 1 }
+
+/**
+ * A reading's legibility grade, or undefined if it has none THAT STILL MEANS ANYTHING.
+ *
+ * One accessor, because a grade whose question has moved is not a grade any more and every
+ * consumer has to agree about that — the lens, the breakdown, the dial and the spread. When
+ * `legible` was read straight off the report in four places, a bump to the ask would have
+ * been honoured wherever somebody remembered and ignored everywhere else, which is worse
+ * than not bumping: the map would disagree with the panel beside it about the same wedge.
+ *
+ * A dated grade is kept on the report and shown as history — see `legibleDated`. What it
+ * does not do is colour, count, or bucket.
+ */
+export function legibleOf(r: AgentReport | undefined): Grade | undefined {
+  if (!r || r.legibleDated) return undefined
+  return r.legible
+}
 
 /** The report's two grades, with two rules applied that the grades themselves do not carry.
  *
@@ -478,7 +506,8 @@ export const HEAT_WORDS: Record<Grade, string> = {
  * when these words did. It used to be "how clear is it on its own terms", which defined no
  * rung but the top one and produced 84.5% `full` across two repos; it now asks what the
  * reader actually did — one pass, a second look, jumping around, or never being sure. Grades
- * banked before that answer a softer question.
+ * banked before that answer a softer question — and now say so, rather than being something
+ * you had to know. See `legibleOf`.
  */
 export const LEGIBLE_WORDS: Record<Grade, string> = {
   full: 'clean',
@@ -726,8 +755,9 @@ export function summarize(root: Node): RepoSummary {
         s.spread[g]++
         s.byGrade[g].push(n)
         s.read++
-        if (n.agent?.legible) {
-          s.legible[n.agent.legible]++
+        const lg = legibleOf(n.agent)
+        if (lg) {
+          s.legible[lg]++
           s.legibleRead++
         }
         if (n.agent?.trap) s.traps++

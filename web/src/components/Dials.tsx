@@ -5,6 +5,7 @@ import {
   LEGIBLE_WORDS,
   heatColor,
   isAnalyzed,
+  legibleOf,
   readingWords,
   showsShare,
   wedgeHeat,
@@ -149,7 +150,10 @@ function graded(node: Node, which: 'legible' | 'documented'): Grade | undefined 
   if (which === 'documented') {
     return node.agent.derivable ? 'none' : (node.agent.documented ?? undefined)
   }
-  return node.agent.legible ?? undefined
+  // Through `legibleOf`, so a grade whose question has been rewritten reads as ungraded here
+  // exactly as it does on the map. A dial that kept counting it would be the sidebar telling
+  // you 100% legible over a ring that had gone grey.
+  return legibleOf(node.agent)
 }
 
 /** The share of everything underneath — files AND functions — that nobody has described.

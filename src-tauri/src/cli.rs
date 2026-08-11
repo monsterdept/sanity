@@ -451,6 +451,14 @@ pub fn study(path: &str, show: bool) -> i32 {
         println!("Ask your agent:");
         println!();
         println!("    study this project in sanity");
+        println!();
+        // Said here because this is the human's entry point, and the choice is theirs to
+        // make before a wave starts rather than a thing they discover afterwards from the
+        // `model` column. The agent is told to ask (see `PROTOCOL`); this is so the question
+        // is expected rather than surprising, and so somebody who already knows what they
+        // want can put it in the sentence and skip the round trip.
+        println!("It will ask which model should read — Sonnet unless you say otherwise.");
+        println!("Naming one in that sentence skips the question.");
     }
     println!();
     0

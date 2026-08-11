@@ -5,6 +5,7 @@ import {
   LEGIBLE_WORDS,
   heatColor,
   isAnalyzed,
+  legibleOf,
   rampStop,
   readingWords,
   shareRamp,
@@ -239,10 +240,11 @@ function opaqueShare(node: Node): number | null {
   let read = 0
   let opaque = 0
   const walk = (n: Node) => {
-    if (n.kind === 'func' && n.agent && !n.agentStale && n.agent.legible) {
+    const g = n.kind === 'func' && !n.agentStale ? legibleOf(n.agent) : undefined
+    if (g) {
       read += n.loc
       // `some` and `none` are the two grades that mean a reader had to work for it.
-      if (n.agent.legible === 'some' || n.agent.legible === 'none') opaque += n.loc
+      if (g === 'some' || g === 'none') opaque += n.loc
     }
     n.children.forEach(walk)
   }
@@ -394,7 +396,7 @@ export function colorFor(
         label: `${Math.round(share * 100)}% tangled`,
       }
     }
-    const g = node.agent && !node.agentStale ? node.agent.legible : undefined
+    const g = node.agentStale ? undefined : legibleOf(node.agent)
     if (!g) return null
     return { ...ramped(GRADE_SURPRISE[g], 'legible'), label: LEGIBLE_WORDS[g] }
   }
@@ -639,9 +641,15 @@ export function bucketsFor(
           const g = docGrade(n)
           if (g) put(g, DOC_WORDS[g], heatColor(DOC_GAP[g], 'docs'), n)
           else put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
-        } else if (r.legible) {
-          put(r.legible, LEGIBLE_WORDS[r.legible], heatColor(GRADE_SURPRISE[r.legible], 'legible'), n)
+        } else if (legibleOf(r)) {
+          const g = legibleOf(r)!
+          put(g, LEGIBLE_WORDS[g], heatColor(GRADE_SURPRISE[g], 'legible'), n)
         } else {
+          // Covers both a reading that never graded legibility and one that graded it under
+          // a question since rewritten. Deliberately one bucket: from where the reader is
+          // standing they are the same fact — nobody has answered today's question about
+          // this function — and splitting them would put a row on screen about our own
+          // release history.
           put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
         }
       } else if (mode === 'blame' || mode === 'language') {

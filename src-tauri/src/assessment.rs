@@ -38,6 +38,73 @@ use crate::model::NodeKind;
 use crate::scan::Scan;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+
+/// The reading spec a new reading is taken under.
+///
+/// **What a grade MEANS is an input to it, and nothing recorded which one.** `reading_hash`
+/// covers the file header, the doc and the body — every input except the question the
+/// reader was actually asked. So rewording an ask expires nothing: the grades stay, reading
+/// as current, answering a question that no longer exists. The evidence that this is not
+/// theoretical is in the corpus. `legible`'s ask described its top rung only, and across
+/// three repos and 6,900 readings the bottom rung was used **zero** times while 84–92% sat
+/// at the top. That is not a finding about the code.
+///
+/// So a reading records the spec it was taken under, and this file records nothing about
+/// what that spec said. **The store holds the fact; the code holds the meaning.** Which
+/// bump changed what an answer means is a judgement somebody makes, and a judgement belongs
+/// in a diff somebody can review — see the `*_SINCE` constants, which are that judgement.
+///
+/// One number for the whole reading, not one per axis. Per-axis stamps were drafted and
+/// they rendered as `predicted 1 · documented 1 · legible 2`, three integers in the same
+/// visual slot as four grades — a provenance line that reads as a score sheet. The thing
+/// per-axis versioning was for is real and survives in the `*_SINCE` constants instead,
+/// where it costs the file nothing.
+///
+/// Bump this when a change alters what an answer to any of the graded questions means.
+/// Not for a typo, not for a rewording that sharpens the same question — an expiry nobody
+/// believes in is one people learn to bump past.
+///
+/// **1, because versioning starts here.** It was briefly 4, which looked like a history and
+/// was not one: there were no specs 1 through 3, and a number with an invented past is the
+/// same sort of lie as a reading claiming a provenance it has not got. Everything banked
+/// before this is 0 — unversioned, question unknown — and that is the whole of what came
+/// before.
+pub const SPEC: u32 = 1;
+
+/// The spec at which `predicted`'s question last changed meaning.
+///
+/// **Zero, and honestly so.** The ask has certainly been reworded over this corpus's life
+/// and nothing recorded when, so every existing reading would have to be condemned on a
+/// suspicion. Versioning starts here; it cannot reach backwards. The one thing worse than
+/// an unknown provenance is an invented one.
+pub const PREDICTED_SINCE: u32 = 0;
+
+/// The spec at which `documented`/`derivable` last changed meaning. Zero, for the reason
+/// [`PREDICTED_SINCE`] is.
+pub const DOCUMENTED_SINCE: u32 = 0;
+
+/// The spec at which `legible`'s question last changed meaning.
+///
+/// Spec 1: the ask was rewritten to have a BOTTOM. It described the top rung only — "how
+/// clear is it on its own terms" — so a reader had nothing to push a body down the scale
+/// with, and the two lower rungs went unused across a full pass of three repos. It now asks
+/// what reading it was like, judged by what the reader actually did. Every grade taken
+/// before this answered the other question.
+pub const LEGIBLE_SINCE: u32 = 1;
+
+/// Whether a reading's `legible` grade was made under today's question.
+///
+/// `>=`, which is what makes this degrade correctly in both directions when two people run
+/// different builds. A reading from an OLDER app carries no spec, parses as 0, and its
+/// grade is not trusted — unknown provenance is exactly the thing not to trust. A reading
+/// from a NEWER app carries a spec above anything this build knows about, and is trusted:
+/// a later spec is by construction a refinement of the question, and greying out a
+/// colleague's fresh work because we are behind would be the map punishing them for
+/// updating first. An older app, meanwhile, has never heard of the bullet and ignores it —
+/// `parse_shard` skips prefixes it does not know — so it simply behaves as it did before.
+pub fn legible_current(spec: u32) -> bool {
+    spec >= LEGIBLE_SINCE
+}
 use std::process::Command;
 
 /// What a reading was taken against: the body, and every doc it was predicted from.
@@ -357,7 +424,12 @@ fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
             // costs that segment and nothing else.
             for seg in bullet.split('·') {
                 let seg = seg.trim();
-                if let Some(v) = seg.strip_prefix("read at ") {
+                if let Some(v) = seg.strip_prefix("spec ") {
+                    // Absent means 0 means "unknown question", which is the answer rather
+                    // than a gap — see `SPEC`. A garbled number takes the same road: what
+                    // it cannot be is quietly promoted to current.
+                    r.spec = v.trim().parse().unwrap_or(0);
+                } else if let Some(v) = seg.strip_prefix("read at ") {
                     r.body = v.trim().trim_matches('`').to_string();
                 } else if let Some(v) = seg.strip_prefix("commit ") {
                     r.at = v.trim().trim_matches('`').to_string();
@@ -824,6 +896,16 @@ fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) 
     }
 
     let mut meta = Vec::new();
+    // First on the provenance line, and on the provenance line rather than beside the
+    // grades, because that is what it is: which question this reading answered. Sat among
+    // the grades it would read as one — a draft that stamped a version per axis rendered
+    // `predicted 1 · documented 1 · legible 2` next to four grades, and three integers in
+    // that slot are a score sheet. Omitted at 0 rather than printed: `spec 0` invites the
+    // reading that somebody chose it, and absence is the honest shape of "taken before this
+    // was recorded".
+    if r.spec > 0 {
+        meta.push(format!("spec {}", r.spec));
+    }
     if !r.body.is_empty() {
         meta.push(format!("read at `{}`", r.body));
     }
@@ -1127,6 +1209,97 @@ mod tests {
             &mut back,
         );
         assert_eq!(back["src/a.rs#foo"].position, None);
+    }
+
+    /// A reading banked before the spec existed is spec 0, and its `legible` is not trusted.
+    ///
+    /// The whole corpus is in this state — three repos, 6,900 readings, none of them
+    /// carrying a spec — so this is the case that decides whether the change does anything
+    /// at all. Absence must read as "answered an unknown question", never as "answered the
+    /// current one", which is the direction a `unwrap_or(SPEC)` would quietly take it.
+    #[test]
+    fn a_reading_without_a_spec_does_not_claim_todays_question() {
+        let mut back = HashMap::new();
+        parse_shard(
+            "## src/a.rs\n\
+             \n### `foo`\n\
+             - read at `aabb` · by dana@example.com · cold reading\n\
+             - expected: x\n\
+             - found: y\n\
+             - predicted: some · documented: none · derivable: no · legible: full\n",
+            &mut back,
+        );
+        let r = &back["src/a.rs#foo"];
+        assert_eq!(r.spec, 0, "no spec bullet means spec 0");
+        assert_eq!(r.legible, Some(Grade::Full), "the grade is kept — it is what a reader said");
+        assert!(!legible_current(r.spec), "but it does not answer today's question");
+    }
+
+    /// Two builds, one repo: neither one throws away the other's work.
+    ///
+    /// The case this file cannot control. Somebody runs an older app, or a newer one, and
+    /// both write into the same `.sanity/`. A reading from a NEWER spec is trusted — a later
+    /// spec refines the question, and greying out a colleague's fresh reading because we are
+    /// behind would punish them for updating first. A reading from an OLDER spec is not.
+    /// Both fall out of one `>=`; the test is here because the asymmetry is easy to
+    /// "correct" into an equality by somebody who has not thought about the second case.
+    #[test]
+    fn a_reading_from_a_newer_build_is_still_trusted() {
+        assert!(legible_current(LEGIBLE_SINCE), "the spec that set the question");
+        assert!(legible_current(SPEC + 99), "a build we have never heard of");
+        assert!(!legible_current(LEGIBLE_SINCE - 1), "the spec before it");
+        assert!(!legible_current(0), "and everything unversioned");
+    }
+
+    /// The spec rides on the provenance line and survives the round trip.
+    ///
+    /// On the provenance line and not among the grades, which is a rendering decision with a
+    /// reason: `spec 7` beside `predicted: most · documented: full` reads as a fifth grade.
+    /// It sits with `read at` and `by`, which is what it is.
+    #[test]
+    fn a_spec_round_trips_as_provenance() {
+        let mut back = HashMap::new();
+        parse_shard(
+            "## src/a.rs\n\
+             \n### `foo`\n\
+             - spec 7 · read at `aabb` · by dana@example.com · cold reading\n\
+             - expected: x\n\
+             - found: y\n\
+             - predicted: some · documented: none · derivable: no · legible: full\n",
+            &mut back,
+        );
+        let r = &back["src/a.rs#foo"];
+        assert_eq!(r.spec, 7);
+        assert!(legible_current(r.spec));
+        // And back out again, in the same slot.
+        let rendered = render_entry("foo", 0, false, r, false);
+        assert!(rendered.contains("- spec 7 · read at"), "got: {rendered}");
+    }
+
+    /// An older build's reader must not be broken by a bullet it has never heard of.
+    ///
+    /// This is the property the whole "add a field, don't change the format" rule rests on,
+    /// and it is worth a test rather than a promise: `parse_shard` matches segment prefixes
+    /// and drops what it does not recognise, so a shard written by a future build still
+    /// yields its readings here. If that ever stops being true, adding a field stops being
+    /// free and becomes the class of change that once destroyed a project's readings.
+    #[test]
+    fn an_unknown_segment_costs_that_segment_and_nothing_else() {
+        let mut back = HashMap::new();
+        parse_shard(
+            "## src/a.rs\n\
+             \n### `foo`\n\
+             - spec 9 · read at `aabb` · confidence high · by dana@example.com · cold reading\n\
+             - expected: x\n\
+             - found: y\n\
+             - predicted: some · documented: none · derivable: no · legible: full · vibes: good\n",
+            &mut back,
+        );
+        let r = &back["src/a.rs#foo"];
+        assert_eq!(r.body, "aabb");
+        assert_eq!(r.by, "dana@example.com");
+        assert_eq!(r.legible, Some(Grade::Full));
+        assert_eq!(r.spec, 9);
     }
 
     /// The key is `path#name`, never the node id: a reading must survive somebody adding

@@ -54,6 +54,16 @@ Forced decoding was real and was measured — on krapow it scored **6/15** again
 ranked at 96-98° dropped off entirely. `surprise.rs` and ARCHITECTURE.md carry the full
 table of what failed first, in the past tense. Read it before rebuilding anything here.
 
+**Which model reads is part of the measurement, so ask before the first wave — Sonnet
+unless the user says otherwise, and don't ask if they already named one.** Surprise is
+what *a competent reader* could predict, so the reader IS the scale: a smaller model is
+surprised by more, and its readings are not comparable with what is already banked.
+Never mix models within one repo to save money — that produces one map on two scales with
+nothing on screen saying which wedge is which. `model` is on every reading so the question
+stays answerable later; a mixture is merely unreadable. This is reasoning and not yet a
+measurement — an interleaved wave of two models over the same functions would settle it,
+and `model` is recorded for exactly that, the way `position` is.
+
 **Do not go back to generating a rival body and diffing it.** That was tried three ways
 and the noise floor sits above the signal — a model never reproduces real code token for
 token whether or not the code was predictable.
@@ -109,6 +119,33 @@ readings (1.4 MB) parse in 30ms, once, on open.
   different prompt from the one the reading was made against. Expect it, say so out loud
   before handing the diff to somebody, and never confuse it with the format rewrite it
   arrives beside.
+- **What a grade MEANS is an input, and `reading_hash` cannot see it. That is what `spec`
+  is for.** The hash covers the file header, the doc and the body — every input except the
+  question the reader was asked — so rewording an ask expires nothing and the old grades
+  read as current while answering a question that no longer exists. It is not theoretical:
+  `legible` described its top rung only, and across three repos and 6,900 readings the
+  bottom rung was used **zero** times while 84–92% sat at the top.
+  **One number for the whole reading, and the store never says what it meant.** A reading
+  records `spec N` on its provenance line; `SPEC`, `LEGIBLE_SINCE` and their siblings in
+  `assessment.rs` record which bump changed which axis. The store holds the fact, the code
+  holds the judgement — and a judgement belongs in a diff somebody can review, not in a
+  number an agent wrote into a file we then have to trust. Per-axis stamps were drafted and
+  rendered as `predicted 1 · documented 1 · legible 2`, three integers in the same visual
+  slot as four grades: a provenance line that reads as a score sheet.
+  It is stamped **server-side**, beside `body`, `by` and `at`, for their reason — a reader
+  asked to declare which question it answered could name the one that makes its grade look
+  current, which is the claim the field exists to test. Absence is `0`, meaning "question
+  unknown", never "the current one".
+  **A bump expires an AXIS, not the reading.** `predicted` is the expensive half — it can
+  only be answered once cold — and discarding 6,900 cold predictions to fix a legibility ask
+  would be the worst trade available. A dated grade is kept and shown as history; what it
+  does not do is colour, count or bucket. `legibleOf` is the single accessor so the lens, the
+  breakdown, the dial and the spread cannot disagree.
+  **It degrades in both directions on purpose**: `>=`. A reading from an older build carries
+  no spec and is not trusted; one from a NEWER build is, because a later spec refines the
+  question and greying out a colleague's fresh work would punish them for updating first. An
+  older app never heard of the bullet and ignores it — `parse_shard` drops segments it does
+  not know, which is the property that makes adding a field free, and there is a test for it.
 - **A failed write is reported, never absorbed.** `save_reports` returns an error and the
   `report` handler puts it in `ok`/`error`/`hint` so the agent stops. Silently diverting
   to a hidden file is how a reading looks saved and isn't.
