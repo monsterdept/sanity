@@ -1,8 +1,8 @@
 # src-tauri — sanity assessment
 
-485 of 485 read · 24 surprising
+489 of 489 read · 25 surprising
 
-449 of these graded legibility under an earlier question and are not counted; see the note below.
+448 of these graded legibility under an earlier question and are not counted; see the note below.
 
 Each entry below is one **reading**, of a function or of a whole file. An agent was
 given its name, signature, neighbouring names and comments — never its body — and
@@ -38,11 +38,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/agentapi.rs
 
 ### the file itself
-- spec 1 · read at `cefedccc0f70` · commit `8b03ada` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 3 of its run
-- expected: This is the whole HTTP loopback backend the MCP shim talks to: it defines Project/AppState (holding scans, reports, leases, file marks), the Task/Report/Grade wire types, the queueing and interleaving logic that hands out one function or file at a time, resync of moved/changed code before handout, the report handler that validates and stamps provenance server-side and persists to `.sanity/`, status/summary aggregation, the axum router, singleton-daemon endpoint-file locking, project restore on startup, a background watch/idle loop, and `serve`. Given peer names like `a_keyless_call_follows_the_last_open_not_the_window` and `a_report_carrying_its_own_tool_call_is_refused`, the file also carries an unusually large, narratively-named test suite.
-- found: Matches closely. Header doc explains the "predict first, then look" design rationale for the whole tool rather than describing the code's structure item-by-item; the actual file is ~3075 lines of implementation (types, AppState/Project, queue/report/status/summary handlers, endpoint-file locking, restore, watch_tick, serve) followed by roughly 1000 lines of tests from line 3078 to 4149, many named as full sentences describing a single guaranteed behavior.
-- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
-- note: This same file task was handed to me three times; two prior sanity_report calls for it landed against a different open project (VectorLand) due to a race where the server's global active-project context kept shifting between my sanity_open call and the following sanity_report call, apparently from other concurrent sessions assessing VectorLand. This attempt should count against sanity.
+- spec 1 · read at `de7a33435543` · commit `23c2295` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 4 of its run
+- expected: This file implements the whole loopback HTTP agent API backend that the MCP shim talks to: shared AppState/project bookkeeping, building and serving the assessment queue from scan data, the report/mangled ingestion path, status/summary/health endpoints, the axum router, single-instance coordination via an endpoint file, and a large test suite.
+- found: Confirmed by the header and the exhaustive peers list (Project/AppState structs, queue/interleave/resync logic, report/mangled, status/summary/health, router, endpoint file read/release/restore, watch_tick/serve, and dozens of named test functions covering staleness, leases, twins, project isolation and restart behaviour).
+- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
+- note: The module header only explains the predict-first design philosophy — it says nothing about the state machine, queue mechanics, endpoint-file locking, or the extensive test coverage that make up the bulk of the file's 2560 lines, so documented is `some` rather than `full` even though what it does say is accurate and important context.
 
 ### `persist`
 - read at `9026cbfb1fc1` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 4 of its run
@@ -83,6 +83,19 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly that, in four lines: `projects.contains_key(k).then(|| k.to_string())` for the supplied key, and `self.most_recent()` for None.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 - note: The doc comment says the no-key fallback is `active` (the repo the window follows) but the body calls `most_recent()` — the prose and the code name different fallbacks, and the whole doc is an argument about which one is safe.
+
+### `owner_of`
+- spec 1 · read at `43668cd9209d` · commit `23c2295` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 5 of its run
+- expected: Resolves which project a reading belongs to by provenance rather than the caller's ambient key: checks the caller-supplied `asked` project first, then looks for a project holding a live lease on id, falling back to any loaded project whose scan still contains a function with that id, returning that project's key or None.
+- found: Close, but the tie-break is different: `holds` treats a live lease OR the scan containing the id as equally valid evidence (no lease-first priority), collects every project that holds it, sorts for determinism, and on a genuine tie between multiple projects prefers whichever was most recently opened, falling back to the alphabetically-first key otherwise.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: I assumed lease evidence would be checked before scan evidence as a stronger signal; instead they're OR'd together and disambiguation only happens when more than one project matches, via recency rather than lease-vs-scan priority.
+
+### `holds_id`
+- spec 1 · read at `7b2894141274` · commit `23c2295` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 8 of its run
+- expected: A short free function that walks scan.root and returns true if any node's id matches id exactly, false otherwise — a simple membership check used by owner_of.
+- found: Exactly that: visits every node in the scan tree, OR-ing whether its id equals the target, and returns the accumulated boolean.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `load_reports`
 - read at `fa12f19321c7` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -279,17 +292,18 @@ What this is and how to add to it: [README.md](README.md)
 - note: An unresolvable project returns `Json([])`, which a reader cannot distinguish from "the assessment is finished" — the one case the `:done` ping is careful to separate is invisible on the wire.
 
 ### `mangled`
-- spec 1 · read at `a0780ac5c35e` · commit `8b03ada` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: Checks a Report for signs it was corrupted by a malformed tool call (e.g. leaked/truncated text), returning Some(reason) describing what looks wrong, or None if the report looks intact.
-- found: Returns None immediately if predicted/documented/legible are all present. Otherwise scans expected/found/note for XML-leak markers (`</parameter>`, `<parameter name=`, or a closing tag matching the field name) and returns Some(field_name) for the first field that looks like it swallowed part of an XML tool call.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The docs handed to me were attached to what looks like a field/enclosing-context doc ("A text field carrying the rest of the reader's own tool call...") rather than a doc comment on `mangled` itself, though it explains the same mechanism; graded documented on that basis.
+- spec 1 · read at `54a1cc9e8a4a` · commit `23c2295` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: A function that inspects a Report for signs that a reader's tool call got mangled by XML-vs-JSON serialization leaking closing tags into a text field, and returns a static hint string when it detects that, so the report can be refused and the reader asked to resend.
+- found: Returns None if predicted/documented/legible are all present (a complete reading). Otherwise checks expected/found/note for the literal markers `</parameter>` and `<parameter name=`, or a field-specific closing tag, and returns Some(field_name) naming the first field where a leak was detected.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: I expected it to return an explanatory hint message; it actually returns just the field name, presumably for the caller to build the message from.
 
-### `report`
-- spec 1 · read at `0e72f5722cbe` · commit `8b03ada` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 2 of its run
-- expected: The MCP handler that accepts a reader's ReportRequest (id, expected/found text, grades, cold, position, model, note), resolves the caller's project by client key, finds the target function to stamp provenance (body hash, by, at) server-side rather than trusting the caller, inserts the report into the project's map, persists it to .sanity/ via save_reports, and returns a JSON summary (ok/saved/error, remaining, repo-wide surprise stats) so the agent can tell if the write actually landed.
-- found: Matches expectations closely, plus a guard I did not anticipate: before anything else, it calls mangled(&r) to detect a report whose prose swallowed subsequent fields, and if so pings an error counter and returns a refusal explaining exactly what to resend, without ever touching state further. Otherwise it stamps body/spec/legible_dated/by/at server-side, computes an outcome label (stale/hot/cold) from whether the id already had a report and its grade, inserts, saves, and returns ok/saved/error plus repo_assessed/repo_surprised/repo_warm_reports and a coaching hint if the repo-wide surprise rate looks implausibly low — with a failed write's error overriding that hint entirely.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
+### `report` — TRAP
+- spec 1 · read at `58e35450ffe3` · commit `23c2295` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 3 of its run
+- expected: The axum handler backing sanity_report: resolve the request's client to a project, look up the target function by id, run the request through mangled() and refuse with a helpful error if a grade field looks truncated, then stamp server-side provenance (body, by, at) onto the report, save it, and return a JSON envelope with ok/error/hint plus counts like remaining/in_flight.
+- found: Matches the outline, plus: it also stamps `spec` and clears `legible_dated` server-side, resolves the project via `owner_of` (not a raw key_of) with a distinct NO_PROJECT path for a not-yet-restored backend, classifies the outcome as stale/hot/cold for the ping, computes a repo-wide surprise rate to surface as a coaching hint (overridden by any write error), and looks up the function's current body by walking the scan tree matching `n.id == r.id`, defaulting to an empty string via `unwrap_or_default()` if no node matches.
+- predicted: most · documented: none · derivable: no · legible: most · trap: yes
+- note: cold=false because I had already read this file's sibling function `mangled` earlier in this run. The unwrap_or_default() on a failed body lookup silently stamps an empty body/hash rather than erroring, which looks like the kind of silent-corruption trap the file's own docs warn against elsewhere (a reading landing on a hash that isn't checkable).
 
 ### `status`
 - spec 1 · read at `28a5045367e8` · commit `8b03ada` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -525,6 +539,20 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly that: a tempdir project inserted as "/loaded" with active set, then three assertions — a loaded key resolves to itself, "/not-restored-yet" resolves to None with a message about never answering a named project with the active one, and a keyless call falls back to "/loaded".
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: The third assertion sets only `state.active`, never `touched`, so it cannot distinguish the documented keyless fallback (last repo OPENED) from the one the project notes say must never be used (`active`).
+
+### `a_reading_lands_where_its_task_came_from`
+- spec 1 · read at `25a3b8f1958d` · commit `23c2295` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 7 of its run
+- expected: Sets up two loaded projects, leases a function id out of project A's queue, simulates the shim's ambient key having been retargeted to project B, and asserts the reading still resolves to project A — the one that actually issued the task — rather than following the swapped ambient key.
+- found: Same core mechanism but simpler: it takes a real function id straight from `/theirs`'s scan (no lease needed, just scan membership), then calls owner_of with the caller's key set to `/mine`, set to `/theirs`, and unset, asserting all three resolve to `/theirs` — the project the id actually belongs to.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: I over-specified the mechanism as depending on a lease; scan membership alone is sufficient evidence here, leases are exercised in the neighbouring test instead.
+
+### `a_reading_for_an_id_no_project_holds_is_refused` — QUIRKY
+- spec 1 · read at `6468feeb0ed0` · commit `23c2295` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 6 of its run
+- expected: A test asserting that calling the report handler with an id that no loaded project's scan holds returns ok:false, saved:false, and an error about nowhere to land, rather than silently succeeding as saved:true.
+- found: Actually tests `owner_of` directly rather than the full report() JSON response: asserts it returns None for an unknown id both with and without an `asked` project key, then shows that inserting a live lease for that same id makes owner_of resolve it to the project — demonstrating a lease alone is sufficient evidence even when the scan doesn't hold the id.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: I expected an end-to-end test of the report handler's JSON response; it's a narrower unit test of owner_of, and it adds the lease-outlives-a-recut case I hadn't anticipated.
 
 ### `a_file_just_drawn_from_is_passed_over_on_the_next_call`
 - read at `67217c463b2e` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
@@ -2283,11 +2311,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `tools`
-- read at `52994caa9fe9` · commit `6366346` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: Returns a serde_json Value array of the five MCP tool definitions (sanity_open, sanity_next, sanity_report, sanity_status, sanity_summary), each with name, description and inputSchema; report's schema declares every graded field (predicted, documented, derivable, legible, trap, cold, position, model); no project/repo key in any schema.
-- found: Exactly that — a single json!([...]) literal, five tools, in the order open/status/next/report/summary. Every graded field is declared and all of them plus id/expected/found are in `required`. No project key anywhere. Two things I did not cover: a deprecated `surprised` boolean kept for older callers, and the descriptions are not terse at all — several are full paragraphs, with the open/status/summary ones aimed squarely at the orchestrator.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: The doc warns that 800 tokens once described tools a reader never calls, yet sanity_open, sanity_status and sanity_summary still carry the three longest descriptions in the array and every reader loads all five.
+- spec 1 · read at `30e7a2389731` · commit `23c2295` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: Builds and returns the static tools/list JSON payload for the MCP server: an array of the five tool definitions (sanity_open, sanity_status, sanity_next, sanity_report, sanity_summary) each with name, description and inputSchema, constructed via json! and returned as a serde_json::Value.
+- found: Exactly that: a json! literal array of the five tool objects with their names, descriptions and inputSchemas, including a load-bearing field-order comment on sanity_report explaining why the grade fields are declared before the long prose fields (to protect against the `mangled` truncation failure).
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: The prose docs given to me described the general cost/design rationale for descriptions but not the specific field-ordering trick baked into the sanity_report schema comment, which was the most interesting part of the body.
 
 ### `contract_fingerprint`
 - read at `fc0982380099` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
