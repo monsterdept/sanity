@@ -918,6 +918,41 @@ fn save_cache(repo: &Path, limit: usize, scan: &HistoryScan) {
 mod tests {
     use super::*;
 
+    /// The same tripwire `scancache` and `cache` carry. See the original there.
+    ///
+    /// Sharper here than in either, because a timeline is EXTENDED rather than rebuilt: a
+    /// field that loads as its default does not merely mislead one frame, it lets frames
+    /// computed under two different meanings be appended into one story that never
+    /// happened. `head` is already defaulted — that is what makes a rebase detectable — so
+    /// a timeline written before it existed reads as "no head" and gets replayed whole,
+    /// which is the safe direction. The next defaulted field may not have one.
+    #[test]
+    fn a_new_stored_timeline_field_cannot_be_added_silently() {
+        let s = HistoryScan {
+            paths: vec!["a.rs".into()],
+            langs: vec!["Rust".into()],
+            funcs: Vec::new(),
+            base: Vec::new(),
+            base_ts: 0,
+            commits: Vec::new(),
+            head: "abc".into(),
+            truncated: 0,
+        };
+        let v: serde_json::Value = serde_json::to_value(&s).expect("HistoryScan serialises");
+        let mut keys: Vec<&str> =
+            v.as_object().expect("an object").keys().map(|k| k.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec![
+                // Wire names, not field names — this struct renames to camelCase, and the
+                // wire is what a stored timeline is actually keyed by.
+                "base", "baseTs", "commits", "funcs", "head", "langs", "paths", "truncated",
+            ],
+            "the stored timeline's fields changed — bump CACHE_VERSION, then update this list"
+        );
+    }
+
     #[test]
     fn raw_line_reads_a_plain_edit() {
         let c = parse_raw(":100644 100644 aaa bbb M\tsrc/main.rs").expect("parses");

@@ -218,6 +218,35 @@ impl Cache {
 mod tests {
     use super::*;
 
+    /// The same tripwire `scancache` carries, for the same reason. See the twin there.
+    ///
+    /// Nothing has gone wrong here yet — `hotspots` was defaulted from the first commit,
+    /// and the heuristic's computation has not moved since, so version 1 is honest. The
+    /// test is not about the past. It is that this cache pins the COLOUR of every wedge a
+    /// model never scored, and the failure mode next door was invisible for months: a
+    /// `#[serde(default)]` field lets an old record load as current, and nothing complains.
+    #[test]
+    fn a_new_cached_field_cannot_be_added_silently() {
+        let e = Entry {
+            body_hash: 1,
+            surprise: 0.5,
+            hotspots: vec![crate::surprise::Hotspot {
+                text: "x".into(),
+                expected: vec!["y".into()],
+                bits: 1.0,
+            }],
+        };
+        let v: serde_json::Value = serde_json::to_value(&e).expect("Entry serialises");
+        let mut keys: Vec<&str> =
+            v.as_object().expect("an object").keys().map(|k| k.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec!["body_hash", "hotspots", "surprise"],
+            "the cached score's fields changed — bump FORMAT_VERSION, then update this list"
+        );
+    }
+
     #[test]
     fn two_models_never_share_a_cache_file() {
         // The regression this guards: the proxy pass runs immediately before every model
