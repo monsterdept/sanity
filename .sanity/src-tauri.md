@@ -1,8 +1,8 @@
 # src-tauri — sanity assessment
 
-489 of 489 read · 25 surprising
+494 of 498 read · 31 surprising · 100 stale
 
-448 of these graded legibility under an earlier question and are not counted; see the note below.
+391 of these graded legibility under an earlier question and are not counted; see the note below.
 
 Each entry below is one **reading**, of a function or of a whole file. An agent was
 given its name, signature, neighbouring names and comments — never its body — and
@@ -38,11 +38,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/agentapi.rs
 
 ### the file itself
-- spec 1 · read at `de7a33435543` · commit `23c2295` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 4 of its run
-- expected: This file implements the whole loopback HTTP agent API backend that the MCP shim talks to: shared AppState/project bookkeeping, building and serving the assessment queue from scan data, the report/mangled ingestion path, status/summary/health endpoints, the axum router, single-instance coordination via an endpoint file, and a large test suite.
-- found: Confirmed by the header and the exhaustive peers list (Project/AppState structs, queue/interleave/resync logic, report/mangled, status/summary/health, router, endpoint file read/release/restore, watch_tick/serve, and dozens of named test functions covering staleness, leases, twins, project isolation and restart behaviour).
-- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
-- note: The module header only explains the predict-first design philosophy — it says nothing about the state machine, queue mechanics, endpoint-file locking, or the extensive test coverage that make up the bulk of the file's 2560 lines, so documented is `some` rather than `full` even though what it does say is accurate and important context.
+- spec 1 · read at `13bea21e143d` · commit `0f6160c` · read by claude-sonnet-4.5 · by ross@rossturk.com · warm reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: The central HTTP loopback API server: AppState/project registry with locking and lease/focus tracking, a task queue (collect_tasks/qualify/neighbours/interleave_by_file) that hands out functions/files while tracking staleness, the report/status/summary/health endpoint handlers, endpoint-file-based service discovery, and restore/persist logic for surviving restarts.
+- found: Matches well. The header frames the whole file's reason for existing (agent-driven assessment vs scoring backends), and the Project struct carries extensive documented fields for leasing, per-file rest windows to spread handouts across files, and mtime+length file_marks to detect when a file moved under a handed-out range.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+- note: Not a cold read of the file: I had already read the aggregate, report, and summary functions from this same file earlier in this run.
 
 ### `persist`
 - read at `9026cbfb1fc1` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 4 of its run
@@ -137,9 +137,9 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `blank`
-- spec 1 · read at `ac3585d0b5f0` · commit `94d194d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 6 of its run
-- expected: Constructs a Report with every field at its zero value: empty strings, None for grade fields, false for booleans, 0 for spec — a starting point for parsers/tests to fill in.
-- found: Exactly that — a struct literal with every field set to String::new(), None, false, or 0 as appropriate.
+- spec 1 · read at `eecda920ae27` · commit `e159229` · read by claude-sonnet-4.5 · by ross@rossturk.com · warm reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Report::blank constructs a Report with every field set to its zero/empty/None/false default, used as a starting point that parsers (like parse_shard) and tests fill in field by field.
+- found: Exactly that: a struct literal setting every field of Report to its empty/default value (empty strings, None options, false bools, spec 0).
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `grades`
@@ -183,6 +183,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 - note: The doc opens "Ten readings per reader" with a table arguing ten, and the function returns 1 — the reconciliation (handout size vs. call count) is the last sentence of ~50 lines, so a skimming reader predicts the wrong number.
 
+### `priming_note`
+- spec 1 · read at `46e73a09a277` · commit `0f6160c` · read by claude-sonnet-4.5 · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: priming_note checks whether the repo has agent instructions (CLAUDE.md/AGENTS.md) via agent_docs, and if so returns a warning string, phrased as a question rather than an assertion, telling the orchestrator to check its own context for whether the file was loaded — since the tool can only see the file's existence on disk, not whether any given session's context includes it. Returns None for a repo with no such file.
+- found: Matches the prediction: builds a message naming the docs file(s), explicitly disclaiming that neither the message nor the file's presence is evidence about the session's context, telling the orchestrator to check and report `primed` honestly either way, and — if primed — to tell the human before the first wave that relaunching with `claude --setting-sources user` is the fix.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
 ### `contract_note`
 - read at `3ed19309ec38` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 7 of its run
 - expected: Takes the caller's reported contract fingerprint (None for a shim too old to send one), compares to the server's compiled-in expectation, returns None on a match and otherwise Some(message) telling the caller its shim is stale and to restart it.
@@ -190,12 +196,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: Body indentation in this region is one space per level rather than the file's four, which reads as a formatting accident.
 
-### `open_project`
-- read at `bc02de6dd44c` · commit `9c38c96` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: An axum handler taking a repo path from OpenRequest, canonicalising it, scanning (walk + tree-sitter + churn), scoring every function with the offline heuristic proxy, loading committed .sanity/ readings and refreshing the assessment index, registering the project in shared state under a client key without necessarily moving the window's focus, and returning JSON with project name, repo path, function/excluded counts, shape, progress and a protocol/next-step note.
-- found: All of that, plus four things I did not cover: a git_root gate rejecting a non-repo parent directory with a shaped error; a placeholder row pushed into s.restoring BEFORE the blocking scan (and cleared on every exit path) so the sidebar is not blank while the agent goes silent; an unconditional rescan even when the project is already held, because staleness compares body hashes against the current scan; and leases deliberately dropped on reopen since a lease is a claim against a body the rescan may have replaced. Scan runs in spawn_blocking at Fidelity::Ordering behind a persistent ScanCache with an ephemeral score cache. Response also carries reopened, showing, index, contract_warning, files, stale, scan_ms/scan_note and a sanityignore sentence that varies on whether exclusions are in effect.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: Part of my prediction — key_of vs node ids, focus not moving on open — came from the project brief already in my context rather than from the handout, so treat this reading's `predicted` as generous; the doc comment itself covers only the focus change and the grey-start scoring, saying nothing about the rescan-on-reopen or the lease drop, which are the two decisions most likely to bite.
+### `open_project` — QUIRKY — TANGLED
+- spec 1 · read at `100a6ce93883` · commit `e19603b` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: open_project is the HTTP handler backing sanity_open: it validates the given path is a directory and a git repo, registers/updates it in shared app state, kicks off a structural scan (tree-sitter, git churn) to seed offline-proxy scores, and returns a JSON summary of the project — without moving the window's focus unless asked, since opening is a claim about what's being worked on, not what should be displayed.
+- found: Validates path/git-root, always rescans even if already held (staleness is hash-based and a stale scan can't detect its own staleness), adds the project to a `restoring` list so the sidebar shows progress during the scan, runs scan::scan in a blocking task with a persistent ScanCache, on failure clears the restoring entry and returns an error, then on success reloads reports keyed by the durable key_of (not node id, since ids embed line numbers), refreshes .sanity/README.md, computes staleness/assessed counts, inserts/updates the Project in state, calls focus(), and returns a large JSON payload (reopened, showing, index, contract_warning, priming_warning, agent_docs, functions/files/assessed/excluded, shape, sanityignore guidance, scan_ms/scan_note, stale, protocol text).
+- predicted: some · documented: none · derivable: yes · legible: some · trap: no
 
 ### `scan_note`
 - read at `229afd11d13f` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
@@ -298,12 +303,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: I expected it to return an explanatory hint message; it actually returns just the field name, presumably for the caller to build the message from.
 
-### `report` — TRAP
-- spec 1 · read at `58e35450ffe3` · commit `23c2295` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 3 of its run
-- expected: The axum handler backing sanity_report: resolve the request's client to a project, look up the target function by id, run the request through mangled() and refuse with a helpful error if a grade field looks truncated, then stamp server-side provenance (body, by, at) onto the report, save it, and return a JSON envelope with ok/error/hint plus counts like remaining/in_flight.
-- found: Matches the outline, plus: it also stamps `spec` and clears `legible_dated` server-side, resolves the project via `owner_of` (not a raw key_of) with a distinct NO_PROJECT path for a not-yet-restored backend, classifies the outcome as stale/hot/cold for the ping, computes a repo-wide surprise rate to surface as a coaching hint (overridden by any write error), and looks up the function's current body by walking the scan tree matching `n.id == r.id`, defaulting to an empty string via `unwrap_or_default()` if no node matches.
-- predicted: most · documented: none · derivable: no · legible: most · trap: yes
-- note: cold=false because I had already read this file's sibling function `mangled` earlier in this run. The unwrap_or_default() on a failed body lookup silently stamps an empty body/hash rather than erroring, which looks like the kind of silent-corruption trap the file's own docs warn against elsewhere (a reading landing on a hash that isn't checkable).
+### `report` — QUIRKY — TANGLED
+- spec 1 · read at `2151ebbbd292` · commit `e19603b` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: The async handler backing sanity_report — validates the incoming ReportRequest (checking for the mangled field-order failure), looks up the project/node by id, stores the report into shared state, writes .sanity markdown, and returns a JSON response with ok, remaining, hint, and repo-wide stats.
+- found: Does that, plus much more: rejects mangled calls with a specific corrective hint (without saving), refuses reports whose id has no owning project (rather than silently accepting and discarding, which was a prior bug), stamps provenance fields (body hash, spec, legible_dated, by, at, agent_docs) itself rather than trusting the caller, classifies the outcome as stale/hot/cold for a ping/mascot signal, writes reports through to disk on every call, and appends a repo-wide 'suspiciously low surprise rate' coaching hint when write succeeded, prioritizing a write-failure hint above it when one occurred.
+- predicted: some · documented: none · derivable: yes · legible: some · trap: no
 
 ### `status`
 - spec 1 · read at `28a5045367e8` · commit `8b03ada` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -324,16 +328,15 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ### `aggregate`
-- read at `73f05887e215` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
-- expected: Builds the repo-wide Aggregate behind sanity_summary: folds every report into grade histograms (predicted/documented/legible via GradeCounts::add), counts traps, derivable and cold, buckets by position, and reports totals excluding stale — with no per-file breakdown.
-- found: Walks the scan tree (not the reports map), takes only Func nodes that have a report, counts stale ones into `agg.stale` and skips them, then `agg.total.add(r)` plus a `by_model` bucket keyed on the self-declared model with an explicit "unattributed" bucket for a blank. Position goes into `by_position.positions[n]` carrying only the predicted grade, with a separate `unrecorded` counter. The individual grade/trap counting lives inside `Tally::add`, not here.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: No doc comment of its own; also note it looks reports up by `node.id` rather than `key_of`, which the project's own notes warn against keying durable things on — fine here only because it is a transient in-memory map.
+- spec 1 · read at `5512fa0c1e69` · commit `e19603b` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Walks project's stored functions/reports and computes grade-distribution counts (via GradeCounts/Tally) into an Aggregate struct, similar to what sanity_status/sanity_summary expose.
+- found: Visits every Func node in the scan tree, skips ones without a report or whose report is stale (counting staleness separately), then tallies totals, per-model breakdowns (with an 'unattributed' bucket for blank model), a three-way priming bucket (not_applicable/exposed/clean), and per-position predicted-grade tallies.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
 
 ### `summary`
-- read at `07c7f7e5c306` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
-- expected: An axum handler that resolves the caller's project via for_client on the query key, folds that project's non-stale readings through aggregate/Tally/GradeCounts into repo-wide grade distributions (predicted/documented/legible, trap and cold counts, maybe by_position), and returns JSON naming the project and repo plus totals, with stale counted separately and nothing per-file or per-function.
-- found: That, plus the daemon-idle ping and a closed-form early return when no repo resolves (open:false with a hint to call sanity_open). Delegates entirely to aggregate/work_left/count_funcs; emits repo, functions, excluded, assessed, stale, remaining, total, by_model, by_position, and a long inline `note` teaching the orchestrator how to read by_position as a curve.
+- spec 1 · read at `273da480a992` · commit `e159229` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: The async handler behind sanity_summary — resolves the project from query params, calls aggregate() to get grade distributions/model splits, and returns them as JSON with a note field, omitting per-file breakdown.
+- found: Matches: pings, resolves project (or returns an 'open: false' hint if none), calls aggregate() and work_left()/count_funcs(), and returns functions/excluded/assessed/stale/remaining plus total, by_model, by_position, priming, and a long explanatory note describing how to interpret by_position as a curve and priming's exposed/clean/not_applicable split.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `from_state` — QUIRKY
@@ -615,6 +618,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: no · legible: full · trap: no
 - note: The test named for the endpoint file round-tripping through the shared parser calls neither the publisher nor the parser — it round-trips a hand-built JSON object through serde_json, so the shared-parser property is unverified.
 
+### `the_priming_warning_asks_rather_than_asserts`
+- spec 1 · read at `c51236a9ccda` · commit `0f6160c` · read by claude-sonnet-4.5 · by ross@rossturk.com · warm reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A test verifying priming_note's wording: that it returns None for a repo with no instructions file, and for a repo with CLAUDE.md returns a message that names the file found and the remedy (the --setting-sources user flag) without flatly asserting the reader is primed — checking for hedged, non-assertive language rather than a flat claim.
+- found: Confirms None on a clean tempdir; after writing CLAUDE.md, asserts the note contains "CLAUDE.md", "--setting-sources user", "cannot see", "CHECK YOUR OWN CONTEXT", and "the run is clean" (so the clean-context reader has a reachable, non-alarming conclusion too); then writes AGENTS.md as well and asserts both files are named together ("CLAUDE.md, AGENTS.md"), not just the first found.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
 ### `a_report_carrying_its_own_tool_call_is_refused`
 - spec 1 · read at `da4694a4ddef` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 7 of its run
 - expected: A test asserting `mangled()` catches a Report field containing embedded tool-call/XML-like syntax (e.g. a closing tag followed by a parameter fragment) and returns the offending field name, while a Report whose text legitimately contains angle brackets (e.g. discussing JSX) is not falsely flagged.
@@ -631,9 +640,9 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/assessment.rs
 
 ### the file itself
-- spec 1 · read at `f3b58b77893b` · commit `94d194d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run
-- expected: The entire .sanity/ persistence layer — parsing/rendering the Markdown store (shards + index), stable keys and hashes for staleness, git provenance helpers, compile/refresh/save round-trip, and a large test suite for round-tripping and staleness edge cases.
-- found: Matches — plus the header explains sharding by top-level directory (so two concurrent assessors don't conflict on one file), ordering entries by path/line rather than write-time (so reruns produce minimal diffs), and the spec/SPEC-vs-per-axis-versioning rationale for why grade meaning is recorded once per reading rather than per axis.
+- spec 1 · read at `1d06fb26665e` · commit `0f6160c` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Persistence and staleness layer for the .sanity/ markdown store: hashes function bodies/docs to detect stale readings, parses/renders the markdown store (sharded by top-level directory) to/from an in-memory index, handles git provenance (head, author), and round-trips readings including edge cases like mangled entries or readings missing a position/spec.
+- found: Matches closely: markdown IS the store (not a rendering of one), sharded per top-level directory plus a README index specifically to avoid concurrent-writer conflicts, staleness driven by body_hash comparison on open with no separate 'update' verb, and a versioned SPEC/PREDICTED_SINCE/LEGIBLE_SINCE provenance system so a reading records which build's question it answered rather than the file recording the question's history.
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
 
 ### `legible_current`
@@ -728,11 +737,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: The one-line doc says keys are `path#name`, but per the project's own rule keys are `key_of(path, name, ord)` and same-named twins carry a `#2`/`#3` suffix — the doc understates the key.
 
 ### `parse_shard`
-- spec 1 · read at `ff26bacb2d82` · commit `94d194d` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
-- expected: Scans lines tracking current ## file and ### entry headings, parses bullets (provenance, expected/found, grades, note, stale) into a partial Report, flushes complete entries keyed by path#name#ord on next heading/EOF, skips unrecognized/incomplete lines.
-- found: Tracks file/entry headings (parsing ord from a trailing " #N" and stripping the em-dash verdict), special-cases the file's own entry via FILE_ENTRY/file_key, and parses each `·`-separated segment of the provenance/grades bullets by prefix match (not position) so reordering or dropping a segment only costs that field. Flushes an entry if `expected` OR `found` is non-empty (not both required).
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: Missed the segment-by-prefix parsing (robust to reordering/dropping) and the exact drop-threshold being OR not AND on expected/found.
+- spec 1 · read at `6d3e9e835b18` · commit `e19603b` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: parse_shard parses the markdown produced by render_entry back into a HashMap of `path#name` key to Report, line by line, tolerating unrecognized lines by skipping them and dropping any entry that lacks both expected and found fields, so a hand-edit or merge conflict doesn't blow up the whole file.
+- found: Walks lines tracking a current file (## heading) and current entry (### heading, parsing name/ordinal/verdict-decoration and computing its key via key_of or file_key), then for `- ` bullet lines matches expected:/found:/note: prefixes directly and otherwise splits the line on `·` to parse each provenance/grade segment independently by its own prefix (spec, read at, commit, read by, by, cold/warm reading, priming, reading N of its run, predicted/documented/derivable/legible/trap), flushing the current entry into the map whenever a new heading arrives or at EOF, but only if expected or found is non-empty.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
 
 ### `live_funcs`
 - read at `3d7a51c31a86` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
@@ -795,11 +803,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: I recalled from the project's CLAUDE.md that "save iterates live functions, not reports" before opening this — graded predicted on the handout alone, but flagging the outside knowledge as instructed.
 
 ### `render_entry`
-- spec 1 · read at `7d4d1bd37694` · commit `94d194d` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
-- expected: Builds Markdown for one entry: heading with name+ord-disambiguator and grade markers, followed by bullets for the report's fields (predicted/documented/derivable/legible/trap, provenance, spec, position), with a stale marker if stale.
-- found: Heading gets a marker only for the LOUD end of each axis (predicted=None/Some → OBSCURE/QUIRKY, legible=None/Some → UNCLEAR/TANGLED, trap → TRAP, stale → STALE); ordinal suffix is `#{ord+1}` shown only when ord!=0; files get an unbacktick `FILE_ENTRY` heading instead of the name. Body has a provenance bullet (spec/body/commit/model/by/cold-warm/position joined with ·), separate expected/found bullets, a grades bullet (predicted/documented/derivable/legible/trap), optional note bullet, and a stale-explanation paragraph.
-- predicted: most · documented: none · derivable: no · legible: most · trap: no
-- note: No docs handed for this function itself (only file-level doc), and the "only mark the loud end of each axis" design was not guessable from the signature.
+- spec 1 · read at `4590cd1eadbc` · commit `e19603b` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: render_entry formats a single assessment entry (a function or whole-file reading) into a Markdown block for the .sanity store, using name, ordinal position, whether it's file-level, the Report's grades, and a staleness flag to produce a heading and summary of the reading's outcome.
+- found: Builds the markdown block for one entry: computes trailing markers (OBSCURE/QUIRKY/UNCLEAR/TANGLED/TRAP/STALE) only for loud-end grades, an ordinal suffix only when a twin exists, a heading (backtick name or FILE_ENTRY constant), a provenance meta line (spec version, read-at commit, model, author, cold/warm, run position, priming), expected/found lines, a grades line (predicted/documented/derivable/legible/trap), and an optional note/staleness explanation.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
 
 ### `render_shard`
 - spec 1 · read at `cc5e4f4fa46f` · commit `94d194d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 5 of its run
@@ -832,6 +839,12 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Uses the neighbouring `git` helper to read config user.name and user.email in the repo and returns them formatted as git stamps a commit — "Name <email>" — with a fallback like "unknown" when git or the config is unavailable.
 - found: Three chained calls: git config user.email, falling back to user.name if that is absent, then unwrap_or_default. So it is one identity or the other, never the combined "Name <email>" form, and the failure case is an empty string rather than a named placeholder.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `agent_docs`
+- spec 1 · read at `5f22d8c33257` · commit `0f6160c` · read by claude-sonnet-4.5 · by ross@rossturk.com · warm reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: agent_docs checks which known agent-instructions filenames (e.g. CLAUDE.md, AGENTS.md) exist at the repo root and returns them comma-joined, empty string if none are present.
+- found: Exactly that: filters the AGENT_DOCS constant list to those existing at repo.join(f), then joins with ", ".
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `a_human_file_in_the_assessment_survives_a_save` — QUIRKY
 - read at `de5fb502b4d2` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
@@ -876,6 +889,12 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Constructs a Report with a non-zero spec, renders it, parses it back, and asserts spec survives the round trip.
 - found: Reversed direction from prediction: starts from a hand-written Markdown shard string with 'spec 7' on the provenance line, parses it, asserts r.spec == 7 and legible_current(r.spec), then renders that entry back out and asserts the rendered text still contains 'spec 7 · read at'.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `priming_round_trips_and_is_silent_when_there_is_nothing_to_say` — QUIRKY
+- spec 1 · read at `7b841a044285` · commit `0f6160c` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Builds two Reports — one with agent_docs empty and one with agent_docs set plus primed true/false — renders to markdown and reparses, asserting the empty case emits no priming text while the other round-trips agent_docs and primed correctly.
+- found: Parses handwritten markdown (via parse_shard) containing two entries with 'priming: CLAUDE.md in context' and 'priming: CLAUDE.md, AGENTS.md excluded' lines, asserts primed/agent_docs parsed correctly (including that a comma inside the file list does not break parsing since the list runs to the verdict), re-renders each via render_entry and checks the same text round-trips, then separately constructs a bare Report with primed=true but blank agent_docs and asserts render_entry emits no 'priming' text at all — primed alone is not sufficient to print the segment.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
 
 ### `an_unknown_segment_costs_that_segment_and_nothing_else`
 - spec 1 · read at `069d6ef30a8a` · commit `94d194d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 9 of its run
@@ -989,19 +1008,21 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/bin/sample.rs
 
-### the file itself
+### the file itself — STALE
 - read at `f695630c471b` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: A small `just sample` binary with a single main: parse argv (repo, out dir, optional n with a default), run the same scan the app does, take every total/n-th function in scan order by stride, and write each as a handout file (name, owner, signature, docs, peers, path, line range — body withheld) into the out dir. No leasing, no .sanity/, prints a count.
 - found: All of that, plus the piece I got wrong: it writes TWO files per exercise, NN_head.md (the handout) and NN_body.txt (the answer key sliced from the file at the task's current line bounds) — the body is not withheld, it is the graded reference. Also: scan runs with both memos ephemeral and Fidelity::Ordering because the scores are never printed, and a task whose line bounds no longer fit the file is silently skipped (deliberately, per the inline comment).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: The header never mentions the head/body file pair, which is the whole output shape and the one thing a person running `just sample` needs to know.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `main` — QUIRKY
-- read at `a594be81f1c1` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: Parses argv into repo, output dir and optional n with a default, erroring on missing args; scans the repo, flattens to functions in scan order, takes every total/n-th by stride, and writes each as a handout file holding everything sanity_next sends minus the body, then prints a count.
-- found: That, with two things I did not cover. Args default rather than erroring (".", "sample", 10). It scans with ephemeral memos and Fidelity::Ordering, both with comments explaining why (a cached run is not a run of the thing measured; the all-pairs term would cost 30s for a number this tool never prints). And crucially it writes TWO files per exercise, not one: NN_head.md is the handout, NN_body.txt is the sliced body — the answer key, which is the whole point of a validation exercise and the half I missed. It skips silently on unreadable files or line bounds that have drifted past the file end, with a comment arguing the drift should be preserved rather than papered over.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: `written` doubles as both the count and the filename index, so a skipped function leaves no gap in the numbering — deliberate, but it means the printed count is the only signal that a stride slot was dropped.
+### `main`
+- spec 1 · read at `f30468b0e00b` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md in context
+- expected: Parses CLI args (repo, out dir, n), scans the repo for functions, samples n of them, and writes each one's handout info (name, signature, docs, peers) plus its source body to files in the output directory, without touching .sanity/ or leasing/reporting.
+- found: Matches broadly: scans with ephemeral memos, builds tasks via agentapi::all_tasks, takes an evenly-strided sample (not random) of `want` tasks, slices each function's body straight from the current file by line bounds, and writes paired files per exercise: NN_head.md (name/owner/file/lines/signature/docs/peers — the handout) and NN_body.txt (the actual body, the answer key).
+- predicted: most · documented: none · derivable: no · legible: most · trap: no
+- note: Sampling is deterministic striding through the task list, not random selection as I'd guessed.
 
 ## src-tauri/src/bin/scan.rs
 
@@ -1054,226 +1075,269 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/bin/tokens.rs
 
-### the file itself
+### the file itself — STALE
 - read at `35a7cd685d82` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: A `just tokens` binary estimating reader cost: tok converting chars to tokens at a flat ratio, row/pct formatting a table with shares, big for large-number formatting, and main scanning a repo, weighing mcp::tools(), agentapi::PROTOCOL and real task payloads, printing fixed vs per-reading cost with percentiles.
 - found: Exactly that shape. tok = chars/4 (CHARS_PER_TOKEN, documented as crude on purpose), row prints a chars+tokens line, pct is a percentile over a sorted slice, big formats 39.3M/1.2k. main scans the path with ephemeral memos and Fidelity::Ordering, builds all_tasks, prints the per-reader fixed prefix (each tool priced separately and marked "never called" if it isn't sanity_next/sanity_report), the orchestrator-only PROTOCOL, median/p90/max distributions of task JSON split into peers/docs/signature plus body lines, a whole-repo projection at 38 ch/line, and finally the token cost of tool descriptions readers never call.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `tok`
+### `tok` — STALE
 - read at `27061fb8c32c` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Converts a character count into an estimated token count by dividing by a flat chars-per-token constant (~4), returning it directly in a one-liner.
 - found: Exactly that: `chars / CHARS_PER_TOKEN`, integer division, no rounding.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 - note: No function docs; the file doc carries the reasoning, which is where the estimate caveat belongs.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `row`
+### `row` — STALE
 - read at `d83c85ba9901` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
 - expected: A tiny formatting helper for the report table: prints one aligned line with the label, the raw character count, and the estimated tokens from tok(chars), so every row of the breakdown lines up.
 - found: One println: label left-aligned in 34 columns, chars right-aligned in 8 with a "ch" suffix, then "~" and tok(chars) right-aligned in 7 with "tok".
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `pct`
+### `pct` — STALE
 - read at `3f77942cf4b9` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: A percentile helper over a sorted slice: index from p*len, clamped to the last valid index, returning that element; 0 for empty input.
 - found: Exactly that, using nearest-rank on (len-1)*p rounded, with an early return of 0 for empty. No clamping needed because the index is derived from len-1.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 - note: The name does not say the slice must be pre-sorted; only the parameter name carries that precondition, and nothing enforces it.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `big`
+### `big` — STALE
 - read at `aa6b5b1d0ed7` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: Format a count with a magnitude suffix: >=1M as one-decimal M, >=1k as one-decimal k, otherwise the plain number.
 - found: Exactly that, as a three-arm match with guards.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `main`
-- read at `5557c2efb4b0` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
-- expected: Takes a repo path defaulting to '.', serialises mcp::tools() and measures each tool's schema in estimated tokens at a flat chars-per-token ratio, weighs PROTOCOL and READER_PROMPT the same way, then scans the repo and builds real task payloads for median/p90 sizes with peers broken out, and prints a table of the reader's fixed floor, the variable per-reading part, and a whole-repo projection.
-- found: All of that, in three labelled sections. Per-tool rows are annotated "· never called" for anything that is not sanity_next or sanity_report; PROTOCOL is priced separately as orchestrator-only and deliberately excluded from the fixed prefix. The scan uses ephemeral memos and Fidelity::Ordering with comments justifying both. Distributions are median/p90/max over task JSON, peers, docs, signature and body lines. Two things I did not cover: bodies are ESTIMATED at a constant 38 chars/line because the scan keeps only a body hash, and the closing paragraphs state the conclusion outright — the floor is 3-4x understated because every turn re-sends, and the tool descriptions a reader never calls are priced as a repo-wide total that is 'ours to cut'.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: 161 lines of which perhaps a third is prose the tool prints or comments arguing why a constant is what it is — this file is closer to a written argument that recomputes itself than to a program.
+- spec 1 · read at `58145e63a510` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md in context
+- expected: CLI entry for `just tokens <path>`: takes a target path, computes the size in bytes/tokens of the fixed MCP tool contract and subagent prompt, scans the repo to gather per-function tasks, and prints a table/histogram of token costs (median/p90/max) per function plus a whole-repo projection, using helpers tok/row/pct/big for formatting.
+- found: Matches closely: reads path arg, prices the fixed per-reader prefix (tool list JSON, subagent prompt, protocol for orchestrator), runs an ephemeral scan to build the actual task payloads, computes distributions (median/p90/max) of task JSON/peers/docs/signature/lines sizes, projects whole-repo token cost (fixed prefix × n + payloads + bodies), and finally breaks out how much of the fixed prefix is tool descriptions never actually called by a reader.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: Missed the specific breakdown of unused-tool-description cost as the closing point of the report, though I predicted the general histogram/table shape correctly.
 
 ## src-tauri/src/blame.rs
 
-### the file itself
+### the file itself — STALE
 - read at `15aa9b5b23f0` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: A `Blame` cache keyed by file path (get/read), `blame_file` shelling out to `git blame --line-porcelain`, `parse_porcelain` turning output into per-line (author, commit time) placed by final line number, and `FileBlame::range(start,end)` aggregating churn/age/author over a clamped span; rayon parallelism; three unit tests for parsing, placement and clamping.
 - found: Exactly that shape, plus two things I did not predict: a packed `Line` (16-hex-digit sha as u64, interned author index u16, epoch time) with abbreviated serde names justified by disk cost on huge repos, and a `ScanCache` layer in `read` keyed by content hash plus the file's last commit, deliberately not caching misses. `RangeHistory` yields distinct-live-commits, last_touched_days, age_days and last author.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: The module header explains the metric and its limits thoroughly but never mentions the scancache persistence path, which is a third of `read`'s logic.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `range`
-- read at `2907ccea6d61` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: Clamp the inclusive 1-indexed start/end onto the stored per-line entries, return None if that leaves nothing, then fold the slice into the four facts: distinct commit count (churn), days since the most recent line's commit, age from the oldest line's commit, and the author of the most recent line.
-- found: Exactly that: lo/hi clamped with max(1)/min(len) and a `get(lo..hi)?`, an empty-slice None, one pass accumulating a HashSet of commit ids, the newest line and the oldest timestamp, then RangeHistory{commits, last_touched_days, age_days, last_author} with times converted to days via a max(0) guard and the author resolved through an interning table by index.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 1 · read at `6e16a4ebacb9` · commit `29c6e80` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md in context
+- expected: Clamps the 1-indexed inclusive line range to the blamed lines available, aggregates into a RangeHistory with churn (distinct commits), age/last-touched relative to now, and last author; returns None if out of bounds.
+- found: Clamps lo/hi into the lines slice, returns None if the resulting slice is empty. Collects distinct commit ids (churn), tracks the line with the newest timestamp (for last_touched_days and last_author) and the oldest timestamp (for age_days) via a per-line scan, converting to days via (now-t)/86400. Comment flags age_days as a lower bound since blame attributes each line to its last touching commit, so a wholesale rewrite of a function reads as young rather than reporting its true original age.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: documented field only covered the 1-indexed/inclusive/clamped contract, not the age-is-a-lower-bound caveat, which lives in an inline comment instead.
 
-### `get`
+### `get` — STALE
 - read at `2fc281e13502` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: A 3-line accessor looking up a file's per-line blame in an internal map keyed by repo-relative path, returning Option<&FileBlame> — likely just self.files.get(path).
 - found: Exactly `self.files.get(path)`.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `read`
-- read at `dbcd61888ff4` · commit `1b80d39` · read by claude-opus-4.6 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Maps over paths in parallel with rayon; for each (path, stamp) takes the cached FileBlame if still current, else calls blame_file, dropping None silently without recording a failure; collects successes into a Blame keyed by path.
-- found: Exactly that, plus it captures a `now` unix timestamp into the returned Blame (for age math) and validates the cache against both the content hash and `history.last_commit_of(path)`, storing successes with `put_blame`.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-
-### `blame_file`
-- read at `9fba962b21ee` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: Shells out to `git blame --line-porcelain -- <path>` with -C repo, returns None if the command fails to run or exits non-zero, otherwise passes stdout to parse_porcelain to build a FileBlame of per-line author/time.
-- found: Exactly that, including the lossy UTF-8 conversion of stdout and the `.ok()?` / `!status.success()` two-step for the two failure modes.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- note: The only docs handed over were the module header about why blame is per-line; the function itself carries no comment, so `documented` is none rather than a judgement on the module prose.
-
-### `parse_porcelain`
-- read at `a65e82731dcd` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
-- expected: A line-by-line state machine: header lines record the current sha and final line number; author and author-time key lines update per-sha state; a tab-prefixed source line closes the record and writes sha/author/time into a vector indexed by the FINAL line number, resized rather than pushed sequentially. Returns the assembled FileBlame.
-- found: Structurally that, with two compressions I did not predict: author names are interned into a Vec<String> with a HashMap giving each a u16 id, and the sha is packed into a u64 by parsing its first 16 hex digits, so a Line is three small integers. Header lines are validated (three fields, 16+ chars, first byte hex, parseable final number) and skipped otherwise. author/time are carried forward in plain mutable variables rather than remembered per sha, which is only safe because --line-porcelain repeats the full header on every line.
+- spec 1 · read at `82059d015700` · commit `29c6e80` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Parallel iterate over paths, check cache for valid blame else call blame_file, silently skip failures, collect into Blame map.
+- found: Records current timestamp; par_iter over paths using filter_map — checks cache.cached_blame keyed by path+hash+wanted commit, else calls blame_file and writes the fresh result back into the cache via put_blame before returning it; failures (None from blame_file) drop the file silently via filter_map. Collects into Blame{files, now}.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `parses_a_commit_author_and_time_per_line`
+### `blame_file`
+- spec 1 · read at `e29bf07562e4` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Runs git blame --line-porcelain on path within repo, captures stdout, parses via parse_porcelain into FileBlame; returns None on command failure.
+- found: Spawns `git -C <repo> blame --line-porcelain -- <path>`, captures output; returns None if spawn fails or exit status is non-success; otherwise lossily decodes stdout as UTF-8 and passes to parse_porcelain, wrapping result in Some.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
+
+### `parse_porcelain` — TRAP
+- spec 1 · read at `2541905813c1` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md in context
+- expected: Parses git blame --line-porcelain output line by line, tracking the current sha/author/time from header/key-value lines, and when it hits the tab-prefixed source line, uses the final line number from the header to place a record (sha, author, time) into a FileBlame structure indexed by final line number.
+- found: Matches the overall shape: tracks commit/author/time/final_line state, resolves the source line (tab-prefixed) by writing into `lines` resized/indexed by final_line. Additional details not predicted: authors are interned into a Vec+HashMap to dedupe names into u16 ids, the commit sha is truncated to its first 16 hex chars and packed into a u64 (not stored as a string), and header lines are validated (sha length/hex check) to distinguish them from key/value lines.
+- predicted: most · documented: full · derivable: no · legible: most · trap: yes
+- note: The commit-sha-as-truncated-u64 and author-interning choices are the kind of compact-representation trap a future editor could break by not preserving.
+
+### `parses_a_commit_author_and_time_per_line` — STALE
 - read at `97252a5924c0` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: A unit test feeding a hand-written git blame --line-porcelain fixture into parse_porcelain, asserting each line gets the right author and commit time, covering the porcelain's header-only-on-first-mention behaviour.
 - found: Parses SAMPLE, asserts 3 lines and 2 interned authors, then exercises FileBlame::range on two windows: commit counts (1 vs 2), last_author being the most recent toucher not the first, last_touched_days 0.0, and age_days ~11.57.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 - note: Name promises per-line author/time parsing but the body mostly tests FileBlame::range aggregation, which its neighbours also cover.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `places_lines_by_their_final_number`
+### `places_lines_by_their_final_number` — STALE
 - read at `02f1da5686bf` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: A test feeding parse_porcelain a synthetic --line-porcelain stream whose header final-line numbers are out of order, asserting each line's author/time lands at its final line number rather than its position in the stream.
 - found: Exactly that: two porcelain records (final lines 3 then 1) with authors Ada and Grace; asserts lines.len()==3 (vector sized to the max line) and that range(1,1) is Grace and range(3,3) is Ada.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `a_range_past_the_end_is_clamped`
+### `a_range_past_the_end_is_clamped` — STALE
 - read at `7d707f0ec837` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: Build a small FileBlame, call range with an end past the last blamed line and assert it returns what exists rather than panicking or nothing; probably also that a range entirely past the end yields None/empty.
 - found: Exactly that, in two asserts over parse_porcelain(SAMPLE): range(2, 999, now) is Some (an overhanging end clamps), range(50, 60, now) is None (entirely past the end is nothing). The third argument is a fixed epoch-seconds 'now' so the age arithmetic stays deterministic.
 - predicted: full · documented: none · derivable: yes · legible: most · trap: no
 - note: The test asserts only is_some/is_none — it never checks WHICH lines the clamped range covered, so a clamp returning one line instead of the right span would still pass.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## src-tauri/src/cache.rs
 
-### the file itself
+### the file itself — STALE
 - read at `00f0f287b84a` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: A content-addressed score cache: `key` hashes the body via a small `fnv` alongside path/name so a rename or edit misses but a move within a file hits; `open`/`path_for`/`flush` persist a per-model JSON map under an app-support `scores/` dir; `ephemeral` is the in-memory variant that never touches disk; a cache written by another model is dropped rather than merged; tests at the tail name exactly those invariants, and the header admits only the ephemeral half is reachable.
 - found: That shape, plus three things I did not predict: the DOC is folded into the hash (rotated and xor'd) because the comment stack is part of the model's prompt, so documenting a function must not serve its pre-documentation score back forever; a FORMAT_VERSION guards recalibration, checked with the model name as a filter on load; and writes flush every 25 entries through a temp-file-and-rename, with hotspots cached beside the score so a resumed scan does not show a hot wedge with no evidence. `path_for` hashes both repo path and model into the filename rather than escaping them.
 - predicted: most · documented: most · derivable: no · legible: not judged · trap: no
 - note: Two of the six tests here assert nothing: `moving_a_function_within_a_file_does_not_invalidate_it` compares `key(...)` with an identical `key(...)` call and never involves a line number, and `a_cache_written_by_another_model_is_dropped_not_merged` never calls `Cache::open` — it writes a Stored, reads it straight back, and asserts `"old-model" != "new-model"`.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `key`
+### `key` — STALE
 - read at `17125856b1c3` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 8 of its run
 - expected: Builds the content-addressed key from the four inputs: a String identity of path plus name ("path#name") paired with a u64 FNV hash over the body and the doc (None treated as empty), so a moved function still hits while an edited body or comment misses.
 - found: Exactly that. `fnv(body)`, and when a doc is present the doc's FNV is rotated left one bit and XORed in — the rotate keeps body and doc from cancelling when they are identical. Returns `(format!("{path}#{name}"), h)`.
 - predicted: full · documented: full · derivable: no · legible: most · trap: no
 - note: `None` and `Some("")` are not the same key here — an empty doc string still XORs in fnv("") — but the rotate_left(1) that makes that work is the one line with no comment.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `fnv`
+### `fnv` — STALE
 - read at `2c6953594781` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: FNV-1a-shaped byte hash: 64-bit offset basis, per byte XOR then wrapping multiply by a constant that is deliberately not the true FNV prime (per the doc), with a twin in heuristic.rs.
 - found: Exactly that: h starts at 0xcbf29ce484222325, each byte XORed in then h = h.wrapping_mul(0x1000_0000_01b3). The multiplier has one hex digit too many versus FNV-1a's 0x100000001b3 — sixteen times the real prime — which is the wrongness the doc owns up to.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: The doc is the only thing that could tell a reader the multiplier is off by a factor of sixteen; nobody would catch it by eye.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `ephemeral`
+### `ephemeral` — STALE
 - read at `03b0531f049c` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: A constructor returning a Cache with no disk location (dir/path None), an empty in-memory entry map, an empty model tag and a clean dirty flag, so flush and path lookups are no-ops.
 - found: Exactly that struct literal: path None, empty model String, Mutex-wrapped default Stored, dirty counter Mutex at 0. The only detail beyond my prediction is that dirty is a count rather than a boolean and the fields are mutex-guarded.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `open`
-- read at `1b7e5b67fa1b` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Computes the on-disk path for repo+model, reads and deserializes stored entries; on missing file, parse failure, or a different model, returns an empty cache for that model rather than erroring. Returns a Cache unconditionally.
-- found: Exactly that: path_for, read_to_string().ok(), serde_json::from_str::<Stored>().ok(), filter on version == FORMAT_VERSION && model matches, unwrap_or_else to an empty Stored, then builds Cache with path, model, Mutex<Stored>, dirty counter. Also checks a format version I did not name.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 1 · read at `3911f8fff48d` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Computes cache file path via path_for, reads/deserializes existing file, checks stored model matches given model (dropping not merging on mismatch), returns empty Cache if missing/mismatched, else populated Cache.
+- found: Computes path, reads file to string then deserializes as Stored via serde_json, filters on version==FORMAT_VERSION && model==model (drops on either mismatch), falls back to a fresh empty Stored with current model; wraps into Cache struct with path, model, inner mutex, and a dirty counter (starting 0).
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `path_for`
-- read at `5ec0ad90cc0f` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
-- expected: Builds the on-disk cache path for a (repo, model) pair: app data dir + a scores/ subdirectory, filename from a hash of the repo's absolute path combined with a sanitised model name, e.g. scores/&lt;fnv-of-repo&gt;-&lt;model&gt;.json; None when the data dir can't be resolved.
-- found: That, with the model HASHED rather than sanitised (fnv of both halves, formatted as two 16-hex-digit fields joined by a dash, .json), and it also creates the directory as a side effect, returning None if create_dir_all fails as well as if data_dir() does.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: A function named path_for creates a directory on disk, so a caller merely asking where a cache would live leaves a scores/ folder behind.
+- spec 1 · read at `8973c016a1ad` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Builds a cache file path under a scores dir using a hash of repo path and the model name embedded in the filename.
+- found: Joins data_dir()/scores, creates the dir, then hashes BOTH repo path and model name separately with fnv (rather than embedding raw text) because paths/model names can contain characters illegal in filenames on some platforms; filename is {repo_hash:016x}-{model_hash:016x}.json.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: I expected the model name to appear literally in the filename per the file doc's framing ('the model belongs in the filename'); it's actually hashed too, for cross-platform filename safety.
 
-### `get`
+### `get` — STALE
 - read at `35dee6763997` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Locks/borrows the in-memory map, looks up the (key, body_hash) tuple, returns a cloned Reading if present else None; the tuple key is what lets a moved-but-unchanged function still hit.
 - found: Locks the inner mutex (returning None on poison via ok()?), gets the entry by key.0 alone, filters on body_hash == key.1, and constructs a Reading from surprise + cloned hotspots.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: The map is keyed on the string only, with the hash as a post-filter, so a stale entry silently shadows rather than coexisting — deliberate, but not visible from the signature.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `put` — TRAP
-- read at `fa6e28333dd1` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
-- expected: Inserts a reading under its content-addressed key into the in-memory map behind a mutex, marks the cache dirty, and for a non-ephemeral cache with a path appends or schedules a write for flush; an early return when there is no path so an ephemeral cache never touches disk.
-- found: The key pair is split: key.0 is the map key and key.1 (the body hash) is stored inside the Entry alongside surprise and hotspots. Dirtiness is not a flag but a COUNTER — every put increments it and every FLUSH_EVERY puts resets it and calls flush, so persistence is amortised rather than deferred to a caller. There is no path check here; ephemerality must be handled inside flush. Both locks are handled with `if let Ok` / match, so a poisoned mutex is absorbed silently.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: yes
-- note: The two locks are taken independently and both failures are swallowed, so a poisoned entries lock silently drops the insert while the dirty counter still advances and can trigger a flush of a map that never got the write.
+### `put`
+- spec 1 · read at `c5a3bbeeac83` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md in context
+- expected: Stores a reading in the in-memory cache map keyed by (name, body hash), and periodically flushes to disk once enough writes have accumulated since the last flush.
+- found: Inserts an Entry (body_hash, surprise, hotspots) under key.0 in the locked map. Separately increments a dirty counter under its own lock; once it hits FLUSH_EVERY, resets it and calls self.flush(). Both locks acquired and released independently (not nested), silently no-ops on lock failure.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: Interesting given the file doc says persistence is currently unreachable/dead code — this flush-triggering logic exists but nothing calls a persistent Cache::open path today.
 
 ### `flush`
-- read at `78f8ab11bd80` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 8 of its run
-- expected: Serialises the in-memory score map to JSON and writes it atomically — a temp file beside the real path, then rename over it — returning early and doing nothing for an ephemeral cache with no path. Since it returns (), I expected I/O errors to be swallowed or logged rather than propagated, on the grounds a lost cache is recomputable.
-- found: Exactly that: let-else on self.path returns for an ephemeral cache, the mutex is locked (a poisoned lock silently returns), serde_json::to_string of the inner map, write to path.with_extension('json.tmp'), and rename only if the write succeeded. Every failure path is a silent return or a discarded Result.
+- spec 1 · read at `01f40ef313ca` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Serializes cache entries to JSON and writes atomically via temp file + rename.
+- found: If self.path is Some and the lock succeeds, serializes the inner map to JSON, writes to a `.json.tmp` sibling file, and renames it over the real path — silently no-ops on any failure (ephemeral cache, lock poisoning, serialization or write failure).
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
-- note: A failed write leaves the .json.tmp behind — harmless, since the next flush overwrites it, but nothing cleans it up.
 
-### `model`
+### `model` — STALE
 - read at `3efb11562cbf` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
 - expected: A three-line accessor returning the cache's model identifier string — the tag entries are namespaced by, so a cache written by a different model can be dropped rather than merged.
 - found: Exactly that: returns &self.model.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `len`
+### `len` — STALE
 - read at `285e390eaaf3` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 9 of its run
 - expected: Locks the inner mutex and returns inner.entries.len(), defaulting to 0 if the lock is poisoned.
 - found: Exactly that, as a one-liner: self.inner.lock().map(|i| i.entries.len()).unwrap_or(0).
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `is_empty`
+### `is_empty` — STALE
 - read at `f7a5ae5b92b4` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: The clippy-mandated companion to Cache::len — three lines returning whether the entry map holds nothing, almost certainly self.len() == 0 or self.entries.is_empty().
 - found: `self.len() == 0`.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `two_models_never_share_a_cache_file`
-- read at `f9a389de342f` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A test that derives cache paths for one repo under two different model identifiers and asserts the paths differ, so one model's scores can never be read back as another's.
-- found: Exactly that: Cache::path_for(repo, "heuristic (no model)") vs "ollama · llama3.2:3b", asserts both are Some and assert_ne. A comment names the regression — the proxy pass ran before every model pass and, sharing a file, wiped the model's scores.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-- note: The docs handed to me are the module's, about the cache as a whole, and say nothing about this test — graded none per the contract; the test's own inline comment is the real documentation and it is good.
+- spec 1 · read at `cb74c330673d` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Test that calls Cache::path_for with two different model identifiers and asserts the resulting cache file paths differ, verifying model name is part of the cache key/filename.
+- found: Test calling Cache::path_for(repo, name) with \"heuristic (no model)\" and an ollama model string, asserting both are Some and not equal; comment explains this guards against the proxy pass and model pass overwriting each other's cache file.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ### `a_hit_needs_the_same_body_not_just_the_same_name`
-- read at `297e63f04370` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
-- expected: A test that the cache key is content-addressed: same path and name with a changed body must miss, while the identical body hits.
-- found: Exactly that — ephemeral cache, put a Reading under key("src/a.rs","run","let x = 1;",None), assert the hit returns 0.8, then assert the same name with an edited body misses.
+- spec 1 · read at `506d9cc797b2` · commit `29c6e80` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Test that puts a score keyed by name+body, then queries with same name but edited body, expecting a miss — confirming the cache key includes the body.
+- found: Uses Cache::ephemeral(), builds key(path, name, body, None), puts a Reading with surprise 0.8, asserts get hits with surprise 0.8; builds a second key with the same path/name but edited body, asserts get returns None.
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
 
-### `moving_a_function_within_a_file_does_not_invalidate_it` — QUIRKY
+### `moving_a_function_within_a_file_does_not_invalidate_it` — QUIRKY — STALE
 - read at `7e01479e569d` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: Calls `key` twice with the same model, path, name and body but different line numbers, asserting the keys are equal — i.e. that line position is not part of the content-addressed key.
 - found: A comment states the intent, then it calls `key("src/a.rs", "run", "body", None)` twice with byte-identical arguments and asserts equality. `key` takes no line argument at all, so the test is a tautology that cannot fail and exercises nothing the name claims.
 - predicted: some · documented: none · derivable: yes · legible: full · trap: no
 - note: The test asserts `key(x) == key(x)` with identical arguments — it can never fail and proves nothing about the property in its name, which is real only because `key` never sees a line number.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `renaming_or_moving_a_function_misses`
+### `renaming_or_moving_a_function_misses` — STALE
 - read at `ea4578d3db4f` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: Put an entry, then get with a different name and with a different file path but the same body, asserting None both times — the key covers name and path, complementing the sibling test that a move within a file still hits.
 - found: Exactly that, in three lines against an ephemeral cache: put src/a.rs+run, assert miss for src/a.rs+walk and for src/b.rs+run.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 - note: The file_doc says the persistence half is unreachable and "if that stays true this should go" — worth a decision, since the whole module is tested but only ephemeral is used.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `an_ephemeral_cache_never_touches_disk`
+### `an_ephemeral_cache_never_touches_disk` — STALE
 - read at `4eab39b55c2b` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
 - expected: A short test creating Cache::ephemeral(), putting an entry, calling flush(), and asserting nothing reached disk — path_for absent or no file created — while the entry survives in memory.
 - found: It creates the ephemeral cache, puts one Reading, calls flush() and asserts only `c.len() == 1`. The in-memory half is there; the disk half — the property the name states — is never checked at all. The test really only proves flush() does not panic or clear the map.
 - predicted: most · documented: none · derivable: yes · legible: most · trap: no
 - note: The test is named for "never touches disk" and never inspects the filesystem — an ephemeral cache that wrote a file would pass it.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `a_cache_written_by_another_model_is_dropped_not_merged` — OBSCURE — TRAP
+### `a_cache_written_by_another_model_is_dropped_not_merged` — OBSCURE — TRAP — STALE
 - read at `f7a59f7405a6` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 10 of its run
 - expected: Opens a cache in a temp dir under one model label, puts an entry and flushes, reopens the same path under a different model label, and asserts the entries are gone rather than inherited.
 - found: It never constructs a Cache at all. It writes a Stored JSON with model "old-model", reads it straight back with serde, and asserts `loaded.model != "new-model"` — a comparison of two string literals that is true whatever `Cache::open` does. A comment says "the filter `open` applies", but open is never called.
 - predicted: none · documented: none · derivable: yes · legible: most · trap: yes
 - note: This test asserts a tautology ("old-model" != "new-model") and never calls Cache::open, so it would pass unchanged if the drop-not-merge filter were deleted entirely.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## src-tauri/src/churn.rs
 
@@ -1509,12 +1573,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 - note: Marked warm: this is my second reading in cli.rs, and the project brief in my context already described the idempotent-serve, supersede and fail-closed-idle rules by name, so my prediction was not made from the handout alone.
 
-### `study`
-- spec 1 · read at `a693d27ea9d3` · commit `94d194d` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: Ensures a backend is running, opens the repo via a POST with the show flag, prints a status sentence for the operator, returns an exit code.
-- found: Resolves the path, ensures a backend, POSTs /open with path+focus, then separately GETs /status for assessed/remaining/stale counts (deliberately not from the open response, to stay consistent with the sidebar), prints functions/excluded/read/remaining/stale and whether Sanity's window is pointed at this repo, then either says everything is current or prints the "study this project in sanity" prompt plus a note that the agent will ask which model to use.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Missed that counts are pulled from a second /status call rather than reused from /open's response — a deliberate consistency decision documented inline but not in the handout docs.
+### `study` — QUIRKY
+- spec 1 · read at `97c21576cd20` · commit `e19603b` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Ensures a backend is running, POSTs to open the given repo path, prints a human-readable sentence describing next steps, and if show is true focuses the window on that project; returns an exit code.
+- found: Resolves the path, ensures backend, POSTs /open with focus=show, then GETs /status separately (because assessed/remaining must exclude stale readings), and prints a multi-part report: function/excluded counts, read/remaining/stale counts, which port and whether Sanity's view is pointed here, a CLAUDE.md priming warning with the exact remedy command if agent_docs is non-empty, and finally either 'every function read' or the 'study this project in sanity' prompt telling the human's agent what to say and that it will ask which model to use.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
 
 ### `read_verb`
 - read at `d384d930466f` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
@@ -1704,437 +1767,526 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/heuristic.rs
 
-### the file itself
+### the file itself — STALE
 - read at `94197c2c5bb7` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 10 of its run
 - expected: The offline surprise proxy: lexing helpers (words splitting identifiers and dropping structural noise, lex, shingles, fnv, jaccard), four 0..1 terms — distinctiveness via min-jaccard against sibling fingerprints, incompressibility, branch_density, vocabulary_novelty — mixed by WEIGHTS in `surprise`, a monotonic `calibrate` mapping the raw mix onto the reported band, and `documented` as the offline doc grade subtracting the signature's vocabulary from both sides; every term returns UNDECIDED 0.5 on short input, with tests named for each property.
 - found: All of that, with the abstention thresholds named as constants (MIN_SHINGLES, MIN_WORDS, MIN_LINES_FOR_BRANCHING, a 200-byte deflate floor) and a shared `linmap` that rescales every raw band. Two things beyond my prediction: distinctiveness takes the MAX jaccard and returns 1 − linmap of it rather than a min; and `fnv` carries a long doc admitting the multiplier is not FNV-1a's prime, deliberately left wrong because correcting it would move every shingle hash and expire every committed reading via the twin in assessment.rs.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: The module header lists the four terms but never mentions `calibrate` or `documented`, which are the two exported pieces most likely to be touched by mistake.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `linmap`
+### `linmap` — STALE
 - read at `27921b051bbe` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 10 of its run
 - expected: ((v - lo) / (hi - lo)).clamp(0.0, 1.0) — one expression rescaling v from the band into 0..1 with clamping at both ends, possibly with a hi == lo guard.
 - found: Precisely that expression, with no hi == lo guard: equal bounds divide by zero and yield NaN or infinity, and clamp on NaN returns NaN.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: All callers pass literal constant bands, so the unguarded division is safe today but would silently produce NaN if a computed band ever collapsed.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `words`
-- read at `8ade55130efd` · commit `1b80d39` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: Walks the source characters, splitting identifiers on camelCase boundaries and on non-alphanumeric separators (underscore, hyphen, punctuation, whitespace), lowercases each part, and returns parts that are at least three characters long and not structural/stop words via is_structural.
-- found: Exactly that, as a single char loop with a `prev_lower` flag for the camel boundary and `std::mem::take` to flush the accumulator; the filter is applied once at the end with `retain(len >= 3 && !is_structural)`. One wrinkle: digits count as "lower" for boundary purposes, so `parse2Json` splits but `HTTPServer` does not (consecutive capitals stay one word).
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 1 · read at `3a6091c43ac8` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Splits source into words on non-alphanumeric boundaries and camelCase/snake_case/kebab-case, lowercases, filters short and structural words.
+- found: Single char-by-char scan: builds up a lowercase word buffer, splitting on non-alphanumeric chars (naturally handling snake_case/kebab-case) and on camelCase boundaries (uppercase following lowercase), then retains only words with len >= 3 that aren't is_structural.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `is_structural`
+### `is_structural` — STALE
 - read at `60226f970c31` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: A predicate returning true for language keywords and universal plumbing — a static set of terms like let, self, return, err, if, for, fn, const, plus maybe very short tokens — so vocabulary comparisons can drop them.
 - found: A flat const slice of 64 lowercase terms — keywords across several languages plus generic identifier names (err, res, val, tmp, obj, args, opts) and the stopword "the" — with a linear `contains`. No length rule.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: The list is English/C-family only, so a repo whose identifiers are not English gets none of this filtering and reads as more distinctive than it is; also note "if" and "in" are absent while "the" is present.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `lex`
-- read at `442c197a7637` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: Iterate char_indices accumulating a run of alphanumeric/underscore chars and emit that slice as one token; skip whitespace; emit any other single character as its own token. Returns borrowed &str slices into src and never indexes by byte, so multi-byte punctuation is safe.
-- found: Exactly that, using a peekable char_indices so the identifier run can look ahead without consuming, and advancing `end` by len_utf8 on each accepted char so every slice boundary is a codepoint boundary. Whitespace skipped, single non-word chars pushed as one-char slices.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 1 · read at `71bb58aefa58` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Groups consecutive alphanumeric/underscore chars into identifier slices, emits punctuation as single-char tokens, skips whitespace, using char_indices with byte offsets for UTF-8 safety.
+- found: Exactly that: peekable char_indices, skip whitespace, extend identifier runs via len_utf8 byte offsets, else push single-char punctuation slice.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
-### `shingles`
+### `shingles` — STALE
 - read at `f3797168b0b9` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: Lex the source, slide a 3-token window over the stream, hash each triple with fnv into a HashSet<u64>; keywords kept unlike `words`, feeding jaccard/distinctiveness.
 - found: Exactly that, with an explicit guard: fewer than three tokens returns an empty set rather than producing nothing from `windows(3)` (which would be the same result but by accident).
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `fnv`
+### `fnv` — STALE
 - read at `754c838096aa` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: FNV-1a-shaped loop: 64-bit offset basis, XOR each byte in, wrapping-multiply by 0x1000_0000_01b3, return u64.
 - found: Exactly that, with basis 0xcbf29ce484222325 and the off-by-one-grouping multiplier the docs describe.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `jaccard`
+### `jaccard` — STALE
 - read at `26f6f9ec3347` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Computes Jaccard similarity of two hash sets — intersection over union as f32, guarding the empty/zero-denominator case by returning 0.0 or UNDECIDED.
 - found: Exactly that: returns 0.0 if either set is empty, counts the intersection, derives the union as len(a)+len(b)-inter, and returns inter/union with a second 0.0 guard for a zero union.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `incompressibility`
-- read at `0decd7684f19` · commit `1b80d39` · read by claude-opus-5 · by ross@rossturk.com · warm reading · reading 7 of its run
-- expected: Returns UNDECIDED (0.5) for bodies below some minimum byte length (there is a peer test named short_bodies_decline_to_report_compressibility). Otherwise deflate-compresses the body, takes the ratio of compressed to original size, and maps that ratio through linmap onto 0..1 so a repetitive body scores low and an incompressible one scores high.
-- found: That, with one step I did not predict: the body is whitespace-normalised first (split_whitespace joined by single spaces) and the 200-byte floor and the ratio are both taken against the NORMALISED text, so indentation neither pads the length past the floor nor inflates the compressibility. Every failure path — too short, write error, finish error — returns UNDECIDED rather than a number. The linmap band is 0.25..0.70, annotated as measured across sibling projects.
+- spec 1 · read at `0b49fd4d2b9a` · commit `29c6e80` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md in context
+- expected: Compresses the body with deflate and returns a ratio of compressed to original length (or its inverse) as a novelty/incompressibility score, likely with a minimum-length guard that returns a neutral/undecided value for very short bodies.
+- found: Normalizes whitespace, returns UNDECIDED if under a 200-byte floor (deflate's fixed ~11 byte overhead would otherwise skew short inputs), otherwise deflates and computes compressed/original ratio, then remaps that ratio through linmap calibrated against measured bounds (0.25 templated, 0.70 dense hand-written) into the final score.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Second reading from heuristic.rs, so not cold — I had seen the file's function list and one other body.
+- note: Matched the guard-for-short-bodies prediction, which the peer list ("short_bodies_decline_to_report_compressibility") had already hinted at.
 
 ### `branch_density`
-- read at `58768acba707` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Counts decision points in the body (if/else/match/for/while/&&/||/?), divides by line count for decisions-per-line, maps through linmap onto a 0..1 band with saturation, and returns UNDECIDED for bodies too short to judge.
-- found: Exactly that: a BRANCH keyword list spanning several languages (if, else, match, case, switch, for, while, loop, try, catch, except, &&, ||, ?), an early UNDECIDED return when line_count < MIN_LINES_FOR_BRANCHING, tokenisation by splitting on non-alphanumerics while keeping &, | and ? as token characters, and linmap(hits/lines, 0.02, 0.25).
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- spec 1 · read at `d1519d356654` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Counts branch/decision keywords (if, match, while, for, &&, ||, ?) across the body and divides by line count to get a density ratio.
+- found: Tokenizes on non-alphanumeric (except &,|,?) chars, counts tokens matching a multi-language branch-keyword list (if/else/match/case/switch/for/while/loop/try/catch/except/&&/||/?), divides by line count, but returns UNDECIDED if line_count < MIN_LINES_FOR_BRANCHING, and passes the ratio through linmap(0.02, 0.25) for calibration rather than returning it raw.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `vocabulary_novelty`
-- read at `76fbb10b9de1` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
-- expected: Tokenise signature and body with `words`, put both in sets, return UNDECIDED (0.5) when the body has too few distinct words, otherwise return the fraction of body words that do not appear in the signature's vocabulary.
-- found: Exactly that, with one step I did not name: the raw fraction is passed through `linmap(_, 0.35, 0.85)`, so the observed band of real code is stretched onto 0..1 rather than the ratio being reported directly.
+- spec 1 · read at `40682e32b324` · commit `29c6e80` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Extracts word sets from signature and body via `words`, computes fraction of body words not in signature's vocabulary, remaps via linmap into a bounded f32.
+- found: Exactly as predicted, plus a MIN_WORDS gate returning UNDECIDED for very short bodies before computing the novel-word fraction and calling linmap(novel/total, 0.35, 0.85).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `fingerprint`
+### `fingerprint` — STALE
 - read at `14046ed74e28` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: Builds the cached comparison key for distinctiveness: lex the body into normalised tokens, form k-gram shingles, FNV-hash each into a deduped set, wrap it in Fingerprint so sibling comparison is a Jaccard over hashes rather than a re-lex per pair.
 - found: Exactly that purpose, but the function itself is a three-line constructor that just delegates to `shingles(body)` and wraps the HashSet<u64>; the lexing and hashing live in `shingles`, not here.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `distinctiveness`
-- read at `986d4efa5824` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
-- expected: Return UNDECIDED (0.5) when there are no peers — and probably when the body is too short to shingle — otherwise take the maximum Jaccard similarity of shingle sets across all peers and return 1 minus it, so a function that closely resembles a sibling scores cold.
-- found: Exactly that, with both guards present (peers empty OR fewer than MIN_SHINGLES shingles), and one detail I did not cover: the closest match is not subtracted raw but passed through `linmap(closest, 0.08, 0.55)`, because real near-duplicates rarely exceed ~0.6 Jaccard so the interesting band is rescaled from that low range.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 1 · read at `0fe9a609594f` · commit `29c6e80` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md in context
+- expected: 1 - max Jaccard similarity against peers; returns a neutral sentinel when there are no peers to compare against.
+- found: Returns UNDECIDED (not 1.0) when peers is empty OR the body is too short to shingle (< MIN_SHINGLES), explicitly to avoid every single-function file or three-line accessor scoring as maximally original. Otherwise takes max Jaccard across peers and returns 1.0 - linmap(closest, 0.08, 0.55), remapping the observed near-duplicate ceiling (~0.55-0.6) onto the full output range rather than using raw 1-similarity.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: Missed the linmap calibration (0.08-0.55) and the short-shingle floor condition — only predicted the empty-peers sentinel case.
 
-### `surprise`
+### `surprise` — STALE
 - read at `724338ca9496` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: Computes vocabulary_novelty, incompressibility and branch_density on the body, combines them with the passed-in distinctiveness via WEIGHTS as a weighted sum, and returns calibrate() of that.
 - found: Exactly that: a four-element terms array in the order distinctiveness, vocabulary_novelty(signature, body), incompressibility(body), branch_density(body), zipped against WEIGHTS, summed, and passed through calibrate.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `calibrate`
+### `calibrate` — STALE
 - read at `d127c0bd2211` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
 - expected: Six lines rescaling raw from an observed band (~0.15..0.95, as named constants) onto 0..1 by subtracting the low end and dividing by the width with clamping, then raising to a fixed exponent above 1 to skew right — most code cold, a thin hot tail.
 - found: Exactly that shape: FLOOR 0.30, CEIL 0.95, SKEW 2.2, with the rescale-and-clamp delegated to a helper linmap and then powf(SKEW).
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: The doc names the band as roughly 0.15..0.95 while the code's FLOOR is 0.30.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `documented`
+### `documented` — STALE
 - read at `15122d1a475a` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 6 of its run
 - expected: Word-sets from doc, body and signature; subtract signature vocabulary from both sides; 0.0 with no doc; otherwise the fraction of remaining body words covered by remaining doc words, clamped 0..1.
 - found: That, plus two edge returns and a rescale I did not predict: an empty uncovered set returns 1.0 (signature said everything), empty doc-minus-signature returns 0.0, and the raw overlap is passed through linmap(coverage, 0.0, 0.40) so 40% vocabulary overlap already earns full credit — prose explaining the reason should not have to name every identifier.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: Second function I have read in heuristic.rs, so this reading is warm.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `words_split_identifiers_and_drop_noise`
+### `words_split_identifiers_and_drop_noise` — STALE
 - read at `108e6e6bae36` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: A unit test asserting words() splits camelCase and snake_case identifiers into component words and drops noise — punctuation, keywords, very short tokens.
 - found: Three asserts doing exactly that: parseHTTPHeader -> [parse, httpheader], retry_with_backoff -> three words, and "let x = self.a" -> empty. The acronym case is the detail I did not call: consecutive capitals do NOT split, so HTTPHeader stays one token.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `a_comment_that_restates_the_signature_documents_nothing`
+### `a_comment_that_restates_the_signature_documents_nothing` — STALE
 - read at `a0953a7b19b0` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 8 of its run
 - expected: Scores a doc comment that only echoes the signature's words against a body, asserting it yields ~0 coverage while a genuinely explanatory comment scores higher, since signature vocabulary is subtracted from both sides.
 - found: Exactly that: "Increments the counter." against `fn increment_counter(&mut self)` must score exactly 0.0, while a comment naming the persist and notify calls must exceed 0.5.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 - note: Third function I have read from heuristic.rs this run, so warm.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `no_doc_is_no_explanation`
+### `no_doc_is_no_explanation` — STALE
 - read at `948ca39c4031` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: A three-line test asserting documented returns 0.0 for a function with no doc comment — empty docs against some body — establishing that absent documentation explains nothing rather than falling back to the 0.5 UNDECIDED value the other terms use.
 - found: A single assert: documented(None, "fn a()", "body words here") == 0.0. Exactly the predicted claim, with the absent doc expressed as None and the signature passed separately (since documented subtracts signature vocabulary from both sides).
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `twelve_copies_of_a_handler_are_not_distinctive`
-- read at `23169be468ac` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
-- expected: A test building ~12 near-identical handler bodies, fingerprinting them, and asserting distinctiveness of one copy is low (below 0.5/UNDECIDED), likely contrasted with a genuinely novel body scoring higher.
-- found: Exactly that shape, both assertions included — but with TWO similar handlers, not twelve: `distinctiveness(&a, &[&b])` against one sibling, plus a retry-loop body as the novel contrast.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: Named "twelve copies" but exercises exactly two — the many-siblings case the product's headline claim rests on is not actually tested here.
+- spec 1 · read at `3f563f4b7e0f` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md in context
+- expected: Test that distinctiveness scores low for a function nearly identical to many peer handlers, vs high for genuinely novel code, using fingerprint/Jaccard comparison.
+- found: Builds fingerprints of two structurally-identical CRUD handlers (a, b) and one genuinely different retry-loop snippet (novel); asserts distinctiveness(a, [b]) is both less than distinctiveness(novel, [a,b]) and below 0.5 — the 'twelve' in the test name is rhetorical/metaphorical, only two near-duplicates are actually used.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: Test name says 'twelve copies' but the body only constructs two near-duplicate handlers plus one novel snippet — the name is illustrative framing, not literal.
 
-### `a_lone_function_is_undecided_not_unique`
+### `a_lone_function_is_undecided_not_unique` — STALE
 - read at `914ccbb2bab1` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: A four-line test calling distinctiveness with a single function and no siblings, asserting UNDECIDED (0.5) rather than 1.0, since a function with nothing to compare against must not score as maximally unlike its peers.
 - found: Exactly that: one assert_eq that distinctiveness(&amp;fingerprint("whatever it says"), &amp;[]) == UNDECIDED, with a comment that claiming 1.0 would set fire to every single-function file.
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `short_bodies_decline_to_report_compressibility`
+### `short_bodies_decline_to_report_compressibility` — STALE
 - read at `3721b089bd91` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: A short test asserting incompressibility returns UNDECIDED (0.5) for a body too short to carry evidence, rather than a confident score.
 - found: Exactly that: a single assert_eq!(incompressibility("a + b"), UNDECIDED), with a comment naming the reason — deflate's fixed header overhead would otherwise make every tiny function look novel.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 - note: The name says "short bodies" plural but only one length is exercised, so nothing pins where the threshold sits — a regression moving it to zero would still pass.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `non_ascii_source_does_not_split_a_codepoint`
+### `non_ascii_source_does_not_split_a_codepoint` — STALE
 - read at `fe9f4cb1db6d` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 5 of its run
 - expected: Feeds multi-byte UTF-8 through the lex/fingerprint path and asserts no panic plus sensible tokenisation — guarding against slicing mid-codepoint.
 - found: Exactly that: two lex assertions (em dash and middle dot as their own tokens; accented identifier kept whole) plus a fingerprint call on arrow/dash text purely for the no-panic path.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 - note: I had already read a function in heuristic.rs this run, so this reading is not fully cold for the file.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `lex_separates_punctuation_from_identifiers`
+### `lex_separates_punctuation_from_identifiers` — STALE
 - read at `e3e7ab3d3c87` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: Feeds a snippet like foo(bar); to `lex` and asserts identifiers and punctuation come back as separate tokens rather than glued together.
 - found: Exactly that: one assert_eq that lex("db.query(USERS, id)") yields the eight-token vector with each punctuation mark its own token, plus a comment naming the sibling-comparison property it protects.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `a_tiny_function_cannot_be_the_hottest_thing_in_the_repo`
+### `a_tiny_function_cannot_be_the_hottest_thing_in_the_repo` — STALE
 - read at `9845b41a4f91` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Builds a trivial body (e.g. `fn main() {}`) plus longer sibling bodies, scores each with surprise, and asserts the tiny one is not top-ranked / scores below the others — the regression guard for `fn main()` ranking hottest.
 - found: Exactly that: a 3-line `sanity_lib::run()` body vs a 40-line generated branchy body, distinctiveness computed against one unrelated fingerprint, asserting tiny < 0.5 and long > tiny.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `every_term_declines_to_measure_when_it_runs_out_of_evidence`
-- read at `5305c9d15239` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
-- expected: A test asserting each of the four terms returns UNDECIDED (0.5) on insufficient input — a tiny body for incompressibility and branch_density, a thin vocabulary for vocabulary_novelty, a lone peer for distinctiveness.
-- found: Exactly that: four assert_eq!s against UNDECIDED on tiny inputs, with a comment stating the property (the score must not become a length metric in either direction). The body genuinely exercises what the name promises.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- spec 1 · read at `c089239d4f06` · commit `29c6e80` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Test asserting several component measures return None/abstain on tiny/insufficient input rather than fabricating a score.
+- found: Test asserting incompressibility, branch_density, vocabulary_novelty, and distinctiveness all equal a shared UNDECIDED sentinel constant on tiny inputs.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
 
-### `surprise_stays_in_range`
+### `surprise_stays_in_range` — STALE
 - read at `10929dc8bca4` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: A test asserting `surprise` never leaves 0..=1, scoring a few contrived bodies (empty, tiny, a long distinctive one) and asserting each result sits within the closed unit interval.
 - found: Exactly that: loops over "", "x", and 500 repeats of "a b c ", calls surprise with a fixed signature and distinctiveness 0.5, asserts the result is in 0.0..=1.0 with the value and body in the message.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 - note: Third case is repetitive rather than distinctive, so the long-and-novel end of the range is untested.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## src-tauri/src/history.rs
 
-### the file itself
+### the file itself — STALE
 - read at `e8760b3440e8` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
 - expected: A backend module building a repo timeline by walking git log and applying each commit's raw diff lines to an incrementally-maintained Replayer, re-parsing only touched blobs via a Blobs reader over git objects and an interned Funcs table, emitting per-commit frames of structure plus touch dates and never surprise. Plus a machine-local cache extended rather than rebuilt, refused when history was rewritten (is_ancestor), a warm top-up, and duplicated vendored/minified refusals so history and the map agree.
 - found: All of that, with more precision than I gave it. Frames are DELTAS (set/del/files) over an interned func table, not snapshots; `files` is carried separately because a rewrite that keeps the line count still glows. Blobs is one long-lived `git cat-file --batch` with strict request/response framing and a Drop that closes stdin, and it always drains a refused blob's payload to stay in sync. `Replayer::resume` derives parse state by folding frames rather than storing a copy; `fold` retires oldest frames into `base` with its own base_ts. Cache is FNV-hashed path plus limit, versioned, and a save failure is deliberately silent. Tests cover raw-line parsing of edit/rename/copy/delete, twin identity, and extend-vs-replay equivalence including the folding case.
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
 - note: VENDORED and MINIFIED_LINE_BYTES are hand-duplicated from scan with only a comment holding them in step — nothing fails if they drift.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `key_of`
+### `key_of` — STALE
 - read at `63b4c968ad5d` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: Formats a stable identity string for a function within a file version — path plus name, probably with owner and/or an ordinal folded in to keep same-named twins apart, and deliberately without the line number, so a function that merely moves is diffed as the same function rather than a delete plus an add.
 - found: Exactly that: owner (empty string when absent), name and ord, as "{path}#{owner}::{name}#{ord}". No line number.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `lang_of`
+### `lang_of` — STALE
 - read at `30506400fb84` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 8 of its run
 - expected: Split the extension off the path and defer to Lang::from_extension, None for unknown; plus a VENDORED path-segment check returning None, since history must refuse what the scan refuses.
 - found: Exactly that: any '/'-separated component in VENDORED returns None, then rsplit_once('.') feeds Lang::from_extension. Minified refusal is elsewhere (needs content, not path).
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 - note: Warm: I had already read Replayer::apply in this file, which calls lang_of.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `open`
-- read at `6bb8b155f3c4` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
-- expected: Spawns a long-lived `git cat-file --batch` child in `repo` with piped stdin/stdout and null stderr, storing the child and its handles in a `Blobs`, returning None on failure, so blobs are streamed by writing oids rather than paying a process spawn per object.
-- found: Exactly that: `git -C <repo> cat-file --batch`, `.ok()?` on the spawn, takes stdin and wraps stdout in a `BufReader`, and holds stdin as an `Option` (so it can be dropped to close the pipe later) alongside the child.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- note: The docs handed over are the module header, which says nothing about this function; the only local detail worth a word — why `stdin` is an `Option` — is unexplained here.
+### `open` — QUIRKY
+- spec 1 · read at `c68f908e0fea` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Opens the git repository (likely via a git library) and wraps a handle into a Blobs struct for later reading of blob contents by OID, returning None on failure.
+- found: Spawns a `git -C <repo> cat-file --batch` subprocess with piped stdin/stdout, takes the stdin/stdout handles, and wraps the child process plus a buffered reader into a Blobs struct; returns None if spawning or taking the pipes fails.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
 
-### `read` — TRAP
-- read at `bebea5cc0569` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
-- expected: Fetches one blob by sha from a long-lived `git cat-file --batch` child it owns: writes the sha to stdin, parses the "<oid> blob <size>" header, reads exactly size bytes, returns None when missing, over a size cap, or not valid UTF-8.
-- found: That, plus the stream-discipline detail that makes it correct: the payload (size + 1 for the trailing newline) is ALWAYS drained before the MAX_BLOB_BYTES check, because leaving it in the pipe would desynchronise every later read by one blob and silently attribute one file's functions to another; a non-"blob" header line has no payload, so it returns immediately and stays in step.
-- predicted: most · documented: most · derivable: no · legible: full · trap: yes
-- note: `vec![0u8; size as usize + 1]` allocates whatever git reports before MAX_BLOB_BYTES is consulted, so a huge blob is fully buffered just to be rejected — and any future early-return added above line 227 would desynchronise the batch stream in the silent way the comment warns about.
+### `read`
+- spec 1 · read at `4b11abeacd7b` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md in context
+- expected: Blobs::read looks up a git blob by SHA via some repository/odb handle, decodes to UTF-8, returns None if missing, binary, or too large.
+- found: It talks to a `git cat-file --batch` subprocess over a persistent stdin/stdout pipe: writes the sha, reads the header line to get kind/size, and always drains exactly `size` bytes from stdout (even when discarding) to keep the pipe's framing in sync for subsequent reads. Returns None for non-blob kinds or oversized blobs, otherwise decodes the payload as UTF-8.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+- note: Correct mechanism guess (git object lookup with None-on-binary/missing/too-big) but missed that it's a stateful subprocess pipe protocol, not a library call — draining is required to avoid desyncing later reads.
 
-### `drop`
-- read at `ce1faad2890f` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
-- expected: Blobs wraps a long-lived `git cat-file --batch` child, so Drop closes the child's stdin (dropping the pipe) then waits on/kills the process so a replay does not leak a git subprocess; errors ignored because Drop cannot report.
-- found: Exactly that, in two lines: `self.stdin.take()` to drop the pipe and let cat-file exit, then `let _ = self.child.wait()`. An inline comment states the ordering dependency — without closing stdin first the wait blocks forever.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-- note: The docs handed over are the module header, not this function's — it describes history replay and says nothing about Blobs or process lifetime.
+### `drop` — QUIRKY
+- spec 1 · read at `af7d03b498b1` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Cleans up resources held by Blobs (a blob cache/reader), possibly closing a git object database handle or clearing an in-memory cache.
+- found: Closes the stdin handle to a `git cat-file --batch` child process (which signals it to exit) and then waits on the child process to finish, preventing a hang/zombie process.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
 
-### `intern`
+### `intern` — STALE
 - read at `0fee57883022` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: A standard interner: build/look up the function's key (path plus name, owner and twin ordinal), return the existing index if present, otherwise push a HistoryFunc record onto a vec, insert the new index in the map and return it.
 - found: Exactly that, with the key already computed on the FuncAt (`f.key`) rather than built here; pushes HistoryFunc { path: path_idx, name, owner, ord } and returns the new index.
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `functions_of`
+### `functions_of` — STALE
 - read at `399486d1677c` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 9 of its run
 - expected: Parses the source with parse::parse_functions, walks the results with a per-name occurrence counter so the nth same-named function gets ord = n, builds key_of(path, name, ord) for each, and collects into a FileState of key plus size per function.
 - found: That, with two details I did not cover: the counter is keyed on (owner, name), not name alone, so twins in different impl blocks each start at ord 1; and despite `key_of` sitting first in the peer list, this builds the key inline as `{path}#{owner}::{name}#{ord}` rather than calling it. Each entry is a FuncAt of key, loc(), ord, name, owner.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: The doc says ord works "exactly as assessment::key_of does", but the key is formatted inline here and the ordinal is scoped per (owner, name) rather than per name — two independent key formats that must agree by hand.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `parse_raw`
-- read at `dd345347b18e` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
-- expected: Strip the leading ':', split the metadata from the tab-separated path(s), pull src/dst modes, src/dst blob shas and the status letter, use path2 for R/C statuses, and return a Change describing the path plus the resulting blob; None on any malformed line.
-- found: Exactly that, with the Change shape being {path, sha: Option, from: Option}: D yields sha None, R/C take the second path as `path` and set `from` only for R (a copy leaves the source in place), everything else is path + dst_sha. Modes and src sha are discarded. An inline comment records that the status byte is taken with `first()?` rather than `[0]` because an empty status once panicked the replay.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 1 · read at `c0a02791bacc` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Splits a git --raw diff line into status + path(s) and builds a Change (add/modify/delete/rename/copy) with old/new path; returns None on malformed input.
+- found: Parses into a Change{path, sha, from} struct: D sets sha=None; R/C read a second path as the new `path`, keep dst_sha, and set `from` to the old name only for rename (not copy); everything else (A/M/T) uses dst_sha with from=None. Uses `.first()?` on status bytes rather than indexing to avoid a panic on an empty status field, per an inline comment describing a real prior bug.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: Docs mention the C-quoted-paths rationale but not the from/sha field semantics or the first()? panic-avoidance fix.
 
-### `commits`
+### `commits` — STALE
 - read at `2a28c06e8739` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 7 of its run
 - expected: Shells out to git log --no-merges --reverse (with --max-count for Last(n), applied before the reverse) using a delimited --pretty format for sha, author, subject and unix date, parses output into RawCommits oldest-first, and separately counts how many commits precede the window (probably git rev-list --count), returning that as the truncated-prefix number.
 - found: As predicted, plus the file-change parsing I did not mention: it also passes --root (so the first commit has a diff), --raw and --find-renames, and the line loop dispatches on a \x01 record prefix — header lines split on \x1f into RawCommit, everything else parsed by parse_raw and appended to the last commit's changes. dropped is total minus the limit for Last, zero for Since, and a failed git invocation returns empty rather than erroring.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: A subject containing a literal \x01 or \x1f would be mis-split, and a git failure is indistinguishable from a repo with no commits.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `tree_of`
-- read at `ada0584b4f39` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
-- expected: Runs `git ls-tree -r <sha>` in repo and parses the output into (path, blob_sha) pairs, keeping only blobs whose extension lang_of recognises as source and skipping vendored entries, returning an empty vec if the command fails.
-- found: Exactly that, minus the vendored filter — the only gate is `lang_of(path)` being Some. Parsing splits on the tab first (so paths with spaces survive), then splits the metadata on whitespace to check the object type is `blob` and take the oid; every malformed line is dropped by filter_map, and a failed git invocation yields an empty vec.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 1 · read at `3e188ba7eaf3` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Runs `git ls-tree -r <sha>` on the repo, walks the tree, and returns every blob's (path, blob_sha) pair as the opening snapshot of the history window.
+- found: Shells out to `git -C repo ls-tree -r sha`, parses each line's mode/type/blob-sha/path, keeps only blob entries, and further filters to paths recognized by `lang_of`, returning (path, blob_sha) pairs; returns empty Vec on command failure.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `parse_batch`
+### `parse_batch` — STALE
 - read at `6b6aa58dae57` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 6 of its run
 - expected: Takes (path, blob-oid) pairs, loops sequentially pulling each blob's bytes from the single git cat-file conversation in Blobs, then hands the buffers to rayon to parse in parallel — lang_of the path, refuse minified/vendored blobs to an empty FileState rather than no state, otherwise functions_of — returning (path, FileState) pairs.
 - found: Exactly that: a sequential filter_map reads each blob, drops paths lang_of rejects entirely, and filters out sources with any line over MINIFIED_LINE_BYTES to None; then into_par_iter parses the survivors with functions_of and turns None into FileState::default(), so a refused blob still returns an empty state. Vendored paths are not checked here, only minification.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 - note: A path with no known language is dropped rather than returned empty, which is the same "keeps its old wedges" hazard the comment warns about if a file's extension ever changes.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `empty`
+### `empty` — STALE
 - read at `bc72df06a030` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: A constructor returning a Replayer with all state zeroed — empty path/file index maps, empty function intern table, empty per-file state — the starting point commits fold into; 17 lines because several collections are named.
 - found: Exactly that: a struct literal with empty `paths`/`state` BTreeMaps, a default `Funcs` intern table, and an inlined zeroed `HistoryScan` output (paths, langs, funcs, base, base_ts 0, empty head, no commits, truncated 0).
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `resume`
+### `resume` — STALE
 - read at `20ce8506c2c0` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Takes a previously-computed HistoryScan, makes an empty Replayer, and folds the scan's frames in order (the same fold the frontend does) to rebuild derived parse state — path index, interned functions, per-file current function sets — rather than loading a stored copy, returning a Replayer ready for new commits.
 - found: Exactly that: rebuilds the paths map and funcs index (keyed by key_of) from the scan's vectors, then folds base + every commit's set/del into a live map of function index to location, and materialises each survivor as a FuncAt grouped by path into r.state. Stores the scan back as r.out.
 - predicted: full · documented: full · derivable: no · legible: most · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `path_idx`
+### `path_idx` — STALE
 - read at `0956fb648674` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: An interning helper: look the path up in a map of path to index, and on a miss push it onto a paths vector and insert the index, returning the u32 id, so frames reference paths by small integers instead of repeated strings.
 - found: Exactly that, with one thing I did not cover: on a miss it also pushes a parallel `langs` entry (lang_of(p).label(), empty string when unknown), so the two vectors are kept index-aligned by this one function.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `seed`
-- read at `445710f60576` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 10 of its run
-- expected: Takes the tree listing of (path, blob) at the window's opening commit, parses the files in batch via blobs, interns each path, and records the resulting per-file function state as the opening state — with no touch dates, so pre-window functions draw uncoloured.
-- found: Exactly that, and very compact: parse_batch does the filtering/parallelism, then per file it interns the path, interns each function into self.funcs, pushes (func index, loc) onto self.out.base, and stores the parsed state under the path in self.state. Confirms the no-date claim — base entries carry only an id and a line count.
-- predicted: full · documented: most · derivable: no · legible: most · trap: no
-- note: Not cold: cache_path in the same file was my first reading, though from the far end of the file and nothing about the replayer.
+- spec 1 · read at `a9d626ba5960` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md in context
+- expected: Takes a tree of (path, blob-hash) pairs, reads/parses each file's functions via blobs, and populates the Replayer's initial state (path index, interned functions, base output) representing the starting point before the commit window.
+- found: Parses the whole tree in a batch, then for each path/function-state, interns a path index and each function, records (func_idx, loc) into self.out.base, and stores the per-path function state in self.state map.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Doc only covers intent ("parse into opening state"), not the interning/base-recording mechanics.
 
-### `apply`
+### `apply` — STALE
 - read at `d61b82452105` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: Walks the commit's changed paths: deletions drop that file's functions from carried parse state; adds/modifies fetch the blob, refuse minified/vendored, re-parse into interned functions, stamp the touch date; then append a frame of the per-file deltas.
 - found: Builds a HistoryCommit frame from the commit metadata; retires paths for deletions AND rename sources first (a rename's arrival is an ordinary write), emitting del entries; then filters changes to parseable languages, parse_batch's them, interns each function and pushes (index, loc) into `set` regardless of size change, diffs against prev state to emit dels, replaces state; finally dedupes touched file indices and pushes the frame, updating head.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: Rename handling (retire the `from` path, treat the arrival as a plain write) is the one thing the one-line doc gives no hint of; minified/vendored refusal lives in parse_batch, not here.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `fold`
-- read at `3c8f9b6619a8` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: While frame count exceeds limit, pop the oldest frames off the front and merge their structural changes (added/removed functions) into the stored opening/base state, discarding touch dates so folded functions carry no date; repeat until the window fits.
-- found: Computes `extra = len - limit` in one shot rather than looping per frame, drains that many commits, and applies each commit's `set` (function id -> location) and `del` into a BTreeMap seeded from the existing base, writing the result back as a sorted Vec. Also advances `base_ts` to the last folded commit's timestamp and increments `truncated` by the number folded.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The docs say folded functions lose their dates, but the fold keeps a single `base_ts` for the whole folded block — the loss is of per-function dates, not of all dating.
+### `fold` — QUIRKY
+- spec 1 · read at `b9ccd5bb244a` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Pops oldest frames while window exceeds limit, merging each into an opening-state map and stripping per-function dates so they're left uncoloured.
+- found: Drains the oldest `extra` commits from self.out.commits (where commits.len() > limit), replays each commit's set/del diffs into a BTreeMap `base` (function id -> loc) seeded from the existing base, updates base_ts to the last folded commit's timestamp, writes base back, and increments a `truncated` counter.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
 
-### `finish`
+### `finish` — STALE
 - read at `b1b630e7ca65` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: A four-line consuming finalizer on Replayer that takes self by value and moves its accumulated frames and metadata into the returned HistoryScan, doing no further folding.
 - found: Exactly that, in two lines: moves the interned function list (self.funcs.list) into the in-progress HistoryScan's funcs field and returns it.
 - predicted: full · documented: none · derivable: yes · legible: most · trap: no
 - note: The Replayer accumulates into a half-built HistoryScan (self.out) throughout, so the only thing finish does is attach the function table — legible once you know that, opaque from this body alone.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `read` #2
+### `read` #2 — STALE
 - read at `5abe739179ac` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: Uncached top-level entry: list commits capped at limit, return an empty HistoryScan if git fails or there are none, else build a Replayer, seed the opening state from commits beyond the window, apply each commit reporting progress, and finish into frames.
 - found: Exactly that shape: commits(CommitRange::Last(limit)) with a truncated flag, Replayer::empty with base_ts from the first commit, early finish() on an empty log or a failed Blobs::open, progress over total = len+1, seed from tree_of("{sha}^") only when truncated &gt; 0, then apply per commit with progress, then finish.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `read_cached`
+### `read_cached` — STALE
 - read at `0caadb71ef7c` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 9 of its run
 - expected: Load the cache; return it unchanged if its head equals current HEAD; else if the cached head is an ancestor, extend with the new commits; otherwise full replay via read, saving the cache. Failures fall through to the full path.
 - found: Exactly that shape. load_cache is keyed by (repo, limit) so a different window is a miss rather than a check; the equal-head path also fires a 1/1 progress tick so a caller's bar completes; the ancestor test lives inside `extend`, which returns Option and None-falls-through to full read. Both non-hit paths save_cache.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `extend`
-- read at `76a17a00da52` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 10 of its run
-- expected: Appends commits made since a cached timeline was written: refuses with None if HEAD is not a descendant of the cached head (rewritten history must be replayed whole), lists the new commits, resumes a Replayer from the cached frames, applies each commit, folds the overflow past `limit` into the opening state, reports progress, returns the extended scan.
-- found: That, with two refusals I did not predict: an empty new-commit log returns None rather than an unchanged scan, and an append longer than `limit` also returns None on the grounds that it is doing the whole window's work with none of its clarity. Otherwise: is_ancestor guard, commits(Since(head)), Blobs::open, Replayer::resume, apply per commit with progress, fold(limit), finish.
+- spec 1 · read at `5d670b5506c8` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Checks cached head is still ancestor of HEAD, replays new commits via Replayer::resume/apply up to limit with progress reporting, returns updated HistoryScan or None if invalidated.
+- found: Bails to None if cached head is empty/not an ancestor (history rewritten), if there are no new commits, or if the new commit count exceeds `limit` (all-or-nothing, no partial extend). Otherwise opens Blobs, resumes a Replayer, applies each new commit with progress callback, folds to limit, and returns the finished scan.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: `None` is overloaded here — "history was rewritten", "nothing new" and "too much new" all return it, so an up-to-date cache is indistinguishable from an unusable one and the caller presumably replays from scratch either way; I had read this file once before (Blobs::read), so this reading is warm.
+- note: The exceeds-limit case also returns None (full rescan instead) rather than partially extending — a deliberate all-or-nothing design choice from the comment.
 
-### `warm`
+### `warm` — STALE
 - read at `b72ef217275c` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: Checks whether a cached timeline exists for repo via cache_path/load_cache; returns false without building one if not; otherwise brings it up to date by extending with commits since its head and returns true.
 - found: Exactly that in six lines: cache_path (None -> false), path.exists() (false -> false), then read_cached with a no-op progress callback to do the extend, and true. The extend logic lives in read_cached rather than here.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `head_of`
+### `head_of` — STALE
 - read at `5ac474a045ed` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: Runs git rev-parse HEAD in repo, returns the trimmed SHA as a String, and returns an empty String on any failure rather than a Result.
 - found: Exactly that: git -C repo rev-parse HEAD, output().ok(), utf8 stdout, trim, unwrap_or_default. It never checks exit status, so a failure yields empty stdout and therefore the same empty-string sentinel.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `is_ancestor`
+### `is_ancestor` — STALE
 - read at `c3025e68f1a0` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: Runs `git merge-base --is-ancestor <sha> HEAD` in repo, returning exit success; false on spawn failure. Used to decide whether a cached timeline may be extended or must be replayed whole.
 - found: Exactly that, with stderr nulled because a sha that no longer exists is the expected answer to "was this history rewritten", not an error worth printing.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `cache_path`
-- read at `80dc0a4d558e` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Returns the machine-local cache file path for this repo's replayed timeline: a platform data/cache dir joined with a filename derived from hashing the repo's absolute path, with `limit` included so different caps don't collide. None when no cache dir is available.
-- found: Exactly that: `reports::data_dir()?/timelines`, created with create_dir_all (failure -> None), an inline FNV-1a hash over the repo path bytes, and a filename `{hash:016x}-{limit}.json`.
-- predicted: full · documented: some · derivable: no · legible: full · trap: no
+- spec 1 · read at `7a999ee4d47c` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md in context
+- expected: Builds a machine-local cache file path for a repo's commit history, likely under some app data/cache directory, keyed by the repo path and a limit (max commits), probably hashing the path for a filename.
+- found: Gets the app data dir's "timelines" subfolder, creates it if needed, computes an FNV-1a hash of the repo path string, and returns a path formatted as "{hash:016x}-{limit}.json". Returns None if data_dir is unavailable or dir creation fails.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: File-level docs describe the whole history.rs module's philosophy, not this specific function.
 
 ### `load_cache`
-- read at `9c80b0106de8` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 10 of its run
-- expected: Reads the machine-local cache file at cache_path(repo, limit), deserializes into a HistoryScan, returning None on any failure — missing file, read error, bad parse — since the timeline is always reproducible from git.
-- found: That, plus a version and limit check: it deserializes into a `Cached` envelope and only yields the scan when `cached.version == CACHE_VERSION && cached.limit == limit`, so a format bump or a different window silently invalidates rather than misreads.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: Second reading from history.rs, so not cold — I had seen the file's peers and helpers earlier in this run.
+- spec 1 · read at `78bf03749feb` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Reads and deserializes a cached HistoryScan from disk via cache_path(repo), returning None if missing/unreadable/unparseable; limit likely validates the cached window.
+- found: Reads JSON from cache_path(repo, limit), deserializes into a Cached struct, and only returns the scan if cache version, parser version, AND limit all match the current expectations — otherwise None (silent cache invalidation via chained Option combinators).
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `save_cache`
-- read at `007a14b6309c` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
-- expected: Serialises the replayed timeline to the machine-local cache file from cache_path(repo, limit), creating the parent directory first, then writing JSON or a binary encoding; returns () and swallows every error, because a failed cache write is deliberately silent when git can rebuild the timeline.
-- found: That, minus the directory creation (cache_path evidently handles it) and plus a version stamp: it wraps the scan in a Cached { version: CACHE_VERSION, limit, scan: scan.clone() }, serialises to JSON, and lets both the serialise and the write fail silently. The limit is stored inside the file as well as being part of the path.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: The docs handed to me were the module header, not this function's — it has only inline comments, so `documented` is about a doc describing the enclosing module.
+- spec 1 · read at `1b112901bfa3` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md in context
+- expected: Serializes the HistoryScan (with version/limit metadata) to JSON and writes it to cache_path(repo, limit), silently ignoring failures since this is just a best-effort cache write.
+- found: Exactly that: builds a Cached struct (version, parse version, limit, scan clone), serializes to JSON, writes to cache_path, and silently swallows any errors — explained in a comment as an intentional choice since losing a cache costs only some seconds on next replay.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `raw_line_reads_a_plain_edit`
+### `raw_line_reads_a_plain_edit` — STALE
 - read at `7504f78153aa` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: A test feeding one git raw name-status line for a modification (M plus a single path) to the raw-line parser and asserting it reads as an edit of that path with no old path — sibling of the rename and deletion tests.
 - found: Exactly that: parse_raw(":100644 100644 aaa bbb M\tsrc/main.rs") must parse, path is src/main.rs, sha is the POST-image blob ("bbb", not "aaa"), and `from` is None. The sha assertion is the detail I did not name.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `raw_line_reads_a_rename_as_a_move`
+### `raw_line_reads_a_rename_as_a_move` — STALE
 - read at `8d07e9997562` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: A five-line unit test handing the raw-diff line parser a git --raw rename record (R-status with old and new tab-separated paths) and asserting it yields a move — old path retired, new path added — rather than a bare add.
 - found: Exactly that, via parse_raw on a full `:100644 100644 aaa bbb R096` line: asserts path is the NEW path and from is Some(old path). The retirement is expressed as the `from` field rather than as two events.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 - note: The doc argues about ghost copies left in the state map, but the test only checks that parse_raw carries `from` — nothing here shows the caller actually retires the old path, so the property the doc names is untested at this level.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `a_copy_does_not_retire_its_source`
+### `a_copy_does_not_retire_its_source` — STALE
 - read at `78d73f1621ae` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 8 of its run
 - expected: Feeds a git log --raw line with a C (copy) status and two paths to parse_raw, asserting the destination is the touched path while the source is left alone rather than retired the way an R rename would be.
 - found: Exactly that: parse_raw of ":100644 100644 aaa bbb C075\tsrc/a.rs\tsrc/b.rs", asserts path == src/b.rs and from.is_none().
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `raw_line_reads_a_deletion`
+### `raw_line_reads_a_deletion` — STALE
 - read at `8fda6e4557d0` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 10 of its run
 - expected: A short test feeding one git log --raw line describing a deleted file (status D) to the raw-line parser and asserting it yields a change for that path marked as a deletion, mirroring its plain-edit and rename siblings.
 - found: Exactly that: parse_raw(":100644 000000 aaa 000 D\tsrc/gone.rs") must parse, path is src/gone.rs, and deletion is expressed as sha being None (the all-zero destination blob becomes an absent sha) rather than a status field.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `same_named_functions_in_one_file_stay_apart`
+### `same_named_functions_in_one_file_stay_apart` — STALE
 - read at `a9237f409e51` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 6 of its run
 - expected: A short test parsing a source blob with two same-named functions in one file (different impl blocks), asserting the replayer produces two distinct keys/ids rather than collapsing them into one, so a twin arriving does not read as the first growing.
 - found: Exactly that: two `fn new()` in `impl A`/`impl B`, functions_of over the blob, asserts two keys and that they differ.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: Warm: this is my second reading in history.rs, though from a different region of the file.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `repo_with`
+### `repo_with` — STALE
 - read at `c4e191b5b641` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 9 of its run
 - expected: A test fixture: makes a TempDir, runs git init plus local user.name/user.email config, then loops n times appending a distinct fn f0/f1... to src/lib.rs, git add and git commit each iteration, returning the TempDir so the caller can replay an n-commit history.
 - found: Exactly that, with a local `git` closure that shells out with -C and expects success. One difference from the doc: the file is `src.rs` at the repo root, not `src/lib.rs`, and each commit rewrites the whole file with functions f0..fi rather than appending.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 - note: The doc says `src/lib.rs` but the fixture writes `src.rs` at the repo root — a stale doc, and the path matters to anything asserting on directory rings.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `shape`
-- read at `2c21150be191` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
-- expected: A test helper canonicalising a HistoryScan into an index-independent form — sorted path/name keys, a count, and per-frame commit id plus count pairs — so a resumed and a fresh timeline compare equal without depending on walk-order numbering.
-- found: Folds the whole timeline forward (base map, then each commit's `set` inserts and `del` removals) to get the live function set at HEAD, maps each surviving index through `key_of(path, def)` with its LOC, sorts, and returns (commit shas, `truncated`, sorted (key, loc) pairs). So it is the FINAL state plus the commit list, not per-frame counts, and the middle value is the truncation count rather than a total.
+- spec 1 · read at `d4761ced1893` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md in context
+- expected: Test helper turning a HistoryScan into a normalized, index-independent summary (paths, a count, per-function aggregates) so two timelines can be compared for equivalence despite differing internal function numbering.
+- found: Replays base + per-commit set/del events into a live BTreeMap of func-index -> loc, converts each survivor to a (path+name key, loc) pair via key_of, sorts them, and returns (commit SHAs in order, the scan's truncated flag, the sorted alive key/loc list) — a shape keyed by stable identity rather than raw indices.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: It compares only the END state and the sha list, so two timelines whose intermediate frames differ but converge would still pass as identical.
 
-### `extending_a_cached_timeline_matches_replaying_it_whole`
+### `extending_a_cached_timeline_matches_replaying_it_whole` — STALE
 - read at `4c76bd8bff32` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
 - expected: Build a temp repo with several commits, replay to a timeline, add another commit, extend from the cached timeline, replay the whole thing fresh, and assert the two agree.
 - found: Exactly that: repo_with(3), read to a cached timeline (asserting 3 commits), write and commit a fourth via git, extend the cached one, read a fresh one, and compare `shape(&extended) == shape(&fresh)` rather than the raw timelines.
 - predicted: full · documented: most · derivable: no · legible: most · trap: no
 - note: Equality is checked through `shape()`, so whatever that projection drops (dates, for instance) is outside the guarantee the test's name claims.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `extending_past_the_window_folds_to_the_same_state`
+### `extending_past_the_window_folds_to_the_same_state` — STALE
 - read at `7b43539a5e4a` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: Builds a repo with more commits than the window via repo_with, reads a capped timeline, commits more, extends the cached timeline, and asserts the result equals a from-scratch replay so the overflow-fold path cannot drift from the fresh walk.
 - found: Exactly that shape at minimum size: 3 commits with a cap of 2 (asserting truncated == 1), one more commit written and committed by shelling out to git, then extend vs read compared by `shape(...)` and commit count.
 - predicted: full · documented: full · derivable: no · legible: most · trap: no
 - note: The equality is only `shape(&extended) == shape(&fresh)` — whatever `shape` omits (dates, touch stamps, the folded base itself) is unchecked, so the test is weaker than the doc's claim of arriving "at the same base".
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `a_history_that_was_rewritten_is_not_extended`
+### `a_history_that_was_rewritten_is_not_extended` — STALE
 - read at `37b2728fb663` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: A test that builds a repo, caches a timeline, rewrites history so the cached head is no longer an ancestor of HEAD, and asserts the result is a fresh full replay rather than an append — probably via is_ancestor and comparing to a whole replay.
 - found: Simulates the rewrite by overwriting the cached head with a bogus all-zero sha instead of actually rewriting the repo, and asserts extend returns None (refusal); the caller's fallback to a full replay is not exercised here.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 - note: A nonexistent sha is not the same case as a real rewrite — a rewritten-but-valid commit that is not an ancestor of HEAD would take a different path through is_ancestor and is not covered.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `vendored_paths_have_no_language`
+### `vendored_paths_have_no_language` — STALE
 - read at `b1e52d686702` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 10 of its run
 - expected: A short test asserting a vendored path (node_modules/…, vendor/…) yields None from the history language lookup while an equivalent non-vendored path yields Some — proving history refuses what the scan refuses.
 - found: Three asserts on lang_of: node_modules/react/index.js is None, web/src/main.tsx is Some, README.md is None. The third covers unsupported extensions rather than vendoring, which the name does not promise.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 - note: The test is named for vendoring but only one of its three asserts is about vendoring, and it checks a single vendored prefix — the VENDORED list history duplicates from scan is otherwise unexercised here.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## src-tauri/src/lib.rs
 
@@ -2174,55 +2326,63 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/local.rs
 
-### the file itself
+### the file itself — STALE
 - read at `7faff69fdc04` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: A feature-gated no-server scorer: loads a small local GGUF model, runs one forward pass over a whole function body to get per-token logprobs, converts that to a surprisal/surprise score for `just scan`, plus helpers to label the model, detect it, and discover model files on disk.
 - found: Exactly that, plus a concurrency design I did not predict: LlamaContext is neither Send nor Sync, so the model is owned by a dedicated thread and callers post (prefix, body) jobs over an mpsc channel with a reply channel, with backend and model Box::leak'd to 'static to dodge a self-referential struct. score_one tokenises prefix and body, trims the CONTEXT rather than the body to fit MAX_TOKENS=1024, requests logits only at the positions that predict body tokens, and does a max-subtracted log-softmax summed to bits per token. discover_models reads Ollama's blob store and filters by >100MB size.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: The header explains the one-pass measurement and hardware choice but says nothing about the owner-thread/leak design, which is the most surprising thing in the file; that reasoning lives in inline comments instead.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `load`
-- read at `8d2b12a161e0` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 6 of its run
-- expected: Init the llama backend, spawn an owner thread that loads the GGUF with GPU offload and makes model/context 'static (leaked), then loops over mpsc jobs of (prefix, body, reply) answering with score_one; the load result comes back on a ready channel so failure surfaces as Err, and success returns a LocalModel holding the sender and a label from the file name.
-- found: That, precisely — including the Box::leak of both backend and model with a comment explaining the self-referential lifetime, and a `ready_tx` channel because loading happens on the owner thread. Details beyond my prediction: context is sized MAX_TOKENS + 64 for both n_ctx and n_batch, the label is prefixed "local · ", the sender is wrapped in a Mutex, and the loop ends when every sender drops.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 1 · read at `59001fb85ed8` · commit `29c6e80` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md in context
+- expected: Loads a GGUF model on a dedicated owner thread (since the context isn't thread-safe/Send) and returns a LocalModel handle communicating via channel.
+- found: Spawns a thread that inits LlamaBackend and loads the model, both intentionally Box::leak'd to 'static to sidestep the self-referential LlamaContext<'a> borrow problem since the app loads exactly one model for its whole lifetime; reports load success/failure back via a one-shot ready channel (since the thread can't return a Result directly), then loops servicing scoring Jobs off an mpsc channel by calling score_one, until the LocalModel (and its sender) is dropped.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: The deliberate Box::leak to 'static for both backend and model, justified by a comment as honest about permanence rather than faking a managed lifetime, was the one detail I hadn't anticipated.
 
-### `surprisal` — QUIRKY — TRAP
-- read at `2d123a609009` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Locks a mutex around the loaded model, tokenizes prefix+body, runs one forward pass with logits at every position, sums -log2 P(token) over the body tokens only, divides by count for bits/token, returns None on error or empty body.
-- found: No inference here at all: it creates an mpsc reply channel, locks `self.jobs`, sends (prefix, body, reply_tx) to a worker thread, and blocks on recv, returning None (via `.ok()?`) at each step. The actual matmul lives elsewhere.
-- predicted: some · documented: some · derivable: no · legible: most · trap: yes
-- note: The doc says the work is "serialised behind a mutex" doing "one large matmul per call", but the mutex only guards a job-sender to a worker thread, and the three `.ok()?`s turn a poisoned lock or dead worker into an indistinguishable None forever.
+### `surprisal`
+- spec 1 · read at `476dc5b143b1` · commit `29c6e80` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md in context
+- expected: Locks the jobs mutex, sends a (prefix, body) job with a reply channel to the owner thread, blocks on the reply, returns the surprisal score or None on failure.
+- found: Exactly that: creates reply channel, locks jobs sender and sends ((prefix, body), reply_tx), blocks on reply_rx.recv(), propagating None through every fallible step via `?`.
+- predicted: full · documented: some · derivable: no · legible: full · trap: no
 
 ### `score_one`
-- read at `ad97ea226f55` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Tokenize prefix and body into one context, decode in a single pass with logits at every position, walk the body's token positions computing log-softmax of each token's own logit, average the negative log-probs into a mean surprisal, return None on tokenize/decode failure or a too-short body.
-- found: Exactly that, plus two things I did not cover: (1) a context-trimming policy — body capped at MAX_TOKENS/2 and the OLDEST prefix tokens dropped to fit, never the body; (2) logits are requested only at positions that are actually scored (last prefix token through second-to-last body token), documented as roughly a 3x cost saving. Score is mean bits (nats converted via LN_2). Rejects bodies under 8 tokens.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 1 · read at `7e93f16195bd` · commit `29c6e80` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Tokenizes prefix+body, single decode with logits at every position, computes per-token surprisal from logits, averages across body tokens into one f32 score.
+- found: Tokenizes prefix and body separately; rejects bodies under 8 tokens; trims context (never body) to fit MAX_TOKENS budget; requests logits ONLY at positions needed to predict body tokens (an explicit perf optimization, ~3x cost avoided); does manual max-subtracted log-softmax per position; sums -log2(p) (bits) over body tokens and averages to bits-per-token.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
 
-### `label`
+### `label` — STALE
 - read at `9a3887e51aac` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: A trait method returning a short human name for the scorer used in provenance — the model's name, perhaps prefixed to distinguish it from the heuristic proxy.
 - found: A one-line getter cloning a `label` String already stored on the struct; whatever naming or prefixing happens does so at construction, not here.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `is_model`
+### `is_model` — STALE
 - read at `aa06a9531b3a` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: A trivial trait accessor on LocalModel returning true unconditionally, marking this as a real model-backed scorer rather than the heuristic proxy.
 - found: `true`, nothing else.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `surprise`
-- read at `556459820a83` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
-- expected: Builds a prompt/context from the item (docs plus signature, then the body), calls `self.surprisal` for the body's per-token surprisal, calibrates it onto the reported scale and returns a `Reading`; falls back to the passed-in `proxy` when the model cannot answer rather than inventing a confident number.
-- found: Exactly that in five lines: prefix is `context\nsignature\n` — deliberately the same conditioning the HTTP path used so the two backends stay comparable — then `surprisal(prefix, body)` mapped through `calibrate_surprisal` into `Reading::plain`, with `None` falling back to `proxy`.
-- predicted: full · documented: some · derivable: no · legible: full · trap: no
+### `surprise` — QUIRKY
+- spec 1 · read at `b4a87facc399` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md in context
+- expected: Calls self.surprisal on the item and combines the result with the proxy baseline to produce a Reading, likely via LocalModel::label to attach a label.
+- found: Builds a prefix from item.context + item.signature (matching what the HTTP path conditions on for comparability), calls self.surprisal(prefix, item.body); on success wraps the calibrated surprisal bits in Reading::plain, on None (model failure) falls back to Reading::plain(proxy) using the caller-supplied proxy score instead.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: Proxy is a fallback for when surprisal fails, not a value combined into the score.
 
 ### `discover_models`
-- read at `4a1a96bacd5f` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: Walks Ollama's blob directory (~/.ollama/models/blobs), collecting files over a 100 MB threshold as candidate models, no magic-number/extension check, empty vec if directory missing, possibly sorted.
-- found: Exactly that: dirs::home_dir().join(".ollama/models/blobs"), read_dir, keep entries whose metadata len > 100_000_000, push paths, sort, return. Every failure path degrades to empty.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 1 · read at `6300ccb643a9` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md in context
+- expected: Scans Ollama's blob store directory (~/.ollama/models/blobs) for files, filters to those over a size threshold (~100MB) as a proxy for "this is a model weight file", and returns their paths as candidates.
+- found: Exactly that: joins home dir with .ollama/models/blobs, reads entries, keeps ones over 100_000_000 bytes, sorts and returns the paths.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: The doc explicitly corrects a prior misreading of this exact function (predicted a GGUF magic-number check), which primed my prediction toward the size-threshold mechanism rather than leaving it to be discovered fresh.
 
 ## src-tauri/src/main.rs
 
@@ -2311,11 +2471,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `tools`
-- spec 1 · read at `30e7a2389731` · commit `23c2295` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: Builds and returns the static tools/list JSON payload for the MCP server: an array of the five tool definitions (sanity_open, sanity_status, sanity_next, sanity_report, sanity_summary) each with name, description and inputSchema, constructed via json! and returned as a serde_json::Value.
-- found: Exactly that: a json! literal array of the five tool objects with their names, descriptions and inputSchemas, including a load-bearing field-order comment on sanity_report explaining why the grade fields are declared before the long prose fields (to protect against the `mangled` truncation failure).
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-- note: The prose docs given to me described the general cost/design rationale for descriptions but not the specific field-ordering trick baked into the sanity_report schema comment, which was the most interesting part of the body.
+- spec 1 · read at `f5ca9c54d15f` · commit `e19603b` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Builds and returns the static JSON tool-contract definitions (name/description/input schema) for the five MCP tools: sanity_open, sanity_next, sanity_report, sanity_status, sanity_summary.
+- found: Exactly that: a json!() literal array with the five tool definitions, each with name, description, and inputSchema; includes an inline comment explaining why sanity_report's schema field order is load-bearing (mangled emissions).
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `contract_fingerprint`
 - read at `fc0982380099` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -2347,11 +2506,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: The file header argues the size/colour rule and the temperature-vs-hot_share split well, but says nothing about the file's other half — Lang and its extension policy, Provenance, Source, and the Node tree itself — so it reads as a note about the metric rather than a header for the module.
 
 ### `from_extension`
-- read at `d3fe8d857f45` · commit `9c38c96` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
-- expected: One match on the extension string mapping each known extension to its Lang variant across the ~45 grammars, several extensions per language, returning None for anything unrecognised, with contested extensions like .m and .v assigned to a single decided owner rather than guessed.
-- found: Exactly that: a flat match arm per language, `_ => return None`, with inline comments recording the contested decisions (.h is C not C++, .m is Objective-C not MATLAB, .v is Verilog so V ships nowhere, .pl is Perl so Prolog keeps .pro).
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-- note: The match is case-sensitive and only R spells both cases ("r" | "R"), so an uppercase .C, .H or .PY returns None while .R works — whoever adds the next language will not expect that asymmetry.
+- spec 1 · read at `071ed7ae1925` · commit `e19603b` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A straightforward match/lookup from a file extension string (rs, js, ts, py, etc.) to a Lang enum variant, returning None for anything not explicitly recognized.
+- found: Exactly that, but a much larger table than expected — roughly 60 languages — with deliberate, documented tie-breaking for ambiguous extensions (.h to C++ not C, .m to Objective-C not MATLAB, .v to Verilog not V, .pl to Perl not Prolog), each justified by measured parser behavior or ecosystem convention rather than arbitrary choice.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `label`
 - read at `c498758b608f` · commit `9c38c96` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 8 of its run
@@ -2473,11 +2631,10 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/parse.rs
 
 ### the file itself
-- read at `980cb90ed6bf` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 9 of its run
-- expected: The single tree-sitter extraction layer between source bytes and the FuncDef list: a Lang-to-grammar map, per-language literal node-kind tables, a cursor walk collecting name, owner (enclosing type path), line span and body span, plus a documentation half (leading comment stacks, Python docstrings, module banners with licence rejection and truncation), and about a third of the file in per-language tests.
-- found: That, with more per-language dispatch than I allowed for: beyond func_kinds there are four further per-language tables — accepts (disambiguating Elixir calls, OCaml/F# let-bindings, R/Nix assignments, lisp heads, Prolog rules), name_node, body_node, and body_span/header_end for the languages with no body node at all. The doc half is larger than predicted too: leading_doc steps over attributes/decorators and refuses Rust inner docs, wrapper_doc walks at most three wrapper kinds so a nested type cannot inherit its parent's docstring, and file_doc scans past imports collecting blank-line-separated comment runs, drops the run touching the first declaration, rejects licences and caps at 600 chars with a marked truncation.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: The header argues only for kind-matching over queries and says nothing about the file's other half — documentation extraction, owner chains and body spans — and at line 1056 a doc comment ("Rust says which comments are the module's own") floats two blank lines above the test it was written for, which this file's own leading_doc rule would sever.
+- spec 1 · read at `f66acd21d559` · commit `0f6160c` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: parse.rs is Sanity's multi-language function-extraction module: given source text and a Lang, it uses tree-sitter to walk the parse tree and pull out every top-level-ish function/method as a FuncDef (name, signature, body, doc, owner, line range), matching on node *kinds* rather than tree-sitter queries for resilience against grammar drift. It likely centralizes per-language quirks (how each grammar names/shapes a function node) behind a uniform API like parse_functions/extract, plus helpers for associating doc comments and qualifying methods by their enclosing type.
+- found: Matches the prediction closely, and goes further: it supports roughly 60 languages via tree_sitter language table (`language`), defines `func_kinds` per language (including languages with no dedicated function node — Elixir/Lisp/OCaml/R — where an extra `accepts` predicate disambiguates), extracts names via `name_node` with heavy per-language special-casing, finds doc comments via `leading_doc`/`wrapper_doc` (stepping over attributes/decorators, excluding inner module docs and licence headers), computes file-level doc headers via `file_doc` (with careful adjacency/import-skipping rules and a cost-justified character cap), and determines method ownership via `owner_of` (including Go's receiver-based special case and a bug-fix around generic type parameters). The back half of the file (roughly lines 900-1600, not fully read) is a large `#[cfg(test)]` module of named regression tests, one per subtle per-language edge case, matching the peer list's plain-English test names.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
 
 ### `loc`
 - read at `0e1677eba3db` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
@@ -2585,11 +2742,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `name_node`
-- read at `30e26e968a78` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
-- expected: A big match on Lang: the common arm returns child_by_field_name("name"), with exceptions each getting their own path — C/C++ descending through nested declarators, the lisps taking the head symbol, JS/TS arrow functions taking the enclosing variable declarator's name, similar for shell/Elixir. None when nothing matches.
-- found: Exactly that structure, with a much wider exception list than I named: C/C++/GLSL/HLSL/Slang walk the declarator chain, GdShader takes a bare declarator, Dart and Julia go through a signature node, ObjC finds the first identifier, SQL goes via object_reference, Elixir via the arguments kind because call only exposes target, Clojure/Scheme/Racket/CommonLisp via named-child position or defun_header, Fortran/Ada/VHDL/Pascal/Elm/F# via their opening-statement nodes, CMake via the first argument, Verilog unwrapping a same-kind identifier, Prolog via head functor, R/Nix/OCaml via lhs/attrpath/pattern, Odin/D via first identifier, everything else falling through to the name field. No JS/TS special case — those use the default.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The C/C++ arm and the Glsl/Hlsl/Slang arm are byte-identical declarator-walking code and could be one arm; the comment even says so.
+- spec 1 · read at `675b18990ee4` · commit `e19603b` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: name_node locates the child node that holds a chunk's name, given a tree-sitter node and a Lang. Most languages expose a simple `name` field, but some grammars are shaped differently, so the function has per-language special cases (e.g. name-via-call-target, name-via-declarator-chain) and returns None when no name node can be found.
+- found: A large match over ~25 languages, each navigating that grammar's particular shape to reach the name: C/C++ walk a declarator chain (handling reference_declarator and operator_cast specially), Dart falls back from name to signature.name, ObjC/Odin/D/PowerShell/Verilog scan children for a bare identifier or a specific kind, Elixir/Julia/Cmake/Prolog reach into call-like structures, Lisp-family languages index into s-expression children positionally, and the default case falls back to child_by_field_name("name").
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
 
 ### `body_node` — QUIRKY
 - read at `5068721d7da4` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
@@ -2740,6 +2896,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly that. Parses a SentenceSuggester class with a doc comment, a nested struct Context with an init, an undocumented method one level down, and a documented next(); asserts init.doc and untouched.doc are None and next() keeps its own text.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
+### `a_cpp_header_yields_its_methods_not_its_namespace`
+- spec 1 · read at `7226e2895307` · commit `0f6160c` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A test that feeds a .h file containing C++ code (namespace, class, methods, fields) through the parser as Cpp and asserts the resulting functions are the real methods, not the namespace or fields, verifying the fix described in the doc comment.
+- found: Matches: parses a namespace with a templated struct (with a constructor whose init-list touches a field, an operator overload), two classes with methods, asserts the function name list excludes the namespace and the field, checks owner attribution disambiguates two same-named methods (step/reset) by class not namespace, and checks that one method's span does not run into the next class's method.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
 ### `swift_functions_methods_and_inits`
 - read at `a0261177f953` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: A Swift snippet with a top-level func, a struct holding a method and an init, parsed with the Swift grammar; asserts the names found and that the method and init are owner-qualified by their enclosing type.
@@ -2763,36 +2925,42 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/reports.rs
 
-### the file itself
+### the file itself — STALE
 - read at `2d324150ebff` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: A small module owning only the machine-local project index: data_dir resolving the OS app-data directory with a test override, index_path for projects.json, load_index deserialising into a struct of KnownProject plus an active key and defaulting on missing/corrupt input, and save_index writing JSON and failing silently. No reading storage.
 - found: Exactly that, 97 lines, with more care than I predicted in two places: data_dir's seam is the SANITY_DATA_DIR env var and its doc explains why redirecting HOME/XDG was rejected (Windows dirs::data_dir ignores the environment); and save_index is an atomic write-to-.tmp-then-rename that removes the temp file if the rename fails, with a doc arguing why silence is correct here and wrong in .sanity/.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 - note: The file header's first line still promises "the sizes behind the delete button", but the size accounting and the panel it fed are gone — the header's own later paragraph says so, so the summary line contradicts the body it introduces.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `data_dir`
-- read at `9829d45acc79` · commit `1b80d39` · read by claude-opus-4.6 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: Returns SANITY_DATA_DIR if set (test seam), else dirs::data_dir() joined with a sanity subdir, None when the OS supplies nothing.
-- found: Exactly that (subdir "Sanity"), and additionally creates the directory with create_dir_all, returning None if creation fails.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 1 · read at `304076d2f901` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Checks SANITY_DATA_DIR env var first as a test seam, else falls back to dirs::data_dir() joined with an app subdir; returns None if unavailable.
+- found: Exactly that: env var override else dirs::data_dir()?.join(\"Sanity\"), then create_dir_all as a side effect before returning Some(dir).
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
-### `index_path`
+### `index_path` — STALE
 - read at `a8d96fb9e034` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: data_dir() joined with a fixed filename such as projects.json, propagating None when the data dir cannot be resolved.
 - found: Exactly that: Some(data_dir()?.join("projects.json")).
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `load_index`
+### `load_index` — STALE
 - read at `f38d3341c38d` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Reads the index file at index_path(), deserializes JSON into KnownProjects, returns default on any failure.
 - found: Exactly that: index_path().and_then(read_to_string.ok()).and_then(serde_json::from_str.ok()).unwrap_or_default().
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `save_index`
-- read at `dbae2334cb7d` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Serializes `index` to JSON, writes it to `index_path` with a `.tmp` suffix (after ensuring `data_dir` exists), then atomically renames it over the real file; on a failed rename it removes the temp file. All errors swallowed, no return value.
-- found: Exactly that, minus the directory creation: early-returns if `index_path()` is None or `to_string_pretty` fails, writes to `path.with_extension("json.tmp")`, renames, and removes the temp only when the write succeeded and the rename failed.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- spec 1 · read at `d5573add5411` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Serialize index to JSON, write to a .tmp file, rename into place atomically, clean up temp file on failure, all silent.
+- found: Exactly that: serde_json::to_string_pretty, write to path.with_extension(\"json.tmp\"), rename over path, remove_file(&tmp) only if write succeeded but rename failed. All failure paths silently return via `?`/let-else.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ## src-tauri/src/scan.rs
 
@@ -3002,248 +3170,291 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/scancache.rs
 
-### the file itself
+### the file itself — STALE
 - read at `18bc33c0635b` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
 - expected: A machine-local, append-only per-file cache keyed on content hash plus an (mtime, len) gate and validated against git HEAD/ancestry, memoising the two expensive per-file scan phases — tree-sitter parse and git blame — with an ephemeral no-op variant for tests and the headless scanner, an append-on-save log tolerant of a torn final line, and retain dropping files no longer in the scan; uncommitted edits never served from it.
 - found: That, plus two things I did not cover: parse and blame invalidate independently (blame additionally keyed on the oid of the last commit touching the file, with ANCIENT as the stand-in beyond the churn window, so revert-and-reapply is caught), and the log compacts on a COMPACT_RATIO threshold with removals forcing a full rewrite-via-temp-and-rename since an append cannot express a deletion.
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `ephemeral`
+### `ephemeral` — STALE
 - read at `90b7706ce367` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Returns a ScanCache with no backing path (path: None) and empty in-memory maps, so lookups and puts work but save becomes a no-op.
 - found: Exactly that: constructs ScanCache { path: None, inner: Mutex::new(Stored { version: FORMAT_VERSION, ..Default::default() }), dirty: Mutex::new(Dirty::default()), head: String::new() }.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `open`
-- read at `8cf41f386c20` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Locates the cache file via path_for(repo), reads it with read_log, returns a ScanCache. On a format-version mismatch it discards everything and returns an empty cache. Compares cached HEAD against current git_head with is_ancestor; if history was rewritten it strips only the blame halves from each entry, keeping the parses, and records the new head.
-- found: Exactly that, plus a detail I did not cover: read_log returns a line count alongside the parsed Stored, which is seeded into a Dirty struct (keys, lines, rewrite) so later saves can decide append-vs-rewrite. The ancestry check is also guarded by stored.head being non-empty and differing from head, so a first-ever cache and an unmoved HEAD skip the git call.
-- predicted: most · documented: full · derivable: no · legible: most · trap: no
+- spec 1 · read at `457d936d5d4e` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Loads cache file for repo path, checks format version tag, on mismatch returns fresh cache; checks if cached HEAD is ancestor of current HEAD, and if not (rewritten history) clears blame entries but keeps parse entries.
+- found: Computes path via path_for, reads and parses stored log via read_log, filters on both FORMAT_VERSION and PARSE_VERSION matching (drops everything on either mismatch), falls back to an empty Stored struct with current head if missing/mismatched. Then if stored.head is non-empty, differs from current head, and is not an ancestor of it, clears blame (not parse) from every entry. Constructs ScanCache with path, inner mutex, a Dirty tracker (keys/lines/rewrite) and head.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `path_for`
-- read at `2ec067ad94a7` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
-- expected: Resolve the machine-local data directory (None if unavailable), join a subdirectory, and build a filename from an fnv hash of the repo path string plus an extension, avoiding any escaping of separators.
-- found: Exactly that: reports::data_dir()?.join("scans"), create_dir_all (failure short-circuits to None), fnv over the lossy path bytes, filename "{id:016x}.json".
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 1 · read at `4e72bf5bc4c5` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md in context
+- expected: Hashes the repo path and joins it with a data/cache directory (creating it if needed) to produce a per-repo cache file path, mirroring the pattern seen in history.rs's cache_path.
+- found: Exactly that: joins data_dir()/scans, creates the dir, hashes the repo path with fnv(), and returns dir/{id:016x}.json.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `look`
-- read at `e4fe1ced1eee` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
-- expected: Looks up rel_path's memo and decides hit/miss cheapest-evidence-first: no entry means miss; if last_commit and mtime/size match, hit without touching disk; otherwise read the file, fnv-hash the bytes, hit if the hash matches (touched-but-identical still hits) refreshing the stat, else miss carrying the freshly read source so the caller does not read twice.
-- found: Structurally exactly that — two gates, mtime+len first then content hash, with `Look::Miss { src, ident }` handing the source back. One thing I got wrong: `last_commit` does NOT gate the hit at all. It gates only the BLAME half — a hit is returned either way, with `blame: None` when `e.blame_commit != want`, so a parse can be reused while blame is recomputed. `None` maps to an `ANCIENT` sentinel so out-of-churn-window files compare equal. Adds a third outcome, `Look::Unreadable`, for a file that will not read. Takes the mutex twice, once per gate.
+- spec 1 · read at `a133d745ecac` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Checks a cheap metadata gate (mtime/size) first to avoid reading the file; falls back to reading and hashing content if the gate misses; compares last_commit against cached blame_commit to decide whether cached blame is still usable; returns Hit, a stale-triggering Miss, or Unreadable.
+- found: Two-stage check: fast path compares mtime+len against cache entry for a Hit without reading the file; if that misses, reads and FNV-hashes the file content, and if the hash still matches the cached entry (byte-identical despite metadata change) it's still a Hit with restamped ident; otherwise returns Look::Miss with the read source. Blame is only reused from cache if e.blame_commit equals the wanted last_commit.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The mtime+len fast path can serve a stale parse for a file edited within the same nanosecond-resolution stat and to the same length — vanishingly unlikely, but it is the same two-writes-share-an-mtime hazard `resync_changed` guards against, and here there is no length-change requirement beyond the pair matching.
 
-### `cached_blame`
+### `cached_blame` — STALE
 - read at `00de5774b33e` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 7 of its run
 - expected: Locks the inner store, looks up the entry for rel_path, and returns a clone of its FileBlame only if both the stored content hash matches and the stored commit matches last_commit; any mismatch or a None commit yields None.
 - found: That, with two details I missed: a None last_commit is not a miss but is normalised to an ANCIENT sentinel string that a stored entry can equal, and a poisoned mutex is turned into a cache miss via lock().ok()? rather than propagating. e.blame is itself an Option, so the clone is the return value directly.
 - predicted: most · documented: full · derivable: no · legible: most · trap: no
 - note: Second reading from this file, so not cold; the ANCIENT sentinel is the one thing the docs' "both conditions, not either" does not hint at.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `put_parse`
+### `put_parse` — STALE
 - read at `839019ec137d` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: Takes &amp;self so the map is behind a lock; builds an entry for rel_path holding the Ident (mtime/len/hash), lang, cloned funcs, file_doc and head sha, inserts it while carrying over any blame already stored for that path, and marks the cache touched so save writes it.
 - found: Exactly that, with one guard I did not state: blame is carried across only when the previous entry's hash equals the new ident's hash, otherwise dropped along with blame_commit. A poisoned lock is a silent no-op return. Ends by dropping the guard and calling self.touched(rel_path).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `put_blame`
+### `put_blame` — STALE
 - read at `f3e9acc8c244` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 6 of its run
 - expected: Locks the map, finds the existing parse entry for rel_path, returns silently if absent (orphan drop), otherwise stores the blame with the last_commit it belongs to and marks the entry dirty for save.
 - found: Exactly that. Two details I did not name: a poisoned lock is swallowed with a bare return, and a missing last_commit is stored as the ANCIENT sentinel rather than an Option. Dirty-marking is delegated to self.touched, called after the lock is explicitly dropped.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: `touched` is called unconditionally, including when the entry was absent and nothing was stored — harmless if touched only marks dirty, but it says "changed" about a write that did not happen.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `retain`
-- read at `233fc784bd1d` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: Takes the set of paths present in the current scan and, via interior mutability (&self plus a lock), drops every cache entry whose key is not in `live` — several maps to sweep, and probably a dirty flag set when something is removed so a later save knows to write.
-- found: One map, not several: a single `entries` map behind a Mutex, retained on live.contains(k). The dirty flag is there and is more specific than I guessed — it sets `rewrite`, because the on-disk store is an APPEND LOG whose entries can only say 'this key now looks like this' and therefore cannot express a deletion; so a removal obliges the next write to be a full rewrite. Both lock acquisitions fail silently via let-else / if-let on a poisoned mutex.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: A poisoned `inner` returns before anything is dropped, but a poisoned `dirty` silently loses the owed rewrite while the entries are already gone — the log would then keep describing files the cache no longer holds; harmless for a recomputable cache, invisible if it ever stops being one.
+- spec 1 · read at `cdbd9ca0ab63` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Removes cache entries whose key is not present in `live`, pruning deleted files; sets a dirty/rewrite flag so the pruned state is persisted on next save since removals can't be appended incrementally.
+- found: Locks inner, retains entries whose key is in `live`, checks if count changed; if entries were dropped, sets dirty.rewrite = true because the append-only log format can't represent a removal, only next-full-rewrite.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `touched`
-- read at `2ef91fea9d87` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
-- expected: Records the key in an interior-mutable pending/dirty set (Mutex, since it takes &self), and once the buffer hits a batch threshold appends those entries to the on-disk log and clears it, amortising writes.
-- found: Exactly that: locks `self.dirty`, inserts the key, computes whether len >= FLUSH_EVERY inside the scope, drops the guard, then calls self.save() outside it. A poisoned lock returns silently.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- note: A poisoned dirty lock silently drops the key forever, so every later scan re-derives that file; agentapi::lock recovers from poisoning deliberately, this one does not.
+- spec 1 · read at `24669c45b5dd` · commit `29c6e80` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Locks dirty state, inserts key into dirty.keys, and if accumulated count crosses a threshold, triggers a save/flush of pending entries to the log file.
+- found: Locks dirty mutex, inserts key.to_string() into d.keys, checks if len >= FLUSH_EVERY threshold; if so calls self.save() after releasing the lock.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `save`
-- read at `857143ba36c3` · commit `1b80d39` · read by claude-opus-4.6 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: Returns early if nothing dirty; otherwise appends one entry_line per dirty entry, or rewrites the whole file (header + every live entry) when the log has grown past a multiple of the live set. Ephemeral (no path) does nothing; IO errors swallowed.
-- found: That shape, with more care than predicted: the rewrite branch is chosen by an explicit rewrite flag OR the COMPACT_RATIO/FLUSH_EVERY staleness test OR lines==0, and goes through a .tmp file plus rename so a kill mid-write cannot truncate the log. It also copies self.head into inner before writing, and the append path uses create(true) so a cache deleted underneath a live process is rebuilt. Dirty bookkeeping (lines, keys, rewrite) is only cleared when the write actually succeeded.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Inline comments record two real past bugs (truncated rewrite, append-to-deleted-file) — unusually good provenance for a cache writer.
+- spec 1 · read at `8f02cea7e101` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md in context
+- expected: Writes dirty/changed entries to the cache file, appending by default; if the accumulated log has grown too large relative to the underlying data (or some threshold), rewrites/compacts the whole file instead. Failures are swallowed silently rather than propagated.
+- found: Locks inner state and dirty tracker; if the log is stale (too many appended lines relative to entry count) or a rewrite/full flush is needed, writes the whole file via temp+rename for crash safety. Otherwise appends only the changed entries' lines to the log file, using create+append (so a deleted cache file is recreated). All failure paths just return without propagating errors.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: Comments explain two subtle failure-mode fixes: temp+rename for the rewrite path, and create+append to survive a deleted cache file.
 
-### `header_line`
+### `header_line` — STALE
 - read at `85ad8f37c7cd` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: Serializes the cache header as one JSON line — a version/format tag plus the git HEAD the cache was built at — via serde_json on a small struct or inline json!, returning the string without a trailing newline.
 - found: Exactly that shape: serde_json::to_string of json!({version, head}), unwrap_or_default, but it DOES append "\n" — the newline is part of the line, not the caller's job.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: unwrap_or_default on a header that cannot realistically fail would silently emit a bare "\n" line, which a strict reader would treat as a corrupt header rather than an error.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `entry_line` — TRAP
+### `entry_line` — TRAP — STALE
 - read at `9d2fe761f516` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: A three-line formatter producing the single serialized cache-file line for one entry — the key joined with the entry's fields by a separator, the write-side inverse of the loader's line parser, beside header_line.
 - found: That, in JSON-lines form: serialises {"k": key, "e": entry} with serde_json and appends a newline, falling back to an empty string if serialisation fails.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: yes
 - note: unwrap_or_default on a failed serialisation emits a bare newline — a blank line silently written into the cache file rather than an error or a skipped entry.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `read_log` — TRAP
-- read at `33673673c939` · commit `1b80d39` · read by claude-opus-4.6 · by ross@rossturk.com · warm reading · reading 5 of its run
-- expected: Parses the log into a Stored plus a line count: first line is the header (version/head), later lines fold in as entries keyed by path with last-wins overwrite; unparseable or trailing partial lines are skipped rather than fatal.
-- found: Exactly that, implemented as JSONL: each non-empty line is parsed as serde_json::Value, index 0 read as {version, head}, the rest as {k, e} with e deserialised into Entry and inserted last-wins. Bad lines are `continue`d and do not count toward `lines`.
-- predicted: full · documented: most · derivable: no · legible: full · trap: yes
-- note: The header is identified by index 0 rather than by shape, so if a leading blank or corrupt line ever survives, the real header is parsed as an entry, silently zeroing version and head.
+### `read_log`
+- spec 1 · read at `92b851d4998a` · commit `29c6e80` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Parses the append-only log line by line using header_line/entry_line helpers: first line is header (version/head), rest are entries; a malformed trailing partial line is silently dropped; returns Stored plus count of lines consumed.
+- found: Iterates text.lines(); skips empty lines; tries to parse each as JSON Value, skipping (continue) on failure — this is what silently drops a truncated trailing line. First non-empty line is treated as header, extracting version/parse/head with defaults of 0/empty on missing fields. Subsequent lines need 'k' and 'e' fields; 'e' is deserialized into an Entry and inserted into entries map keyed by k. Returns (Stored, count of successfully-consumed lines).
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `git_head`
+### `git_head` — STALE
 - read at `4a4644ea6ace` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: Runs `git -C <repo> rev-parse HEAD`, trims stdout to the sha and returns it, returning an empty string when git fails or there are no commits.
 - found: Exactly that, written as an Option chain: output().ok(), filter on status.success(), from_utf8_lossy().trim(), unwrap_or_default().
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `is_ancestor`
+### `is_ancestor` — STALE
 - read at `837a5ac98b87` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: Shells out to `git merge-base --is-ancestor <old> HEAD` in repo and returns whether it exited 0, with false on any failure (git missing, unknown sha), so a rewritten or unreadable history falls back rather than trusting the cache.
 - found: Exactly that: Command::new("git") with -C repo, args merge-base --is-ancestor old HEAD, .output(), maps to status.success(), unwrap_or(false).
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `fnv`
+### `fnv` — STALE
 - read at `a732a69dd153` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: An FNV-1a-shaped 64-bit hash: offset-basis start, per byte XOR then wrapping_mul by a deliberately non-FNV multiplier, returning the accumulator; used as a content key.
 - found: Exactly that: h starts at 0xcbf29ce484222325, each byte XORed in then h.wrapping_mul(0x100000001b3) — note the constant as written is 0x1000_0000_01b3, which is 0x100000001b3 only if the underscores group differently; it is in fact 0x100000001b3 shifted, i.e. not FNV-1a's 0x00000100000001B3.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: The doc correctly warns the multiplier is not FNV-1a's prime (0x1000_0000_01b3 = 2^44+435 rather than 2^40+435); it is still an odd multiplier so the mixing is fine, but nobody should assume interop with real FNV.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `func`
+### `func` — STALE
 - read at `55a052aed517` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
 - expected: A test helper building a minimal FuncDef from a name, everything else stubbed — dummy line range, no docs, no owner, placeholder body — so cache tests can assert identity without a real parse.
 - found: Exactly that: name, a derived `fn {name}()` signature, body "{ 1 }", doc and owner None, start_line and end_line both 1.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `seeded`
+### `seeded` — STALE
 - read at `1614c8d369f9` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 7 of its run
 - expected: Test helper writing `body` to dir/a.rs, opening a ScanCache there and storing a parse entry for "a.rs" via the `func` helper keyed on content hash/mtime, returning cache and path for an immediate hit.
 - found: Exactly that, with two specifics: the cache is `ephemeral()` (no file store), and the identity is obtained by first calling `look`, asserting a Miss, and reusing the returned `ident` — so the helper also asserts that an empty cache misses. The stored func is always named "one" regardless of `body`.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: The stored parse is hardcoded to a single func named "one" and never derived from `body`, so a caller passing different source gets a parse that does not describe it.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `an_untouched_file_is_taken_from_the_cache`
-- read at `2602aeabfc4d` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: A test that seeds a ScanCache with an entry for a file, then looks it up again unchanged and asserts a cache hit serving the stored parse (and blame) rather than re-deriving.
-- found: Exactly that: tempdir, `seeded(dir, "fn one() {}\n")`, then `cache.look("a.rs", &path, None)` must be `Look::Hit` whose first cached func is named `one`; anything else panics. Blame is not asserted.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- spec 1 · read at `975b7e067eab` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Unit test verifying that when a file is unchanged since the last scan, ScanCache serves the cached entry rather than reparsing it.
+- found: Seeds a cache with a file containing `fn one() {}`, calls `cache.look` on the same unchanged file, and asserts it returns a `Look::Hit` with the cached function name `one`.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `an_uncommitted_edit_is_never_served_from_the_cache`
+### `an_uncommitted_edit_is_never_served_from_the_cache` — STALE
 - read at `1dca0e248834` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 8 of its run
 - expected: Seeds a cache with a.rs, rewrites the file with different bytes, asserts look returns Look::Miss because the content hash no longer matches, so a stale parse with wrong line numbers is never served.
 - found: Exactly that: seeded with "fn one() {}", overwritten with a second function appended, asserts Look::Miss with the message that an edited file must miss even though nothing was committed.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `identical_bytes_with_a_new_mtime_still_hit`
+### `identical_bytes_with_a_new_mtime_still_hit` — STALE
 - read at `b936c0c2e2f2` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
 - expected: A test seeding a cache with a file, then rewriting the same bytes so the (mtime, len) gate moves, and asserting the lookup still hits because entries are keyed on the content hash rather than the gate.
 - found: Exactly that: seeds with "fn one() {}", writes a longer body, sleeps 20ms so the mtime genuinely differs rather than by clock luck, writes the original bytes back, then asserts cache.look returns Look::Hit whose first function is still `one`.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `a_reverted_and_reapplied_file_keeps_its_parse_and_loses_its_blame`
-- read at `011718b356cd` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: A test seeding a cache entry for a file (content hash + last-touching commit), then looking it up with the same bytes but a different last commit; asserts the parse is still a hit while blame comes back None.
-- found: Exactly that: seeds "a.rs", puts blame under commit "aaa", then `look` with commit "bbb" must be Look::Hit with funcs[0].name == "one" and blame None; also asserts cached_blame directly returns None.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 1 · read at `c989d299b24b` · commit `29c6e80` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Seeds cache for a file, simulates revert-and-reapply (same content hash, different last-touching commit), asserts parse still hits cache while blame lookup misses.
+- found: Seeds cache, puts blame under commit \"aaa\", then calls cache.look(\"a.rs\", path, Some(\"bbb\")) and gets Look::Hit with funcs[0].name==\"one\" (parse survived) but h.blame.is_none() (blame dropped due to commit mismatch); also directly checks cached_blame(...) returns None.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `on_disk`
-- read at `224a3ef3a536` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 9 of its run
-- expected: A test helper building a ScanCache backed by a real file on disk (not the ephemeral no-write variant), seeded with the given (path, contents) pairs so the append-only log format is actually written and read back.
-- found: That, with the seeding done through the real API rather than by hand: opens the cache at repo, writes each file, asserts via a let-else panic that an empty cache MISSES (so a bad Look variant fails loudly rather than silently seeding nothing), stores a one-function Rust parse under the returned ident, then calls save() to flush the log.
+- spec 1 · read at `78dc5ad1cdbc` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Test helper that opens a real on-disk ScanCache for repo, seeds entries for each (path, content) pair, saves it, and returns the populated cache.
+- found: Opens a real ScanCache::open(repo), then for each (name, body): writes body to disk at repo/name, calls cache.look() and asserts it returns Miss (panicking otherwise), then calls cache.put_parse with a fabricated single-function result (func(\"one\")), Lang::Rust, and \"head\" as the commit; finally calls cache.save() and returns the cache.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The docs handed to me are two unrelated comments run together — the first paragraph ("A repo shrinks as well as grows...") is a neighbouring test's doc, not this helper's, so leading_doc has attached a preceding item's comment here.
 
 ### `saving_appends_rather_than_rewriting_the_whole_store`
-- read at `1826dce6d90e` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 9 of its run
-- expected: Creates a cache in a temp dir, puts a handful of file entries calling save() repeatedly between them, then reads the on-disk log and counts its lines — asserting exactly one line per distinct file plus a header, regardless of how many saves happened, so the store grew by what changed rather than being re-encoded whole.
-- found: Exactly that: one file via the `on_disk` helper, then b/c/d written and saved one at a time (destructuring `Look::Miss` and panicking if it hits, which doubles as a miss assertion), then `assert_eq!(lines, 5)` — header plus four entries. Adds a second assertion I did not predict: reopening the cache from disk yields 4 entries, so the appended log is not merely small but replays correctly.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- note: The test never re-saves an EXISTING entry, so it does not actually exercise the O(n^2) failure it is named for — a rewrite-the-whole-store implementation that appends only new keys would pass it.
+- spec 1 · read at `d0d08ebb4878` · commit `29c6e80` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Uses on_disk helper with several files, calls save() multiple times, reads the log file's line count, asserts one header + one line per file regardless of save() call count — proving appends not full rewrites.
+- found: Builds a cache via on_disk with one file, then for three more files individually: writes it, confirms a Miss via look(), put_parse's it, and calls save() after each. Reads the log file and asserts exactly 5 lines (header + 4 files) despite 4 save() calls; also reopens the cache and checks entries.len() == 4.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
-### `a_torn_last_line_costs_only_its_own_entry`
+### `a_torn_last_line_costs_only_its_own_entry` — STALE
 - read at `d4ffeccd42e8` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 8 of its run
 - expected: A test writing a store with several entries, truncating it mid-last-line to simulate an interrupted append, reloading, and asserting the earlier entries still load while only the torn one is lost — the loader skips the unparseable trailing line rather than discarding the cache.
 - found: That, with the tear appended rather than produced by truncation: it builds an on-disk cache for two files, appends a half-written JSON entry for a third ("c.rs") to the end, reopens, and asserts entries.len() == 2. It reaches through `back.inner.lock()` to count entries rather than going through a public accessor.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `a_dropped_file_does_not_come_back_on_the_next_open`
+### `a_dropped_file_does_not_come_back_on_the_next_open` — STALE
 - read at `1c0af72f8f0e` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 6 of its run
 - expected: A test building a cache with two files, saving, calling retain to keep only one, saving again, reloading from disk and asserting the dropped file is absent — proving the save rewrote rather than appended.
 - found: Exactly that, using an isolated data_home and a tempdir repo: on_disk seeds a.rs and b.rs, retain({a.rs}), save, ScanCache::open, then assert a.rs present and b.rs absent with the message "a dropped file came back from the log".
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: Warm: I had already read fnv in this file, though not this test or its helpers.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `files_no_longer_in_the_scan_are_dropped`
+### `files_no_longer_in_the_scan_are_dropped` — STALE
 - read at `f550612d1cb2` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: Seeds a cache with entries, calls retain with a set containing only some paths, asserts the omitted entry is gone and the kept one survives.
 - found: Seeds one file in a tempdir, calls retain with an EMPTY set, then asserts look() returns Look::Miss. No kept-entry half — it only checks the drop.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: Retaining an empty set can't distinguish "retain drops the right entries" from "retain drops everything" — a two-file case would be a stronger test of the same name.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## src-tauri/src/surprise.rs
 
-### the file itself
+### the file itself — STALE
 - read at `c484be1f8322` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: The seam every scorer plugs into: a SurpriseModel trait (label, surprise, min_lines, is_model), the shipped HeuristicModel that just forwards the precomputed proxy, a Reading return type, calibrate_surprisal mapping raw surprisal onto the 0..1 scale, and two tests. Plus the long prose record of the removed Ollama forced-decoding path, kept so nobody rebuilds it.
 - found: That, and one whole piece I did not predict: `Item<'a>`, the input side of the contract — name, signature, body, peers, lines, doc, context — where most of the file's argument actually lives, each field documented with the measured failure that put it there (starved context made everything read uniformly hot; docs entering through the prompt rather than as a lexical discount is what makes stale docs read hot). Reading also carries `Hotspot` evidence, contrastive positions from forced decoding, which survives the scorer that produced it. calibrate_surprisal and its test are both behind `local-model` rather than compiled always.
 - predicted: most · documented: most · derivable: no · legible: not judged · trap: no
 - note: The header is excellent on the metric and the dead model path but never mentions `Item` or `Hotspot`, which are half the file — a reader looking for where the prompt's inputs are defined gets no signal from the top.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `min_lines`
+### `min_lines` — STALE
 - read at `55c143fc4803` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: A trait method on SurpriseModel with a default body returning 0 — the shipped heuristic proxy is cheap and has no floor, so only implementations that do real (expensive) work override it with a real minimum line count.
 - found: Exactly that: a three-line default returning 0.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `is_model`
+### `is_model` — STALE
 - read at `c799ad73b4ba` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: A default trait method on SurpriseModel returning false; real model impls would override to true.
 - found: Exactly: `fn is_model(&self) -> bool { false }` as the trait default.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: With OllamaModel removed there is no impl that returns true, so this default is currently the only answer anywhere.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `label`
+### `label` — STALE
 - read at `6f06fc4aadb0` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Returns a short human-readable name for this scorer, likely "heuristic" or "offline proxy" — a constant String, no state read.
 - found: Returns the constant string "heuristic (no model)".
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `surprise`
+### `surprise` — STALE
 - read at `69dd61440061` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
 - expected: HeuristicModel's impl of SurpriseModel::surprise: ignores the item and passes the offline proxy through unchanged as Reading::plain(proxy).
 - found: Exactly that, one line.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `plain`
+### `plain` — STALE
 - read at `15124e0816be` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: A constructor building a Reading from a bare surprise value, filling the remaining fields with neutral/empty defaults so nothing beyond the number is claimed.
 - found: Exactly that, and Reading turns out to have only two fields: the surprise and an empty hotspots Vec.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `calibrate_surprisal`
+### `calibrate_surprisal` — STALE
 - read at `ca7dd03508a0` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Maps bits/token onto 0..1 by normalizing against a fixed band — ((bits - LOW) / (HIGH - LOW)).clamp(0,1), LOW near half a bit, HIGH a few bits, possibly a mild exponent. Linear ramp with saturation at both ends.
 - found: Exactly that: PREDICTABLE = 0.5, UNEXPECTED = 4.0, ((bits - 0.5) / 3.5).clamp(0.0, 1.0). No exponent.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `predictable_code_is_cold_and_unexpected_code_is_hot` — QUIRKY
+### `predictable_code_is_cold_and_unexpected_code_is_hot` — QUIRKY — STALE
 - read at `83bac721afab` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: A five-line test scoring a boilerplate body and a dense one and asserting the first is colder than the second.
 - found: It touches no code at all: three assertions on calibrate_surprisal alone — clamping at 0.0 below the band, 1.0 above it, and monotonicity between. It tests the clamp curve, not the claim in its name.
 - predicted: some · documented: none · derivable: yes · legible: full · trap: no
 - note: The test named for the product's central claim never scores any code — it only checks that a scalar rescaling function clamps and is monotonic, which would pass unchanged if the surprise metric were entirely broken.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `the_heuristic_model_passes_the_proxy_through_untouched`
-- read at `89aede2c4f28` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: A unit test asserting HeuristicModel::surprise is a pure pass-through of the offline proxy: build a small function fixture, compute the proxy score via the heuristic module, run it through HeuristicModel, assert exact equality so the wrapper adds no scaling or calibration.
-- found: It builds a trivial Item ("fn f()", empty body, no peers, no docs) and asserts HeuristicModel.surprise(&item, 0.73).surprise == 0.73 — the proxy is passed IN as an argument rather than recomputed, so the test checks the wrapper returns the caller's value unmodified. Nothing else about the returned Reading is asserted.
+- spec 1 · read at `bdff3ae1eb67` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md in context
+- expected: Test asserting HeuristicModel::surprise returns the same score as the raw proxy metric computed directly, with no extra transformation.
+- found: Builds a trivial Item and asserts HeuristicModel.surprise(&item, 0.73).surprise == 0.73 — the proxy score is passed in as an explicit argument (not computed internally by this call), confirming the model just echoes it back unchanged.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: The docs handed over are the module's, not this function's, so they say nothing about the test.
 
 ## src-tauri/src/watch.rs
 

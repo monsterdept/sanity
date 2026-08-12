@@ -1,8 +1,8 @@
 # web — sanity assessment
 
-249 of 249 read · 22 surprising
+249 of 249 read · 21 surprising · 24 stale
 
-193 of these graded legibility under an earlier question and are not counted; see the note below.
+184 of these graded legibility under an earlier question and are not counted; see the note below.
 
 Each entry below is one **reading**, of a function or of a whole file. An agent was
 given its name, signature, neighbouring names and comments — never its body — and
@@ -168,51 +168,60 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Bloom.tsx
 
-### the file itself — QUIRKY
+### the file itself — QUIRKY — STALE
 - read at `9ec2af2d1449` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: A self-contained decorative React/SVG component for the empty right pane: pure geometry helpers (petals building an SVG path from the fattened rhodonea, seedHead placing dots by Vogel phyllotaxis), small SVG components Flower and Leaf, a Tile positioning/scattering one bloom, and an exported Bloom laying a randomised field of tiles across the pane. No data, no state.
 - found: Right on the declarations and their jobs, but wrong on the organising principle. Nothing is scattered or randomised: the file is a p6m wallpaper group rendered as an SVG `<pattern>`. Module constants (A, K=3, P, GOLDEN, T, H=T√3) fix the motif and the hexagonal lattice; PETALS/SEEDS are computed once at module load; Tile places large Flowers on the five 6-fold lattice points, small rotated Flowers on the six triangle centroids, and Leaves (a vesica) on the eight edge midpoints at the edge's own angle; Bloom draws Tile nine times over {-T,0,T}² inside the pattern so motifs clipped at one edge are supplied by the overlapping neighbour, then fills a full-size rect with it.
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 - note: The header's first line and its "Scattered, not vined" section still call this a scattered field, while a later section says "Nothing is placed by eye" — the summary line is stale against the p6m rewrite it sits above, and it is the line a reader predicts from.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `petals`
-- read at `bdcec771d555` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: Builds an SVG path `d` string by stepping theta over one revolution, computing r = A*|cos(K*theta)|^(1/P), converting to cartesian, and joining samples into an M/L polyline closed with Z.
-- found: Exactly that: 240 steps over 0..2pi, r = A * |cos(K*th)|^(1/P), pushes 'M'/'L' with coords rounded to 2 decimals, joins with spaces and appends ' Z'.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 1 · read at `b23b73eb35ae` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md in context
+- expected: Generates an SVG path string tracing the fattened rhodonea curve by sampling theta, computing polar radius, converting to cartesian, and joining into a path d attribute.
+- found: Exactly that: loops 240 steps over 0..2π, r = A*|cos(K*th)|^(1/P), pushes 'M'/'L' cartesian commands, joins and closes with 'Z'.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `seedHead`
+### `seedHead` — STALE
 - read at `ae7c76912ec4` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: Vogel phyllotaxis for the flower centre: for each i, angle = i × the golden angle, radius = c·sqrt(i), converted to cx/cy, with each dot's r varying by distance from the centre.
 - found: Vogel phyllotaxis exactly as predicted for the positions — n from 1 to 13, th = n * GOLDEN, r = A * 0.115 * sqrt(n), cx/cy by cos/sin. The one thing I got wrong: every seed has a CONSTANT radius A * 0.05; the dot size does not vary at all.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `Flower`
+### `Flower` — STALE
 - read at `f42f709857ff` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 10 of its run
 - expected: A small presentational SVG component composing the file doc's two pieces: petals(...) for the rhodonea path and seedHead(...) for the phyllotaxis dots, rendered in a &lt;g&gt; scaled by `s`, petals as a filled path and the seed head as small circles at the centre.
 - found: That shape, but the curve and dots are precomputed module constants (PETALS, SEEDS) rather than called per render, and there is a third element I did not predict: the SAME petal path drawn again inside a scale(0.45) group as a stroke-only inner rose, with a comment noting that a rose scaled about the origin is still the same rose so no second curve has to be kept in step.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `Leaf`
+### `Leaf` — STALE
 - read at `b45dd6cd990e` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: A tiny React component returning an SVG path for a vesica: two circular arc segments mirrored so each passes through the other circle's centre, scaled by `s`, with a fill/stroke colour.
 - found: Exactly that — a `<g transform=scale(s)>` wrapping one two-arc path with currentColor fill at 0.18 and a hairline stroke — plus a second path I did not predict: a straight midrib line down the leaf's axis.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: A true vesica needs R = L / (sqrt(3)/2) = L * 1.1547; the code uses 1.16, so it is a hair fatter than the shape the doc names — almost certainly taste, but the doc reads as exact.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `Tile`
+### `Tile` — STALE
 - read at `eb0cecd36780` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: Renders one repeating unit of the flower field — an SVG group or pattern of fixed size placing a few Flower and Leaf elements at hard-coded or pseudo-random offsets, rotations and scales, so Bloom can tile it across the empty pane.
 - found: Returns an SVG <g> mapping three constant point lists — SIXFOLD, THREEFOLD, TWOFOLD — to translated groups: large Flowers (s=1.45), small Flowers rotated 30 (s=0.72), and Leaves (s=0.62) rotated by a per-point angle. Purely declarative, no randomness.
 - predicted: most · documented: some · derivable: no · legible: most · trap: no
 - note: The file doc explains the rose-curve and phyllotaxis mathematics beautifully but says nothing about the wallpaper-group symmetry the SIXFOLD/THREEFOLD/TWOFOLD names imply, which is what this function is entirely made of.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `Bloom` — QUIRKY
-- read at `c1095e1ce844` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A top-level React component that renders the scattered flower field into the empty pane: an SVG sized to its container, taking className, generating a deterministic set of positions/rotations/scales and mapping them onto Tile/Flower/Leaf children.
-- found: An SVG filling 100%x100%, aria-hidden, preserveAspectRatio slice, whose defs hold a single userSpaceOnUse &lt;pattern id="bloom"&gt; tiling module-level OFFSETS x OFFSETS copies of &lt;Tile /&gt;; the body is one rect filled with url(#bloom). Scatter comes from the tile's own motif rotations, not from this function — and a long comment records that patternTransform rotate(-6) was removed for making the lattice read crooked rather than irregular.
-- predicted: some · documented: none · derivable: no · legible: full · trap: no
-- note: No doc on the function itself; the file_doc covers the rose/phyllotaxis maths but says nothing about the tiling strategy this function actually implements.
+### `Bloom`
+- spec 1 · read at `41d6c7d9f291` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Renders a container using className, laying out a scattered field of Flower/Leaf elements via Tile, positioned/repeated across the pane using some index or pseudo-random generation.
+- found: Renders an SVG filling its container, defines a repeating <pattern> called 'bloom' sized T x H, tiled with multiple <Tile/> instances placed at offsets from OFFSETS array (for seamless tiling across pattern boundary), then fills a full-size rect with that pattern.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ## web/src/components/CodeView.tsx
 
@@ -1157,77 +1166,94 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/fan.ts
 
-### the file itself
+### the file itself — STALE
 - read at `aad3a344a715` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 5 of its run
 - expected: The geometry for the annular fan an opened file unrolls into: a Sector type with sectorOf/arcOf converting between it and the sunburst's arc geometry, fanFor choosing the destination fan for a pane aspect, lerp/lerpSector interpolating between source wedge and fan for the open/close transition, deg for radian conversion, and share/place/centre/room subdividing a sector into cells.
 - found: That, in a (theta, v) space where v = r squared over 2 so that area is linear in both coordinates — which is the load-bearing idea I did not have. Because source and destination are both rectangles in (theta, v), the map between them is affine, so `place` can carry a tiling squarified against the fan back into the wedge and every intermediate frame is still a valid tiling: no morph, no re-tessellation, no sampled polygons. `lerpSector` interpolates in v for the same reason (even growth in area). `fanFor` does not pick a span, it SEARCHES one: it steps 55 to 150 degrees in 5-degree increments, fits each candidate exactly as the viewBox will, and keeps the one putting the most area on screen — because RIM cancels under the fit and only SHAPE decides capacity. The bearing of the source wedge is preserved so the fan grows in place, with NO_WEDGE_BEARING = 0 (straight up) for the three routes into a file that have no wedge behind them. `share` is a normalised fraction rather than a weight split, and `centre`/`room` are label-placement helpers, `room` taking arc width at MID radius as the conservative read of a trapezoid.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: The file has a substantial header at lines 4-29 and the `docs` field of this task was EMPTY — the same happened on the AgentSetup.tsx file task, so file-level tasks appear not to be handing over the header the `ask` instructs the reader to predict from.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `sectorOf`
+### `sectorOf` — STALE
 - read at `7019919acd9b` · commit `81eb6d5` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: A tiny constructor taking two angles and two radii and returning a Sector object literal {a0, a1, r0, r1}, one field per line, so fan code need not repeat the shape.
 - found: Returns an object literal, but the radii are not stored as radii: angles pass through as a0/a1 while r0/r1 go through vOf() and are stored as v0/v1 — the Sector holds a transformed radial coordinate, not the raw radius.
 - predicted: most · documented: none · derivable: yes · legible: most · trap: no
 - note: The parameters are named r0/r1 but the stored fields are v0/v1 via vOf, so a caller reading only the signature would not know the Sector stores a transformed radial coordinate.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `arcOf`
+### `arcOf` — STALE
 - read at `d778f6bc59c4` · commit `9fe6ccf` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 5 of its run
 - expected: A tiny converter from the fan's Sector representation (centre/bearing/span plus radii) into the Arc shape the tiling and path code want — {a0,a1,r0,r1} — computing the half-span either side of the bearing. Pure arithmetic.
 - found: A four-field object literal: angles pass straight through (a0/a1 already exist on Sector), and the two radii come from mapping the sector's v0/v1 through a helper `rOf`. No bearing/span maths at all — a Sector already stores angle bounds, with the radial axis stored in some other unit that rOf converts.
 - predicted: most · documented: none · derivable: yes · legible: most · trap: no
 - note: The `v0`/`v1` fields and `rOf` are the only interesting content and nothing in the signature or peers says what unit v is; I had read FileZoom.tsx, not this file, so it was still cold as a file but I knew arcOf was consumed by a tiler.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `deg`
-- read at `b04cee775995` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: A one-line radians-to-degrees helper, (r * 180) / Math.PI, for converting the sunburst's internal radian angles.
-- found: Precisely that, character for character.
+- spec 1 · read at `2daab0c4a6ff` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Converts radians to degrees: r * 180 / Math.PI.
+- found: const deg = (r: number) => (r * 180) / Math.PI — exactly radians-to-degrees conversion.
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ### `fanFor`
-- read at `fecd387dec73` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: Keeps the clicked wedge's mid-bearing, sweeps candidate spans (90/120/180/270/360-ish), measures each fitted to paneAspect, and returns a Sector centred on the same bearing with the span that puts the most area on screen; null src falls back to a full circle.
-- found: Exactly that shape, but the sweep is a fine-grained degree loop from MIN_SPAN to MAX_SPAN by STEP rather than a handful of candidates, the radii come from RIM and CORE_SHARE constants, the bounding box is computed by extentOf, the fit is scale = min(paneAspect/w, 1/h) matching the viewBox, and the scored area is the annulus sector area times scale squared. Null src uses a NO_WEDGE_BEARING constant, not a full circle.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The doc is unusually good on the why (bearing preserved deliberately, area == capacity) yet never mentions the null case, which the body handles with its own constant.
+- spec 1 · read at `b427b46737a1` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md in context
+- expected: Computes destination sector for a file's fan: keeps the bearing at the midpoint angle of the source sector, then searches candidate angular spans fitted to the pane, picking the one that maximizes the on-screen area, and returns the resulting Sector.
+- found: Matches the prediction closely: iterates candidate spans in degree steps from MIN_SPAN to MAX_SPAN, computes each candidate's bounding box via extentOf, scales it to fit the pane (bound by whichever axis binds), computes the resulting on-screen area, and keeps the best; returns a Sector centered on `mid` with radii mapped via vOf(core)/vOf(rim).
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
 
-### `lerp`
+### `lerp` — STALE
 - read at `45b2910ff09a` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: A one-line linear interpolation: a + (b - a) * t.
 - found: Exactly that, verbatim.
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `lerpSector`
+### `lerpSector` — STALE
 - read at `9b76b7006c62` · commit `9fe6ccf` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: Same shape as lerpView: a struct literal lerping the sector's angular bounds (a0/a1) and its v bounds (v0/v1, the area-linear radial coordinate rather than r) by t.
 - found: Exactly that — lerp on a0, a1, v0, v1.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `share`
+### `share` — STALE
 - read at `ff03c942c966` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: A one-line arrow helper: given range lo..hi and position `at`, return the normalised fraction (at - lo) / (hi - lo), guarding a zero-width range. The inverse of the neighbouring `lerp`.
 - found: Exactly that, with the guard as a ternary: `hi > lo ? (at - lo) / (hi - lo) : 0`.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `place`
+### `place` — STALE
 - read at `32ae3764810f` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
 - expected: Takes a cell laid out inside the dest sector and re-expresses it inside live by an affine rescale on both axes: each of the cell's four bounds as a fraction of dest's angular and radial extents, lerped across live's corresponding extents, returning a new Arc — probably one expression using share/lerp.
 - found: Exactly that, with one detail I missed: the radial axis is not remapped in radius but in a transformed coordinate `v` (r squared / area-equalising, via vOf and rOf). Two local closures `a` and `v` do the share-then-scale on angle and on v respectively, and the radii round-trip through vOf/rOf so equal-area cells stay equal-area across the map.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 - note: The doc claims "a cell holds the same fraction of the box at every frame" but the fraction preserved is in v-space, not r-space, and neither the doc nor the body says what v is.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `centre`
+### `centre` — STALE
 - read at `b80b50d36cda` · commit `9fe6ccf` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 10 of its run
 - expected: Mid-angle (a0+a1)/2 and mid-radius (r0+r1)/2, converted to screen coordinates with the clockwise-from-noon convention: x = r·sin a, y = −r·cos a, returning all four so callers get both the polar bearing and the cartesian point.
 - found: Exactly that, line for line.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: The doc hands over the sign convention outright, which is the only thing about this function a reader could get wrong — that is what made it fully predictable.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `room`
+### `room` — STALE
 - read at `1ef61c46850f` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 10 of its run
 - expected: A three-line function returning {w, h} where w is the arc length at mid-radius — (a1 - a0) * (r0 + r1) / 2 — and h is the radial thickness r1 - r0.
 - found: Exactly that, one expression, character for character what I predicted.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/lib/history.ts
 
@@ -1335,58 +1361,71 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/ink.ts
 
-### the file itself
+### the file itself — STALE
 - read at `c457860ebf2c` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: A small utility module picking one of two label inks (dark/light) per wedge fill using WCAG contrast: resolve CSS custom properties to sRGB, composite translucent fills over a backdrop, convert to relative luminance, compare contrast ratios against both candidate inks, return the winner; `theme` supplies light/dark context, the rest are pure helpers.
 - found: Exactly that. `inkOn(token, alpha)` resolves a custom property (only plain 6-digit hex; anything else, including color-mix, falls back to CHROME_INK), composites over `--background` when alpha < 1, and returns PAPER or INK by whichever has the higher WCAG contrast. PAPER/INK are literals that deliberately do NOT flip with the theme. Results are memoised in a Map keyed by theme|token|alpha, with `theme()` reading documentElement.className — that is the one role of `theme`, cache invalidation, not palette selection as I assumed.
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
 - note: The header records what was tried and rejected (halo, plate, shadow, theme-flipping) — none of that is recoverable from the code.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `inkOn`
-- read at `b99ba883c8b2` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
-- expected: Resolve the custom property to an sRGB colour, falling back to the chrome ink if that fails; otherwise composite it over the pane background at alpha, take the luminance, and return whichever of the two inks (Ink vs Paper) has the better contrast — a per-wedge choice, not a per-theme one.
-- found: That, plus memoisation I did not predict: results are cached under a `theme()|token|alpha` key, with the theme in the key precisely so a theme switch does not serve stale inks. Compositing is skipped when alpha >= 1 or the background will not resolve, `over` returns a luminance directly rather than a colour, and the tie on equal contrast goes to PAPER.
+- spec 1 · read at `f229e713ef84` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md in context
+- expected: Resolves a CSS custom property token to a color, composites it over the background accounting for alpha, computes luminance/contrast, and picks between two ink colors (or falls back to a chrome ink) for best contrast.
+- found: Matches, plus a caching layer keyed on theme|token|alpha. Resolves token and background colors; if alpha>=1 or background unresolved, uses hex's own luminance, otherwise composites hex over ground at alpha. Picks PAPER or INK by whichever gives higher contrast against that luminance, or CHROME_INK if the color couldn't be resolved at all.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: `y` holds a luminance on one branch and the result of `over` on the other, so the name and the two paths only agree because `over` happens to return a luminance rather than a colour.
+- note: Missed the memoization cache in my prediction.
 
-### `theme` — QUIRKY — TANGLED
+### `theme` — QUIRKY — TANGLED — STALE
 - read at `f24ada407e00` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: A one-line arrow returning the current theme ('light'/'dark'), read from data-theme on documentElement with a prefers-color-scheme fallback, used to pick the base colour wedge fills composite over.
 - found: Returns the raw className string of document.documentElement (a space when there is no document, i.e. SSR/test). Not a normalised theme name at all — it is a cheap cache key / class-list snapshot the callers presumably substring-match or invalidate on.
 - predicted: some · documented: none · derivable: yes · legible: some · trap: no
 - note: Named `theme` but returns the whole className string, and the no-document fallback is a single space rather than '' — both look like cache-key tricks that the name hides.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `resolve`
-- read at `55f91d723736` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Reads the named CSS custom property off the document root's computed style, trims it, returns null when empty or not a plain hex colour (e.g. a color-mix), so the caller falls back.
-- found: Exactly that, plus two guards I did not name: an SSR/no-document check returning null, and unwrapping a `var(--x)` wrapper before requiring the name to start with `--`. Hex check is a strict 6-digit regex.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 1 · read at `eae2816b15bc` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md in context
+- expected: Reads a CSS custom property's computed value via getComputedStyle, trims it, and returns null if it isn't a plain hex color (as opposed to e.g. a color-mix()), per the docs.
+- found: Strips a `var(--x)` wrapper down to the bare `--x` token name (returns null if not a custom property), reads its computed value off document.documentElement, and returns it only if it matches a strict 6-digit hex pattern, else null.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: The var(...) unwrapping step before doing the getComputedStyle lookup wasn't something I predicted from the signature alone.
 
-### `luminance`
+### `luminance` — STALE
 - read at `c5749d9094c3` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
 - expected: Parse the hex into r/g/b, linearise each channel through the srgb helper, and return the WCAG weighted sum 0.2126R + 0.7152G + 0.0722B.
 - found: Exactly that, written as a one-line reduce over srgb(hex) indexing a literal coefficient array — so srgb owns both the hex parsing and the gamma linearisation.
 - predicted: full · documented: none · derivable: yes · legible: most · trap: no
 - note: The coefficient array is re-allocated on every channel inside the reduce, and indexing it by i is less legible than destructuring the three channels; harmless but gratuitous.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `over`
+### `over` — STALE
 - read at `33849ab62cd6` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: Convert hex and ground to linear-light sRGB channels, blend per channel as a*fg+(1-a)*bg, return the WCAG relative luminance of the result, reusing srgb/luminance helpers.
 - found: Exactly that in two lines; it inlines the Rec.709 luminance weights in a reduce rather than calling the sibling `luminance`.
 - predicted: full · documented: full · derivable: no · legible: most · trap: no
 - note: Duplicates the luminance weights that sibling `luminance` already owns, so a change to one would silently not reach the other.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `srgb`
+### `srgb` — STALE
 - read at `190a8a42c92f` · commit `1b80d39` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: Parses the hex string into three 0-255 byte channels, normalises each to 0-1, applies the sRGB-to-linear transfer function (c <= 0.04045 ? c/12.92 : ((c+0.055)/1.055)**2.4), and returns the three linear values as an array for luminance.
 - found: Exactly that, written as [1,3,5].map over byte offsets in a "#rrggbb" string. It assumes the full six-digit form with a leading '#' — a three-digit shorthand or a missing '#' silently yields NaN rather than throwing.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `contrast`
+### `contrast` — STALE
 - read at `80e3ea9bc4d5` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: Takes two relative luminances and returns the WCAG contrast ratio (lighter + 0.05) / (darker + 0.05), ordering the pair itself via Math.max/Math.min so callers need not pass them in order.
 - found: Exactly that, one line: (Math.max(a,b) + 0.05) / (Math.min(a,b) + 0.05).
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/lib/label.ts
 
@@ -1597,49 +1636,57 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/theme.ts
 
-### the file itself
+### the file itself — STALE
 - read at `1340c8f2dedb` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
 - expected: A small pure-DOM/storage theme module: a Theme union of light/dark/system, loadTheme/saveTheme persisting to localStorage defaulting to system, prefersDark reading matchMedia prefers-color-scheme, applyTheme toggling a `dark` class on <html>, applyStoredTheme applying at startup, and watchSystemTheme subscribing to the media query only while in system mode and returning an unsubscribe. No React or menu wiring.
 - found: Exactly that shape, plus two small exports I did not name — a THEMES array and a THEME_LABEL record for building the menu — and both storage calls wrapped in try/catch that falls back to `system`. applyStoredTheme is documented as redundant with a blocking script in index.html, kept so the answer lives under the module that owns it.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `loadTheme`
-- read at `326426743cdb` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Reads the stored theme preference from localStorage under a module key, validates the raw string against the three Theme values, returns 'system' as the fallback when missing or unrecognised, wrapped in try/catch because localStorage can throw.
-- found: Exactly that: try { localStorage.getItem(KEY) }, literal check against 'light'|'dark'|'system', empty catch with a comment, return 'system'.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-- note: The docs are a file-level essay about why a theme toggle exists at all, not about this function; they cover it only by implication (the 'system' default), but they say things no reader could derive from the code.
+- spec 1 · read at `85c8c2f73557` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md in context
+- expected: Reads the stored theme preference from localStorage, validates it against allowed Theme values, and defaults to 'system' if missing or invalid.
+- found: Exactly that: reads localStorage under a KEY, returns it if it's 'light'/'dark'/'system', wrapped in try/catch (storage may be unavailable), otherwise falls back to 'system'.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- note: File-level doc explains the product philosophy, not this function's mechanics — but the mechanics were obvious anyway.
 
 ### `saveTheme`
-- read at `064c9b357299` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
-- expected: Persists the three-way choice: writes t to localStorage under a module-level key, removing the key when t is 'system' so the default stores nothing, then applies the theme so the dark class on html updates immediately; guarded against a missing localStorage.
-- found: Just localStorage.setItem(KEY, t) inside a try/catch whose empty body carries a comment saying the preference simply will not survive a restart. No special case for 'system' — it is stored like any other value — and it does not apply anything; that is applyTheme's job.
+- spec 1 · read at `bb2b7c2c4125` · commit `0f6160c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md in context
+- expected: Writes the theme override to localStorage under a key, possibly removing the key instead when the value is 'system' since that's the default.
+- found: Simply localStorage.setItem(KEY, t) for any value including 'system', wrapped in a try/catch that silently swallows storage errors (e.g. private browsing) with a comment that the preference just won't persist.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `prefersDark`
+### `prefersDark` — STALE
 - read at `d1c5dd0259c2` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 8 of its run
 - expected: A one-liner returning window.matchMedia('(prefers-color-scheme: dark)').matches, possibly guarded for a missing matchMedia.
 - found: Exactly that, unguarded — one return statement.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `applyTheme`
+### `applyTheme` — STALE
 - read at `8ee121cdd0f7` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
 - expected: Resolve system to prefersDark(), then classList.toggle('dark', isDark) on document.documentElement.
 - found: Exactly that, two lines.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `applyStoredTheme`
+### `applyStoredTheme` — STALE
 - read at `7b7ccac040db` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
 - expected: A one-liner calling applyTheme(loadTheme()) — read the stored preference and apply the dark class, mirroring index.html's blocking script.
 - found: Exactly applyTheme(loadTheme()).
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `watchSystemTheme`
-- read at `49cc65416df4` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: If t is not 'system', return a no-op teardown; otherwise subscribe to matchMedia('(prefers-color-scheme: dark)') change and re-apply the theme, returning an unsubscribe function.
-- found: Exactly that, plus an eager applyTheme(t) on entry before the mode check — so the function both applies and subscribes, which the docs ("keep following the OS") do not mention.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The doc describes only the subscription; the function also applies the theme immediately, which is why it works as a one-call effect.
+- spec 1 · read at `6d2fb81ba7f4` · commit `29c6e80` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: If theme is 'system', subscribe to matchMedia prefers-color-scheme change and apply on change, returning a teardown; otherwise no-op teardown.
+- found: Applies the theme immediately on call regardless of mode, then only if t === 'system' subscribes matchMedia change -> applyTheme('system'), returning the removeEventListener teardown (or a no-op teardown otherwise).
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: Missed that it applies the theme immediately on entry before the system-mode branch.
 
 ## web/src/lib/zoom.ts
 

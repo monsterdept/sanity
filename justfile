@@ -63,6 +63,12 @@ test:
     cd src-tauri && cargo test
     cd src-tauri && cargo clippy --all-targets -- -D warnings
 
+# Does this release expire committed readings? Run it any time; `just release` gates on it.
+# Takes an optional ref pair for auditing history — `just expiry 16b3bba~1 16b3bba` is the
+# change that made this necessary, and it fails there.
+expiry *refs:
+    @python3 scripts/expiry-check.py {{refs}}
+
 # Score a repo from the command line, no window. The fastest way to check whether the
 # metric is doing anything real on a codebase you know — `just scan ../slooth`. Prints
 # the hottest wedges, which is the only output that matters before the UI exists.
@@ -156,6 +162,17 @@ release version:
     fi
     if git rev-parse "$tag" >/dev/null 2>&1; then
         echo "error: tag $tag already exists" >&2; exit 1
+    fi
+
+    # Does this release cost every user a re-read? Decidable from the diff, and the one
+    # question about a Sanity release that cannot be answered after the fact — by then the
+    # readings have already expired in somebody's repo, and they find out from a coverage
+    # number that dropped. Fails only on an UNDECLARED expiry: a hash input moved while
+    # every cache and every stored reading still claims to be current. A declared one
+    # prints what it costs and proceeds, because improving the metric is the job.
+    if ! python3 scripts/expiry-check.py; then
+        echo "error: this release expires readings without declaring it — see above" >&2
+        exit 1
     fi
 
     # Annotate the tag with the commit log since the previous tag, so `git show

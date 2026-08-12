@@ -624,6 +624,22 @@ second metric, and the line between those is the whole design.
   gains functions it never had, so a finished assessment stops reading as finished. That is
   the staleness rules working, not breaking — but add languages in deliberate batches, or
   the coverage shift cannot be attributed to anything.
+- **"Does this release expire readings?" is decided from the diff, by `just expiry`, and
+  `just release` gates on it.** Most releases cost nothing — a UI change, an endpoint, a
+  reworded warning; the store does not notice. What costs a re-read is a `reading_hash`
+  input moving (`file_doc`, `leading_doc`, `body_span`, `header_end`, `file_surface`, the
+  hash itself), a parse change, or a `SPEC` bump — and a version bump on its own does NOT:
+  re-parsing identical bytes with an identical parser yields identical hashes, so a cache
+  drop expires nothing unless the cache was serving something wrong. The gate fails on one
+  case only, **UNDECLARED** — a watched function changed and neither `PARSE_VERSION` nor
+  `SPEC` moved, so every cache and every stored reading still reports itself as current
+  while being hashed against something else. A declared expiry prints what it costs and
+  proceeds, because improving the metric is the job; what it must not do is arrive at a
+  user as a coverage number that dropped. It compares each watched function's own SOURCE
+  TEXT rather than whether its file changed — `parse.rs` and `assessment.rs` move constantly
+  for unrelated reasons, and a gate that cries wolf every release is one people learn to
+  skip. It was checked against the change that made it necessary: `just expiry 16b3bba~1
+  16b3bba` fails.
 - **A `#[serde(default)]` field on a cached record IS a format change.** It is the exact
   annotation that lets a stale record load as though it were current, so adding one without
   bumping `FORMAT_VERSION` is not a small omission — it is the whole failure. `file_doc` went
