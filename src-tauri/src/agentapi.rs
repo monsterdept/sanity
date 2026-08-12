@@ -799,6 +799,15 @@ pub struct Report {
     /// The reader is the only party that can see its own context, which is the same reason
     /// `cold` and `position` are asked rather than derived. What makes it checkable is the
     /// server-stamped half beside it — see [`Report::agent_docs`].
+    ///
+    /// **It must name WHOSE brief, because the first live wave split on exactly that.** Nine
+    /// readers, one session: two answered `true` and four answered `false` while explaining,
+    /// unprompted, that they were discounting the operator's personal `~/.claude/CLAUDE.md`
+    /// and counting only the repo's. Four readers reasoning their way to a distinction the
+    /// question never drew is four readers guessing, and the two who went the other way were
+    /// not wrong so much as answering a different question — 26 readings landed on the wrong
+    /// side of a rule nobody had stated. A global instructions file says nothing about the
+    /// code being predicted, which is the only thing this field is about.
     #[serde(default)]
     pub primed: bool,
     /// Which instruction files the repo held when this reading landed, comma-joined.
@@ -1493,12 +1502,13 @@ pub const READER_PROMPT: &str = "\
   you assess them.\n\n\
   Grade `predicted` against what you WROTE, not against what you understand now: the \
   question is what the code told a stranger.\n\n\
-  THE PROJECT'S OWN BRIEF IS NOT THE HANDOUT. A CLAUDE.md or AGENTS.md may already be in \
-  your context, and some of them explain specific functions by name. Do not open one, and \
-  do not let it carry a prediction: predict from the name, owner, signature, peers and docs \
-  you were given. Where you notice you knew something from the brief rather than from the \
-  handout, grade on the handout alone. Report `primed` on whether one was in your context \
-  at all — not on whether it helped, which you cannot fully know.\n\n\
+  THE PROJECT'S OWN BRIEF IS NOT THE HANDOUT. This repo's CLAUDE.md or AGENTS.md may \
+  already be in your context, and some of them explain specific functions by name. Do not \
+  open one, and do not let it carry a prediction: predict from the name, owner, signature, \
+  peers and docs you were given. Where you notice you knew something from the brief rather \
+  than from the handout, grade on the handout alone. Report `primed` on whether THIS \
+  REPO's brief was in your context at all — a personal or global instructions file is not \
+  it, and whether the brief helped is not the question, since you cannot fully know.\n\n\
   Do not read any other file, do not spawn subagents, and do NOT read the `.sanity/` \
   directory — it holds the previous reader's findings, and seeing them makes everything \
   you say afterwards worthless. If a tool errors, read the message: connection failures \
