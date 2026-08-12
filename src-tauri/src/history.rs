@@ -853,11 +853,23 @@ fn is_ancestor(repo: &Path, sha: &str) -> bool {
 /// functions, a change to what a frame records. Without it a file written by an older
 /// build is silently extended by this one, and the two halves of one timeline are
 /// measuring different things.
-const CACHE_VERSION: u32 = 1;
+///
+/// That failure has a second cause this could not see, and it is worse here than anywhere:
+/// a timeline is EXTENDED rather than rebuilt, so a parser change would append frames from
+/// the new parse onto frames from the old one and produce a story that never happened —
+/// functions appearing to be written on the day the grammar changed. [`Cached::parse`]
+/// closes it, and it belongs in this file's rules beside `MINIFIED_LINE_BYTES` and
+/// `VENDORED`, which are duplicated here for the same reason: what history refuses and how
+/// history parses must move with the scan or the two disagree in silence.
+const CACHE_VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
 struct Cached {
     version: u32,
+    /// What the parser meant when these frames were folded — see
+    /// [`crate::parse::PARSE_VERSION`]. A mismatch is a full replay, never an append.
+    #[serde(default)]
+    parse: u32,
     /// The window this was computed for. A different one is a different fold, so it gets
     /// its own file rather than being trimmed or extended into shape.
     limit: usize,
@@ -881,7 +893,10 @@ fn cache_path(repo: &Path, limit: usize) -> Option<PathBuf> {
 fn load_cache(repo: &Path, limit: usize) -> Option<HistoryScan> {
     let text = std::fs::read_to_string(cache_path(repo, limit)?).ok()?;
     let cached: Cached = serde_json::from_str(&text).ok()?;
-    (cached.version == CACHE_VERSION && cached.limit == limit).then_some(cached.scan)
+    (cached.version == CACHE_VERSION
+        && cached.parse == crate::parse::PARSE_VERSION
+        && cached.limit == limit)
+        .then_some(cached.scan)
 }
 
 fn save_cache(repo: &Path, limit: usize, scan: &HistoryScan) {
@@ -891,6 +906,7 @@ fn save_cache(repo: &Path, limit: usize, scan: &HistoryScan) {
     // next replay some seconds and nothing else.
     if let Ok(text) = serde_json::to_string(&Cached {
         version: CACHE_VERSION,
+        parse: crate::parse::PARSE_VERSION,
         limit,
         scan: scan.clone(),
     }) {

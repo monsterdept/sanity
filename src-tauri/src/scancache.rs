@@ -69,7 +69,11 @@ use crate::parse::FuncDef;
 /// migrated — the same rule `cache.rs` states for scores, and for a stronger reason here:
 /// a half-understood parse entry would put functions at lines they are not at, and every
 /// reading taken against those lines would be a reading about nothing.
-const FORMAT_VERSION: u32 = 2;
+///
+/// 3 because the stored record gained [`crate::parse::PARSE_VERSION`]. That bump also drops
+/// every entry written before the parser was versioned, which is the point: those are
+/// exactly the entries whose parse cannot be vouched for.
+const FORMAT_VERSION: u32 = 3;
 
 /// Stand-in oid for "not touched inside the churn window". See the module docs.
 const ANCIENT: &str = "-";
@@ -116,6 +120,18 @@ struct Entry {
 #[derive(Serialize, Deserialize, Default)]
 struct Stored {
     version: u32,
+    /// What the parser meant when these entries were written — see
+    /// [`crate::parse::PARSE_VERSION`].
+    ///
+    /// Separate from `version` because they answer different questions and have different
+    /// blast radii on the way in: `version` asks whether this file can be READ, and a
+    /// mismatch means the bytes on disk are a shape nothing here understands. This asks
+    /// whether what was read still MEANS what it meant, and a mismatch means the records
+    /// parse perfectly and describe a repo as an older parser saw it. Folding the two into
+    /// one integer would work and would lose that distinction the first time somebody had
+    /// to reason about which one had fired.
+    #[serde(default)]
+    parse: u32,
     /// HEAD when this cache was last written, so a rewritten history can be detected.
     head: String,
     entries: HashMap<String, Entry>,
@@ -193,6 +209,7 @@ impl ScanCache {
             path: None,
             inner: Mutex::new(Stored {
                 version: FORMAT_VERSION,
+                parse: crate::parse::PARSE_VERSION,
                 ..Default::default()
             }),
             dirty: Mutex::new(Dirty::default()),
@@ -215,11 +232,15 @@ impl ScanCache {
             .as_ref()
             .and_then(|p| std::fs::read_to_string(p).ok())
             .map(|s| read_log(&s))
-            .filter(|(s, _)| s.version == FORMAT_VERSION)
+            // Both gates, and both drop everything. A cache written by a different parser
+            // is not stale in the way a changed file is stale — the entries are internally
+            // consistent and describe a repo nobody is looking at.
+            .filter(|(s, _)| s.version == FORMAT_VERSION && s.parse == crate::parse::PARSE_VERSION)
             .unwrap_or_else(|| {
                 (
                     Stored {
                         version: FORMAT_VERSION,
+                        parse: crate::parse::PARSE_VERSION,
                         head: head.clone(),
                         entries: HashMap::new(),
                     },
@@ -472,7 +493,7 @@ impl ScanCache {
 /// that a reader has to apply the lines in order, and that removals need a rewrite — both
 /// cheap next to serialising hundreds of megabytes on a timer.
 fn header_line(s: &Stored) -> String {
-    serde_json::to_string(&serde_json::json!({ "version": s.version, "head": s.head }))
+    serde_json::to_string(&serde_json::json!({ "version": s.version, "parse": s.parse, "head": s.head }))
         .unwrap_or_default()
         + "\n"
 }
@@ -488,7 +509,7 @@ fn entry_line(key: &str, e: &Entry) -> String {
 /// old format did not have — one truncated document parsed as garbage and cost the next
 /// open its entire cache.
 fn read_log(text: &str) -> (Stored, usize) {
-    let mut out = Stored { version: 0, head: String::new(), entries: HashMap::new() };
+    let mut out = Stored { version: 0, parse: 0, head: String::new(), entries: HashMap::new() };
     let mut lines = 0;
     for (i, line) in text.lines().enumerate() {
         if line.is_empty() {
@@ -499,6 +520,10 @@ fn read_log(text: &str) -> (Stored, usize) {
         };
         if i == 0 {
             out.version = v.get("version").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+            // Absent is 0, which matches no real parse version and therefore drops the
+            // cache — the honest reading of a header written before the parser was
+            // versioned at all.
+            out.parse = v.get("parse").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
             out.head = v.get("head").and_then(|x| x.as_str()).unwrap_or("").to_string();
             lines += 1;
             continue;
@@ -601,6 +626,45 @@ mod tests {
         assert!(
             matches!(cache.look("a.rs", &path, None), Look::Miss { .. }),
             "an edited file must miss even though nothing was committed"
+        );
+    }
+
+    /// A cache written by a different parser is dropped, not extended.
+    ///
+    /// **This is the one failure every other test here would pass through.** The gate, the
+    /// hash and the HEAD check all answer "have these bytes changed", and the answer is
+    /// correctly no — while the parser that read them has moved underneath. Mapping `.h` to
+    /// C++ took one real repo from 1,682 functions to 1,724, and the app went on serving
+    /// 1,682 out of a cache written an hour before, while `just scan` — uncached by design —
+    /// reported the truth. Two numbers for one repo, and an orchestrator was sizing a
+    /// 176-subagent run from the wrong one.
+    ///
+    /// A header with no `parse` at all takes the same road: absent is 0, 0 matches no real
+    /// parse version, and a cache from before the parser was versioned is exactly the cache
+    /// whose parse cannot be vouched for.
+    #[test]
+    fn a_cache_from_a_different_parser_is_not_reused() {
+        let entries = |s: &str| read_log(s).0;
+        let header = |v: u32, p: Option<u32>| match p {
+            Some(p) => format!(r#"{{"version":{v},"parse":{p},"head":"abc"}}"#),
+            None => format!(r#"{{"version":{v},"head":"abc"}}"#),
+        };
+        let live = |s: &Stored| {
+            s.version == FORMAT_VERSION && s.parse == crate::parse::PARSE_VERSION
+        };
+
+        assert!(
+            live(&entries(&header(FORMAT_VERSION, Some(crate::parse::PARSE_VERSION)))),
+            "this build's own cache is reused"
+        );
+        assert!(
+            !live(&entries(&header(FORMAT_VERSION, Some(crate::parse::PARSE_VERSION + 1)))),
+            "a newer parser's cache is not this parser's answer either — the records are \
+             internally consistent and describe a repo nobody is looking at"
+        );
+        assert!(
+            !live(&entries(&header(FORMAT_VERSION, None))),
+            "and a header from before the parser was versioned is dropped, not assumed"
         );
     }
 

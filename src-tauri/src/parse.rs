@@ -120,6 +120,36 @@ fn language(lang: Lang) -> tree_sitter::Language {
     }
 }
 
+/// What a parse MEANS, versioned — bump this when the same bytes would come out different.
+///
+/// **The caches gate on shape, and a parser change is not a shape change.** `scancache`
+/// stores a `Vec<FuncDef>` per file behind a `(mtime, len)` gate and a content hash, all of
+/// which say "these bytes are unchanged" — true, and beside the point when it is the parser
+/// that moved. `history` caches whole timelines built from the same pass. So a repo scanned
+/// before a grammar or mapping change keeps serving the old answer until somebody edits the
+/// file, and nothing anywhere says so.
+///
+/// It is not hypothetical and it is not cosmetic. Mapping `.h` to C++ moved one real repo
+/// from 1,682 functions to 1,724 — twelve fabricated entries out, fifty-four real ones in —
+/// and the app went on reporting 1,682 from a cache written an hour earlier, while `just
+/// scan`, which runs uncached by design, reported the truth. Two numbers for one repo, and
+/// the wrong one was the one an orchestrator was sizing a 176-subagent run from.
+/// `scancache`'s own doc comment already names the consequence exactly — "a half-understood
+/// parse entry would put functions at lines they are not at, and every reading taken against
+/// those lines would be a reading about nothing" — it simply had no way to detect this
+/// cause of it.
+///
+/// **Bump it for anything that changes what comes out of this module**: a new `Lang` or
+/// extension mapping, an edit to `func_kinds`, `name_node`, `body_span`, `header_end` or
+/// `leading_doc`, and a grammar dependency bump — a grammar that renames a node changes
+/// every parse that used it. It lives here, next to those, rather than beside the cache
+/// format it protects: the person who breaks this is editing this file, and a reminder in
+/// the file you are not looking at is not a reminder.
+///
+/// Cheap to be wrong in the safe direction. A needless bump costs one re-parse per repo —
+/// seconds — while a missed one is silently wrong for as long as the files sit still.
+pub const PARSE_VERSION: u32 = 1;
+
 /// Node kinds that count as "a function with a body someone wrote".
 ///
 /// Bare `arrow_function` / `function_expression` are deliberately absent for the JS

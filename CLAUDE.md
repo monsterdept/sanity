@@ -624,6 +624,19 @@ second metric, and the line between those is the whole design.
   gains functions it never had, so a finished assessment stops reading as finished. That is
   the staleness rules working, not breaking — but add languages in deliberate batches, or
   the coverage shift cannot be attributed to anything.
+- **A parser change is not a file change, and every cache gates on file changes. Bump
+  `parse::PARSE_VERSION`.** `scancache` keys on `(mtime, len)` and a content hash, `history`
+  extends a stored timeline; all of it correctly answers "have these bytes changed" and none
+  of it can see that the parser moved. So a repo scanned before the change keeps serving the
+  old answer until somebody edits the files, and nothing says so. Mapping `.h` to C++ took
+  one repo from 1,682 functions to 1,724 while the app went on reporting 1,682 from an
+  hour-old cache — and `just scan`, which is uncached by design, reported the truth, so the
+  two disagreed with no way to tell which was live. History is the worse half: a timeline is
+  EXTENDED, so mismatched frames would be appended to matched ones and produce a story that
+  never happened. The constant lives in `parse.rs`, next to the things that break it, and it
+  covers a new `Lang` or extension mapping, `func_kinds`, `name_node`, `body_span`,
+  `header_end`, `leading_doc`, and a grammar dependency bump. A needless bump costs one
+  re-parse; a missed one is silently wrong for as long as the files sit still.
 
 ## Commits
 
