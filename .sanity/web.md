@@ -2,7 +2,7 @@
 
 249 of 249 read · 26 surprising
 
-215 of these graded legibility under an earlier question and are not counted; see the note below.
+214 of these graded legibility under an earlier question and are not counted; see the note below.
 
 Each entry below is one **reading**, of a function or of a whole file. An agent was
 given its name, signature, neighbouring names and comments — never its body — and
@@ -370,10 +370,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `provenance`
-- read at `52bd30d87d11` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: A small formatter returning one sentence describing where the displayed scores came from — "read by <model> on <date>" when the node carries an agent reading, noting staleness if expired, falling back to a phrase like "estimated by the offline proxy" when there is no agent reading.
-- found: Guards on !isAnalyzed with a candid proxy caveat, then branches on node.score.source: 'agent' with an agent record joins model and `by` with a middot and appends `at`; bare 'agent' without the record; 'model'; and a final proxy fallback. No staleness mention.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 1 · read at `8e1a3baa6031` · commit `29b08ec` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: Builds a one-sentence string describing whether the node's score came from an agent reading over MCP, a local model, or the offline heuristic proxy, likely checking node.score.source and formatting an attribution/date.
+- found: Returns 'Not read yet' if not analyzed; otherwise checks node.score.source: 'agent' formats 'Read by {model · by} at {at}' falling back to 'an agent over MCP'; 'model' formats 'Measured by {model}'; default falls back to 'Measured by the offline proxy'.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `Contents`
 - read at `8525ac0c5621` · commit `9fe6ccf` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -382,10 +382,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `Detail`
-- spec 1 · read at `0e66ae077b90` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: The detail-pane component: renders a header (name, path breadcrumb), a Dials row, provenance footer, and a Contents list for the selected node, differentiating between leaf functions (reading/prediction prose) and containers (Summary + breakdown), using peers like Markdown, CopyButton, rank, measure, grade and provenance to assemble the panel.
-- found: Matches the broad shape but with much more specific branching than predicted: a no-selection state (Summary of focus, or idle Bloom), a container branch delegating fully to Summary, and a leaf branch with header (name, trap badge), path, Dials, FunctionRanks, then conditionally a stale-reading warning, warm-read badge, Expected/Found markdown blocks with copy buttons, an optional note/trap callout, hotspot evidence blocks, a Contents list, and a pinned provenance footer outside the scroll area.</found> <parameter name="predicted">some
-- predicted: full · documented: none · derivable: no · legible: most · trap: no
+- spec 1 · read at `941e893cfea4` · commit `29b08ec` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: Detail is the side panel component that renders information about the selected node — name, breadcrumb path, dials/score breakdown, and (for a function) the agent's expected/found reading, notes and traps, composing Markdown, CopyButton, provenance, Contents and probably a Summary-like view for containers versus a no-selection state.
+- found: Handles no-selection (Summary of focus or idle Bloom state), non-leaf nodes (delegates to Summary with a path/footer/about), and leaf functions: header with name and trap badge, breadcrumb path, Dials, FunctionRanks, then either 'not scored'/'not analyzed' messaging or the full agent reading block (stale warning, warm-read badge, expected/found via Markdown+CopyButton, note/trap box, hotspots evidence list), then Contents, with a pinned provenance footer.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ## web/src/components/Dials.tsx
 
