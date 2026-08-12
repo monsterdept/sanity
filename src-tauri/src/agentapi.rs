@@ -2043,11 +2043,63 @@ pub struct ReportRequest {
     report: Report,
 }
 
+/// A text field carrying the rest of the reader's own tool call.
+///
+/// Seen in the wild: a reader's arguments were serialised as XML rather than JSON, and the
+/// parse assigned everything from `found` onward — closing tag, remaining parameters and
+/// all — into that one string. The call still arrives well-formed here, just short: the
+/// grades after the swallowed field never reach the server at all.
+///
+/// Which would be merely ugly if a missing `predicted` were treated as missing. It is not
+/// — [`Report::grades`] folds it through the pre-grade `surprised` flag, whose default is
+/// `false`, so a truncated call lands as `Full`, the greenest grade on the scale. 28
+/// readings across two repos went in that way and 15 of them state, in the leaked text,
+/// that their reader chose `most`. A parse accident must not be able to make a repo look
+/// better than it read.
+///
+/// So the report is refused and the reading is not banked. Repairing it here by parsing
+/// the leak back out is the shape of the migration that once destroyed a project's
+/// readings — and unnecessary, because the reader is still running and can simply resend.
+fn mangled(r: &Report) -> Option<&'static str> {
+    // The closing tags are the reliable half: an argument value that ends by closing the
+    // tag it lives in cannot be prose about code. `<parameter name=` catches the rest of
+    // the payload trailing behind it.
+    const LEAK: [&str; 2] = ["</parameter>", "<parameter name="];
+    for (name, text) in [
+        ("expected", &r.expected),
+        ("found", &r.found),
+        ("note", &r.note),
+    ] {
+        if LEAK.iter().any(|m| text.contains(m))
+            || text.contains(&format!("</{name}>"))
+        {
+            return Some(name);
+        }
+    }
+    None
+}
+
 async fn report(
     State(state): State<Shared>,
     Json(req): Json<ReportRequest>,
 ) -> Json<serde_json::Value> {
     let r = req.report;
+    // Before anything is stamped, stored or written: a report whose prose is carrying the
+    // rest of its own tool call is a report with fields MISSING, and the missing one is
+    // usually a grade. Rejected rather than repaired — the reader is still there and can
+    // send it again, which is the only party that knows what it meant.
+    if let Some(field) = mangled(&r) {
+        return Json(serde_json::json!({
+            "ok": false,
+            "saved": false,
+            "error": format!(
+                "`{field}` contains tool-call syntax, so this call arrived with fields \
+                 missing and was NOT saved."
+            ),
+            "hint": "Send sanity_report again for the same id, as ordinary JSON \
+                     arguments, with every grade as its own field.",
+        }));
+    }
     let mut state = lock(&state);
     let Some(key) = state.for_client(req.project.as_deref()) else {
         return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
@@ -4001,5 +4053,39 @@ fn second() { println!(\"2\"); }\n").unwrap();
         let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(v["port"].as_u64(), Some(51823));
         assert_eq!(v["pid"].as_u64(), Some(4242));
+    }
+
+    /// A truncated call is refused, and honest prose about markup is not.
+    ///
+    /// The grade is what is at stake: `Report::grades` folds a missing `predicted` to
+    /// `Full`, so a report that lost its fields to a serialisation accident banks the
+    /// greenest reading on the scale rather than failing. The second half matters as much
+    /// — this repo's own readings discuss JSX, so a rule that fires on any angle bracket
+    /// would refuse real work.
+    #[test]
+    fn a_report_carrying_its_own_tool_call_is_refused() {
+        let leaked = Report {
+            found: "…outside the scroll area.</found> <parameter name=\"predicted\">most"
+                .into(),
+            ..Report::blank()
+        };
+        assert_eq!(mangled(&leaked), Some("found"));
+        // What it would have banked, had it been accepted: `most` on the wire, `full` in
+        // the store.
+        assert_eq!(leaked.grades().0, Grade::Full);
+
+        let trailing = Report {
+            expected: "A component returning <div> with the node's name.</expected>".into(),
+            ..Report::blank()
+        };
+        assert_eq!(mangled(&trailing), Some("expected"));
+
+        let honest = Report {
+            expected: "Renders a <p> inside <div className=\"panel\"> when unread.".into(),
+            found: "Exactly that, plus a <hr> above the counts.".into(),
+            note: "The `</p>` here is prose about markup, not a leak.".into(),
+            ..Report::blank()
+        };
+        assert_eq!(mangled(&honest), None);
     }
 }
