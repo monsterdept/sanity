@@ -102,7 +102,7 @@
    * men, and only 12.1 even with full colour vision because both sit at chroma
    * 0.075. Those are chip colours; they cannot carry a map.
    *
-   * Three hues so the three modes are told apart at a glance, on ONE shared
+   * One hue per lens so the modes are told apart at a glance, on ONE shared
    * lightness profile (L .443 .538 .627 .721 .804) so switching mode never changes
    * what "hot" looks like — only which question is being asked. Every ramp is
    * monotone with gaps ≥ 0.08 L, and its dark end clears 2:1 on Ink so "cold" never
@@ -113,63 +113,90 @@
    * a committed amber. So "a reader predicted this exactly" and "a reader was
    * blindsided" differed only in brightness within one fire colour, and a repo whose
    * readings are 96% cold-or-warm rendered as a forge. The scale had no resting
-   * state. Chroma now runs C0 → C4 (heat .040 → .126) on the unchanged lightness
-   * profile: same ordering, same numbers, but the bottom of the scale finally looks
-   * like nothing is wrong, which is what the data says about most code.
+   * state. Chroma now runs C0 → C4 (.048 → .140, clamped down per stop where sRGB
+   * runs out) on the unchanged lightness profile: same ordering, same numbers, but
+   * the bottom of the scale finally looks like nothing is wrong, which is what the
+   * data says about most code.
+   *
+   * THE HUES ARE SEARCHED, NOT PICKED, AND THE CYAN IS WHY. The set used to be
+   * amber / violet / cyan / blue / green, and cyan sat 40° from blue in OKLCH: docs
+   * and churn were the same colour to anyone not holding them side by side, closest
+   * hot pair 17.7, the tightest number in the palette. Nudging hues and chroma around
+   * it produced three candidate sets indistinguishable from each other and from what
+   * shipped, which is the tell — with cyan in the ring the other four have nowhere to
+   * go. Barring 170–240° outright for EVERY lens and searching the rest of the wheel
+   * (surprise pinned to amber, because it has to read as heat) leaves 8,355 valid
+   * assignments and one winning shape: a WARM hue where the cyan was. Docs is
+   * terracotta now, and the closest hot pair is 27.2 — better than half again, with
+   * every other margin improving beside it rather than paying for it. Green stays on
+   * age, blue on churn, violet on legibility, so nothing already learned is relearned.
    *
    * The floor is NOT zero, and the bar is measured. Dark-mode --unanalyzed is a warm
    * grey (L .397 C .009 h 68) and heat shares its hue, so draining to neutral would
    * put "cold" on top of "nobody has looked at this" — the one distinction this app
-   * exists to be able to state. C0 is solved per ramp for ΔE00 ≥ 10 against
-   * --unanalyzed in BOTH themes (heat 10.1 / 35.2), comfortably past the 6.9
-   * all-pairs margin the categorical palette below runs at. Cold ends stay 12–18
-   * apart from each other, so a calm map still says which question it answered, and
-   * cold→hot span went UP (heat 39.7 → 41.4). Re-solve, don't eyeball, if these move. */
-  --heat-0: #60513a; /* surprise — amber, because it still reads as heat */
-  --heat-1: #85693d;
-  --heat-2: #a78145;
-  --heat-3: #cb9b50;
-  --heat-4: #ecb459;
+   * exists to be able to state. C0 is solved for ΔE00 ≥ 10 against --unanalyzed in
+   * BOTH themes (worst is heat at 11.5 / 36.0), comfortably past the 6.9 all-pairs
+   * margin the categorical palette below runs at. Cold ends stay 14–19 apart from
+   * each other, so a calm map still says which question it answered, and every span
+   * clears 39.7 cold→hot. A second floor applies to the HOT ends: ≥ 15 from --trap,
+   * which is drawn over the same wedges — docs is the tight one at 20.5, and it is
+   * what stops a warm hot end reading as a trap nobody reported.
+   *
+   * Re-solve, don't eyeball, if any of these move. */
+  --heat-0: #634f35; /* surprise — amber, because it still reads as heat */
+  --heat-1: #87683d;
+  --heat-2: #aa7f43;
+  --heat-3: #d09949;
+  --heat-4: #f4b04a;
 
-  --churn-0: #4c545e; /* churn — blue */
-  --churn-1: #59718a;
-  --churn-2: #688cb1;
-  --churn-3: #7ba9da;
-  --churn-4: #8ac4ff;
+  /* churn — blue. The palest hot end of the five and it cannot be helped: at L .804
+   * sRGB runs out of blue around C .106, so this ramp alone is gamut-clamped at the
+   * top whatever chroma it is asked for. Lifting it would mean dropping the shared
+   * lightness profile for one lens, which costs more than the paleness does. */
+  --churn-0: #3c576c;
+  --churn-1: #497395;
+  --churn-2: #538ebd;
+  --churn-3: #5face9;
+  --churn-4: #81c7ff;
 
   /* legible — violet. Its own hue, not surprise's amber, and that is the whole point:
    * the pair is meant to be TOGGLED, and a blink comparison between two identically
    * coloured maps cannot tell you whether the picture changed or you imagined it. Violet
-   * because amber, blue and green are taken and red belongs to traps — and it takes the
-   * same dark→light climb as the others, which is what carries the reading for anyone who
-   * cannot separate the hues. Same direction as heat, too: bright means harder, so an
-   * unreadable repo glows under both lenses rather than one of them inverting. */
-  --legible-0: #574d5e;
-  --legible-1: #6b5c7d;
-  --legible-2: #86709e;
-  --legible-3: #a189c2;
-  --legible-4: #b79ae0;
+   * because amber, blue and green are taken and the warm end belongs to docs — and it
+   * takes the same dark→light climb as the others, which is what carries the reading for
+   * anyone who cannot separate the hues. Same direction as heat, too: bright means harder,
+   * so an unreadable repo glows under both lenses rather than one of them inverting. */
+  --legible-0: #5c4c67;
+  --legible-1: #7c628c;
+  --legible-2: #9b77b2;
+  --legible-3: #bd8fda;
+  --legible-4: #dca5fe;
 
-  /* docs — cyan, and the one ramp whose bright end is an ABSENCE. Surprise, opacity, churn
-   * and age all brighten toward more of the thing they measure; this one brightens toward
-   * LESS, because the invariant the map keeps is not "more is brighter", it is "bright is
-   * the thing you have to do something about" — and what you do something about is the
-   * undocumented end. So the input is the gap, never the coverage. Cyan because amber,
-   * blue, violet and green are taken and pink belongs to traps; solved on the same
-   * lightness profile as the rest, ΔE ≥ 19 from both unanalysed greys, 12.1 from the
-   * nearest other cold end and 17.7 from the nearest other hot end, spanning 40.8
-   * cold→hot, which is heat's 41.4 to within rounding. Re-solve, don't eyeball. */
-  --docs-0: #2f5b62;
-  --docs-1: #277b87;
-  --docs-2: #2499a9;
-  --docs-3: #24b9cc;
-  --docs-4: #1cd6ed;
+  /* docs — terracotta, and the one ramp whose bright end is an ABSENCE. Surprise,
+   * legibility, churn and age all brighten toward more of the thing they measure; this one
+   * brightens toward LESS, because the invariant the map keeps is not "more is brighter",
+   * it is "bright is the thing you have to do something about" — and what you do something
+   * about is the undocumented end. So the input is the gap, never the coverage.
+   *
+   * It was cyan, and cyan is what wrecked the palette: 40° from churn's blue, closest hot
+   * pair in the set at 17.7, two lenses reading as one colour. Warm is the far side of the
+   * wheel from the three cool lenses, which is why the search lands here — 14.3 from the
+   * nearest other cold end, 27.2 from the nearest other hot end, spanning 39.9 cold→hot.
+   * The binding constraint on this ramp is now --trap rather than its neighbours: a warm
+   * bright end is the only one that can be mistaken for hot pink, and 20.5 is the margin
+   * that keeps "nobody has described this" from reading as "this will bite you".
+   * Re-solve, don't eyeball. */
+  --docs-0: #6c4946;
+  --docs-1: #935e5a;
+  --docs-2: #ba716c;
+  --docs-3: #e58681;
+  --docs-4: #fea39c;
 
-  --age-0: #4d574d; /* age — green */
-  --age-1: #5c765f;
-  --age-2: #6e9473;
-  --age-3: #83b388;
-  --age-4: #95d09c;
+  --age-0: #4e583a; /* age — green */
+  --age-1: #657546;
+  --age-2: #7c9250;
+  --age-3: #96b15b;
+  --age-4: #acce63;
 
   /* ── Categorical: owner, language ─────────────────────────────────────────────
    *

@@ -434,7 +434,7 @@ export function colorFor(
       // measured claim about HOT share, where a quarter of a directory being hot is extreme
       // and exactly one directory in tonepoet saturated. Documentation is not distributed
       // like that: half the directories in a normal repo are 40–100% undescribed, so every
-      // one of them pinned to the brightest cyan and the ring stopped being a ranking —
+      // one of them pinned to the ramp's brightest stop and the ring stopped being a ranking —
       // which is the failure `shareRamp`'s own doc warns about, inherited by reusing its
       // constants in a place nobody measured them for. A share of files is already 0..1 on
       // its own terms and wants no curve; `0` still maps to `0`, so a fully described
