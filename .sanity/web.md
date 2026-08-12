@@ -1,8 +1,8 @@
 # web — sanity assessment
 
-236 of 237 read · 29 surprising · 7 stale
+249 of 249 read · 26 surprising
 
-228 of these graded legibility under an earlier question and are not counted; see the note below.
+215 of these graded legibility under an earlier question and are not counted; see the note below.
 
 Each entry below is one **reading**, of a function or of a whole file. An agent was
 given its name, signature, neighbouring names and comments — never its body — and
@@ -49,11 +49,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `App` — TANGLED
-- read at `d9aa8d70c3cb` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: The root React component: holds all top-level state (loaded project, scan tree, selection/drill, history mode and playhead, agent readings), sets up polling effects for projects/status/readings, wires invoke calls for open/scan/refresh, and lays out sunburst plus sidebar, progress panes, history transport and empty state. At 800 lines it likely mixes those concerns inline rather than delegating.
-- found: All of that, plus things I did not name: theme state synced to a native menu, Cmd-1..7 lens shortcuts pinned off during replay, and the central inversion — projects arrive only from agents, so a 1.5s poll follows `active` (compared against a local `followed`, not the screen) and a separate refetch triggers on `scanned` revision changes. Refs `shown`/`shownRev` hold what is on screen because the poll must read them without re-creating. Readings are folded in alongside every scan fetch so an assessed repo never renders grey. Streamed scores are batched through a ref map and flushed on a 400ms timer. Then ~260 lines of JSX: sidebar, TopRow with mode switcher and history toggle, sunburst or progress/empty pane, floating legend, history bar, detail-or-commit-log aside, agent setup sheet, and a modal code view.
-- predicted: most · documented: none · derivable: yes · legible: some · trap: no
-- note: No docstring on the function itself, but the body carries an unusual density of inline rationale comments — most of what I could not predict is explained in place.
+- spec 1 · read at `0d6afff2b041` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: The top-level React component: holds most of the app's global state (selected project, scan tree, drill stack, picked node, color mode, history/replay state, agent activity, connection status) and wires up polling effects to sync with the Tauri backend (project list, agent reports, streamed scores), plus derived memoized values (focus node, tree, population) and callbacks (drill-in navigation), finally rendering the sunburst and surrounding panels.
+- found: Confirmed the broad shape, but the actual density of subtlety is far higher than a prediction could reach: an inversion where the window follows whichever project an agent is working on rather than a user picking one, careful separation of `shown`/`shownRev` refs from `activeKey` state, batched/throttled score application to avoid re-rendering thousands of arcs, a history-replay subsystem with its own scoping/warming/caching effects, and file-vs-function-specific drill semantics. Did not read past line ~605 (out of 835) in enough depth to grade the render/JSX portion.</found> <parameter name="predicted">most</parameter> <parameter name="documented">none
+- predicted: full · documented: not judged · derivable: no · legible: some · trap: no
+- note: No docs were handed for the function itself (docs: []); the file is rich with inline rationale comments but those aren't a function-level doc, so documented is graded none per the handout.
 
 ### `useProgress`
 - read at `022713725cb5` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
@@ -331,11 +331,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/Detail.tsx
 
 ### the file itself
-- read at `8c2ac4755087` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: The right-hand detail pane for the selected sunburst node: node identity and metrics (lines, temperature, quadrant), the committed agent reading with grades, provenance and staleness, docs rendered as Markdown, and a copy affordance. Shape: small presentational helpers (Markdown, CopyButton, grade, provenance, rank, measure) plus a Contents child list and a Detail shell.
-- found: Broadly that, plus three things I did not predict: with no selection it delegates to Summary (or draws Bloom as an idle ground when there is no scan at all); a selected DIRECTORY or FILE also delegates to Summary with kind/path/footer/about slots, so only functions get the bespoke layout; and it renders `hotspots` — per-token evidence of where a model's probability collapsed. rank/measure are mode-aware (surprise/churn/age/blame), and the layout is a fixed header + scroller + pinned provenance footer. The file carries no header doc at all; the explanation lives in dozens of long inline comments instead.
-- predicted: most · documented: none · derivable: no · legible: most · trap: no
-- note: A 750-line file with no file header, where nearly every neighbouring file has one — the reasoning is all present but scattered across inline comments, so nothing states up front that this pane is really two panes (Summary for containers, a bespoke layout for functions).
+- spec 1 · read at `370e7a058a92` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 5 of its run
+- expected: A file with no header doc holding the detail-pane component and its private helpers: a lightweight Markdown renderer for agent-written text, a CopyButton, small formatting helpers (rank, measure, grade, provenance) used by lists/footers, a Contents list of a container's children, and the exported Detail component that composes all of it around Summary/Dials/Reading.
+- found: Matches: custom minimal Markdown renderer (code/bold/italic/paragraphs only, deliberately not a full markdown lib), a CopyButton that only confirms on clipboard success, rank/measure per-ColorMode helpers, grade folding pre-grade readings, provenance one-liner, a heat-ordered Contents list, and the exported Detail component with its no-selection/container/leaf branches.</found> <parameter name="predicted">most
+- predicted: full · documented: none · derivable: no · legible: not judged · trap: no
+- note: File was already read (as the Detail function) earlier in this same batch, so this is a warm read, not cold.
 
 ### `Markdown`
 - read at `01041ca9fd9e` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -381,23 +381,20 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly that, plus one thing I did not cover: the sort key and the trailing number are not fixed to surprise/loc but follow the current ColorMode via rank(n, mode) and measure(n, mode), with loc only as the final tiebreak. Also a header row labelled 'Contents' for dirs and 'Functions' otherwise with a child count.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `Detail` — QUIRKY — STALE
-- read at `6d0973c69582` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: The right-hand inspector pane: with no node it describes the focused subtree; with a node it renders an owners breadcrumb, temperature/rank, age/churn scaled by ageSpan, signature and docs via Markdown, the agent reading with grades and provenance, a stale marker, a source view with copy button, and a children list wired to onSelect/onDrill/onShowIn, branching on mode.
-- found: Three return branches. No node: renders Summary over `focus`, or a Bloom ground pattern when there is no scan at all. A non-leaf node: the SAME Summary component scoped to that container, passed kindBadge, pathLine, provenance footer and an `about` block that shows a file's expected/found reading. A leaf: its own layout — sticky-by-flex header with name, kind badge and a trap badge, clickable owners breadcrumb (falling back to an elided path string), line count, Dials, then a scroller holding the not-scored / not-yet-read messages, the agent block (stale warning, warm-read pill, Expected and Found via Markdown with CopyButtons, a note box whose tab turns pink when the reading is a live trap), a `hotspots` "evidence" list of forced-decoding positions, and Contents; provenance is pinned as a footer outside the scroller. No signature or doc-header block at all — a comment states that quoting the file's own banner back is deliberately refused.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
-- note: There is no doc comment on the function; the only documentation is prop-level comments inside the signature, and they are the non-obvious kind (why an empty `owners` makes the plain path a fallback rather than dead code) — so `documented: none` here understates what the handout actually carried.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `Detail`
+- spec 1 · read at `0e66ae077b90` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: The detail-pane component: renders a header (name, path breadcrumb), a Dials row, provenance footer, and a Contents list for the selected node, differentiating between leaf functions (reading/prediction prose) and containers (Summary + breakdown), using peers like Markdown, CopyButton, rank, measure, grade and provenance to assemble the panel.
+- found: Matches the broad shape but with much more specific branching than predicted: a no-selection state (Summary of focus, or idle Bloom), a container branch delegating fully to Summary, and a leaf branch with header (name, trap badge), path, Dials, FunctionRanks, then conditionally a stale-reading warning, warm-read badge, Expected/Found markdown blocks with copy buttons, an optional note/trap callout, hotspot evidence blocks, a Contents list, and a pinned provenance footer outside the scroll area.</found> <parameter name="predicted">some
+- predicted: full · documented: none · derivable: no · legible: most · trap: no
 
 ## web/src/components/Dials.tsx
 
-### the file itself — QUIRKY
-- read at `4cf4b352c3d0` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 7 of its run
-- expected: A presentational summary panel: `Dials` renders a row of small SVG arc `Gauge`s over the current project's readings, with `graded`, `fileDocShare` and `badShare` as local reducers computing each dial's fraction — how much has been read and graded, how much carries a file-level doc header, and what share came back bad (obscure, tangled, trapped) — and `matches` a small predicate the reducers filter on. No file header, which for the file defining what the summary MEANS is itself the finding.
-- found: Right in responsibility, thin on shape. It is the detail pane's measurement row for ANY subtree — repo, directory, file or function — and it is always exactly FOUR dials: Surprise, Docs, Churn, Legibility. Churn I did not predict at all. `graded` is not a reducer but a per-node grade accessor that folds `derivable` into "none" and drops stale readings; `fileDocShare` counts by READING over files and functions while `badShare` weights by LINES over functions only, each deliberately mirroring a different function in `colorMode` so a dial and the wedge beside it cannot disagree. The subtlety I missed entirely is that `value` and `rampValue` are separate props: two dials print the good end while their colour still paints the GAP, because bright means "there is work here" on every lens. Also an explicit `unread` state drawing a track and an em dash rather than a needle at zero, and container-vs-function labelling that switches adjectives for nouns and percentages for words.
-- predicted: some · documented: none · derivable: yes · legible: full · trap: no
-- note: The ask said to leave `legible` and `trap` unset for a file task, but both are required by the report schema, so I sent placeholders — read them as no judgement, not as a clean bill. The real finding is that this file has no header at all while its own Docs dial exists to grade exactly that, and the per-declaration comments inside it are extensive enough that a header would have been easy to write.
+### the file itself
+- spec 1 · read at `5a1e3c637102` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: A file with no header (itself a finding, per the `ask`) implementing the four-dial reading-summary row shown in detail panels: `Gauge` is a single arc/dial primitive, `fraction`/`graded` turn a reader's grade into a rung-out-of-four, `fileDocShare`/`badShare` aggregate grades over a subtree (files and functions), `matches` filters which node kinds carry a reading, and `Dials` is the exported component that composes four `Gauge`s (surprise, legibility, docs, churn/age or similar) for a node.
+- found: Essentially exactly that. `Gauge` is a semicircular SVG dial with a value arc, an optional word instead of a percentage, and lens-specific coloring. `fraction`/`RUNG_GOOD`/`RUNG_HOT` turn a `Grade` into an X/4 string with lens-dependent direction. `graded` reads a node's own agent grade (respecting staleness and `derivable`). `fileDocShare` and `badShare` are two subtree-aggregating walks (by reading-count vs by line-count respectively) mirroring `undocShare`/`opaqueShare` in colorMode.ts so the dial and the wedge agree. `matches` gates which node kinds carry a reading. `Dials` composes it all into a fixed four-column row, always four dials even when a container has nothing for one of them (drawn as an unread track rather than reflowing).</found> <parameter name="predicted">full</parameter> <parameter name="documented">none
+- predicted: full · documented: not judged · derivable: no · legible: not judged · trap: no
+- note: No file header exists (docs: [] confirmed on reading), so documented/derivable are graded none/false as an absence finding, per the task's own framing.
 
 ### `Gauge`
 - read at `6757d6425ca6` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
@@ -406,14 +403,17 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: Unusually well documented at the prop level — each optional prop's doc states the failure it exists to prevent, which is why the prediction landed; the docstring's claim of "three of these side by side" is contradicted by a comment in the body about four columns.
 
-### `graded` — STALE
-- read at `aba9cf13e738` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: Pulls the agent reading attached to the node and returns its legible or documented grade for the requested dial, undefined when there is no reading, and probably also when the reading is stale since a stale reading must not colour the view.
-- found: Returns undefined unless the node passes matches(), has an agent reading, and is not stale. For 'documented' it forces 'none' when the reading marked the docs derivable, otherwise returns the documented grade; for 'legible' it returns the legible grade (absent on file readings, so files read as unread).
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: I did not predict the derivable override — docs a model could regenerate are downgraded to 'none' here, which is the metric's rule enforced at the dial.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `fraction`
+- spec 1 · read at `af62d113920a` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 9 of its run
+- expected: Formats a 1-4 rung/grade number as a "N/4" string for display as a Gauge's word label.
+- found: Exactly that — a one-line template string `${rung}/4`.</found> <parameter name="predicted">full
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
+
+### `graded`
+- spec 1 · read at `22b53db3bee7` · commit `94d194d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: Looks at the node's most recent, non-stale reading and returns either the legible or documented grade based on `which`, returning undefined if there's no current reading.
+- found: Returns undefined if the node doesn't match, has no agent reading, or the reading is stale. For 'documented' it returns 'none' if derivable is true, otherwise the documented grade. For 'legible' it routes through legibleOf (which is spec-aware, e.g. so files never get a legible grade per FILE_ASK).
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `fileDocShare`
 - read at `0a0470425d18` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -435,12 +435,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 - note: The doc says it matches opaqueShare/undocShare in colorMode but the some/none cut is duplicated here rather than shared, so the two can drift silently.
 
-### `Dials` — QUIRKY
-- read at `b71b9e40cc79` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A React component rendering a fixed row of exactly four Gauge dials summarising the subtree under `node` — roughly graded coverage, documentation share, surprise/temperature and opacity via `opaqueShare` — each computed from the readings beneath the node, with an empty track and em dash where nothing was measured.
-- found: Returns null unless the node is analysed and scored, then renders a four-column bordered row of Gauges: Surprise/Surprising (wedgeHeat, heat ramp, word for functions), Docs/Doc'd (dir uses fileDocShare, function uses the reader's documented grade via DOC_GAP), Churn/Churning (s.churn, unread when ageDays is null), and Legibility/Legible (badShare or GRADE_SURPRISE). Two conventions run through it: labels are adjectives-with-percentage on containers and nouns-with-words on functions, and `value` counts up for the good thing while `rampValue` always paints the gap so bright means work.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The docstring says `opaqueShare` had been computing the fourth dial's number all along, but the body calls `badShare(node, 'legible')` and no `opaqueShare` is among the peers — the doc names a function that no longer exists, and it also never mentions churn, which is one of the four.
+### `Dials`
+- spec 1 · read at `2fdbc7ff6ed0` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: A React component rendering a row of dial/gauge widgets (likely 4: surprise/predicted, docs, churn, legible) summarizing the score data for a node (function/file/dir), using helper functions like fraction, graded, fileDocShare, badShare to compute each value, with an em-dash fallback when a measurement is absent.
+- found: Renders exactly four Gauge components (Surprise, Docs, Churn, Legible) in a grid, each computed differently depending on whether the node is a share-based container or a graded function/file, with careful "unread" fallback states and inverted ramp-vs-value semantics (colour always shows the gap, the number always shows the good direction).
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
 
 ## web/src/components/FileZoom.tsx
 
@@ -538,6 +537,44 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: yes
 - note: The contract that every child must call stopPropagation is enforced nowhere — a new caller that forgets it gets a panel that closes when you click inside it, and nothing here fails.
 
+## web/src/components/Reading.tsx
+
+### the file itself
+- spec 1 · read at `edad76307ab9` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 9 of its run
+- expected: A small leaf-pane component file: a percentile-rank display for a function among the repo's population of functions, built from a `Rail` (tick-on-track visual), `ordinal`/`pct` formatting helpers, a `Fact` row component, and the exported `FunctionRanks` composing two Facts (length, churn) — matching the header doc closely since I'd already read Fact/FunctionRanks/ordinal individually in prior tasks this run.
+- found: Confirmed exactly, including the one piece I hadn't yet read: `Rail`, a tiny absolutely-positioned tick over a translucent track, pulled back by its own width past the midpoint so it never hangs off the end. `pct` is `ordinal`'s sibling for tooltip text, clamped to `<1%`/`>99%` at the edges. The header doc's design history (dials replacing per-grade "ladders") is confirmed by nothing remaining of that in the current file — it's purely historical framing, not a current-code claim.
+- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
+
+### `Rail`
+- spec 1 · read at `3cf3887150fd` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run
+- expected: Renders a small horizontal track (rail) with a tick mark positioned at percentile `p`, visualizing where a value sits within a population — a bar plus an absolutely-positioned marker at `left: p%`.
+- found: Exactly that: a track div and an absolutely positioned tick, with `p` as a 0-1 fraction times 100 for the left offset, plus a small pullback (-2px) at the top end when p > 0.5 so the tick doesn't visually hang off the rail's edge.</found> <parameter name="predicted">most
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `ordinal`
+- spec 1 · read at `55320f57d387` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Formats a percentile number into a short ordinal string like "42nd", computing the standard st/nd/rd/th suffix from the last digit with an exception for the 11-13 teens.
+- found: Very close: takes p as a 0..1 fraction, scales by 100 and rounds, clamps to 1..99 (never 0th or 100th since a real function always holds an interior rank among real peers), then applies the same suffix logic I predicted.</found> <parameter name="predicted">most</parameter> <parameter name="documented">most</parameter> <parameter name="derivable">true
+- predicted: full · documented: not judged · derivable: no · legible: full · trap: no
+
+### `pct`
+- spec 1 · read at `d2e96ee83b46` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 8 of its run
+- expected: Formats a 0-1 fraction as a rounded percentage string like "84%", for use as tooltip text alongside the ordinal shorthand.
+- found: Matches, plus clamps: rounds to nearest percent but returns '<1%' instead of '0%' and '>99%' instead of '100%' at the extremes, so the tooltip never claims an exact 0 or 100 which the underlying scale probably can't guarantee.</found> <parameter name="predicted">most
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `Fact`
+- spec 1 · read at `477fc67fa2fa` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 7 of its run
+- expected: A single-row stat display: fixed-width label and value, then a `Rail` visualizing the percentile `p` plus its `ordinal` text, with the whole row wired up as a tooltip via `hint`. Probably falls back to something else when `p` is null (too few to rank).
+- found: Matches closely: fixed-width label/value spans, then when p is not null a flexible `Rail` plus right-aligned `ordinal(p)`; when p is null it shows "unranked" instead — an absent rank stated explicitly rather than defaulting to a rank of zero.</found> <parameter name="predicted">full</parameter> <parameter name="documented">most</parameter> <parameter name="derivable">true
+- predicted: full · documented: not judged · derivable: no · legible: full · trap: no
+
+### `FunctionRanks`
+- spec 1 · read at `311ef399ca28` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 6 of its run
+- expected: A small component rendering a couple of `Fact` rows placing this function's stats (likely length and churn/age) against the repo's population using percentiles from `pop`, formatted via `ordinal`/`pct`, returning null if there's no score.
+- found: Very close: two `Fact` rows, "Lines" and "Churn", each computed via `shareBelow(pop.x, node.x)` and passed as `p` with a descriptive hint string; Churn has an extra branch for "no git history" where there's no churn axis at all, and its hint explicitly cross-references the dial above as "the same fact on the scale the map is coloured by".</found> <parameter name="predicted">most</parameter> <parameter name="documented">none
+- predicted: full · documented: not judged · derivable: no · legible: full · trap: no
+
 ## web/src/components/RollupDots.tsx
 
 ### the file itself
@@ -598,12 +635,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Summary.tsx
 
-### the file itself — QUIRKY
-- read at `d8ac7d5a8ed3` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A React panel showing repo-wide assessment aggregates — coverage/assessed counts, a Spread histogram of the score distribution, Buckets for by-position grades, and a virtualised ListWindow of rows each with a rowNote label.
-- found: The sidebar pane shown when nothing is selected, describing the SUBTREE currently on screen rather than the repo: header (lines/functions/commits/excluded), Dials, then a breakdown that follows the active colour lens — Spread (grade segments plus expired/unread, clickable, widths by count) under Surprise, Buckets (author/language/age/churn/traps slices, widths by LINES) under every other mode — and below it a windowed, fixed-row-height ListWindow of the picked slice's functions, plus a pinned footer. Buckets are colour-mode lenses, not reading positions.
-- predicted: some · documented: none · derivable: no · legible: full · trap: no
-- note: No file header at all, though every declaration inside carries an unusually thorough doc comment explaining the design choice it embodies.
+### the file itself
+- spec 1 · read at `7b0453b02db3` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 6 of its run
+- expected: A file with no top header holding the whole-subtree summary pane and its private helpers: rowNote (per-mode trailing label), ListWindow (a virtualized/windowed row list), Spread (grade breakdown bar+key for the surprise lens), Buckets (breakdown bar+key for other lenses), and the exported Summary component that composes header/Dials/breakdown/list/footer.
+- found: Matches well: rowNote avoids restating the bucket heading per lens; ListWindow does manual fixed-row-height windowing (not a library) with overscan and scroll-reset-on-list-change; Spread is the grade breakdown (counts, clickable except stale/unread); Buckets is the parallel breakdown for other lenses (weighted by lines, not counts, and every row pickable); Summary composes them exactly as predicted. No file header comment exists.</found> <parameter name="predicted">most
+- predicted: full · documented: none · derivable: no · legible: not judged · trap: no
+- note: File's Summary function was already read earlier in this batch, so this is a warm read.
 
 ### `rowNote`
 - read at `38d1b2dcbbca` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -633,11 +670,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `Summary`
-- read at `b4bc6c6e3d00` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: The no-selection pane: header with title, optional kind and crumbs; headline counts off `node` (functions, lines, files, commits); then a lens-dependent body — under surprise, reading coverage / stale counts / a "connect an agent" prompt when nothing is read; under other lenses a Spread or Buckets distribution coloured from ranks/ageSpan — plus a ListWindow of top rows wired to onSelect/onDrill, with `about` and `footer` in their slots.
-- found: Close to that, but the structure is a three-part flex column (fixed header, one growing list, pinned footer) and there is no "next steps" or "connect an agent" section at all. Header prints lines/functions/commits plus an `excluded` count, then `Dials` and `about`. The breakdown is `Buckets` under any non-surprise lens and `Spread` under surprise. Two pieces of local state I did not predict: `picked` grade and `pickedBucket`, both held as null meaning "unchosen" so they fall back to the hottest non-empty grade / the biggest bucket, with pickedBucket reset on mode change. `goTo` drills then selects, in that order deliberately. Long trailing comments explain why the notes list and the legibility/traps chips were removed.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The doc's opening promise — "what this repo adds up to, and what to do next" — no longer matches the body: there is no "what to do next" section, only a layout comment referring to a Next Steps block that has been removed.
+- spec 1 · read at `3acc9ad37da1` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: The whole-subtree summary pane shown when nothing is selected: header with title/path, a Dials row with lines/functions/commits counts, then a breakdown (Buckets for non-surprise lenses, Spread for surprise/grade) and a scrollable ListWindow of the picked grade's or bucket's functions, plus a provenance footer, using rowNote to describe rows.
+- found: Matches closely: computes summarize(node) and bucketsFor(node, mode...), tracks picked grade / picked bucket state with fallback to the first non-empty one, renders header+Dials+about, a lens-dependent Buckets-or-Spread breakdown, then a windowed ListWindow of the selected bucket/grade's nodes with click-to-drill-then-select, and a pinned footer. No `rowNote` usage was visible in this excerpt though it was listed as a peer.</found> <parameter name="predicted">most
+- predicted: full · documented: full · derivable: no · legible: most · trap: no
 
 ## web/src/components/Sunburst.tsx
 
@@ -749,14 +785,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/api.ts
 
-### the file itself — STALE
-- read at `51cdf71fe325` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: The frontend's single boundary to the Rust backend: thin invoke wrappers (listProjects, projectScan, scanRepo, readSource, mcp*, agentReports), event listeners for scan progress/theme/open-project, wire-to-domain conversions (toNode, toScan), and the colour/temperature helpers (temperature, wedgeHeat, heatColor, ramps) mapping a score to a wedge colour. No file header.
-- found: All of that, plus a large third responsibility I underweighted: it is the canonical TypeScript mirror of model.rs/agentapi.rs — Node/Score/AgentReport/ProjectSummary types with long doc comments, the Grade vocabulary (GRADE_SURPRISE, DOC_GAP, HEAT_WORDS, LEGIBLE_WORDS, DOC_WORDS), and real tree logic: applyAgentReports (stale fallback to proxyScore), summarize/countPending (scope-aware walks), applyScores and reaggregate (a full mirror of Node::aggregate).
-- predicted: most · documented: none · derivable: no · legible: most · trap: no
-- note: No module header at all on a 1015-line file that is the app's type mirror, grade vocabulary, tree aggregation and colour ramp in one — the per-declaration comments are excellent, but nothing states the file's scope, and `reaggregate` is a hand-maintained duplicate of Rust's `Node::aggregate` that has already drifted once (the hardcoded lastTouchedDays null).
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### the file itself
+- spec 1 · read at `52bfa88df589` · commit `94d194d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run
+- expected: The frontend's IPC boundary — thin `invoke` wrappers — bundled with what looks like unrelated report-grading and color-ramp helpers swept in alongside it; no file header, so its actual scope (a focused IPC module vs. a general lib grab-bag) is undocumented.
+- found: No file header, confirming that finding. But the "grab bag" framing was wrong: it's a deliberately colocated module. Contents are (1) hand-written TS types mirroring Rust structs (Node, Score, AgentReport, ProjectSummary) with heavy per-field doc comments, (2) thin `invoke` wrappers and wire-to-camelCase converters (toNode/toScan), (3) tree-folding/aggregation logic that mirrors Rust's `Node::aggregate` bit-for-bit (`applyScores`, `applyAgentReports`, `reaggregate`) with explicit comments demanding the two stay in sync, and (4) a "Derived reads of a score" section (explicitly labeled inline) — temperature/wedgeHeat/shareRamp/heatColor/isAnalyzed — deliberately placed here "so the sunburst and detail panel can never disagree about what a colour means." So the apparent sprawl is intentional single-source-of-truth design, just never stated at the top of the file.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: Predicted this as an accidental grab-bag; it's actually a deliberately single-sourced module (types + IPC + mirrored aggregation logic + shared color-derivation helpers), just missing a header saying so.
 
 ### `showsShare`
 - read at `92308d117684` · commit `81eb6d5` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -841,6 +875,13 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 - note: The field is named `body` on both sides but holds a hash, which is the one thing the doc could have said and didn't.
 
+### `legibleOf`
+- spec 1 · read at `525b8fee3553` · commit `94d194d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 10 of its run
+- expected: if (!r || r.legibleDated) return undefined; return r.legible
+- found: Exactly that.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: I had already read this exact file (and this exact function's body) while assessing task 7's whole-file read of api.ts, so this was recall, not blind prediction — cold:false reflects that honestly, and 'full' here is not a meaningful measurement of surprise.
+
 ### `reportGrades`
 - read at `340334c0f8d1` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
 - expected: Maps the report's two enum grades to numbers: predicted onto a surprise scale, falling back to the surprised boolean at the ends of the scale when no grade exists; documented mapped through a table but forced to the 'none' value when derivable is true, and null when there is no grade.
@@ -873,14 +914,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly that. Two closure-captured counters and a `walk(n, out)` whose `out` flag is inherited downward — exclusion set on a directory propagates to every descendant rather than being checked per function. Stale and unread are mutually exclusive (`else if`), so a stale reading counts as stale and never also as unread.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `summarize` — QUIRKY — STALE
-- read at `196985d9aa76` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A pure helper walking the folded node tree once, accumulating repo-wide totals into a RepoSummary — file and function counts, total lines, a lines-weighted mean temperature, and a list of hottest functions/files for the sidebar; recursive descent treating function leaves differently from containers.
-- found: It is a recursive descent accumulating into RepoSummary, but the content is assessment coverage rather than size: functions vs excluded (exclusion inherited down the tree), read/stale/unread, the predicted-grade spread plus per-grade node lists, legibility spread, trap count, first stale node, and a `hot` list of nodes above a HOT temperature threshold. It ends by sorting hot and every byGrade bucket hottest-first with a loc tiebreak. It also carries a legacy fallback deriving a grade from the old `surprised` boolean when `predicted` is absent.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
-- note: The name promises a size/temperature summary; the body is entirely about assessment coverage, and with no doc comment the only clue is the RepoSummary type.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `summarize` — QUIRKY
+- spec 1 · read at `137ee769a153` · commit `94d194d` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Walks the tree from root aggregating repo-wide stats (assessed/stale/unread counts, maybe temperature/surprising) into a RepoSummary.
+- found: Walks tree tracking excluded/functions/read/stale/unread counts, a predicted-grade spread and per-grade node lists, a legibility spread, trap count, first stale node, and a hot-node list — all sorted hottest-first at the end.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+- note: No docs at all despite being a fairly involved aggregator with several distinct output fields (spread, legible, byGrade, hot, traps, firstStale) — signature alone undersold its scope.
 
 ### `scanRepo`
 - read at `252492de7a28` · commit `81eb6d5` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 8 of its run
@@ -1058,14 +1097,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 - note: The docstring is attached at line 126 but the function starts at 162, so it is a long prose block explaining the repo-relative normalisation decision rather than the body — excellent, and not derivable from the code.
 
-### `opaqueShare` — STALE
-- read at `7278be878d5a` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 8 of its run
-- expected: Recursive subtree walk summing loc of every func node carrying a legible reading into a `read` total, and into an `opaque` total when the grade is low (some/none). Returns null when read is 0, else opaque/read.
-- found: Exactly that, with one extra guard I did not name: stale readings are excluded too (`n.agent && !n.agentStale && n.agent.legible`), consistent with the repo rule that a stale reading must not colour anything. some/none are the opaque grades.
+### `opaqueShare`
+- spec 1 · read at `afdaa7505794` · commit `94d194d` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: Recursively walks a node's subtree, accumulating total read lines and lines graded illegible, returning opaque/total or null if nothing read.
+- found: Walks the subtree; for each func node with a non-stale agent reading, adds its loc to `read`, and if legibleOf is 'some' or 'none' adds to `opaque`. Returns opaque/read, or null if read is 0.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: Not cold: colorMode.ts was my first reading this run (legendFor), though I read only those 12 lines and nothing near this function.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: Docs explain the exact 'some'/'none' opacity threshold and staleness exclusion, which I couldn't have derived from signature alone — genuinely informative doc, not derivable from code.
 
 ### `docGrade`
 - read at `307b4c5bd3c1` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -1088,14 +1125,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: Incidental correction to my earlier note on Dials: `opaqueShare` does exist, it lives in this file — it is just no longer what Dials calls for its fourth dial.
 
-### `colorFor` — STALE
-- read at `a15aa28d5915` · commit `6366346` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A large dispatch over ColorMode: one branch per mode (surprise/temperature, age via ageRamp/ageSpanOf, language and author as categorical slots via slotColor keyed through the ranks map, docs via docGrade/undocShare, churn), each returning a Paint plus a human label, with null wherever the node has no datum; containers averaging or taking shares of children.
-- found: Exactly that structure, with two modes I did not name (legible, traps) and three refinements I did not cover: docs is deliberately INVERTED (bright means undescribed) and uses a linear ramp rather than shareRamp; a file under docs answers only for its own header and never averages its functions; traps is two flat states plus absence, restricted to kind === 'func'. Surprise labels leaves with words and containers with a percentage. Blame and lang share the fallthrough, with uncommitted lines painted as a state rather than a slot.
-- predicted: most · documented: none · derivable: yes · legible: most · trap: no
-- note: Roughly half the 158 lines are inline commentary arguing past mistakes; the handed-over doc comment states only the contract, so nothing warned that one lens deliberately runs its ramp backwards.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `colorFor`
+- spec 1 · read at `79b08b16d850` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: A dispatcher that switches on `mode` (surprise, legible, docs, traps, churn, age, blame, lang) and computes a fill/stop/ink color plus a human-readable label for the node, calling out to the various peer helpers (ramped, slotColor, ageRamp, docGrade, etc.) per mode, returning null when that mode has nothing to say for this node (missing score, unanalyzed, etc).
+- found: Exactly that: an if-chain over mode values, each branch computing a share or grade via a helper, wrapping the result with `ramped(...)` plus a label, with several mode-specific special cases (containers roll up as shares, files answer via their own header grade for docs, traps is a boolean not a ramp, blame handles uncommitted lines and falls back to 'Other' via rank lookup for unranked keys).</found> <parameter name="predicted">most
+- predicted: full · documented: most · derivable: no · legible: most · trap: no
 
 ### `rankCategories`
 - read at `43639d96a85f` · commit `81eb6d5` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -1103,14 +1137,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Delegates entirely to legendFor(root, mode), which returns the already-ordered category names, and just indexes that array into a Map name→i.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `bucketsFor` — STALE
-- read at `5b5e702a3ea7` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: One walk over the subtree collecting non-excluded function leaves, assigning each to a fixed band for the current mode (grade bands, age bands via ageRamp on the passed repo ageSpan, doc grades, author slots, rank categories), returning Bucket[] with label, count/lines and a swatch colour from the same ramp colorFor uses — ramped modes taking the ramp colour at the mean of the band's members' inputs — plus a final neutral bucket for whatever the mode cannot colour.
-- found: That, plus four things I did not cover: it returns [] outright for the `surprise` mode (that panel has its own Spread); under `docs` a FILE is bucketed too, on its header's grade, alongside functions; the absence key is a NUL-escape-prefixed ` unknown` so a real author named "unknown" cannot land in the absence row, with a separate ` uncommitted` row for blame; and the tail is a four-way sort — by lines for blame/language, traps first for traps, best-first full/most/some/none for legible/docs, band order otherwise — with the unknown bucket filtered to the end regardless.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: The doc says bucket counts add up to the `functions` total in the header, but under `docs` mode files are bucketed beside functions and `b.lines += n.loc` adds a file's whole line count on top of its own functions' — so that one lens is the exception to the sentence, and nothing in the docs says so.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `bucketsFor` — QUIRKY — TANGLED
+- spec 1 · read at `901675302712` · commit `94d194d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: Single tree walk classifying nodes into colour buckets via colorFor's own colour functions, tallying counts, computing ramped-mode swatch colours as the mean of members' ramp inputs, keeping excluded functions visible in totals, and putting uncolourable nodes in one final neutral bucket.
+- found: Much more mode-specific than predicted: separate branches per mode (docs/legible/traps share an 'unread' bucket; blame/language key off author/lang with an 'uncommitted' special case for blame; churn/age bucket by band tables). Excluded nodes are actually skipped from buckets entirely (outOfScope), not tracked separately — consistent with the doc's 'left out' but I initially misread that as tracked-but-labeled. Each mode also has its own sort order for the output (by lines, traps-first, grade order, or band order), and there's a documented escape-character trick for the UNKNOWN sentinel key to avoid a literal NUL byte. It calls colorFor's sibling colour functions (heatColor, ramped, ageRamp, slotColor) directly rather than calling colorFor itself.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
 
 ### `legendFor`
 - read at `dd8b74f0eee8` · commit `9c38c96` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -1382,6 +1413,27 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: The doc says "full name on either axis beats a clipped name on either axis", but the clipped fallback only ever tries `prefer` — a name clipped on the other axis is never considered, so the stated policy is one case short of what the code does.
 
+## web/src/lib/population.ts
+
+### the file itself
+- spec 1 · read at `dcfeb20f2e65` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 10 of its run
+- expected: A small file with no header (the empty docs is itself the finding) providing repo-wide numeric distributions: populationOf walks the tree building sorted arrays (likely lines-of-code, and maybe churn/surprise) for every function, and shareBelow does a percentile/binary-search lookup against one of those arrays, together backing the percentile-rank UI in Reading.tsx/Dials.tsx.
+- found: Confirmed, with more care than predicted: populationOf builds exactly three sorted arrays (loc for every real function, heat only for analysed ones, commits only for functions under git history) and deliberately excludes the synthetic rest overflow wedge so a roll-up doesn't get ranked among its own members. shareBelow is the same function already read earlier in this run. Each export carries its own substantial doc comment explaining the "strictly below, ties not split" convention and the MIN_POP=20 floor -- so while there's no file header, the file is thoroughly documented at the export level, which the docs:[] for the file task doesn't capture.
+- predicted: full · documented: none · derivable: no · legible: not judged · trap: no
+- note: Grading documented as none per the file-header question the task asked, but flagging that the file is well documented at the per-export level -- the file-task's docs:[] signal (no header) shouldn't be read as "undocumented file".
+
+### `populationOf`
+- spec 1 · read at `896819b96269` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: Walks the tree from root collecting per-function metrics (likely lines, temperature/surprise, churn) into sorted arrays used to build percentile rankings, working with shareBelow to place a given function within the repo-wide distribution.
+- found: Walks the tree, and for each real (non-rollup) function pushes loc into `loc`, temperature into `heat` only if analyzed, and commits into `commits` only if the function has git history — then sorts all three ascending and returns a Population object with those three arrays.</found> <parameter name="predicted">most
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
+
+### `shareBelow`
+- spec 1 · read at `f33f7bcc8d86` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 8 of its run
+- expected: Given a sorted array and a value, returns the fraction of the array strictly below that value (a percentile), likely via binary search for efficiency, returning null when the population is too small to rank meaningfully.
+- found: Exactly that: a lower-bound binary search counting elements < v, divided by length, gated by a `MIN_POP` threshold returning null below it.</found> <parameter name="predicted">full</parameter> <parameter name="documented">none
+- predicted: full · documented: not judged · derivable: no · legible: full · trap: no
+
 ## web/src/lib/runtime.ts
 
 ### the file itself
@@ -1416,6 +1468,22 @@ What this is and how to add to it: [README.md](README.md)
 - found: That, plus careful async-unsubscribe handling: it bails to a no-op closure unless isTauriMac(), then runs an async IIFE that dynamic-imports getCurrentWindow, defines read() as isFullscreen().then(f => !dead && cb(f)), reads once, awaits win.onResized(read), and — if the caller already disposed while the import was in flight — immediately calls the unlistener instead of storing it. The returned teardown sets dead and calls stop if it exists.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: The `dead` flag guards both the in-flight listener registration and the in-flight isFullscreen promise — the one detail I did not predict, and the reason this is 18 lines rather than 6.
+
+## web/src/lib/splash.ts
+
+### the file itself
+- spec 1 · read at `1fe713949d2b` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 10 of its run
+- expected: A small utility owning the boot splash/wordmark overlay's dismissal: a `dismissSplash()` function that hides the splash element (likely via a class toggle or removing a DOM node / localStorage flag), called once the app has something to show.
+- found: Matches the shape: `dismissSplash()` is idempotent (guarded by a module-level `gone` flag), fades the #splash element via a CSS class then removes it from the DOM after 400ms so it can't linger and swallow clicks. There IS a substantial header doc comment (lines 1-17) explaining why dismissal is driven by "has something to say" rather than first paint, and that two callers race it by design — but the handout's `docs` field was empty, so the file-doc extraction apparently didn't attach it to this file.</found> <parameter name="predicted">most
+- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
+- note: Handout's `docs` was empty for this file task, but the file actually has a rich header comment (above `let gone`) explaining the dismissal design — worth checking why file-doc extraction missed it.
+
+### `dismissSplash`
+- spec 1 · read at `cc88d07e92b6` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: Hides the boot splash/wordmark, likely by grabbing a DOM element by id and toggling a CSS class or display style to fade or remove it, probably guarded so it only runs once even if called from multiple places.
+- found: Exactly that: a module-level `gone` flag makes it idempotent, then it looks up `#splash`, adds an `is-gone` class to fade it, and removes the element from the DOM 400ms later so a transition that never fires can't leave it swallowing clicks.</found> <parameter name="predicted">most</parameter> <parameter name="documented">none
+- predicted: full · documented: not judged · derivable: no · legible: full · trap: no
+- note: The handout gave docs: [] for this function, but the bounded read range (line 1-29) included a substantial module-level JSDoc block sitting directly above it that does explain the idempotency and the "when to dismiss" rationale; grading documented as none per the handout since it wasn't offered as this function's doc.</parameter> </invoke>
 
 ## web/src/lib/sunburst.ts
 
