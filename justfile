@@ -208,6 +208,28 @@ publish version:
     xcrun stapler validate "$work/$DMG" >/dev/null || { echo "error: DMG is not stapled/notarized" >&2; exit 1; }
     echo "    notarized + stapled"
 
+    # And that the app inside says what the filename says. CI stamps the version
+    # from the tag into four files before building; nothing downstream checked,
+    # and for every release up to 0.8.1 it stamped only ONE of them — so a bundle
+    # named 0.8.1 held a binary introducing itself to every MCP client as 0.1.0.
+    # The filename is not evidence: it is chosen by the same job whose stamping is
+    # in question. Info.plist is what the machine will actually report.
+    echo "==> Checking the bundle's own version"
+    mnt=$(mktemp -d)
+    hdiutil attach "$work/$DMG" -mountpoint "$mnt" -nobrowse -readonly -quiet
+    # Detached even if the read fails — a left-behind mount outlives this shell and
+    # the next run's `hdiutil attach` inherits the mess.
+    app=$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)
+    got=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app/Contents/Info.plist" 2>/dev/null || echo "")
+    hdiutil detach "$mnt" -quiet || true
+    rmdir "$mnt" 2>/dev/null || true
+    if [ "$got" != "$VERSION" ]; then
+        echo "error: $DMG contains version '$got', expected '$VERSION'" >&2
+        echo "    the release build did not stamp the version — do not distribute this" >&2
+        exit 1
+    fi
+    echo "    bundle reports $got"
+
     echo "==> Uploading to {{dl_host}}:{{dl_path}}"
     ssh "{{dl_host}}" "mkdir -p '{{dl_path}}'"
     scp "$work"/* "{{dl_host}}:{{dl_path}}/"
