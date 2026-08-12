@@ -191,6 +191,28 @@ readings (1.4 MB) parse in 30ms, once, on open.
 - **Never let a reader see `.sanity/` before it predicts.** Being told what the last
   reader found is recall, not prediction — the same contamination `cold` exists to
   expose. The MCP descriptions say so; keep them saying it.
+- **The repo's own brief is the contamination `cold` cannot see, and it is recorded in two
+  halves.** A host that injects `CLAUDE.md` into every subagent hands each reader a
+  description of the architecture it is about to predict; the reading comes back honestly
+  `cold` — it never opened the file — while being substantially recall. A full pass of a
+  real repo shipped with a caveats document reconstructing this from readers who happened
+  to mention it in chat, because nothing asked them and nothing warned the human.
+  So: `assessment::agent_docs` stamps **what the repo held** server-side, beside `body` and
+  `at`, and `primed` asks the reader **what was in its context**. Neither is worth anything
+  alone — a reader declaring itself unprimed in a repo with no brief has said nothing,
+  while the same report in a repo that has one is the evidence a run was launched clean.
+  One provenance segment carries the pair, and renders nothing when the repo has no brief,
+  on the same rule as every other absence here.
+  **Only the person typing the launch command can fix it**, which is why the warning is in
+  `/open` and in `sanity study` rather than anywhere a reader would see it: a reader's
+  context is built before it can call anything, so telling it costs tokens and changes
+  nothing. The remedy is `claude --setting-sources user` — measured, and it propagates to
+  subagents, which is where it matters. It is a warning and never a refusal; whether the
+  priming matters is a judgement about a specific repo.
+  It is **not** a graded input, so it is out of `reading_hash` and did not move `SPEC`.
+  Expiring 6,900 cold predictions to record a condition none of them can now answer would
+  be the worst trade available; a corpus taken before the field existed reads as unknown,
+  which is the honest shape.
 - Nothing is user-scoped. `by:` is provenance to read, not ownership; anyone with the
   repo extends anyone's assessment.
 - **A stale reading must not colour its wedge.** `applyAgentReports` drops its score and
@@ -260,31 +282,40 @@ When a field is added to `Report`, add it to the schema in the same commit.
   across files, because scores cluster by file (distinctiveness is file-local) and a
   reader handed 25 from one file is recalling after the first. `cold` is self-reported and
   should be a check, not the mechanism.
-- **Three functions per reader. The flaw was never warmth, it was RAMPED warmth.** The
-  protocol asked each subagent for ten, and `cold` only ever asked "had you read this
-  FILE?" — so it saw nothing of the idioms, naming, domain vocabulary and author style a
-  reader absorbs as it works. By its eighth prediction that reader is better than it was
-  at its first, and the map cannot tell that apart from code that is genuinely easier to
-  predict; readings inside one run were not comparable to each other.
-  **`default_n` is the knee of a measured curve, not a preference.** It was briefly 1, on
-  the belief that isolation was also cheaper. It is not: `just tokens` plus a 1/2/3/5/8
-  sweep puts a reader at ~22,100 fixed + ~1,010/turn at two turns per function, fitting
-  every point within 1% — so `22,100/n + 2,020` per function, falling monotonically with
-  no optimum. 1→3 captures 61% of every token batching can save; past 5 the saving is a
-  few hundred tokens and what it buys is a scale that widens inside each run. **Re-run
-  `just tokens` and the sweep before moving it.**
-  The validity half is still unsettled: `later` graded 36% `full` against 29% for `first`
-  — right direction, not significant on 54 readings, and confounded because the
-  unbatched readers ran first and took the top of a proxy-ranked queue. Settling it needs
-  n=1 and n=k interleaved in one wave. `position` is on every reading so that experiment
-  moves this constant and nothing else.
-- **Three readings per reader, fetched ONE at a time. Those are two different knobs and
+- **Ten functions per reader, and the number is the edge of what was measured.** It was
+  three, on the belief that a reader ramps: it absorbs idioms, naming, domain vocabulary
+  and author style as it works, so its eighth prediction is made by a better reader than
+  its first and the map cannot tell that apart from code that is genuinely easier to
+  predict. **Two experiments went looking for that and neither found it.** A full pass of
+  this repo at three: `full` 39.5% at position 1 against 38.4% later, flat. Forty readers
+  at ten on a 10,828-function repo, buckets forty deep: positions 2-10 scattered between
+  35% and 55%, slope ≈ 0. 784 readings, two codebases, no warming — so the mechanism that
+  argued for a short batch is not in evidence, and assuming it anyway costs 2.5x.
+  Cost is the settled half: ~23,110 to enter a reader plus ~3,030 per function, so
+  `23,110/n + 3,030` — a hyperbola with no knee, which makes any choice a judgement about
+  what saving is worth having. 26,100 tokens per function at one, 10,700 at three, 5,300
+  at ten. **Ten is where the measurement stops, not where the curve does. Fifteen might be
+  fine and nobody has run it.**
+  The one position effect that did show up argues the same way: on the ten-batch repo,
+  position 1 graded `full` 27.5% against 41.9% for everything after — first readings
+  HARSHER, which looks like a reader hedging before it has used the scale rather than
+  anything about the code (z ≈ 1.9, did not replicate, treat as unresolved). If it is
+  real, a bigger batch dilutes it. **What would move this number:** down, warming found at
+  positions 8-10 with buckets deeper than forty; up, a clean run at 15-25 finding nothing.
+  `position` is on every reading and `by_position` buckets per position, so any run adds a
+  point to that curve for free — read it before touching the constant.
+  The one repo-shaped limit: the queue rests a file after drawing from it, so on a small
+  repo a reader deep into a batch gets handed a file it already opened. That bit a
+  43-file repo at three and not a 731-file one at ten. **The binding constraint on batch
+  size is file supply, not warming**, and `cold` records it honestly when it bites.
+- **Ten readings per reader, fetched ONE at a time. Those are two different knobs and
   they got conflated.** The saving is the shared *context*, not the shared *handout*: a
   wave that fetched three times inside one context cost 30,125 per reader against 30,495
-  for a true batch of three — the same — and is colder, because a reader handed three
-  tasks has read three signatures, owners and peer lists before predicting the first. One
-  sweep reader said so unprompted and downgraded its own second and third readings for it.
-  So `default_n` is 1 and the protocol asks for three calls. Equal cost, better reading.
+  for a true batch of three — the same — and is colder, because a reader handed a batch
+  has read every signature, owner and peer list in it before predicting the first. One
+  sweep reader said so unprompted and downgraded its own later readings for it. So
+  `default_n` is the size of one HANDOUT — 1 — and the protocol asks for ten calls. Equal
+  cost, better reading.
 - **The batch size is decided in `default_n` and nowhere else.** `mcp.rs` used to carry
   its own `unwrap_or(1)` and send `n` on every call, so when the constant, its doc,
   CLAUDE.md and the protocol text all moved to 3, readers still got one — the only line
@@ -315,8 +346,10 @@ When a field is added to `Report`, add it to the schema in the same commit.
   It used to collapse to first-versus-later, which answered the wrong question and hid
   that it had: a full pass of this repo at a batch of three found the two buckets flat,
   which reads as "no warming" and actually means "no warming *within three*". The concern
-  was always position eight or nine. Per position, any run at any batch size adds a point
-  to the same curve for free, and a knee at six shows up as a knee.
+  was always position eight or nine — and per position, forty readers at a batch of ten
+  answered it, scattering between 35% and 55% with no slope. That measurement did not need
+  a new experiment; any run at any batch size adds a point to the same curve for free, and
+  a knee at six would show up as a knee.
 - **`peers` is the nearest twenty in FILE ORDER, and the remainder is reported.** It was
   every function in the file, which nobody noticed while the only repo being scanned had
   small ones. Measured: this repo's median task payload was 920 characters with 438 of
@@ -552,6 +585,15 @@ second metric, and the line between those is the whole design.
     functions invented in every one of its repos, and `from_extension` returning `None` is
     the documented default for exactly this. Sniffing the content to break the tie is a
     guess wearing a hat. Prolog took `.pro` because Perl has the stronger claim on `.pl`.
+    **`.h` is the exception, and it is decided by ASYMMETRY rather than by claim.** C++ is
+    very nearly a superset, so a C header parses under the C++ grammar and yields the same
+    functions — htop, 151 files of C, gives 1,426 either way, and the two that differ are
+    the C grammar naming functions after an attribute macro and swallowing three into one
+    span. The reverse invents: on a real repo's C++ headers the C grammar produced twelve
+    "functions" from 583 lines and not one was real — a namespace as a 131-line function,
+    a field as a function, a class whose span ran to the end of four siblings, another
+    truncated to its first inline member so the reader could not see what it was grading.
+    When one direction is lossless and the other fabricates, that is not a tie.
   - **A language with no function unit is not a language here.** HCL blocks, Make targets
     and Nickel's term chain parse fine and mean nothing on a sunburst.
   Grammars are cheap in time and expensive in bytes: 45 of them compile in 16s, and they
