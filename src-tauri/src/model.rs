@@ -98,11 +98,22 @@ impl Lang {
             "py" | "pyi" => Lang::Python,
             "go" => Lang::Go,
             "swift" => Lang::Swift,
-            // `.h` is C here, not C++: the C grammar parses the declarations a header
-            // actually contains, and guessing C++ for a C project invents nothing useful.
-            // `.m` is Objective-C rather than MATLAB for the same reason — this is a tool
-            // for the repos it is pointed at, and those are app repos.
-            "c" | "h" => Lang::C,
+            // `.h` is C++, and this is the one shared extension that is not a coin-flip.
+            // The two grammars fail asymmetrically: C++ is very nearly a superset, so a C
+            // header parses under it and yields the same functions, while the C grammar on
+            // a C++ header invents them. Measured on a real repo's headers — `namespace
+            // godot { … }` came out as a 131-line function called `godot`, `T v{};` as a
+            // function called `v`, a class as a 197-line function whose span ran to the end
+            // of four unrelated siblings, and another class truncated to its first inline
+            // member so the reader could not see what it was asked to grade. Twelve
+            // "functions" from 583 lines, none of them real. The reverse direction cost
+            // nothing: htop, 151 files of C, parses to the same 1,426 functions either way.
+            // Same reasoning as `.zsh` taking the zsh grammar over bash.
+            //
+            // `.m` is Objective-C rather than MATLAB for a different reason — that tie has
+            // no superset to break it, so it goes to the language this tool's repos use.
+            "c" => Lang::C,
+            "h" => Lang::Cpp,
             "cc" | "cpp" | "cxx" | "hpp" | "hh" | "hxx" => Lang::Cpp,
             "java" => Lang::Java,
             "kt" | "kts" => Lang::Kotlin,

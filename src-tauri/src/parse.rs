@@ -748,12 +748,31 @@ fn name_node<'a>(node: TsNode<'a>, lang: Lang) -> Option<TsNode<'a>> {
         // `int add(int)` is a declarator wrapping a declarator wrapping an identifier,
         // and pointer or array returns add more layers — so walk down rather than
         // reaching for a fixed depth.
+        //
+        // Two C++ forms break the chain, and both surfaced the day `.h` started parsing
+        // as C++ rather than C. `T &operator=(T x)` wraps in a `reference_declarator`,
+        // which unlike `pointer_declarator` exposes its child POSITIONALLY rather than as
+        // a `declarator` field — so the walk stopped one node too high and the function
+        // was named `&operator=(T x)`. And `operator int() const` hangs an ABSTRACT
+        // declarator off an `operator_cast`: there is no name below it to walk down to,
+        // only parameters, so the walk landed on `() const`. Neither failed loudly; each
+        // just handed a reader a name that is not one.
         Lang::C | Lang::Cpp => {
             let mut n = node.child_by_field_name("declarator")?;
-            while let Some(inner) = n.child_by_field_name("declarator") {
-                n = inner;
+            loop {
+                if n.kind() == "operator_cast" {
+                    // The conversion operator IS its own name — `operator int` — and the
+                    // node is the smallest thing that spells it.
+                    return Some(n);
+                }
+                let inner = n
+                    .child_by_field_name("declarator")
+                    .or_else(|| (n.kind() == "reference_declarator").then(|| n.named_child(0))?);
+                match inner {
+                    Some(i) => n = i,
+                    None => return Some(n),
+                }
             }
-            Some(n)
         }
         // Dart hangs the name off a signature node, with the body beside it.
         Lang::Dart => node
@@ -1308,6 +1327,86 @@ class SentenceSuggester {
         );
         // The ones that really are documented still are.
         assert!(by("next").doc.unwrap().contains("next suggestion"));
+    }
+
+    /// A `.h` holding C++ yields its methods, not its namespace and not its fields.
+    ///
+    /// `.h` used to map to `Lang::C`, and the C grammar does not fail quietly on C++ —
+    /// it invents. Every assertion below is one thing a real repo's headers produced:
+    /// a 131-line "function" named after the enclosing namespace, a "function" named
+    /// after the field `T v{};`, a class whose span ran to the end of four unrelated
+    /// siblings, and another truncated to its first inline member, so the reader could
+    /// not see the class it had been asked to grade. Twelve entries from 583 lines,
+    /// none of them a function. The mapping lives in `Lang::from_extension`, so this
+    /// goes through it rather than naming `Lang::Cpp` — the bug was never in the parse.
+    #[test]
+    fn a_cpp_header_yields_its_methods_not_its_namespace() {
+        let src = r#"
+namespace demo {
+
+template <typename T> struct Val {
+    T v{};
+    Val(T x) : v(x) {}
+    void store(T x) { v = x; }
+    operator T() const { return v; }
+    Val &operator=(T x) {
+        v = x;
+        return *this;
+    }
+};
+
+class Lfsr {
+public:
+    void setWhite(bool w) { white = w; }
+    int step() {
+        state = (state >> 1);
+        return state;
+    }
+private:
+    bool white = false;
+    int state = 1;
+};
+
+class Other {
+public:
+    void reset() { n = 0; }
+private:
+    int n = 0;
+};
+
+}
+"#;
+        let lang = Lang::from_extension("h").expect("`.h` is a language");
+        let fns = parse_functions(lang, src);
+        let names: Vec<&str> = fns.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "Val",
+                "store",
+                "operator T() const",
+                "operator=",
+                "setWhite",
+                "step",
+                "reset"
+            ]
+        );
+
+        // Not the namespace, and not a data member. The constructor `Val(T x) : v(x) {}`
+        // used to arrive named after the member its init-list touches.
+        assert!(!names.contains(&"demo"), "a namespace is not a function");
+        assert!(!names.contains(&"v"), "a field is not a function");
+
+        // The owner is what disambiguates two `reset`s in one header, so it has to be
+        // the class rather than the namespace everything shares.
+        let by = |n: &str| fns.iter().find(|f| f.name == n).expect(n).clone();
+        assert_eq!(by("step").owner.as_deref(), Some("Lfsr"));
+        assert_eq!(by("reset").owner.as_deref(), Some("Other"));
+
+        // And a span stops where its function does: `step` must not run on into `Other`,
+        // which is the failure that had a reader grading a class it could not see.
+        assert!(by("step").end_line < by("reset").start_line);
+        assert_eq!(by("step").loc(), 4);
     }
 
     #[test]
