@@ -409,7 +409,13 @@ export function Detail({
      A directory has no reading of its own, so it gets nothing rather than an empty frame. */
   const about =
     node.kind === 'file' && node.agent ? (
-      <div className="-mx-4 mt-4 space-y-3 border-t border-[var(--border)] px-4 pt-3">
+      /* Bounded and scrolled on its own. This block sits in the pane's FIXED header, above
+         the breakdown and the list — so a reader that wrote three paragraphs pushed the
+         legibility key and every row under it off the bottom of the window, with no
+         scrollbar anywhere to say so (the header does not scroll, and the part that does
+         was already below the fold). A third of the pane is enough to read a paragraph in
+         and leaves the key it is qualifying on screen. */
+      <div className="-mx-4 mt-4 max-h-[33vh] space-y-3 overflow-y-auto border-t border-[var(--border)] px-4 pt-3 [overscroll-behavior:contain]">
         {/* The same caveat the function pane prints, for the same reason: everything below
             describes a file whose declarations have since changed. */}
         {node.agentStale && (

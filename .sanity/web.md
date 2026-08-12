@@ -382,10 +382,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `Detail`
-- spec 1 · read at `941e893cfea4` · commit `29b08ec` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: Detail is the side panel component that renders information about the selected node — name, breadcrumb path, dials/score breakdown, and (for a function) the agent's expected/found reading, notes and traps, composing Markdown, CopyButton, provenance, Contents and probably a Summary-like view for containers versus a no-selection state.
-- found: Handles no-selection (Summary of focus or idle Bloom state), non-leaf nodes (delegates to Summary with a path/footer/about), and leaf functions: header with name and trap badge, breadcrumb path, Dials, FunctionRanks, then either 'not scored'/'not analyzed' messaging or the full agent reading block (stale warning, warm-read badge, expected/found via Markdown+CopyButton, note/trap box, hotspots evidence list), then Contents, with a pinned provenance footer.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- spec 1 · read at `5427f8e0f383` · commit `d5f070c` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: Side panel component showing details of a selected node, branching on leaf versus container.
+- found: Matches prediction, with a header, dials, reading section and contents list.
+- predicted: full · documented: none · derivable: no · legible: most · trap: no
 
 ## web/src/components/Dials.tsx
 
