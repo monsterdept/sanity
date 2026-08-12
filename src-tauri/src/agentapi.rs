@@ -1261,6 +1261,31 @@ pub struct OpenRequest {
 /// can act on it. A reader cannot unsee its own system prompt — by the time it calls
 /// anything, the context is already built. Only the human relaunching decides this.
 ///
+/// **It ASKS, and the first version asserted — which made it worse than saying nothing.**
+/// All this function can see is whether the repo has the file. Whether a given session
+/// LOADED it is invisible here, and the first draft papered over that with "each reader
+/// arrives already holding a description", stated flat. The orchestrator receiving that had
+/// the evidence to contradict it — its own context held no brief, because the human had
+/// launched with `--setting-sources user` an hour earlier — and relayed it anyway. Noticing
+/// an absence is the one thing nobody does unprompted; a tool that has just stated a fact
+/// about the repo is a credible source; so a correct belief was overwritten by a wrong one.
+/// It then reached the human as "CLAUDE.md WILL be injected into every reader", because the
+/// hedge is the first thing lost when a warning is relayed. Anything a tool asserts arrives
+/// at the person stronger than it left.
+///
+/// So the response states only what this process knows, and hands the rest to the party that
+/// can actually see it. Asked plainly, an orchestrator answers correctly in both directions;
+/// it is the same footing as `cold` and `primed`, which is the footing everything about
+/// priming is on. Phrased not to lead, for the same reason.
+///
+/// **And it says which evidence does not count.** The next orchestrator to get this went and
+/// looked: listed the repo, stat'd the file, reported its size, and concluded from its
+/// existence on disk that it was holding it. That is the same error one layer down — a fact
+/// about the repo answering a question about a session — and it is the obvious thing to do
+/// unless told otherwise, because the file is right there and the context is not
+/// inspectable in the same way. Naming the two things that prove nothing is cheaper than
+/// hoping.
+///
 /// Absent when the repo has no such file, so a clean repo says nothing. It is a warning and
 /// not a refusal: whether the priming matters is a judgement about a specific repo and a
 /// specific question, and the tool's job is to make sure nobody discovers it afterwards.
@@ -1268,15 +1293,19 @@ fn priming_note(repo: &Path) -> Option<String> {
     let docs = crate::assessment::agent_docs(repo);
     (!docs.is_empty()).then(|| {
         format!(
-            "This repo has {docs} at its root. If your host injects that into every \
-             subagent — Claude Code does — then each reader arrives already holding a \
-             description of the code it is about to predict, and `predicted` measures \
-             recall instead. Readings stay honestly `cold`, so nothing downstream can \
-             catch it. To measure clean, relaunch with `claude --setting-sources user`, \
-             which drops project instructions and keeps this MCP server; it applies to \
-             subagents, which is where it matters. Tell the human before the first wave — \
-             they decide, not you. Either way, every reader must answer `primed`, and the \
-             store records what the repo held, so the run says which it was."
+            "This repo has {docs} at its root. Sanity cannot see whether your session \
+             loaded it, so CHECK YOUR OWN CONTEXT before you decide anything. Neither this \
+             message nor the file being on disk is evidence about your context — the only \
+             question is whether it is in your instructions. If it is not there, this \
+             session was launched \
+             without project instructions, your readers inherit that, and the run is clean \
+             — say so in one line and carry on. If it is there, every reader arrives \
+             holding a description of the code it is about to predict, `predicted` measures \
+             recall, and the readings stay honestly `cold` so nothing downstream catches \
+             it: tell the human before the first wave, because relaunching with `claude \
+             --setting-sources user` is the remedy and only they can do it. Either way \
+             every reader answers `primed` for itself, and the store records what the repo \
+             held, so the run says which it was."
         )
     })
 }
@@ -4410,15 +4439,24 @@ fn second() { println!(\"2\"); }\n").unwrap();
         assert_eq!(v["pid"].as_u64(), Some(4242));
     }
 
-    /// The priming warning fires on the repo that has instructions and stays quiet otherwise.
+    /// The priming warning asks; it must never assert that the reader is primed.
     ///
-    /// It has to name the flag, not just the hazard. A reader that hit an earlier flat
-    /// warning elsewhere in this tool invented a prerequisite, another ran the tools as
-    /// shell commands, and a third read `.sanity/` to compensate — which contaminated it.
-    /// A warning that says only "you may be contaminated" is that same failure with better
-    /// manners: there is exactly one thing to do about this and it is a launch flag.
+    /// **This is the whole defect it was rewritten for, so the test is about the wording.**
+    /// The first version said "each reader arrives already holding a description", flat, on
+    /// the strength of a file existing on disk. An orchestrator running in a session
+    /// launched with `--setting-sources user` — no brief in its context, the human having
+    /// taken the advice an hour earlier — relayed it to that human as fact, and it reached
+    /// them stronger than it was written, because a hedge is the first thing lost in a
+    /// relay. A tool cannot see a session's context and must not imply that it can; what it
+    /// can do is name what it found, say what it cannot see, and hand the question to the
+    /// only party able to answer it.
+    ///
+    /// It must still name the flag. A reader that hit an earlier flat warning elsewhere in
+    /// this tool invented a prerequisite, another ran the tools as shell commands, and a
+    /// third read `.sanity/` to compensate, which contaminated it. "You may be
+    /// contaminated" with nothing to do about it is that failure with better manners.
     #[test]
-    fn the_priming_warning_names_the_file_and_the_remedy() {
+    fn the_priming_warning_asks_rather_than_asserts() {
         let dir = tempfile::tempdir().unwrap();
         assert!(
             priming_note(dir.path()).is_none(),
@@ -4429,6 +4467,12 @@ fn second() { println!(\"2\"); }\n").unwrap();
         let note = priming_note(dir.path()).expect("a repo that has one");
         assert!(note.contains("CLAUDE.md"), "names what it found: {note}");
         assert!(note.contains("--setting-sources user"), "and what to do: {note}");
+        // What it cannot see, said out loud, and the check handed over.
+        assert!(note.contains("cannot see"), "admits its own blindness: {note}");
+        assert!(note.contains("CHECK YOUR OWN CONTEXT"), "and delegates it: {note}");
+        // The clean branch has to be reachable from the text alone, or an orchestrator that
+        // IS clean has nothing to conclude and falls back to the alarming reading.
+        assert!(note.contains("the run is clean"), "offers the other answer: {note}");
 
         // Two of them are both named — a run launched to exclude one and not the other is
         // still primed, and a warning that mentioned only the first would look satisfied.

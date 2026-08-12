@@ -454,17 +454,22 @@ pub fn study(path: &str, show: bool) -> i32 {
     // typing the launch command can.
     let docs = text(&opened, "agent_docs");
     if !docs.is_empty() {
-        println!("Before you start — this repo has {docs}, and Claude Code puts it in");
-        println!("every subagent. Readers would arrive already holding a description of the");
-        println!("code they are about to predict, which grades as recall.");
+        // States what is known and stops. An earlier version told the human that Claude
+        // Code "puts it in every subagent" as flat fact — true of a default launch, and
+        // wrong for anybody who had already excluded it, which is precisely the person who
+        // took the advice. You cannot tell someone they made a mistake they did not make.
+        println!("Before you start — this repo has {docs} at its root, and Sanity cannot");
+        println!("see whether your session loaded it. If you launched normally, Claude Code");
+        println!("puts it in every reader, and they arrive already holding a description of");
+        println!("the code they are about to predict — which grades as recall, not surprise.");
+        println!();
+        println!("If you did not, this is the launch that drops them:");
         println!();
         println!("    claude --setting-sources user");
         println!();
-        println!(
-            "drops project instructions and keeps Sanity's MCP server, and it applies to \
-             subagents."
-        );
-        println!("Readers are asked either way, and `sanity summary {path}` reports the split.");
+        println!("It keeps Sanity's MCP server and applies to subagents, which is where it");
+        println!("matters. Readers are asked either way, and `sanity summary {path}`");
+        println!("reports the split.");
         println!();
     }
     if remaining == 0 {

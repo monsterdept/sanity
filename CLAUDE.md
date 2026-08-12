@@ -209,6 +209,18 @@ readings (1.4 MB) parse in 30ms, once, on open.
   nothing. The remedy is `claude --setting-sources user` — measured, and it propagates to
   subagents, which is where it matters. It is a warning and never a refusal; whether the
   priming matters is a judgement about a specific repo.
+  **The warning ASKS. Asserting made it worse than silence, and that is the lesson worth
+  keeping.** All the server can see is that the file exists on disk; whether a session
+  LOADED it is invisible to it, exactly as `primed` being reader-declared already says. The
+  first version papered over the gap — "each reader arrives already holding a description",
+  flat — and the orchestrator that received it was running in a session launched clean an
+  hour before, had the evidence to contradict it, and relayed it anyway. Nobody scans for
+  what is absent, and a tool that has just stated a fact about the repo is a credible
+  source; so a correct belief was overwritten by a wrong one, and reached the human as
+  "CLAUDE.md WILL be injected" — stronger than it was written, because the hedge is the
+  first thing lost in a relay. **A response that asserts arrives at the person stronger than
+  it left, so a tool states what it knows, names what it cannot see, and hands the rest to
+  the party that can.** Asked plainly, an orchestrator answers correctly in both directions.
   It is **not** a graded input, so it is out of `reading_hash` and did not move `SPEC`.
   Expiring 6,900 cold predictions to record a condition none of them can now answer would
   be the worst trade available; a corpus taken before the field existed reads as unknown,
