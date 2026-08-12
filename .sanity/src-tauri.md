@@ -1,8 +1,8 @@
 # src-tauri — sanity assessment
 
-484 of 484 read · 24 surprising
+485 of 485 read · 24 surprising
 
-450 of these graded legibility under an earlier question and are not counted; see the note below.
+449 of these graded legibility under an earlier question and are not counted; see the note below.
 
 Each entry below is one **reading**, of a function or of a whole file. An agent was
 given its name, signature, neighbouring names and comments — never its body — and
@@ -38,11 +38,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/agentapi.rs
 
 ### the file itself
-- spec 1 · read at `259bda5a6df9` · commit `f41ae3a` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: Predicted: whole backend behind the MCP loopback protocol — AppState tracking open projects/reports, a task queue handing out functions/files to agent readers with staleness and file-interleaving logic, report ingestion stamping provenance server-side, aggregation for summary/status, and the HTTP router/serve/endpoint-file machinery for the single-daemon-per-machine model, plus an embedded test module. Expected the header docs to be a genuine design rationale not derivable from the code alone.
-- found: Matches closely: Project/AppState structs with persist/touch/focus/ping/for_client, Task/Grade/Report types, collect_tasks/neighbours/qualify building the queue, default_n and PROTOCOL/READER_PROMPT constants, open_project, work_left/count_stale/assessed/count_funcs/count_files, and (continuing past what I read) presumably queue/report/status/summary handlers and router/serve/endpoint machinery per the peers list. The module-level header explains only the 'why an agent, predict-then-look' design rationale — it says nothing about the daemon lifecycle, router, endpoint-file, or staleness/leasing machinery that makes up most of the file's actual bulk.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-- note: File is 4090 lines; I read the first ~1700 lines in full (module doc, AppState, Task/Grade/Report, queue-building, open_project, coverage counters) and inferred the remainder from the peers list rather than reading every line, since a full read exceeded per-call token limits. Header doc covers the design rationale well but not the router/daemon-lifecycle content, which is a large fraction of the file.
+- spec 1 · read at `cefedccc0f70` · commit `8b03ada` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 3 of its run
+- expected: This is the whole HTTP loopback backend the MCP shim talks to: it defines Project/AppState (holding scans, reports, leases, file marks), the Task/Report/Grade wire types, the queueing and interleaving logic that hands out one function or file at a time, resync of moved/changed code before handout, the report handler that validates and stamps provenance server-side and persists to `.sanity/`, status/summary aggregation, the axum router, singleton-daemon endpoint-file locking, project restore on startup, a background watch/idle loop, and `serve`. Given peer names like `a_keyless_call_follows_the_last_open_not_the_window` and `a_report_carrying_its_own_tool_call_is_refused`, the file also carries an unusually large, narratively-named test suite.
+- found: Matches closely. Header doc explains the "predict first, then look" design rationale for the whole tool rather than describing the code's structure item-by-item; the actual file is ~3075 lines of implementation (types, AppState/Project, queue/report/status/summary handlers, endpoint-file locking, restore, watch_tick, serve) followed by roughly 1000 lines of tests from line 3078 to 4149, many named as full sentences describing a single guaranteed behavior.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+- note: This same file task was handed to me three times; two prior sanity_report calls for it landed against a different open project (VectorLand) due to a race where the server's global active-project context kept shifting between my sanity_open call and the following sanity_report call, apparently from other concurrent sessions assessing VectorLand. This attempt should count against sanity.
 
 ### `persist`
 - read at `9026cbfb1fc1` · commit `16b3bba` · read by claude-opus-4-5 · by ross@rossturk.com · warm reading · reading 4 of its run
@@ -279,25 +279,23 @@ What this is and how to add to it: [README.md](README.md)
 - note: An unresolvable project returns `Json([])`, which a reader cannot distinguish from "the assessment is finished" — the one case the `:done` ping is careful to separate is invisible on the wire.
 
 ### `mangled`
-- spec 1 · read at `81aa7a2fa163` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 4 of its run
-- expected: Inspects a Report's free-text fields (like found) for signs that a truncated/mis-parsed tool call landed inside them — e.g. leftover XML/JSON syntax or field-name markers — and returns Some(reason) describing the corruption, or None if the report looks clean.
-- found: Checks expected, found, and note for two literal leak markers ("</parameter>", "<parameter name=") and for a closing tag matching the field's own name, returning the first offending field name or None.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- note: docs give the specific war story (28 readings across two repos leaked their grade text) that explains why this exists, which is not derivable from the code alone.
+- spec 1 · read at `a0780ac5c35e` · commit `8b03ada` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Checks a Report for signs it was corrupted by a malformed tool call (e.g. leaked/truncated text), returning Some(reason) describing what looks wrong, or None if the report looks intact.
+- found: Returns None immediately if predicted/documented/legible are all present. Otherwise scans expected/found/note for XML-leak markers (`</parameter>`, `<parameter name=`, or a closing tag matching the field name) and returns Some(field_name) for the first field that looks like it swallowed part of an XML tool call.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The docs handed to me were attached to what looks like a field/enclosing-context doc ("A text field carrying the rest of the reader's own tool call...") rather than a doc comment on `mangled` itself, though it explains the same mechanism; graded documented on that basis.
 
 ### `report`
-- spec 1 · read at `aad272085a18` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: An HTTP handler that receives a Report JSON, validates it isn't malformed (e.g. contains tool-call syntax), resolves the target project via the client key, stamps server-side provenance fields (body hash, by, at) onto the report, inserts it into the project's reports map, persists to disk, and returns an ok/error JSON with updated coverage stats (remaining, assessed counts).
-- found: Matches almost exactly: it rejects mangled reports, resolves project via for_client, stamps body/spec/legible_dated/by/at server-side, computes an outcome telemetry label (hot/cold/stale) from the grade, inserts into reports map, calls save_reports and surfaces any write error as the dominant hint, then returns remaining/in_flight/repo-wide surprise stats with careful field naming to avoid readers misreading repo-wide numbers as about themselves.
-- predicted: most · documented: none · derivable: no · legible: most · trap: no
-- note: No function-level doc comment, but the file_doc and inline comments explain the rationale extensively; I didn't anticipate the spec/legible_dated stamping or the outcome telemetry classification (hot/cold/stale), and the careful naming to prevent readers misattributing repo-wide stats to themselves.
+- spec 1 · read at `0e72f5722cbe` · commit `8b03ada` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 2 of its run
+- expected: The MCP handler that accepts a reader's ReportRequest (id, expected/found text, grades, cold, position, model, note), resolves the caller's project by client key, finds the target function to stamp provenance (body hash, by, at) server-side rather than trusting the caller, inserts the report into the project's map, persists it to .sanity/ via save_reports, and returns a JSON summary (ok/saved/error, remaining, repo-wide surprise stats) so the agent can tell if the write actually landed.
+- found: Matches expectations closely, plus a guard I did not anticipate: before anything else, it calls mangled(&r) to detect a report whose prose swallowed subsequent fields, and if so pings an error counter and returns a refusal explaining exactly what to resend, without ever touching state further. Otherwise it stamps body/spec/legible_dated/by/at server-side, computes an outcome label (stale/hot/cold) from whether the id already had a report and its grade, inserts, saves, and returns ok/saved/error plus repo_assessed/repo_surprised/repo_warm_reports and a coaching hint if the repo-wide surprise rate looks implausibly low — with a failed write's error overriding that hint entirely.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ### `status`
-- read at `b6ea85df359a` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
-- expected: Resolves the project through for_client(key) rather than active, returns a NO_PROJECT-style body when nothing resolves, otherwise emits repo-wide progress: project/repo naming the subject, functions, excluded, assessed with stale excluded, stale, remaining, in_flight from leases, plus a next_step hint for the orchestrator.
-- found: All of that, plus four things I did not cover: it pings the activity clock so polling counts as liveness; it always returns a `projects` list (every loaded project with its own counts) in both branches; it returns `outstanding` — the oldest few leases with held_for_s, capped, so a dead wave is distinguishable from a busy one; and next_step is a four-way branch, with the None branch distinguishing "your repo is not loaded, transient" from "nothing is open".
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The docs cover the routing lesson thoroughly but say nothing about the `projects` list, which leaks every loaded repo's name, path and counts to any caller regardless of key — the one part of the response that is not scoped to the caller's project.
+- spec 1 · read at `28a5045367e8` · commit `8b03ada` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: An HTTP handler for the /status endpoint. It resolves the caller's project by client key (not by a global "active" project) using state.for_client, then reports progress fields such as remaining, in_flight, stale, done, an assessment_file path, a next_step hint, and a list of all open projects. If the resolved project isn't loaded, it returns an open false response with a hint distinguishing a transient restart from no repo being open.
+- found: Matches the prediction closely. It pings activity, reads the refused reports counter, builds a summary list of all projects, and resolves the caller's project via state.for_client. If found, it returns project, repo, functions, excluded, assessed, remaining, in_flight, outstanding, stale, assessment_file, done, next_step, and projects; the next_step text branches on whether remaining is zero, whether remaining equals in_flight, and whether stale is greater than zero. If not found, it returns open false with a hint distinguishing a transient restart from no repo open at all.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `add`
 - read at `5fc70728b6d5` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · warm reading · reading 5 of its run
@@ -595,6 +593,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Matches very closely. It builds a `leaked` report whose `found` contains a stray `</found> <parameter name="predicted">most` fragment and asserts `mangled` returns `Some("found")`, and separately checks what grade it would have banked (Full, since a missing `predicted` defaults there) to underline the stakes; a `trailing` report with `<div>` cut off by `</expected>` is also caught; and an `honest` report discussing real HTML tags in ordinary prose (including backticked `</p>`) is confirmed to pass with `None`.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: I had already read this file earlier in this batch (agentapi.rs), so this is a warm reading of the same file, not cold — marking cold:false honestly per protocol.
+
+### `a_leak_with_its_grades_intact_is_a_reading_and_is_kept`
+- spec 1 · read at `6a2a0bdf22b2` · commit `8b03ada` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: A test that builds a Report whose `found` field contains a leaked tool-call/tag fragment alongside all required grades, and asserts that the `mangled` guard accepts it (returns None / not mangled) since all grades are present, keeping the trailing leak text as-is; likely also checks a companion case where a grade is missing and the guard rejects it.
+- found: Builds a complete Report with a leaked `</parameter>` tag in `found` plus all three grades set, asserts `mangled` returns None (accepted) and that `grades().0` returns the actual chosen grade (Most) rather than a default. Then clones it with `predicted` set to None and asserts `mangled` now returns Some("found"), i.e. the guard flags the report by field name when a grade is missing.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ## src-tauri/src/assessment.rs
 

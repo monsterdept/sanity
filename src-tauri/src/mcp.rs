@@ -379,12 +379,23 @@ pub fn tools() -> Value {
         {
             "name": "sanity_report",
             "description": "Report one function after predicting and then reading it, before you look at the next one. `predicted` is the measurement — grade it against what you wrote BEFORE reading, not against what you understand now. `documented` and `derivable` are about the docs you were handed, not the code. If those docs describe an enclosing type rather than this function, say so in `note` and grade `documented` as none: that is a finding about the repo, not your fault.",
+            // ORDER IS LOAD-BEARING: every short field first, the three long prose ones
+            // last. A reader emits its arguments in roughly the order the schema declares
+            // them, and when an emission is mangled it is whatever follows the long field
+            // that gets swallowed into it — the failure `mangled` refuses. With `expected`
+            // and `found` declared second and third, as they were, the things behind them
+            // were the GRADES, so a mangle cost the measurement and the reading was
+            // refused. Behind `found` now there is nothing but `note`.
+            //
+            // Measured, not reasoned: a reader hit this three times on one function, resent
+            // byte-identical prose twice to no effect, and got through on the fourth
+            // attempt by listing the grades first and `found` last — same text, nothing
+            // dropped. An earlier reader had "fixed" the same failure by deleting a `note`
+            // that held a real finding, which is the same mechanism seen from the wrong end.
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "id": { "type": "string", "description": "The id from sanity_next." },
-                    "expected": { "type": "string", "description": "What you predicted BEFORE reading it." },
-                    "found": { "type": "string", "description": "What it actually does." },
                     "predicted": {
                         "type": "string",
                         "enum": ["full", "most", "some", "none"],
@@ -409,12 +420,14 @@ pub fn tools() -> Value {
                         "description": "True ONLY if the CODE will bite whoever edits it next: an ordering assumption nothing enforces, a silent failure, an unguarded index or unchecked arithmetic, a resource that leaks on one path, a cache key missing something the value depends on. A documentation problem is NOT a trap — a doc describing behaviour the body does not have is `documented: none`, and flagging it here counts one defect twice. Nor is 'this surprised me', which is about you. Default to false; this field is only useful if it stays rare."
                     },
                     "surprised": { "type": "boolean", "description": "Superseded by `predicted` — send that instead. Kept so older callers still work." },
-                    "note": { "type": "string", "description": "One sentence a human can read, only if surprised." },
                     "model": { "type": "string", "description": "Which model you are, name and version, e.g. claude-haiku-4.5. A grade from a small fast model and one from a large one are not the same evidence. Say what you are; omit it rather than guess." },
                     "cold": { "type": "boolean", "description": "True if you had NOT read this file before predicting. Answer honestly — a warm reading is worth less, and Sanity marks it rather than discarding it." },
-                    "position": { "type": "number", "description": "Where this function sat in your run — 1 for the first you assessed, 2 for the second, and so on up to the batch size. Report the truth, and report it even if you took more than you were asked for: `cold` only asks whether you had opened this FILE, and cannot see that a reader deep into a batch has learned the repo's idioms and predicts better for reasons that are nothing to do with the code. A reading that says where it sat can be weighed; one that does not silently widens the scale." }
+                    "position": { "type": "number", "description": "Where this function sat in your run — 1 for the first you assessed, 2 for the second, and so on up to the batch size. Report the truth, and report it even if you took more than you were asked for: `cold` only asks whether you had opened this FILE, and cannot see that a reader deep into a batch has learned the repo's idioms and predicts better for reasons that are nothing to do with the code. A reading that says where it sat can be weighed; one that does not silently widens the scale." },
+                    "expected": { "type": "string", "description": "What you predicted BEFORE reading it." },
+                    "found": { "type": "string", "description": "What it actually does." },
+                    "note": { "type": "string", "description": "One sentence a human can read, only if surprised." }
                 },
-                "required": ["id", "expected", "found", "predicted", "documented", "derivable", "legible", "trap", "cold", "position", "model"]
+                "required": ["id", "predicted", "documented", "derivable", "legible", "trap", "cold", "position", "model", "expected", "found"]
             }
         },
         {

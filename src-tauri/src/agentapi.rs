@@ -124,6 +124,19 @@ pub struct AppState {
     pub last_tool: String,
     /// Ticks per agent call, so the UI can animate on repeats of the same tool.
     pub pings: u64,
+    /// Reports turned away by [`mangled`] since this backend started, across all projects.
+    ///
+    /// A refusal costs a reading its substance — the reader cannot see what went wrong,
+    /// and the lever it reaches for is its own prose. Before this, the only record that it
+    /// had happened at all was a subagent's recollection of its own transcript, which is
+    /// not evidence: a wave of six readers lost work on one of them and the other five
+    /// could not tell you so.
+    ///
+    /// Deliberately global and not per project. The refusal happens before a caller is
+    /// routed anywhere — that is the point of refusing early — so attributing it to a repo
+    /// would mean resolving one just to file the complaint. It is a property of the wave,
+    /// which is the thing being watched.
+    pub refused: u64,
     /// Projects the startup restore has read from the index but not yet rescanned.
     ///
     /// Held apart from `projects` on purpose. A placeholder in the map would be a project
@@ -2060,7 +2073,32 @@ pub struct ReportRequest {
 /// So the report is refused and the reading is not banked. Repairing it here by parsing
 /// the leak back out is the shape of the migration that once destroyed a project's
 /// readings — and unnecessary, because the reader is still running and can simply resend.
+///
+/// **A leak alone is not the fault; a MISSING GRADE is.** The first version refused on the
+/// leak by itself, and that cost the thing this whole tool measures. A reader hit it four
+/// times on one function, could not see its own serialisation, and did the only thing that
+/// ever appeared to work: it cut `found` from ~450 characters to 76 and was accepted. The
+/// reading landed as a one-line stub where the paragraph it replaced was the useful part.
+/// Refusing a call that carried every grade destroys a complete reading to tidy up some
+/// trailing punctuation — so the tail is kept as the reader sent it, ugly and honest, and
+/// only a call that actually lost a grade is turned away.
+///
+/// And the refusal has to say what to do. The first wording said "send it again as
+/// ordinary JSON", which a model cannot act on — it does not choose its own encoding — so
+/// the only lever it has left is the prose. The second wording ruled the prose out without
+/// offering anything in its place, which is no better: a reader resent identical text
+/// twice, was refused twice, and improvised anyway.
+///
+/// What actually works is ORDER — grades first, prose last, so a mangle swallows nothing
+/// that matters. The schema now declares the fields that way (see `mcp.rs`, where the
+/// reasoning lives), and this hint names it for the reader that hits the case regardless.
 fn mangled(r: &Report) -> Option<&'static str> {
+    // The grades are what the guard is protecting. `predicted` folds to `Full` when
+    // absent, so its loss is the expensive one; the other two go grey, which is a smaller
+    // lie but still one this build asked a reader for and did not get.
+    if r.predicted.is_some() && r.documented.is_some() && r.legible.is_some() {
+        return None;
+    }
     // The closing tags are the reliable half: an argument value that ends by closing the
     // tag it lives in cannot be prose about code. `<parameter name=` catches the rest of
     // the payload trailing behind it.
@@ -2089,15 +2127,32 @@ async fn report(
     // usually a grade. Rejected rather than repaired — the reader is still there and can
     // send it again, which is the only party that knows what it meant.
     if let Some(field) = mangled(&r) {
+        // Said in the reader's own terms, because the reader is the only party that can
+        // fix it and it cannot see what went wrong. The first wording sent it hunting for
+        // the fault in its prose, and shortening the prose is the one "fix" that appears
+        // to work — see `mangled`. Name what was lost, and rule the length out.
+        //
+        // Pinged as an error, because a refusal used to leave no trace anywhere: no ping,
+        // no counter, nothing written. Four of them cost one reading its substance, and
+        // the only record was a subagent's recollection of its own transcript, which is
+        // not evidence. Same argument as a failed write — work is being lost, and the
+        // human watching the window is the party who can stop it.
+        {
+            let mut state = lock(&state);
+            state.refused += 1;
+            state.ping("sanity_error");
+        }
         return Json(serde_json::json!({
             "ok": false,
             "saved": false,
             "error": format!(
-                "`{field}` contains tool-call syntax, so this call arrived with fields \
-                 missing and was NOT saved."
+                "`{field}` arrived carrying the rest of this call, so the grades after it \
+                 never reached the server. Nothing was saved."
             ),
-            "hint": "Send sanity_report again for the same id, as ordinary JSON \
-                     arguments, with every grade as its own field.",
+            "hint": "Send it again for the same id, listing every grade FIRST and the \
+                     prose fields last — that is what fixes it. Keep the same text in \
+                     full: its length is not the problem, and shortening it or dropping \
+                     `note` loses the reading for nothing.",
         }));
     }
     let mut state = lock(&state);
@@ -2242,6 +2297,10 @@ async fn status(
     // happening. Its mood is deliberately the quietest in the set: at this frequency
     // anything livelier would drown the calls that mean something.
     state.ping("sanity_status");
+    // Read before the map is borrowed. Reported on every status because the party that
+    // needs it is the one driving a wave, and it is the only number here that describes
+    // work the instrument DESTROYED rather than work it is waiting on.
+    let refused = state.refused;
     let projects: Vec<serde_json::Value> = state
         .projects
         .values()
@@ -2289,6 +2348,9 @@ async fn status(
                 "repo": p.repo.to_string_lossy(),
                 "functions": functions,
                 "excluded": excluded,
+                // Not scoped to this repo — see `AppState::refused`. Named for what it
+                // counts so a driving session cannot read it as "reports outstanding".
+                "refused_reports": refused,
                 // Stale readings excluded, so this agrees with the sidebar and with
                 // `remaining`. Through `assessed`, not spelled out again: this handler
                 // carried its own `reports.len() - stale` a few lines from a call to the
@@ -4087,5 +4149,32 @@ fn second() { println!(\"2\"); }\n").unwrap();
             ..Report::blank()
         };
         assert_eq!(mangled(&honest), None);
+    }
+
+    /// A leak with every grade behind it is a complete reading, and refusing it is how the
+    /// guard cost this repo a paragraph: the reader cannot see its own serialisation, so
+    /// the only lever it has is the prose, and it shortened until something was accepted.
+    /// The trailing tag is kept as sent — cosmetic, in a store people read — because the
+    /// alternative is parsing the leak back out, which is the shape of the migration that
+    /// once destroyed a project's readings.
+    #[test]
+    fn a_leak_with_its_grades_intact_is_a_reading_and_is_kept() {
+        let complete = Report {
+            found: "…and a pinned provenance footer.</parameter>".into(),
+            predicted: Some(Grade::Most),
+            documented: Some(Grade::None),
+            legible: Some(Grade::Most),
+            ..Report::blank()
+        };
+        assert_eq!(mangled(&complete), None);
+        // The grade the reader chose, not the `Full` a truncated call would have banked.
+        assert_eq!(complete.grades().0, Grade::Most);
+
+        // One grade short of complete is the case the guard exists for, leak and all.
+        let lost_a_grade = Report {
+            predicted: None,
+            ..complete.clone()
+        };
+        assert_eq!(mangled(&lost_a_grade), Some("found"));
     }
 }
