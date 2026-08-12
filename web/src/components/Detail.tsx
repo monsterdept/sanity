@@ -177,7 +177,7 @@ function grade(r: AgentReport): Grade {
 /** Where the numbers above came from, in one sentence. */
 function provenance(node: Node, model: string | null): string {
   if (!isAnalyzed(node)) {
-    return 'Not read yet — the colour is the offline proxy, which measurably tracks file length more than surprise.'
+    return 'Not read yet'
   }
   const a = node.agent
   if (node.score?.source === 'agent' && a) {
@@ -528,6 +528,12 @@ export function Detail({
           come first. Same row every other pane opens with; see `Dials`, and see `Reading` for
           why the leaf keeps it rather than a grade table of its own. */}
       <Dials node={node} />
+      {/* The rule under the header belongs to the header, not to the dials — but it is
+          drawn by `Dials`, which returns nothing for an unread function, so an unread pane
+          ran its name straight into the counts while every read one had a divider there.
+          Full-bleed (`-mx-4`) to match, and only when the dials are absent, or the two
+          would land a dozen pixels apart. */}
+      {!analyzed && <div className="-mx-4 mt-4 border-t border-[var(--border)]" />}
       <FunctionRanks node={node} pop={pop} />
       </div>
 
@@ -548,10 +554,12 @@ export function Detail({
            person reaches by clicking any grey wedge told them to do something
            impossible. Readings come from agents over MCP now, and the only thing that
            produces one here is a reader being pointed at this repo. */
-        <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
-          Nobody has read this yet. The queue is ordered by how promising each function
-          looks, and it hasn’t got here. Readings come from an agent working through the
-          repo over MCP — point one at this project and it will fill in.
+        /* The same rule the reading sits under when there IS one, so the unread pane has
+           the shape of the read one with the reading missing, rather than a paragraph
+           left floating against the dials. */
+        <p className="mt-4 border-t border-[var(--border)] pt-3 text-xs leading-relaxed text-[var(--muted-foreground)]">
+          This has not yet been analyzed. Readings come from an agent working through the
+          repo over MCP. Point one at this project and it will fill in.
         </p>
       ) : (
         <>
