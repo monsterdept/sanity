@@ -6,8 +6,9 @@ import { elide } from '../lib/text'
 import { PAPER } from '../lib/ink'
 import { FAMILY } from '../lib/labelStyle'
 import { Dials } from './Dials'
+import { FunctionRanks } from './Reading'
+import type { Population } from '../lib/population'
 import {
-  LEGIBLE_WORDS,
   isAnalyzed,
   readingWords,
   wedgeHeat,
@@ -127,12 +128,6 @@ function CopyButton({ text, title }: { text: string; title: string }) {
       )}
     </button>
   )
-}
-
-const KIND_LABEL: Record<Node['kind'], string> = {
-  dir: 'directory',
-  file: 'file',
-  func: 'function',
 }
 
 /** What the list ranks by, per mode — the same quantity the ring is coloured by. */
@@ -285,6 +280,7 @@ export function Detail({
   onDrill,
   owners,
   onShowIn,
+  pop,
 }: {
   node: Node | null
   /** The subtree the map is showing, for the pane with no selection to describe. */
@@ -305,6 +301,10 @@ export function Detail({
   owners?: Node[]
   /** Show the map one of them, keeping this selection. */
   onShowIn?: (n: Node) => void
+  /** The repo's own distributions, for placing a function in them. Built once per scan by
+   *  `App` — a leaf pane that walked the tree on every selection would do it thousands of
+   *  times for one answer that never changes. */
+  pop?: Population
 }) {
   if (!node) {
     // With nothing selected the pane describes the whole picture instead. The gestures
@@ -389,14 +389,6 @@ export function Detail({
       </p>
     )
 
-  /** Three ring kinds are hard to tell apart in a sunburst, and hue cannot be borrowed to
-   *  distinguish them — hue is the chart's entire message. So the panel says it outright. */
-  const kindBadge = (
-    <span className="shrink-0 rounded-full border border-[var(--border)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
-      {KIND_LABEL[node.kind]}
-    </span>
-  )
-
   /* A selected container is described by the SAME pane the repo is, scoped to it.
      They were two designs for one job: `Summary` for the whole project, and a dial row
      plus a `Contents` list here. But a directory IS a subtree exactly as the root is, and
@@ -464,7 +456,6 @@ export function Detail({
         ageSpan={ageSpan}
         onSelect={onSelect}
         onDrill={onDrill}
-        kind={kindBadge}
         path={pathLine}
         footer={provenance(node, model)}
         about={about}
@@ -506,7 +497,12 @@ export function Detail({
         <h2 className="truncate text-sm font-semibold" style={{ fontFamily: FAMILY }}>
           {node.name}
         </h2>
-        {kindBadge}
+        {/* No kind badge. `FILE` and `DIRECTORY` beside the name said what the name and
+            the path under it already say — `history.rs` under `src-tauri / src` is not
+            something anyone mistakes for a directory — and it took the eye first, being the
+            only outlined thing in the header. The distinction it defended is real for
+            FUNCTIONS, and those are told apart by what the pane holds: a function's panel
+            has a reading and prose in it, a container's has a breakdown and a list. */}
         {/* In the header, not among the dials.
             A trap is the one thing here that is not a measurement on a scale — it is a
             warning about this specific function, and it was reachable only by finding the
@@ -523,18 +519,16 @@ export function Detail({
         )}
       </div>
       {pathLine}
-      {/* A function gets lines alone: it has no function count to give. The container
-          panes print `lines · functions` from `Summary`. */}
-      <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
-        {node.loc.toLocaleString()} lines
-      </p>
+      {/* No lines-alone line here: the count is a member of a distribution and is printed as
+          one, in `FunctionRanks`, where `153` sits beside what it is long or short against. */}
 
-      {/* The two bars ride WITH the header, above the verdict rather than below it. They
-          were under the verdict box, which put the panel's only two numbers three
-          paragraphs down and off the bottom of a short pane — the verdict is a reading OF
-          them, so it cannot come first. Same row the container panes open with; see
-          `Dials`. */}
+      {/* The dials ride WITH the header, above the verdict rather than below it. They were
+          under the verdict box, which put the panel's only measurements three paragraphs down
+          and off the bottom of a short pane — the verdict is a reading OF them, so it cannot
+          come first. Same row every other pane opens with; see `Dials`, and see `Reading` for
+          why the leaf keeps it rather than a grade table of its own. */}
       <Dials node={node} />
+      <FunctionRanks node={node} pop={pop} />
       </div>
 
       {/* `min-h-0` because a flex child's default `min-height:auto` refuses to shrink
@@ -592,30 +586,13 @@ export function Detail({
                 </div>
               )}
 
-              {/* A grade that answered a question we have since rewritten.
-                  Narrower than the stale block above it and shaped the same way, because it
-                  is the same kind of fact: a reading that is still true about what it was
-                  asked, and no longer about what we ask. The difference is scope — staleness
-                  retires the whole reading because the BODY moved, this retires one axis
-                  because the QUESTION moved, and saying "stale" for both would tell somebody
-                  their prediction had expired when it has not.
-                  Kept on screen rather than hidden: the reader did the work and said
-                  something, and a panel that silently dropped it would look like a reader
-                  that never answered. */}
-              {node.agent.legibleDated && node.agent.legible && !node.agentStale && (
-                <div className="rounded-[var(--radius-sm)] border border-[var(--border)] px-2 py-1.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-                    Legibility asked differently
-                  </p>
-                  <p className="mt-0.5 text-[11px] leading-snug text-[var(--muted-foreground)]">
-                    This reader answered “how clear is it on its own terms” and said{' '}
-                    <span className="font-semibold">{LEGIBLE_WORDS[node.agent.legible]}</span>.
-                    Legibility now asks what reading it was like — one pass, a second look,
-                    or never being sure — so the grade is kept as history and does not colour
-                    this wedge.
-                  </p>
-                </div>
-              )}
+              {/* No card for a grade that answered a question we have since rewritten.
+                  It explained, at the length of the stale block above it, a distinction the
+                  panel no longer draws anywhere else: `legibleOf` returns nothing for a
+                  dated grade, so the dial reads grey and the lens, the breakdown and the
+                  spread have already left it out. A paragraph is the wrong weight for
+                  "there is no reading here" — the grey dial says it, and this said it again
+                  in six lines about the app's own history. */}
 
               {!node.agent.cold && (
                 <p

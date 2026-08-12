@@ -1,7 +1,9 @@
+import type { ReactNode } from 'react'
 import {
   DOC_GAP,
   DOC_WORDS,
   GRADE_SURPRISE,
+  HEAT_WORDS,
   LEGIBLE_WORDS,
   heatColor,
   isAnalyzed,
@@ -140,6 +142,29 @@ export function Gauge({
   )
 }
 
+/**
+ * A grade as its rung out of four — `2/4` — which is what the dial prints for a reading.
+ *
+ * It printed the WORD, and the word is the better description and the worse readout. Four
+ * dials in a row each held a different vocabulary — `typical`, `decent`, `—` — so the row
+ * had nothing in common down its middle and the one dial with a number in it (`CHURN 38`)
+ * read as the only real measurement among three labels. A fraction says the two things the
+ * word cannot at a glance: that this scale has exactly four steps, and which of them this
+ * is. The word is still what a reader said, so it moves into the tooltip rather than out of
+ * the app.
+ *
+ * **Direction follows the dial's own number, not the ramp.** Surprise counts UP toward
+ * surprising, because a container's surprise dial is a percentage that does; Docs and
+ * Legibility count up toward the good end, because theirs do. That is the same rule the
+ * printed number already obeyed — the colour is the thing that always paints the gap.
+ */
+const RUNG_GOOD: Record<Grade, number> = { full: 4, most: 3, some: 2, none: 1 }
+const RUNG_HOT: Record<Grade, number> = { full: 1, most: 2, some: 3, none: 4 }
+
+function fraction(rung: number): string {
+  return `${rung}/4`
+}
+
 /** A reader's grade, for the two dials that have one, or undefined. */
 function graded(node: Node, which: 'legible' | 'documented'): Grade | undefined {
   // Files as well as functions: a file carries its own reading now, and its header's grade
@@ -216,7 +241,7 @@ function badShare(node: Node, which: 'legible' | 'documented'): number | null {
  * and it is why the row can be fixed at four: an absent measurement is a thing to say, not
  * a thing to hide by reflowing around it.
  */
-export function Dials({ node }: { node: Node }) {
+export function Dials({ node, lead }: { node: Node; lead?: ReactNode }) {
   const s = node.score
   if (!s || !isAnalyzed(node)) return null
   const share = showsShare(node)
@@ -228,13 +253,26 @@ export function Dials({ node }: { node: Node }) {
   // reason: a file's own reading carries the whole file's line count.
   const docs = node.kind === 'dir' ? fileDocShare(node) : null
   const docGrade = graded(node, 'documented')
+  /** The surprise grade, when a reader gave one — the same fold `readingWords` applies, so a
+   *  reading banked before the grades existed still lands on an end of the scale rather than
+   *  falling through to a percentage. */
+  const predicted: Grade | undefined =
+    node.kind === 'func' && node.agent && !node.agentStale
+      ? (node.agent.predicted ?? (node.agent.surprised ? 'none' : 'full'))
+      : undefined
 
   return (
     // Under its own full-bleed rule, the same one the section below it gets. The dials are
     // a section of the pane rather than a continuation of the header — what the thing IS
     // above the line, what was measured of it below — and without the rule they read as a
     // third line of the header set in a much larger type.
-    <div className="-mx-4 mt-4 grid shrink-0 grid-cols-4 gap-1 border-t border-[var(--border)] px-4 pt-3">
+    <div className="-mx-4 mt-4 shrink-0 border-t border-[var(--border)] px-4 pt-3">
+      {/* What the thing is MADE OF belongs with what was measured of it, not with its name.
+          Lines, functions and commits sat in the header, so the rule fell between the
+          counts and the dials — two rows of numbers about the same subject, split by the
+          one line in the pane that means "different section". */}
+      {lead}
+      <div className="grid grid-cols-4 gap-1">
       {/* Surprise. A container reports the share of its analysed lines sitting in hot code
           — `wedgeHeat` — which is the figure its wedge is painted with, so the dial and the
           ring agree. A function reports its own temperature. */}
@@ -248,11 +286,13 @@ export function Dials({ node }: { node: Node }) {
         label={share ? 'Surprising' : 'Surprise'}
         value={wedgeHeat(node)}
         ramp="heat"
-        word={words?.heat}
+        word={predicted ? fraction(RUNG_HOT[predicted]) : words?.heat}
         hint={
           share
             ? 'The share of analysed lines under here sitting in surprising code — the figure this wedge is coloured by.'
-            : 'How little of this body a reader could predict from its name, signature, neighbours and docs. This is the colour. A reader’s judgement has four steps, so it is named rather than numbered — a printed 62 would invite a comparison the scale cannot make.'
+            : `How little of this body a reader could predict from its name, signature, neighbours and docs. This is the colour. Four steps, counting up toward surprising: 1 predictable, 2 typical, 3 quirky, 4 obscure.${
+                predicted ? ` This one: ${HEAT_WORDS[predicted]}.` : ''
+              }`
         }
       />
       {/* Documentation is a REPORT, not a discount. It no longer multiplies into the colour
@@ -289,8 +329,10 @@ export function Dials({ node }: { node: Node }) {
         }
         ramp="docs"
         unread={node.kind === 'dir' ? docs === null : !docGrade && share}
-        word={node.kind === 'dir' ? null : docGrade ? DOC_WORDS[docGrade] : null}
-        hint="How much of what this code does somebody has explained — graded by the reader that read both the docs and the body, not counted in comment lines. A directory reports the share of its files whose header describes them; a doc the reader judged derivable from the code counts as none, whatever grade it gave. The colour runs the other way: bright is the part nobody has written."
+        word={node.kind === 'dir' ? null : docGrade ? fraction(RUNG_GOOD[docGrade]) : null}
+        hint={`How much of what this code does somebody has explained — graded by the reader that read both the docs and the body, not counted in comment lines. Four steps, counting up toward covered: 1 none, 2 some, 3 decent, 4 full. A directory reports the share of its files whose header describes them instead; a doc the reader judged derivable from the code counts as none, whatever grade it gave. The colour runs the other way: bright is the part nobody has written.${
+          docGrade ? ` This one: ${DOC_WORDS[docGrade]}.` : ''
+        }`}
       />
       {/* The second axis. Surprise alone cannot tell a subtle algorithm from a mess — both
           are unpredictable — and churn is what separates them.
@@ -317,9 +359,12 @@ export function Dials({ node }: { node: Node }) {
         rampValue={share ? (legible ?? 0) : legibleGrade ? GRADE_SURPRISE[legibleGrade] : 0}
         ramp="legible"
         unread={share ? legible === null : !legibleGrade}
-        word={share ? null : legibleGrade ? LEGIBLE_WORDS[legibleGrade] : null}
-        hint="What reading this was like, judged by what the reader actually did — one pass, a second look, jumping around, or never being sure. Surprise asks whether the intent was reachable from outside; this asks what was there when they looked. The colour runs the other way: bright is the tangled end."
+        word={share ? null : legibleGrade ? fraction(RUNG_GOOD[legibleGrade]) : null}
+        hint={`What reading this was like, judged by what the reader actually did. Four steps, counting up toward clear: 1 unclear, 2 tangled, 3 nuanced, 4 clean. Surprise asks whether the intent was reachable from outside; this asks what was there when they looked. The colour runs the other way: bright is the tangled end.${
+          legibleGrade ? ` This one: ${LEGIBLE_WORDS[legibleGrade]}.` : ''
+        }`}
       />
+      </div>
     </div>
   )
 }

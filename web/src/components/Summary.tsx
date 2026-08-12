@@ -383,17 +383,12 @@ export function Summary({
   ageSpan,
   onSelect,
   onDrill,
-  kind,
   path,
   footer,
   about,
 }: {
   /** The subtree on screen. */
   node: Node
-  /** Named beside the title, when this pane is describing a SELECTED container rather than
-   *  the picture as a whole. Three ring kinds are hard to tell apart in a sunburst and hue
-   *  is spoken for, so the panel says it outright. */
-  kind?: React.ReactNode
   /** Where it lives, as the clickable crumbs `Detail` builds. Undefined at the root, which
    *  is not inside anything. */
   path?: React.ReactNode
@@ -464,7 +459,6 @@ export function Summary({
           <h2 className="mono truncate text-sm font-semibold" title={title}>
             {title}
           </h2>
-          {kind}
         </div>
         {path ??
           (repo && (
@@ -472,29 +466,34 @@ export function Summary({
               {elide(repo, 40)}
             </p>
           ))}
-        <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
-          {/* One shape for what a repo IS: lines, functions, commits — the same three the
-              history header prints, so switching between them is not switching layouts.
-              `compactCount` keeps it on one line whatever the project's size; a header that
-              wraps on a big repo and not a small one is a layout tested against one repo. */}
-          {compactCount(node.loc)} lines · {compactCount(s.functions)}{' '}
-          {s.functions === 1 ? 'function' : 'functions'}
-          {commits > 0 && <> · {compactCount(commits)} commits</>}
-          {/* Never on its own line and never omitted: `functions` is what the readings
-              below are counted against, and a denominator somebody narrowed months ago
-              has to be visible beside it. */}
-          {s.excluded > 0 && (
-            <span title=".sanityignore set these aside: still drawn, never queued.">
-              {' '}
-              · {s.excluded.toLocaleString()} excluded
-            </span>
-          )}
-        </p>
-
-        {/* What was measured of this subtree, above what it is made of. The row a selected
-            directory used to have to itself — see `Dials`, which is where it lives now so
-            the repo and a folder inside it cannot end up with two versions of it. */}
-        <Dials node={node} />
+        {/* What was measured of this subtree, under the same rule as what it is made of —
+            see `Dials`, which is where the row lives so the repo and a folder inside it
+            cannot end up with two versions of it. The counts ride in as its `lead`: they
+            are numbers about the subject, and the header above the rule is the subject's
+            NAME. */}
+        <Dials
+          node={node}
+          lead={
+            <p className="mb-3 text-[11px] text-[var(--muted-foreground)]">
+              {/* One shape for what a repo IS: lines, functions, commits — the same three the
+                  history header prints, so switching between them is not switching layouts.
+                  `compactCount` keeps it on one line whatever the project's size; a header that
+                  wraps on a big repo and not a small one is a layout tested against one repo. */}
+              {compactCount(node.loc)} lines · {compactCount(s.functions)}{' '}
+              {s.functions === 1 ? 'function' : 'functions'}
+              {commits > 0 && <> · {compactCount(commits)} commits</>}
+              {/* Never on its own line and never omitted: `functions` is what the readings
+                  below are counted against, and a denominator somebody narrowed months ago
+                  has to be visible beside it. */}
+              {s.excluded > 0 && (
+                <span title=".sanityignore set these aside: still drawn, never queued.">
+                  {' '}
+                  · {s.excluded.toLocaleString()} excluded
+                </span>
+              )}
+            </p>
+          }
+        />
         {about}
 
         {s.functions > 0 && (

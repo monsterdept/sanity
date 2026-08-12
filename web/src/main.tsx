@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import { CodeWindow } from './CodeWindow'
+import { dismissSplash } from './lib/splash'
 import { applyStoredTheme } from './lib/theme'
 import './index.css'
 
@@ -26,19 +27,20 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-// Take the splash down once there is something behind it.
+// Take the splash down once there is something behind it — and "something" is not the
+// first paint. `App` calls `dismissSplash` when it has a map or a first-run card; see
+// `lib/splash.ts` for why the frame is the wrong event to hang this on.
 //
-// After a frame, not immediately: `render` schedules the work rather than performing it,
-// so removing the splash on the next line can uncover a root that has not painted yet —
-// which is the white flash again, moved. Faded rather than cut, and removed from the
-// document afterwards so it cannot sit over the app swallowing clicks if the transition
-// never fires.
-const splash = document.getElementById('splash')
-if (splash) {
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() => {
-      splash.classList.add('is-gone')
-      setTimeout(() => splash.remove(), 400)
-    }),
-  )
+// A popped-out code window has no such moment: it fetches one file and that is the whole
+// of it, so it keeps the old rule. After a frame, not immediately — `render` schedules the
+// work rather than performing it, so uncovering the root on the next line can reveal one
+// that has not painted, which is the white flash again, moved.
+if (code && repo) {
+  requestAnimationFrame(() => requestAnimationFrame(dismissSplash))
+} else {
+  // The cap, so a backend that never answers cannot leave somebody staring at a wordmark
+  // with no way to reach the window behind it. Long enough that a cold start reaches its
+  // own map first on any machine this has been run on; short enough to be a hitch rather
+  // than a hang.
+  setTimeout(dismissSplash, 8000)
 }

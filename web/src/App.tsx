@@ -40,6 +40,8 @@ import {
   ageSpanOf,
   type ColorMode,
 } from './lib/colorMode'
+import { populationOf } from './lib/population'
+import { dismissSplash } from './lib/splash'
 import { loadTheme, saveTheme, watchSystemTheme, type Theme } from './lib/theme'
 import { CodeView } from './components/CodeView'
 import { ColourLegend, ModeSwitcher } from './components/ColourKey'
@@ -563,6 +565,40 @@ export default function App() {
     [projects, activeKey],
   )
 
+  /** The project the empty pane is waiting on, whether or not one has been selected yet.
+   *
+   *  A launch has a window between "the list has arrived" and "a tree has been built from
+   *  one of them", and during it nothing was selected — so the pane fell through to the
+   *  first-run card and told somebody with three projects to go and study their first. A
+   *  list with anything in it is never that state; the honest answer is which project is
+   *  being read. `projects[0]` because the restore takes them in order and the pane is
+   *  naming a wait, not addressing a selection. */
+  const awaiting = useMemo(
+    () => loadingProject ?? (projects.length > 0 ? (activeProject ?? projects[0]) : null),
+    [loadingProject, projects, activeProject],
+  )
+
+  /** The repo's own distributions, so a selected function can be placed in them.
+   *
+   *  Off the whole TREE, never off `focus`: a percentile is only a fact about a fixed
+   *  population, and rebuilding it per drill would mean the same function read `longer than
+   *  71%` at the top and `longer than 40%` one ring in, with nothing on screen saying the
+   *  scale had moved under it. Same argument as `ageSpan` directly above.
+   *
+   *  Memoised on the tree because it is one walk of every function and the panel it feeds
+   *  re-renders on every hover. */
+  const pop = useMemo(() => (tree ? populationOf(tree) : undefined), [tree])
+
+  /** The splash comes down here, not after the first paint. See `lib/splash.ts`.
+   *
+   *  Ready means one of the two things the window has to say: a map, or — with the list
+   *  fetched and genuinely empty — the card telling you how to get one. Everything between
+   *  those is the app booting, which is what the wordmark is covering. */
+  const booted = focus !== null || (projectsLoaded && projects.length === 0)
+  useEffect(() => {
+    if (booted) dismissSplash()
+  }, [booted])
+
   /** The ancestry of what is on screen: root first, focus last.
    *
    *  Walked up the TREE, not read off the drill stack. The stack records where you
@@ -765,25 +801,23 @@ export default function App() {
                 onDrill={drill}
                 onUp={goUp}
               />
-            ) : loadingProject ? (
-              // Selected, but its rescan has not finished. The empty pane's copy tells you
-              // how to open a project — advice for someone with none, addressed to someone
-              // who has one and is waiting on it. Show the wait instead.
+            ) : awaiting ? (
+              // There are projects, and none of them has a tree on screen yet. The empty
+              // pane's copy tells you how to open a project — advice for someone with none,
+              // addressed to someone who has three and is waiting on one. Show the wait.
               <ProgressPane
-                label={`Reading ${loadingProject.name}…`}
+                label={`Reading ${awaiting.name}…`}
                 progress={
-                  loadingProject.read_total > 0
-                    ? { done: loadingProject.read_done, total: loadingProject.read_total }
+                  awaiting.read_total > 0
+                    ? { done: awaiting.read_done, total: awaiting.read_total }
                     : null
                 }
               />
             ) : !projectsLoaded ? (
-              // Not "no projects" — "not asked yet". Deliberately quiet: on a warm start
-              // this is on screen for one poll, and anything with a headline in it would
-              // flash.
-              <div className="flex h-full items-center justify-center p-8">
-                <p className="text-xs text-[var(--muted-foreground)]">Loading projects…</p>
-              </div>
+              // Not "no projects" — "not asked yet". Blank on purpose: the splash is still
+              // over this, and anything written here is a screen nobody asked for between
+              // the wordmark and the answer.
+              <div className="h-full" />
             ) : (
               <Empty connected={connected} onConnect={() => setShowAgents(true)} />
             )}
@@ -859,6 +893,7 @@ export default function App() {
             onDrill={drill}
             owners={owners}
             onShowIn={showIn}
+            pop={pop}
           />
           )}
         </aside>
