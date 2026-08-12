@@ -441,6 +441,19 @@ fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
                     r.cold = true;
                 } else if seg == "warm reading" {
                     r.cold = false;
+                } else if let Some(v) = seg.strip_prefix("priming: ") {
+                    // "CLAUDE.md in context" / "CLAUDE.md excluded" — the file list is
+                    // everything up to the verdict, so a repo carrying two of them round
+                    // trips. An unrecognised tail is neither, and leaves both halves at
+                    // their defaults rather than guessing which way it fell.
+                    let v = v.trim();
+                    if let Some(f) = v.strip_suffix(" in context") {
+                        r.agent_docs = f.trim().to_string();
+                        r.primed = true;
+                    } else if let Some(f) = v.strip_suffix(" excluded") {
+                        r.agent_docs = f.trim().to_string();
+                        r.primed = false;
+                    }
                 } else if let Some(v) = seg.strip_prefix("reading ") {
                     // "reading 3 of its run" — how much of this repo the reader had
                     // already seen when it made this call. Absent on everything banked
@@ -938,6 +951,18 @@ fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) 
     if let Some(n) = r.position {
         meta.push(format!("reading {n} of its run"));
     }
+    // Only where there is something to be missing. A repo with no instructions file has
+    // nothing to prime a reader WITH, so "not primed" there is noise on every entry — but
+    // in a repo that has one, both answers are news: `in context` says this reading saw a
+    // description of what it was predicting, and `excluded` says somebody launched the run
+    // without it and the reading is worth what it claims to be.
+    if !r.agent_docs.is_empty() {
+        meta.push(format!(
+            "priming: {} {}",
+            r.agent_docs,
+            if r.primed { "in context" } else { "excluded" }
+        ));
+    }
     s.push_str(&format!("- {}\n", meta.join(" · ")));
 
     s.push_str(&format!("- expected: {}\n", flat(&r.expected)));
@@ -1145,6 +1170,36 @@ pub fn who(repo: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// Files a coding agent loads into its own context without being asked.
+///
+/// Only the ones a HOST injects unprompted. A `docs/` tree or a README is something a
+/// reader would have to go and fetch, and fetching is a choice the reading can own; these
+/// arrive before the reader has done anything, which is the difference that matters here.
+const AGENT_DOCS: &[&str] = &["CLAUDE.md", "AGENTS.md", "GEMINI.md", ".cursorrules"];
+
+/// Which of those this repo has at its root, comma-joined. Empty when it has none.
+///
+/// **This is the hazard, not the exposure**, and the distinction is the whole design.
+/// Sanity can see that a repo carries a `CLAUDE.md`; it cannot see whether the reader that
+/// just predicted a function had it in context, because a tool call arrives long after the
+/// system prompt was built. So this is half the answer and [`crate::agentapi::Report::primed`]
+/// is the other, and only the pair is worth anything: a reader reporting itself unprimed in
+/// a repo with no instructions file has said nothing, while the same report here is the
+/// evidence that a run was launched clean.
+///
+/// Root only. Claude Code also picks up a `CLAUDE.md` beside the file being worked on, so
+/// this can undercount — but a root file is the one that covers the whole repo, and the
+/// question is being asked about whole runs. It is the same shape as `cold`: a check worth
+/// having is not the same as a proof.
+pub fn agent_docs(repo: &Path) -> String {
+    AGENT_DOCS
+        .iter()
+        .filter(|f| repo.join(f).exists())
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1327,6 +1382,55 @@ mod tests {
         // And back out again, in the same slot.
         let rendered = render_entry("foo", 0, false, r, false);
         assert!(rendered.contains("- spec 7 · read at"), "got: {rendered}");
+    }
+
+    /// Priming round-trips as a pair, and says nothing when there is nothing to say.
+    ///
+    /// The two halves are recorded together because neither is worth much alone: what the
+    /// repo HELD is server-stamped and checkable, what was in the reader's CONTEXT is the
+    /// only thing the reader can see, and the finding is the combination. So one segment
+    /// carries both, and a repo with no instructions file renders none — an entry that said
+    /// "not primed" on every reading of a repo with nothing to be primed by is noise that
+    /// teaches people to skip the field that matters.
+    #[test]
+    fn priming_round_trips_and_is_silent_when_there_is_nothing_to_say() {
+        let mut back = HashMap::new();
+        parse_shard(
+            "## src/a.rs\n\
+             \n### `foo`\n\
+             - spec 1 · read at `aabb` · cold reading · priming: CLAUDE.md in context\n\
+             - expected: x\n\
+             - found: y\n\
+             - predicted: full · documented: none · derivable: no · legible: full\n\
+             \n### `bar`\n\
+             - spec 1 · read at `ccdd` · cold reading · priming: CLAUDE.md, AGENTS.md excluded\n\
+             - expected: x\n\
+             - found: y\n\
+             - predicted: full · documented: none · derivable: no · legible: full\n",
+            &mut back,
+        );
+        let primed = &back["src/a.rs#foo"];
+        assert!(primed.primed);
+        assert_eq!(primed.agent_docs, "CLAUDE.md");
+        // Two instruction files still round trip: the list runs up to the verdict, so the
+        // comma inside it is not a boundary.
+        let clean = &back["src/a.rs#bar"];
+        assert!(!clean.primed);
+        assert_eq!(clean.agent_docs, "CLAUDE.md, AGENTS.md");
+
+        assert!(
+            render_entry("foo", 0, false, primed, false).contains("priming: CLAUDE.md in context"),
+        );
+        assert!(
+            render_entry("bar", 0, false, clean, false)
+                .contains("priming: CLAUDE.md, AGENTS.md excluded"),
+        );
+
+        // A repo with no instructions file has nothing to be primed by, and says so by
+        // saying nothing. `primed` alone must not be enough to print a segment.
+        let mut lone = Report { primed: true, ..Report::blank() };
+        lone.body = "aabb".into();
+        assert!(!render_entry("baz", 0, false, &lone, false).contains("priming"));
     }
 
     /// An older build's reader must not be broken by a bullet it has never heard of.

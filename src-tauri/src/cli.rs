@@ -445,6 +445,28 @@ pub fn study(path: &str, show: bool) -> i32 {
         }
     );
     println!();
+    // To the human, in the human's terminal, before the wave. The same argument as the
+    // model question below it and a stronger case for it: which model reads is a choice
+    // somebody makes, while this is a default of the HOST that nobody chose and most
+    // people do not know is happening. It reaches the orchestrator too, in the `/open`
+    // response — but the orchestrator is the party that cannot fix it, because its
+    // readers' context is built before any of them can call anything. Only the person
+    // typing the launch command can.
+    let docs = text(&opened, "agent_docs");
+    if !docs.is_empty() {
+        println!("Before you start — this repo has {docs}, and Claude Code puts it in");
+        println!("every subagent. Readers would arrive already holding a description of the");
+        println!("code they are about to predict, which grades as recall.");
+        println!();
+        println!("    claude --setting-sources user");
+        println!();
+        println!(
+            "drops project instructions and keeps Sanity's MCP server, and it applies to \
+             subagents."
+        );
+        println!("Readers are asked either way, and `sanity summary {path}` reports the split.");
+        println!();
+    }
     if remaining == 0 {
         println!("Every function has an up-to-date reading. `sanity summary {path}` says what it found.");
     } else {

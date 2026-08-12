@@ -423,11 +423,12 @@ pub fn tools() -> Value {
                     "model": { "type": "string", "description": "Which model you are, name and version, e.g. claude-haiku-4.5. A grade from a small fast model and one from a large one are not the same evidence. Say what you are; omit it rather than guess." },
                     "cold": { "type": "boolean", "description": "True if you had NOT read this file before predicting. Answer honestly — a warm reading is worth less, and Sanity marks it rather than discarding it." },
                     "position": { "type": "number", "description": "Where this function sat in your run — 1 for the first you assessed, 2 for the second, and so on up to the batch size. Report the truth, and report it even if you took more than you were asked for: `cold` only asks whether you had opened this FILE, and cannot see that a reader deep into a batch has learned the repo's idioms and predicts better for reasons that are nothing to do with the code. A reading that says where it sat can be weighed; one that does not silently widens the scale." },
+                    "primed": { "type": "boolean", "description": "True if a project instructions file for this repo — CLAUDE.md, AGENTS.md — was in your context before you predicted. Check rather than assume: your host may have injected one unasked, and a reader already holding a description of what it is predicting is recalling." },
                     "expected": { "type": "string", "description": "What you predicted BEFORE reading it." },
                     "found": { "type": "string", "description": "What it actually does." },
                     "note": { "type": "string", "description": "One sentence a human can read, only if surprised." }
                 },
-                "required": ["id", "predicted", "documented", "derivable", "legible", "trap", "cold", "position", "model", "expected", "found"]
+                "required": ["id", "predicted", "documented", "derivable", "legible", "trap", "cold", "position", "primed", "model", "expected", "found"]
             }
         },
         {

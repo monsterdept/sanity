@@ -764,6 +764,32 @@ pub struct Report {
     /// scale. Self-declared, and weak for the same reason as `cold`.
     #[serde(default)]
     pub position: Option<u32>,
+    /// Whether the repo's own agent instructions were in the reader's context.
+    ///
+    /// The contamination `cold` cannot see. `cold` asks whether the reader had opened this
+    /// FILE, and a host that injects `CLAUDE.md` into every subagent hands it a detailed
+    /// description of the architecture it is about to predict — so the reading is honestly
+    /// cold and substantially recall. It is not hypothetical: a full pass of a real repo
+    /// had readers volunteering it unprompted in roughly a quarter of reports, naming
+    /// fifty-odd functions they had recalled rather than inferred, and there was no field
+    /// to put it in. The whole finding survives as prose in a caveats document.
+    ///
+    /// Self-declared, and it has to be: the server sees a tool call, never a system prompt.
+    /// The reader is the only party that can see its own context, which is the same reason
+    /// `cold` and `position` are asked rather than derived. What makes it checkable is the
+    /// server-stamped half beside it — see [`Report::agent_docs`].
+    #[serde(default)]
+    pub primed: bool,
+    /// Which instruction files the repo held when this reading landed, comma-joined.
+    ///
+    /// Stamped server-side from [`crate::assessment::agent_docs`], beside `body`, `by` and
+    /// `at`, and for their reason. It is also the thing that gives `primed` meaning: an
+    /// unprimed reading in a repo with no instructions file is trivially true, and the same
+    /// reading here says a run was deliberately launched without them. Stamped rather than
+    /// recomputed later because a repo can gain or lose a `CLAUDE.md` at any time, and the
+    /// question is what was true when somebody read.
+    #[serde(default, rename = "agentDocs")]
+    pub agent_docs: String,
     /// [`crate::assessment::body_hash`] of the body this reading was made against.
     ///
     /// Filled in by the server from the scan, never by the reporter — an agent asked to
@@ -832,6 +858,8 @@ impl Report {
             note: String::new(),
             cold: false,
             position: None,
+            primed: false,
+            agent_docs: String::new(),
             model: String::new(),
             body: String::new(),
             spec: 0,
@@ -1219,6 +1247,40 @@ pub struct OpenRequest {
     pub contract: Option<String>,
 }
 
+/// What to say about the repo's own agent instructions, if it has any.
+///
+/// **The condition this warns about is invisible from inside a reading.** A host that
+/// injects `CLAUDE.md` into every subagent hands each reader a description of the
+/// architecture it is about to predict, and the reading comes back honestly `cold` — it had
+/// not opened the file — while being substantially recall. A full pass of a real repo shipped
+/// with a caveats document reconstructing this from readers who happened to mention it in
+/// chat, because nothing had asked them and nothing had warned the human.
+///
+/// Here rather than in an `inputSchema` description, on the standing rule: a description is
+/// loaded once per FUNCTION and this is one sentence per RUN, addressed to the one party who
+/// can act on it. A reader cannot unsee its own system prompt — by the time it calls
+/// anything, the context is already built. Only the human relaunching decides this.
+///
+/// Absent when the repo has no such file, so a clean repo says nothing. It is a warning and
+/// not a refusal: whether the priming matters is a judgement about a specific repo and a
+/// specific question, and the tool's job is to make sure nobody discovers it afterwards.
+fn priming_note(repo: &Path) -> Option<String> {
+    let docs = crate::assessment::agent_docs(repo);
+    (!docs.is_empty()).then(|| {
+        format!(
+            "This repo has {docs} at its root. If your host injects that into every \
+             subagent — Claude Code does — then each reader arrives already holding a \
+             description of the code it is about to predict, and `predicted` measures \
+             recall instead. Readings stay honestly `cold`, so nothing downstream can \
+             catch it. To measure clean, relaunch with `claude --setting-sources user`, \
+             which drops project instructions and keeps this MCP server; it applies to \
+             subagents, which is where it matters. Tell the human before the first wave — \
+             they decide, not you. Either way, every reader must answer `primed`, and the \
+             store records what the repo held, so the run says which it was."
+        )
+    })
+}
+
 /// What to say about the caller's tool contract, if anything.
 ///
 /// **The failure this exists for produced no error at all.** `tools/list` is answered from
@@ -1385,7 +1447,8 @@ pub const READER_PROMPT: &str = "\
   your context, and some of them explain specific functions by name. Do not open one, and \
   do not let it carry a prediction: predict from the name, owner, signature, peers and docs \
   you were given. Where you notice you knew something from the brief rather than from the \
-  handout, grade on the handout alone and say so in `note`.\n\n\
+  handout, grade on the handout alone. Report `primed` on whether one was in your context \
+  at all — not on whether it helped, which you cannot fully know.\n\n\
   Do not read any other file, do not spawn subagents, and do NOT read the `.sanity/` \
   directory — it holds the previous reader's findings, and seeing them makes everything \
   you say afterwards worthless. If a tool errors, read the message: connection failures \
@@ -1579,6 +1642,15 @@ async fn open_project(
         // Absent when the two halves agree, so a healthy run says nothing. A field that is
         // always present is one an orchestrator learns to skip.
         "contract_warning": contract_note(req.contract.as_deref()),
+        // Absent for the same reason, and this one has to arrive BEFORE the first reader
+        // exists — which is what `open` is. Nothing later can fix it: a reader's context is
+        // built before it can call anything.
+        "priming_warning": priming_note(&probe_path),
+        // The bare fact under that warning, so the CLI can write the human's sentence
+        // without reimplementing the check. Read verbs are formatters over endpoints —
+        // whatever they need that an endpoint lacks belongs in the endpoint, or there are
+        // two implementations of one answer and the unwatched one goes wrong.
+        "agent_docs": crate::assessment::agent_docs(&probe_path),
         "functions": functions, "files": files, "assessed": assessed,
         // Both, always. `functions` is what a full pass costs and what a percentage
         // divides by; `excluded` is what somebody decided is not this assessment's
@@ -2285,6 +2357,11 @@ async fn report(
     r.legible_dated = false;
     r.by = crate::assessment::who(&project.repo);
     r.at = crate::assessment::head(&project.repo);
+    // The hazard half of the priming question, on the same grounds as the hash: what the
+    // repo held is a fact about the reading conditions, and a reader has no business
+    // declaring it. `primed` — what was actually in its context — stays as the reader sent
+    // it, because that is the half only the reader can see.
+    r.agent_docs = crate::assessment::agent_docs(&project.repo);
 
     // What the reading said, before it is moved into the map. `Some`/`None` are the two
     // grades that mean the reader was actually caught out — the same test the surprise
@@ -2641,6 +2718,24 @@ struct Aggregate {
     by_model: std::collections::BTreeMap<String, Tally>,
     by_position: Drift,
     stale: usize,
+    priming: Priming,
+}
+
+/// How much of this assessment was taken by readers holding the repo's own documentation.
+///
+/// Repo-wide, like everything else here, and it is the number that decides whether
+/// `predicted` can be reported at all. `exposed` is what a run would rather not have; the
+/// point of counting it is that a mixed corpus can be SPLIT, which prose in a caveats
+/// document written afterwards cannot do.
+#[derive(Debug, Default, Serialize)]
+struct Priming {
+    /// Readings whose reader declared the instructions were in its context.
+    exposed: usize,
+    /// Readings taken in a repo that HAS instructions, by a reader that did not hold them.
+    clean: usize,
+    /// Readings from a repo with no instructions file at all — nothing to be primed by,
+    /// and counted apart so `clean` keeps meaning "deliberately excluded".
+    not_applicable: usize,
 }
 
 fn aggregate(project: &Project) -> Aggregate {
@@ -2667,6 +2762,16 @@ fn aggregate(project: &Project) -> Aggregate {
             })
             .or_default()
             .add(r);
+        // Three buckets and not two: "no instructions in this repo" and "instructions the
+        // reader was launched without" are different facts, and folding them together would
+        // let a repo that never had a CLAUDE.md read as a run somebody took care over.
+        if r.agent_docs.is_empty() {
+            agg.priming.not_applicable += 1;
+        } else if r.primed {
+            agg.priming.exposed += 1;
+        } else {
+            agg.priming.clean += 1;
+        }
         let (predicted, _) = r.grades();
         match r.position {
             Some(n) => agg.by_position.positions.entry(n).or_default().add(Some(predicted)),
@@ -2726,6 +2831,7 @@ async fn summary(State(state): State<Shared>, Query(p): Query<SummaryParams>) ->
         "total": agg.total,
         "by_model": agg.by_model,
         "by_position": agg.by_position,
+        "priming": agg.priming,
         "note": "Aggregates only. Nothing here names a function or a file, and that is \
                  deliberate: a per-file breakdown would tell a reader what to expect \
                  before it predicts, which is the contamination the whole protocol \
@@ -2738,7 +2844,12 @@ async fn summary(State(state): State<Shared>, Query(p): Query<SummaryParams>) ->
                  whether the grades get GREENER as position rises — that would be readers \
                  learning the repo as they work, an improvement that is theirs and not \
                  the code's. A full pass of one repo at a batch of three found the curve \
-                 flat, which only rules out an effect within three."
+                 flat, which only rules out an effect within three. `priming` is the one \
+                 condition that can invalidate `predicted` outright: `exposed` counts \
+                 readers that held this repo's own CLAUDE.md while predicting it, which is \
+                 recall wearing prediction's clothes. Report that number whenever it is \
+                 not zero — a headline predicted-rate over a primed corpus is a claim the \
+                 run did not earn."
     }))
 }
 
@@ -4297,6 +4408,33 @@ fn second() { println!(\"2\"); }\n").unwrap();
         let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(v["port"].as_u64(), Some(51823));
         assert_eq!(v["pid"].as_u64(), Some(4242));
+    }
+
+    /// The priming warning fires on the repo that has instructions and stays quiet otherwise.
+    ///
+    /// It has to name the flag, not just the hazard. A reader that hit an earlier flat
+    /// warning elsewhere in this tool invented a prerequisite, another ran the tools as
+    /// shell commands, and a third read `.sanity/` to compensate — which contaminated it.
+    /// A warning that says only "you may be contaminated" is that same failure with better
+    /// manners: there is exactly one thing to do about this and it is a launch flag.
+    #[test]
+    fn the_priming_warning_names_the_file_and_the_remedy() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            priming_note(dir.path()).is_none(),
+            "a repo with no instructions file has nothing to warn about"
+        );
+
+        std::fs::write(dir.path().join("CLAUDE.md"), "# notes\n").unwrap();
+        let note = priming_note(dir.path()).expect("a repo that has one");
+        assert!(note.contains("CLAUDE.md"), "names what it found: {note}");
+        assert!(note.contains("--setting-sources user"), "and what to do: {note}");
+
+        // Two of them are both named — a run launched to exclude one and not the other is
+        // still primed, and a warning that mentioned only the first would look satisfied.
+        std::fs::write(dir.path().join("AGENTS.md"), "# notes\n").unwrap();
+        let both = priming_note(dir.path()).expect("still warns");
+        assert!(both.contains("CLAUDE.md, AGENTS.md"), "got: {both}");
     }
 
     /// A truncated call is refused, and honest prose about markup is not.
