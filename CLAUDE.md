@@ -624,6 +624,18 @@ second metric, and the line between those is the whole design.
   gains functions it never had, so a finished assessment stops reading as finished. That is
   the staleness rules working, not breaking — but add languages in deliberate batches, or
   the coverage shift cannot be attributed to anything.
+- **A `#[serde(default)]` field on a cached record IS a format change.** It is the exact
+  annotation that lets a stale record load as though it were current, so adding one without
+  bumping `FORMAT_VERSION` is not a small omission — it is the whole failure. `file_doc` went
+  into `scancache::Entry` that way, so every entry cached before it went on loading as
+  `file_doc: None`: in any repo with a warm cache the readers were handed **no file header
+  at all** while everything downstream believed they had one, and their `reading_hash` values
+  were computed without it. Nothing was visibly wrong for months. It surfaced as an
+  unexplained mass expiry across every repo at once — flox lost 78 readings in a session
+  nobody had pointed at it — the moment an unrelated version bump finally dropped those
+  caches. **The expiry was the honest part**; the silent months before it were the bug.
+  `a_new_cached_field_cannot_be_added_silently` pins the field set so the next one costs a
+  deliberate look.
 - **A parser change is not a file change, and every cache gates on file changes. Bump
   `parse::PARSE_VERSION`.** `scancache` keys on `(mtime, len)` and a content hash, `history`
   extends a stored timeline; all of it correctly answers "have these bytes changed" and none

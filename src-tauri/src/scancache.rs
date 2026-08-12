@@ -592,6 +592,57 @@ mod tests {
         }
     }
 
+    /// A cached record's field set is pinned, so adding one cannot be silent.
+    ///
+    /// **If this test is failing, you added a field to `Entry` and the question it is
+    /// asking is whether you bumped [`FORMAT_VERSION`].** Almost certainly you must.
+    ///
+    /// This is not hypothetical bookkeeping. `file_doc` was added here in "A file's header
+    /// is documentation, and nothing was measuring it", with `#[serde(default)]` and no
+    /// version bump — and `#[serde(default)]` is exactly the annotation that lets a stale
+    /// record load as though it were current. Every entry cached before that commit went on
+    /// deserialising with `file_doc: None`, so in any repo with a warm cache the readers
+    /// were handed no file header at all while everything downstream believed they had one,
+    /// and their `reading_hash` values were computed without it. It surfaced months later,
+    /// as an unexplained mass expiry across every repo at once the moment a version bump
+    /// finally dropped those caches — which is the cheapest possible symptom of a bug that
+    /// had been quietly degrading the measurement the whole time.
+    ///
+    /// The field set is the tripwire because it is the thing that changed. A new field is
+    /// free to add and free to forget; this makes it cost one deliberate look.
+    #[test]
+    fn a_new_cached_field_cannot_be_added_silently() {
+        let e = Entry {
+            mtime: 1,
+            len: 2,
+            hash: 3,
+            lang: Lang::Rust,
+            funcs: vec![func("one")],
+            file_doc: Some("//! banner".into()),
+            head: "abc".into(),
+            blame: None,
+            blame_commit: ANCIENT.into(),
+        };
+        let v: serde_json::Value = serde_json::to_value(&e).expect("Entry serialises");
+        let mut keys: Vec<&str> = v.as_object().expect("an object").keys().map(|k| k.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec![
+                "blame",
+                "blame_commit",
+                "file_doc",
+                "funcs",
+                "hash",
+                "head",
+                "lang",
+                "len",
+                "mtime",
+            ],
+            "the cached record's fields changed — bump FORMAT_VERSION, then update this list"
+        );
+    }
+
     /// Store a parse, then look the file up again untouched.
     fn seeded(dir: &Path, body: &str) -> (ScanCache, PathBuf) {
         let path = dir.join("a.rs");
