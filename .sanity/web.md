@@ -1,8 +1,8 @@
 # web — sanity assessment
 
-249 of 249 read · 26 surprising
+249 of 249 read · 22 surprising
 
-214 of these graded legibility under an earlier question and are not counted; see the note below.
+193 of these graded legibility under an earlier question and are not counted; see the note below.
 
 Each entry below is one **reading**, of a function or of a whole file. An agent was
 given its name, signature, neighbouring names and comments — never its body — and
@@ -48,12 +48,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly that, in five lines — a for-loop over children returning `node` on an id match, recursing otherwise, null at the end. No memoisation, no guard against a cyclic tree (there is none to guard).
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `App` — TANGLED
-- spec 1 · read at `0d6afff2b041` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: The top-level React component: holds most of the app's global state (selected project, scan tree, drill stack, picked node, color mode, history/replay state, agent activity, connection status) and wires up polling effects to sync with the Tauri backend (project list, agent reports, streamed scores), plus derived memoized values (focus node, tree, population) and callbacks (drill-in navigation), finally rendering the sunburst and surrounding panels.
-- found: Confirmed the broad shape, but the actual density of subtlety is far higher than a prediction could reach: an inversion where the window follows whichever project an agent is working on rather than a user picking one, careful separation of `shown`/`shownRev` refs from `activeKey` state, batched/throttled score application to avoid re-rendering thousands of arcs, a history-replay subsystem with its own scoping/warming/caching effects, and file-vs-function-specific drill semantics. Did not read past line ~605 (out of 835) in enough depth to grade the render/JSX portion.</found> <parameter name="predicted">most</parameter> <parameter name="documented">none
-- predicted: full · documented: not judged · derivable: no · legible: some · trap: no
-- note: No docs were handed for the function itself (docs: []); the file is rich with inline rationale comments but those aren't a function-level doc, so documented is graded none per the handout.
+### `App`
+- spec 1 · read at `0d6afff2b041` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: The root React component. Given peers like useProgress/ProgressTrack/ProgressPane/ProgressStrip/HistoryToggle/Empty/CopyPhrase/Step and sameProjects/findById/parentOf, I expect this to own top-level state: which project/scan is active, the current tree selection, drill-down stack, color mode, and history-replay mode; poll the backend for project list and agent activity/reports; and render the sidebar, sunburst, top bar and detail panel, wiring drill/select/history-toggle handlers together.
+- found: Matches well and is broader/denser than expected: extensive useState/useRef/useMemo/useEffect wiring for scan, selection (by node with id-fallback), drill stack, reveal-scroll nonce, code-file overlay, theme (with menu sync), agent activity, project list polling with careful diffing to avoid rerender storms, MCP-connected polling, and a full git-history replay subsystem (historyOn/history/histIndex/playing/duration/scoped commits/frameTree) layered onto the same tree abstraction via a unified `tree` variable. Also handles keyboard shortcuts (Cmd+1-7 for color modes), splash-dismissal timing, and renders the whole shell: sidebar, top row with mode switcher/history toggle, sunburst or various fallback panes (error/historyEmpty/awaiting/Empty), legend, history transport bar, and a modal code view.
+- predicted: most · documented: none · derivable: no · legible: most · trap: no
+- note: No function-level doc (docs empty), but nearly every piece of state and derived value has an inline comment explaining a specific bug it fixes or race it avoids — the file reads like a changelog of subtle React pitfalls (stale closures, rerender storms, selection loss on rescan) rather than a plain component body. I underestimated how much of the file is the history-replay subsystem being unified with the live-scan path via one `tree` variable.
 
 ### `useProgress`
 - read at `022713725cb5` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
@@ -331,11 +331,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/Detail.tsx
 
 ### the file itself
-- spec 1 · read at `370e7a058a92` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 5 of its run
-- expected: A file with no header doc holding the detail-pane component and its private helpers: a lightweight Markdown renderer for agent-written text, a CopyButton, small formatting helpers (rank, measure, grade, provenance) used by lists/footers, a Contents list of a container's children, and the exported Detail component that composes all of it around Summary/Dials/Reading.
-- found: Matches: custom minimal Markdown renderer (code/bold/italic/paragraphs only, deliberately not a full markdown lib), a CopyButton that only confirms on clipboard success, rank/measure per-ColorMode helpers, grade folding pre-grade readings, provenance one-liner, a heat-ordered Contents list, and the exported Detail component with its no-selection/container/leaf branches.</found> <parameter name="predicted">most
-- predicted: full · documented: none · derivable: no · legible: not judged · trap: no
-- note: File was already read (as the Detail function) earlier in this same batch, so this is a warm read, not cold.
+- spec 1 · read at `370e7a058a92` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: Given peers Markdown, CopyButton, rank, measure, grade, provenance, Contents, Detail with no file header — I expect this is the sidebar detail panel component: a small custom markdown renderer for agent-written prose, a copy-to-clipboard button, helper functions to rank/format a node's metric per color mode and describe reading provenance (who/what scored it), a Contents list of a container's children, and the top-level Detail component that composes all of these into the right-hand panel shown for the current selection or the whole-repo summary when nothing is selected.
+- found: Matches closely. Markdown is a deliberately minimal parser (code spans, bold, italic, paragraphs) to avoid pulling in a full library for agent-authored text; CopyButton copies the raw markdown (not rendered text) and only shows success after the clipboard write resolves; rank/measure pick the sortable/displayed quantity per ColorMode; grade folds a pre-grade Report onto scale ends matching the Rust-side rule; provenance builds a one-sentence attribution string; Contents renders a sorted, clickable list of a container's children with select/drill gestures; Detail is the top-level component that falls back to a Summary (whole-picture) or an idle Bloom pattern when nothing is selected, and otherwise renders the node's stats, a breadcrumb-like owners path, and (per file length, not fully read) presumably dials, ranks and the reading/Contents sections below line ~400.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: No file header exists (docs empty) despite this being a fairly complex 704-line component file with many small, well-commented pieces — each function/component has its own doc comment, but nothing at the file level describing the whole. I read the first ~400 lines in full and inferred the remainder from the peers list and component props rather than reading to line 775.
 
 ### `Markdown`
 - read at `01041ca9fd9e` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
@@ -390,11 +390,10 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/Dials.tsx
 
 ### the file itself
-- spec 1 · read at `5a1e3c637102` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 5 of its run
-- expected: A file with no header (itself a finding, per the `ask`) implementing the four-dial reading-summary row shown in detail panels: `Gauge` is a single arc/dial primitive, `fraction`/`graded` turn a reader's grade into a rung-out-of-four, `fileDocShare`/`badShare` aggregate grades over a subtree (files and functions), `matches` filters which node kinds carry a reading, and `Dials` is the exported component that composes four `Gauge`s (surprise, legibility, docs, churn/age or similar) for a node.
-- found: Essentially exactly that. `Gauge` is a semicircular SVG dial with a value arc, an optional word instead of a percentage, and lens-specific coloring. `fraction`/`RUNG_GOOD`/`RUNG_HOT` turn a `Grade` into an X/4 string with lens-dependent direction. `graded` reads a node's own agent grade (respecting staleness and `derivable`). `fileDocShare` and `badShare` are two subtree-aggregating walks (by reading-count vs by line-count respectively) mirroring `undocShare`/`opaqueShare` in colorMode.ts so the dial and the wedge agree. `matches` gates which node kinds carry a reading. `Dials` composes it all into a fixed four-column row, always four dials even when a container has nothing for one of them (drawn as an unread track rather than reflowing).</found> <parameter name="predicted">full</parameter> <parameter name="documented">none
-- predicted: full · documented: not judged · derivable: no · legible: not judged · trap: no
-- note: No file header exists (docs: [] confirmed on reading), so documented/derivable are graded none/false as an absence finding, per the task's own framing.
+- spec 1 · read at `5a1e3c637102` · commit `f41ae3a` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 7 of its run
+- expected: Predicted this is the React component rendering summary 'dials' — circular gauges for aggregate stats. Gauge as a low-level SVG arc component; fraction/graded/fileDocShare/badShare as helpers computing ratios; matches as a node-type predicate; Dials as the top-level component assembling several Gauges. Expected no header to simply mean 'undocumented' with no misleading claim.
+- found: Structure matched well, but the specifics were richer than guessed: the four dials are fixed and always the same — Surprise, Docs, Churn, Legible — each with its own colour ramp and its own counting direction (some count up toward the good end, some toward the bad end, but the ramp always paints the 'gap' regardless of which way the number counts). graded()/badShare()/fileDocShare() route through legibleOf and a derivable override so a stale or model-derivable reading doesn't count. No file header exists; that absence is itself the finding, as the task description warned.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
 
 ### `Gauge`
 - read at `6757d6425ca6` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
@@ -404,9 +403,9 @@ What this is and how to add to it: [README.md](README.md)
 - note: Unusually well documented at the prop level — each optional prop's doc states the failure it exists to prevent, which is why the prediction landed; the docstring's claim of "three of these side by side" is contradicted by a comment in the body about four columns.
 
 ### `fraction`
-- spec 1 · read at `af62d113920a` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 9 of its run
-- expected: Formats a 1-4 rung/grade number as a "N/4" string for display as a Gauge's word label.
-- found: Exactly that — a one-line template string `${rung}/4`.</found> <parameter name="predicted">full
+- spec 1 · read at `af62d113920a` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run
+- expected: A trivial formatter converting a numeric rung (out of some fixed scale, likely 4) into a display string like "2/4" for a gauge label.
+- found: Exactly that: returns `${rung}/4`, used with the adjacent RUNG_GOOD/RUNG_HOT lookup tables that map a Grade to a 1-4 rung number.</found> <parameter name="predicted">full
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ### `graded`
@@ -540,61 +539,66 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/Reading.tsx
 
 ### the file itself
-- spec 1 · read at `edad76307ab9` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 9 of its run
-- expected: A small leaf-pane component file: a percentile-rank display for a function among the repo's population of functions, built from a `Rail` (tick-on-track visual), `ordinal`/`pct` formatting helpers, a `Fact` row component, and the exported `FunctionRanks` composing two Facts (length, churn) — matching the header doc closely since I'd already read Fact/FunctionRanks/ordinal individually in prior tasks this run.
-- found: Confirmed exactly, including the one piece I hadn't yet read: `Rail`, a tiny absolutely-positioned tick over a translucent track, pulled back by its own width past the midpoint so it never hangs off the end. `pct` is `ordinal`'s sibling for tooltip text, clamped to `<1%`/`>99%` at the edges. The header doc's design history (dials replacing per-grade "ladders") is confirmed by nothing remaining of that in the current file — it's purely historical framing, not a current-code claim.
+- spec 1 · read at `edad76307ab9` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run
+- expected: A file exporting small presentational components that show where a function's stats (length, churn) rank against the repo's population — likely a rail/tick visualization, an ordinal/percent formatter, and a labeled fact row, composed into a FunctionRanks component.
+- found: Exactly that: TRACK constant, Rail (tick on a rail), ordinal() and pct() formatters, Fact (label/value/rail/rank row), and FunctionRanks(node, pop) which computes locP and churnP via shareBelow and renders two Fact rows for lines and churn, each with a tooltip explaining the number.
 - predicted: full · documented: full · derivable: no · legible: not judged · trap: no
+- note: The header's design rationale (ladders-vs-dials history, why grades aren't shown here) is not something a model could derive from the code alone — it explains a decision, not the implementation.
 
 ### `Rail`
-- spec 1 · read at `3cf3887150fd` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run
-- expected: Renders a small horizontal track (rail) with a tick mark positioned at percentile `p`, visualizing where a value sits within a population — a bar plus an absolutely-positioned marker at `left: p%`.
-- found: Exactly that: a track div and an absolutely positioned tick, with `p` as a 0-1 fraction times 100 for the left offset, plus a small pullback (-2px) at the top end when p > 0.5 so the tick doesn't visually hang off the rail's edge.</found> <parameter name="predicted">most
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 1 · read at `3cf3887150fd` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 6 of its run
+- expected: A small presentational component that renders a horizontal track/bar with a tick mark positioned at percentile p (0-1), visualizing where a function's metric sits among its population.
+- found: Matches, with one detail I didn't predict: the tick's `left` position is pulled back by its own width when p > 0.5 so the mark doesn't hang off the right edge of the rail — a small edge-clamping adjustment, not just a straight percentage placement.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: Didn't anticipate the asymmetric edge-clamp only applied above p=0.5, though the inline comment explains it clearly once seen.
 
 ### `ordinal`
-- spec 1 · read at `55320f57d387` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: Formats a percentile number into a short ordinal string like "42nd", computing the standard st/nd/rd/th suffix from the last digit with an exception for the 11-13 teens.
-- found: Very close: takes p as a 0..1 fraction, scales by 100 and rounds, clamps to 1..99 (never 0th or 100th since a real function always holds an interior rank among real peers), then applies the same suffix logic I predicted.</found> <parameter name="predicted">most</parameter> <parameter name="documented">most</parameter> <parameter name="derivable">true
-- predicted: full · documented: not judged · derivable: no · legible: full · trap: no
+- spec 1 · read at `55320f57d387` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: Takes a percentile (likely 0-1) and formats it as a short ordinal string like "42nd" or "7th", using the standard English ordinal-suffix rule (1st/2nd/3rd/nth with the 11-13 exception).
+- found: Matches: converts p (0-1) to an integer 1-99 (clamped so it's never 0th or 100th, since those extremes are always held by an actual function), then applies the standard ordinal suffix rule.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: Missed the deliberate clamp to 1-99 (never 0th/100th) in my prediction, though I got the overall ordinal-formatting behavior right.
 
 ### `pct`
-- spec 1 · read at `d2e96ee83b46` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 8 of its run
-- expected: Formats a 0-1 fraction as a rounded percentage string like "84%", for use as tooltip text alongside the ordinal shorthand.
-- found: Matches, plus clamps: rounds to nearest percent but returns '<1%' instead of '0%' and '>99%' instead of '100%' at the extremes, so the tooltip never claims an exact 0 or 100 which the underlying scale probably can't guarantee.</found> <parameter name="predicted">most
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 1 · read at `d2e96ee83b46` · commit `f41ae3a` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: Formats a fraction p (0-1) as a percentage string like '12%', probably via Math.round(p*100), for use in a tooltip alongside the ordinal shorthand.
+- found: Matches, plus edge-case clamping I didn't predict: rounds to nearest percent but returns '<1%' for anything rounding to 0 or below, and '>99%' for anything rounding to 100 or above, so it never claims exact 0% or 100%.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `Fact`
-- spec 1 · read at `477fc67fa2fa` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 7 of its run
-- expected: A single-row stat display: fixed-width label and value, then a `Rail` visualizing the percentile `p` plus its `ordinal` text, with the whole row wired up as a tooltip via `hint`. Probably falls back to something else when `p` is null (too few to rank).
-- found: Matches closely: fixed-width label/value spans, then when p is not null a flexible `Rail` plus right-aligned `ordinal(p)`; when p is null it shows "unranked" instead — an absent rank stated explicitly rather than defaulting to a rank of zero.</found> <parameter name="predicted">full</parameter> <parameter name="documented">most</parameter> <parameter name="derivable">true
-- predicted: full · documented: not judged · derivable: no · legible: full · trap: no
+- spec 1 · read at `477fc67fa2fa` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 6 of its run
+- expected: Renders one labeled statistic (e.g. "153 lines") alongside a small percentile-position indicator (likely reusing Rail) showing where p falls in the repo's distribution, with hint as a tooltip, laid out so it never wraps to a second line — degrading gracefully (no rail) when p is null.
+- found: Exactly that: fixed-width label and value, a Rail(p) taking the flexible middle space plus an ordinal(p) text, hint set as the div's native title tooltip, and an "unranked" fallback (distinguished from a rank of zero) when p is null.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `FunctionRanks`
-- spec 1 · read at `311ef399ca28` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 6 of its run
-- expected: A small component rendering a couple of `Fact` rows placing this function's stats (likely length and churn/age) against the repo's population using percentiles from `pop`, formatted via `ordinal`/`pct`, returning null if there's no score.
-- found: Very close: two `Fact` rows, "Lines" and "Churn", each computed via `shareBelow(pop.x, node.x)` and passed as `p` with a descriptive hint string; Churn has an extra branch for "no git history" where there's no churn axis at all, and its hint explicitly cross-references the dial above as "the same fact on the scale the map is coloured by".</found> <parameter name="predicted">most</parameter> <parameter name="documented">none
-- predicted: full · documented: not judged · derivable: no · legible: full · trap: no
+- spec 1 · read at `311ef399ca28` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 5 of its run
+- expected: Renders two rank rows (via a Fact/Rail-style component) for a function's Lines and Churn, computing each as a percentile against the repo's population using pop/shareBelow, with an ordinal/pct label; returns null if the node has no score.
+- found: Matches closely: computes locP and churnP percentiles via shareBelow(pop.*, ...), renders two `Fact` rows (Lines, Churn) each with value, percentile, and a hint sentence, with fallback text when there's no population to rank against or no git history for churn.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- note: No per-function docs were given (empty docs array); the file_doc gave enough context (two lines under the dials, length/churn population comparison) that the prediction landed close to exact.
 
 ## web/src/components/RollupDots.tsx
 
-### the file itself
-- read at `8d0f27c10624` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 6 of its run
-- expected: A small React/SVG component marking rollup wedges — the 'everything too small to draw separately' arc — with a dot texture instead of a label. dotsId a helper making a unique or deterministic SVG pattern id so the defs and the fill='url(#…)' reference match without colliding, and RollupDots rendering the pattern definition, probably drawing nothing visible on its own.
-- found: That, and the file is far more considered than the guess: dotsId escapes every non-alphanumeric to '-charCode-' specifically because the obvious replace is not injective and two paths would then share one rotated grid; a measured constant ROLLUP_TEXTURE_PX = 10 lives here (two clean populations either side of ten) so both the ring and the unrolled file view apply the same legibility floor; and RollupDots emits a per-rollup <defs><pattern> that is both ROTATED to the wedge's mid-angle and TRANSLATED so a dot lands exactly on the patch centre — T = C − R(θ)·(HALF,HALF) — because patternUnits='userSpaceOnUse' anchors the lattice to the chart hub otherwise. Dots rather than stripes because the stale hatch already owns 45° stripes on the same ring, painted in --background so the texture reads in the tiling's own language for 'these are separate'.
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: The long doc block that reads as the component's own header (lines 28-47, explaining why the texture exists) is separated from `RollupDots` by an unrelated `const HALF` and its comment, so the block attaches to HALF instead — and my handout carried no file docs at all despite this being one of the best-documented files in the repo.
+### the file itself — QUIRKY
+- spec 1 · read at `8d0f27c10624` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 10 of its run
+- expected: A small component (plus a `dotsId` id-generation helper) that renders a row or cluster of dots to visually summarize an aggregated/rolled-up group of items — probably a compact indicator of counts or grades, used somewhere as a mini-legend or badge.
+- found: Very different mechanism than I guessed: `dotsId` builds a collision-safe SVG pattern id from a file path (escaping to character codes so `a/b.rs` and `a-b.rs` can't collide), and `RollupDots` emits an SVG `<pattern>` of small dots, rotated and translated to a wedge's own angle and centre, used as a fill texture on sunburst "roll-up" patches (aggregated collections of small functions) so they read visually as "many small things merged" rather than as one giant function — distinct from the existing stale-hatch stripe texture.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: No file-level header doc was handed out (empty docs, which the ask says is itself a finding), yet the file is heavily documented inline per-declaration — my prediction of "a summary dot count" was wrong; it's an SVG pattern texture for sunburst roll-up wedges. legible/trap set to defaults since this is a file-level ask and those are meant to stay unset for it.
 
 ### `dotsId`
-- read at `d813a04c4855` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: A one-liner returning a prefixed SVG pattern id built by replacing every non-alphanumeric character with an injective escape — the character's numeric code wrapped in a marker character — so distinct paths can never collide on one id.
-- found: Exactly that: `dots-` prefix plus path with every non-alphanumeric replaced by `-<charCode>-`.
+- spec 1 · read at `d813a04c4855` · commit `f41ae3a` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: Converts a file path into a safe SVG pattern id by replacing each non-alphanumeric character with an escape sequence based on its character code, avoiding the collision of collapsing all non-alnum chars to one replacement character.
+- found: Exact match: `dots-${path.replace(/[^a-zA-Z0-9]/g, c => `-${c.charCodeAt(0)}-`)}`.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `RollupDots`
-- read at `2cf13c243384` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
-- expected: Emits an SVG pattern def of a dot lattice, rotated by `angle` and anchored at the patch centre cx/cy via patternTransform, so the texture reads radial along the wedge rather than screen-aligned; callers use url(#id) as fill.
-- found: Exactly that. One tile, a single circle at the tile centre (corner would render as a quarter dot), userSpaceOnUse, with patternTransform = translate(C − R(θ)·(HALF,HALF)) then rotate(θ) so a dot lands precisely on the patch centre. `deg = angle·180/π − 90` because chart angles run clockwise from twelve o'clock. Long comments explain why it is per-roll-up rather than a shared def and why a rotation rather than a curved fill is acceptable.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- spec 1 · read at `2cf13c243384` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 6 of its run
+- expected: Renders an SVG dot-pattern texture (via <defs>/<pattern>) used to fill a "rolled up" wedge that represents many collapsed small functions, positioned/rotated to match the wedge's angle using cx/cy and angle.
+- found: Matches: emits a <defs><pattern> of small circles, rotated to the wedge's mid-angle and translated so the lattice is anchored to the patch's own centre rather than the chart's global origin — solving both "dots not aligned to the wedge" and "two same-size rollups showing different-looking textures".</found> <parameter name="predicted">most</parameter> <parameter name="documented">none
+- predicted: full · documented: not judged · derivable: no · legible: most · trap: no
+- note: The pattern-transform trigonometry (translate-then-rotate math, T = C − R(θ)·(HALF,HALF)) needed the inline comments to follow precisely; the general idea was guessable but the exact geometry was not.
 
 ## web/src/components/SideBar.tsx
 
@@ -636,11 +640,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/Summary.tsx
 
 ### the file itself
-- spec 1 · read at `7b0453b02db3` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 6 of its run
-- expected: A file with no top header holding the whole-subtree summary pane and its private helpers: rowNote (per-mode trailing label), ListWindow (a virtualized/windowed row list), Spread (grade breakdown bar+key for the surprise lens), Buckets (breakdown bar+key for other lenses), and the exported Summary component that composes header/Dials/breakdown/list/footer.
-- found: Matches well: rowNote avoids restating the bucket heading per lens; ListWindow does manual fixed-row-height windowing (not a library) with overscan and scroll-reset-on-list-change; Spread is the grade breakdown (counts, clickable except stale/unread); Buckets is the parallel breakdown for other lenses (weighted by lines, not counts, and every row pickable); Summary composes them exactly as predicted. No file header comment exists.</found> <parameter name="predicted">most
+- spec 1 · read at `7b0453b02db3` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: A React component file rendering the summary/detail panel for the currently-selected subtree: overall stats (lines, functions, commits), a grade or category distribution bar (Buckets/Spread), and a virtualized/windowed scrollable list of the underlying readings (ListWindow), with a small row-note helper.
+- found: Matches: exports Summary(node, title, repo, commits, mode, ranks, ageSpan, ...) which composes Dials, Buckets or Spread depending on lens, and ListWindow for the readings/bucket list, with rowNote supplying the trailing per-row text. No file-level header/doc comment exists, though every individual function has a substantial JSDoc-style comment explaining design rationale.</found> <parameter name="predicted">full
 - predicted: full · documented: none · derivable: no · legible: not judged · trap: no
-- note: File's Summary function was already read earlier in this batch, so this is a warm read.
+- note: File has no top-level header despite every function inside carrying a detailed one — the file-level 'documented' is none even though the file is thoroughly documented at the function level.
 
 ### `rowNote`
 - read at `38d1b2dcbbca` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -669,34 +673,34 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly that. Extra detail I did not predict: the key list is scrollable and capped at max-h-[33vh] with overscroll containment, with a long inline comment explaining that a forty-author repo (flox) made the key taller than the pane. Row shows function count only; lines appear in the segment's title tooltip.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `Summary`
-- spec 1 · read at `3acc9ad37da1` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: The whole-subtree summary pane shown when nothing is selected: header with title/path, a Dials row with lines/functions/commits counts, then a breakdown (Buckets for non-surprise lenses, Spread for surprise/grade) and a scrollable ListWindow of the picked grade's or bucket's functions, plus a provenance footer, using rowNote to describe rows.
-- found: Matches closely: computes summarize(node) and bucketsFor(node, mode...), tracks picked grade / picked bucket state with fallback to the first non-empty one, renders header+Dials+about, a lens-dependent Buckets-or-Spread breakdown, then a windowed ListWindow of the selected bucket/grade's nodes with click-to-drill-then-select, and a pinned footer. No `rowNote` usage was visible in this excerpt though it was listed as a peer.</found> <parameter name="predicted">most
-- predicted: full · documented: full · derivable: no · legible: most · trap: no
+### `Summary` — TANGLED
+- spec 1 · read at `3acc9ad37da1` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: A React component rendering the "nothing selected" panel: a header with title/path, aggregate counts off `node` (lines, functions, commits, excluded), then either a grade breakdown (Spread) for the surprise lens or category Buckets for other lenses, a windowed/virtualized list of the functions in the selected bucket/grade, and a footer naming what instrument produced the numbers.
+- found: Matches well. Header with title/path/Dials for counts, then either Spread (surprise mode, grade-based) or Buckets (other lenses) for the breakdown section, a ListWindow of the selected bucket/grade's nodes (virtualized/windowed for performance, not "and N more"), and a pinned footer. Details I missed: the "picked" grade/bucket state defaults intelligently to the hottest non-empty grade or biggest bucket rather than a fixed default, and drill+select both fire on row click so the map moves and the panel refills together.
+- predicted: most · documented: some · derivable: no · legible: some · trap: no
+- note: The docstring explains why the panel exists and what it counts off (`node`, not the repo), which is design history rather than something derivable from the code, but it doesn't describe the concrete layout (three-part column, windowed list, default-to-hottest-bucket logic).
 
 ## web/src/components/Sunburst.tsx
 
-### the file itself — QUIRKY
-- read at `03e55ee39942` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: The main visualization component: a partition/arc layout over the folded tree, arcs sized by LOC and coloured by temperature, hover highlight, click-to-drill with breadcrumbs, a #stale-hatch pattern, labels hidden when arcs are small, and heatShare mapping a score onto a colour ramp. Likely SVG with memoised layout and history-frame support.
-- found: All of that plus a great deal more: it owns the whole ring renderer and the level-to-level MOTION. It carries ~30 tuned geometry constants each with a paragraph of measured rationale (rim widths, patch area floors in real pixels via a quantised unitsPerPx, label bands); detects level changes during render rather than in an effect; animates leaving wedges, a "coring" directory becoming the hub, and a closing file retracting via FileZoom; drives a rAF loop keyed on a run counter with prefers-reduced-motion honoured; writes the viewBox straight to the element to avoid a second render per frame; skips function tiling entirely while moving; adds option-click directory folding with an "unfold all" chip that also counts wedges too thin to draw. heatShare turned out to be a per-kind damping factor applied only under the surprise mode, not a ramp lookup. No history-frame code lives here.
-- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
-- note: A 1,400-line component with no file header at all, while nearly every constant inside it carries a three-paragraph essay — the one document that would orient a newcomer is the one that is missing.
+### the file itself
+- spec 1 · read at `03e55ee39942` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 10 of its run
+- expected: File is the React component that draws the sunburst chart (from function-level reading earlier: hover/selection state, layout, rAF-driven zoom animation, coloring, hub, tooltip) plus a small heatShare helper. Given docs is empty, I expect no module-level header — the component and its rationale live in scattered inline comments rather than a single file doc.
+- found: Confirmed no module header: the file opens straight into imports, then a small comment about ring depth. The Sunburst component (already read in this session) and heatShare are the only two top-level declarations, matching the peers list exactly.
+- predicted: full · documented: none · derivable: no · legible: not judged · trap: no
+- note: Already read the Sunburst function itself in this session, so this file-level task was warm — cold: false.
 
 ### `heatShare`
-- read at `cbcc1020c953` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 5 of its run
-- expected: A tiny lookup returning the damping factor for a node's colour intensity: under Surprise mode a reduced value for container kinds (dir, maybe file), 1 for leaves and for every other colour mode.
-- found: Exactly that, three lines: `if (mode === 'surprise') return HEAT_BY_KIND[kind] ?? 1; return 1`, deferring the per-kind damping to a module constant.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-- note: The doc opens mid-sentence ("...but only under Surprise") — it continues a comment on the constant above and does not stand alone at this function.
+- spec 1 · read at `cbcc1020c953` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 8 of its run
+- expected: Returns a damping factor keyed by node kind, but only applies it under 'surprise' mode (via a HEAT_BY_KIND-style lookup); returns 1 (no damping) for every other color mode.
+- found: Matches exactly: `mode === 'surprise' ? HEAT_BY_KIND[kind] ?? 1 : 1`.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: The doc's reasoning (surprise on a directory is a roll-up of hot share, while churn/age/language/author aggregates are the same quantity over more code) explains WHY only surprise is damped, which isn't derivable from the two-line body alone.
 
-### `Sunburst` — QUIRKY — TANGLED — TRAP
-- read at `3652d7214e4c` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: The main sunburst component: computes an arc layout over `root` (memoised on root identity), renders one SVG path per node, colours each wedge by `mode` using `ranks` and `ageSpan`, wires hover and click to `onSelect`, double-click to `onDrill`, empty-space click to `onClear`, and draws a centre hub offering go-up only when `onUp` is supplied, plus labels, tooltips and a highlight for `selected`.
-- found: All of that, and far more: a 1,173-line component that also owns an entire hand-rolled level-change transition. It detects a root change DURING render, classifies direction, snapshots each wedge's live geometry, and drives a rAF loop keyed on a `run` counter (never on `t`) that lerps wedge geometry and the viewBox together; departing wedges fly outward, the clicked directory "cores" into the hub, and an opened file hands off to a FileZoom fan that retracts back into the sector it came from. It also measures the pane with a ResizeObserver, derives a units-per-pixel scale that drives both a minimum arc angle and a minimum patch AREA (squared conversion), tiles functions inside their file's band with roll-up dot textures and a stale hatch, fits labels with different rules for directories (on the plate) and files (curled outside the rim), supports option-click directory folding with an "unfold all" caveat box counting both folded and too-thin omissions, keeps separate selection and hover outline slots plus a dashed coarse-ancestor stand-in when the selection is not drawn, and writes the viewBox attribute directly to the element to avoid a second React render per frame.
-- predicted: some · documented: some · derivable: no · legible: some · trap: yes
-- note: The component mutates refs during the render phase (`live.current`, `leaving.current`, `coring.current`, `fileFrom.current`, `prevWedges.current`) and assigns `selMark`/`hoverMark`/`selCoarse` as side effects inside JSX `.map()` callbacks that are read by later JSX in the same tree — correct only because React evaluates the children array in source order, which nothing here enforces and which a concurrent or double-invoked render would disturb.
+### `Sunburst`
+- spec 1 · read at `3652d7214e4c` · commit `f41ae3a` · by ross@rossturk.com · warm reading
+- expected: Sunburst is the React component that renders the sunburst/DaisyDisk-style chart from the node tree — computing arc geometry per node, coloring wedges according to mode (color mode, likely surprise/heat vs age), wiring click handlers for select/drill/clear, and rendering a center hub with an up-affordance driven by onUp. Given its size it probably also handles hover/tooltip state, animation/transition logic, and label placement.
+- found: Confirmed: manages hover state and pointer position separately, measures the pane via ResizeObserver, computes unit-per-pixel scaling and minimum drawable angle/area, tracks a selection trail of ancestor ids, runs a rAF-driven level-change animation with separate refs for entering/leaving/coring/file-open transitions, colors wedges via heatShare(mode), draws hover/selection outline marks, a center hub circle with fitted label and double-click-to-go-up, a WedgeTip tooltip, and a footer note listing folded/too-thin-to-draw counts with an unfold-all action.</found> <parameter name="predicted">most</parameter> <parameter name="documented">none</parameter> <parameter name="derivable">false</parameter> <parameter name="legible">most</parameter> <parameter name="trap">false</parameter> <parameter name="cold">true</parameter> <parameter name="position">3</parameter> <parameter name="model">claude-sonnet-5</parameter> <parameter name="note">Prediction covered the high-level responsibilities but missed the extent of manual rAF-based geometry animation (entering/leaving/coring/file-open all tracked separately) and the folded/hidden-count disclosure footer.</parameter> </invoke>
+- predicted: full · documented: not judged · derivable: no · legible: not judged · trap: no
 
 ## web/src/components/WedgeLabel.tsx
 
@@ -1078,10 +1082,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `ramped`
-- read at `76401bbd20a0` · commit `23b1218` · read by claude-opus-5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: A four-line helper: pick the colour for v off the named ramp, find the nearest stop index, and return a Paint bundling { fill, stop, ink } with the ink from the ink.ts contrast helper applied to that fill, so the three can never be taken apart.
-- found: Exactly that: `rampStop(v, ramp)` for the stop, `heatColor(v, ramp)` for the interpolated fill, `inkOn(stop)` for the ink, returned as one Paint. Worth noting the ink is chosen against the discrete STOP, not against the continuous fill.</found> <parameter name="predicted">full
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 1 · read at `76401bbd20a0` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 9 of its run
+- expected: Maps a value v through the named color ramp (default 'heat') to a Paint bundling the fill color, the nearest ramp stop index/id, and a contrasting ink color computed against that fill — the three kept together so callers can't drop the ink and get illegible labels.
+- found: Exactly that: stop = rampStop(v, ramp), fill = heatColor(v, ramp), ink = inkOn(stop), returned together as Paint.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `ageSpanOf`
 - read at `91acacf4eb3c` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
@@ -1125,11 +1129,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: Incidental correction to my earlier note on Dials: `opaqueShare` does exist, it lives in this file — it is just no longer what Dials calls for its fourth dial.
 
-### `colorFor`
-- spec 1 · read at `79b08b16d850` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: A dispatcher that switches on `mode` (surprise, legible, docs, traps, churn, age, blame, lang) and computes a fill/stop/ink color plus a human-readable label for the node, calling out to the various peer helpers (ramped, slotColor, ageRamp, docGrade, etc.) per mode, returning null when that mode has nothing to say for this node (missing score, unanalyzed, etc).
-- found: Exactly that: an if-chain over mode values, each branch computing a share or grade via a helper, wrapping the result with `ramped(...)` plus a label, with several mode-specific special cases (containers roll up as shares, files answer via their own header grade for docs, traps is a boolean not a ramp, blame handles uncommitted lines and falls back to 'Other' via rank lookup for unranked keys).</found> <parameter name="predicted">most
-- predicted: full · documented: most · derivable: no · legible: most · trap: no
+### `colorFor` — TANGLED
+- spec 1 · read at `79b08b16d850` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: A dispatcher over `mode` (surprise/age/language/docs/etc.) that computes a fill color and label for one node, calling different helper functions per mode (ramped, ageRamp, docGrade, opaqueShare, undocShare, slotColor) and returning null when that mode has no data for this node so the caller can paint a neutral instead.
+- found: Matches the overall shape well: an if-chain over 'surprise', 'legible', 'docs', 'traps', 'churn', 'age', and a final blame/language branch, each computing fill+label or returning null. What I missed: containers roll up as a share for several modes (legible/docs) rather than staying neutral, docs mode treats files specially (own header grade) versus directories (undocumented share), the docs ramp direction is deliberately inverted from other ramps (brighter = less documented), and traps is a boolean/tri-state rather than a ramp.
+- predicted: most · documented: some · derivable: no · legible: some · trap: no
+- note: The docstring states an app-wide invariant (absence is stated, never filled in) that isn't derivable from this function's code alone, but it doesn't describe the substantial per-mode logic (share rollups, inverted docs ramp, trap tri-state) inside the body.
 
 ### `rankCategories`
 - read at `43639d96a85f` · commit `81eb6d5` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 1 of its run
@@ -1416,155 +1421,158 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/population.ts
 
 ### the file itself
-- spec 1 · read at `dcfeb20f2e65` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 10 of its run
-- expected: A small file with no header (the empty docs is itself the finding) providing repo-wide numeric distributions: populationOf walks the tree building sorted arrays (likely lines-of-code, and maybe churn/surprise) for every function, and shareBelow does a percentile/binary-search lookup against one of those arrays, together backing the percentile-rank UI in Reading.tsx/Dials.tsx.
-- found: Confirmed, with more care than predicted: populationOf builds exactly three sorted arrays (loc for every real function, heat only for analysed ones, commits only for functions under git history) and deliberately excludes the synthetic rest overflow wedge so a roll-up doesn't get ranked among its own members. shareBelow is the same function already read earlier in this run. Each export carries its own substantial doc comment explaining the "strictly below, ties not split" convention and the MIN_POP=20 floor -- so while there's no file header, the file is thoroughly documented at the export level, which the docs:[] for the file task doesn't capture.
-- predicted: full · documented: none · derivable: no · legible: not judged · trap: no
-- note: Grading documented as none per the file-header question the task asked, but flagging that the file is well documented at the per-export level -- the file-task's docs:[] signal (no header) shouldn't be read as "undocumented file".
+- spec 1 · read at `dcfeb20f2e65` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 4 of its run
+- expected: A small module that builds the repo-wide distributions (Population: sorted arrays of loc/heat/commits per function) used to rank one function against its peers, plus a shareBelow(sorted, v) percentile lookup, likely via binary search.
+- found: Matches: populationOf(root) walks the tree collecting loc for every real function, heat for analyzed ones, and commits for those under git history, sorts each ascending, and returns a Population. shareBelow does a binary search for strict-below share, returning null under a MIN_POP=20 threshold.</found> <parameter name="predicted">full
+- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
+- note: The rationale for three separate arrays (rest-wedge exclusion, unscored vs cold, no-history vs zero-touch) and the strictly-below/MIN_POP design choices are argued in prose, not recoverable from the code alone.
 
-### `populationOf`
-- spec 1 · read at `896819b96269` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: Walks the tree from root collecting per-function metrics (likely lines, temperature/surprise, churn) into sorted arrays used to build percentile rankings, working with shareBelow to place a given function within the repo-wide distribution.
-- found: Walks the tree, and for each real (non-rollup) function pushes loc into `loc`, temperature into `heat` only if analyzed, and commits into `commits` only if the function has git history — then sorts all three ascending and returns a Population object with those three arrays.</found> <parameter name="predicted">most
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+### `populationOf` — QUIRKY
+- spec 1 · read at `896819b96269` · commit `f41ae3a` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: Walks the tree computing aggregate counts, likely bucketing functions into quadrants or grade categories for a distribution/legend display, returning a Population object; guessed it pairs with shareBelow to compute what fraction falls below a threshold.
+- found: Walks the tree collecting three separate sorted arrays — loc, heat (temperature), and commits — from real function nodes only, explicitly excluding synthetic 'rest' rollup wedges so a roll-up doesn't get counted as a member of the distribution it's ranked against. Returns {loc, heat, commits} for percentile-style lookups (matches shareBelow).
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: I guessed quadrant/grade bucketing; actual is three parallel sorted numeric arrays (loc/heat/commits) for percentile lookups, with a non-obvious exclusion of 'rest' synthetic nodes that the code comments but I couldn't have predicted.
 
 ### `shareBelow`
-- spec 1 · read at `f33f7bcc8d86` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 8 of its run
-- expected: Given a sorted array and a value, returns the fraction of the array strictly below that value (a percentile), likely via binary search for efficiency, returning null when the population is too small to rank meaningfully.
-- found: Exactly that: a lower-bound binary search counting elements < v, divided by length, gated by a `MIN_POP` threshold returning null below it.</found> <parameter name="predicted">full</parameter> <parameter name="documented">none
-- predicted: full · documented: not judged · derivable: no · legible: full · trap: no
+- spec 1 · read at `f33f7bcc8d86` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run
+- expected: Computes the fraction (percentile, 0..1) of values in sorted that fall below v — a binary search over a pre-sorted array, returning null when the population is too small/empty to give a meaningful percentile.
+- found: Exactly that: returns null if sorted.length < MIN_POP, otherwise binary-searches for the lower-bound insertion point of v and returns that index divided by length.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ## web/src/lib/runtime.ts
 
 ### the file itself
-- read at `fe42178ca3d5` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A tiny Tauri/browser detection module: isTauri sniffs window.__TAURI_INTERNALS__, isMac checks the user agent, isTauriMac combines them for mac-specific chrome (traffic lights/titlebar padding), and onFullscreenChange subscribes to fullscreen transitions with a dynamic import of @tauri-apps/api, returning an unsubscribe.
-- found: Exactly that. isTauri tests '__TAURI_INTERNALS__' in window; isMac regexes Mac|iPhone|iPad in the UA; isTauriMac is the conjunction, documented as gating the 92px reserved for overlay traffic lights. onFullscreenChange dynamically imports @tauri-apps/api/window, reads isFullscreen(), subscribes to onResized (resize is the only event that accompanies a fullscreen change), and returns a disposer with a `dead` flag guarding the async race where unsubscribe arrives after teardown.
-- predicted: full · documented: most · derivable: no · legible: not judged · trap: no
-- note: The file header covers the load-time-import rule but not the fullscreen/traffic-light reasoning, which lives in the per-export doc comments and is not derivable from the code.
+- spec 1 · read at `fe42178ca3d5` · commit `f41ae3a` · read by claude-sonnet-4.5 · by ross@rossturk.com · warm reading · reading 9 of its run
+- expected: isTauri() checks a Tauri-specific window global without importing @tauri-apps/api; isMac() checks navigator.platform/userAgent; isTauriMac combines them; onFullscreenChange subscribes to fullscreen state, probably dynamically importing the Tauri API only when running inside Tauri.
+- found: Matches closely: isTauri checks '__TAURI_INTERNALS__' in window; isMac tests navigator.userAgent against /Mac|iPhone|iPad/i; onFullscreenChange gates on isTauriMac (not just isTauri) and dynamically imports @tauri-apps/api/window only then. Missed specifics: it's driven by the window's own resize event rather than a dedicated fullscreen event (entering/leaving fullscreen always resizes), and there's a 'dead' flag guarding against calling back or leaking a listener after the caller has already unsubscribed mid-async-setup.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- note: I had already read isTauriMac from this same file earlier this run (task 6), so cold is false.
 
 ### `isTauri`
-- read at `33a9a1078966` · commit `1b80d39` · read by claude-opus-4.6 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: Arrow function returning whether we run inside the Tauri shell by checking a Tauri-injected global on window (__TAURI_INTERNALS__/__TAURI__), guarded against window being undefined, with no Tauri API import.
-- found: Exactly that: typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window.
+- spec 1 · read at `33a9a1078966` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 9 of its run
+- expected: Detects whether the app is running inside the Tauri desktop shell by checking for a Tauri-injected global on `window` (something like `__TAURI_INTERNALS__`), without importing @tauri-apps/api, so the check works in a plain browser too.
+- found: Matches exactly: `typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window`.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- note: No function-level docs; the file_doc carries the intent instead.
+- note: No per-function docs were given; the file_doc explained the no-import rationale, which is also visible directly in the two-line body (no @tauri-apps/api import, plain window-global check), so I marked derivable true.
 
 ### `isMac`
-- read at `18634f7d04cb` · commit `1b80d39` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 8 of its run
-- expected: A one-line platform sniff returning true on macOS, testing navigator.platform or userAgent for "Mac", guarded so it is safe where navigator does not exist.
-- found: Exactly that: a typeof guard on navigator plus a case-insensitive /Mac|iPhone|iPad/ test of navigator.userAgent — so it is really "Apple platform" rather than strictly macOS.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- spec 1 · read at `18634f7d04cb` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 9 of its run
+- expected: A small boolean-returning helper that checks navigator.userAgent (or platform) for a Mac signature, used to gate mac-specific UI behavior (e.g. keyboard shortcuts).
+- found: Matches exactly: tests navigator.userAgent against /Mac|iPhone|iPad/i, guarded by a typeof navigator check for SSR/non-browser safety.</found> <parameter name="predicted">full
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ### `isTauriMac`
-- read at `cd44802ba44b` · commit `16b3bba` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 2 of its run
-- expected: A one-line arrow returning isTauri() &amp;&amp; isMac().
-- found: Exactly that: `export const isTauriMac = (): boolean =&gt; isTauri() &amp;&amp; isMac()`.
+- spec 1 · read at `cd44802ba44b` · commit `f41ae3a` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 6 of its run
+- expected: One-liner combining two peer checks: isTauri() && isMac().
+- found: Exact match: `isTauri() && isMac()`.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `onFullscreenChange`
-- read at `3bca05eb1d24` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: Subscribes to the window resize event and on each one (plus once immediately) asks the Tauri window whether it is fullscreen, via a dynamic import of @tauri-apps/api/window so the module stays browser-safe, invoking cb with the boolean; returns a teardown removing the listener, and no-ops outside Tauri.
-- found: That, plus careful async-unsubscribe handling: it bails to a no-op closure unless isTauriMac(), then runs an async IIFE that dynamic-imports getCurrentWindow, defines read() as isFullscreen().then(f => !dead && cb(f)), reads once, awaits win.onResized(read), and — if the caller already disposed while the import was in flight — immediately calls the unlistener instead of storing it. The returned teardown sets dead and calls stop if it exists.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: The `dead` flag guards both the in-flight listener registration and the in-flight isFullscreen promise — the one detail I did not predict, and the reason this is 18 lines rather than 6.
+- spec 1 · read at `3bca05eb1d24` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Only relevant on Tauri/macOS. Dynamically imports the Tauri window API, gets the current window, subscribes to its resize event, and on each resize checks win.isFullscreen() and calls the callback with the result; returns an unsubscribe function that removes the resize listener.
+- found: Matches closely, with two details I didn't anticipate: it guards against the tauri import not being available on non-mac/non-tauri (short-circuits with a no-op unsubscribe via isTauriMac()), calls read() immediately on setup (not just on resize) so the callback gets an initial value, and handles a race where the returned cleanup function is called before the async setup (dynamic import) completes — using a `dead` flag so the just-resolved subscription is immediately unsubscribed rather than leaking.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+- note: I didn't predict the dead-flag race handling for early unsubscribe during the pending dynamic import, or the immediate read() call before the first resize.
 
 ## web/src/lib/splash.ts
 
 ### the file itself
-- spec 1 · read at `1fe713949d2b` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: A small utility owning the boot splash/wordmark overlay's dismissal: a `dismissSplash()` function that hides the splash element (likely via a class toggle or removing a DOM node / localStorage flag), called once the app has something to show.
-- found: Matches the shape: `dismissSplash()` is idempotent (guarded by a module-level `gone` flag), fades the #splash element via a CSS class then removes it from the DOM after 400ms so it can't linger and swallow clicks. There IS a substantial header doc comment (lines 1-17) explaining why dismissal is driven by "has something to say" rather than first paint, and that two callers race it by design — but the handout's `docs` field was empty, so the file-doc extraction apparently didn't attach it to this file.</found> <parameter name="predicted">most
+- spec 1 · read at `1fe713949d2b` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: A tiny module owning the boot splash/wordmark overlay, exporting dismissSplash() which hides or removes the splash element from the DOM, guarded to run only once (idempotent) since it may be called from more than one place.
+- found: Exactly that: a module-level `gone` flag guards against double-dismissal; dismissSplash() finds #splash, adds an 'is-gone' class to fade it, then removes it from the DOM after a 400ms timeout.
 - predicted: full · documented: full · derivable: no · legible: not judged · trap: no
-- note: Handout's `docs` was empty for this file task, but the file actually has a rich header comment (above `let gone`) explaining the dismissal design — worth checking why file-doc extraction missed it.
+- note: Header explains why dismissal is tied to 'has something to say' rather than first paint, and why it must be idempotent (two racing callers) — that rationale isn't recoverable from the code alone.
 
 ### `dismissSplash`
-- spec 1 · read at `cc88d07e92b6` · commit `ec8df4d` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: Hides the boot splash/wordmark, likely by grabbing a DOM element by id and toggling a CSS class or display style to fade or remove it, probably guarded so it only runs once even if called from multiple places.
-- found: Exactly that: a module-level `gone` flag makes it idempotent, then it looks up `#splash`, adds an `is-gone` class to fade it, and removes the element from the DOM 400ms later so a transition that never fires can't leave it swallowing clicks.</found> <parameter name="predicted">most</parameter> <parameter name="documented">none
-- predicted: full · documented: not judged · derivable: no · legible: full · trap: no
-- note: The handout gave docs: [] for this function, but the bounded read range (line 1-29) included a substantial module-level JSDoc block sitting directly above it that does explain the idempotency and the "when to dismiss" rationale; grading documented as none per the handout since it wasn't offered as this function's doc.</parameter> </invoke>
+- spec 1 · read at `cc88d07e92b6` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run
+- expected: Finds the splash screen DOM element and hides/removes it, probably by toggling a class or setting a style, possibly after a fade-out transition.
+- found: Guards with an idempotency flag (`gone`), looks up #splash, adds an `is-gone` class to trigger a CSS fade, then removes the element from the DOM 400ms later so it cannot linger and swallow clicks if the transition never fires.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: docs field handed to me was empty even though the file has a substantial module-level doc comment above the function; graded documented on the empty handout, not the file's actual comment.
 
 ## web/src/lib/sunburst.ts
 
 ### the file itself
-- read at `d29118dbd0ff` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: A pure geometry/layout module for the sunburst: turn the folded tree into wedges with angles proportional to lines, build SVG arc path strings, pack a file's functions into its wedge with something squarified (worstRatio/rowPlacement/tileFunctions), aggregate the overflow, and produce label arcs. No React, no fetching; heat only as an ordering/colour input.
-- found: That, and more carefully than I guessed. Angles come from a recursive walk starting at 9 o'clock, biggest-first, culling sub-minAngle arcs (never functions) and counting the hidden subtree by kind. Function tiling is a genuine squarified treemap done in (θ, v=r²/2) coordinates so area is conserved exactly, with a per-patch MAX_STRETCH floor rule, a promote-then-roll-up policy, and a want/scale pass instead of a remainder budget. sliceFunctions is the drilled-in angular variant, aggregate builds a synthetic Node for the overflow, labelArc offsets the radius by an eyeballed baseline constant and reverses bottom-half arcs.
-- predicted: most · documented: none · derivable: yes · legible: most · trap: no
-- note: The file has no header doc, and two TSDoc blocks are attached to the wrong declaration: "Partition the tree into rings" (L37-44) sits on `LayoutOpts` rather than `layout`, and the "arc for a label to sit ON" block (L669-682) sits on the BASELINE_TO_CENTRE constants rather than `labelArc`, so both functions read as undocumented to any tool that reads the attached comment.
+- spec 1 · read at `d29118dbd0ff` · commit `f41ae3a` · read by claude-sonnet-4.5 · by ross@rossturk.com · warm reading · reading 8 of its run
+- expected: Predicted this is the core geometric-layout engine for the sunburst: arc paths, radial/angular positioning, packing overflow functions into tiles/rows, label placement, aspect-ratio fitting (worstRatio suggesting a squarified-treemap-style algorithm), heat lookup, and the aggregate 'rest' wedge. Expected no header to be the finding for a file this substantial.
+- found: Confirmed in detail: layout() partitions the tree into angular rings sized by lines or heat; arcPath() draws SVG annular sectors; vOf/rOf substitute v=r²/2 so a squarified tiling in (angle, v) coordinates conserves screen area exactly when mapped back through r=√(2v) — genuinely a squarified-treemap algorithm adapted to polar coordinates; worstRatio/rowPlacement/tileFunctions implement that tiling for a file's functions, replacing an older radial-stack approach that undersized big files. No file-level header despite extremely thorough per-function JSDoc throughout — the absence is the finding.
+- predicted: full · documented: none · derivable: no · legible: not judged · trap: no
+- note: I had already read part of this file (the aggregate function) in an earlier task this run, so cold is false — this is a warm reading and should be weighted accordingly.
 
-### `heatOf` — QUIRKY
-- read at `72fdba84ea74` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 9 of its run
-- expected: Returns the temperature a wedge is drawn with: the node's surprise score when it has one (agent reading if present, else proxy), and for containers an aggregate over children — probably a LOC-weighted mean. At five lines, likely `n.score?.surprise` with an undecided/stale fallback rather than a recursive walk.
-- found: No aggregation and no fallback to UNDECIDED: if the node has no score it returns 0, and otherwise it picks between two already-computed fields — `hotShare` when `showsShare(n)` says this node is drawn as a share (containers), `surprise` otherwise. The container/leaf distinction I guessed at is real but is delegated to showsShare and to a precomputed field rather than done here.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
-- note: A node with no score returns 0, which draws as the coolest possible wedge rather than as undecided — the same "claiming confidence it hasn't got" shape the metric rules warn about, though it may be unreachable in practice.
+### `heatOf`
+- spec 1 · read at `72fdba84ea74` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 7 of its run
+- expected: Returns a single "heat" number for a node, probably node.score.surprise, falling back to 0 if there's no score — used to rank/sort nodes by how hot they are.
+- found: Close but not quite: returns 0 if no score, otherwise picks between `s.hotShare` (for containers, via showsShare) and `s.surprise` (for leaf functions) — I didn't anticipate the container/leaf split.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: Already opened this file for sliceFunctions just before, so this one is warm, not cold.
 
-### `layout` — QUIRKY
-- read at `2b6fe6f11a3f` · commit `6366346` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: A recursive walk from root assigning each node an angular span proportional to its lines within its parent's span, plus a ring index by depth, stopping at maxDepth; children sorted biggest-first or by heat per opts; returns a flat list of arcs as Layout.
-- found: Exactly that, plus three things I did not cover: an opts.collapsed set that stops descent, an opts.even mode that weights every child equally instead of by loc, and a minimum-angle cull that drops thin arcs (never functions, which draw as dots) while tallying the whole dropped subtree into hidden.files/hidden.dirs. Depth 0 is not emitted; the sweep starts at 9 o'clock so the biggest wedge lands across the top; ties break on name for determinism.
-- predicted: some · documented: some · derivable: no · legible: full · trap: no
-- note: The docstring spends most of its length on the history of a previous stale docstring and says nothing about collapsing, even-weighting or the thin-wedge cull, which is half the body.
+### `layout`
+- spec 1 · read at `2b6fe6f11a3f` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 5 of its run
+- expected: Recursively partitions a Node tree into angular wedges proportional to line count (or heat when opts.byHeat), walking children in size or heat order up to maxDepth, and returns a flat list of wedges plus some depth/hidden metadata.
+- found: Matches the core, plus details not predicted: it culls arcs (not functions) whose angular span falls below a minimum, tallying hidden files/dirs recursively for reporting; weight can be uniform (opts.even) instead of loc-based; and the walk starts at -90° (9 o'clock) rather than 12 so the biggest wedge's label lands near horizontal.</found> <parameter name="predicted">most</parameter> <parameter name="documented">most
+- predicted: full · documented: not judged · derivable: no · legible: full · trap: no
+- note: Docstring covers only the sort-order claim, not the thin-wedge culling, hidden tally, or the 9-o'clock start rationale, all of which live in inline comments inside the body.
 
 ### `arcPath`
-- read at `e48073887a6d` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: Converts the four polar bounds to Cartesian with a -90 degree offset (clockwise from 12), emits M/A along the outer radius, L in to the inner radius, A back the other way, Z; large-arc flag from sweep exceeding pi; likely a special case for a full circle, possibly for r0 === 0.
-- found: Exactly that, with the clockwise-from-12 rotation done as x = r*sin(a), y = -r*cos(a) rather than an angle offset, coordinates fixed to 2 decimals, large flag from sweep > pi, and a full-circle branch (within 1e-9 of 2pi) that draws both rings as two half-arcs each with opposite sweep flags so the annulus punches its hole. No r0 === 0 special case — the inner arcs degenerate harmlessly to a point.
+- spec 1 · read at `e48073887a6d` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 10 of its run
+- expected: Builds an SVG path 'd' string for an annular sector (ring segment) between angles a0/a1 and radii r0/r1, computing the four corner points via sin/cos and using arc commands with a large-arc-flag for spans over π; possibly a special case for a full 360° wedge since a single arc command can't close on itself.
+- found: Matches precisely, including the full-circle special case: when the span is (near) 2π, a single-arc path degenerates to nothing since start and end coincide, so it draws two half-circle arcs each for the outer and inner radius instead.</found> <parameter name="predicted">full
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Doc covers the general shape but not the full-circle degenerate case, which is the one part of the body that isn't obvious from the signature.
 
 ### `aggregate`
-- read at `95b97563182d` · commit `1b80d39` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: Builds one synthetic Node standing in for functions that didn't fit: total LOC as size, LOC-weighted mean score over only members carrying a real reading (neutral/undefined if none read), a name like "+N more", id derived from filePath, and a flag marking it an aggregate for hover/click.
-- found: All of that, plus three things I did not cover: it keeps `children: fns` so the detail panel can reach the hidden members; it recomputes `hotShare` as hot LOC over read LOC (not a mean of surprise) and `analyzedShare` as read LOC over total LOC so a mostly-unread pool renders unread; and it hardcodes excluded:false and doc:null rather than inheriting from members. "read" is defined as score.source being 'model' or 'agent'. Name is "N+", id is `path#rest`, marker field is `rest`.
+- spec 1 · read at `95b97563182d` · commit `f41ae3a` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
+- expected: Builds a synthetic Node (a 'rest' wedge) for overflow functions, summing loc and computing a LOC-weighted mean score over analyzed members only, with a rest/marker field so downstream colour logic can exclude it from real-member statistics; filePath becomes the node's path.
+- found: Matches the core mechanism, but misses several specifics: it computes hotShare (share of lines a reader found hot, among what was read) and analyzedShare (share of total lines actually analyzed, so a mostly-unread aggregate doesn't borrow confidence from its few read members); it carries the full `children: fns` array so the detail panel can still reach individual functions through the '104+' rollup; id is `${filePath}#rest`, name is `${fns.length}+`.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The doc comment stops at the weighted-mean rationale and says nothing about analyzedShare or the children roll-up, which are the two things that make the wedge honest and navigable.
 
 ### `vOf`
-- read at `52de10c15242` · commit `81eb6d5` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 1 of its run
-- expected: A one-liner converting radius to the area-linearised coordinate: r squared over two, the inverse of rOf (sqrt(2v)).
-- found: Exactly that: `export const vOf = (r: number) => (r * r) / 2`.
+- spec 1 · read at `52de10c15242` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 8 of its run
+- expected: Converts radius r to the area-preserving coordinate v = r²/2, per the doc comment's substitution — a one-liner.
+- found: Exactly r*r/2.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: Already read this file (tileFunctions) earlier this run, so cold: false.
 
 ### `rOf`
-- read at `10225c7853a6` · commit `81eb6d5` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
-- expected: A one-line arrow inverse of vOf — converting a normalised/area value back into a radius, roughly Math.sqrt(v) with some scale, so equal area per ring is preserved in the sunburst layout.
-- found: Math.sqrt(2 * v) — the area-to-radius inverse with the factor of 2 that pairs with vOf's r^2/2.
-- predicted: full · documented: none · derivable: yes · legible: most · trap: no
-- note: The bare 2 is only meaningful against vOf's matching constant, and nothing in either name or a comment ties the pair together.
+- spec 1 · read at `10225c7853a6` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 9 of its run
+- expected: Converts an area-like value `v` into a radius via a square-root scaling, so that equal steps in `v` correspond to equal-area rings/bands in the sunburst rather than equal radial thickness — likely `Math.sqrt(v)` scaled by some constant.
+- found: Matches the sqrt-area idea exactly; the only detail I didn't predict was the specific constant — `Math.sqrt(2 * v)` rather than a bare `Math.sqrt(v)` — presumably chosen to fit the coordinate system's area unit convention (e.g. so v is in units where area = r²/2, as in polar sector area = ½r²θ with unit angle).
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: Same file as the previous reading (worstRatio), so this is warm, not cold. No doc at all for a one-line function whose constant (the factor of 2) is unexplained — plausibly tied to the ½r² sector-area formula but that's inference, not stated.
 
 ### `worstRatio`
-- read at `f29daca07a24` · commit `23b1218` · read by claude-opus-4-5 · by ross@rossturk.com · cold reading · reading 8 of its run
-- expected: Takes screen-space w/h pairs for one row of patches and returns the worst (largest) aspect ratio: max(w/h, h/w) over the row via Math.max, with Infinity for an empty row or a degenerate zero-sized cell so the squarify loop rejects it.
-- found: Exactly that, with the one detail that the seed is 1 rather than 0 (a ratio can never be below 1) and an empty list therefore returns 1, not Infinity; any non-positive w or h short-circuits to Infinity.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 1 · read at `f29daca07a24` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 8 of its run
+- expected: Computes the maximum aspect ratio distortion across a set of screen-space rectangle dimensions: for each dim, takes max(w/h, h/w) and returns the worst (largest) across all, used to score row placements during squarified treemap layout — with a likely early-out or infinity for degenerate (zero-size) rectangles.
+- found: Matches exactly, including the degenerate-size handling: any width or height <= 0 immediately returns Infinity (a zero-area cell is treated as maximally bad, not skipped or ignored), and otherwise it folds max(w/h, h/w) across all dims starting from a worst floor of 1.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `rowPlacement`
-- read at `c12261b3c923` · commit `9fe6ccf` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 4 of its run
-- expected: Squarified-treemap geometry in polar coordinates: sum the row's areas, convert the total into how much of the sector the row eats (radial thickness when radial, otherwise an angular span) and return it as consumed, then divide the other axis proportionally per item — side by side in angle for a band, stacked outward in radius for a wedge — producing a Slot each plus approximate screen dims (arc length at the mid radius as width, radial extent as height) so worstRatio can judge squareness.
-- found: Exactly that, with the annulus-area nonlinearity factored out into rOf: the sector is measured in an area-linear coordinate v rather than in radius, so consumed is a plain total/extent division in both branches and rOf(v) converts to a radius only at the point of emitting a slot. Dims are da times the mid radius by the radial extent, as predicted.
+- spec 1 · read at `c12261b3c923` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · warm reading · reading 10 of its run
+- expected: Squarified-treemap-style row layout: given items with areas and a sector to place them in, and whether the row runs radially (constant-thickness band spanning the angle) or angularly (wedge spanning the radius), computes the angular/radial extent each item consumes proportional to its area, builds Slot objects (angle/radius bounds) for each, computes approximate screen-space w/h dims for aspect-ratio scoring (likely using rOf for radius conversion), and returns how much of the sector this row consumed so the caller can advance past it.
+- found: Matches very closely. In the radial branch, it computes a uniform `dv` (value-thickness) for the whole band from total area over the angular span, sets rIn/rOut via rOf, then walks items assigning each an angular slice `da` proportional to its area, with dims computed as width = da × rOf(mid-radius) (arc length) and height = rOut − rIn (band thickness); the angular branch is the mirror — a uniform angular slice `da` for the row, each item getting a radial slice `dv` proportional to area, with dims swapped accordingly (width = angular slice × mid-radius, height = radial extent). `consumed` returns the row's thickness (dv or da) so the caller knows how much of the sector was used.
 - predicted: full · documented: full · derivable: no · legible: most · trap: no
+- note: Third reading from this same file in this batch, so warm rather than cold. The two branches are near-mirrors of each other and matched my prediction well; had to double-check the dims width formula (da × rOf(mid)) uses the arc-length approximation at the row's mid-radius rather than at rIn or rOut, which took a second look to confirm.
 
-### `tileFunctions` — QUIRKY
-- read at `83ae0c03a88b` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run
-- expected: A squarified treemap in polar coordinates: sort functions by lines descending, greedily pack into radial rows between r0 and r1 split angularly across a0..a1, using worstRatio to close rows and rowPlacement to emit slots so each patch's area is proportional to lines; slices below a legibility minimum collapse into one overflow roll-up, returning Slot[].
-- found: The squarify half is right — rows chosen by worstRatio/rowPlacement in an area-preserving v-space, with `radial` picked per row so the row always spans the SHORTER side. But the admission half is a whole design I did not predict: members are NOT sorted by size (file order is kept deliberately, trading packing quality for adjacency); who gets drawn is decided by each function's own proportional share against MIN_PATCH_AREA, then leftover capacity promotes tail functions that are either hot (heatOf > HOT) or within MAX_STRETCH of the floor, hot-first then longest-first; and areas come from a wants-then-scale pass (`area / wanted`) rather than a remainder budget, specifically so floors cannot starve proportional patches to zero. The roll-up is a synthetic aggregate node found by `rest !== undefined`, not by position.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The doc explains why functions tile inside their file's wedge but says nothing about the promotion/stretch admission rules, which are most of the body and where all the past bugs lived.
+### `tileFunctions`
+- spec 1 · read at `83ae0c03a88b` · commit `f41ae3a` · by ross@rossturk.com · warm reading
+- expected: Treemaps a file's functions into 2D slots within the wedge's radial x angular band [r0,r1]x[a0,a1], sizing each by its line count (area proportional to lines) using a squarified-treemap-style row-placement algorithm, returning Slot[] positions, with a roll-up for files still too small to give every function room.
+- found: Does that, but with a much more specific policy than plain squarify: functions that clear a minimum-patch-area floor are sized normally; ones that don't are candidates for the roll-up unless they are "hot" or nearly clear the floor (promoted up to available room, hot ones prioritized over merely-long ones); everything is then proportionally scaled by area/wanted so the roll-up and floored patches never eat the whole wedge leaving proportional ones at zero; rows are laid file-order (not size-order, traded away deliberately) across whichever of the two dimensions is shorter.</found> <parameter name="predicted">most</parameter> <parameter name="documented">full</parameter> <parameter name="derivable">false</parameter> <parameter name="legible">some</parameter> <parameter name="trap">false</parameter> <parameter name="cold">true</parameter> <parameter name="position">5</parameter> <parameter name="model">claude-sonnet-5</parameter> <parameter name="note">Predicted the general treemap/roll-up shape correctly but missed the hot-function promotion rule and the want/scale normalization pass that prevents zero-area patches.</parameter> </invoke>
+- predicted: full · documented: not judged · derivable: no · legible: not judged · trap: no
 
-### `sliceFunctions` — QUIRKY
-- read at `103298d152b8` · commit `23b1218` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 8 of its run
-- expected: Divides the angular span a0..a1 among a file's function nodes proportional to line counts, walking them in order with an angle cursor and emitting one Wedge each across the ring rather than stacking radially; probably colours via heatOf and floors degenerate slices so tiny functions stay clickable.
-- found: The proportional walk with a minimum-angle floor is there, but the bulk is an overflow policy the prediction did not reach: it computes a CAPACITY from span × FLOOR_SHARE / minAngle, and if the file has more functions than that, ranks them by heat and folds everything past capacity-1 into a single aggregate() wedge, so the floor can never stop flooring. Also optional byHeat sorting and an `even` mode that weights every function 1 instead of by loc. It emits wedges only — no colour is assigned here.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The long doc argues entirely for why angle beats radius and says nothing about the capacity/aggregate overflow path, which is more than half the body.
+### `sliceFunctions`
+- spec 1 · read at `103298d152b8` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 6 of its run
+- expected: Divides the angular span a0..a1 among a file's function children, weighting each slice by loc (proportional to lines, like the radial stack but on the angle axis), returning an array of Wedge with a0/a1 per function.
+- found: Broadly right on the weighting (loc-weighted, or even split if opts.even), but missed a significant mechanism: when there are more functions than fit at `minAngle`, it ranks by heat, keeps the top ones ("shown") and aggregates the rest into a single "+N more" wedge via `aggregate`; it also guarantees each slice at least `minAngle` (or an even split if that's larger than available) before distributing the remaining "free" angle proportionally to weight.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: The docs explain why angle is the scaling axis (vs. the radial stack's ~40-function ceiling) but say nothing about the capacity/overflow-into-one-aggregate-wedge mechanism, which is most of the function's actual logic.
 
 ### `labelArc`
-- read at `9c6c93e41a2d` · commit `9c38c96` · read by claude-opus-4.5 · by ross@rossturk.com · cold reading · reading 3 of its run
-- expected: Returns an SVG path `d` for a circular arc at radius r from a0 to a1, used as a textPath baseline; converts polar to x/y, emits M/A with a large-arc flag, and when the wedge midpoint is in the bottom half swaps endpoints and flips the sweep flag so text runs right-to-left and stays upright; fontSize nudges the radius so the baseline centres in the band.
-- found: Exactly that. The midpoint is normalised into [0,2π) first because the layout starts at -π/2; the radius offset differs by direction (two separate constants, BASELINE_TO_CENTRE_REVERSED added when flipped, BASELINE_TO_CENTRE_FORWARD subtracted otherwise) to compensate for WebKit ignoring dominant-baseline:central on textPath.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 1 · read at `9c6c93e41a2d` · commit `f41ae3a` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 8 of its run
+- expected: Builds an SVG arc path string (for textPath) along radius r between angles a0 and a1, so a label can curve with the ring; reverses the arc direction for wedges in the bottom half so upside-down text is avoided. fontSize likely used to size or offset something minor.
+- found: Matches the arc/reversal core. fontSize's actual role is more specific than guessed: it offsets the arc radius by a baseline-to-centre constant (different constant depending on direction) to compensate for text sitting on its baseline rather than centred on the path — a WebKit quirk where dominant-baseline:central is not honoured on textPath content.</found> <parameter name="predicted">most</parameter> <parameter name="documented">most
+- predicted: full · documented: not judged · derivable: no · legible: most · trap: no
+- note: The fontSize baseline-offset trick and its WebKit-specific motivation live in inline comments, not the header doc handed over, so predicting fontSize's exact role from the header alone wasn't possible.
 
 ## web/src/lib/text.ts
 
