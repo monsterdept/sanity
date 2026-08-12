@@ -327,6 +327,74 @@ impl AppState {
     // caller. `status` was its last user and its removal is the fix, so the helper goes
     // with it: leaving a one-line shortcut past `for_client` around is an invitation to
     // reopen the hole in the next endpoint.
+
+    /// Which project a READING belongs to: the one that handed the task out.
+    ///
+    /// `for_client` answers "which repo is this caller asking about", which is the right
+    /// question for a queue or a status and the wrong one for a durable write. The two
+    /// come apart because the shim's key is one mutable cell shared by every subagent in
+    /// a session: any reader that calls `sanity_open` retargets it for all of them, and a
+    /// keyless caller falls through to whichever repo was opened last. So a reader could
+    /// be handed a function from repo A, predict it, read it, and have its reading routed
+    /// to repo B — where the id names nothing, so it was accepted, counted and written
+    /// nowhere. Two readers hit that in one wave; one noticed only because the response's
+    /// `repo_assessed` was the wrong order of magnitude.
+    ///
+    /// The handout is the stronger evidence and it is already recorded. A live lease says
+    /// this exact id went out of this exact queue; failing that, a project whose scan
+    /// still holds the id is the only place the reading could be about. The caller's own
+    /// key is consulted first — when it agrees, nothing changes — but it cannot override
+    /// a task's provenance, because the party that knows least about where a reading
+    /// belongs is the one whose ambient state got swapped underneath it.
+    ///
+    /// `None` means no loaded project knows this id at all. That is NOT the same as
+    /// nothing being open, and the caller has to keep them apart: the first is a reading
+    /// with nowhere to land, the second is the restore window that `NO_PROJECT` exists to
+    /// describe.
+    pub fn owner_of(&self, id: &str, asked: Option<&str>) -> Option<String> {
+        let holds = |p: &Project| p.leased.contains_key(id) || holds_id(&p.scan, id);
+        // The caller's answer wins WHEN IT IS ALSO TRUE. This keeps the single-repo case
+        // — every call in it — on exactly the path it was on before.
+        if let Some(k) = asked {
+            if self.projects.get(k).is_some_and(&holds) {
+                return Some(k.to_string());
+            }
+        }
+        let mut found: Vec<&String> = self
+            .projects
+            .iter()
+            .filter(|(_, p)| holds(p))
+            .map(|(k, _)| k)
+            .collect();
+        // Sorted, because a HashMap's order is not one: two repos that both hold an id
+        // must not resolve differently between two calls. Ties break towards the most
+        // recently opened, which is the closest thing to an intent we have left.
+        found.sort();
+        match found.len() {
+            0 => None,
+            1 => Some(found[0].clone()),
+            _ => {
+                let recent = self.most_recent();
+                match recent.filter(|k| found.contains(&k)) {
+                    Some(k) => Some(k),
+                    None => Some(found[0].clone()),
+                }
+            }
+        }
+    }
+}
+
+/// Whether a scan still holds this node id.
+///
+/// Ids embed `@line`, so this answers "as the tree stands right now" and nothing more —
+/// which is exactly the question [`AppState::owner_of`] needs. A reader holding a task
+/// across a full rescan reports an id that has moved, and the honest answer is that no
+/// project holds it: it is refused and re-fetched rather than banked against whatever
+/// happens to share the name.
+fn holds_id(scan: &Scan, id: &str) -> bool {
+    let mut found = false;
+    scan.root.visit(&mut |n| found |= n.id == id);
+    found
 }
 
 /// How long a handed-out function stays reserved.
@@ -2156,8 +2224,35 @@ async fn report(
         }));
     }
     let mut state = lock(&state);
-    let Some(key) = state.for_client(req.project.as_deref()) else {
+    // Nothing loaded is the restore window, and it must keep saying "wait, retry" — see
+    // NO_PROJECT. Asked before the id is routed, because a reading arriving two seconds
+    // after a restart has nowhere to land for a reason that will pass on its own.
+    if state.for_client(req.project.as_deref()).is_none() {
         return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
+    }
+    // Where the TASK came from, not where the caller thinks it is. See `owner_of`: the
+    // shim's key is one cell shared by every subagent in a session, and a reading routed
+    // by it can land in a repo whose scan has never heard of the id.
+    let Some(key) = state.owner_of(&r.id, req.project.as_deref()) else {
+        // The failure this replaces returned `ok: true`. The id resolved to no function,
+        // so `body` was stamped empty, the report went into a map keyed by an id nothing
+        // matches, and `save_reports` — which walks live functions, not reports — wrote
+        // nothing. A reading was counted, celebrated and discarded, and the response said
+        // `saved: true`. A reading that cannot be placed is refused out loud instead.
+        state.refused += 1;
+        state.ping("sanity_error");
+        return Json(serde_json::json!({
+            "ok": false,
+            "saved": false,
+            "error": format!(
+                "No open project holds `{}`, so this reading has nowhere to land and was \
+                 NOT saved.",
+                r.id
+            ),
+            "hint": "The repo was very likely rescanned since you were handed this task — \
+                     ids carry line numbers and they move. Call sanity_next for fresh \
+                     work; do not re-send this reading against a different id.",
+        }));
     };
     let Some(project) = state.projects.get_mut(&key) else {
         state.ping("sanity_error");
@@ -2214,6 +2309,12 @@ async fn report(
         in_flight,
         ..
     } = work_left(project);
+    // Where it actually landed. `/open` and `/status` have said this all along and this
+    // did not, so the one endpoint that WRITES was the one that would not tell you which
+    // repo it had written to. A reader worked it out from the order of magnitude of
+    // `repo_assessed` and was right, which is not a diagnostic anyone should need.
+    let landed_name = project.name.clone();
+    let landed_repo = project.repo.to_string_lossy().into_owned();
 
     // Surfaced back to the agent, not just to the window. An implausibly low surprise
     // rate is the signature of a contaminated or agreeable reader, and telling the
@@ -2251,6 +2352,8 @@ async fn report(
         "ok": write_error.is_none(),
         "saved": write_error.is_none(),
         "error": write_error,
+        "project": landed_name,
+        "repo": landed_repo,
         "remaining": remaining,
         "in_flight": in_flight,
         // Named for their scope, because they were read as being about the caller. Two
@@ -3937,6 +4040,85 @@ fn second() { println!(\"2\"); }\n").unwrap();
         );
         // Nothing asked for: the window's project is the honest default.
         assert_eq!(state.for_client(None).as_deref(), Some("/loaded"));
+    }
+
+    /// A reading belongs to the queue that handed it out, not to the caller's ambient key.
+    ///
+    /// Every subagent in a session shares one shim, so one reader calling `sanity_open`
+    /// retargets the key for all of them mid-wave. That happened: readers were handed
+    /// functions from one repo and their reports were routed to another, where the id
+    /// named nothing — so the reading was counted and written nowhere, under `ok: true`.
+    /// The lease is the record of where the work came from and it is already kept.
+    #[test]
+    fn a_reading_lands_where_its_task_came_from() {
+        let mine = tempfile::tempdir().unwrap();
+        std::fs::write(mine.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let theirs = tempfile::tempdir().unwrap();
+        std::fs::write(theirs.path().join("b.rs"), "fn two() { println!(\"2\"); }\n").unwrap();
+
+        let mut state = AppState::default();
+        state.projects.insert("/mine".into(), project_of(mine.path()));
+        state.projects.insert("/theirs".into(), project_of(theirs.path()));
+        state.touch("/theirs");
+        state.touch("/mine");
+
+        // An id out of `theirs`, taken from its own scan so it is the real thing.
+        let mut theirs_id = String::new();
+        state.projects["/theirs"]
+            .scan
+            .root
+            .visit(&mut |n| {
+                if n.kind == crate::model::NodeKind::Func {
+                    theirs_id = n.id.clone();
+                }
+            });
+        assert!(!theirs_id.is_empty(), "the fixture must hold a function");
+
+        // The caller's key says `/mine` — the ambient state a sibling reader moved. The
+        // task came out of `/theirs`, and that is where the reading goes.
+        assert_eq!(
+            state.owner_of(&theirs_id, Some("/mine")).as_deref(),
+            Some("/theirs"),
+            "a reading followed the caller's key into a repo that has never heard of it"
+        );
+        // Agreement changes nothing, which is every call in the single-repo case.
+        assert_eq!(
+            state.owner_of(&theirs_id, Some("/theirs")).as_deref(),
+            Some("/theirs")
+        );
+        // And keyless — the case every subagent is actually in.
+        assert_eq!(state.owner_of(&theirs_id, None).as_deref(), Some("/theirs"));
+    }
+
+    /// An id nothing holds is refused, not absorbed.
+    ///
+    /// This is the same failure from the other end: `report` stamped an empty body, put
+    /// the reading in a map under an id no function matches, and `save_reports` — which
+    /// walks live functions rather than reports — wrote nothing at all. The response said
+    /// `saved: true`. A reading with nowhere to land has to say so.
+    #[test]
+    fn a_reading_for_an_id_no_project_holds_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let mut state = AppState::default();
+        state.projects.insert("/loaded".into(), project_of(dir.path()));
+        state.touch("/loaded");
+
+        assert_eq!(state.owner_of("a.rs@99#nothing", Some("/loaded")), None);
+        assert_eq!(state.owner_of("a.rs@99#nothing", None), None);
+
+        // A lease is enough on its own: ids carry `@line`, and a lease outliving a re-cut
+        // is exactly the case where the reader is still holding honest work.
+        state
+            .projects
+            .get_mut("/loaded")
+            .unwrap()
+            .leased
+            .insert("a.rs@99#nothing".into(), Instant::now());
+        assert_eq!(
+            state.owner_of("a.rs@99#nothing", None).as_deref(),
+            Some("/loaded")
+        );
     }
 
     /// Spreading has to survive between calls, not just within one handout.
