@@ -188,6 +188,27 @@ impl AppState {
     /// than leave it to come back when the volume does. Forgetting a project must take
     /// something more deliberate than being briefly unreadable.
     pub fn persist(&self) {
+        // Under test, writing the index is only safe inside a `data_home()` — see its doc.
+        // A test that persists without one writes into the developer's real sidebar and,
+        // running in parallel, into whatever directory another test is currently asserting
+        // about. That was already known and already fixed once by adding `data_home`; it
+        // came back because the rule lived in a comment and the next test to call `touch`
+        // did not read it. Two of them had, and the symptom was a suite that failed roughly
+        // one run in three, always in a test that was itself correct.
+        //
+        // A panic here names the offender directly. The alternative is what we had: an
+        // assertion failure in an innocent test, listing projects it has never heard of.
+        //
+        // The check is "is THIS thread holding one", not "is the variable set" — the
+        // variable is process-global, so an unguarded test sees whatever some other test
+        // installed and a check on it passes precisely when the race is happening.
+        #[cfg(test)]
+        debug_assert_eq!(
+            *tests::HOME_THREAD.lock().unwrap_or_else(|e| e.into_inner()),
+            Some(std::thread::current().id()),
+            "a test persisted the project index outside a data_home() — hold one, or this \
+             writes into the real sidebar and races every other test that has one"
+        );
         let live: Vec<crate::reports::KnownProject> = self
             .projects
             .iter()
@@ -3523,6 +3544,14 @@ fn second() { println!(\"2\"); }\n").unwrap();
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// Which thread currently holds a [`DataHome`], for `AppState::persist` to check.
+    ///
+    /// The thread and not a bare flag, because the flag would be true for every test while
+    /// any ONE of them held a home — which is exactly the window an unguarded test writes
+    /// into.
+    pub(super) static HOME_THREAD: std::sync::Mutex<Option<std::thread::ThreadId>> =
+        std::sync::Mutex::new(None);
+
     /// A disposable data dir, held for the length of a test.
     ///
     /// **Every test whose state can `persist` needs one.** `touch` and `focus` both write
@@ -3544,6 +3573,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
 
     impl Drop for DataHome {
         fn drop(&mut self) {
+            *HOME_THREAD.lock().unwrap_or_else(|e| e.into_inner()) = None;
             unsafe {
                 match self.prev.take() {
                     Some(v) => std::env::set_var("SANITY_DATA_DIR", v),
@@ -3559,6 +3589,8 @@ fn second() { println!(\"2\"); }\n").unwrap();
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::var_os("SANITY_DATA_DIR");
         unsafe { std::env::set_var("SANITY_DATA_DIR", dir.path()) };
+        *HOME_THREAD.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(std::thread::current().id());
         DataHome { _guard: guard, _dir: dir, prev }
     }
 
@@ -4191,6 +4223,8 @@ fn second() { println!(\"2\"); }\n").unwrap();
     /// The lease is the record of where the work came from and it is already kept.
     #[test]
     fn a_reading_lands_where_its_task_came_from() {
+        // `touch` persists — see `data_home`.
+        let _data = data_home();
         let mine = tempfile::tempdir().unwrap();
         std::fs::write(mine.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
         let theirs = tempfile::tempdir().unwrap();
@@ -4238,6 +4272,8 @@ fn second() { println!(\"2\"); }\n").unwrap();
     /// `saved: true`. A reading with nowhere to land has to say so.
     #[test]
     fn a_reading_for_an_id_no_project_holds_is_refused() {
+        // `touch` persists — see `data_home`.
+        let _data = data_home();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
         let mut state = AppState::default();
