@@ -464,29 +464,6 @@ pub fn stop_scan() {
     CANCEL.store(true, Ordering::Relaxed);
 }
 
-// ── Connecting an agent ────────────────────────────────────────────────────────
-//
-// Lifted from tally, which learned the shape the hard way: detection and configuration
-// are ONE list. They were two — a table telling you what was connected, and a separate
-// button that connected one particular client — which made you read a status in one place
-// and act on it in another, and left every other client with a status and no action.
-// A row that can say "not connected" should be the row that connects it.
-
-/// The exact stdio command an MCP client must launch to talk to this install.
-#[derive(serde::Serialize)]
-pub struct McpCommand {
-    command: String,
-    args: Vec<String>,
-    /// Ready to paste into any `mcpServers` map.
-    json: String,
-}
-
-fn this_exe() -> String {
-    std::env::current_exe()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default()
-}
-
 /// Add a folder to Sanity, from a directory a person picked.
 ///
 /// **The `+` was deliberately removed once, and this is it coming back for a different
@@ -511,14 +488,61 @@ fn this_exe() -> String {
 /// of it. That is a real hazard and it is not solved here; it wants a size or repo-count
 /// warning that names what is about to happen, rather than a rule that says no to folders
 /// somebody meant to pick.
+/// A directory that was chosen, and what is about to be scanned.
+#[derive(serde::Serialize)]
+pub struct Added {
+    path: String,
+    /// Git repos sitting directly inside it. Zero for an ordinary project.
+    holds: usize,
+    /// The first few, by name, so the warning can show what it found rather than a count.
+    names: Vec<String>,
+}
+
 #[tauri::command]
-pub fn add_project(path: String) -> Result<String, String> {
+pub fn add_project(path: String) -> Result<Added, String> {
     let root = PathBuf::from(&path);
     if !root.is_dir() {
         return Err(format!("{path} is not a directory"));
     }
-    Ok(root.to_string_lossy().to_string())
+    // **Counted, not refused.** Requiring a `.git` used to make this impossible to get
+    // wrong and impossible to do on purpose; dropping it left the hazard the guard was
+    // really about — a picker handed `~/projects` once and set thirty minutes of CPU on
+    // fire. The count is what somebody needs to see BEFORE that happens, and it is one
+    // directory listing rather than a walk.
+    //
+    // Only when the chosen directory is not itself a repo: a monorepo with vendored
+    // submodules holds repos and is exactly one project, and warning about it would be
+    // the old refusal wearing a question mark.
+    let mut names: Vec<String> = Vec::new();
+    if !root.join(".git").exists() {
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            for e in entries.flatten() {
+                if e.path().join(".git").exists() {
+                    if let Some(n) = e.file_name().to_str() {
+                        names.push(n.to_string());
+                    }
+                }
+            }
+        }
+    }
+    names.sort();
+    let holds = names.len();
+    names.truncate(3);
+    Ok(Added { path: root.to_string_lossy().to_string(), holds, names })
 }
+
+// **The MCP-client helpers were here and are gone, because nothing reached them.**
+//
+// `mcp_command`, `mcp_clients`, `mcp_connect` and `mcp_disconnect` — with the client table
+// behind them — served a sheet that listed chat clients and offered to write sanity into
+// each one's config. The sheet went when Sanity started launching its own readers:
+// connecting a client stopped being the way in and became a way to ASK for a run in a
+// conversation. The commands stayed registered and unreachable after it, which is the state
+// this file's neighbours argue against most consistently — kept "just in case" is how a
+// decision comes back in a second copy nobody is watching.
+//
+// Connecting a client by hand is still supported and needs nothing from here: the command
+// is `sanity mcp`, and any client that speaks stdio MCP takes it.
 
 /// Where a `sanity` symlink can go, best first.
 ///
@@ -763,193 +787,10 @@ pub fn stop_check(
     Ok(())
 }
 
-#[tauri::command]
-pub fn mcp_command() -> Result<McpCommand, String> {
-    let command = this_exe();
-    let args = vec!["mcp".to_string()];
-    let json = serde_json::to_string_pretty(&serde_json::json!({
-        "mcpServers": { "sanity": { "command": command, "args": args } }
-    }))
-    .map_err(|e| e.to_string())?;
-    Ok(McpCommand { command, args, json })
-}
 
-struct ClientDef {
-    id: &'static str,
-    name: &'static str,
-    path: PathBuf,
-    /// Where servers live in that file.
-    key: &'static str,
-    /// JSON we can safely rewrite; TOML (Codex) we only read.
-    json: bool,
-}
 
-fn client_defs() -> Vec<ClientDef> {
-    let home = dirs::home_dir().unwrap_or_default();
-    vec![
-        ClientDef {
-            id: "claude-desktop",
-            name: "Claude Desktop",
-            path: dirs::config_dir()
-                .unwrap_or_default()
-                .join("Claude/claude_desktop_config.json"),
-            key: "mcpServers",
-            json: true,
-        },
-        ClientDef {
-            id: "claude-code",
-            name: "Claude Code",
-            path: home.join(".claude.json"),
-            key: "mcpServers",
-            json: true,
-        },
-        ClientDef {
-            id: "cursor",
-            name: "Cursor",
-            path: home.join(".cursor/mcp.json"),
-            key: "mcpServers",
-            json: true,
-        },
-        ClientDef {
-            id: "windsurf",
-            name: "Windsurf",
-            path: home.join(".codeium/windsurf/mcp_config.json"),
-            key: "mcpServers",
-            json: true,
-        },
-        ClientDef {
-            id: "codex",
-            name: "Codex",
-            path: home.join(".codex/config.toml"),
-            key: "mcp_servers",
-            json: false,
-        },
-    ]
-}
 
-/// What one MCP client's config says about sanity.
-#[derive(serde::Serialize)]
-pub struct McpClient {
-    id: &'static str,
-    name: &'static str,
-    path: String,
-    /// The client keeps a config here — a decent proxy for "it is installed".
-    present: bool,
-    registered: bool,
-    /// That entry launches THIS binary. False means it points somewhere else — usually a
-    /// copy that has since moved, which reads as configured and is dead.
-    current: bool,
-    /// We can edit this file. False for TOML, which we read but never rewrite.
-    writable: bool,
-}
 
-#[tauri::command]
-pub fn mcp_clients() -> Vec<McpClient> {
-    let exe = this_exe();
-    client_defs()
-        .into_iter()
-        .map(|d| {
-            let raw = std::fs::read_to_string(&d.path).ok();
-            let present = raw.is_some();
-            let (registered, current) = match raw.as_deref() {
-                None => (false, false),
-                Some(text) => match serde_json::from_str::<serde_json::Value>(text) {
-                    Ok(v) => {
-                        let entry = v.get(d.key).and_then(|m| m.get("sanity"));
-                        let cmd = entry
-                            .and_then(|e| e.get("command"))
-                            .and_then(|c| c.as_str())
-                            .unwrap_or_default();
-                        (entry.is_some(), !exe.is_empty() && cmd == exe)
-                    }
-                    // Not JSON (Codex is TOML): match on the binary path, which still
-                    // distinguishes current from stale.
-                    Err(_) => (
-                        text.contains("sanity"),
-                        !exe.is_empty() && text.contains(&exe),
-                    ),
-                },
-            };
-            McpClient {
-                id: d.id,
-                name: d.name,
-                path: d.path.to_string_lossy().to_string(),
-                present,
-                registered,
-                current,
-                writable: d.json,
-            }
-        })
-        .collect()
-}
 
-/// Add or remove sanity's entry in one client's config, leaving everything else alone.
-///
-/// Only ever edits a file that already EXISTS and already PARSES. That is the line
-/// between helpful and destructive: creating a config for a client that isn't installed
-/// means inventing a schema, and rewriting one we couldn't parse means discarding
-/// somebody's settings. Both refuse loudly instead.
-fn edit_client(id: &str, connect: bool) -> Result<String, String> {
-    let def = client_defs()
-        .into_iter()
-        .find(|d| d.id == id)
-        .ok_or_else(|| format!("unknown client '{id}'"))?;
-    if !def.json {
-        return Err(format!(
-            "{} keeps its config in TOML; copy the server entry in manually",
-            def.name
-        ));
-    }
 
-    let mut cfg: serde_json::Value = if def.path.exists() {
-        let text = std::fs::read_to_string(&def.path).map_err(|e| e.to_string())?;
-        if text.trim().is_empty() {
-            serde_json::json!({})
-        } else {
-            serde_json::from_str(&text).map_err(|e| {
-                format!(
-                    "{}'s config isn't valid JSON, so sanity won't rewrite it ({e})",
-                    def.name
-                )
-            })?
-        }
-    } else if connect && def.id == "claude-desktop" {
-        // The one client we create a config for: Claude Desktop ships without one until
-        // its first server is added, and this is the button that adds it.
-        serde_json::json!({})
-    } else if connect {
-        return Err(format!("no config found at {}", def.path.display()));
-    } else {
-        return Ok(def.path.to_string_lossy().to_string());
-    };
 
-    if !cfg.get(def.key).map(|v| v.is_object()).unwrap_or(false) {
-        cfg[def.key] = serde_json::json!({});
-    }
-    if connect {
-        cfg[def.key]["sanity"] =
-            serde_json::json!({ "command": this_exe(), "args": ["mcp"] });
-    } else if let Some(map) = cfg[def.key].as_object_mut() {
-        map.remove("sanity");
-    }
-
-    if let Some(parent) = def.path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(
-        &def.path,
-        serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(def.path.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-pub fn mcp_connect(id: String) -> Result<String, String> {
-    edit_client(&id, true)
-}
-
-#[tauri::command]
-pub fn mcp_disconnect(id: String) -> Result<String, String> {
-    edit_client(&id, false)
-}

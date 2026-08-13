@@ -7,6 +7,7 @@ import {
   applyAgentReports,
   applyScores,
   countPending,
+  type Added,
   cliStatus,
   type CliState,
   forgetProject,
@@ -445,23 +446,42 @@ export default function App() {
   // Two copies would be two chances for them to disagree about what happens when the
   // picker is dismissed or the directory is refused — and the gate is exactly where a
   // first-time user meets the refusal.
+  /** Start scanning one folder. The tail of both paths in. */
+  const takeFolder = useCallback((path: string) => {
+    setBigFolder(null)
+    setPendingAdd(path)
+    void scanRepo(path).catch((e) => {
+      setPendingAdd(null)
+      setError(String(e))
+    })
+  }, [])
+
   const addProject = useCallback(() => {
     setError(null)
     void pickProject()
-      .then((path) => {
-        if (!path) return
+      .then((added) => {
+        if (!added) return
+        // **A directory of repos is asked about, not refused.** Requiring a `.git` made this
+        // impossible to do by accident and impossible to do on purpose; what it was really
+        // guarding is the CPU — `~/projects` here is 39 repos and half an hour of scanning.
+        // So the count is put in front of somebody before it happens, once, with a way
+        // through. A monorepo that vendors submodules is a repo itself and never asks.
+        if (added.holds > 1) {
+          setBigFolder(added)
+          return
+        }
+        const path = added.path
         // Remembered so the new project can be selected when it shows up. The scan
         // publishes it and the poll renders it, which are two different moments — without
         // this the repo you just added appears in the list and the map stays on whatever
         // you were looking at.
-        setPendingAdd(path)
-        return scanRepo(path)
+        takeFolder(path)
       })
       .catch((e) => {
         setPendingAdd(null)
         setError(String(e))
       })
-  }, [])
+  }, [takeFolder])
 
   /** Take a project out of the sidebar. The repo and its readings are untouched.
    *
@@ -516,6 +536,9 @@ export default function App() {
   // ⌘O adds a repo again, matching what the item now says. It pointed at the connect
   // sheet for as long as adding by hand did not exist.
   useEffect(() => onOpenProject(() => addProject()), [addProject])
+
+  /** A chosen folder that holds several repos, waiting to be confirmed. */
+  const [bigFolder, setBigFolder] = useState<Added | null>(null)
 
   /** What the menu's Install Command Line Tool… reported, if anything. Split into a
    *  sentence and a path so the path can be set as code rather than the whole message
@@ -1116,6 +1139,42 @@ export default function App() {
       {/* Keyed off the live list rather than a captured object: the poll replaces these
           every tick, and a dialog holding the row it was opened with would show counts
           frozen at the moment it opened. */}
+      {/* The one thing dropping the `.git` requirement gave up: a folder holding many repos
+          scans all of them, which is minutes of CPU and one map of unrelated code. Asked
+          rather than refused — somebody may mean it — and asked with the count and a few
+          names, because "39 repos (Alka, ComfyUI, ExitNoder, …)" is a different sentence
+          from "this is a big folder". */}
+      {bigFolder && (
+        <Overlay onClose={() => setBigFolder(null)}>
+          <div
+            className="flex w-full max-w-md flex-col gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-[15px] font-semibold">That folder holds {bigFolder.holds} repos</div>
+            <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
+              <code>{bigFolder.path}</code> contains {bigFolder.names.join(', ')}
+              {bigFolder.holds > bigFolder.names.length ? ' and others' : ''}. Scanning it
+              reads all of them — several minutes, and one map of unrelated code. Adding one
+              of the repos inside it is usually what you want.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setBigFolder(null)}
+                className="rounded-md px-3 py-1.5 text-xs text-[var(--muted-foreground)] hover:opacity-80"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => takeFolder(bigFolder.path)}
+                className="rounded-md bg-[var(--secondary)] px-3 py-1.5 text-xs font-semibold hover:opacity-90"
+              >
+                Scan it anyway
+              </button>
+            </div>
+          </div>
+        </Overlay>
+      )}
+
       {/* What the menu's Install Command Line Tool… did. A menu action with no visible
           outcome is indistinguishable from one that did nothing — and the outcome here is
           not simply "worked": the link may have landed somewhere no shell looks, or lost to

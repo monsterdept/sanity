@@ -296,10 +296,6 @@ pub fn run() {
             commands::set_reader,
             commands::start_check,
             commands::stop_check,
-            commands::mcp_command,
-            commands::mcp_clients,
-            commands::mcp_connect,
-            commands::mcp_disconnect,
         ])
         .build(tauri::generate_context!())
         .expect("error while running sanity")

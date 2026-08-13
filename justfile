@@ -204,7 +204,23 @@ release version:
     # goes FIRST: it is the only line in here that costs the reader an afternoon.
     prev=$(git describe --tags --abbrev=0 2>/dev/null || true)
     if grep -q "EXPIRES READINGS" <<<"$expiry"; then
-        warning=$(printf 'THIS RELEASE EXPIRES COMMITTED READINGS.\n\n%s\n\nEvery repo assessed with an earlier version will show readings as stale and\nwant re-reading. Run `sanity check <repo>` again after upgrading.' "$(sed -n 's/^    declared: /  - /p' <<<"$expiry")")
+        # **What it costs depends on WHICH version moved, and saying the wrong one is worse
+        # than saying nothing.** A parse or hash-input change expires whole readings: they go
+        # stale and want re-reading. A SPEC bump does not — it dates one AXIS, so `predicted`
+        # and `documented` survive and only the reworded question greys out, refilling on
+        # ordinary re-reading. Telling somebody their corpus is stale when a quarter of one
+        # column is dated sends them to re-read thousands of functions for nothing.
+        declared=$(sed -n 's/^    declared: /  - /p' <<<"$expiry")
+        #
+        # Written with `\n` rather than as a multi-line string: every line of a recipe has
+        # to be indented, so a quoted string whose continuations start at column 0 ends the
+        # recipe as far as `just` is concerned, and the next line is parsed as a new item.
+        if grep -q "declared: SPEC" <<<"$expiry" && ! grep -qE "declared: (PARSE_VERSION|FORMAT_VERSION)" <<<"$expiry"; then
+            cost=$(printf 'Readings are NOT stale and keep their colour. What expires is the axis whose\nquestion changed: those grades are kept and shown as history, but they stop\ncounting until the function is read again. Ordinary re-reading refills them.')
+        else
+            cost=$(printf 'Every repo assessed with an earlier version will show readings as stale and\nwant re-reading. Run `sanity check <repo>` again after upgrading.')
+        fi
+        warning=$(printf 'THIS RELEASE EXPIRES COMMITTED READINGS.\n\n%s\n\n%s' "$declared" "$cost")
         # `$( )` eats trailing newlines, so the blank line that separates this from the
         # changelog has to be re-attached rather than printed inside the substitution.
         warning="$warning"$'\n\n'

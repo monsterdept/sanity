@@ -232,23 +232,7 @@ export function agentActivity(): Promise<AgentActivity> {
   }))
 }
 
-export interface McpCommand {
-  command: string
-  args: string[]
-  json: string
-}
 
-export interface McpClient {
-  id: string
-  name: string
-  path: string
-  /** The client keeps a config here — a decent proxy for "installed". */
-  present: boolean
-  registered: boolean
-  /** The entry launches THIS binary, not a copy that has since moved. */
-  current: boolean
-  writable: boolean
-}
 
 /** Pick a repo and hand it to Sanity.
  *
@@ -281,11 +265,20 @@ export interface McpClient {
  *
  *  Single-click and Open returns the right folder in every mode. That is the interaction
  *  until then. */
-export async function pickProject(): Promise<string | null> {
+/** A chosen folder, and whether it is a pile of other people's repos. */
+export interface Added {
+  path: string
+  /** Git repos directly inside it. Zero for an ordinary project. */
+  holds: number
+  /** The first few, so a warning can name them. */
+  names: string[]
+}
+
+export async function pickProject(): Promise<Added | null> {
   const { open } = await import('@tauri-apps/plugin-dialog')
   const picked = await open({ directory: true, multiple: false, title: 'Add a folder' })
   if (typeof picked !== 'string') return null
-  return invoke<string>('add_project', { path: picked })
+  return invoke<Added>('add_project', { path: picked })
 }
 
 /** Put `sanity` on the PATH — a symlink into /usr/local/bin or ~/.local/bin.
@@ -378,21 +371,9 @@ export function stopCheck(key: string): Promise<void> {
   return invoke<void>('stop_check', { key })
 }
 
-export function mcpCommand(): Promise<McpCommand | null> {
-  return invoke<McpCommand>('mcp_command').catch(() => null)
-}
 
-export function mcpClients(): Promise<McpClient[]> {
-  return invoke<McpClient[]>('mcp_clients').catch(() => [])
-}
 
-export function mcpConnect(id: string): Promise<string> {
-  return invoke<string>('mcp_connect', { id })
-}
 
-export function mcpDisconnect(id: string): Promise<string> {
-  return invoke<string>('mcp_disconnect', { id })
-}
 
 /** How much there is to read in a project: its functions AND its files.
  *
