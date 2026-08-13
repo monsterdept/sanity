@@ -789,6 +789,48 @@ pub fn check(
             return 1;
         }
     };
+    // **Already running is not a failure, it is the thing you asked to watch.** This printed
+    // the refusal and exited 1, telling a person at a terminal to "call sanity_status" — an
+    // MCP tool name, from the response written for an agent. What somebody typing `sanity
+    // check` wants when a run is already going is the run: so say so in one line and show it.
+    let already = started.get("already").and_then(|v| v.as_bool()).unwrap_or(false);
+    if already {
+        if detach {
+            // Nothing to attach to in the background: it is already in the background.
+            println!();
+            println!("sanity: a run is already in progress");
+            println!();
+            println!("`sanity status {path}` says how far along it is.");
+            println!();
+            return 0;
+        }
+        // Handed to `tail` rather than printed here: on a terminal it redraws these at the
+        // top of a cleared screen, above the scroll region, which is the only place they
+        // stay put. Printing them first would put them wherever the cursor was.
+        let banner = vec![
+            String::new(),
+            "sanity: connecting to a run already in progress".to_string(),
+            String::new(),
+            "Ctrl-C to stop the run. Ctrl-X to stop watching it.".to_string(),
+            String::new(),
+        ];
+        if !fancy() {
+            for line in &banner {
+                println!("{line}");
+            }
+        }
+        return tail(
+            &ep,
+            &key,
+            &Wanted {
+                repo: repo.clone(),
+                model: model.map(str::to_string),
+                readers,
+                limit,
+            },
+            &banner,
+        );
+    }
     if !started.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
         eprintln!("sanity: {}", text(&started, "error"));
         let hint = text(&started, "hint");
@@ -801,25 +843,39 @@ pub fn check(
     let name = text(&opened, "name");
     let harness = text(&started, "harness");
     let model_said = text(&started, "model");
-    println!();
-    // The MODEL, not the harness, because the model is the scale — the harness is how it
-    // was reached. It was "with claude (claude-sonnet-5)", which puts the incidental half
-    // first and the measurement in brackets.
-    println!(
-        "Reading {name} with {}{}.",
-        if model_said.is_empty() { harness } else { model_said },
-        if inherited { " (previously used)" } else { "" }
-    );
-    // Said out loud because it is the choice that decides what the numbers mean, and the
-    // one somebody would otherwise discover months later from the `model` column.
+
+    // Collected rather than printed, for the reason above: `tail` redraws these at the top
+    // of the screen so they survive the readings scrolling past.
+    let mut banner = vec![
+        String::new(),
+        // The MODEL, not the harness, because the model is the scale — the harness is how it
+        // was reached. It was "with claude (claude-sonnet-5)", which puts the incidental half
+        // first and the measurement in brackets.
+        format!(
+            "Reading {name} with {}{}.",
+            if model_said.is_empty() { harness } else { model_said },
+            if inherited { " (previously used)" } else { "" }
+        ),
+    ];
+    // Said out loud because it is the choice that decides what the numbers mean, and the one
+    // somebody would otherwise discover months later from the `model` column.
     if model_said.is_empty() {
-        println!();
-        println!("No model named, so {harness}'s own default reads. Which model reads IS the");
-        println!("measurement — a smaller one is surprised by more — and mixing them within one");
-        println!("repo gives you a map on two scales. Pass --model to decide.");
+        banner.push(String::new());
+        banner.push(format!(
+            "No model named, so {harness}'s own default reads. Which model reads IS the"
+        ));
+        banner.push(
+            "measurement — a smaller one is surprised by more — and mixing them within one"
+                .to_string(),
+        );
+        banner.push("repo gives you a map on two scales. Pass --model to decide.".to_string());
     }
-    println!();
+    banner.push(String::new());
+
     if detach {
+        for line in &banner {
+            println!("{line}");
+        }
         println!("Running in the background. `sanity status {path}` says how far along it is.");
         println!();
         return 0;
@@ -831,8 +887,13 @@ pub fn check(
     // end them — they would go on spending tokens for as long as the wave had left. A
     // command that keeps costing money after you interrupt it is the wrong default however
     // the ownership is arranged; `--detach` is how you start one and walk away.
-    println!("Ctrl-C to stop. Run in background with --detach.");
-    println!();
+    banner.push("Ctrl-C to stop the run. Ctrl-X to stop watching it.".to_string());
+    banner.push(String::new());
+    if !fancy() {
+        for line in &banner {
+            println!("{line}");
+        }
+    }
     tail(
         &ep,
         &key,
@@ -842,6 +903,7 @@ pub fn check(
             readers,
             limit,
         },
+        &banner,
     )
 }
 
@@ -961,13 +1023,32 @@ struct Wanted {
     limit: Option<usize>,
 }
 
-fn tail(ep: &Endpoint, key: &str, want: &Wanted) -> i32 {
+fn tail(ep: &Endpoint, key: &str, want: &Wanted, banner: &[String]) -> i32 {
     // Copied, because it is replaced when a run follows itself to another backend.
     let mut ep = *ep;
     // Set by the signal handler; read at the top of every poll. A flag rather than
     // stopping from inside the handler because the stop is an HTTP call, and a handler is
     // not the place to make one.
     let interrupted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // **Ctrl-X stops WATCHING; Ctrl-C stops the run.** Connecting to a wave somebody else
+    // started left no way out that did not also kill it, which turns "let me look" into a
+    // decision. Read on a thread in the tiny bit of raw mode that delivers a keystroke
+    // without waiting for a newline — signals stay on, so Ctrl-C is unaffected.
+    let detached = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let keys = crate::screen::Keys::capture();
+    if keys.is_some() {
+        let flag = detached.clone();
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut byte = [0u8; 1];
+            while std::io::stdin().read_exact(&mut byte).is_ok() {
+                if byte[0] == 0x18 {
+                    flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                    return;
+                }
+            }
+        });
+    }
     {
         let flag = interrupted.clone();
         // Tokio's handler rather than a new dependency; a current-thread runtime on its
@@ -1000,11 +1081,59 @@ fn tail(ep: &Endpoint, key: &str, want: &Wanted) -> i32 {
     const GRADE_COL: usize = 10;
     // The header is printed with the first reading rather than up front: a run that fails to
     // bank anything should not leave column headings over an empty table.
-    let mut headed = false;
     // Carried across polls, because the poll that fails is the one that cannot tell you what
     // the run got through — and that is exactly when somebody wants to know.
     let mut done = 0u64;
+
+    // **A fixed block, redrawn in place, and it never grows.** The readings used to stream,
+    // so the column header was gone after twenty of them and `most none full yes` was four
+    // words in a row. The first fix reserved screen rows with a scroll region, which is
+    // defined in ABSOLUTE rows — it pinned the top of the display rather than the header,
+    // and the header scrolled off anyway.
+    //
+    // This keeps the last few readings and rewrites them where they are. Nothing scrolls, so
+    // nothing scrolls off, and the escape sequences are two: up N lines, clear a line.
+    for line in banner {
+        println!("{line}");
+    }
+    if fancy() {
+        let (d, o) = ("\x1b[2m", "\x1b[0m");
+        println!(
+            "  {d}{:<NAME$} {:<G$}{:<G$}{:<G$}derivable{o}",
+            "function", "predicted", "doc'd", "legible",
+            NAME = NAME_COL,
+            G = GRADE_COL,
+        );
+    } else {
+        println!(
+            "  {:<NAME$} {:<G$}{:<G$}{:<G$}derivable",
+            "function", "predicted", "doc'd", "legible",
+            NAME = NAME_COL,
+            G = GRADE_COL,
+        );
+    }
+    /// How many readings stay on screen. Enough to see a run working and to catch a
+    /// surprising grade going past; few enough that the block fits any terminal worth
+    /// running this in.
+    const KEEP: usize = 10;
+    let mut recent: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    // Rows this loop has drawn and will overwrite next time: the readings plus the progress
+    // line. Zero until the first draw, because moving up over rows nobody wrote eats the
+    // banner.
+    let mut block = 0usize;
     loop {
+        if detached.load(std::sync::atomic::Ordering::Relaxed) {
+            // Raw mode goes back before anything else prints — see `Keys`' `Drop` — so the
+            // summary lands on an ordinary terminal. The block stays where it is: it is the
+            // last few readings, and they are worth keeping on screen.
+            drop(keys);
+            println!();
+            println!();
+            println!("Detached. The run continues.");
+            println!("  `sanity status {}` says how far along it is.", want.repo.display());
+            println!();
+            return 0;
+        }
         if interrupted.swap(false, std::sync::atomic::Ordering::Relaxed) {
             println!();
             println!("Stopping readers…");
@@ -1049,6 +1178,7 @@ fn tail(ep: &Endpoint, key: &str, want: &Wanted) -> i32 {
             if drawn {
                 print!("\r\x1b[K");
             }
+            drop(keys);
             println!();
             println!("The run stopped early.");
             println!();
@@ -1071,28 +1201,6 @@ fn tail(ep: &Endpoint, key: &str, want: &Wanted) -> i32 {
                 }
                 let grade = text(e, "predicted");
                 let (ink, off) = grade_ink(grade);
-                // Erase the status line before the reading, redraw after — otherwise the
-                // scroll and the pinned line fight over the same row and the terminal keeps
-                // whichever landed last.
-                if drawn {
-                    print!("\r\x1b[K");
-                    drawn = false;
-                }
-                // **Once, above the first reading.** A column of `full`/`some`/`none` with
-                // no heading is four grades' worth of vocabulary and no way to know which
-                // question any of them answered — and three of the four were never printed
-                // at all. Named here rather than on every row, because the row is the thing
-                // being read and a run scrolls hundreds of them.
-                if !headed {
-                    let (d, o) = if fancy() { ("\x1b[2m", "\x1b[0m") } else { ("", "") };
-                    println!(
-                        "  {d}{:<NAME$} {:<G$}{:<G$}{:<G$}derivable{o}",
-                        "function", "predicted", "doc'd", "legible",
-                        NAME = NAME_COL,
-                        G = GRADE_COL,
-                    );
-                    headed = true;
-                }
                 let name = text(e, "name");
                 let shown: String = name.chars().take(NAME_COL).collect();
                 let dots = NAME_COL - shown.chars().count();
@@ -1101,7 +1209,7 @@ fn tail(ep: &Endpoint, key: &str, want: &Wanted) -> i32 {
                 } else {
                     " ".repeat(dots)
                 };
-                println!(
+                let row = format!(
                     "  {shown}{leader} {ink}{:<G$}{off}{:<G$}{:<G$}{}",
                     grade,
                     text(e, "documented"),
@@ -1118,8 +1226,20 @@ fn tail(ep: &Endpoint, key: &str, want: &Wanted) -> i32 {
                     },
                     G = GRADE_COL,
                 );
+                // A log gets every reading, in order, as it lands. A terminal gets the last
+                // few, rewritten in place — the same information, with the header still
+                // above it.
+                if fancy() {
+                    recent.push_back(row);
+                    while recent.len() > KEEP {
+                        recent.pop_front();
+                    }
+                } else {
+                    println!("{row}");
+                }
             }
         }
+
         let run = st.get("run").cloned().unwrap_or(Value::Null);
         let assessed = num(&st, "assessed");
         let remaining = num(&st, "remaining");
@@ -1136,6 +1256,7 @@ fn tail(ep: &Endpoint, key: &str, want: &Wanted) -> i32 {
             if drawn {
                 print!("\r\x1b[K");
             }
+            drop(keys);
             println!();
             // Why it ended, then what it did. The first line is the backend's own sentence,
             // printed bare — "Stopped at your request.", "Reached the limit of 10 readings."
@@ -1160,21 +1281,46 @@ fn tail(ep: &Endpoint, key: &str, want: &Wanted) -> i32 {
             return 0;
         }
 
-        // The pinned line. Only where there is a terminal to pin it to: in a log or a pipe
-        // this would be a carriage return every two seconds and nothing legible at the end,
-        // so a non-terminal gets the readings and the summary and no chrome at all.
+        // **The whole block, rewritten where it is.** Only where there is a terminal: in a
+        // log or a pipe this would be a carriage return every two seconds and nothing
+        // legible at the end, so a non-terminal gets the readings as they land and no chrome
+        // at all.
         if fancy() {
             let frac = if target == 0 { 0.0 } else { done as f64 / target as f64 };
             let readers = num(&run, "live");
-            print!(
+            let mut out = String::new();
+            // Back to the top of what was drawn last time. Relative, so it does not care
+            // where on the screen it is — the mistake the scroll region made.
+            //
+            // **Up by the ROWS ABOVE the cursor, not by the rows drawn.** The last thing
+            // written is the progress line, with no newline after it, so the cursor is
+            // sitting on it: the block is `rows + 1` lines tall but only `rows` of them are
+            // above. Moving up the full height overshot into the banner and left the old
+            // progress line untouched below — the banner was eaten one line per poll while
+            // the progress lines stacked up.
+            out.push('\r');
+            if block > 0 {
+                out.push_str(&format!("\x1b[{block}A"));
+            }
+            for row in &recent {
+                out.push_str("\r\x1b[K");
+                out.push_str(row);
+                out.push('\n');
+            }
+            out.push_str(&format!(
                 "\r\x1b[K\x1b[2m▕\x1b[0m{}\x1b[2m▏\x1b[0m {}/{} · {} · {}",
                 bar(frac),
                 commas(done),
                 commas(target),
                 plural(readers, "reader"),
                 elapsed(started),
-            );
+            ));
+            print!("{out}");
             let _ = std::io::Write::flush(&mut std::io::stdout());
+            // What is ABOVE the cursor now: the readings. The progress line is the one the
+            // cursor is on, so it is cleared by the `\r\x1b[K` at the start rather than
+            // counted here.
+            block = recent.len();
             drawn = true;
         }
         std::thread::sleep(Duration::from_secs(2));

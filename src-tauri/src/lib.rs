@@ -32,6 +32,7 @@ pub mod model;
 pub mod parse;
 pub mod reports;
 pub mod scan;
+pub mod screen;
 pub mod scancache;
 pub mod surprise;
 pub mod watch;

@@ -1946,17 +1946,17 @@ async fn open_project(
     // moved. `load_reports` resolves the durable `key_of` entries onto the new ids, which
     // is the same thing `restore` does and the only correct way to cross a rescan.
     let reports = load_reports(&path, &scan);
-    let marks = stamp_marks(&path, &scan);
     // The index ships to strangers, and `save` only rewrites it when a reading lands — so
     // a FINISHED repo keeps whatever prose its last reading was written with, forever. An
     // open is the moment we certainly have both the repo and its readings in hand, so it
     // is where an out-of-date index gets caught. It refreshes, never creates: opening a
     // repo with no assessment must not leave a `.sanity/` directory in somebody's tree.
     let index = crate::assessment::refresh(&path, &scan, &reports);
-    // Taken AFTER the scan and after `refresh`, so anything either of them wrote is already
-    // in the marks and cannot read as a change on the first tick. `refresh` only writes when
-    // the bytes differ, but "only sometimes fires a spurious rescan" is not a property worth
-    // having when the alternative is one stat walk here.
+    // The file marks are stamped inside `Project::rescan` below, which runs AFTER the scan
+    // and after `refresh` — so anything either of them wrote is already in the marks and
+    // cannot read as a change on the first tick. `refresh` only writes when the bytes differ,
+    // but "only sometimes fires a spurious rescan" is not a property worth having when the
+    // alternative is one stat walk.
     let probe_path = path.clone();
     let stale = count_stale(&scan, &reports);
     // Minus stale, like everywhere else. It was `reports.len()` raw — the same bug
@@ -1964,34 +1964,26 @@ async fn open_project(
     // driving the assessment was told 608, and the optimistic number was the one making
     // decisions about whether to keep going. `assessed` has one definition.
     let assessed = reports.len().saturating_sub(stale);
-    // Keep its place in the history; the reopen is not a new project.
-    let touched = s.projects.get(&key).map(|p| p.touched).unwrap_or(0);
-    s.projects.insert(
-        key.clone(),
-        Project {
-            repo: path,
-            name: name.clone(),
-            scan,
-            reports,
-            // Dropped, not carried, and now for one reason rather than two. Ids no longer
-            // move when a function does — see `assessment::key_of` — so a lease is no longer
-            // a claim on a line. What it is is a claim taken against a BODY that this rescan
-            // may have replaced: the reader is out reading text that has changed, and its
-            // report would be stamped with the hash of code it never saw. Releasing costs one
-            // duplicate reading; keeping it costs a reading that describes nothing and says
-            // it is current.
-            leased: HashMap::new(),
-            recent_files: HashMap::new(),
-            predictions: HashMap::new(),
-            run: None,
-            events: Default::default(),
-            file_marks: marks,
-            marks: crate::watch::probe(&probe_path),
-            scanned: 1,
-            touched,
-            last_agent: Some(Instant::now()),
-        },
-    );
+    // **Through `Project::rescan`, so a reopen cannot quietly destroy a run.** This built a
+    // Project from scratch with `run: None`, and `sanity check` posts `/open` before
+    // `/check` — so opening a repo that was already being read detached the live wave from
+    // the only handle that could stop it. The guard then saw no run and started a second
+    // one, `p.run` became the new wave, and the first went on spawning readers that nothing
+    // could reach: stop from the window ended the CLI's run while the window's own kept
+    // going. Two construction sites for one struct is how the same bug arrives twice; there
+    // is one now.
+    let mut project = Project::rescan(s.projects.get(&key), path, name.clone(), scan, reports);
+    // Leases are the one thing a reopen SHOULD drop, and now for one reason rather than
+    // two. Ids no longer move when a function does — see `assessment::key_of` — so a lease
+    // is no longer a claim on a line. What it is is a claim taken against a BODY that this
+    // rescan may have replaced: the reader is out reading text that has changed, and its
+    // report would be stamped with the hash of code it never saw. Releasing costs one
+    // duplicate reading; keeping it costs a reading that describes nothing and says it is
+    // current.
+    project.leased.clear();
+    project.recent_files.clear();
+    project.last_agent = Some(Instant::now());
+    s.projects.insert(key.clone(), project);
     s.touch(&key);
     let showing = s.focus(&key, req.focus.unwrap_or(false));
     Json(serde_json::json!({
@@ -2796,7 +2788,18 @@ pub fn start_run(state: &Shared, req: CheckRequest) -> serde_json::Value {
         (
             key.clone(),
             p.repo.clone(),
-            p.run.as_ref().is_some_and(|r| r.ended.is_none()),
+            // **Ended is not the same as finished, and the gap between them is a race.**
+            // This asked only whether `ended` was set, so a wave that had just banked its
+            // last reading — or been stopped a second ago — read as over while its readers
+            // were still alive. Starting another then puts two sets of readers on one queue,
+            // which is exactly what the rule below forbids, and it happened: a run with one
+            // segment left let a second wave in from the CLI.
+            //
+            // `live` is the backend's count of processes it has not reaped, so this covers
+            // both halves and clears itself as they exit.
+            p.run
+                .as_ref()
+                .is_some_and(|r| r.ended.is_none() || r.live.load(std::sync::atomic::Ordering::Relaxed) > 0),
         )
     };
     // One wave per project. Two would double every reader's chance of being handed work
@@ -2804,9 +2807,15 @@ pub fn start_run(state: &Shared, req: CheckRequest) -> serde_json::Value {
     if already {
         return serde_json::json!({
             "ok": false,
+            // Named so a caller can tell this refusal from the others and act on it. The CLI
+            // attaches to the run instead of failing; an agent reads the hint below. Same
+            // response, two audiences, and neither has to parse the prose.
+            "already": true,
             "error": "A run is already going for this repo.",
             "hint": "Call sanity_status to watch it. Starting a second wave against one \
-                     repo does not go faster; it just puts two readers on the same queue.",
+                     repo does not go faster; it just puts two readers on the same queue. \
+                     A run that has just ended still counts until its readers have exited, \
+                     which takes a few seconds.",
         });
     }
 
@@ -3144,10 +3153,16 @@ async fn run_wave(
         }
         for h in handles {
             let (ok, said) = h.await.unwrap_or((false, String::new()));
+            // **A reader killed by Stop is not a failure.** Every non-zero exit was counted,
+            // so interrupting a run reported "1 reader failed" about a process the run had
+            // just killed on purpose — and `failed` is the number that exists to tell a
+            // misconfigured agent apart from a slow one. Reading the stop flag rather than
+            // the exit code, because from the outside the two deaths look identical.
+            let killed = stop.load(std::sync::atomic::Ordering::Relaxed);
             if let Some(p) = lock(&state).projects.get_mut(&key) {
                 if let Some(r) = p.run.as_mut() {
                     r.finished += 1;
-                    if !ok {
+                    if !ok && !killed {
                         r.failed += 1;
                         let said = said.trim();
                         // Deduped, because a misconfiguration fails every reader the same
