@@ -70,3 +70,17 @@ impl Keys {
         None
     }
 }
+
+/// Empty, and deliberately not absent.
+///
+/// There is nothing to restore here — `capture` never succeeds off unix — but the type is
+/// still the thing `check` drops to hand the terminal back, and it is dropped by name at
+/// three points where the CLI is about to print without the redraw block. Without an impl
+/// those calls are `drop_non_drop`, which is denied by `-D warnings`: the lint is right in
+/// general and wrong here, because the call sites are shared and cannot say `#[cfg(unix)]`.
+/// Silencing it at each of them would put three allows in the CLI to describe a property of
+/// a type in this file.
+#[cfg(not(unix))]
+impl Drop for Keys {
+    fn drop(&mut self) {}
+}
