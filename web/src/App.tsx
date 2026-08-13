@@ -7,8 +7,12 @@ import {
   applyAgentReports,
   applyScores,
   countPending,
+  cliStatus,
+  type CliState,
   forgetProject,
   harnesses,
+  installCli,
+  onInstallCli,
   onOpenProject,
   pickProject,
   scanRepo,
@@ -50,6 +54,7 @@ import { CodeView } from './components/CodeView'
 import { ColourLegend, ModeSwitcher } from './components/ColourKey'
 import { Detail } from './components/Detail'
 import { SideBar } from './components/SideBar'
+import { Overlay } from './components/Overlay'
 import { ReadDialog } from './components/ReadDialog'
 
 /** Do two project lists say the same thing?
@@ -466,7 +471,21 @@ export default function App() {
    *  for. */
   const forget = useCallback(
     (key: string) => {
-      if (activeKey === key) setActiveKey(null)
+      // **Everything the selection would have cleared, or the map outlives its project.**
+      // Choosing a project resets the tree, the drill stack, the picked wedge and the two
+      // refs the poll follows; forgetting one cleared `activeKey` alone, so the sidebar went
+      // empty while the pane and the detail panel carried on showing a repo the app no
+      // longer holds — with nothing left to select to get rid of it.
+      if (activeKey === key) {
+        setActiveKey(null)
+        setScan(null)
+        setStack([])
+        setPicked(null)
+        // The poll compares against these to decide whether to refetch. Left naming a
+        // project that is gone, the next tick would fetch a tree for it.
+        shown.current = null
+        shownRev.current = 0
+      }
       void forgetProject(key).then(refreshProjects)
     },
     [activeKey, refreshProjects],
@@ -498,23 +517,47 @@ export default function App() {
   // sheet for as long as adding by hand did not exist.
   useEffect(() => onOpenProject(() => addProject()), [addProject])
 
-  /** Which of the active project's functions are out with a reader, for the map's pulse.
-   *
-   *  A Set, memoised on the ARRAY's contents rather than on the project object: the poll
-   *  hands back a fresh object every tick, so keying this on `activeProject` would build a
-   *  new Set 40 times a minute and re-render every arc under it — the exact shape of the
-   *  stutter the history replay exists to warn about.
-   *
-   *  Empty rather than undefined when nothing is running, so the prop is always a Set and
-   *  the wedge test has one branch. */
+  /** What the menu's Install Command Line Tool… reported, if anything. Split into a
+   *  sentence and a path so the path can be set as code rather than the whole message
+   *  being set as a transcript. */
+  const [cliLink, setCliLink] = useState<null | { text: string; path?: string }>(null)
+  useEffect(
+    () =>
+      onInstallCli(() => {
+        void installCli()
+          .then(() =>
+            // Asked rather than inferred from the write: a link was made, and which
+            // `sanity` a shell reaches is a different question — another install can come
+            // first on PATH.
+            cliStatus().then((c) =>
+              setCliLink(
+                c.is_this_app
+                  // No backticks. They are Markdown in a string that is rendered as HTML,
+                  // so they arrive as literal punctuation — and the convention they come
+                  // from is one a reader of this dialog has no reason to know.
+                  ? {
+                      text: 'Installed. The sanity command now runs this app, at',
+                      path: c.resolved ?? undefined,
+                    }
+                  : c.resolved
+                    ? { text: 'Linked, but your shell still runs another build first:', path: c.resolved }
+                    : { text: 'Linked, but no shell can find it yet — add its directory to your PATH.' },
+              ),
+            ),
+          )
+          .catch((e) => setCliLink({ text: String(e) }))
+      }),
+    [],
+  )
+
   const readingIds = projects.find((p) => p.key === activeKey)?.reading
   const readingKey = readingIds?.join('\u0000') ?? ''
   const readingNow = useMemo(() => {
     const ids = readingKey ? readingKey.split('\u0000') : []
     // **The containing FILE goes in too, and without it the pulse was invisible.** A
-    // function wedge on a real repo is a fraction of a degree, and past the ring's budget
-    // it is not drawn at all — folded into a roll-up — so a marker on it lit nothing you
-    // could see and sometimes nothing that existed. A file always has its own band.
+    // function wedge on a real repo is a fraction of a degree, and past the ring's budget it
+    // is not drawn at all — folded into a roll-up — so a marker on it lit nothing you could
+    // see and sometimes nothing that existed. A file always has its own band.
     //
     // One Set for both because a file node's id IS its path, and a function's is
     // `path#name`, so the prefix of a reading id is exactly the id of the file to light.
@@ -1073,6 +1116,36 @@ export default function App() {
       {/* Keyed off the live list rather than a captured object: the poll replaces these
           every tick, and a dialog holding the row it was opened with would show counts
           frozen at the moment it opened. */}
+      {/* What the menu's Install Command Line Tool… did. A menu action with no visible
+          outcome is indistinguishable from one that did nothing — and the outcome here is
+          not simply "worked": the link may have landed somewhere no shell looks, or lost to
+          another install that comes first on PATH. */}
+      {cliLink && (
+        <Overlay onClose={() => setCliLink(null)}>
+          <div
+            className="flex w-full max-w-sm flex-col gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-[15px] font-semibold">Command line tool</div>
+            {/* Prose, with the path as code inside it. It was the whole message in
+                monospace, which set a sentence like a transcript and wrapped a path across
+                two lines in the middle of it. */}
+            <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
+              {cliLink.text}{' '}
+              {cliLink.path && <code className="text-[var(--foreground)]">{cliLink.path}</code>}
+            </p>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setCliLink(null)}
+                className="rounded-md bg-[var(--secondary)] px-3 py-1.5 text-xs font-semibold hover:opacity-90"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </Overlay>
+      )}
+
       {readFor &&
         (() => {
           const p = projects.find((x) => x.key === readFor)
@@ -1320,6 +1393,14 @@ function Empty({ onAdd }: { onAdd: () => void }) {
   }, [])
   const have = found.filter((h) => h.installed).map((h) => h.id)
   const checked = found.length > 0
+  /** What the CLI link attempt said: nothing yet, in flight, the result, or the error. */
+  const [linking, setLinking] = useState<null | 'working' | string | { path: string; on_path: boolean }>(null)
+  /** What `sanity` means in a terminal. Null until asked, so the card shows neither state
+   *  rather than flashing the wrong one. */
+  const [cli, setCli] = useState<CliState | null>(null)
+  useEffect(() => {
+    void cliStatus().then(setCli)
+  }, [])
 
   return (
     /* Boxed. The copy needs a ground of its own: over bare pane it read as text lying on
@@ -1343,9 +1424,9 @@ function Empty({ onAdd }: { onAdd: () => void }) {
             thing that can be CHECKED rather than explained, so the card checks it. */}
         <div className="flex w-full max-w-[44ch] flex-col gap-4">
           <p className="text-sm leading-relaxed text-[var(--muted-foreground)]">
-            Add a repo and Sanity reads it — running a coding agent you already have as a
-            fleet of readers, each in its own process, none of them able to see the code
-            except what Sanity hands over one function at a time.
+            Add a repo and Sanity scans it. Expose more detail by using your coding agent as
+            a fleet of readers, each in its own process, to rate the predictability and
+            legibility of each of your files and functions.
           </p>
 
           <button
@@ -1362,7 +1443,16 @@ function Empty({ onAdd }: { onAdd: () => void }) {
               {have.length > 0 ? (
                 <>
                   Ready to read with{' '}
-                  <span className="text-[var(--foreground)]">{have.join(' or ')}</span>.
+                  {/* The NAMES take the foreground; the separators stay muted. Joining the
+                      list inside one span lit the `+` signs as brightly as the agents, so a
+                      row of punctuation read as part of what was found. */}
+                  {have.map((h, i) => (
+                    <span key={h}>
+                      {i > 0 && ' + '}
+                      <span className="text-[var(--foreground)]">{h}</span>
+                    </span>
+                  ))}
+                  .
                 </>
               ) : (
                 <>
@@ -1373,13 +1463,80 @@ function Empty({ onAdd }: { onAdd: () => void }) {
             </p>
           )}
 
-          {/* Demoted, deliberately. It used to be step one; it is now a second way to
-              press a button that is already on screen. */}
+          {/* Demoted, deliberately. It used to be step one; it is now a second way to press
+              a button that is already on screen. */}
           <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
-            You can also start a read from a terminal with <code>sanity check</code>, or by
-            asking a connected chat client — see the{' '}
-            <span className="text-[var(--foreground)]">⚙</span> in the panel below.
+            You can also start a read from a terminal with <code>sanity check</code>, and
+            watch it there. The backend spawns the same readers, no window required.
           </p>
+
+          {/* **The one thing a DMG cannot do for you.** Homebrew puts `sanity` on PATH with
+              the cask's own `binary` stanza; a downloaded app is a bundle in /Applications
+              and nothing links out of it. `install_cli` has existed the whole time and
+              nothing ever called it, so the sentence above named a command a direct-download
+              user did not have.
+              A button rather than instructions, because the alternative is telling somebody
+              to add `Sanity.app/Contents/MacOS` to their PATH — which also puts
+              `sanity-scan`, `sanity-history` and two others there — or to write an alias no
+              script can see. */}
+          <div className="flex flex-col items-start gap-1.5">
+            {cli?.is_this_app ? (
+              // **A state, not a button.** Offering "Ensure CLI is on PATH" to somebody whose
+              // `sanity` already runs this app invites them to fix what is not broken, and
+              // the only way to learn the answer was to perform the action.
+              <p className="text-xs leading-relaxed text-[var(--agent-mark)]">
+                ✓ <code>sanity</code> is on your PATH
+              </p>
+            ) : (
+              <>
+                {/* Points at something else. Named rather than silently relinked: the
+                    winning entry may be a Homebrew cask's, which this app did not write and
+                    cannot remove, and re-linking our own directory would not change which
+                    one PATH reaches first. Saying what runs is the part that helps. */}
+                {cli?.on_path && cli.resolved && (
+                  <p className="text-xs leading-relaxed text-[var(--warning)]">
+                    <code>sanity</code> runs a different build — <code>{cli.resolved}</code>
+                  </p>
+                )}
+                <button
+                  onClick={() => {
+                    setLinking('working')
+                    void installCli()
+                      .then((r) => {
+                        setLinking(r)
+                        // Re-asked rather than inferred: `install_cli` knows it wrote a
+                        // link, and which `sanity` a SHELL reaches is a different question.
+                        void cliStatus().then(setCli)
+                      })
+                      .catch((e) => setLinking(String(e)))
+                  }}
+                  className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--secondary)] px-3.5 py-2 text-xs font-semibold hover:opacity-90"
+                >
+                  {linking === 'working'
+                    ? 'Linking…'
+                    : cli?.on_path
+                      ? 'Point sanity at this app'
+                      : 'Ensure CLI is on PATH'}
+                </button>
+                {linking && linking !== 'working' && typeof linking === 'string' && (
+                  <p className="text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+                    {linking}
+                  </p>
+                )}
+                {/* Linked, and still not what a shell reaches — a different directory wins.
+                    That is the one outcome somebody has to fix themselves, so it says so
+                    instead of showing a tick. */}
+                {linking && typeof linking !== 'string' && cli && !cli.is_this_app && (
+                  <p className="text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+                    Linked at <code>{linking.path}</code>
+                    {cli.resolved
+                      ? ` — but ${cli.resolved} comes first on your PATH.`
+                      : ' — add that directory to your PATH.'}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>

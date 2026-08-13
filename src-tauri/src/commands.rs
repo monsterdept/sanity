@@ -487,7 +487,7 @@ fn this_exe() -> String {
         .unwrap_or_default()
 }
 
-/// Add a repo to Sanity, from a directory a person picked.
+/// Add a folder to Sanity, from a directory a person picked.
 ///
 /// **The `+` was deliberately removed once, and this is it coming back for a different
 /// reason.** The argument then was that opening by hand was a dead end: an agent called
@@ -499,46 +499,25 @@ fn this_exe() -> String {
 /// person in a terminal running `sanity init`. Adding is the entrance rather than a
 /// sideshow, and a grey map is what every project looks like before it is read.
 ///
-/// The other objection was real and is guarded rather than argued away: a picker was once
-/// handed a directory holding many repos and set thirty minutes of CPU on fire. So the
-/// choice must be one repo — its own `.git` at the root — and a directory that merely
-/// CONTAINS repos is refused by name, with the count, because that is the mistake somebody
-/// is actually making when they pick their `~/projects` folder.
+/// **It required a `.git` at the root, and no longer does.** That guard was doing two jobs
+/// and only one of them was its own. The real one: a picker was once handed a directory of
+/// many repos and set thirty minutes of CPU on fire. The borrowed one: standing in for a
+/// picker that hands back the enclosing folder on a double-click, so the refusal fired
+/// constantly for people who HAD pointed at a repo. Nothing about scanning needs git —
+/// churn and blame degrade to "no history", which the app already reports — so requiring it
+/// was refusing folders for the convenience of a check rather than for the user's.
+///
+/// What is left unguarded is the CPU: pick `~/projects` deliberately and it will scan all
+/// of it. That is a real hazard and it is not solved here; it wants a size or repo-count
+/// warning that names what is about to happen, rather than a rule that says no to folders
+/// somebody meant to pick.
 #[tauri::command]
 pub fn add_project(path: String) -> Result<String, String> {
     let root = PathBuf::from(&path);
     if !root.is_dir() {
         return Err(format!("{path} is not a directory"));
     }
-    if root.join(".git").exists() {
-        return Ok(root.to_string_lossy().to_string());
-    }
-    // Not a repo. Say which of the two mistakes it is — an empty folder and the parent of
-    // twelve repos are the same error message otherwise, and only one of them has an
-    // obvious next step.
-    let inside: Vec<String> = std::fs::read_dir(&root)
-        .map(|entries| {
-            entries
-                .flatten()
-                .filter(|e| e.path().join(".git").exists())
-                .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    if !inside.is_empty() {
-        let mut shown = inside.clone();
-        shown.sort();
-        shown.truncate(3);
-        return Err(format!(
-            "{path} holds {} repos ({}{}) rather than being one. Pick the repo you want to \
-             read — scanning a whole directory of them takes many minutes and gives you one \
-             map of unrelated code.",
-            inside.len(),
-            shown.join(", "),
-            if inside.len() > shown.len() { ", …" } else { "" }
-        ));
-    }
-    Err(crate::scan::not_a_repo(&root))
+    Ok(root.to_string_lossy().to_string())
 }
 
 /// Where a `sanity` symlink can go, best first.
@@ -612,6 +591,62 @@ pub fn install_cli() -> Result<CliLink, String> {
         refused.join(" or "),
         exe.display()
     ))
+}
+
+/// Whether typing `sanity` in a terminal would work, and where the link is if there is one.
+///
+/// **Read-only, because the button that used to be the only way to find out was a write.**
+/// The card offered "Ensure CLI is on PATH" unconditionally, so somebody with a working
+/// `sanity` was invited to fix a thing that was not broken, and the only way to learn the
+/// answer was to perform the action.
+///
+/// `on_path` asks the LOGIN SHELL rather than this process's `PATH`, and that is the whole
+/// correctness of it. A GUI app launched from Finder inherits roughly
+/// `/usr/bin:/bin:/usr/sbin:/sbin`, so comparing the link's directory against it reported
+/// `~/.local/bin` as "not on PATH" for every user who has it — which is most of them, and
+/// exactly the machine this was tested on. The shell is the only thing that knows, for the
+/// same reason `Harness::resolve` asks it.
+#[derive(serde::Serialize)]
+pub struct CliState {
+    /// A `sanity` link exists in one of the places this app would write one.
+    linked: bool,
+    /// Where that link is, if it exists.
+    path: Option<String>,
+    /// A shell would find `sanity` — whether or not this app put it there.
+    on_path: bool,
+    /// What a shell would actually RUN, resolved through the symlink.
+    resolved: Option<String>,
+    /// Whether that is this app. False means a different build wins the name.
+    is_this_app: bool,
+}
+
+#[tauri::command]
+pub fn cli_status() -> CliState {
+    let found = cli_link_dirs().into_iter().map(|d| d.join("sanity")).find(|p| p.exists());
+    // What a terminal would run, followed to the end of the symlink. Either route counts:
+    // somebody may have a `sanity` from Homebrew, which this app did not link.
+    let resolved = crate::harness::which("sanity")
+        .or_else(|| crate::harness::via_login_shell("sanity"))
+        .and_then(|p| std::fs::canonicalize(p).ok());
+    let here = std::env::current_exe().ok().and_then(|p| std::fs::canonicalize(p).ok());
+    CliState {
+        linked: found.is_some(),
+        path: found.map(|p| p.display().to_string()),
+        on_path: resolved.is_some(),
+        // **Compared, not assumed, because two installs of this app is the ordinary case.**
+        // A Homebrew cask puts `sanity` in `/opt/homebrew/bin` pointing into the bundle it
+        // installed; a link made here points wherever THIS app is. Both can exist, PATH
+        // order decides which one the name means, and the loser is a build that answers
+        // `sanity check` while the window in front of you is a different one — the same
+        // "looks configured, won't connect" state the MCP rows already had a label for.
+        // Only a comparison can see it: "a shell finds sanity" is true in exactly the case
+        // that goes wrong.
+        is_this_app: match (&resolved, &here) {
+            (Some(a), Some(b)) => a == b,
+            _ => false,
+        },
+        resolved: resolved.map(|p| p.display().to_string()),
+    }
 }
 
 /// Take a project out of the sidebar.

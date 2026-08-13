@@ -468,7 +468,7 @@ fn is_runnable(p: &Path) -> bool {
 }
 
 /// Look a program up on the PATH this process inherited.
-fn which(prog: &str) -> Option<PathBuf> {
+pub fn which(prog: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path)
         .map(|d| d.join(prog))
@@ -481,7 +481,7 @@ fn which(prog: &str) -> Option<PathBuf> {
 /// which is knowledge that exists nowhere else on the machine. `command -v` rather than
 /// `which`, because it is a shell builtin and cannot itself be missing.
 #[cfg(unix)]
-fn via_login_shell(prog: &str) -> Option<PathBuf> {
+pub fn via_login_shell(prog: &str) -> Option<PathBuf> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
     let out = std::process::Command::new(shell)
         .arg("-lc")
@@ -499,7 +499,7 @@ fn via_login_shell(prog: &str) -> Option<PathBuf> {
 }
 
 #[cfg(not(unix))]
-fn via_login_shell(_prog: &str) -> Option<PathBuf> {
+pub fn via_login_shell(_prog: &str) -> Option<PathBuf> {
     None
 }
 

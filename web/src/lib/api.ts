@@ -255,9 +255,35 @@ export interface McpClient {
  *  Resolves to the chosen path, or null if the picker was dismissed. Rejects with a
  *  sentence to show when the directory is not a single repo — see `add_project`, which
  *  refuses a folder holding several rather than scanning all of them. */
+/** Ask for a folder to add.
+ *
+ *  **A macOS bug lives here, diagnosed and not yet worked around.** In the open panel's LIST
+ *  view — the one with disclosure triangles — a double-click on a folder is consumed as
+ *  "toggle disclosure": it expands the row in place instead of descending, and clears the
+ *  selection doing it. The panel's confirm path then runs against that state, finds no
+ *  selection, and a directories-only panel with no selection answers with the folder you are
+ *  browsing. So double-clicking `wormhole` inside `~/projects` hands over `~/projects`. It is
+ *  not returning the wrong choice; it is returning NO choice, and the fallback is the parent.
+ *
+ *  Measured, in a standalone AppKit binary with no Tauri and no `rfd`, by printing the view
+ *  mode the panel persists: mode 2 (list) returns the parent, while mode 1 (icon) and mode 3
+ *  (column) both return the folder that was double-clicked. Same binary, same gesture, one
+ *  variable — and only the view that HAS disclosure triangles is affected, which is what
+ *  makes the toggle the likely culprit. On a macOS public beta, so it may be a regression
+ *  rather than long-standing behaviour.
+ *
+ *  Deliberately not worked around here. A delegate that refused non-repos "fixed" it by
+ *  making the wrong answer invalid, which is a folder filter wearing a bug fix's clothes —
+ *  and it cost a filesystem probe per visible row, which made the panel lag. The honest fix
+ *  is to open the panel in a mode that has no disclosure triangles, which means writing this
+ *  app's `NSNavPanelFileListModeForOpenMode` default and overriding a preference the user
+ *  may have set on purpose. That is a decision, not a patch, so it waits.
+ *
+ *  Single-click and Open returns the right folder in every mode. That is the interaction
+ *  until then. */
 export async function pickProject(): Promise<string | null> {
   const { open } = await import('@tauri-apps/plugin-dialog')
-  const picked = await open({ directory: true, multiple: false, title: 'Add a repo' })
+  const picked = await open({ directory: true, multiple: false, title: 'Add a folder' })
   if (typeof picked !== 'string') return null
   return invoke<string>('add_project', { path: picked })
 }
@@ -1122,6 +1148,37 @@ export function onSetTheme(cb: (theme: string) => void): () => void {
 /** The app menu's File → Add Project… (⌘O). */
 export function onOpenProject(cb: () => void): () => void {
   const un = listen('open-project', () => cb())
+  return () => void un.then((f) => f())
+}
+
+/** What `sanity` means in a terminal, and whether it is THIS app. Read-only.
+ *
+ *  `on_path` alone is the answer that goes wrong: two installs of Sanity can both put a
+ *  `sanity` on PATH — a Homebrew cask's and this app's — and the one that wins is a fact
+ *  about PATH order, not about which window you are looking at. */
+export interface CliState {
+  linked: boolean
+  path: string | null
+  on_path: boolean
+  /** What a shell would actually run, followed through the symlink. */
+  resolved: string | null
+  /** Whether that is this app's binary. */
+  is_this_app: boolean
+}
+
+export function cliStatus(): Promise<CliState> {
+  return invoke<CliState>('cli_status').catch(() => ({
+    linked: false,
+    path: null,
+    on_path: false,
+    resolved: null,
+    is_this_app: false,
+  }))
+}
+
+/** The app menu's Sanity → Install Command Line Tool…. */
+export function onInstallCli(cb: () => void): () => void {
+  const un = listen('install-cli', () => cb())
   return () => void un.then((f) => f())
 }
 

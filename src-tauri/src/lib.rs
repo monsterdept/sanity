@@ -117,12 +117,22 @@ impl ThemeMenu {
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<(tauri::menu::Menu<tauri::Wry>, ThemeMenu)> {
     use tauri::menu::{AboutMetadata, CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 
+    // **The one thing a downloaded app cannot do for itself.** A Homebrew install puts
+    // `sanity` on PATH through the cask's `binary` stanza; a DMG leaves a bundle in
+    // /Applications with the binary buried in `Contents/MacOS`, which nothing links out of.
+    // The first-run card offers this too, but onboarding is seen once and this is needed
+    // whenever somebody wants the terminal half — so it lives where an app's one-off setup
+    // actions belong, the same place editors put theirs.
+    let install_cli =
+        MenuItem::with_id(app, "install-cli", "Install Command Line Tool…", true, None::<&str>)?;
     let app_menu = Submenu::with_items(
         app,
         "Sanity",
         true,
         &[
             &PredefinedMenuItem::about(app, None, Some(AboutMetadata::default()))?,
+            &PredefinedMenuItem::separator(app)?,
+            &install_cli,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::hide(app, None)?,
             &PredefinedMenuItem::hide_others(app, None)?,
@@ -215,6 +225,16 @@ pub fn run() {
                                 }
                                 return;
                             }
+                            // Emitted rather than run here, so the window reports the
+                            // outcome. The link either lands somewhere already on PATH or
+                            // it does not, and that distinction is the whole answer — a
+                            // menu item that silently succeeds tells nobody which happened.
+                            if event.id() == "install-cli" {
+                                for w in app.webview_windows().values() {
+                                    let _ = w.emit("install-cli", ());
+                                }
+                                return;
+                            }
                             let Some(which) = event.id().0.strip_prefix("theme-") else {
                                 return;
                             };
@@ -271,6 +291,7 @@ pub fn run() {
             commands::read_curve,
             commands::forget_project,
             commands::install_cli,
+            commands::cli_status,
             commands::set_reader,
             commands::start_check,
             commands::stop_check,
