@@ -1,8 +1,8 @@
 # web — sanity assessment
 
-254 of 263 read · 46 surprising · 1 stale
+263 of 263 read · 45 surprising · 1 stale
 
-199 of these graded legibility under an earlier question and are not counted; see the note below.
+198 of these graded legibility under an earlier question and are not counted; see the note below.
 
 Each entry below is one **reading**, of a function or of a whole file. An agent was
 given its name, signature, neighbouring names and comments — never its body — and
@@ -37,6 +37,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: yes
 - note: The docs essentially spell out the bug (missing `assessed` field) before revealing the code, so predicted='most' reflects that I got the shape right but named the missing field generically rather than knowing the exact field list.
 
+### `sameIds`
+- spec 2 · read at `6c45514e1a3d` · commit `298f9f5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:40:58Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Compares two optional string-id arrays for equality — treats absent/undefined as an empty array, checks lengths match, then compares elements pairwise in order (not set equality), returning false on the first mismatch found.
+- found: Exactly as predicted: nullish-coalesces both args to empty arrays, then checks length equality and pairwise element equality in order.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
 ### `sameProjects` — TRAP
 - spec 2 · read at `0c7e62ba3910` · commit `2903db5` · read by claude-sonnet-4.5 · asked for sonnet · via claude · when 2026-08-13T05:42:02Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
 - expected: Compares two arrays of ProjectSummary for equality: checks length first, then iterates comparing each pair (likely by id, and a few mutable fields such as status/progress) to determine if the list has meaningfully changed, used to avoid unnecessary re-renders or state churn in App.
@@ -57,11 +63,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `App` — QUIRKY
-- spec 2 · read at `b36e57f6a0e4` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: App is the root React component that owns top-level application state — likely fetching/holding a list of projects/tasks, tracking a selected id, and wiring together peer components (ProgressTrack, ProgressPane, ProgressStrip, HistoryToggle, Empty) via the useProgress hook. Given peers like findById/parentOf/sameIds/sameProjects, it probably manages selection/navigation through a hierarchical tree of projects and tasks, with history toggling between current and past states.
-- found: App is the root component of a Tauri desktop app ("Sanity") that visualizes a codebase as a sunburst map colored by various "readings" (surprise, age, etc). It polls a backend for the active project (following whichever repo an MCP agent is working on), manages selection/drill-in state via a node stack, streams live function-level scores from agents, supports a git-history replay mode with its own scrubber/commit log, manages theme, and renders a huge layout: sidebar, sunburst, detail panel, code view modal, read dialog.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
-- note: Predicted the shape (root state + wiring peers) correctly but massively underestimated scope — theming, keyboard shortcuts, agent-follow polling with careful stale-state guards, history replay, code modal, etc. were all invisible from the signature/peers alone.
+- spec 2 · read at `1ed0e2b461e5` · commit `298f9f5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:26:50Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: The root React component for what looks like a "progress/run tracker" viewer app. It likely holds top-level state (selected run, selected project/id, history toggle state), fetches or receives data, and uses helper functions like findById/parentOf/sameRun/sameIds/sameProjects to navigate/filter a tree of runs and projects. It composes the UI shell by rendering ProgressPane, ProgressStrip, ProgressTrack, HistoryToggle, and an Empty state when no data/selection exists, wiring event handlers for selection and navigation between them.
+- found: It's the root component of a Tauri app called "sanity" that visualizes a codebase as a sunburst chart, colored by different "readings" (surprise, age, etc) from an AI agent scanning it over MCP. Beyond selection/navigation state (which I predicted), it manages: following whatever project an agent is actively working on via polling, theme sync with a native menu, a git-history replay/scrubber mode with its own tree-per-commit reconstruction, batched streaming score updates, a code-view modal with reveal/scroll-to, splash-screen dismissal timing, and a project onboarding/add/forget flow.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
 
 ### `useProgress`
 - spec 1 · read at `022713725cb5` · commit `2903db5` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -467,12 +472,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Finds the first entry in a MOODS table whose regex `match` tests the tool name and returns its `play` animation list, defaulting to DEFAULT_PLAY if none match.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 
-### `MascotFigure` — QUIRKY
-- spec 1 · read at `a5609c67fe2c` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Renders a mascot figure sized by size; derives mood from events via moodFor/pick; sleeps when inactive, otherwise plays mood animations.
-- found: Mints/loads a persistent MascotConfig once. Tracks asleep state via ref and toggles play('sleep')/wake() when `active` flips, deferred a frame (play before mount is dropped). Separately, tracks highest-seen event sequence number in a ref (starting at 0 so a mid-session mount replays the tail) and on new events, plays mood animations for each fresh event staggered by BEAT_MS via setTimeout, wakes if asleep, and cleans up timers/rAF on effect re-run.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
-- note: Handed doc only explained why the file is isolated (lazy chunk), not what the component does — real behavior explanation lived in inline code comments instead.
+### `MascotFigure`
+- spec 2 · read at `a87413a8c189` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T16:30:37Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: React component that computes a "mood" from recent `events` via `moodFor`, uses `pick` to select a mascot variant/color, and `loadOrMint` to get/create a persistent mascot identity (e.g. stored in localStorage). Renders an SVG-based character sized by `size`, showing a dozing/idle animation when `active` is false and a reactive animation tied to mood when true.
+- found: Manages mascot lifecycle: loads/mints a persisted config, sleeps/wakes based on `active`, replays a batch of new agent-call events as mood animations (throttled/staggered), and includes a hidden six-click-to-remint easter egg that persists a new random mascot to localStorage.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ## web/src/components/Overlay.tsx
 
@@ -490,11 +494,30 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/ReadDialog.tsx
 
+### the file itself
+- spec 2 · read at `100b44878b73` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T17:01:42Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This file implements the dialog UI for configuring and launching a new "read" (assessment run) — letting the user pick parameters such as how many items/functions to sample, and other run settings, via a slider-based control. `tokensFor` estimates token cost from the slider value, `snap`/`approx` round or snap the slider to sensible increments, and `Field`/`Choice` are small reusable form building blocks used inside the main `ReadDialog` component which renders the modal itself.
+- found: The dialog for launching a sanity read: choose agent/model (defaulting to what the repo's corpus was already read with, to avoid mixing scales), then choose an extent via a detented slider, with four gauges (Functions, Readers, Lines, Tokens) showing what the run will cost before pressing the button.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+
+### `tokensFor`
+- spec 2 · read at `0446577e1881` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T16:30:45Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Computes an estimated token cost for reading `functions` items in batches of `batch` — likely `functions * costPerFunction + ceil(functions / batch) * perBatchOverhead`, modeling per-item cost plus fixed overhead per batch call.
+- found: Computes ceil(functions/batch) * ENTER_TOKENS + functions * PER_FUNCTION_TOKENS — per-batch entry overhead plus a flat per-function cost.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
 ### `Slider`
 - spec 2 · read at `27889eeb9d71` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:19:51Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: Renders a native <input type="range"> (min/max/step/value/onChange wired straight through) made invisible via opacity/appearance-none but kept on top for interaction, plus a custom visual track underneath built from divs: a filled portion sized by (value-min)/(max-min)*100%, a thumb positioned at that same percentage, and small notch marks for each entry in `detents` positioned the same way. label and valueText are used for an aria-label/aria-valuetext on the input for accessibility.
 - found: Renders an invisible native range input on top for interaction/accessibility, with a custom-painted track/fill/thumb underneath positioned via a shared (value-min)/(max-min) percentage helper, plus detent notch marks drawn in the dialog's background color (so they read as gaps against both track and fill) rather than a foreground ink or blend mode.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `snap`
+- spec 2 · read at `c6a1890c842e` · commit `298f9f5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:26:47Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Computes a catch-window as a fraction of the total range (derived from left/step), then iterates over `detents` checking if `v` is within that window of a detent; if so returns the detent value, otherwise returns `v` unchanged (not snapped to a step grid).
+- found: window = max(step, (left-step)*0.02) — a 2% of range catch window, floored at one step; then finds the first detent within that window of v, falling back to v itself if none match.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The doc explains the design rationale (why detents matter) but not the actual formula (2% of range, floored at step size) — that part wasn't derivable from docs alone, though the code itself is trivial to read.
 
 ### `approx`
 - spec 2 · read at `21533db1a284` · commit `2903db5` · read by gemini-3.6-flash-medium · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -584,29 +607,33 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/SideBar.tsx
 
-### the file itself
+### the file itself — STALE
 - spec 2 · read at `ad7b1cdec4b9` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: SideBar renders the list of open/known projects with an add button, delegating each row to ProjectItem (name, scan/read progress, select/forget/read actions, active highlight) and showing AgentPanel, which displays live agent activity (what tool/project an agent is currently working on) as seen consumed in App.tsx.
 - found: SideBar renders the project list (with an inline add button and right-click "remove from list" menu) plus a permanently-present AgentPanel. ProjectItem is a simple row showing name and read progress. AgentPanel is more than an activity indicator: it merges MCP agent activity and the backend's own spawned-reader run state into one three-rung label (Sleeping/Working/Stopping), shows a Read/Stop button depending on run state, reports failed reader counts and why a run ended, and renders a per-project progress bar for any project currently being read in the background (not just the active one).
 - predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `SideBar` — QUIRKY
-- spec 2 · read at `cab48bfed8fb` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Renders the left sidebar: a header with an "add project" (+) button wired to onAdd, then a list of ProjectItem rows built from `projects`, each highlighted if its key matches `active` and clickable to call onSelect, with per-row affordances to trigger onRead/onForget. Below or above the list it renders an AgentPanel fed by the `agent` prop showing current background activity.
-- found: Renders the sidebar shell: a header with an "Add repo" (+) button, an empty-state hint when there are no projects, a scrollable list of ProjectItem rows (click to select, right-click opens a custom context menu with "Remove from list" instead of the WebKit dev menu), and an AgentPanel at the bottom fed by the active project, the agent activity, onRead, and a filtered list of projects currently being worked ("bars") rather than a single global progress bar.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
+### `SideBar`
+- spec 2 · read at `fb405a5ee41e` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T17:01:37Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Renders a scrollable list of ProjectItem components (one per project, highlighting the active one and calling onSelect on click), a "+" button wired to onAdd for adding a new project, per-item controls wired to onRead and onForget, and an AgentPanel fed by the agent prop, likely with an empty-state message when there are no projects.
+- found: Renders the sidebar shell: header, a Projects list with an "Add a repo" (+) button and empty-state hint, each project as a ProjectItem with active highlighting and a custom right-click context menu (backdrop-dismissed) offering "Remove from list" (calls onForget) with reassurance text that data isn't deleted, and an AgentPanel at the bottom fed by the currently-active project, the agent activity, and onRead. Per-project progress/read affordances live inside ProjectItem/AgentPanel rather than inline buttons here.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: Expected inline per-item Read/Forget buttons; actual UI uses a right-click context menu for Forget and routes Read only through AgentPanel for the active project — the extensive prose comments explain several past-design iterations (single progress bar removed, + button re-added) that aren't derivable from the code itself.
 
-### `ProjectItem`
-- spec 2 · read at `4aa312f0a66d` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Renders a single sidebar row — a 28px rounded clickable strip showing the project's name/label on the left and some count (likely remaining items or unassessed count) right-aligned. Applies an "active" highlighted style when selected, calls onClick on click, and wires onContextMenu for a right-click menu.
-- found: Renders a 28px button row with an icon, project name, and a right-aligned status: while loading it shows a rescan progress percentage (or 'reading…'), otherwise it shows assessed/readable count colored to indicate completion. Title attribute gives a detailed tooltip including stale count. Active/hover styling and onClick/onContextMenu wired through.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+### `ProjectItem` — QUIRKY
+- spec 2 · read at `dcca663e8f0d` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T16:30:36Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Renders a clickable/right-clickable rounded row (28px strip) showing the project's name/icon, highlighted style when active is true, and some count value (likely agent/session count) right-aligned — wiring onClick and onContextMenu to the row element.
+- found: Renders the project nav row: title tooltip with read counts, a bottom-edge progress rule sized to assessed/total (brighter while readers are out), a sweeping animation along the bottom edge while a run is active, a pulsing icon glyph, project name, and a right-aligned count that shows a loading percentage or "reading…" while loading, else assessed/total colored to indicate completion.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: Docs described general layout intent (matches sibling apps) but not the progress-bar/reading-indicator logic, which is most of the function's actual work.
 
-### `AgentPanel` — QUIRKY — TANGLED
-- spec 2 · read at `1c985fa3a22d` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:06:10Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A sidebar panel component that shows Sanity's current agent activity as a single unified status ladder (idle / reading / stopping) rather than two separate indicators. It likely renders a mascot that animates based on `agent` state, shows which project/file is being read via `onRead`, and iterates `bars` to show per-project activity. The old settings gear that opened a "connect a chat client" sheet has been removed per the docs, so this component should no longer contain any gear icon or connection-sheet JSX.
-- found: Renders the always-present sidebar agent status panel: computes a three-state label (Sleeping/Working/Stopping) from run/chatter state, shows the animated mascot, a run-progress line (started count or exiting-readers count), a Read button, a Stop button that calls stopCheck, a failure-details overlay with transcript, an "ended" reason line, and per-project progress bars for the whole list — much more than just the merged-indicator/removed-gear story in the docs.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
+### `AgentPanel` — TANGLED
+- spec 2 · read at `915878fe737d` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T16:31:14Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Renders a single merged status panel driven by agent's state (idle / reading / stopping), showing an animated mascot only while readers are actively calling tools, plus progress numbers (counts of what's been assessed) and the current project's name. Includes a button that calls onRead(project.key) to kick off a run, but no longer contains a settings gear for connecting an external MCP chat client, since that affordance was removed.
+- found: Renders the merged status panel with three states (Sleeping/Working/Stopping) plus a "winding down" sub-state for readers still exiting after a stop, a Read/Stop button pair, a failure summary line with an info button opening an overlay transcript of reader failures, and detailed run-progress text (spawned/failed/segments unread).
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
 
 ## web/src/components/StaleHatch.tsx
 
@@ -664,14 +691,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Sunburst.tsx
 
-### the file itself — STALE
-- spec 1 · read at `03e55ee39942` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Main React component rendering the interactive sunburst chart (SVG arcs colored by grade/heat, drill-down, tooltips, zoom animation), with a small heatShare helper, and probably no file-level header despite its size.
-- found: Confirmed: no file-level doc at all. The file is ~200 lines of exhaustively-commented layout/rendering constants (ring gaps, label bands, patch-size floors, click-target widths) each with a paragraph explaining a specific bug or measurement it fixes, followed by one small helper `heatShare` and one large exported component `Sunburst` (from line 257 to the end at 1429) that presumably does the SVG rendering and interaction wiring using imports from sunburst.ts, zoom.ts, fan.ts, FileZoom, RollupDots, WedgeLabel, StaleHatch, WedgeTip.
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: Despite having zero file-level doc, this is one of the most heavily internally-documented files I've seen — nearly every constant has a multi-paragraph comment explaining a historical bug or measurement, which is a strange contrast to the missing header a stranger would want first.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### the file itself — QUIRKY
+- spec 2 · read at `38d255997ad3` · commit `298f9f5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:21:36Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This file implements a Sunburst (radial hierarchical) chart React component for the web app. It likely defines a small helper `heatShare` (probably computing a heat/color intensity ratio for a node/segment based on some value share) and the main `SunburstView` component that renders the sunburst using SVG arcs (possibly with d3-shape/d3-hierarchy), handling interactions like hover tooltips, click-to-zoom into a segment, and breadcrumb-style navigation back up the hierarchy. No file-level doc header exists, so it's a self-contained implementation file relying on naming for context.
+- found: A hand-rolled (no d3) React sunburst chart visualizing a codebase hierarchy (dir/file/func) as concentric SVG arcs. heatShare(kind, mode) only dampens opacity in 'surprise' color mode via a HEAT_BY_KIND table, returning 1 otherwise. SunburstView (~900 lines, exported memoized as Sunburst) manages hover tooltips, foldable dirs, click-to-select/double-click-to-drill, a requestAnimationFrame-driven zoom-transition interpolation loop, a FileZoom tiled view on file-open, and dynamic viewBox fitting via getBBox. No file-level doc header; extensive inline comments on tuning constants instead.
+- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
+- note: There is no doc header at all (docs list was empty), so 'documented'/'derivable' are not really meaningful here beyond 'none'.
 
 ### `heatShare`
 - spec 1 · read at `cbcc1020c953` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -679,6 +704,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Under mode === 'surprise', looks up a per-kind damping factor from a HEAT_BY_KIND table (defaulting to 1 if kind not present); any other mode returns 1 unconditionally.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: Assumed a binary directory-vs-not check; it's actually a table lookup by kind.
+
+### `SunburstView` — TANGLED
+- spec 2 · read at `b518deb159ce` · commit `298f9f5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:21:58Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A large React component rendering a zoomable/drillable radial (sunburst) arc chart of the repo's file/function tree. It computes a partition/arc layout over `root`, colors wedges according to `mode` (using `ranks` and `ageSpan` as scale inputs for rank- or age-based coloring), highlights the `selected` node, calls `onSelect`/`onDrill`/`onClear`/`onUp` on the corresponding user interactions (click, drill into a directory, clear selection, go up a level), and animates/pulses wedges whose node id is present in the `reading` set to visualize an agent's live progress moving through the repo.
+- found: A hand-rolled (no d3) SVG arc/partition renderer for the repo tree: computes wedge paths manually (Math.cos/sin), tracks hover node + pointer position separately (replacing native SVG title tooltips for instant custom tooltips), uses requestAnimationFrame-driven transitions for zoom/drill animations, and many refs for imperative animation/transform state. Colors by mode/ranks/ageSpan, calls onSelect/onDrill/onClear/onUp, and pulses wedges present in the `reading` set to visualize live agent progress — matching the doc comment on that prop closely.
+- predicted: most · documented: none · derivable: no · legible: some · trap: no
 
 ## web/src/components/WedgeLabel.tsx
 
@@ -814,6 +845,33 @@ What this is and how to add to it: [README.md](README.md)
 - found: Tauri invoke() wrapper calling the Rust command 'forget_project' with the key, returning its Promise<void> directly.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: I guessed a raw fetch/HTTP call instead of Tauri's invoke() bridge to the Rust backend — same intent, wrong transport mechanism, which this codebase uses throughout (Tauri app).
+
+### `harnesses`
+- spec 2 · read at `2458c1de1e62` · commit `298f9f5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:26:44Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A thin API wrapper that performs a GET request to a backend endpoint (likely /api/harnesses) and returns the parsed JSON response typed as HarnessInfo[], following the same pattern as sibling functions in this file (listProjects, mcpClients, etc.) which are simple fetch wrappers around REST endpoints.
+- found: It calls invoke('harnesses') (an IPC-style call, not a raw fetch) and silently swallows any error by returning an empty array via .catch(() => []).
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: Silently swallowing errors into an empty list could mask real failures from callers with no way to distinguish "no harnesses" from "request failed".
+
+### `setReader`
+- spec 2 · read at `65639281d69f` · commit `298f9f5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:49:18Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Calls into the Tauri backend (via invoke) with the project key and the harness/model strings, recording them against the project's summary so ProjectSummary.harness reflects who last read it — a simple fire-and-forget wrapper returning Promise<void>.
+- found: Exactly a thin invoke() wrapper calling the 'set_reader' Tauri command with key, harness, model.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `startCheck`
+- spec 2 · read at `5e348db3d3b8` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T17:01:41Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A frontend API wrapper that POSTs to a backend endpoint to start a "check" (wave) run, passing project key and optional model/readers/batch/limit params, and returns the parsed JSON response as-is (including error/hint/harness fields on refusal) rather than throwing on non-2xx.
+- found: Thin wrapper around Tauri's invoke('start_check', ...), passing key and normalized optional args (nulling undefined), returning whatever the backend resolves including error fields.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: I assumed an HTTP fetch/POST; it's actually a Tauri invoke call, since this is a Tauri app not a plain web API client.
+
+### `stopCheck`
+- spec 2 · read at `28be3bde661f` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T16:30:42Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A thin frontend API wrapper that POSTs/calls the backend "stop" endpoint with the project key, returning a promise that resolves once the request completes (no return value needed).
+- found: Calls Tauri's `invoke` to run the backend `stop_check` command with the project key, returning the resulting promise.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: I guessed HTTP fetch-style call; it's actually a Tauri invoke — same idea, different transport.
 
 ### `mcpCommand`
 - spec 1 · read at `1601a4380b1e` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded

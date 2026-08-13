@@ -18,9 +18,9 @@ agent can both work from them as they are.
 | area | read | of | surprising | stale | dated |
 |---|---|---|---|---|---|
 | [scripts](scripts.md) | 8 | 8 | 0 | 0 | 6 |
-| [src-tauri](src-tauri.md) | 555 | 598 | 97 | 1 | 437 |
-| [web](web.md) | 254 | 263 | 46 | 1 | 199 |
-| **total** | **817** | **869** | **143** | **2** | **642** |
+| [src-tauri](src-tauri.md) | 576 | 610 | 101 | 21 | 422 |
+| [web](web.md) | 263 | 263 | 45 | 1 | 198 |
+| **total** | **847** | **881** | **146** | **22** | **626** |
 
 ## Seeing it as a map
 
@@ -41,14 +41,18 @@ made against, so when either moves out from under a reading, Sanity marks it
 STALE and offers it for re-reading before anything else. Nothing here silently
 keeps claiming to be current.
 
-An agent does the reading, over MCP. Install the app and connect your agent to
-it — the button is under Connect — then, from this repo, ask the agent:
+Coding agents do the reading, and Sanity runs them. From this repo:
 
-> study this project in sanity
+```
+sanity init --harness claude
+sanity check
+```
 
-It re-reads what changed and what was never covered, and rewrites these files.
-The app does not have to be open while it works; the agent starts whatever it
-needs. Open it to watch the map colour in, or afterwards to read the result.
+Or add the repo in the app and press Read. Either way it re-reads what changed
+and what was never covered, and rewrites these files. Each reader is a separate
+process started outside this directory with no access to the repo — it sees only
+what Sanity hands it, which is what makes a reading a prediction rather than a
+recollection. The window does not have to be open while it works.
 
 **Anyone with the repo can do this.** Readings are not owned by whoever made
 them: `by` on each entry is provenance you can read, not a claim on the entry.
