@@ -645,6 +645,26 @@ pub struct Event {
     /// How the prediction went. Only on `read`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub predicted: Option<Grade>,
+    /// The rest of what the reading found, so a watcher can show the reading rather than
+    /// one quarter of it.
+    ///
+    /// **A bare `most` in a scrolling list says nothing.** The CLI printed `predicted`
+    /// alone, unlabelled, so a run scrolled a column of `full`/`some`/`none` past somebody
+    /// with no way to know which question they answered — and three of the four axes a
+    /// reader grades never reached the terminal at all. They cost a few bytes on a poll
+    /// that already carries the name.
+    ///
+    /// `documented` comes through `grades()`, so a doc the code already implies reads as
+    /// `none` here exactly as it does everywhere else — the provenance rule applied at the
+    /// point of use rather than left to each caller.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub documented: Option<Grade>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legible: Option<Grade>,
+    /// Whether the docs could have been written from the code alone. Not a grade, and the
+    /// defence against generated documentation counting as documentation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub derivable: Option<bool>,
 }
 
 /// A wave of readers Sanity spawned, and how it is going.
@@ -2115,15 +2135,35 @@ fn work_left(project: &Project) -> WorkLeft {
 /// Reported separately from "unread" everywhere it is surfaced, because they are
 /// different situations for the person reading the number: unread is work never done,
 /// stale is work that has quietly stopped being true.
+/// Every unit of work in a scan — function or file header — skipping what `.sanityignore`
+/// set aside.
+///
+/// **Exclusion is inherited, so it cannot be tested per node.** `Node::excluded` is set on
+/// the FILE a pattern matched, and its functions are out of scope with it — which is why
+/// `collect_tasks` and `count_funcs` both carry the flag down as they walk. `visit` does
+/// not, so anything using it counted work the queue would never hand out: `assessed` and
+/// `count_stale` did, while `functions` and `remaining` did not, and on a repo with a
+/// `.sanityignore` the four numbers stopped adding up. A coverage line reading `100 of 90`
+/// is the visible end of it; "unread minus stale" going negative is the other.
+fn each_unit(scan: &Scan, f: &mut impl FnMut(&Node)) {
+    fn walk(node: &Node, out_of_scope: bool, f: &mut impl FnMut(&Node)) {
+        let out_of_scope = out_of_scope || node.excluded;
+        if matches!(node.kind, NodeKind::Func | NodeKind::File) && !out_of_scope {
+            f(node);
+        }
+        for c in &node.children {
+            walk(c, out_of_scope, f);
+        }
+    }
+    walk(&scan.root, false, f);
+}
+
 fn count_stale(scan: &Scan, reports: &HashMap<String, Report>) -> usize {
     let mut n = 0;
-    scan.root.visit(&mut |node| {
-        // Files as well as functions: both are handed out, both are reported, and both
-        // expire. Counting only functions left an expired FILE reading in the numerator
-        // — `assessed` subtracts this from `reports.len()`, which holds every kind.
-        if !matches!(node.kind, NodeKind::Func | NodeKind::File) {
-            return;
-        }
+    // Files as well as functions: both are handed out, both are reported, and both expire.
+    // Counting only functions left an expired FILE reading in the numerator — `assessed`
+    // subtracts this from `reports.len()`, which holds every kind.
+    each_unit(scan, &mut |node| {
         if let Some(r) = reports.get(&node.id) {
             if crate::assessment::is_stale(r, node.body.as_deref()) {
                 n += 1;
@@ -2151,10 +2191,7 @@ fn count_stale(scan: &Scan, reports: &HashMap<String, Report>) -> usize {
 /// is worse than one that measures nothing.
 fn assessed(project: &Project) -> usize {
     let mut n = 0;
-    project.scan.root.visit(&mut |node| {
-        if !matches!(node.kind, NodeKind::Func | NodeKind::File) {
-            return;
-        }
+    each_unit(&project.scan, &mut |node| {
         if let Some(r) = project.reports.get(&node.id) {
             if !crate::assessment::is_stale(r, node.body.as_deref()) {
                 n += 1;
@@ -2162,6 +2199,48 @@ fn assessed(project: &Project) -> usize {
         }
     });
     n
+}
+
+/// The counts `/status` reports, computed from a scan and a store with no `Project` around.
+///
+/// **For the CLI answering without a backend.** Everything here is derivable from what is
+/// on disk, so refusing to answer when no daemon happens to be running made `sanity status`
+/// the one verb that needed the app open to describe a repo it can read. Kept beside the
+/// live definitions rather than reimplemented in `cli.rs`: `assessed` excluding stale, and
+/// `remaining` coming from the queue rather than from subtraction, are decisions this repo
+/// has made twice and would drift on a third time.
+pub struct OfflineCounts {
+    pub functions: usize,
+    pub files: usize,
+    pub excluded: usize,
+    pub assessed: usize,
+    pub remaining: usize,
+    pub stale: usize,
+}
+
+pub fn offline_counts(scan: &Scan, reports: &HashMap<String, Report>) -> OfflineCounts {
+    let (functions, excluded) = count_funcs(scan);
+    let mut unread = Vec::new();
+    collect_tasks(&scan.root, reports, &HashMap::new(), None, &mut unread);
+    let mut assessed = 0;
+    each_unit(scan, &mut |node| {
+        if let Some(r) = reports.get(&node.id) {
+            if !crate::assessment::is_stale(r, node.body.as_deref()) {
+                assessed += 1;
+            }
+        }
+    });
+    OfflineCounts {
+        functions,
+        // Beside `functions`, never folded into it — see `count_files`. A file with
+        // declarations is its own reading, so it is in `assessed` and in `remaining`, and a
+        // denominator that leaves it out reports more read than there is to read.
+        files: count_files(scan).0,
+        excluded,
+        assessed,
+        remaining: unread.len(),
+        stale: count_stale(scan, reports),
+    }
 }
 
 /// Lines of code sitting in functions that still need reading.
@@ -2779,7 +2858,12 @@ pub fn start_run(state: &Shared, req: CheckRequest) -> serde_json::Value {
         .model
         .clone()
         .filter(|m| !m.trim().is_empty())
-        .or_else(|| crate::reports::model_for(&key))
+        .or_else(|| {
+            lock(state)
+                .projects
+                .get(&key)
+                .and_then(|p| suggested_model(p, &key))
+        })
         .unwrap_or_default();
     let width = req.readers.unwrap_or(DEFAULT_READERS).clamp(1, 32);
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -3161,9 +3245,29 @@ impl Project {
     }
 
     /// Record one function going out or coming back, dropping the oldest.
-    fn note(&mut self, stage: &'static str, name: String, path: String, predicted: Option<Grade>) {
+    fn note(&mut self, stage: &'static str, name: String, path: String, found: Option<&Report>) {
         let seq = self.events.back().map(|e| e.seq + 1).unwrap_or(1);
-        self.events.push_back(Event { seq, stage, name, path, predicted });
+        let (predicted, documented) = match found {
+            Some(r) => {
+                let (p, d) = r.grades();
+                (Some(p), d)
+            }
+            None => (None, None),
+        };
+        self.events.push_back(Event {
+            seq,
+            stage,
+            name,
+            path,
+            predicted,
+            documented,
+            legible: found.and_then(|r| r.legible).filter(|_| {
+                // Dated grades answer a superseded question — see `legible_dated`. Shown as
+                // absent rather than as a current answer, on the same rule the map follows.
+                found.is_some_and(|r| !r.legible_dated)
+            }),
+            derivable: found.map(|r| r.derivable),
+        });
         while self.events.len() > EVENTS_KEPT {
             self.events.pop_front();
         }
@@ -3213,6 +3317,20 @@ fn recent_model(p: &Project) -> Option<String> {
         .map(|r| if r.asked.trim().is_empty() { r.model.trim() } else { r.asked.trim() })
         .filter(|m| !m.is_empty())
         .map(str::to_string)
+}
+
+/// What a run uses when nobody names a model. `None` means the harness's own default.
+///
+/// **One order, wherever the question is asked.** The `/check` handler resolved it one way
+/// and the window's dialog another, which is how a repo picks up a second scale: press Read
+/// and get the corpus's model, type `sanity check` and get whatever this laptop last
+/// preferred. The corpus comes first because it travels with the repo and a stored
+/// preference does not — see `recent_model` for why it reads what the last run ASKED for
+/// rather than what its readers said they were.
+pub fn suggested_model(p: &Project, key: &str) -> Option<String> {
+    recent_model(p)
+        .or_else(|| one_model(p))
+        .or_else(|| crate::reports::model_for(key))
 }
 
 fn model_tally(p: &Project) -> Vec<ModelCount> {
@@ -3653,8 +3771,7 @@ async fn report(
 
     // Before the map takes it, while the grade is still to hand.
     if let Some((name, path)) = named {
-        let graded = Some(r.grades().0);
-        project.note("read", name, path, graded);
+        project.note("read", name, path, Some(&r));
     }
     project.reports.insert(r.id.clone(), r);
     // Written through on every report. An assessment is minutes of an agent's work and
@@ -3775,6 +3892,10 @@ async fn status(
         })
         .collect();
     let key = state.for_client(p.project.as_deref());
+    // Kept alongside the borrow: the settings this reports are keyed by project and live in
+    // the machine-local index rather than on `Project`, so the handler needs the key as well
+    // as the thing it resolved to.
+    let resolved = key.clone().unwrap_or_default();
     match key.and_then(|k| state.projects.get(&k)) {
         Some(p) => {
             // The loop's termination condition, so a driving agent can ask "is there
@@ -3806,7 +3927,19 @@ async fn status(
                 // so a mismatch is visible even to a caller that supplied no key.
                 "project": p.name,
                 "repo": p.repo.to_string_lossy(),
+                // Who is answering. A backend is ephemeral and there is only ever one, so
+                // this is not a lifecycle to manage — it is what you need to look at the
+                // process when something is wrong, which a status verb should not withhold.
+                "pid": std::process::id(),
+                "port": read_endpoint().map(|e| e.port),
                 "functions": functions,
+                // **Beside `functions`, because `assessed` counts both.** A file with
+                // declarations is its own reading — queued, leased, graded and expired
+                // exactly as a function is — so a caller dividing by `functions` alone
+                // reports more read than there is to read. `sanity status` did: 812
+                // functions, 821 read. The same arithmetic the sidebar's `150/631` came
+                // from, arriving through the endpoint instead.
+                "files": count_files(&p.scan).0,
                 "excluded": excluded,
                 // Not scoped to this repo — see `AppState::refused`. Named for what it
                 // counts so a driving session cannot read it as "reports outstanding".
@@ -3817,6 +3950,12 @@ async fn status(
                 // function that exists to be the one definition, which is the divergence
                 // `assessed` was written to end.
                 "assessed": assessed(p),
+                // What a run with no `--model` would use — see `suggested_model`. Reported
+                // so the CLI can name it before spending anything, and so it does not have
+                // to reimplement the resolution and drift from it. Null means nothing knows,
+                // and the harness's own default reads.
+                "model": suggested_model(p, &resolved),
+                "harness": crate::reports::harness_for(&resolved),
                 // Lease-independent, so two callers a second apart agree. It only falls
                 // when a reading actually lands.
                 "remaining": remaining,
@@ -3910,15 +4049,15 @@ async fn status(
 
 /// How many readings landed on each step of the scale.
 #[derive(Debug, Default, Clone, Serialize)]
-struct GradeCounts {
-    full: usize,
-    most: usize,
-    some: usize,
-    none: usize,
+pub struct GradeCounts {
+    pub full: usize,
+    pub most: usize,
+    pub some: usize,
+    pub none: usize,
     /// Readings carrying no grade at all. Only `documented` can be this — `predicted`
     /// folds a pre-grade report onto the ends of the scale, because that is what its
     /// reader actually said.
-    ungraded: usize,
+    pub ungraded: usize,
 }
 
 impl GradeCounts {
@@ -3934,17 +4073,17 @@ impl GradeCounts {
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
-struct Tally {
-    readings: usize,
-    predicted: GradeCounts,
+pub struct Tally {
+    pub readings: usize,
+    pub predicted: GradeCounts,
     /// Post-provenance, via [`Report::grades`]: a doc the reader judged derivable counts
     /// as `none` here however it was graded, because that is the rule the rest of the app
     /// applies and two different "documented" numbers would be worse than one.
-    documented: GradeCounts,
+    pub documented: GradeCounts,
     /// How many of those docs the reader judged it could have written from the code — the
     /// share of the `documented: none` above that came from the rule rather than from
     /// missing comments.
-    derivable: usize,
+    pub derivable: usize,
     /// The second axis: how clear the body was once the reader had opened it.
     ///
     /// Reported alongside `predicted` rather than folded into it, because the pair is the
@@ -3954,11 +4093,11 @@ struct Tally {
     ///
     /// Readings banked before this field existed carry no opinion, so they land in
     /// `ungraded` rather than defaulting to a grade nobody gave.
-    legible: GradeCounts,
+    pub legible: GradeCounts,
     /// Readings whose reader said something here will bite the next person to edit it.
-    traps: usize,
+    pub traps: usize,
     /// Readings whose reader said it had not seen that file before.
-    cold: usize,
+    pub cold: usize,
 }
 
 impl Tally {
@@ -4009,14 +4148,14 @@ impl Tally {
 /// matched, and it needs a repo where a reader has less handed to it — this one gives a
 /// paragraph of rationale per function, which leaves prior exposure little to add.
 #[derive(Debug, Default, Clone, Serialize)]
-struct Drift {
+pub struct Drift {
     /// Position → how that position's readings graded. Keyed by the reader's own count,
     /// so bucket 1 is every reader's first function whatever batch size it was running.
-    positions: std::collections::BTreeMap<u32, GradeCounts>,
+    pub positions: std::collections::BTreeMap<u32, GradeCounts>,
     /// Readings banked before position was recorded. Never folded into bucket 1 — an
     /// unknown position is not a claim of freshness, and counting it as one is exactly how
     /// a batched run got to look uniform in the first place.
-    unrecorded: usize,
+    pub unrecorded: usize,
 }
 
 /// Everything [`summary`] reports, computed off the tree rather than off `reports`.
@@ -4026,12 +4165,12 @@ struct Drift {
 /// whose code has moved is counted as stale instead of averaged in as coverage. Walking
 /// the reports instead would report a distribution over a repo that no longer exists.
 #[derive(Debug, Default, Serialize)]
-struct Aggregate {
-    total: Tally,
-    by_model: std::collections::BTreeMap<String, Tally>,
-    by_position: Drift,
-    stale: usize,
-    priming: Priming,
+pub struct Aggregate {
+    pub total: Tally,
+    pub by_model: std::collections::BTreeMap<String, Tally>,
+    pub by_position: Drift,
+    pub stale: usize,
+    pub priming: Priming,
 }
 
 /// How much of this assessment was taken by readers holding the repo's own documentation.
@@ -4041,23 +4180,33 @@ struct Aggregate {
 /// point of counting it is that a mixed corpus can be SPLIT, which prose in a caveats
 /// document written afterwards cannot do.
 #[derive(Debug, Default, Serialize)]
-struct Priming {
+pub struct Priming {
     /// Readings whose reader declared the instructions were in its context.
-    exposed: usize,
+    pub exposed: usize,
     /// Readings taken in a repo that HAS instructions, by a reader that did not hold them.
-    clean: usize,
+    pub clean: usize,
     /// Readings from a repo with no instructions file at all — nothing to be primed by,
     /// and counted apart so `clean` keeps meaning "deliberately excluded".
-    not_applicable: usize,
+    pub not_applicable: usize,
 }
 
 fn aggregate(project: &Project) -> Aggregate {
+    aggregate_of(&project.scan, &project.reports)
+}
+
+/// The same, from a scan and a store, for a caller with no `Project` — see
+/// [`offline_counts`], which exists for the same reason. One definition, so the CLI
+/// answering without a backend cannot drift from the endpoint answering with one.
+pub fn aggregate_of(scan: &Scan, reports: &HashMap<String, Report>) -> Aggregate {
     let mut agg = Aggregate::default();
-    project.scan.root.visit(&mut |node| {
+    // Through `each_unit`, so `.sanityignore` is honoured here as it is everywhere else —
+    // the aggregate is what `sanity summary` prints, and counting readings the queue would
+    // never hand out is the same overstatement one level along.
+    each_unit(scan, &mut |node| {
         if node.kind != NodeKind::Func {
             return;
         }
-        let Some(r) = project.reports.get(&node.id) else {
+        let Some(r) = reports.get(&node.id) else {
             return;
         };
         if crate::assessment::is_stale(r, node.body.as_deref()) {
@@ -4135,11 +4284,21 @@ async fn summary(State(state): State<Shared>, Query(p): Query<SummaryParams>) ->
     let (functions, excluded) = count_funcs(&project.scan);
     Json(serde_json::json!({
         "open": true,
+        // The header this feeds is shared with `/status`, so the fields it reads have to
+        // come from the same definitions. They did not: `assessed` was `agg.total.readings`,
+        // which counts FUNCTION readings — the aggregate is about the grade tables, and the
+        // tables are functions only. So `sanity summary` said 754 read where `sanity status`
+        // said 817, one command apart, and both were describing the same repo.
+        "project": project.name,
+        "assessment_file": crate::assessment::dir(&project.repo).to_string_lossy(),
         "repo": project.repo.to_string_lossy(),
         "functions": functions,
+        // Beside `functions`, because `assessed` counts file headers too — see the same
+        // field on `/status`.
+        "files": count_files(&project.scan).0,
         "excluded": excluded,
-        "assessed": agg.total.readings,
-        "stale": agg.stale,
+        "assessed": assessed(project),
+        "stale": count_stale(&project.scan, &project.reports),
         "remaining": remaining,
         "total": agg.total,
         "by_model": agg.by_model,

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { clsx } from '../lib/cn'
 import { AgentMascot } from './AgentMascot'
 import { Overlay } from './Overlay'
+import { FAMILY, TRACKING } from '../lib/labelStyle'
 import { SideBarHeader } from './shell/SideBarHeader'
 import { readable, stopCheck, type AgentActivity, type ProjectSummary } from '../lib/api'
 
@@ -14,23 +15,24 @@ import { readable, stopCheck, type AgentActivity, type ProjectSummary } from '..
  * at. Clicking one is the manual override for going back to something no session is
  * currently driving.
  */
-/** The mascot in the agent panel, and how far it has to drop to stand on the type.
- *
- *  `align-items: last baseline` puts a replaced element's BOX bottom on the baseline, and
- *  the mascot is a 3D render into a square canvas with room beneath it — so aligned
- *  honestly it floats above the line. The offset pushes the box down by that empty part
- *  so the creature's shadow lands on the baseline instead of the canvas edge.
- *
- *  Expressed as a FRACTION of the size, not a pixel count: the empty margin is part of
- *  the render, so it scales with the sprite, and a fixed pixel value silently drifts
- *  every time the size changes. Eyeballed — the sprite comes from the mascots bundle as
- *  a 3D render, so there is nothing to measure statically. */
-// Sized against the LABEL, not for its own sake. Standing on the last baseline, a
-// mascot taller than the two lines of type pushes the label's top down by the
-// difference — at 46 that was about 10px and the text read as sagging under it. Close
-// to the label's own height, the two sit level.
+// Sized against the LABEL, not for its own sake. A mascot much taller than the type
+// dominates the row; close to the label's own height, the two sit level.
+//
+// The floor offset that used to live here was for `align-items: last baseline`, which
+// stood the creature on the underline of the last word — the right alignment for a label
+// that ran to two and three lines ("AGENT IS WORKING"). One word has no paragraph to stand
+// on, so the row centres instead and all that is left is a small nudge.
 const MASCOT_SIZE = 40
-const MASCOT_FLOOR_OFFSET = Math.round(MASCOT_SIZE * 0.2)
+
+/** How far the mascot moves to sit level with a single line of type. Negative is up.
+ *
+ *  The canvas is a 3D render with room beneath the creature, so centring the canvas ought
+ *  to leave the creature high — and the first guesses pushed it down by half that margin,
+ *  then by two pixels, and both hung it low. Against the type as it is now set, it wants to
+ *  go the other way. Eyeballed, because the sprite comes out of the mascots bundle and
+ *  there is nothing to measure statically; every value this has held was arrived at by
+ *  looking at it. */
+const MASCOT_NUDGE = -3
 
 export function SideBar({
   projects,
@@ -56,7 +58,17 @@ export function SideBar({
   /** The right-click menu: which project, and where the pointer was. */
   const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null)
 
-  // One bar per project actually being worked, not one bar for the app.
+  // **The panel below is about the SELECTED project and nothing else.**
+  //
+  // It used to be both at once: Read and Stop acted on the selection while a stack of
+  // progress bars underneath covered every project being worked. Selecting `tally` and
+  // being shown `sanity`'s bar, two inches under a Read button that would read tally, is
+  // one box answering two questions — and the reader has no way to know which line answers
+  // which.
+  //
+  // The list is the multi-project surface, so per-project progress went there: a fill
+  // behind each row and a pulsing icon while that project has readers out. No height, and
+  // it is beside the name it belongs to.
   //
   // There was a single bar, first for "the first unfinished project in the list" and then
   // for "whichever one the app calls active" — both of which answer a question nobody
@@ -72,7 +84,6 @@ export function SideBar({
   // look at completeness, a full bar under a sleeping mascot on any finished project you
   // happened to have selected. Absent, the bar means one thing and its absence means
   // nobody is reading.
-  const bars = projects.filter((p) => p.working && readable(p) > 0)
 
   return (
     <aside
@@ -180,7 +191,6 @@ export function SideBar({
         project={projects.find((p) => p.key === active) ?? null}
         agent={agent}
         onRead={onRead}
-        bars={bars}
       />
     </aside>
   )
@@ -199,7 +209,11 @@ function ProjectItem({
   onClick: () => void
   onContextMenu: (e: React.MouseEvent) => void
 }) {
-  const done = readable(project) > 0 && project.assessed >= readable(project)
+  const total = readable(project)
+  const done = total > 0 && project.assessed >= total
+  // Readers out on THIS project, whichever one is selected. A run is a fact about a repo,
+  // not about the pane you happen to be looking at.
+  const reading = !!project.run?.running || (project.reading?.length ?? 0) > 0
   return (
     <button
       type="button"
@@ -208,33 +222,83 @@ function ProjectItem({
       title={
         project.loading
           ? `${project.repo} · reading…`
-          : `${project.repo} · ${project.assessed} of ${readable(project)} read` +
+          : `${project.repo} · ${project.assessed} of ${total} read` +
             (project.stale > 0 ? ` · ${project.stale} stale` : '')
       }
       className={clsx(
-        'flex w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors',
+        'relative flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-md px-2 text-left text-[13px] transition-colors',
         active ? 'shell-chrome--active' : 'shell-chrome--hover',
       )}
       style={{ height: 28, color: active ? 'var(--foreground)' : 'var(--muted-foreground)' }}
     >
+      {/* **A rule along the bottom edge, not a fill behind the row.**
+          Every project's progress belongs in the list, because the list is the only surface
+          here about more than one project — the panel below is about the selected one, and
+          mixing the two scopes there meant selecting `tally` and reading `sanity`'s bar.
+          It cannot be a stacked bar, which is what put these rows on two lines and stopped
+          the sidebar reading like a list. It also cannot be a background fill, which is what
+          this was first: selection is a lighter block behind the row, so a partial lighter
+          block behind the row is the same visual idea at a different width, and a
+          half-finished project read as half-selected.
+          An edge rule shares nothing with either. It is inside the row's own height, so it
+          still costs nothing, and it is drawn in the mark colour readings already use rather
+          than the accent that means "selected". */}
+      {!project.loading && total > 0 && project.assessed > 0 && (
+        <span
+          aria-hidden
+          className="absolute bottom-0 left-0 h-[2px] rounded-full"
+          style={{
+            width: `${Math.min(100, (project.assessed / total) * 100)}%`,
+            background: 'var(--agent-mark)',
+            // Brighter while readers are out: the rule is the thing that moves during a
+            // run, so it should be the thing you notice.
+            opacity: reading ? 0.95 : 0.6,
+            transition: 'width 400ms ease-out, opacity 200ms',
+          }}
+        />
+      )}
+      {/* **A sweep along the whole edge while readers are out.** The pulsing icon was the
+          only sign, and an 11px glyph changing opacity is not enough to catch an eye that is
+          somewhere else — which is the entire job, because the project being read is usually
+          not the one on screen.
+          Full width rather than along the unread remainder: at 832 of 869 the remainder is
+          four pixels, and the signal would be loudest on the runs that have barely started
+          and invisible on the ones about to finish. Movement across the row reads the same
+          at any coverage, and it sits under the fill rather than replacing it, so "how far
+          along" and "working right now" stay two separate readings. */}
+      {reading && (
+        <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] overflow-hidden">
+          <span
+            className="reading-sweep absolute inset-y-0 w-1/4"
+            style={{
+              background:
+                'linear-gradient(90deg, transparent, var(--accent), transparent)',
+            }}
+          />
+        </span>
+      )}
       {/* An icon, because tally's rows have one and their absence is most of why a
-          bare list does not read as navigation. */}
-      <span className="shrink-0 text-[11px] opacity-70">◍</span>
-      <span className="mono flex-1 truncate">{project.name}</span>
+          bare list does not read as navigation. It pulses while that project has readers
+          out, which is what tells you a repo is being worked on when it is not the one on
+          screen. */}
+      <span className={clsx('relative shrink-0 text-[11px] opacity-70', reading && 'reading-pulse')}>
+        ◍
+      </span>
+      <span className="mono relative flex-1 truncate">{project.name}</span>
       {/* A count of 0/0 would be a measurement, and nothing has measured this yet — the
           restore is still rescanning it. Say so instead. */}
       {project.loading ? (
-        <span className="shrink-0 text-[10px] tabular-nums opacity-45">
+        <span className="relative shrink-0 text-[10px] tabular-nums opacity-45">
           {project.read_total > 0
             ? `${Math.round((project.read_done / project.read_total) * 100)}%`
             : 'reading…'}
         </span>
       ) : (
         <span
-          className="shrink-0 text-[10px] tabular-nums"
+          className="relative shrink-0 text-[10px] tabular-nums"
           style={{ color: done ? 'var(--agent-mark)' : 'inherit', opacity: done ? 1 : 0.55 }}
         >
-          {project.assessed}/{readable(project)}
+          {project.assessed}/{total}
         </span>
       )}
     </button>
@@ -265,12 +329,10 @@ function AgentPanel({
   project,
   agent,
   onRead,
-  bars,
 }: {
   project: ProjectSummary | null
   agent: AgentActivity
   onRead: (key: string) => void
-  bars: ProjectSummary[]
 }) {
   const run = project?.run ?? null
   const [asked, setAsked] = useState(false)
@@ -355,13 +417,16 @@ function AgentPanel({
             middle of a paragraph floats. One word has no paragraph to align to, so the two
             objects simply sit level, and the word takes the height that frees up.
 
-            The mascot is nudged DOWN by half its empty margin: it is a 3D render into a
-            square canvas with room beneath the creature, so centring the canvas leaves the
-            creature sitting high. */}
+            The mascot is nudged DOWN a little: it is a 3D render into a square canvas with
+            room beneath the creature, so centring the CANVAS leaves the creature sitting
+            high. The nudge was half that empty margin, which overshot and hung it below the
+            word — the render's padding is smaller than the sprite's own floor offset. Two
+            pixels, eyeballed against the rendered thing, because there is nothing to measure
+            statically: the sprite comes out of the mascots bundle. */}
         <div className="flex h-12 items-center gap-2.5">
           <span
             className="shrink-0"
-            style={{ transform: `translateY(${MASCOT_FLOOR_OFFSET / 2}px)` }}
+            style={{ transform: `translateY(${MASCOT_NUDGE}px)` }}
           >
             <AgentMascot size={MASCOT_SIZE} events={agent.events} active={lit} />
           </span>
@@ -369,9 +434,25 @@ function AgentPanel({
               mascot are already saying "something is happening"; the word is the one thing
               that says WHAT, and at accent-on-accent it was the quietest element in a panel
               built around it. */}
+          {/* Large and light, in the map's own face. One uppercase word is a nameplate, and
+              a nameplate wants size for presence and weight for none — at 19px semibold it
+              read as a warning label, which is the wrong tone for a sleeping mascot.
+
+              Face, weight and tracking come from `labelStyle`, which is where the sunburst's
+              own labels get them. They were settled by looking at real data for an evening
+              and they are not this panel's to re-decide: two places setting type by eye is
+              how an app ends up with two voices that nearly match. The one thing taken from
+              the family rather than the constant is the WEIGHT — 100 against the map's 400 —
+              because this is a single word at 26px rather than a name squeezed into a wedge,
+              and the vendored face has a real Thin cut, so nothing is synthesised. */}
           <span
-            className="font-display min-w-0 flex-1 text-[19px] font-semibold uppercase leading-none tracking-tight"
-            style={{ color: lit ? 'var(--foreground)' : 'inherit' }}
+            className="min-w-0 flex-1 text-[26px] uppercase leading-none"
+            style={{
+              color: lit ? 'var(--foreground)' : 'inherit',
+              fontFamily: FAMILY,
+              fontWeight: 100,
+              letterSpacing: `${TRACKING}em`,
+            }}
           >
             {label}
           </span>
@@ -385,7 +466,7 @@ function AgentPanel({
                   ? runLine
                   : left === 0
                     ? 'Fully read'
-                    : `${left.toLocaleString()} left to read`}
+                    : `${left.toLocaleString()} segments unread`}
                 {/* Failures are named rather than folded into "started". A misconfigured
                     agent exits instantly, so a run with nothing landing looks merely slow —
                     this is the one number that tells the two apart. */}
@@ -511,28 +592,6 @@ function AgentPanel({
           </Overlay>
         )}
 
-        {/* The bar lives here rather than on every project row: in the list it was repeated
-            per row and pushed the rows to two lines each, which is what stopped the sidebar
-            reading like tally's. */}
-        {bars.map((p) => (
-          <div key={p.key} className="mt-1.5">
-            <div className="mb-1 flex items-baseline justify-between text-[10px] opacity-70">
-              <span className="mono truncate">{p.name}</span>
-              <span className="shrink-0 tabular-nums">
-                {p.assessed}/{readable(p)}
-              </span>
-            </div>
-            <div className="h-1 w-full overflow-hidden rounded-full bg-black/25">
-              <div
-                className="h-full rounded-full transition-[width] duration-500"
-                style={{
-                  width: `${Math.max(1.5, (p.assessed / readable(p)) * 100)}%`,
-                  background: 'var(--agent-mark)',
-                }}
-              />
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   )

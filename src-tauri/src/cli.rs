@@ -1,4 +1,4 @@
-//! The headless half — `sanity serve`, `sanity study`, and the read-only verbs.
+//! The headless half — `sanity serve`, `sanity check`, and the read-only verbs.
 //!
 //! Sanity's backend was reachable only by opening a window, which was never a design
 //! position: the state ended up in the app's process because the app was written first,
@@ -10,17 +10,23 @@
 //!
 //! - **The backend is per machine, not per project.** One endpoint file, one process,
 //!   a map of projects, and every call routed by the caller's key through `for_client`.
-//!   That was already true — it is what `active_project()` was deleted for — so `study`
-//!   in a second repo is just another client, not a second server.
+//!   That was already true — it is what `active_project()` was deleted for — so `sanity
+//!   check` in a second repo is just another client, not a second server.
 //! - **The daemon holds nothing precious.** The scan is recomputed, the readings are in
 //!   `.sanity/`, and a lost lease re-queues by design. So it can be killed at any moment,
 //!   which is why the lifecycle here is allowed to be blunt: idle out, or stand down when
 //!   superseded. There is no `sanity stop`, because nothing needs stopping cleanly.
-//! - **There is still no model path in the app.** `sanity study` prints the sentence and
-//!   gets out of the way. Spawning a reader would mean owning model choice, auth,
-//!   concurrency and resumption — the configuration `OllamaModel` was deleted to avoid —
-//!   and it would make the tool assert the reading conditions that `position` and
-//!   `by_position` exist to keep measuring.
+//! - **There is still no model path in the app.** Sanity spawns coding agents that are
+//!   already installed and authenticated; it does not run inference. What `OllamaModel` was
+//!   deleted to avoid was configuring an ENDPOINT, and none of this configures one.
+//!
+//! **`sanity study` used to live here and is gone.** It opened a repo and printed a
+//! sentence to paste at an agent, from the design where the agent WAS the reader. The role
+//! split ended that: a session with no `SANITY_ROLE` gets the human tools — open, check,
+//! status, summary — and cannot call `next`, `reveal` or `report` at all. So the sentence
+//! asked an agent to do something it has no tools for, and the three paragraphs of priming
+//! warning underneath guarded a door that is now bricked up. Registering a repo is `init`,
+//! and `--show` moved there with it.
 
 use crate::agentapi::{self, Endpoint};
 use crate::mcp::urlencode;
@@ -35,7 +41,7 @@ use std::time::{Duration, Instant};
 /// where the whole point of the verb is to tell you quickly what is running.
 const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
 
-/// How long `study` waits for a backend it just started.
+/// How long a verb waits for a backend it just started.
 ///
 /// It covers process start and `restore`'s first moments, not a scan — `restore` rescans
 /// on its own thread and the server answers before it finishes.
@@ -133,10 +139,10 @@ fn await_backend(deadline: Instant) -> Option<Endpoint> {
 
 /// How long a headless backend sits with nothing calling it before standing down.
 ///
-/// Sized for the gap this actually has to survive: `study` prints a sentence, and a human
-/// then has to read it, switch to an agent and paste it. Half an hour is generous for
-/// that and short enough that a forgotten daemon does not outlive the afternoon. Once a
-/// wave is running, `status` polling alone keeps it alive.
+/// Sized for the gap this actually has to survive: somebody runs `init`, reads what it
+/// says, and gets round to `check`. Half an hour is generous for that and short enough that
+/// a forgotten daemon does not outlive the afternoon. Once a wave is running, `status`
+/// polling alone keeps it alive.
 ///
 /// Nothing is lost when it fires. That is the whole reason this can be a timer rather
 /// than a negotiation.
@@ -237,13 +243,32 @@ pub(crate) fn ensure_backend() -> Result<Endpoint, String> {
     }
 
     let exe = std::env::current_exe().map_err(|e| format!("cannot find my own binary: {e}"))?;
-    std::process::Command::new(exe)
-        .arg("serve")
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg("serve")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("could not start the backend: {e}"))?;
+        .stderr(std::process::Stdio::null());
+    // **Its own process group, or Ctrl-C kills the daemon.**
+    //
+    // A child inherits the terminal's foreground process group, and Ctrl-C signals the
+    // GROUP — so interrupting `sanity check` did not merely stop the watching, it delivered
+    // SIGINT to the backend this command happened to have started. The backend shut down,
+    // taking the readers with it, and the CLI then polled something that was no longer
+    // there: "lost the backend. The run may still be going". There was no summary because
+    // there was nothing left to ask.
+    //
+    // The interrupt has a job of its own — stop the readers, then report what the run cost
+    // — and it can do neither from a dead server. That the daemon is also shared with the
+    // window is a second reason, but the first one is enough.
+    //
+    // Unix only, because the problem is: Windows has no process groups in this sense and
+    // sends console events to attached processes, which a null-stdio child is not.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    cmd.spawn().map_err(|e| format!("could not start the backend: {e}"))?;
 
     await_backend(deadline).ok_or_else(|| "the backend did not come up within 15s".to_string())
 }
@@ -415,7 +440,79 @@ pub fn serve() -> i32 {
 /// `show` is the only way the window moves. Without it the repo appears in the sidebar
 /// with its own progress and the pane the human is reading stays put, because a shell
 /// command is not evidence that they wanted to stop looking at what they had open.
-/// `sanity init --harness <name> [--model <id>]` — say which agent reads this repo.
+/// Is there a person here to answer a question?
+///
+/// **Nothing prompts unless both ends of the conversation are a terminal.** These verbs run
+/// in CI, in `just` recipes, from a launchd job and inside the app's own `Command::new`, and
+/// a prompt in any of those is not a question — it is a hang, with the reason invisible
+/// because whatever would have printed it is being captured. Checking stdout as well as
+/// stdin is what catches `sanity check . | tee log`, where a person IS present and still
+/// cannot see what they are being asked.
+fn interactive() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+}
+
+/// Ask a person to pick from a short list, or to type something else.
+///
+/// Returns `None` for an empty answer, which every caller reads as "you decide" — so the
+/// non-interactive path and the just-press-return path arrive at the same place rather than
+/// at two behaviours somebody has to know apart.
+fn choose(prompt: &str, options: &[String], default: Option<&str>) -> Option<String> {
+    use std::io::Write;
+    println!();
+    for (i, o) in options.iter().enumerate() {
+        let mark = if default == Some(o.as_str()) { " (default)" } else { "" };
+        println!("  {}. {o}{mark}", i + 1);
+    }
+    println!();
+    print!("{prompt} ");
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    if std::io::stdin().read_line(&mut line).is_err() {
+        return default.map(str::to_string);
+    }
+    let line = line.trim();
+    if line.is_empty() {
+        return default.map(str::to_string);
+    }
+    // A number picks from the list; anything else is taken literally, because the list is
+    // what the agent reported and a model it has never heard of is still a valid thing to
+    // ask for — the same "suggestions, not a gate" rule the window's picker follows.
+    if let Ok(n) = line.parse::<usize>() {
+        if n >= 1 && n <= options.len() {
+            return Some(options[n - 1].clone());
+        }
+    }
+    Some(line.to_string())
+}
+
+/// Point the window at a repo, if asked and only if asked.
+///
+/// **The one thing `study` did that nothing else did.** Everything else it printed either
+/// moved to `init` or described a workflow the role split ended — but "open the app on this
+/// repo" is a real thing to want from a terminal, and no other verb does it: `check` opens
+/// the project without taking the view, and the read verbs deliberately do not open at all.
+///
+/// Starts a backend, because there is nothing to point otherwise. That is why it is behind
+/// a flag: `init` is otherwise an offline write to a file, and a verb that quietly spawns a
+/// daemon to record a preference would be a surprise.
+///
+/// Failures are silent. The project is recorded whatever happens here, and a window that
+/// did not move is a visible outcome that needs no sentence of its own.
+fn reveal_in_window(repo: &std::path::Path, show: bool) {
+    if !show {
+        return;
+    }
+    let Ok(ep) = ensure_backend() else { return };
+    let _ = post(
+        &ep,
+        "/open",
+        json!({ "path": repo.to_string_lossy(), "focus": true }),
+    );
+}
+
+/// `sanity init --harness <name> [--model <id>] [--show]` — say which agent reads this repo.
 ///
 /// **A human naming a project, in the one place a human is not a contaminant.** Readers
 /// may never name a repo; a person in a terminal always may, and this is the terminal half
@@ -432,7 +529,7 @@ pub fn serve() -> i32 {
 /// is precisely the unannounced change of scale the `model` column exists to catch. The
 /// window has remembered both settings per project since it grew a Read button; this is
 /// the terminal half of the same memory.
-pub fn init(path: &str, harness: Option<&str>, model: Option<&str>) -> i32 {
+pub fn init(path: &str, harness: Option<&str>, model: Option<&str>, show: bool) -> i32 {
     let repo = match resolve(path) {
         Ok(p) => p,
         Err(e) => {
@@ -458,21 +555,49 @@ pub fn init(path: &str, harness: Option<&str>, model: Option<&str>) -> i32 {
         crate::reports::set_reader(&key, &repo.to_string_lossy(), &name, None, Some(m));
     }
 
-    let Some(asked) = harness else {
-        // Nothing chosen: say what is set and what could be, rather than picking. Which
-        // agent reads is the same class of choice as which model reads.
-        match crate::reports::harness_for(&key) {
+    let configured = crate::reports::harness_for(&key);
+    let found: Vec<String> = crate::harness::Harness::all()
+        .into_iter()
+        .filter(|h| h.available())
+        .map(|h| h.name().to_string())
+        .collect();
+
+    // **Asked for, or asked about — never guessed at.** With no `--harness` this used to
+    // print the installed agents and stop, which is a wizard that has done the detecting and
+    // then makes you type the answer back. Where there is somebody to answer, it asks; where
+    // there is not — a script, a `just` recipe, the app spawning this — it prints exactly
+    // what it always printed, because a prompt with nothing attached to the other end is a
+    // hang whose reason is invisible.
+    let mut prompted = false;
+    let asked: Option<String> = match harness.map(str::to_string) {
+        Some(h) => Some(h),
+        None if interactive() && !found.is_empty() => {
+            prompted = true;
+            choose("Which agent reads this repo?", &found, configured.as_deref())
+        }
+        None => None,
+    };
+
+    let Some(asked) = asked else {
+        // Asked and declined. Saying "no agent configured yet, on this machine: …" here
+        // would be reciting the list they just chose not to pick from, under a heading they
+        // have already read — the fallback below is written for somebody who was never
+        // asked anything.
+        if prompted {
+            println!();
+            println!("Nothing chosen. `sanity init --harness <name>` when you know.");
+            reveal_in_window(&repo, show);
+            return 0;
+        }
+        // Nothing chosen and nobody to ask: say what is set and what could be, rather than
+        // picking. Which agent reads is the same class of choice as which model reads.
+        match configured {
             Some(h) => println!("{name} reads with {h}. Change it with --harness <name>."),
             None => println!("{name} has no agent configured yet."),
         }
         if let Some(m) = crate::reports::model_for(&key) {
             println!("Its readings are taken by {m}.");
         }
-        let found: Vec<&str> = crate::harness::Harness::all()
-            .into_iter()
-            .filter(|h| h.available())
-            .map(|h| h.name())
-            .collect();
         println!();
         if found.is_empty() {
             println!(
@@ -484,8 +609,10 @@ pub fn init(path: &str, harness: Option<&str>, model: Option<&str>) -> i32 {
             println!();
             println!("    sanity init --harness {}", found[0]);
         }
-        return if harness.is_none() && found.is_empty() { 1 } else { 0 };
+        reveal_in_window(&repo, show);
+        return if found.is_empty() { 1 } else { 0 };
     };
+    let asked = asked.as_str();
     let Some(h) = crate::harness::Harness::parse(asked) else {
         eprintln!(
             "sanity: `{asked}` is not an agent Sanity can run. Supported: {}.",
@@ -500,6 +627,27 @@ pub fn init(path: &str, harness: Option<&str>, model: Option<&str>) -> i32 {
         eprintln!("sanity: note — `{}` is not on PATH yet.", h.program());
     }
     crate::reports::set_harness(&key, &repo.to_string_lossy(), &name, h.name());
+
+    // The model, on the same terms: offered where somebody can answer, left alone otherwise.
+    // Only when nothing has decided already — a repo with readings has a scale, and asking
+    // again invites somebody to change it by pressing return.
+    if model.is_none() && crate::reports::model_for(&key).is_none() && interactive() {
+        let choices: Vec<String> = h.models().into_iter().map(|m| m.id).collect();
+        let default = h.models().into_iter().find(|m| m.default).map(|m| m.id);
+        if !choices.is_empty() {
+            println!();
+            println!("Which model reads is the measurement — a smaller one is surprised by");
+            println!("more, and readings taken by two models are one map on two scales.");
+            if let Some(m) = choose(
+                "Which model? (return for the default)",
+                &choices,
+                default.as_deref(),
+            ) {
+                crate::reports::set_reader(&key, &repo.to_string_lossy(), &name, None, Some(&m));
+            }
+        }
+    }
+    reveal_in_window(&repo, show);
     println!();
     match crate::reports::model_for(&key) {
         Some(m) => println!("{name} will be read by {}, using {m}.", h.name()),
@@ -517,9 +665,8 @@ pub fn init(path: &str, harness: Option<&str>, model: Option<&str>) -> i32 {
 
 /// `sanity check` — run readers over this repo until it is read.
 ///
-/// The verb `study` printed a sentence for a human to paste at an agent, deliberately, so
-/// that Sanity would not own model choice or concurrency. This owns both, and the reason
-/// the trade changed is in `harness.rs`: a reader is now a stateless MCP client, so
+/// This owns model choice and concurrency, which `study` was written to avoid owning. The
+/// reason the trade changed is in `harness.rs`: a reader is now a stateless MCP client, so
 /// spawning one is shelling out to a CLI the user has already authenticated, and what
 /// Sanity gets in return is isolation it can guarantee instead of ask for.
 pub fn check(
@@ -562,6 +709,62 @@ pub fn check(
         return 1;
     }
     let key = agentapi::project_key(&repo);
+
+    // **What this run will read with, decided before anything is spent.**
+    //
+    // The backend already resolves it — corpus first, then this laptop's preference — and
+    // reports the answer on `/status` rather than making the CLI reimplement the order and
+    // drift from it. So there are only two cases left here. It knows: say so, because which
+    // model reads IS the measurement and somebody should see it named before five agents
+    // start. It does not: ask, if there is anybody to ask.
+    //
+    // Non-interactive with nothing known is the one path that stays silent and proceeds on
+    // the harness's default — the run still says so afterwards, and a script that cannot
+    // answer a question must not be stopped by one.
+    // Whether the model came from the repo rather than from the command line — the run's
+    // opening line says so, because continuing a corpus and starting one are different acts.
+    let mut inherited = false;
+    let model = match model.map(str::to_string) {
+        Some(m) => Some(m),
+        None => {
+            let known = get(&ep, &format!("/status?project={}", urlencode(&key)))
+                .ok()
+                // Owned: `text` borrows from the response, which does not outlive the call.
+                .map(|st| text(&st, "model").to_string())
+                .filter(|m| !m.is_empty());
+            match known {
+                Some(m) => {
+                    // Announced once, by the line below, rather than here as well: the two
+                    // said the model's name twice in three lines, in different words.
+                    inherited = true;
+                    Some(m)
+                }
+                None if interactive() => {
+                    let h = crate::reports::harness_for(&key)
+                        .and_then(|h| crate::harness::Harness::parse(&h));
+                    let choices: Vec<String> =
+                        h.map(|h| h.models().into_iter().map(|m| m.id).collect()).unwrap_or_default();
+                    let default = h
+                        .and_then(|h| h.models().into_iter().find(|m| m.default))
+                        .map(|m| m.id);
+                    println!();
+                    println!("Nothing has read this repo yet, so there is no scale to match.");
+                    if choices.is_empty() {
+                        None
+                    } else {
+                        choose(
+                            "Which model should read it? (return for the default)",
+                            &choices,
+                            default.as_deref(),
+                        )
+                    }
+                }
+                None => None,
+            }
+        }
+    };
+    let model = model.as_deref();
+
     let started = match post(
         &ep,
         "/check",
@@ -591,13 +794,13 @@ pub fn check(
     let harness = text(&started, "harness");
     let model_said = text(&started, "model");
     println!();
+    // The MODEL, not the harness, because the model is the scale — the harness is how it
+    // was reached. It was "with claude (claude-sonnet-5)", which puts the incidental half
+    // first and the measurement in brackets.
     println!(
-        "Reading {name} with {harness}{}.",
-        if model_said.is_empty() {
-            String::new()
-        } else {
-            format!(" ({model_said})")
-        }
+        "Reading {name} with {}{}.",
+        if model_said.is_empty() { harness } else { model_said },
+        if inherited { " (previously used)" } else { "" }
     );
     // Said out loud because it is the choice that decides what the numbers mean, and the
     // one somebody would otherwise discover months later from the `model` column.
@@ -620,7 +823,7 @@ pub fn check(
     // end them — they would go on spending tokens for as long as the wave had left. A
     // command that keeps costing money after you interrupt it is the wrong default however
     // the ownership is arranged; `--detach` is how you start one and walk away.
-    println!("Ctrl-C stops the run. Use --detach to start it and leave it running.");
+    println!("Ctrl-C to stop. Run in background with --detach.");
     println!();
     tail(&ep, &key)
 }
@@ -637,6 +840,67 @@ pub fn check(
 /// watcher asks "what is newer than what I have" and a missed tick costs nothing; a stream
 /// would need the backend to hold a subscriber list for a viewer that can vanish with a
 /// Ctrl-C.
+/// Is stdout a terminal? Decides whether anything is drawn rather than printed.
+///
+/// Stdout alone, unlike [`interactive`], which also wants a stdin to read an answer from.
+/// Drawing asks nothing of the reader — it only needs somewhere that can handle a carriage
+/// return without filling a log file with escape codes.
+fn fancy() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdout().is_terminal()
+}
+
+/// `1 reader` / `5 readers`. Small enough to be worth not getting wrong: "1 readers" in a
+/// line somebody watches for minutes is the kind of thing that makes a tool feel unfinished.
+fn plural(n: u64, word: &str) -> String {
+    if n == 1 {
+        format!("{n} {word}")
+    } else {
+        format!("{} {word}s", commas(n))
+    }
+}
+
+/// The width of the drawn bar, in cells. Short on purpose: it shares a line with the
+/// counts, and the counts are the part somebody actually reads.
+const BAR: usize = 20;
+
+fn bar(frac: f64) -> String {
+    let full = (frac.clamp(0.0, 1.0) * BAR as f64).round() as usize;
+    format!("{}{}", "█".repeat(full), "░".repeat(BAR - full))
+}
+
+/// `3m20s`, or `40s` under a minute. Elapsed rather than a clock time: what matters is how
+/// long this has been going, and nobody needs to know it started at 02:14.
+fn elapsed(since: Instant) -> String {
+    let s = since.elapsed().as_secs();
+    if s < 60 {
+        format!("{s}s")
+    } else {
+        format!("{}m{:02}s", s / 60, s % 60)
+    }
+}
+
+/// How a grade is coloured, or nothing when the output is not a terminal.
+///
+/// **Loudness follows what the reading FOUND, not how well it went.** `full` means the code
+/// read the way its name implied, which is the common case and the least interesting line on
+/// the screen, so it is dimmed. `none` means a reader was completely wrong about a function,
+/// which is the finding the whole instrument exists to produce — it gets the brightest ink
+/// in the run. Colouring these the other way round, as a pass/fail would, makes a wall of
+/// green out of the answers nobody needs to read.
+fn grade_ink(grade: &str) -> (&'static str, &'static str) {
+    if !fancy() {
+        return ("", "");
+    }
+    match grade {
+        "full" => ("\x1b[2m", "\x1b[0m"),
+        "most" => ("", ""),
+        "some" => ("\x1b[33m", "\x1b[0m"),
+        "none" => ("\x1b[1;33m", "\x1b[0m"),
+        _ => ("\x1b[2m", "\x1b[0m"),
+    }
+}
+
 fn tail(ep: &Endpoint, key: &str) -> i32 {
     // Set by the signal handler; read at the top of every poll. A flag rather than
     // stopping from inside the handler because the stop is an HTTP call, and a handler is
@@ -657,16 +921,53 @@ fn tail(ep: &Endpoint, key: &str) -> i32 {
         });
     }
     let mut seen = 0u64;
+    let started = Instant::now();
+    // Where the run began, so the bar measures THIS run rather than the repo's whole
+    // history. A repo that was already 90% read would otherwise open at 90% and creep,
+    // which says nothing about the thing you just started.
+    let mut banked_at_start: Option<u64> = None;
+    // Whether a status line is currently on screen and needs erasing before anything else
+    // prints. Tracked rather than assumed: the first pass has drawn nothing yet, and
+    // erasing a line that is not there eats the line above it.
+    let mut drawn = false;
+    /// Width of the name column, so the leaders end where the grades begin.
+    const NAME_COL: usize = 38;
+    /// Width of each grade column. Ten, not eight, because `predicted` and `derivable` are
+    /// nine characters — a heading wider than its own column pushes every column right of
+    /// it out of line with the rows beneath, which is what the header was doing.
+    const GRADE_COL: usize = 10;
+    // The header is printed with the first reading rather than up front: a run that fails to
+    // bank anything should not leave column headings over an empty table.
+    let mut headed = false;
+    // Carried across polls, because the poll that fails is the one that cannot tell you what
+    // the run got through — and that is exactly when somebody wants to know.
+    let mut done = 0u64;
     loop {
         if interrupted.swap(false, std::sync::atomic::Ordering::Relaxed) {
             println!();
-            println!("Stopping — readers are being shut down.");
+            println!("Stopping readers…");
             let _ = post(ep, "/stop", json!({ "project": key }));
             // Kept tailing rather than returning: the readers take a moment to die, and
             // the run's own summary is the honest answer to "what did I just spend".
         }
         let Ok(st) = get(ep, &format!("/status?project={}", urlencode(key))) else {
-            eprintln!("sanity: lost the backend. The run may still be going — `sanity status`.");
+            // **Reported as the RUN ending, because that is the only part anybody has a
+            // stake in.** It said "lost the backend … the run may still be going", which
+            // asks somebody to hold a lifecycle in their head: backends are ephemeral, there
+            // is only ever one, the next command starts another and so does opening the
+            // window. None of that is a fact worth teaching at the moment a run stops.
+            //
+            // What IS true and useful: every reading is written to `.sanity/` as it lands,
+            // so what was banked is safe and the only loss is whatever was in flight.
+            if drawn {
+                print!("\r\x1b[K");
+            }
+            println!();
+            println!("The run stopped early.");
+            println!();
+            println!("  {} in {}", plural(done, "reading"), elapsed(started));
+            println!("  `sanity check` picks up where it left off.");
+            println!();
             return 1;
         };
         if let Some(events) = st.get("events").and_then(|v| v.as_array()) {
@@ -681,154 +982,241 @@ fn tail(ep: &Endpoint, key: &str) -> i32 {
                 if e.get("stage").and_then(|v| v.as_str()) != Some("read") {
                     continue;
                 }
+                let grade = text(e, "predicted");
+                let (ink, off) = grade_ink(grade);
+                // Erase the status line before the reading, redraw after — otherwise the
+                // scroll and the pinned line fight over the same row and the terminal keeps
+                // whichever landed last.
+                if drawn {
+                    print!("\r\x1b[K");
+                    drawn = false;
+                }
+                // **Once, above the first reading.** A column of `full`/`some`/`none` with
+                // no heading is four grades' worth of vocabulary and no way to know which
+                // question any of them answered — and three of the four were never printed
+                // at all. Named here rather than on every row, because the row is the thing
+                // being read and a run scrolls hundreds of them.
+                if !headed {
+                    let (d, o) = if fancy() { ("\x1b[2m", "\x1b[0m") } else { ("", "") };
+                    println!(
+                        "  {d}{:<NAME$} {:<G$}{:<G$}{:<G$}derivable{o}",
+                        "function", "predicted", "doc'd", "legible",
+                        NAME = NAME_COL,
+                        G = GRADE_COL,
+                    );
+                    headed = true;
+                }
+                let name = text(e, "name");
+                let shown: String = name.chars().take(NAME_COL).collect();
+                let dots = NAME_COL - shown.chars().count();
+                let leader = if fancy() {
+                    format!("\x1b[2m{}\x1b[0m", "·".repeat(dots))
+                } else {
+                    " ".repeat(dots)
+                };
                 println!(
-                    "  {:<48} {}",
-                    text(e, "name"),
-                    text(e, "predicted")
+                    "  {shown}{leader} {ink}{:<G$}{off}{:<G$}{:<G$}{}",
+                    grade,
+                    text(e, "documented"),
+                    // Absent when the grade was taken under a superseded question — see
+                    // `Event::legible`. A dash, not a blank: the column still exists.
+                    match text(e, "legible") {
+                        "" => "—",
+                        g => g,
+                    },
+                    match e.get("derivable").and_then(|v| v.as_bool()) {
+                        Some(true) => "yes",
+                        Some(false) => "no",
+                        None => "—",
+                    },
+                    G = GRADE_COL,
                 );
             }
         }
         let run = st.get("run").cloned().unwrap_or(Value::Null);
+        let assessed = num(&st, "assessed");
+        let remaining = num(&st, "remaining");
+        if banked_at_start.is_none() {
+            banked_at_start = Some(assessed);
+        }
+        let from = banked_at_start.unwrap_or(assessed);
+        done = assessed.saturating_sub(from);
+        let target = done + remaining;
+
         if run.get("running").and_then(|v| v.as_bool()) == Some(false) {
             let failed = num(&run, "failed");
+            // Erased and not reset: this branch returns, so the flag has no reader left.
+            if drawn {
+                print!("\r\x1b[K");
+            }
             println!();
+            // Why it ended, then what it did. The first line is the backend's own sentence,
+            // printed bare — "Stopped at your request.", "Reached the limit of 10 readings."
+            // — and the rest is the answer to "what did I just spend", which is the whole
+            // reason an interrupted run keeps tailing instead of returning at the keystroke.
             println!("{}", text(&run, "ended"));
-            println!(
-                "  {} read, {} to go",
-                commas(num(&st, "assessed")),
-                commas(num(&st, "remaining"))
-            );
+            println!();
+            println!("  {} in {}", plural(done, "reading"), elapsed(started));
             // Named rather than folded into the total. A misconfigured agent exits
             // instantly, so a run that banked nothing looks merely disappointing until you
             // see that every reader failed.
             if failed > 0 {
-                println!("  {} readers failed", commas(failed));
+                println!("  {} failed", plural(failed, "reader"));
             }
+            println!(
+                "  {} of {} read, {} to go",
+                commas(num(&st, "assessed")),
+                commas(num(&st, "functions") + num(&st, "files")),
+                commas(num(&st, "remaining")),
+            );
             println!();
             return 0;
+        }
+
+        // The pinned line. Only where there is a terminal to pin it to: in a log or a pipe
+        // this would be a carriage return every two seconds and nothing legible at the end,
+        // so a non-terminal gets the readings and the summary and no chrome at all.
+        if fancy() {
+            let frac = if target == 0 { 0.0 } else { done as f64 / target as f64 };
+            let readers = num(&run, "live");
+            print!(
+                "\r\x1b[K\x1b[2m▕\x1b[0m{}\x1b[2m▏\x1b[0m {}/{} · {} · {}",
+                bar(frac),
+                commas(done),
+                commas(target),
+                plural(readers, "reader"),
+                elapsed(started),
+            );
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+            drawn = true;
         }
         std::thread::sleep(Duration::from_secs(2));
     }
 }
 
-pub fn study(path: &str, show: bool) -> i32 {
-    let repo = match resolve(path) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("sanity: {e}");
-            return 1;
-        }
-    };
-    let ep = match ensure_backend() {
-        Ok(ep) => ep,
-        Err(e) => {
-            eprintln!("sanity: {e}");
-            return 1;
-        }
-    };
+/// The block every verb opens with: what the repo is, and how much of it has been read.
+///
+/// **One function because it was drifting.** `status` and `summary` both printed a header
+/// and they disagreed about the denominator, about whether stale was inside "to go", and
+/// about whether file headers counted — three different answers to the same question in two
+/// commands somebody runs one after the other. Anything below this line is the verb's own
+/// business; this part is the repo, and the repo does not change depending on which verb
+/// asked.
+fn project_header(v: &Value) {
+    let funcs = num(v, "functions");
+    let files = num(v, "files");
+    let total = funcs + files;
+    let read = num(v, "assessed");
+    let stale = num(v, "stale");
+    let togo = num(v, "remaining");
+    // Read, never read, and expired: three states that sum to the total. `remaining`
+    // CONTAINS the stale ones — they are queued ahead of anything unread — so subtracting is
+    // the only way to state them as three disjoint numbers, and stating them any other way
+    // invites adding two of them together.
+    let never = togo.saturating_sub(stale);
+    let pct = |n: u64| if total == 0 { 0.0 } else { n as f64 * 100.0 / total as f64 };
 
-    let opened = match post(
-        &ep,
-        "/open",
-        json!({ "path": repo.to_string_lossy(), "focus": show }),
-    ) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("sanity: {e}");
-            return 1;
-        }
-    };
-    if !opened.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-        eprintln!("sanity: {}", text(&opened, "error"));
-        return 1;
-    }
-
-    // The counts come from `/status`, not from the open response, because `assessed` there
-    // is `reports.len()` raw and this has to agree with the sidebar — stale readings are
-    // expired work, not finished work, and a CLI that counted them would be the `/status`
-    // bug over again in a second place.
-    let key = agentapi::project_key(&repo);
-    let st = get(&ep, &format!("/status?project={}", urlencode(&key))).unwrap_or(Value::Null);
-
-    let name = text(&opened, "name");
-    let functions = num(&opened, "functions");
-    let excluded = num(&opened, "excluded");
-    let assessed = num(&st, "assessed");
-    let remaining = num(&st, "remaining");
-    let stale = num(&st, "stale");
-
-    println!();
-    println!("{name} — {}", repo.display());
-    print!("  {} functions", commas(functions));
-    // Never on its own. An exclusion that vanishes from the totals is how a map claims
-    // completeness over a subset somebody narrowed months ago.
-    if excluded > 0 {
-        print!(", {} excluded by .sanityignore", commas(excluded));
-    }
-    println!();
-    print!("  {} read, {} to go", commas(assessed), commas(remaining));
-    if stale > 0 {
-        print!(" ({} of them stale — the code moved under them)", commas(stale));
-    }
-    println!();
-    // Never "the window is showing this". Headless is the case this verb exists for and
-    // there is no window there to speak for — `showing` means the view slot now names
-    // this repo, which is a claim about Sanity and true whether or not anything is drawing
-    // it. Saying "window" would have the CLI describe a pane that does not exist.
-    println!(
-        "  backend on port {}{}",
-        ep.port,
-        if opened.get("showing").and_then(|v| v.as_bool()).unwrap_or(false) {
-            ", Sanity is pointed here"
-        } else {
-            ", Sanity is left pointed at another repo"
-        }
+    println!("Project: {}", text(v, "project"));
+    print!(
+        "  {} segments ({} functions + {} file headers)",
+        commas(total),
+        commas(funcs),
+        commas(files)
     );
-    println!();
-    // To the human, in the human's terminal, before the wave. The same argument as the
-    // model question below it and a stronger case for it: which model reads is a choice
-    // somebody makes, while this is a default of the HOST that nobody chose and most
-    // people do not know is happening. It reaches the orchestrator too, in the `/open`
-    // response — but the orchestrator is the party that cannot fix it, because its
-    // readers' context is built before any of them can call anything. Only the person
-    // typing the launch command can.
-    let docs = text(&opened, "agent_docs");
-    if !docs.is_empty() {
-        // States what is known and stops. An earlier version told the human that Claude
-        // Code "puts it in every subagent" as flat fact — true of a default launch, and
-        // wrong for anybody who had already excluded it, which is precisely the person who
-        // took the advice. You cannot tell someone they made a mistake they did not make.
-        println!("Before you start — this repo has {docs} at its root, and Sanity cannot");
-        println!("see whether your agent's session loaded it. If it did, its readers arrive");
-        println!("already holding a description of the code they are about to predict, which");
-        println!("grades as recall rather than surprise.");
-        println!();
-        println!("`sanity check` does not have this problem: it launches each reader itself,");
-        println!("outside this directory and without the project's own settings, so the brief");
-        println!("cannot reach them. Driving by hand, it is yours to rule out.");
-        println!();
-        println!("    sanity check {path}");
-        println!();
-        println!("Readers are asked either way, and `sanity summary {path}` reports the split.");
-        println!();
-    }
-    if remaining == 0 {
-        println!("Every function has an up-to-date reading. `sanity summary {path}` says what it found.");
-    } else {
-        println!("Ask your agent:");
-        println!();
-        println!("    study this project in sanity");
-        println!();
-        // Said here because this is the human's entry point, and the choice is theirs to
-        // make before a wave starts rather than a thing they discover afterwards from the
-        // `model` column. The agent is told to ask (see `PROTOCOL`); this is so the question
-        // is expected rather than surprising, and so somebody who already knows what they
-        // want can put it in the sentence and skip the round trip.
-        println!("It will ask which model should read — Sonnet unless you say otherwise.");
-        println!("Naming one in that sentence skips the question.");
+    if num(v, "excluded") > 0 {
+        print!(", {} excluded by .sanityignore", commas(num(v, "excluded")));
     }
     println!();
-    0
+    println!("  {} read ({:.1}%)", commas(read), pct(read));
+    println!("  {} unread ({:.1}%)", commas(never), pct(never));
+    println!("  {} stale ({:.1}%)", commas(stale), pct(stale));
+    if let Some(n) = v.get("in_flight").and_then(|x| x.as_u64()) {
+        if n > 0 {
+            println!("  {} out with readers now", commas(n));
+        }
+    }
+    println!("  readings in {}", text(v, "assessment_file"));
+}
+
+/// What `/status` would say, computed here, for when no backend is answering.
+///
+/// In-process on purpose, and for the same reason `refresh` is: this is a look at a repo,
+/// and the repo is the authority on everything it reports. It scans — seconds — which is
+/// the price of an answer, and it changes nothing: no project is registered, no daemon
+/// starts, no file is written.
+///
+/// Shaped like the endpoint's payload so `status` has one formatter rather than two. The
+/// fields only a running backend can know are absent rather than zeroed: `in_flight` says
+/// how much work is out with readers, and reporting none of it when the truth is unknown is
+/// the same overstatement `work_left` exists to prevent.
+fn offline_status(repo: &std::path::Path) -> Option<Value> {
+    let (scan, reports) = read_repo(repo)?;
+    let counted = agentapi::offline_counts(&scan, &reports);
+    Some(json!({
+        "project": repo.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+        "repo": repo.to_string_lossy(),
+        "functions": counted.functions,
+        "files": counted.files,
+        "excluded": counted.excluded,
+        "assessed": counted.assessed,
+        "remaining": counted.remaining,
+        "stale": counted.stale,
+        "assessment_file": crate::assessment::dir(repo).to_string_lossy(),
+    }))
+}
+
+/// What `/summary` would say, computed here — the aggregate half of [`offline_status`].
+///
+/// It refused before, on the grounds that a second payload shape is a second thing to keep
+/// in step with an endpoint. That was a fair worry and the wrong conclusion: the shape comes
+/// from `aggregate_of`, which is the function the endpoint itself calls, so there is one
+/// definition and no drift to prevent. What was left was `sanity summary` failing at a
+/// question whose entire answer is committed in the repo it is standing in.
+fn offline_summary(repo: &std::path::Path) -> Option<Value> {
+    let (scan, reports) = read_repo(repo)?;
+    let counted = agentapi::offline_counts(&scan, &reports);
+    let agg = agentapi::aggregate_of(&scan, &reports);
+    Some(json!({
+        "open": true,
+        // The header wants both, and it is shared with `status` — so a field only one of
+        // them supplied is a blank line in the other.
+        "project": repo.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+        "assessment_file": crate::assessment::dir(repo).to_string_lossy(),
+        "repo": repo.to_string_lossy(),
+        "functions": counted.functions,
+        "files": counted.files,
+        "excluded": counted.excluded,
+        "assessed": counted.assessed,
+        "stale": agg.stale,
+        "remaining": counted.remaining,
+        "total": agg.total,
+        "by_model": agg.by_model,
+        "by_position": agg.by_position,
+        "priming": agg.priming,
+    }))
+}
+
+/// Parse a repo and load its committed readings. The two things every offline answer needs.
+fn read_repo(
+    repo: &std::path::Path,
+) -> Option<(crate::scan::Scan, std::collections::HashMap<String, agentapi::Report>)> {
+    let scans = crate::scancache::ScanCache::open(repo);
+    let scan = crate::scan::scan(
+        repo,
+        &crate::surprise::HeuristicModel,
+        &|_| {},
+        &|_, _: &crate::surprise::Reading| {},
+        &std::sync::atomic::AtomicBool::new(false),
+        crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
+        // Ordering, like `refresh`: the proxy scores decide nothing this prints.
+        crate::scan::Fidelity::Ordering,
+    )
+    .map_err(|e| {
+        eprintln!("sanity: could not scan {}: {e}", repo.to_string_lossy());
+    })
+    .ok()?;
+    let reports = crate::assessment::load(repo, &scan);
+    Some((scan, reports))
 }
 
 /// Fetch one repo's view of an endpoint, or explain why there isn't one.
@@ -843,20 +1231,35 @@ fn read_verb(path: &str, endpoint: &str) -> Result<Value, i32> {
         1
     })?;
     let Some(ep) = live() else {
-        // Names the verb that STARTS something, not the one that prints a sentence for a
-        // human to paste at an agent. `study` still exists for driving by hand; `check` is
-        // what somebody looking at an empty status wants.
-        eprintln!("sanity: nothing is running. Open the app, or run `sanity check {path}`.");
-        return Err(1);
+        // **Answered from the repo instead of refused.** The rule this obeys is still right
+        // — a read verb must not start a daemon or rescan what the app is holding — but the
+        // conclusion drawn from it was to fail, and to point at `check`, which is not a
+        // looking command at all: it spends money. The numbers here are a parse plus the
+        // committed `.sanity/`, both of which are sitting in the repo, so nothing about
+        // them needs a backend. What is genuinely unavailable is the live half — what is
+        // out with readers right now — and the caller says so rather than reporting zero.
+        return match endpoint {
+            "/status" => offline_status(&repo).ok_or(1),
+            _ => offline_summary(&repo).ok_or(1),
+        };
     };
     let key = agentapi::project_key(&repo);
     let v = get(&ep, &format!("{endpoint}?project={}", urlencode(&key))).map_err(|e| {
         eprintln!("sanity: {e}");
         1
     })?;
+    // A backend that has never heard of this repo is the same situation as no backend: the
+    // answer is in the repo either way, and refusing sends somebody to `check`, which is not
+    // a looking command. It happens more than it sounds — a daemon that restarted, or one
+    // started for a different project — and it is the third door into the same refusal.
+    //
+    // The repo is NOT opened to fix it: opening rescans and changes what the app is holding,
+    // which a verb promising only to look must not do. It is computed instead.
     if !v.get("open").and_then(|x| x.as_bool()).unwrap_or(false) {
-        eprintln!("sanity: {} is not open. Run `sanity check {path}`.", repo.display());
-        return Err(1);
+        return match endpoint {
+            "/status" => offline_status(&repo).ok_or(1),
+            _ => offline_summary(&repo).ok_or(1),
+        };
     }
     Ok(v)
 }
@@ -873,24 +1276,47 @@ pub fn status(path: &str) -> i32 {
         Err(code) => return code,
     };
     println!();
-    println!("{} — {}", text(&v, "project"), text(&v, "repo"));
-    print!("  {} functions", commas(num(&v, "functions")));
-    if num(&v, "excluded") > 0 {
-        print!(", {} excluded by .sanityignore", commas(num(&v, "excluded")));
+    // Named, because everything below reads differently depending on the answer: with one
+    // running these are live numbers including work in flight, without one they are the repo
+    // as it sits on disk. The pid is there so "running" can be acted on — it is the one
+    // thing you need to look at the process, and a daemon nobody can name is a rumour.
+    match v.get("in_flight") {
+        Some(_) => {
+            println!(
+                "Backend: running (pid {}, port {})",
+                num(&v, "pid"),
+                num(&v, "port")
+            );
+            let run = v.get("run").cloned().unwrap_or(Value::Null);
+            if run.get("running").and_then(|x| x.as_bool()) == Some(true) {
+                println!(
+                    "  reading with {} — {}, {} started{}",
+                    text(&run, "model"),
+                    plural(num(&run, "live"), "reader"),
+                    commas(num(&run, "spawned")),
+                    if num(&run, "failed") > 0 {
+                        format!(", {} failed", commas(num(&run, "failed")))
+                    } else {
+                        String::new()
+                    },
+                );
+            } else {
+                println!("  nothing reading right now");
+            }
+        }
+        None => println!("Backend: not running"),
     }
     println!();
-    println!(
-        "  {} read, {} to go, {} out with readers now",
-        commas(num(&v, "assessed")),
-        commas(num(&v, "remaining")),
-        commas(num(&v, "in_flight"))
-    );
-    if num(&v, "stale") > 0 {
-        println!("  {} stale — the code changed under them", commas(num(&v, "stale")));
-    }
-    println!("  readings in {}", text(&v, "assessment_file"));
+    project_header(&v);
     println!();
-    println!("{}", text(&v, "next_step"));
+    let togo = num(&v, "remaining");
+    if togo == 0 {
+        println!("  Every segment has an up-to-date reading.");
+    } else {
+        // The sum, once, as the thing to do about it. Unread and stale are different work —
+        // one is a first reading, the other a re-reading — but they are one command.
+        println!("  {} segments need updating, run `sanity check`", commas(togo));
+    }
     println!();
     0
 }
@@ -908,23 +1334,115 @@ pub fn summary(path: &str) -> i32 {
     };
     let total = v.get("total").cloned().unwrap_or(Value::Null);
     println!();
-    println!("{}", text(&v, "repo"));
-    print!("  {} functions", commas(num(&v, "functions")));
-    if num(&v, "excluded") > 0 {
-        print!(", {} excluded by .sanityignore", commas(num(&v, "excluded")));
+    project_header(&v);
+
+    let readings = total.get("readings").and_then(|x| x.as_u64()).unwrap_or(0);
+    if readings == 0 {
+        println!();
+        println!("  Nothing has been read yet. `sanity check` starts.");
+        println!();
+        return 0;
     }
+
     println!();
-    println!(
-        "  {} read, {} to go, {} stale",
-        commas(num(&v, "assessed")),
-        commas(num(&v, "remaining")),
-        commas(num(&v, "stale"))
-    );
-    if let Some(readings) = total.get("readings").and_then(|x| x.as_u64()) {
-        if readings > 0 {
+    // A table, because three histograms are three rows of the SAME four columns and the
+    // whole reason to print them together is to compare them down the column.
+    let (d, o) = if fancy() { ("\x1b[2m", "\x1b[0m") } else { ("", "") };
+    println!("  {d}{:<12}{:>7}{:>7}{:>7}{:>7}{o}", "", "full", "most", "some", "none");
+    for (label, key) in
+        [("PREDICTED", "predicted"), ("DOCUMENTED", "documented"), ("LEGIBLE", "legible")]
+    {
+        println!("  {:<12}{}", label, grades(total.get(key)));
+    }
+
+    // **Everything below was already being computed and never printed.** The endpoint has
+    // returned traps, cold, derivable, the per-model split and the position curve since it
+    // was written — `sanity_summary` exists precisely so the party that ran the readers can
+    // read its own result — and the CLI showed two histograms. What it could not say was the
+    // one thing this repo's own corpus most needed said: which models took the readings.
+    let n = |k: &str| total.get(k).and_then(|x| x.as_u64()).unwrap_or(0);
+    println!();
+    if n("traps") > 0 {
+        println!("  {} identified", plural(n("traps"), "trap"));
+    }
+    if n("derivable") > 0 {
+        // `derivable` is a doc the reader judged it could have written from the code alone,
+        // which is the same thing as one that told it nothing.
+        println!("  {} unhelpful doc strings found", commas(n("derivable")));
+    }
+    // `cold` is not printed. It is 99% on every corpus — the queue round-robins across
+    // files precisely so a reader is not handed neighbours — so a line that says the same
+    // thing about every repo is a line nobody reads twice. It stays in the payload, where
+    // the number stops being decoration and becomes checkable if it ever moves.
+
+    // The mixture, named. `banked_model` reports agreement as a single name and disagreement
+    // as nothing at all, which is the one case somebody has to act on.
+    if let Some(by_model) = v.get("by_model").and_then(|x| x.as_object()) {
+        if !by_model.is_empty() {
             println!();
-            println!("  PREDICTED   {}", grades(total.get("predicted")));
-            println!("  DOCUMENTED  {}", grades(total.get("documented")));
+            println!("  {d}Read by{o}");
+            let mut rows: Vec<(&String, u64)> = by_model
+                .iter()
+                .map(|(m, t)| (m, t.get("readings").and_then(|x| x.as_u64()).unwrap_or(0)))
+                .collect();
+            rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+            // The list is the finding. Two names under "Read by" already says the corpus is
+            // mixed, and a sentence restating the row count as a conclusion is the table
+            // being explained to somebody who has just read it.
+            for (model, count) in &rows {
+                println!("    {:<28}{:>7}", model, commas(*count));
+            }
+        }
+    }
+
+    // Whether the readings were taken by readers holding the repo's own brief. Only where
+    // there was a brief to hold: `not_applicable` is a repo with no instructions file, and
+    // "0 exposed" there is not a fact about the run.
+    if let Some(p) = v.get("priming") {
+        let exposed = p.get("exposed").and_then(|x| x.as_u64()).unwrap_or(0);
+        let clean = p.get("clean").and_then(|x| x.as_u64()).unwrap_or(0);
+        if exposed + clean > 0 {
+            println!();
+            // Priming is about this repo's BRIEF — a CLAUDE.md or AGENTS.md in the reader's
+            // context — and not about access to the source. Source arrives only from
+            // `sanity_reveal`, bounded, after the prediction is stamped; that isolation is a
+            // property of how a reader is launched rather than something a corpus reports.
+            // The two get confused because both are contamination, so the line names neither
+            // and leaves the definition where it is documented.
+            println!("  Priming: {} readings primed, {} unprimed", commas(exposed), commas(clean));
+        }
+    }
+
+    // The curve `by_position` exists for: does a reader get better as it works? Printed as
+    // the share of its readings at the top rung, per position, because a slope there is the
+    // warming that would make the batch size wrong — and flat is the finding so far.
+    if let Some(pos) = v.get("by_position").and_then(|x| x.get("positions")).and_then(|x| x.as_object()) {
+        if pos.len() > 1 {
+            println!();
+            println!("  {d}Full predictions by position in a reader's batch{o}");
+            // Sorted as NUMBERS. JSON object keys are strings, so iterating them put
+            // position 10 between 1 and 2 — a curve read left to right in the wrong order,
+            // which is worse than not drawing it.
+            let mut cols: Vec<(u32, &Value)> = pos
+                .iter()
+                .filter_map(|(k, v)| k.parse::<u32>().ok().map(|n| (n, v)))
+                .collect();
+            cols.sort_by_key(|(n, _)| *n);
+            print!("   ");
+            for (k, _) in &cols {
+                print!("{:>5}", k);
+            }
+            println!();
+            print!("   ");
+            for (_, counts) in &cols {
+                let full = counts.get("full").and_then(|x| x.as_u64()).unwrap_or(0);
+                let all: u64 = ["full", "most", "some", "none"]
+                    .iter()
+                    .map(|g| counts.get(*g).and_then(|x| x.as_u64()).unwrap_or(0))
+                    .sum();
+                print!("{:>4}%", (full * 100).checked_div(all).unwrap_or(0));
+            }
+            println!();
         }
     }
     println!();
@@ -1022,123 +1540,223 @@ pub fn refresh(path: &str) -> i32 {
     }
 }
 
-/// One grade histogram on one line, in scale order.
+/// One row of a grade table: four counts, in scale order, aligned under their headings.
 ///
-/// Named rather than positional: four bare numbers in a row is a thing you have to go and
-/// look up, and the scale's direction is the reading.
+/// **The names moved to a header row, and that is a reversal with a reason.** They were on
+/// every row — `full 228   most 400` — precisely so four bare numbers would not be something
+/// you have to go and look up, and the scale's direction is the reading. That argument holds
+/// for ONE histogram. Printed three at a time it stops holding: the labels are identical on
+/// every row, and repeating them puts each number wherever the previous number's width
+/// happens to end, so the columns you actually want to compare do not line up. A header row
+/// keeps the names on screen and lets the counts sit in fixed columns.
 fn grades(v: Option<&Value>) -> String {
-    let Some(v) = v else { return "—".into() };
+    let Some(v) = v else {
+        return format!("{:>7}", "—");
+    };
     ["full", "most", "some", "none"]
         .iter()
-        .map(|k| format!("{k} {}", commas(v.get(*k).and_then(|x| x.as_u64()).unwrap_or(0))))
+        .map(|k| format!("{:>7}", commas(v.get(*k).and_then(|x| x.as_u64()).unwrap_or(0))))
         .collect::<Vec<_>>()
-        .join("   ")
+        .join("")
 }
 
-const USAGE: &str = "\
-sanity — see where the thinking in your codebase actually is
-
-  sanity                     open the window
-  sanity study <path>        open a repo for assessment and print what to ask your agent
-                             (--show also points the window at it)
-  sanity init <path>         say which agent reads this repo, and with which model
-                             (--harness claude|codex|opencode|agy, --model <id>)
-  sanity check <path>        read it — Sanity runs the readers itself
-                             --model <name>    which model reads (it is the scale)
-                             --readers <n>     how many at once
-                             --limit <n>       stop once this many have landed
-                                               (a reader does ten, so ten is the step)
-                             --detach          start it and return, don't watch
-  sanity status <path>       how far along that repo's assessment is
-  sanity summary <path>      what the assessment found, in aggregate
-  sanity refresh <path>      rewrite that repo's .sanity/ in the current format
-  sanity serve               run the backend with no window (idempotent)
-  sanity mcp                 the stdio MCP server, for an agent to launch
-";
-
-/// Pull the repo path out of an argument list, ignoring the values of flags.
-///
-/// Split out of `main` so it can be tested: the failure it prevents does not look like an
-/// argument bug from the outside. `sanity init --harness claude` has one bare word in it,
-/// and taken as a positional it resolves `./claude`, fails to canonicalise, and reports
-/// that the repo does not exist — pointing the user at their path rather than at the
-/// parser.
-pub fn repo_arg(rest: &[&str]) -> String {
-    const TAKES_VALUE: [&str; 4] = ["--harness", "--model", "--readers", "--limit"];
-    let mut skip = false;
-    for a in rest {
-        let was = skip;
-        skip = TAKES_VALUE.contains(a);
-        if !was && !a.starts_with('-') {
-            return (*a).to_string();
-        }
-    }
-    // Every one of these verbs is something you run while standing in the repo you mean.
-    ".".to_string()
+// The command line, as clap sees it.
+//
+// **A plain comment, not a doc comment.** The derive turns `///` on this struct into the
+// long help, so an explanation written for whoever maintains it printed itself above the
+// command list every time somebody typed `--help`. That is the whole hazard of documenting
+// a type whose fields are user-facing copy: the two audiences share a syntax.
+//
+// **Hand-rolled before, and the reason to stop was the help rather than the parsing.** The
+// old parser was thirty lines and worked: a positional path defaulting to `.`, `--flag
+// value` and `--flag=value` both, `repo_arg` skipping flag VALUES so `--harness claude` did
+// not resolve `./claude`. What it could not do was look like a tool anybody else ships —
+// one flat block of hand-aligned text, no per-verb help, no colour, and an unknown flag
+// silently ignored rather than named.
+//
+// clap is what the CLIs this wants to resemble are built on, `uv` and `rg` among them. It
+// brings `sanity check --help`, alignment that survives editing, coloured headings, "did
+// you mean" on a typo, and errors for the arguments the old parser dropped on the floor.
+#[derive(clap::Parser)]
+#[command(
+    name = "sanity",
+    version,
+    about = "Measure code for readability and understandability",
+    // The two machine-invoked verbs are hidden from the list and described here instead —
+    // they are things that happen TO you, and a reader scanning for what to type should not
+    // have to filter them out first.
+    after_help = "\x1b[1m\x1b[4mInternals\x1b[0m\n  \
+        \x1b[1msanity serve\x1b[0m  Start the backend (one per machine, ephemeral, idempotent,\n                \
+        not user-initiated)\n  \
+        \x1b[1msanity mcp\x1b[0m    Start the stdio MCP server, launched by an agent's own config\n\n\
+        Run `sanity` with no arguments to open the window.",
+    disable_help_subcommand = true,
+)]
+pub struct Cli {
+    #[command(subcommand)]
+    command: Verb,
 }
 
-/// Dispatch for everything that is not the window. Returns a process exit code.
+// Every verb takes a path, and every one of them defaults it to the working directory:
+// these are things you run while standing in the repo you mean.
+#[derive(clap::Subcommand)]
+enum Verb {
+    /// Configure agent and model for this repo
+    Init {
+        /// The repo. Defaults to where you are standing.
+        #[arg(default_value = ".")]
+        path: String,
+        /// Which coding agent runs the readers.
+        #[arg(long, value_name = "NAME")]
+        harness: Option<String>,
+        /// Which model reads. It is the scale — a smaller one is surprised by more.
+        #[arg(long, value_name = "ID")]
+        model: Option<String>,
+        /// Point the window at this repo.
+        #[arg(long)]
+        show: bool,
+    },
+    /// Perform a reading pass
+    Check {
+        /// The repo to read. Defaults to where you are standing.
+        #[arg(default_value = ".")]
+        path: String,
+        /// Which model reads. It is the scale — a smaller one is surprised by more.
+        #[arg(long, value_name = "ID")]
+        model: Option<String>,
+        /// How many readers at once.
+        #[arg(long, value_name = "N")]
+        readers: Option<usize>,
+        /// Stop once this many readings have landed. A reader does ten, so ten is the step.
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+        /// Start it and return, rather than watching.
+        #[arg(long)]
+        detach: bool,
+    },
+    /// View backend status and reading completion
+    Status {
+        /// The repo. Defaults to where you are standing.
+        #[arg(default_value = ".")]
+        path: String,
+    },
+    /// Summarize reader findings
+    Summary {
+        /// The repo. Defaults to where you are standing.
+        #[arg(default_value = ".")]
+        path: String,
+    },
+    /// Rewrite .sanity/ in the current format
+    Refresh {
+        /// The repo. Defaults to where you are standing.
+        #[arg(default_value = ".")]
+        path: String,
+    },
+    /// The backend, with no window. Idempotent.
+    #[command(hide = true)]
+    Serve,
+    /// The stdio MCP server, for an agent to launch.
+    #[command(hide = true)]
+    Mcp,
+}
+
 pub fn main(args: &[String]) -> i32 {
-    let rest: Vec<&str> = args[1..].iter().map(|s| s.as_str()).collect();
-    // Defaulting to the working directory, because every one of these verbs is something
-    // you run while standing in the repo you mean.
-    let path_owned = repo_arg(&rest);
-    let path = path_owned.as_str();
-    // `--flag value` and `--flag=value` both, because a person typing this will do either
-    // and being told "unknown argument" for a spelling is a worse tool.
-    let opt = |name: &str| -> Option<String> {
-        let long = format!("--{name}");
-        let eq = format!("--{name}=");
-        rest.iter().position(|a| *a == long).and_then(|i| rest.get(i + 1).map(|s| s.to_string()))
-            .or_else(|| rest.iter().find_map(|a| a.strip_prefix(&eq).map(|s| s.to_string())))
+    use clap::Parser;
+    // The binary's own name back in front, because clap reports usage with argv[0] and
+    // `main.rs` hands over the arguments with it already stripped.
+    let cli = match Cli::try_parse_from(std::iter::once("sanity".to_string()).chain(args.iter().cloned())) {
+        Ok(cli) => cli,
+        Err(e) => {
+            // clap decides the stream and the code: `--help` and `--version` are a success
+            // printed to stdout, a bad argument is an error on stderr. Printing both the
+            // same way is how `sanity --help | less` ends up empty.
+            let _ = e.print();
+            return if e.use_stderr() { 2 } else { 0 };
+        }
     };
-    let num = |name: &str| opt(name).and_then(|v| v.parse::<usize>().ok());
-    match args[0].as_str() {
-        "serve" => serve(),
-        "init" => init(path, opt("harness").as_deref(), opt("model").as_deref()),
-        "check" => check(
-            path,
-            opt("model").as_deref(),
-            num("readers"),
-            num("limit"),
-            rest.contains(&"--detach"),
-        ),
-        "study" => study(path, rest.contains(&"--show")),
-        "status" => status(path),
-        "summary" => summary(path),
-        "refresh" => refresh(path),
-        "help" | "--help" | "-h" => {
-            print!("{USAGE}");
+    match cli.command {
+        Verb::Serve => serve(),
+        // Reached only if something calls `cli::main` with it — `main.rs` intercepts `mcp`
+        // before this, because the MCP server must not pay for argument parsing or for
+        // anything else this module does on the way in.
+        Verb::Mcp => {
+            crate::mcp::run();
             0
         }
-        other => {
-            eprintln!("sanity: unknown command `{other}`\n");
-            print!("{USAGE}");
-            2
+        Verb::Init { path, harness, model, show } => {
+            init(&path, harness.as_deref(), model.as_deref(), show)
         }
+        Verb::Check { path, model, readers, limit, detach } => {
+            check(&path, model.as_deref(), readers, limit, detach)
+        }
+        Verb::Status { path } => status(&path),
+        Verb::Summary { path } => summary(&path),
+        Verb::Refresh { path } => refresh(&path),
     }
 }
 
 #[cfg(test)]
 mod tests {
+
+    /// The pieces of the progress line, which is watched for minutes and has to be right.
+    #[test]
+    fn the_progress_line_reads_correctly_at_both_ends() {
+        assert_eq!(bar(0.0).chars().filter(|c| *c == '█').count(), 0);
+        assert_eq!(bar(1.0).chars().filter(|c| *c == '░').count(), 0);
+        // Always the same width, whatever the fraction — a bar that grows the line it is on
+        // makes the counts beside it jump about while somebody is reading them.
+        for f in [0.0, 0.01, 0.5, 0.999, 1.0] {
+            assert_eq!(bar(f).chars().count(), BAR);
+        }
+        // Out of range rather than panicking: `done` comes from one poll and `target` from
+        // another, so a reading landing between them can put this over 1.
+        assert_eq!(bar(1.4).chars().count(), BAR);
+
+        assert_eq!(plural(1, "reader"), "1 reader");
+        assert_eq!(plural(0, "reader"), "0 readers");
+        assert_eq!(plural(5, "reader"), "5 readers");
+    }
     use super::*;
     use crate::agentapi::tests::data_home;
 
     /// A flag's value is never mistaken for the repo path.
     ///
     /// `sanity init --harness claude` is the case: one bare word, and it names an agent.
-    /// Read as a positional it resolves `./claude` and the user is told their repo does
-    /// not exist, which sends them looking at the wrong thing entirely.
+    /// Read as a positional it resolves `./claude` and the user is told their repo does not
+    /// exist, which sends them looking at the wrong thing entirely.
+    ///
+    /// clap gets this right structurally, where the hand-rolled parser got it right by
+    /// carrying a list of which flags take values — a list that had to be updated every
+    /// time a flag was added, and silently mis-parsed when it was not. The test outlived
+    /// the parser because the BUG is what it is about, not the implementation: these are
+    /// the exact command lines somebody types.
     #[test]
     fn a_flags_value_is_not_the_repo() {
-        assert_eq!(repo_arg(&["--harness", "claude"]), ".");
-        assert_eq!(repo_arg(&["--harness=claude"]), ".");
-        assert_eq!(repo_arg(&["--model", "sonnet", "--readers", "8"]), ".");
+        use clap::Parser;
+        let path_of = |args: &[&str]| -> String {
+            let cli = Cli::try_parse_from(std::iter::once("sanity").chain(args.iter().copied()))
+                .expect("should parse");
+            match cli.command {
+                Verb::Init { path, .. }
+                | Verb::Check { path, .. }
+                | Verb::Status { path }
+                | Verb::Summary { path }
+                | Verb::Refresh { path } => path,
+                _ => unreachable!("no path on this verb"),
+            }
+        };
+        assert_eq!(path_of(&["init", "--harness", "claude"]), ".");
+        assert_eq!(path_of(&["init", "--harness=claude"]), ".");
+        assert_eq!(path_of(&["check", "--model", "sonnet", "--readers", "8"]), ".");
         // A real path still wins, before or after the flags.
-        assert_eq!(repo_arg(&["--harness", "claude", "/repo"]), "/repo");
-        assert_eq!(repo_arg(&["/repo", "--harness", "claude"]), "/repo");
+        assert_eq!(path_of(&["init", "--harness", "claude", "/repo"]), "/repo");
+        assert_eq!(path_of(&["init", "/repo", "--harness", "claude"]), "/repo");
         // A valueless flag does not swallow what follows it.
-        assert_eq!(repo_arg(&["--show", "/repo"]), "/repo");
+        assert_eq!(path_of(&["init", "--show", "/repo"]), "/repo");
+
+        // And the half the old parser could not do at all: an argument it has never heard
+        // of is an error rather than something quietly dropped.
+        assert!(Cli::try_parse_from(["sanity", "check", "--wat"]).is_err());
     }
 
     /// The whole point of the lock: a cold wave cannot put two backends on one machine.

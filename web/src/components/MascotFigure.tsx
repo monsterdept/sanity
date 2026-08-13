@@ -69,6 +69,20 @@ const DEFAULT_PLAY: MascotAnimation[] = ['wave', 'nod', 'wiggle', 'headTilt']
  *  enough that a full poll interval's backlog clears before the next one arrives. */
 const BEAT_MS = 520
 
+/** Clicks to mint a new creature, and how long a run of them may take.
+ *
+ *  **Six, and a window, because this must not be reachable by accident.** The mascot is a
+ *  permanent fixture in the corner of a panel with a Read button in it, so a single click
+ *  replacing the thing you have watched work through your repo for a week would be a small
+ *  cruelty. Six deliberate ones is a gesture nobody performs by mistake, and the window
+ *  means a stray click on Tuesday does not count towards one on Friday.
+ *
+ *  There is deliberately no confirmation and no undo: the blueprint is random, so the old
+ *  one cannot be described to somebody in a dialog, and getting another is six more
+ *  clicks. */
+const REMINT_CLICKS = 6
+const REMINT_WINDOW_MS = 2000
+
 /** Of a backlog, how much is worth watching. Beyond this the burst stops being legible as
  *  a sequence and becomes a twitch, and the oldest calls are the least interesting. */
 const MAX_REPLAY = 4
@@ -94,7 +108,10 @@ export default function MascotFigure({
   /** False when no agent has called recently — the mascot dozes off. */
   active?: boolean
 }) {
-  const [config] = useState<MascotConfig>(() => loadOrMint())
+  const [config, setConfig] = useState<MascotConfig>(() => loadOrMint())
+  /** Clicks so far, and when the last one landed — see `REMINT_CLICKS`. A ref because a
+   *  half-finished gesture is not state anything renders. */
+  const clicks = useRef({ n: 0, at: 0 })
   const handle = useRef<MascotHandle>(null)
   const asleep = useRef(false)
   /** Highest call sequence already animated. Starts at zero rather than at the first
@@ -117,7 +134,10 @@ export default function MascotFigure({
       }
     })
     return () => cancelAnimationFrame(id)
-  }, [active])
+    // `config` too: a remint REMOUNTS the scene, and the new one arrives awake. Without
+    // this, six clicks during a quiet moment left a bright-eyed creature under the word
+    // SLEEPING until the next run started.
+  }, [active, config])
 
   // Play whatever happened since the last poll, in order.
   //
@@ -151,5 +171,35 @@ export default function MascotFigure({
     }
   }, [events, active])
 
-  return <Mascot ref={handle} config={config} size={size} />
+  /** Six clicks in quick succession mints a new creature. */
+  function onClick() {
+    const now = Date.now()
+    const run = clicks.current
+    run.n = now - run.at > REMINT_WINDOW_MS ? 1 : run.n + 1
+    run.at = now
+    if (run.n < REMINT_CLICKS) return
+    run.n = 0
+    // The new scene has never been told to doze, whatever the old one was doing.
+    asleep.current = false
+    const fresh = randomizeMascot()
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh))
+    } catch {
+      /* storage unavailable; the new one just won't outlive the window */
+    }
+    setConfig(fresh)
+  }
+
+  // A span rather than a button: this is an easter egg on a decoration, and a real button
+  // would put it in the tab order and announce itself to a screen reader as a control that
+  // does nothing describable.
+  return (
+    <span onClick={onClick} className="contents">
+      {/* Keyed on the blueprint, so a new one REMOUNTS rather than re-rendering. The scene
+          builds its parts when it mounts and the handle is imperative — feeding a fresh
+          config to the same instance leaves the old creature on screen, which reads as six
+          clicks doing nothing. */}
+      <Mascot key={JSON.stringify(config)} ref={handle} config={config} size={size} />
+    </span>
+  )
 }

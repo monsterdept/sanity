@@ -103,8 +103,18 @@ export interface ScanStats {
   filesScanned: number
   filesSkipped: number
   functions: number
-  /** No git history: the stability axis is missing, so every quadrant is half a
-   *  verdict. The UI has to say so rather than quietly showing a confident label. */
+  /** No git history, so age and churn are absent and any read of WHY something is
+   *  surprising is half a verdict.
+   *
+   *  Nothing in the window says so any more. It used to be a banner, and the banner was
+   *  the problem: it explained the four quadrants to somebody who has never been shown
+   *  them, in the vocabulary of the enum — "the stability axis is off", "a crown jewel or
+   *  a mess". A caveat that has to teach two concepts before it can be understood is not a
+   *  caveat, and rewriting it plainly only made it a longer thing to skip. The lenses it
+   *  affects are the honest place to say it, if anywhere does: Age and Churn have nothing
+   *  to draw on such a repo and can say so where the question is actually being asked.
+   *
+   *  Kept on the wire because `just scan` still reports it, where the reader is us. */
   withoutHistory: boolean
   /** Commits reachable from HEAD. 0 when there is no history — the header reads that as
    *  "say nothing" rather than as a repo with no commits. */

@@ -78,11 +78,16 @@ handed a function's name, signature and neighbours, it writes down what it expec
 opens the file and reports the gap. Those readings are committed to the repo at
 `.sanity/`, and they expire when the code moves out from under them.
 
-Connect an agent from the app, then tell it:
+Sanity runs the readers itself — one process per reader, started outside the repo with no
+access to it, so a reading is a prediction rather than a recollection:
 
 ```
-study this project in sanity
+sanity init --harness claude
+sanity check
 ```
+
+Or add the repo in the app and press Read. Connecting a chat client is optional, and buys
+the ability to ask for a run in conversation rather than to perform one.
 
 `just scan . --local <weights>` scores with a local model instead, no server involved —
 built with `--features local-metal` (or `local-vulkan`). That path exists for working on

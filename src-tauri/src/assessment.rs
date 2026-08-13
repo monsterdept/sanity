@@ -1171,14 +1171,18 @@ fn render_index(repo: &str, shards: &[(String, usize, usize, usize, usize, usize
          STALE and offers it for re-reading before anything else. Nothing here silently\n\
          keeps claiming to be current.\n\
          \n\
-         An agent does the reading, over MCP. Install the app and connect your agent to\n\
-         it — the button is under Connect — then, from this repo, ask the agent:\n\
+         Coding agents do the reading, and Sanity runs them. From this repo:\n\
          \n\
-         > study this project in sanity\n\
+         ```\n\
+         sanity init --harness claude\n\
+         sanity check\n\
+         ```\n\
          \n\
-         It re-reads what changed and what was never covered, and rewrites these files.\n\
-         The app does not have to be open while it works; the agent starts whatever it\n\
-         needs. Open it to watch the map colour in, or afterwards to read the result.\n\
+         Or add the repo in the app and press Read. Either way it re-reads what changed\n\
+         and what was never covered, and rewrites these files. Each reader is a separate\n\
+         process started outside this directory with no access to the repo — it sees only\n\
+         what Sanity hands it, which is what makes a reading a prediction rather than a\n\
+         recollection. The window does not have to be open while it works.\n\
          \n\
          **Anyone with the repo can do this.** Readings are not owned by whoever made\n\
          them: `by` on each entry is provenance you can read, not a claim on the entry.\n\
@@ -1967,12 +1971,12 @@ mod tests {
         let path = dir(&tmp).join("README.md");
         let old = std::fs::read_to_string(&path)
             .unwrap()
-            .replace("study this project in sanity", "update my sanity assessment");
+            .replace("sanity check", "study this project in sanity");
         std::fs::write(&path, &old).unwrap();
 
         assert!(matches!(refresh(&tmp, &scan, &reports), Index::Refreshed));
         let now = std::fs::read_to_string(&path).unwrap();
-        assert!(now.contains("study this project in sanity"), "the copy is current again");
+        assert!(now.contains("sanity check"), "the copy is current again");
 
         // Byte-identical to what `save` writes. If these two ever disagreed, `open` and
         // `report` would rewrite the file past each other and the repo would carry a
@@ -2014,7 +2018,7 @@ mod tests {
         assert!(tmp.join(".sanity/web.md").exists());
         let index = std::fs::read_to_string(tmp.join(".sanity/README.md")).unwrap();
         assert!(index.contains("sanity.monster"), "the index says where to get the app");
-        assert!(index.contains("study this project in sanity"), "and how to refresh it");
+        assert!(index.contains("sanity check"), "and how to refresh it");
 
         // The same functions, moved down the file and one of them rewritten.
         let moved = scan_of(&[

@@ -204,7 +204,7 @@ release version:
     # goes FIRST: it is the only line in here that costs the reader an afternoon.
     prev=$(git describe --tags --abbrev=0 2>/dev/null || true)
     if grep -q "EXPIRES READINGS" <<<"$expiry"; then
-        warning=$(printf 'THIS RELEASE EXPIRES COMMITTED READINGS.\n\n%s\n\nEvery repo assessed with an earlier version will show readings as stale and\nwant re-reading. Run `sanity study <repo>` again after upgrading.' "$(sed -n 's/^    declared: /  - /p' <<<"$expiry")")
+        warning=$(printf 'THIS RELEASE EXPIRES COMMITTED READINGS.\n\n%s\n\nEvery repo assessed with an earlier version will show readings as stale and\nwant re-reading. Run `sanity check <repo>` again after upgrading.' "$(sed -n 's/^    declared: /  - /p' <<<"$expiry")")
         # `$( )` eats trailing newlines, so the blank line that separates this from the
         # changelog has to be re-attached rather than printed inside the substitution.
         warning="$warning"$'\n\n'

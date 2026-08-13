@@ -854,15 +854,6 @@ export default function App() {
 
   return (
     <div className="relative flex h-full flex-col">
-      {/* Warnings sit above the picture, never inside it — a caveat rendered as a
-          footnote under a chart is a caveat nobody reads. */}
-      {scan?.stats.withoutHistory && (
-        <p className="shrink-0 bg-[var(--secondary)] px-3 py-1.5 text-[11px] text-[var(--muted-foreground)]">
-          No git history here, so the stability axis is off: Sanity can tell you what is
-          surprising, but not whether it is a crown jewel or a mess.
-        </p>
-      )}
-
       {/* The chrome is ONE painted field: the gradient lives here, on the row, and the
           sidebar and the top strip are transparent windows onto it. Painted per element
           they were two gradients that happened to start at the same y — matching until

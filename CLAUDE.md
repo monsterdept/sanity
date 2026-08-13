@@ -80,7 +80,14 @@ right when it was written:
   session. It stopped being one when the reader became a plain MCP client: no filesystem, no
   cwd, no repo, three tools. Spawning one is now shelling out to a CLI the user has already
   installed and authenticated, and there is still **no model path in the app** — Sanity runs
-  an agent, it does not run inference. `study` remains for driving by hand.
+  an agent, it does not run inference.
+  **`study` is now deleted, and the role split is what killed it.** It survived the first
+  round of this as "the verb for driving by hand", which stopped being a thing anybody can
+  do: a session with no `SANITY_ROLE` gets the human tools — open, check, status, summary —
+  so the sentence it printed asked an agent to take readings with no tool that takes one.
+  Registering a repo is `init`; `--show` moved there. Deleting it also retired three
+  paragraphs of priming warning that guarded a door the role split had already bricked up,
+  and that had to be re-checked against every change to how readers are launched.
 - **"A project arrives exactly one way: an agent calls `sanity_open` in the repo it is
   already working in."** Inverted. A reader cannot name a repo — it has no working directory
   — so a person does, with the sidebar's `+` or `sanity init`. `sanity_open` called bare
@@ -304,13 +311,14 @@ readings (1.4 MB) parse in 30ms, once, on open.
   (`--setting-sources user` on Claude, `--ignore-user-config` and `-C` on Codex), so the
   brief cannot reach a reader's context at all. The remedy used to be a launch flag a human
   had to know about; now it is how readers are started.
-  **The warning survives for the hand-driven path**, where it is still true that only the
-  person typing the launch command can fix it — which is why it is in `/open` and in
-  `sanity study` rather than anywhere a reader would see it: a reader's context is built
-  before it can call anything, so telling it costs tokens and changes nothing. It is a
-  warning and never a refusal; whether the priming matters is a judgement about a specific
-  repo. `primed` is still asked either way, because a reader is the only party that can see
-  its own context and `sanity check` is not the only way a reading gets taken.
+  **The warning survives in `/open` only**, and its audience has narrowed to one: somebody
+  who has deliberately set `SANITY_ROLE=reader` in their own MCP config and is driving
+  readings from a session they built. That is the last way a reading gets taken that Sanity
+  did not launch. It went from `sanity study` with the verb; it is not shown to readers at
+  all, because a reader's context is built before it can call anything, so telling it costs
+  tokens and changes nothing. It is a warning and never a refusal — whether the priming
+  matters is a judgement about a specific repo. `primed` is still asked either way, because
+  a reader is the only party that can see its own context.
   **The warning ASKS. Asserting made it worse than silence, and that is the lesson worth
   keeping.** All the server can see is that the file exists on disk; whether a session
   LOADED it is invisible to it, exactly as `primed` being reader-declared already says. The
@@ -513,7 +521,7 @@ When a field is added to `Report`, add it to the schema in the same commit.
 - **The backend is per machine, and the window is not a prerequisite for it.** `cli.rs`
   hosts `sanity serve` — the same binary, the same `agentapi`, no window — because the
   state lived in the app's process only from the accident of the app being written first.
-  There is one endpoint file, one process and a map of projects, so `sanity study` in a
+  There is one endpoint file, one process and a map of projects, so `sanity check` in a
   second repo is another client, never a second server. Three rules keep it from becoming
   a lifecycle problem. **`serve` is idempotent, not exclusive** — something already
   answering means it prints the port and exits 0, which is the whole of "must not conflict
@@ -555,15 +563,12 @@ When a field is added to `Report`, add it to the schema in the same commit.
   discriminator is a probe now. Errors must say what to do, and that one said the opposite.
   The CLI's read verbs are formatters over `/status` and `/summary` and compute nothing;
   anything they needed that an endpoint lacks belongs in the endpoint, or it is two
-  implementations of one answer and the unwatched one goes wrong. **And `study` prints the
-  sentence rather than running an agent** — spawning one means owning model choice, auth,
-  concurrency and resumption, the configuration `OllamaModel` was deleted to avoid, and it
-  would make the tool assert the reading conditions `by_position` exists to measure.
+  implementations of one answer and the unwatched one goes wrong.
 - **Opening a repo is not a claim on the window.** `touch` (history) and `focus` (the
   view) were one call, so any open retargeted the pane — including a headless run in
   another repo, and including the second of two agents working two repos at once, which is
   the hazard `for_client` is written up against. `focus(key, asked)` moves the view only
-  when a caller asked outright (`sanity study --show`, the window's own Open command) or
+  when a caller asked outright (`sanity init --show`, the window's own Open command) or
   when nothing holds it — a fresh launch, a headless daemon, an `active` naming a project
   that is not loaded. Nothing is hidden by declining: the project is in the sidebar with
   its own progress, and `/open` returns `showing` so a caller never tells the human to go

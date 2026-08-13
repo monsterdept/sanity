@@ -552,3 +552,43 @@ textarea,
 @media (prefers-reduced-motion: reduce) {
   .wedge-reading { animation: none; opacity: 0.22; }
 }
+
+/* A project with readers out, in the sidebar list.
+ *
+ * Louder than `wedge-reading` next door and for the opposite reason: that one sits over a
+ * wedge whose colour is the measurement and must not drown it, while this is a 11px glyph
+ * that has to be noticeable from the corner of the eye on a row nobody is looking at. */
+@keyframes reading-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.reading-pulse {
+  animation: reading-pulse 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reading-pulse { animation: none; opacity: 1; }
+}
+
+/* Work in flight, along the bottom edge of a project row.
+ *
+ * Indeterminate on purpose. The row already says how far along the project is — that is the
+ * rule underneath this — so a second determinate bar would be the same number twice. What
+ * this adds is the fact that something is happening AT ALL, which a coverage figure cannot
+ * express: a run that has banked nothing yet looks identical to a run nobody started.
+ *
+ * A transform, so it composites and costs nothing per frame on a list that is always on
+ * screen — the same bar every animation in this app has to clear. */
+@keyframes reading-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(400%); }
+}
+
+.reading-sweep {
+  animation: reading-sweep 1.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reading-sweep { animation: none; transform: translateX(150%); }
+}

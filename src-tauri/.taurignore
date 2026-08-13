@@ -1,0 +1,15 @@
+# What `cargo tauri dev` should NOT rebuild the window for.
+#
+# The app and the CLI are one binary — deliberately, so there is one implementation of the
+# contract and one version writing `.sanity/`. The cost of that shows up here: editing a
+# headless verb rebuilt and RESTARTED the running window, which shares none of the code and
+# loses its scan, its history cache and whatever you were looking at.
+#
+# Nothing in the window reaches these (`lib.rs` and `commands.rs` name no `cli::` path), so
+# ignoring them costs the window nothing.
+#
+# The trade to know about: the watcher no longer refreshes `target/debug/sanity` when these
+# change, so a CLI edit needs a build of its own. `just cli <verb>` does that — it is
+# `cargo run`, which rebuilds what it is about to run.
+src/cli.rs
+src/bin/
