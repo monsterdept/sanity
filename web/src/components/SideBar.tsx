@@ -428,7 +428,13 @@ function AgentPanel({
             className="shrink-0"
             style={{ transform: `translateY(${MASCOT_NUDGE}px)` }}
           >
-            <AgentMascot size={MASCOT_SIZE} events={agent.events} active={lit} />
+            {/* The same three states the word beside it names, from the same expressions —
+                one derivation, so the picture cannot contradict the label. */}
+            <AgentMascot
+              size={MASCOT_SIZE}
+              events={agent.events}
+              state={stopping ? 'stopping' : running || chatter ? 'working' : 'sleeping'}
+            />
           </span>
           {/* White, not the accent the rest of the box takes. The tint, the border and the
               mascot are already saying "something is happening"; the word is the one thing

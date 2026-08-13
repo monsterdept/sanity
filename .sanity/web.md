@@ -1,8 +1,8 @@
 # web — sanity assessment
 
-263 of 263 read · 45 surprising · 1 stale
+263 of 265 read · 47 surprising · 5 stale
 
-198 of these graded legibility under an earlier question and are not counted; see the note below.
+197 of these graded legibility under an earlier question and are not counted; see the note below.
 
 Each entry below is one **reading**, of a function or of a whole file. An agent was
 given its name, signature, neighbouring names and comments — never its body — and
@@ -62,11 +62,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Recursive search over children: for each direct child, if its id matches return the current node as parent; otherwise recurse into that child and propagate a hit up. Returns null if not found anywhere in the subtree.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
-### `App` — QUIRKY
-- spec 2 · read at `1ed0e2b461e5` · commit `298f9f5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:26:50Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: The root React component for what looks like a "progress/run tracker" viewer app. It likely holds top-level state (selected run, selected project/id, history toggle state), fetches or receives data, and uses helper functions like findById/parentOf/sameRun/sameIds/sameProjects to navigate/filter a tree of runs and projects. It composes the UI shell by rendering ProgressPane, ProgressStrip, ProgressTrack, HistoryToggle, and an Empty state when no data/selection exists, wiring event handlers for selection and navigation between them.
-- found: It's the root component of a Tauri app called "sanity" that visualizes a codebase as a sunburst chart, colored by different "readings" (surprise, age, etc) from an AI agent scanning it over MCP. Beyond selection/navigation state (which I predicted), it manages: following whatever project an agent is actively working on via polling, theme sync with a native menu, a git-history replay/scrubber mode with its own tree-per-commit reconstruction, batched streaming score updates, a code-view modal with reveal/scroll-to, splash-screen dismissal timing, and a project onboarding/add/forget flow.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
+### `App` — QUIRKY — TANGLED
+- spec 2 · read at `46286061ad71` · commit `3b19ac9` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:35:42Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: The root React component: holds top-level state (list of projects, selected project, current run/progress, history visibility) and effects to load/poll that state via Tauri IPC commands. Renders the overall layout — sidebar/project list, the main content pane, ProgressTrack/ProgressPane/ProgressStrip for showing scan/analysis progress, an Empty state when there's no project, and a HistoryToggle — wiring callbacks between them using the helper functions (sameRun, sameIds, sameProjects, findById, parentOf) to diff state and avoid unnecessary re-renders.
+- found: The root component: massive amount of state and effects covering project selection/polling (following whichever project an agent is working on via MCP), theme sync with the Rust menu, streamed score batching, git-history replay (scrubbable timeline with its own tree-per-commit), code view modal, CLI install dialog, and drill/crumb navigation through a sunburst tree. Renders sidebar, top row with mode switcher and history toggle, the sunburst or various fallback panes (progress/empty/error), a detail panel or commit log aside, and overlays for CLI install / read dialog / code view.
+- predicted: some · documented: none · derivable: no · legible: some · trap: no
+- note: My prediction correctly named the general shape (state + effects + layout with sidebar/progress/empty) but drastically underestimated scope — missed the agent-following inversion, history replay/scrubbing feature, theme menu sync, and CLI installer entirely; this is one of the biggest functions I've seen and reading it required holding many interacting pieces of state in mind at once.
 
 ### `useProgress`
 - spec 1 · read at `022713725cb5` · commit `2903db5` · read by claude-sonnet-4.5 · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -98,12 +99,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: A button with dynamic title text explaining what toggling does, styled via inline style (accent background when on, muted otherwise), disabled and dimmed with label 'Reading…' when busy, otherwise label 'History'.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
-### `Empty`
+### `Empty` — STALE
 - spec 2 · read at `39046e657b2f` · commit `2903db5` · read by gemini-3.6-flash-medium · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: Empty is a React component rendered when no projects exist in Sanity. It renders a clean empty state UI presenting the next primary action—adding a project via the onAdd callback—along with status checks for available agents/harnesses on the machine and minimal secondary setup hints.
 - found: React component fetching installed harnesses on mount and rendering a centered empty state card with an 'Add a repo' button, harness readiness details, and terminal/MCP info.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: Prediction captured the purpose, button action, and harness check accurate to the code.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/CodeWindow.tsx
 
@@ -127,17 +130,19 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/AgentMascot.tsx
 
-### the file itself — QUIRKY
+### the file itself — QUIRKY — STALE
 - spec 1 · read at `09e7db32db54` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
 - expected: A small self-contained decorative component showing agent status via icon/SVG, undocumented because trivial.
 - found: A code-splitting boundary: lazily imports a heavy (~1.2MB, three.js-based) MascotFigure component so it only loads when a scan indicator actually appears, wrapping it in Suspense with a size-reserving invisible placeholder fallback to avoid layout reflow. The file has no header doc but the two inline comments above the lazy() call and the component fully explain the reasoning (bundle size, chunk splitting, reflow avoidance) — so a header would be redundant, not missing information.
 - predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `AgentMascot`
-- spec 1 · read at `61eafacdfe15` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Suspense wrapper around lazily-loaded mascot component; renders a sized placeholder while loading, then passes props through.
-- found: Exactly that: Suspense with fallback being a size x size hidden span (shrink-0, aria-hidden), wrapping MascotFigure which receives size/events/active.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 2 · read at `5266beca935b` · commit `3b19ac9` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:35:39Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A thin wrapper that lazy-loads the real mascot renderer (likely a heavy 3D/canvas component) via React.lazy/Suspense, rendering a fixed-size placeholder div (sized by `size`) as the Suspense fallback so the row doesn't reflow while the chunk loads. Passes size, events, and state through to the loaded component once ready.
+- found: Suspense wrapper around a lazy-loaded MascotFigure, with a same-sized empty span as fallback to prevent reflow, passing size/events/state through unchanged.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ## web/src/components/Bloom.tsx
 
@@ -448,11 +453,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/MascotFigure.tsx
 
-### the file itself
+### the file itself — STALE
 - spec 1 · read at `5f3896c40a27` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
 - expected: A React component rendering a persistent per-machine mascot avatar: loadOrMint loads a saved mascot config from storage or mints a new random one, moodFor/pick map some kind of event or status (agent tool calls, given the AgentCall import) to an animation/mood the mascot plays, and MascotFigure is the component that ties config + mood into a rendered creature reacting to app/agent activity.
 - found: Exactly that, plus more texture: the mascot is minted once per machine and persisted in localStorage (loadOrMint); MOODS maps regex-matched agent tool-call names (report:hot, next:done, error, status, etc.) to weighted animation sets under a deliberate design rule (loudness follows rarity, never overclaims success); the component replays a capped backlog of recent AgentCall events as a timed burst of animations keyed by sequence number (not render count) so fast polling doesn't drop calls, and sleeps/wakes the mascot based on an `active` prop.
 - predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `loadOrMint`
 - spec 1 · read at `296f66e763ec` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -472,11 +479,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Finds the first entry in a MOODS table whose regex `match` tests the tool name and returns its `play` animation list, defaulting to DEFAULT_PLAY if none match.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 
-### `MascotFigure`
-- spec 2 · read at `a87413a8c189` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T16:30:37Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: React component that computes a "mood" from recent `events` via `moodFor`, uses `pick` to select a mascot variant/color, and `loadOrMint` to get/create a persistent mascot identity (e.g. stored in localStorage). Renders an SVG-based character sized by `size`, showing a dozing/idle animation when `active` is false and a reactive animation tied to mood when true.
-- found: Manages mascot lifecycle: loads/mints a persisted config, sleeps/wakes based on `active`, replays a batch of new agent-call events as mood animations (throttled/staggered), and includes a hidden six-click-to-remint easter egg that persists a new random mascot to localStorage.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
+### `MascotFigure` — QUIRKY
+- spec 2 · read at `1714d15ae6d3` · commit `3b19ac9` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:35:24Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: React component rendering an SVG/image mascot. Computes mood from `events` via `moodFor`, picks a variant via `pick`, loads/generates the asset via `loadOrMint` (likely cached), and renders it at the given `size` with visual differences based on `state` (sleeping/working/torn down), possibly with animation.
+- found: A stateful wrapper around a <Mascot> imperative scene: it mints/loads a persisted random mascot config, drives sleep/wake/stopping animations off the `state` prop (not events) via requestAnimationFrame, replays fresh events (by sequence number, capped, staggered by timers) as mood animations only while working, and implements a hidden six-click-to-remint easter egg that persists a new random config to localStorage and remounts the scene via a key.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+- note: Prediction captured the loadOrMint/pick/moodFor pieces but missed the state-driven sleep/wake/stopping animation loop, sequence-based event replay, and the six-click remint easter egg entirely.
 
 ## web/src/components/Overlay.tsx
 
@@ -629,11 +637,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: some · derivable: no · legible: most · trap: no
 - note: Docs described general layout intent (matches sibling apps) but not the progress-bar/reading-indicator logic, which is most of the function's actual work.
 
-### `AgentPanel` — TANGLED
-- spec 2 · read at `915878fe737d` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T16:31:14Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Renders a single merged status panel driven by agent's state (idle / reading / stopping), showing an animated mascot only while readers are actively calling tools, plus progress numbers (counts of what's been assessed) and the current project's name. Includes a button that calls onRead(project.key) to kick off a run, but no longer contains a settings gear for connecting an external MCP chat client, since that affordance was removed.
-- found: Renders the merged status panel with three states (Sleeping/Working/Stopping) plus a "winding down" sub-state for readers still exiting after a stop, a Read/Stop button pair, a failure summary line with an info button opening an overlay transcript of reader failures, and detailed run-progress text (spawned/failed/segments unread).
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
+### `AgentPanel` — QUIRKY — TANGLED
+- spec 2 · read at `c694214bc163` · commit `3b19ac9` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:35:29Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Renders a single merged status area (idle/reading/stopping) for agent activity in the sidebar, driven by an animated mascot tied to real MCP tool calls instead of a separate "AGENT IS WORKING" badge. Shows project/activity info from `project` and `agent` props, and calls `onRead(key)` to acknowledge a read item. No longer renders a settings gear or chat-client connection UI, since that was removed.
+- found: Renders the sidebar's permanent agent-status box: derives a three-state label (Sleeping/Working/Stopping) from run.running, a locally-optimistic "asked" stop flag, and a "winding down" state for readers still exiting after a run ended, plus a separate `chatter` signal from project.working. Shows run progress (started count or exiting-readers count), unread segment count, Read/Stop buttons, and a failure summary line with an overlay sheet showing raw failure transcripts.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: Prediction caught the merged-status/mascot framing but missed the run-progress line, Read/Stop button logic, and the failure-detail overlay entirely.
 
 ## web/src/components/StaleHatch.tsx
 
@@ -795,12 +804,14 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/api.ts
 
-### the file itself
+### the file itself — STALE
 - spec 2 · read at `bafbb031195f` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
 - expected: The frontend's data/IPC layer: thin wrapper functions (listProjects, pickProject, forgetProject, harnesses, setReader, startCheck, stopCheck, scanRepo, readCurve, readSource, openCodeWindow, mcpCommand/mcpConnect/mcpDisconnect/mcpClients, onOpenProject/onScanProgress/onSetTheme event subscriptions) that call into an Electron/IPC or HTTP backend and expose typed types (Node, Progress, ProjectSummary, Scan, Upgrade referenced elsewhere). It also bundles data-shaping and derived-state helpers (toNode, summarize, reaggregate, applyAgentReports, applyScores, countPending, isReportStale, legibleOf, reportGrades, readingWords) and a color-ramp/heat subsystem (temperature, wedgeHeat, shareRamp, paintHeat, heatColor, rampStop, rampAt, isAnalyzed) used to color the sunburst visualization by how "hot" (stale/surprising) a node's readings are — a fairly overloaded module doing both networking and view-model math.
 - found: A Tauri (not Electron/HTTP as I guessed) IPC wrapper module: typed interfaces (Node, Score, Hotspot, Provenance, etc.) mirroring the Rust backend's model.rs, thin invoke()/listen() wrappers for backend calls (listProjects, pickProject, startCheck, mcpConnect, etc.), plus view-model/data-shaping helpers (toNode, summarize, reaggregate, applyScores) and a heat/color-ramp subsystem (wedgeHeat, temperature, heatColor, rampAt) for coloring the sunburst by staleness/surprise.
 - predicted: most · documented: none · derivable: no · legible: not judged · trap: no
 - note: Correctly predicted the module mixes IPC plumbing with view-model math and a color-ramp subsystem, but guessed the wrong IPC technology (Tauri, not Electron).
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `showsShare`
 - spec 1 · read at `92308d117684` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -821,10 +832,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `pickProject`
-- spec 2 · read at `1f6dccd5b997` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Calls a native folder-picker (Tauri/Electron invoke or dialog.open) to let the user choose a directory, returning null if they cancel. If a path is chosen, it forwards to a backend/validation call (likely related to add_project) that can reject with a descriptive error string when the folder contains multiple repos instead of one.
-- found: Opens a Tauri directory-picker dialog (single dir, titled "Add a repo"). Returns null if cancelled (non-string result), otherwise forwards the picked path to the Rust backend via invoke('add_project', { path }), which does the actual repo validation and returns the resolved path (or rejects with the multi-repo error message the docs describe).
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 2 · read at `c828c2213e4f` · commit `3b19ac9` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:35:19Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A thin wrapper that invokes a Tauri backend command (e.g. invoke("pick_project")) to open the native folder picker dialog, returning the selected path as a string, or null if the user dismissed the dialog without choosing. If the backend determines the chosen directory contains multiple repos rather than one, it propagates/throws the rejection with a descriptive sentence for the caller to display.
+- found: Opens the Tauri dialog plugin's native folder picker directly (not via a custom backend command), returns null if the user didn't pick a string path, and otherwise forwards the picked path to the add_project backend command which validates/registers it and returns the resolved path (or rejects with the multi-repo message).
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The extensive docs describe a macOS list-view double-click bug in the picker, which is context for callers/future maintainers rather than a description of what this function's body does — so much of it isn't derivable from or really about the code itself.
 
 ### `installCli`
 - spec 2 · read at `68f2c3a4f02f` · commit `2903db5` · read by gemini-3.6-flash-medium · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded

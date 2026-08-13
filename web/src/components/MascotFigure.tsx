@@ -65,6 +65,20 @@ const MOODS: Array<{ match: RegExp; play: MascotAnimation[] }> = [
 
 const DEFAULT_PLAY: MascotAnimation[] = ['wave', 'nod', 'wiggle', 'headTilt']
 
+/** What the creature is doing, which is the panel's own state rather than a guess at it.
+ *
+ *  **A boolean could not express stopping.** `active` meant "something is happening", so a
+ *  run being torn down looked identical to one working — the mascot went on playing the
+ *  moods of whatever calls the dying readers still made. Three states, matching the three
+ *  words the panel puts beside it, so the picture and the label cannot disagree. */
+export type MascotState = 'sleeping' | 'working' | 'stopping'
+
+/** Confusion, for a run being taken apart. Repeated on a beat rather than played once: the
+ *  readers take seconds to die and a single shrug at the start of that would leave the
+ *  creature standing about looking fine while the label still says Stopping. */
+const CONFUSED: MascotAnimation[] = ['shrug', 'brainless', 'headTilt', 'lookAround']
+const CONFUSED_EVERY_MS = 1400
+
 /** Between animations in a replayed burst. Long enough that two reads as two, short
  *  enough that a full poll interval's backlog clears before the next one arrives. */
 const BEAT_MS = 520
@@ -100,13 +114,13 @@ function moodFor(tool: string): MascotAnimation[] {
 export default function MascotFigure({
   size = 44,
   events = [],
-  active = true,
+  state = 'working',
 }: {
   size?: number
   /** The last few agent calls, oldest first, as the backend saw them. */
   events?: AgentCall[]
-  /** False when no agent has called recently — the mascot dozes off. */
-  active?: boolean
+  /** Sleeping, working, or being torn down — see [`MascotState`]. */
+  state?: MascotState
 }) {
   const [config, setConfig] = useState<MascotConfig>(() => loadOrMint())
   /** Clicks so far, and when the last one landed — see `REMINT_CLICKS`. A ref because a
@@ -119,25 +133,43 @@ export default function MascotFigure({
    *  is the only way the indicator says anything about a session already in progress. */
   const seen = useRef(0)
 
-  // Doze off when the scan ends and wake when one starts. The indicator is permanent, so
-  // a creature that idles identically whether or not work is happening would make the
-  // corner of the window meaningless.
+  // Doze off when the work ends, wake when it starts, come apart while it is being stopped.
+  // The indicator is permanent, so a creature that idles identically whatever is happening
+  // would make the corner of the window meaningless.
+  //
+  // Driven by the STATE rather than by events, so the three pictures are guaranteed to match
+  // the three words. A stopping run still produces MCP chatter — the dying readers' last
+  // calls — and animating that chatter is how the creature came to look busy underneath the
+  // word Stopping.
   useEffect(() => {
+    let confusing: number | undefined
     const id = requestAnimationFrame(() => {
       if (!handle.current) return
-      if (active && asleep.current) {
+      if (state === 'sleeping') {
+        if (!asleep.current) {
+          asleep.current = true
+          handle.current.play('sleep')
+        }
+        return
+      }
+      if (asleep.current) {
         asleep.current = false
         handle.current.wake()
-      } else if (!active && !asleep.current) {
-        asleep.current = true
-        handle.current.play('sleep')
+      }
+      if (state === 'stopping') {
+        const fluster = () => handle.current?.play(pick(CONFUSED))
+        fluster()
+        confusing = window.setInterval(fluster, CONFUSED_EVERY_MS)
       }
     })
-    return () => cancelAnimationFrame(id)
+    return () => {
+      cancelAnimationFrame(id)
+      window.clearInterval(confusing)
+    }
     // `config` too: a remint REMOUNTS the scene, and the new one arrives awake. Without
     // this, six clicks during a quiet moment left a bright-eyed creature under the word
     // SLEEPING until the next run started.
-  }, [active, config])
+  }, [state, config])
 
   // Play whatever happened since the last poll, in order.
   //
@@ -148,7 +180,10 @@ export default function MascotFigure({
   //
   // Deferred a frame: play() before the scene mounts is silently dropped.
   useEffect(() => {
-    if (!active) return
+    // Only while working. Sleeping is self-explanatory; stopping has its own loop, and
+    // letting events through would have the creature cheerfully reporting readings from
+    // readers that are being killed.
+    if (state !== 'working') return
     const fresh = events.filter((e) => e.seq > seen.current).slice(-MAX_REPLAY)
     if (fresh.length === 0) return
     seen.current = events[events.length - 1].seq
@@ -169,7 +204,7 @@ export default function MascotFigure({
       cancelAnimationFrame(id)
       timers.forEach(window.clearTimeout)
     }
-  }, [events, active])
+  }, [events, state])
 
   /** Six clicks in quick succession mints a new creature. */
   function onClick() {

@@ -1,8 +1,8 @@
 # src-tauri — sanity assessment
 
-576 of 610 read · 101 surprising · 21 stale
+576 of 614 read · 101 surprising · 26 stale
 
-422 of these graded legibility under an earlier question and are not counted; see the note below.
+421 of these graded legibility under an earlier question and are not counted; see the note below.
 
 Each entry below is one **reading**, of a function or of a whole file. An agent was
 given its name, signature, neighbouring names and comments — never its body — and
@@ -341,13 +341,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: most · derivable: no · legible: some · trap: no
 - note: Correctly predicted the width-bounded spawn loop with stop-flag and queue-exhaustion checks, but missed the barren-wave abort heuristic, stderr draining to avoid pipe deadlock, the config-writing preamble, and lease cleanup at the end — substantial real logic beyond the core loop.
 
-### `note` — STALE
-- spec 2 · read at `971c2ca8092a` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:20:22Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Pushes a new activity entry (stage, name, path, predicted grade, and presumably a timestamp) onto a VecDeque/Vec field on Project tracking recent activity, and if that collection exceeds some fixed capacity, removes the oldest entry (pop_front or similar) to keep it bounded.
-- found: Assigns the next sequence number from the back of the events deque, pushes a new Event with stage/name/path/predicted, then trims from the front while over EVENTS_KEPT capacity.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `note`
+- spec 2 · read at `6e0184e00ac2` · commit `3b19ac9` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:35:32Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Pushes a new entry (stage, name, path, and maybe a summary derived from `found`) onto a fixed-capacity activity log (likely a VecDeque or Vec) on `self`, and if the log exceeds some maximum length, pops/removes the oldest entry to keep it bounded. This log is presumably what powers a UI "agent activity" feed showing recent function assessments going out and coming back.
+- found: Assigns a sequence number, extracts predicted/documented/legible/derivable grade fields out of the optional Report (with a special rule to hide `legible` if it's marked dated), pushes an Event onto a VecDeque, then trims from the front while over EVENTS_KEPT capacity.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: The one-line doc covers the ring-buffer behavior but not the grade extraction or the legible_dated suppression rule, which is where the real logic is.
 
 ### `recent_model`
 - spec 2 · read at `7f9da50f6140` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:07:49Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -422,18 +421,22 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: no · legible: most · trap: no
 - note: Legible is filtered through legible_current(r.spec) so a superseded question's grade is excluded from the aggregate rather than counted — a subtlety not obvious from the signature alone.
 
-### `aggregate` — QUIRKY
+### `aggregate` — QUIRKY — STALE
 - spec 1 · read at `5512fa0c1e69` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
 - expected: Walks stored reports for the project and tallies them into a summary Aggregate struct using GradeCounts::add/Tally::add, roughly analogous to reaggregate but for report grades rather than tree scores.
 - found: Visits every func node in the scan tree, skips ones with no report or a stale report (bumping agg.stale), then adds each live report to agg.total, to a by-model bucket keyed on self-declared model (or 'unattributed'), to a three-way priming tally (not_applicable/exposed/clean based on whether agent_docs was empty and r.primed), and to a by_position tally keyed on the report's batch position (or unrecorded).
 - predicted: some · documented: none · derivable: no · legible: most · trap: no
 - note: This is the aggregation for the sanity_next/sanity_report protocol itself — the same one being used to run this assessment.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `summary`
+### `summary` — STALE
 - spec 1 · read at `273da480a992` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
 - expected: Handler resolves the current project, aggregates repo-wide grade totals excluding stale readings, and returns JSON totals plus a per-model split and explanatory note, with no per-function/file names, mirroring the no-project-open error pattern in sibling handlers.
 - found: Matches: pings, resolves project via for_client (returning open:false hint if none), calls aggregate(project) and work_left, returns function/excluded counts, assessed/stale/remaining, agg.total, by_model, and additionally by_position (bucketed by how many functions a reader had already assessed, to check for readers getting more agreeable over a run) and priming (how many readers held this repo's own CLAUDE.md while predicting), plus a long explanatory note covering all of the above.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `from_state`
 - spec 2 · read at `1bd9cf146ae3` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:07:07Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -1119,13 +1122,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 - note: The docstring is about the enclosing module/file concept rather than this specific test; the test itself introduces `Index::{Absent,Current,Refreshed}` variants and a `refresh()` function not mentioned in the handout docs at all.
 
-### `writes_and_reloads_a_repo_assessment` — QUIRKY — STALE
-- spec 1 · read at `6526fa68edb5` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: End-to-end save/load test confirming a reading survives its function moving to a different line in the file.
-- found: Does that, plus asserts per-top-level-dir sharding (src-tauri.md, web.md), an index README with usage text, and contrasts an unchanged-body reading (still current) against a changed-body reading (now stale) for the two moved functions.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `writes_and_reloads_a_repo_assessment` — TANGLED
+- spec 2 · read at `46adf75c47c8` · commit `3b19ac9` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:35:39Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Builds a small in-memory assessment (repo + at least one function reading), writes it out through the .sanity/ store (markdown + JSON), then reloads it after simulating the source moving down the file (same function, different line number). Asserts the reading round-trips and is still matched to the function, proving the store's key isn't sensitive to line-number shifts.
+- found: Builds a scan with two functions, generates reports, saves them, and checks the store shards by top-level directory (src-tauri.md, web.md) plus a README index mentioning sanity.monster and 'sanity check'. Then it re-scans with the same functions moved to different lines (one body unchanged, one body changed), reloads, and asserts both readings are found by identity (not position) — with the unchanged-body one still fresh and the changed-body one marked stale.
+- predicted: most · documented: none · derivable: yes · legible: some · trap: no
 
 ### `shards_by_top_level_dir` — QUIRKY
 - spec 1 · read at `6b812ed1b7d8` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -1621,12 +1622,14 @@ What this is and how to add to it: [README.md](README.md)
 - this code has changed since it was read; the reading above may no longer
   describe it, and Sanity will offer it for re-reading first.
 
-### `ensure_backend`
+### `ensure_backend` — STALE
 - spec 2 · read at `59a1e3cda453` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T16:31:01Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
 - expected: Checks SANITY_BACKEND env var first and returns that endpoint if set. Otherwise probes for an existing live backend; if none, calls take_spawn_lock, and if it wins the lock spawns `sanity serve` (same binary, not PATH lookup) with stdio set to null, then waits for it to come up via await_backend; if it loses the lock, it just waits on await_backend for the winner's process instead of spawning itself.
 - found: Probes for a live backend first; if found, returns it. If none and SANITY_BACKEND is set, errors out rather than spawning (respecting the caller's explicit pointer). Otherwise takes the spawn lock — losers just await_backend for the winner; winners re-check live() under the lock (to avoid a race), then spawn `sanity serve` on the current binary with null stdio and await it coming up.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 - note: I had the order backwards — it checks for a live backend before checking SANITY_BACKEND, and a stale SANITY_BACKEND causes an error rather than a fallback spawn; I'd assumed it would just spawn anyway.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `commas`
 - spec 2 · read at `9e6a9f989078` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T16:31:09Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -1689,12 +1692,14 @@ What this is and how to add to it: [README.md](README.md)
 - this code has changed since it was read; the reading above may no longer
   describe it, and Sanity will offer it for re-reading first.
 
-### `read_verb`
+### `read_verb` — STALE
 - spec 2 · read at `ad4f99807b49` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T17:01:33Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
 - expected: read_verb checks whether a backend is already running (e.g. via a lock/socket file) without starting one. If a backend is running, it sends a request to it for `endpoint` scoped to the repo at `path`, returning the JSON response. If no backend is running, it returns an Err with an exit code and prints guidance telling the user to run the command that starts the backend (e.g. `sanity serve`), since this read-only verb must never open/start a backend itself.
 - found: read_verb resolves the repo path, checks for a live backend via live(). If none is running, it special-cases /status to read the repo directly via offline_status (since status info is derivable from committed .sanity/ state without a backend), otherwise errors telling the user to run `sanity status`. If a backend is live, it GETs the endpoint scoped by project key, and additionally checks the response's "open" field, erroring with a suggestion to run `sanity check` if the project isn't open in that backend.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 - note: I expected a uniform "backend not running" failure path, but the code special-cases /status to answer from the repo itself rather than refuse, and there's a separate "not open in that backend" check after the live request that I didn't anticipate.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `status` — QUIRKY — STALE
 - spec 2 · read at `d7373a3e117f` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T16:31:29Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -1704,11 +1709,13 @@ What this is and how to add to it: [README.md](README.md)
 - this code has changed since it was read; the reading above may no longer
   describe it, and Sanity will offer it for re-reading first.
 
-### `summary`
+### `summary` — STALE
 - spec 2 · read at `399cbc662964` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T16:31:12Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
 - expected: Resolves `path` to a repo, ensures/talks to the backend, fetches aggregate assessment stats via an HTTP GET, and prints only aggregate numbers (e.g. total assessed, percent surprised, grade distribution) to stdout — deliberately no per-file/per-function breakdown. Returns an i32 exit code, likely 0 on success and nonzero if the backend can't be reached or the repo isn't found.
 - found: Calls read_verb to hit the /summary endpoint, then prints repo name, function/excluded counts, read/remaining/stale counts, and (if any readings exist) PREDICTED and DOCUMENTED grade breakdowns; always returns 0 on the success path (errors return early with read_verb's code).
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `refresh` — STALE
 - spec 1 · read at `fd92ae0d23c3` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -1719,24 +1726,17 @@ What this is and how to add to it: [README.md](README.md)
   describe it, and Sanity will offer it for re-reading first.
 
 ### `grades`
-- spec 2 · read at `3440a79cc0ce` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T16:30:51Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Pulls a grade-count breakdown (likely full/most/some/none or similar 4-bucket scale) out of the JSON Value, formats each count with its name, and joins them into one readable line ordered along the scale — used in CLI status/summary output.
-- found: Formats a "full/most/some/none" histogram line from a JSON value, defaulting missing counts to 0, comma-formatting each with `commas()`, joined by triple spaces; returns an em-dash if there's no value at all.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- note: Got the exact bucket names right (full/most/some/none) — matches the grading scale used by this very sanity tool.
-
-### `repo_arg`
-- spec 2 · read at `98eb56d9362d` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T16:30:51Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Walks the argument slice, recognizing known flags (like --harness) that consume the following token as their value and skipping both; the first remaining bare word (not starting with - and not consumed as a flag's value) is returned as the repo path, defaulting to "." if none is found.
-- found: Iterates args, maintaining a skip flag set when the previous arg was one of a fixed list of value-taking flags; returns the first bare word not preceded by such a flag, else defaults to \".\".
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 2 · read at `734a8bc65ba7` · commit `3b19ac9` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:35:51Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Takes an Option<&Value> holding counts for the four-point scale (full/most/some/none) and formats them as one row of fixed-width, right-aligned numbers with no labels (labels now live in a shared header row printed once elsewhere). Returns some placeholder/blank row if v is None or fields are missing.
+- found: Formats one grade-table row: an em-dash placeholder if v is None, else the four scale counts (full/most/some/none) each right-padded to width 7 with comma-separated thousands, concatenated with no labels.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Predicted the shape correctly; missed that missing v renders a single dash column rather than four blanks, and the comma-formatting detail.
 
 ### `main`
-- spec 2 · read at `305d811e6ef7` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T16:31:14Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Parses args to find the subcommand (serve, check, init, status, summary, refresh, or a read verb) and its flags, dispatches to the corresponding function (init, check, status, etc.), and returns that function's exit code — falling back to a usage/help message and exit code 2 (or similar) for unknown commands.
-- found: Builds a small flag parser supporting both `--flag value` and `--flag=value` forms, resolves the repo path (defaulting to cwd), and matches on args[0] to dispatch to serve/init/check/status/summary/refresh/help, returning each function's exit code, with an unknown-command message plus usage text and exit 2 as fallback.
+- spec 2 · read at `d83e3e8cd19a` · commit `3b19ac9` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:35:20Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Parses `args` to find a subcommand (e.g. "check", "status", "summary", "tail", "refresh", "grades"), dispatches to the matching handler function, and returns an integer exit code (0 success, non-zero for errors/unknown command). Likely prints usage/help when no subcommand or an unrecognized one is given.
+- found: Uses clap to parse args (with "sanity" prepended since argv[0] was stripped), handling --help/--version/errors with correct stdout/stderr and exit code (0 vs 2) via clap's own error printing. Then matches on the parsed Verb enum (Serve, Mcp, Init, Check, Status, Summary, Refresh) and dispatches to the corresponding handler function, returning its exit code. Comments explain why "sanity" is re-added and why Mcp is only reached as a fallback.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Missed that it supports both --flag value and --flag=value styles, which was a nice detail.
 
 ### `a_flags_value_is_not_the_repo` — STALE
 - spec 2 · read at `3d77b3170357` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -1763,12 +1763,14 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/commands.rs
 
-### the file itself
+### the file itself — STALE
 - spec 2 · read at `e46fa9c838b8` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: This file is the full set of #[tauri::command] functions that the frontend invokes directly (no HTTP layer) — the UI-facing surface for project/repo management. It covers project lifecycle (add_project, forget_project, scan_repo, stop_scan, project_scan, projects), reading data back to the UI (read_source, read_curve, scan_history, warm_history, agent_reports, agent_activity), app/OS integration (this_exe, install_cli, cli_link_dirs, open_code_window, sync_theme_menu), and MCP client wiring (mcp_command, mcp_clients, client_defs, edit_client, mcp_connect, mcp_disconnect, harnesses, set_reader, start_check, stop_check). Most of these are likely thin wrappers that lock shared state and delegate real work to other modules like agentapi/scan/assessment.
 - found: All #[tauri::command] handlers for the frontend: repo scanning (scan_repo with live progress events, scan_history, warm_history), file/source access (read_source with path-traversal guards, open_code_window), project lifecycle (add_project with same-vs-parent-repo detection, forget_project, projects, project_scan), agent activity polling (agent_reports, agent_activity), run control (start_check/stop_check delegating to agentapi::start_run), OS integration (install_cli symlinking, this_exe, sync_theme_menu), and MCP client config detection/editing (mcp_clients, mcp_connect/disconnect, edit_client, client_defs for Claude Desktop/Code, Cursor, Windsurf, Codex).
 - predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
 - note: I had the general shape right but underestimated how much careful defensive/UX reasoning is packed in — e.g. add_project distinguishing "not a repo" from "directory containing repos", read_source's canonicalize+starts_with guard against path traversal, and edit_client refusing to create configs for uninstalled clients or rewrite unparseable ones.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `scan_repo` — QUIRKY
 - spec 2 · read at `cbe57cf3c0ff` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:19:36Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1850,12 +1852,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: std::env::current_exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_default() -- exactly as predicted.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `add_project`
-- spec 2 · read at `9dde04562d8f` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Checks that `path` itself is a git repo (has its own .git at the root). If not, scans the directory for nested .git dirs to detect the "picked a folder full of repos" mistake and refuses with an error message naming the count found. If it is a valid single repo, registers it into the app's project list/state and returns the new project key (or an error string on failure).
-- found: Validates path is a directory; if it has its own .git, returns the path as-is (no separate registration step here). Otherwise scans immediate children for nested .git dirs and, if any exist, refuses with an error naming up to 3 of them plus a total count; if none, delegates to crate::scan::not_a_repo for the generic error.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: I assumed this function also persisted the project into app state/config, but it just validates and returns the path — no registration logic here, and there's a third fallback path (not_a_repo) I didn't anticipate.
+### `add_project` — QUIRKY
+- spec 2 · read at `c839eb2b1eb1` · commit `3b19ac9` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:35:38Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Takes a user-picked directory path, validates it's a real directory (no longer requiring .git), registers it in the app's persisted project list/config, and returns the canonicalized path or project id on success, or an error string on failure (doesn't exist, already added, etc).
+- found: Just checks the given path is a directory and returns its string form (or an error if not); no git check, no persistence, no dedup — actual registration must happen elsewhere (frontend or a later call).
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+- note: Function is far simpler than the docs' historical narrative implied — it doesn't register/persist anything itself, just validates and echoes the path.
 
 ### `cli_link_dirs`
 - spec 2 · read at `6b071bfebc5a` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -2095,6 +2097,13 @@ What this is and how to add to it: [README.md](README.md)
 - expected: A #[test] that calls Harness::resolve (or similar) with the string "gemini" and asserts the resolved harness is a distinct Gemini variant, not the Antigravity harness, and/or checks that a project configured with harness "gemini" does not get matched/aliased when looking up "antigravity" (or vice versa) — guarding against the two being collapsed into one lookup path.
 - found: Asserts Harness::parse("agy") and parse("antigravity") both resolve to Harness::Agy, but parse("gemini") returns None (not aliased to Agy at all, contrary to my guess), then loops over Harness::all() asserting every harness name round-trips through parse and is listed in supported().
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `an_antigravity_reader_is_pointed_at_its_own_config`
+- spec 2 · read at `14b8276bfa6b` · commit `3b19ac9` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:35:50Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A test asserting that spawning an Antigravity reader writes its MCP config to the exact path agy expects, and that the launch command includes the matching --add-dir (or equivalent) argument pointing at that same location — checking both halves so neither can silently regress.
+- found: Test that writes an Antigravity config to a temp dir, asserts the resulting `.agents/mcp_config.json` has the sanity MCP server with reader role/project env vars, then builds the reader launch command and asserts `--add-dir` is present and points at that same temp dir.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Missed the specific config path (.agents/mcp_config.json) and the exact env vars checked, but got the two-halves structure right.
 
 ## src-tauri/src/heuristic.rs
 
@@ -2536,18 +2545,20 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `build_menu`
-- spec 2 · read at `13d61d95db0c` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Builds the app menu using Tauri's menu API — assembles standard predefined items (About, Hide, Quit, Edit submenu with copy/paste, Window submenu with ⌘W) plus one custom submenu containing a three-way check-item toggle for theme (Light/Dark/System), wraps that toggle state in the returned ThemeMenu struct so the caller can update it later, and returns the assembled Menu alongside ThemeMenu.
-- found: Builds Sanity's macOS app menu by hand: an app submenu (About/Hide/Quit), a File submenu with "Add Project…" (⌘O), an Edit submenu with standard undo/cut/copy/paste items (needed because replacing the stock menu otherwise silently breaks text-field shortcuts), a View > Appearance submenu with a three-item radio group of CheckMenuItems for theme (Light/Dark/System, System checked by default), and a Window submenu (minimize/close). Returns the assembled Menu plus a ThemeMenu struct holding handles to the three check items.
+- spec 2 · read at `33d8ba9a4ac5` · commit `3b19ac9` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:35:19Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Builds the app's Tauri menu using PredefinedMenuItem for standard OS behaviors (Hide, Quit, copy/paste, ⌘W, etc.) grouped into App/Edit/Window submenus, plus a custom "Appearance" item/submenu with a three-way theme toggle (Light/Dark/System) built from CheckMenuItem or similar, wired to open a settings-like action. Returns the assembled Menu plus a ThemeMenu struct bundling the theme menu items/ids so a separate handler (ThemeMenu::select) can respond to selection events.
+- found: Builds a full Tauri menu (App/File/Edit/View/Window) using PredefinedMenuItem for OS-standard behaviors, plus custom items: "Install Command Line Tool…", "Add Project…" (File menu, not Open), and an Appearance submenu with three CheckMenuItems for Light/Dark/System theme (System checked by default). Returns the Menu and a ThemeMenu struct holding the three theme CheckMenuItems.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Doc comments inline explain non-obvious history (why Edit menu is needed, why "Add Project…" replaced "Open Project…"/"Connect an Agent…") that isn't derivable from code alone.
+- note: I predicted a settings-modal-triggering item and copy/paste under Edit as expected, but missed the "Install Command Line Tool…" item entirely and got the File menu item wrong (it's "Add Project…", not related to a settings panel) — the doc comment's history of the item's renames wasn't something I could have predicted from signature alone.
 
-### `run` — QUIRKY
+### `run` — QUIRKY — STALE
 - spec 2 · read at `bcd070b91ac5` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: The Tauri application entry point: builds a tauri::Builder, registers plugins (shell/dialog/etc), sets up the app menu via build_menu and window via build_window, wires an invoke_handler exposing the scan/parse/heuristic/surprise/churn/model pipeline commands to the frontend, handles menu events (like ThemeMenu::select for switching themes), and finally calls .run(tauri::generate_context!()) with an expect/panic on failure.
 - found: Tauri app bootstrap: creates shared agentapi state, builds window/menu, warms harness, wires macOS menu events (open-project, theme switching) to emit events to webviews, restores the last-open project, spawns the loopback agent API server, registers single-instance/dialog/opener plugins, registers the full invoke_handler command list, builds and runs the app, and on RunEvent::Exit stops all agent runs and releases the endpoint file before quitting so external readers see a clean 'nothing here' rather than a stale dead address.
 - predicted: some · documented: none · derivable: yes · legible: most · trap: no
 - note: Missed the agentapi shared-state/loopback-server wiring, single-instance handling, and the exit-cleanup ordering (stop runs before releasing the endpoint) — the comments there explain a subtle shutdown race that isn't guessable from the signature.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## src-tauri/src/local.rs
 

@@ -91,9 +91,17 @@ right when it was written:
 - **"A project arrives exactly one way: an agent calls `sanity_open` in the repo it is
   already working in."** Inverted. A reader cannot name a repo — it has no working directory
   — so a person does, with the sidebar's `+` or `sanity init`. `sanity_open` called bare
-  answers with what the human added; a path it has never been given is refused. The old
-  hazard is guarded rather than argued away: `add_project` refuses a directory that holds
-  repos instead of being one, and says how many.
+  answers with what the human added; a path it has never been given is refused.
+  **`add_project` takes any directory now, and the `.git` requirement it dropped was doing
+  two jobs.** Its own was the old hazard — a picker once handed a directory of many repos
+  and set thirty minutes of CPU on fire. The borrowed one was standing in for a macOS bug:
+  in the open panel's LIST view a double-click on a folder is eaten by the disclosure
+  toggle, the selection clears, and a directories-only panel with no selection confirms the
+  folder you are BROWSING — so the guard fired constantly at people who had pointed at a
+  repo. Nothing about scanning needs git; churn and blame degrade to "no history", which
+  the app already says out loud. The CPU hazard is now unguarded and wants a size warning
+  rather than a rule that refuses folders somebody meant to pick. `docs/bugs/` holds the
+  repro: list view fails, icon and column do not.
 - **"Do not read `.sanity/`" and "read only the lines you were given."** Both were rules
   addressed to a model, and readers improvised around them three times. They are now absent
   capabilities: source arrives from `sanity_reveal`, and a Claude reader is launched with
