@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type Node } from '../lib/api'
 import { clsx } from '../lib/cn'
 import { colorFor, type ColorMode, paintsFromReadings } from '../lib/colorMode'
@@ -254,12 +254,13 @@ function heatShare(kind: string, mode: ColorMode): number {
  *  doesn't swallow the functions inside it. */
 const CUT = { dir: 2.2, file: 1.5, func: 0.35 }
 
-export function Sunburst({
+function SunburstView({
   root,
   selected,
   onSelect,
   onDrill,
   onClear,
+  reading,
   mode,
   ranks,
   ageSpan,
@@ -277,6 +278,14 @@ export function Sunburst({
   ageSpan?: number
   /** Undefined at the top level, which is what disables the hub's go-up affordance. */
   onUp?: () => void
+  /** Node ids out with a reader right now. They pulse.
+   *
+   *  **This is where a run is legible.** The sidebar used to list the names of functions
+   *  as they came back, which is a progress bar you have to read, in the narrowest column
+   *  on screen, saying nothing about the part this app exists to draw. Here it is a glance:
+   *  the wedges being read light up, and a wave reads as a sweep across the repo — you can
+   *  see it working through a directory, and you can see it stall. */
+  reading?: Set<string>
 }) {
   /** The hovered node plus where the pointer is, in container coordinates.
    *
@@ -876,6 +885,7 @@ export function Sunburst({
           if (selTrail?.has(w.node.id) && (!selCoarse || w.depth > selCoarse.depth)) {
             selCoarse = { d: arcPath(a0, a1, r0, r1), depth: w.depth }
           }
+          const isReading = reading?.has(w.node.id) ?? false
           return (
             <g key={w.node.id}>
             {/* An invisible target, wider than the thing it selects.
@@ -964,6 +974,21 @@ export function Sunburst({
               onDoubleClick={() => onDrill(w.node)}
             >
             </path>
+            {/* Out with a reader: a white pulse over the wedge.
+                **After the wedge, not before it.** SVG paints in document order, so the
+                first version of this drew the marker and then painted the wedge's own
+                opaque fill straight over it — present in the DOM, animating, and invisible
+                on every frame. Its own path so the wedge's fill, opacity and stroke are
+                untouched: a run must not change what the map SAYS, only show where it is
+                working. `pointer-events: none` because it covers the clickable path. */}
+            {isReading && (
+              <path
+                className="wedge-reading"
+                d={arcPath(a0, a1, r0, r1)}
+                fill="var(--foreground)"
+                pointerEvents="none"
+              />
+            )}
             </g>
           )
         })}
@@ -1092,6 +1117,14 @@ export function Sunburst({
                     d={d}
                     fill="url(#stale-hatch)"
                   />
+                )}
+                {/* Out with a reader — the same marker the file wedges take, applied one
+                    level in. Both are needed: a file reading pulses the file's band, and a
+                    function reading has to pulse the patch, because the patches are drawn
+                    ON TOP of their file's wedge and would otherwise hide the very mark
+                    that says where the work is. */}
+                {reading?.has(slot.node.id) && (
+                  <path className="wedge-reading" d={d} pointerEvents="none" fill="var(--foreground)" />
                 )}
                 {/* A roll-up is drawn like a function and is the largest patch in its
                     file, so at any real size it reads as one enormous cold function
@@ -1427,3 +1460,19 @@ export function Sunburst({
     </div>
   )
 }
+
+/**
+ * Memoised, and the reason is the Read button.
+ *
+ * This component renders every arc in the repo — seventeen thousand of them on a large one
+ * — so any App-level state change that reached it re-rendered the whole map. Opening a
+ * dialog is such a change, and pressing Read took about a second to show anything: the
+ * cost was never the dialog, it was the map being rebuilt behind it.
+ *
+ * Memo only pays if the props are stable, so the call site memoises `ranks` and `ageSpan`
+ * and passes callbacks through `useCallback`. An inline lambda here silently undoes all of
+ * this — the component still re-renders, and nothing looks wrong until somebody times a
+ * click. That is the same failure mode as the poll rebuilding the frame tree because
+ * `activeProject` is a fresh object every tick.
+ */
+export const Sunburst = memo(SunburstView)

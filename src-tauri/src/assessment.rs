@@ -69,7 +69,14 @@ use std::path::{Path, PathBuf};
 /// same sort of lie as a reading claiming a provenance it has not got. Everything banked
 /// before this is 0 — unversioned, question unknown — and that is the whole of what came
 /// before.
-pub const SPEC: u32 = 1;
+///
+/// **2: the reader stopped being able to open the repo.** Source now arrives from
+/// `sanity_reveal` — the exact extent, and nothing else — so a reader physically cannot go
+/// and look at a caller, a type, or the rest of the file. `legible` asked what the reading
+/// was LIKE, and half of its scale was about navigation: "you had to jump around" is not a
+/// judgement a reader can make when jumping is not available. Every grade before this
+/// answered a question that assumed a freedom the reader no longer has.
+pub const SPEC: u32 = 2;
 
 /// The spec at which `predicted`'s question last changed meaning.
 ///
@@ -90,7 +97,26 @@ pub const DOCUMENTED_SINCE: u32 = 0;
 /// with, and the two lower rungs went unused across a full pass of three repos. It now asks
 /// what reading it was like, judged by what the reader actually did. Every grade taken
 /// before this answered the other question.
-pub const LEGIBLE_SINCE: u32 = 1;
+///
+/// Spec 2: two changes, one forced and one overdue.
+///
+/// The forced one is that a reader can no longer navigate. Source comes from
+/// `sanity_reveal`, bounded to the extent being graded, so "you had to jump around to be
+/// sure what it does" describes something no reader can do — half of the `some` rung
+/// stopped being answerable, and a rung a reader cannot reach is the defect spec 1 was
+/// itself written to fix.
+///
+/// The overdue one is that spec 1 did not work. It gave the scale a bottom and the bottom
+/// went on being unused: 84–92% at the top across three repos and 6,900 readings, `none`
+/// at zero. A scale where one rung takes nine readings in ten is measuring almost nothing,
+/// whatever its wording. So the rungs are now written around what a reader can OBSERVE
+/// about its own pass — did it hold the whole thing at once, did it have to re-read, did
+/// it end up unsure — rather than around a verdict on the code's quality, which is a thing
+/// a reader is agreeable about.
+///
+/// **Whether this one works is a question for the data, not for the diff.** Run a wave and
+/// read the distribution before spending the corpus on it.
+pub const LEGIBLE_SINCE: u32 = 2;
 
 /// Whether a reading's `legible` grade was made under today's question.
 ///
@@ -435,6 +461,12 @@ fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
                     r.at = v.trim().trim_matches('`').to_string();
                 } else if let Some(v) = seg.strip_prefix("read by ") {
                     r.model = v.trim().to_string();
+                } else if let Some(v) = seg.strip_prefix("asked for ") {
+                    r.asked = v.trim().to_string();
+                } else if let Some(v) = seg.strip_prefix("via ") {
+                    r.harness = v.trim().to_string();
+                } else if let Some(v) = seg.strip_prefix("when ") {
+                    r.when = v.trim().to_string();
                 } else if let Some(v) = seg.strip_prefix("by ") {
                     r.by = v.trim().to_string();
                 } else if seg == "cold reading" {
@@ -944,6 +976,24 @@ fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) 
     if !r.model.is_empty() {
         meta.push(format!("read by {}", r.model));
     }
+    // **Only when it disagrees with the self-report, because agreement is not news.** The
+    // request is stamped on every reading a run takes (see `Report::asked`), but printing
+    // "asked for sonnet · read by sonnet" on all of them spends a provenance line saying one
+    // thing twice. What earns the words is the disagreement: a reader that was asked for one
+    // model and reports another means the run is not on the scale somebody chose, and that
+    // is the whole reason the pair is kept.
+    if !r.asked.is_empty() && r.asked != r.model {
+        meta.push(format!("asked for {}", r.asked));
+    }
+    // Always, when there is one — unlike `asked for`, which is only news on disagreement.
+    // The agent is not derivable from anything else on the line: the same model id reads
+    // through more than one of them, and which one is part of the instrument.
+    if !r.harness.is_empty() {
+        meta.push(format!("via {}", r.harness));
+    }
+    if !r.when.is_empty() {
+        meta.push(format!("when {}", r.when));
+    }
     if !r.by.is_empty() {
         meta.push(format!("by {}", r.by));
     }
@@ -1200,6 +1250,53 @@ pub fn agent_docs(repo: &Path) -> String {
         .join(", ")
 }
 
+/// The moment a reading was taken, as sortable UTC — `2026-08-13T05:12:03Z`.
+///
+/// **A reading had no date at all until now**, which made two ordinary questions
+/// unanswerable: how old is this reading, and — when a repo's corpus is mixed — which model
+/// read it most recently. `at` looks like it should answer them and does not: it is the
+/// COMMIT the code was at, so every reading taken in one sitting shares it and its date is
+/// about the code rather than the reading.
+///
+/// ISO-8601 rather than epoch seconds because the store is Markdown somebody reads, and a
+/// ten-digit integer in a provenance line is the readable copy being the wrong one. It also
+/// sorts lexicographically, which is the whole job here.
+///
+/// Hand-rolled from `SystemTime`, because this is the only date the crate formats and a
+/// dependency for it would be 250KB to print eight numbers. The civil-from-days conversion
+/// is Hinnant's, which is exact for every date this will ever see.
+pub fn now_iso() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    iso_of(secs)
+}
+
+/// [`now_iso`] for a given epoch second, so the conversion can be tested against dates
+/// nobody has to wait for.
+fn iso_of(secs: i64) -> String {
+    let days = secs.div_euclid(86_400);
+    let rem = secs.rem_euclid(86_400);
+    let (y, m, d) = civil_from_days(days);
+    let (h, min, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    format!("{y:04}-{m:02}-{d:02}T{h:02}:{min:02}:{s:02}Z")
+}
+
+/// Days since 1970-01-01 to a civil date. Hinnant's algorithm, unchanged.
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1431,6 +1528,108 @@ mod tests {
         let mut lone = Report { primed: true, ..Report::blank() };
         lone.body = "aabb".into();
         assert!(!render_entry("baz", 0, false, &lone, false).contains("priming"));
+    }
+
+    /// The model a run ASKED for survives a save, and is silent when it agrees.
+    ///
+    /// Both halves matter. Round-tripping is what stops `sanity refresh` from quietly
+    /// dropping the field — the store is the only copy, and a segment that renders but does
+    /// not parse is lost the first time somebody reformats. Silence on agreement is what
+    /// keeps it from being noise on every reading of every run: the pair is kept so that a
+    /// DISagreement is visible, and a reader that reports the model it was asked for has
+    /// already said the whole thing once.
+    #[test]
+    fn the_asked_for_model_round_trips_and_is_silent_when_it_agrees() {
+        let mut back = HashMap::new();
+        parse_shard(
+            "## src/a.rs\n\
+             \n### `foo`\n\
+             - spec 1 · read at `aabb` · read by haiku · asked for sonnet · cold reading\n\
+             - expected: x\n\
+             - found: y\n\
+             - predicted: full · documented: none · derivable: no · legible: full\n",
+            &mut back,
+        );
+        let swapped = &back["src/a.rs#foo"];
+        assert_eq!(swapped.model, "haiku");
+        assert_eq!(swapped.asked, "sonnet");
+        assert!(render_entry("foo", 0, false, swapped, false).contains("asked for sonnet"));
+
+        // Agreement says nothing: `read by` already carries it.
+        let agreed = Report {
+            model: "sonnet".into(),
+            asked: "sonnet".into(),
+            body: "aabb".into(),
+            ..Report::blank()
+        };
+        assert!(!render_entry("foo", 0, false, &agreed, false).contains("asked for"));
+
+        // And a reading nobody asked anything of — a hand-driven reader, belonging to no
+        // run — must not grow an empty claim.
+        let hand = Report { model: "sonnet".into(), body: "aabb".into(), ..Report::blank() };
+        assert!(!render_entry("foo", 0, false, &hand, false).contains("asked for"));
+        assert!(!render_entry("foo", 0, false, &hand, false).contains("via "));
+    }
+
+    /// A reading's date round trips, and the conversion is right for dates nobody waited for.
+    ///
+    /// The whole value of `when` is that it sorts, so a wrong month makes a mixed corpus
+    /// recommend the wrong model — quietly, and only on some days of some years. Leap day
+    /// and a year boundary are where hand-rolled civil-date arithmetic goes wrong.
+    #[test]
+    fn a_reading_says_when_it_was_taken() {
+        assert_eq!(iso_of(0), "1970-01-01T00:00:00Z");
+        assert_eq!(iso_of(1_767_225_600), "2026-01-01T00:00:00Z");
+        // 2024-02-29, which only exists if the leap rule is right.
+        assert_eq!(iso_of(1_709_208_000), "2024-02-29T12:00:00Z");
+        assert_eq!(iso_of(1_767_225_599), "2025-12-31T23:59:59Z");
+        // Sorting the strings has to be sorting the instants — that is what it is for.
+        assert!(iso_of(1_700_000_000) < iso_of(1_700_000_001));
+
+        let mut back = HashMap::new();
+        parse_shard(
+            "## src/a.rs\n\
+             \n### `foo`\n\
+             - spec 1 · read at `aabb` · read by sonnet · when 2026-08-13T05:12:03Z\n\
+             - expected: x\n\
+             - found: y\n\
+             - predicted: full · documented: none · derivable: no · legible: full\n",
+            &mut back,
+        );
+        let r = &back["src/a.rs#foo"];
+        assert_eq!(r.when, "2026-08-13T05:12:03Z");
+        assert!(render_entry("foo", 0, false, r, false).contains("when 2026-08-13T05:12:03Z"));
+
+        // Undated readings — every one banked before the field — say nothing rather than
+        // claiming the epoch.
+        let old = Report { model: "sonnet".into(), body: "aabb".into(), ..Report::blank() };
+        assert!(!render_entry("foo", 0, false, &old, false).contains("when "));
+    }
+
+    /// The agent survives a save, which is what makes it preselectable.
+    ///
+    /// The machine-local index is a preference and the corpus is the record — a repo read
+    /// on another laptop arrives with an index that has never heard of it. If this stops
+    /// round-tripping, `banked_harness` silently becomes `None` everywhere and the dialog
+    /// goes back to asking a question the repo can already answer.
+    #[test]
+    fn the_agent_that_read_round_trips() {
+        let mut back = HashMap::new();
+        parse_shard(
+            "## src/a.rs\n\
+             \n### `foo`\n\
+             - spec 1 · read at `aabb` · read by claude-sonnet-4.6 · via agy · cold reading\n\
+             - expected: x\n\
+             - found: y\n\
+             - predicted: full · documented: none · derivable: no · legible: full\n",
+            &mut back,
+        );
+        let r = &back["src/a.rs#foo"];
+        assert_eq!(r.harness, "agy");
+        // The pair is the point: this model is reachable through two agents, so neither
+        // half attributes the reading on its own.
+        assert_eq!(r.model, "claude-sonnet-4.6");
+        assert!(render_entry("foo", 0, false, r, false).contains("via agy"));
     }
 
     /// An older build's reader must not be broken by a bullet it has never heard of.

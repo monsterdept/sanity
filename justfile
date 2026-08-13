@@ -37,6 +37,24 @@ dev:
 
 alias run := dev
 
+# Run the CLI — `just cli check ../tally --model sonnet`, `just cli status ../tally`.
+#
+# The sibling of `just dev`. That one opens a window and is the human's to run; this is the
+# same binary with no window, which since `sanity check` is how a run actually starts is
+# now the more useful half during development.
+#
+# The path is resolved to an absolute one BEFORE cargo is invoked, for the reason `scan`
+# documents: `just` runs recipes from the justfile's directory, so a relative path means
+# this repo rather than the one you are standing in — and for a verb that WRITES readings
+# into `.sanity/`, quietly picking the wrong repo is worse than for one that only prints.
+#
+# Verbs that take no repo (`serve`, `help`) ignore the argument, so the default is harmless.
+cli verb="help" path="." *flags="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="$(cd "{{path}}" && pwd)"
+    cargo run --manifest-path src-tauri/Cargo.toml --quiet --bin sanity -- {{verb}} "$target" {{flags}}
+
 # Type-check + build the frontend only.
 web:
     cd web && npm run build
@@ -170,18 +188,33 @@ release version:
     # number that dropped. Fails only on an UNDECLARED expiry: a hash input moved while
     # every cache and every stored reading still claims to be current. A declared one
     # prints what it costs and proceeds, because improving the metric is the job.
-    if ! python3 scripts/expiry-check.py; then
+    # Captured, not just printed. The check told the operator and then trusted them to
+    # carry it into the note by hand — which is the same shape as an invariant living in a
+    # comment, and it failed on the first release that used it: v0.9.0 expires every
+    # reading in every repo and its tag says nothing about it.
+    expiry=$(python3 scripts/expiry-check.py) || {
+        echo "$expiry"
         echo "error: this release expires readings without declaring it — see above" >&2
         exit 1
-    fi
+    }
+    echo "$expiry"
 
     # Annotate the tag with the commit log since the previous tag, so `git show
-    # $tag` is useful even though the GitHub release body is generated.
+    # $tag` is useful even though the GitHub release body is generated. The expiry verdict
+    # goes FIRST: it is the only line in here that costs the reader an afternoon.
     prev=$(git describe --tags --abbrev=0 2>/dev/null || true)
-    if [[ -n "$prev" ]]; then
-        body=$(printf '%s\n\nChanges since %s:\n\n%s\n' "$tag" "$prev" "$(git log --pretty='- %s' "$prev"..HEAD)")
+    if grep -q "EXPIRES READINGS" <<<"$expiry"; then
+        warning=$(printf 'THIS RELEASE EXPIRES COMMITTED READINGS.\n\n%s\n\nEvery repo assessed with an earlier version will show readings as stale and\nwant re-reading. Run `sanity study <repo>` again after upgrading.' "$(sed -n 's/^    declared: /  - /p' <<<"$expiry")")
+        # `$( )` eats trailing newlines, so the blank line that separates this from the
+        # changelog has to be re-attached rather than printed inside the substitution.
+        warning="$warning"$'\n\n'
     else
-        body=$(printf '%s\n\n%s\n' "$tag" "$(git log --pretty='- %s')")
+        warning=""
+    fi
+    if [[ -n "$prev" ]]; then
+        body=$(printf '%s\n\n%sChanges since %s:\n\n%s\n' "$tag" "$warning" "$prev" "$(git log --pretty='- %s' "$prev"..HEAD)")
+    else
+        body=$(printf '%s\n\n%s%s\n' "$tag" "$warning" "$(git log --pretty='- %s')")
     fi
     if [[ "{{version}}" == *-* ]]; then
         echo "==> $tag is a prerelease — bundles publish, but don't run \`just publish\` on it"
@@ -295,6 +328,17 @@ publish version:
     echo '  depends_on macos: :big_sur'
     echo ''
     echo '  app "Sanity.app"'
+    # The CLI, which is the SAME binary — `sanity` with no arguments opens the window and
+    # with a verb is the command line, so there is nothing extra to build or version. Brew
+    # symlinks it into its own bin, which is already on PATH.
+    #
+    # Pointed at the binary inside the bundle rather than at a copy: two copies of one
+    # thing is how the app and its CLI drift apart, and `sanity check` spawns readers by
+    # `current_exe()`, which resolves the symlink back to the bundle either way.
+    #
+    # A direct download gets none of this, which is what the app's own "Install `sanity`
+    # command" button is for.
+    echo '  binary "#{appdir}/Sanity.app/Contents/MacOS/sanity"'
     echo ''
     echo '  zap trash: ['
     echo '    "~/Library/Application Support/Sanity",'

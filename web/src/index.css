@@ -521,3 +521,34 @@ textarea,
 @media (prefers-reduced-motion: reduce) {
   .trap-pulse { animation: none; }
 }
+
+/* A wedge out with a reader.
+ *
+ * The same argument as `trap-pulse` next door — a CSS animation costs nothing per frame,
+ * and the map is redrawn thirty times a second during a history replay, so anything driven
+ * from React would show up as a stutter on a period.
+ *
+ * White, and white is deliberate: every lens in this app spends hue on the reading, so a
+ * coloured marker would be a claim about the code. This one says only "work is happening
+ * here", and it says it by going lighter than anything a ramp can produce.
+ *
+ * It breathes from nearly invisible to a wash rather than from solid to gone. The wedge
+ * underneath is the measurement and has to stay readable while its neighbour is being
+ * read; at full opacity a run would blank out whole directories of the map it is meant to
+ * be illustrating.
+ *
+ * Under reduced motion it settles at the low end and stays there — still a marker, no
+ * movement. Removing it entirely would leave a run with nothing on the map at all, which
+ * is the one thing this element exists to prevent. */
+@keyframes wedge-reading {
+  0%, 100% { opacity: 0.06; }
+  50% { opacity: 0.4; }
+}
+
+.wedge-reading {
+  animation: wedge-reading 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wedge-reading { animation: none; opacity: 0.22; }
+}

@@ -75,6 +75,8 @@ pub async fn scan_repo(
             repo: root.to_string_lossy().to_string(),
             name,
             touched: 0,
+            harness: None,
+            model: None,
         });
     }
 
@@ -164,23 +166,17 @@ pub async fn scan_repo(
             .get(&key)
             .map(|p| p.reports.clone())
             .unwrap_or_else(|| crate::assessment::load(&root_for_state, scan));
-        shared.projects.insert(
-            key.clone(),
-            crate::agentapi::Project {
-                repo: root_for_state,
-                name,
-                scan: scan.clone(),
-                reports,
-                leased: std::collections::HashMap::new(),
-                recent_files: std::collections::HashMap::new(),
-                // Stamped from the scan that just cut these positions — see `stamp_marks`.
-                file_marks: crate::agentapi::stamp_marks(&key_path, scan),
-                marks: crate::watch::probe(&key_path),
-                scanned: 1,
-                touched: 0,
-                last_agent: None,
-            },
+        // Carried across rather than rebuilt, the same way `reports` above already is —
+        // see `Project::rescan` for what a fresh one destroys, and why a rescan being an
+        // ordinary event is the point.
+        let project = crate::agentapi::Project::rescan(
+            shared.projects.get(&key),
+            key_path.clone(),
+            name,
+            scan.clone(),
+            reports,
         );
+        shared.projects.insert(key.clone(), project);
         shared.touch(&key);
         // Focused outright, unlike the agent and headless paths. This is the window's own
         // Open command — somebody stood in front of the app and chose this repo, which is
@@ -489,6 +485,247 @@ fn this_exe() -> String {
     std::env::current_exe()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default()
+}
+
+/// Add a repo to Sanity, from a directory a person picked.
+///
+/// **The `+` was deliberately removed once, and this is it coming back for a different
+/// reason.** The argument then was that opening by hand was a dead end: an agent called
+/// `sanity_open` in the repo it was already working in, and a project arrived by hand gave
+/// you a grey map and four lenses, which is the app with its reason for existing removed.
+///
+/// A reader has no filesystem now, and no working directory. It cannot name a repo at all,
+/// so somebody has to, and the only parties who may are a person at this window and a
+/// person in a terminal running `sanity init`. Adding is the entrance rather than a
+/// sideshow, and a grey map is what every project looks like before it is read.
+///
+/// The other objection was real and is guarded rather than argued away: a picker was once
+/// handed a directory holding many repos and set thirty minutes of CPU on fire. So the
+/// choice must be one repo — its own `.git` at the root — and a directory that merely
+/// CONTAINS repos is refused by name, with the count, because that is the mistake somebody
+/// is actually making when they pick their `~/projects` folder.
+#[tauri::command]
+pub fn add_project(path: String) -> Result<String, String> {
+    let root = PathBuf::from(&path);
+    if !root.is_dir() {
+        return Err(format!("{path} is not a directory"));
+    }
+    if root.join(".git").exists() {
+        return Ok(root.to_string_lossy().to_string());
+    }
+    // Not a repo. Say which of the two mistakes it is — an empty folder and the parent of
+    // twelve repos are the same error message otherwise, and only one of them has an
+    // obvious next step.
+    let inside: Vec<String> = std::fs::read_dir(&root)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter(|e| e.path().join(".git").exists())
+                .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    if !inside.is_empty() {
+        let mut shown = inside.clone();
+        shown.sort();
+        shown.truncate(3);
+        return Err(format!(
+            "{path} holds {} repos ({}{}) rather than being one. Pick the repo you want to \
+             read — scanning a whole directory of them takes many minutes and gives you one \
+             map of unrelated code.",
+            inside.len(),
+            shown.join(", "),
+            if inside.len() > shown.len() { ", …" } else { "" }
+        ));
+    }
+    Err(crate::scan::not_a_repo(&root))
+}
+
+/// Where a `sanity` symlink can go, best first.
+///
+/// **A symlink into a directory already on PATH, not a PATH entry and not an alias.**
+/// Adding `Sanity.app/Contents/MacOS` to PATH would also expose `sanity-scan`,
+/// `sanity-history` and two other dev binaries that sit beside the app's, and it hard-codes
+/// a path inside a bundle the user can move. An alias exists only in interactive shells, so
+/// it is invisible to scripts and to anything else that shells out. A symlink is the one
+/// form that behaves like an installed program.
+fn cli_link_dirs() -> Vec<PathBuf> {
+    let mut dirs = vec![PathBuf::from("/usr/local/bin")];
+    if let Some(home) = dirs::home_dir() {
+        dirs.push(home.join(".local/bin"));
+    }
+    dirs
+}
+
+/// What `install_cli` did, or would do.
+#[derive(serde::Serialize)]
+pub struct CliLink {
+    /// Where the symlink is, once made.
+    path: String,
+    /// Whether that directory is on the PATH this process can see.
+    ///
+    /// Reported rather than acted on. A GUI app's PATH is not the user's — that is the
+    /// whole lesson of `Harness::resolve` — so this can be wrong in the pessimistic
+    /// direction, and saying "you may need to add this to your PATH" when it is already
+    /// there is a smaller harm than silently leaving a link nobody can run.
+    on_path: bool,
+}
+
+/// Put `sanity` on the PATH of somebody who dragged the app to /Applications.
+///
+/// The cask does this with a `binary` stanza and needs nothing from us. A direct download
+/// has no package manager to do it, and the honest options are a symlink or a paragraph of
+/// documentation — so the app offers the symlink, the way editors have always shipped their
+/// shell command.
+///
+/// It links to the running executable rather than to a guessed bundle path: the app may be
+/// anywhere, and `current_exe` is the one thing that knows where.
+#[tauri::command]
+pub fn install_cli() -> Result<CliLink, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let mut refused = Vec::new();
+    for dir in cli_link_dirs() {
+        if std::fs::create_dir_all(&dir).is_err() {
+            refused.push(dir.display().to_string());
+            continue;
+        }
+        let link = dir.join("sanity");
+        // Replaced rather than left alone: an old link pointing at a bundle that has since
+        // moved is the "looks configured, won't connect" state the MCP rows already have a
+        // label for, and it is worse here because the error is a bare "command not found".
+        let _ = std::fs::remove_file(&link);
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&exe, &link);
+        #[cfg(not(unix))]
+        let made = std::fs::hard_link(&exe, &link);
+        if made.is_err() {
+            refused.push(dir.display().to_string());
+            continue;
+        }
+        let on_path = std::env::var_os("PATH")
+            .map(|p| std::env::split_paths(&p).any(|d| d == dir))
+            .unwrap_or(false);
+        return Ok(CliLink { path: link.display().to_string(), on_path });
+    }
+    Err(format!(
+        "Could not write to {}. You can link it by hand: ln -s \"{}\" /usr/local/bin/sanity",
+        refused.join(" or "),
+        exe.display()
+    ))
+}
+
+/// Take a project out of the sidebar.
+///
+/// The counterpart to `add_project`, and deliberately not called "delete": it removes a
+/// listing. The repo is untouched and so are its readings, which live in its own
+/// `.sanity/` — see `agentapi::AppState::forget`.
+#[tauri::command]
+pub fn forget_project(state: tauri::State<'_, crate::agentapi::Shared>, key: String) {
+    crate::agentapi::lock(&state).forget(&key);
+}
+
+/// How many lines a partial run would cover, at each step it could stop at.
+///
+/// Fetched once when the Read dialog opens rather than carried on the project poll: it is a
+/// number per ten outstanding functions, which is a few kilobytes for a large repo and would
+/// otherwise be recomputed and re-sent every 1.5 seconds for every project, most of which
+/// nobody is about to read. See `agentapi::reading_curve` for what it measures.
+#[tauri::command]
+pub fn read_curve(state: tauri::State<'_, crate::agentapi::Shared>, key: String) -> Vec<u32> {
+    crate::agentapi::reading_curve(&state, &key)
+}
+
+/// Which coding agents are installed on this machine.
+///
+/// The prerequisite this app actually has, now that it runs the readers itself. It used to
+/// be "configure an MCP server", which is a thing people get wrong silently; this one can
+/// simply be looked for, so the window states it instead of explaining it.
+#[tauri::command]
+pub fn harnesses() -> Vec<serde_json::Value> {
+    crate::harness::Harness::all()
+        .into_iter()
+        .map(|h| {
+            let installed = h.available();
+            serde_json::json!({
+                "id": h.name(),
+                "installed": installed,
+                // Asked of the agent itself — see `Harness::models`. Empty is a real
+                // answer, not a failure: Claude names only aliases and Codex needs its app
+                // server up, so the picker always keeps a field you can type into.
+                "models": if installed { h.models() } else { Vec::new() },
+                // Whether that list is the agent's own — see `Harness::enumerates`. The
+                // window offers a text field only where it is not, because typing an id
+                // into a real catalogue is how somebody gets an auth-time rejection
+                // minutes after pressing Read.
+                "enumerated": h.enumerates(),
+            })
+        })
+        .collect()
+}
+
+/// Record which agent and model read a project. Once per project, not once per run.
+#[tauri::command]
+pub fn set_reader(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    key: String,
+    harness: Option<String>,
+    model: Option<String>,
+) -> Result<(), String> {
+    let (repo, name) = {
+        let s = crate::agentapi::lock(&state);
+        let p = s.projects.get(&key).ok_or("that project is not open")?;
+        (p.repo.to_string_lossy().to_string(), p.name.clone())
+    };
+    crate::reports::set_reader(
+        &key,
+        &repo,
+        &name,
+        harness.as_deref().filter(|h| !h.is_empty()),
+        model.as_deref().filter(|m| !m.is_empty()),
+    );
+    Ok(())
+}
+
+/// Start a wave of readers from the window.
+///
+/// Straight into `agentapi::start_run` rather than out to loopback: the window holds the
+/// same state the router does, and the app talking to itself over a socket would be a
+/// second path to the same decision. What matters is that it is the same FUNCTION the CLI
+/// and the MCP tool reach — three triggers, one loop.
+#[tauri::command]
+pub fn start_check(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    key: String,
+    model: Option<String>,
+    readers: Option<usize>,
+    limit: Option<usize>,
+) -> serde_json::Value {
+    crate::agentapi::start_run(
+        &state,
+        crate::agentapi::CheckRequest {
+            project: Some(key),
+            harness: None,
+            model,
+            readers,
+            limit,
+        },
+    )
+}
+
+/// Ask a running wave to stop.
+///
+/// Honoured between readers, never mid-reading: a reader killed part-way through has cost
+/// a prediction and banked nothing, and the lease it holds re-queues on its own.
+#[tauri::command]
+pub fn stop_check(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    key: String,
+) -> Result<(), String> {
+    let s = crate::agentapi::lock(&state);
+    let p = s.projects.get(&key).ok_or("that project is not open")?;
+    let run = p.run.as_ref().ok_or("nothing is running for that project")?;
+    run.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
 }
 
 #[tauri::command]

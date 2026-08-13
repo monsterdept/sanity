@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "sanity": {
-      "command": "src-tauri/target/debug/sanity",
-      "args": ["mcp"]
-    }
-  }
-}

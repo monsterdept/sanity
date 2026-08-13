@@ -29,6 +29,81 @@ pub struct KnownProject {
     pub name: String,
     #[serde(default)]
     pub touched: u64,
+    /// Which coding agent `sanity check` runs readers with here, as `sanity init` set it.
+    ///
+    /// Machine-local rather than in `.sanity/`, and the split is the same one the score
+    /// cache follows from the other side: the repo holds what cannot be recomputed and is
+    /// true for everybody, while which CLI you have installed is true for this laptop.
+    /// Committing it would put one person's `codex` in everybody else's checkout.
+    ///
+    /// `default` here is not the hazard the same annotation is on a cached record. There,
+    /// absent silently meant "this repo has no file header" when it had one, and every
+    /// reader was handed less than the code believed. Here absent means nothing is
+    /// configured, which is exactly what it means, and the only thing downstream of it
+    /// says so and stops.
+    #[serde(default)]
+    pub harness: Option<String>,
+    /// Which model reads this repo, when it has no readings yet to say so.
+    ///
+    /// A starting point, not the authority. Once a repo holds readings, what they were
+    /// actually taken by is the answer — see `ProjectSummary::banked_model` — because that
+    /// is a fact that travels with the repo, while this is one laptop's preference and two
+    /// people could set it differently without either of them seeing the other.
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+/// Which agent is configured for a project, if any.
+pub fn harness_for(key: &str) -> Option<String> {
+    load_index()
+        .projects
+        .into_iter()
+        .find(|p| p.key == key)
+        .and_then(|p| p.harness)
+        .filter(|h| !h.is_empty())
+}
+
+/// Record the agent to read this project with, creating the entry if this is the first
+/// time the repo has been named.
+pub fn set_harness(key: &str, repo: &str, name: &str, harness: &str) {
+    set_reader(key, repo, name, Some(harness), None)
+}
+
+/// Which model is configured for a project, if any.
+pub fn model_for(key: &str) -> Option<String> {
+    load_index()
+        .projects
+        .into_iter()
+        .find(|p| p.key == key)
+        .and_then(|p| p.model)
+        .filter(|m| !m.is_empty())
+}
+
+/// Record the agent and/or the model to read a project with.
+///
+/// `None` leaves a field alone rather than clearing it, so setting one does not silently
+/// forget the other — the window sets both at once and the CLI sets one at a time.
+pub fn set_reader(key: &str, repo: &str, name: &str, harness: Option<&str>, model: Option<&str>) {
+    let mut index = load_index();
+    if index.projects.iter().all(|p| p.key != key) {
+        index.projects.push(KnownProject {
+            key: key.to_string(),
+            repo: repo.to_string(),
+            name: name.to_string(),
+            touched: 0,
+            harness: None,
+            model: None,
+        });
+    }
+    if let Some(p) = index.projects.iter_mut().find(|p| p.key == key) {
+        if let Some(h) = harness {
+            p.harness = Some(h.to_string());
+        }
+        if let Some(m) = model {
+            p.model = Some(m.to_string());
+        }
+    }
+    save_index(&index);
 }
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]

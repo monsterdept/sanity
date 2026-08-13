@@ -68,6 +68,75 @@ and `model` is recorded for exactly that, the way `position` is.
 and the noise floor sits above the signal — a model never reproduces real code token for
 token whether or not the code was predictable.
 
+## Sanity runs the readers, and that is a reversal with a reason
+
+`sanity check` spawns the readers itself, as processes, one per reader (`harness.rs`,
+`agentapi::run_wave`). Three things this file used to say are no longer true, and each was
+right when it was written:
+
+- **"`study` prints the sentence rather than running an agent."** The objection was owning
+  model choice, auth, concurrency and resumption — the configuration `OllamaModel` was
+  deleted to avoid. That was a fair price while a reader had to be a subagent of somebody's
+  session. It stopped being one when the reader became a plain MCP client: no filesystem, no
+  cwd, no repo, three tools. Spawning one is now shelling out to a CLI the user has already
+  installed and authenticated, and there is still **no model path in the app** — Sanity runs
+  an agent, it does not run inference. `study` remains for driving by hand.
+- **"A project arrives exactly one way: an agent calls `sanity_open` in the repo it is
+  already working in."** Inverted. A reader cannot name a repo — it has no working directory
+  — so a person does, with the sidebar's `+` or `sanity init`. `sanity_open` called bare
+  answers with what the human added; a path it has never been given is refused. The old
+  hazard is guarded rather than argued away: `add_project` refuses a directory that holds
+  repos instead of being one, and says how many.
+- **"Do not read `.sanity/`" and "read only the lines you were given."** Both were rules
+  addressed to a model, and readers improvised around them three times. They are now absent
+  capabilities: source arrives from `sanity_reveal`, and a Claude reader is launched with
+  `--allowedTools` naming the three sanity tools and nothing else.
+
+**What Sanity buys with the spawn is isolation it can guarantee instead of ask for.**
+Readers run outside the repo (`cwd`), without project settings (`--setting-sources user`,
+`--ignore-user-config`), and with only their own tool surface. That last one is why
+`SANITY_ROLE` exists: the process creating the connection knows what it is for, so a reader
+is offered `next`/`reveal`/`report` and never loads the orchestrator's tools. Measured, that
+took the per-reader fixed prefix from 2,752 tokens to 2,208.
+
+**The prediction is stamped before the body is served.** `sanity_reveal(id, expected)`
+records `expected` and only then returns the source; a second call serves the same bytes and
+cannot revise it. `Report.expected` is filled server-side from that, beside `body`, `by` and
+`at`, for their reason — it used to arrive in the same call as `found`, from a reader that
+had by then read the code.
+
+**A harness that cannot express those is absent rather than half-present**, on the same rule
+`.m` and `.v` follow: anything that would leak the repo into its readers produces warm
+readings indistinguishable from cold ones.
+
+**The admission test is per-invocation MCP config, and only one of the four takes a flag.**
+Claude has `--mcp-config`; the rest read a directory, so the scratch directory that already
+exists for isolation becomes the config directory and the config is as per-invocation as a
+flag would be — opencode `opencode.json`, Codex a private `CODEX_HOME`, Antigravity
+`.agents/mcp_config.json`. **Writing a harness's GLOBAL config is not an acceptable
+substitute**: two runs would fight over one file, and a crash would leave the user's own
+sessions pointed at a backend that is gone.
+
+- **Antigravity (`agy`) replaces the Gemini CLI, which deprecated itself.** `gemini` is not
+  aliased to it — the two are different instruments, and silently redirecting a project's
+  configured harness would change what its readings mean without saying so. A stored
+  `harness: gemini` fails to parse, reads as "no agent configured", and asks the human.
+- **`--add-dir` is load-bearing and its absence is silent.** agy discovers `.agents/` from
+  the *workspace*, and being `cwd` does not make a directory the workspace: without the flag
+  it loads no MCP at all and a reader runs with only builtin tools. Its own `mcp_servers.md`
+  documents only the global and plugin scopes; the workspace scope is one file over, in
+  `agy-customizations/SKILL.md`.
+- **Probe a harness by asking it to LIST its tools, never whether it can call one by name.**
+  agy exposes MCP through a generic `call_mcp_tool` dispatcher rather than as named tools, so
+  "can you call `sanity_next`?" is answered *no* whether the server loaded or not. That one
+  wrong question cost a day and produced a confident, wrong conclusion that agy could not be
+  configured per run at all. The tells are `call_mcp_tool`, `list_resources` and
+  `read_resource` appearing in the list.
+- **A private `HOME` is Codex's isolation trick and does not generalise.** For agy the route
+  is properly closed: symlinking every entry of `~/.gemini`, then the whole directory, still
+  leaves it unauthenticated, so the credential lives somewhere `HOME` also moves. There is no
+  config-path override in the binary to reach past it.
+
 ## Calibration is evidence, not taste
 
 `heuristic::calibrate` maps the raw mix onto the reported scale. It is monotonic — it
@@ -155,6 +224,15 @@ readings (1.4 MB) parse in 30ms, once, on open.
   question and greying out a colleague's fresh work would punish them for updating first. An
   older app never heard of the bullet and ignores it — `parse_shard` drops segments it does
   not know, which is the property that makes adding a field free, and there is a test for it.
+  **Spec 2 is `legible`, and it was validated before it was spent.** A reader can no longer
+  navigate — source comes bounded from `sanity_reveal` — so "you had to jump around" asked
+  about something no reader can do. Spec 1 had also simply not worked: it gave the scale a
+  bottom and the bottom stayed empty, 79.5% at the top rung and 1.6% at `some` across this
+  repo's 689 graded readings. The rungs now describe what a reader can observe about its own
+  pass. Measured on a copy of this repo's own `web/src` before the bump shipped: 65% / 20% /
+  **15%** / 0%, so `some` gained nine-fold on the same code. `none` is still unobserved —
+  the scale is improved, not proven. **Read the distribution before spending a corpus on a
+  reworded ask; that is what the bump costs.**
 - **A failed write is reported, never absorbed.** `save_reports` returns an error and the
   `report` handler puts it in `ok`/`error`/`hint` so the agent stops. Silently diverting
   to a hidden file is how a reading looks saved and isn't.
@@ -175,6 +253,20 @@ readings (1.4 MB) parse in 30ms, once, on open.
 - **Provenance is stamped server-side.** `body`, `by` and `at` are filled in the `report`
   handler from the scan and from git, never taken from the agent. The one field whose job
   is to be checkable later cannot be self-certified.
+  **`model` is the exception that proves it, so it is stamped in a pair.** What a reader
+  says it is remains self-declared — nothing else can see inside the process — but Sanity
+  now spawns the readers, so what was ASKED for is a fact it holds and `asked` records it
+  beside the answer. It renders only on disagreement (`asked for sonnet` next to `read by
+  haiku`), because agreement is the self-report saying the same thing twice; the case worth
+  a human's eye is a run that is not on the scale somebody chose.
+  **`harness` rides with it and always renders (`via agy`)**, because the agent is part of
+  the instrument rather than packaging around it: one model id is reachable through more
+  than one of them, and a system prompt and tool surface are not nothing. It is also what
+  makes the Read dialog able to preselect — `banked_harness` and `banked_model` come from
+  the corpus, which travels with the repo, rather than from the machine-local index, which
+  is one laptop's preference and has never heard of a repo somebody else read. Both are
+  `None` when the readings disagree, which is the case where choosing would be wrong.
+  Neither is a graded input: out of `reading_hash`, no `SPEC` movement, nothing expires.
 - **An open refreshes the assessment's own files; it never creates them.** `save` rewrites
   them on every report, so a repo mid-assessment repairs itself the moment a reading lands
   — but a FINISHED repo never saves again, so it keeps whatever it was written with: prose
@@ -190,7 +282,10 @@ readings (1.4 MB) parse in 30ms, once, on open.
   directory behind is a surprise where people run `git status`.
 - **Never let a reader see `.sanity/` before it predicts.** Being told what the last
   reader found is recall, not prediction — the same contamination `cold` exists to
-  expose. The MCP descriptions say so; keep them saying it.
+  expose. The MCP descriptions say so; keep them saying it. A reader Sanity launched
+  cannot reach it at all, which is the point of launching them — but the rule stays
+  written down, because a hand-driven session still can and the descriptions are the only
+  thing standing there.
 - **The repo's own brief is the contamination `cold` cannot see, and it is recorded in two
   halves.** A host that injects `CLAUDE.md` into every subagent hands each reader a
   description of the architecture it is about to predict; the reading comes back honestly
@@ -203,12 +298,19 @@ readings (1.4 MB) parse in 30ms, once, on open.
   while the same report in a repo that has one is the evidence a run was launched clean.
   One provenance segment carries the pair, and renders nothing when the repo has no brief,
   on the same rule as every other absence here.
-  **Only the person typing the launch command can fix it**, which is why the warning is in
-  `/open` and in `sanity study` rather than anywhere a reader would see it: a reader's
-  context is built before it can call anything, so telling it costs tokens and changes
-  nothing. The remedy is `claude --setting-sources user` — measured, and it propagates to
-  subagents, which is where it matters. It is a warning and never a refusal; whether the
-  priming matters is a judgement about a specific repo.
+  **`sanity check` fixes this rather than warning about it**, and that is the one part of
+  the priming problem that got solved instead of measured. Sanity launches each reader
+  itself, from a directory outside the repo and with the project's own settings excluded
+  (`--setting-sources user` on Claude, `--ignore-user-config` and `-C` on Codex), so the
+  brief cannot reach a reader's context at all. The remedy used to be a launch flag a human
+  had to know about; now it is how readers are started.
+  **The warning survives for the hand-driven path**, where it is still true that only the
+  person typing the launch command can fix it — which is why it is in `/open` and in
+  `sanity study` rather than anywhere a reader would see it: a reader's context is built
+  before it can call anything, so telling it costs tokens and changes nothing. It is a
+  warning and never a refusal; whether the priming matters is a judgement about a specific
+  repo. `primed` is still asked either way, because a reader is the only party that can see
+  its own context and `sanity check` is not the only way a reading gets taken.
   **The warning ASKS. Asserting made it worse than silence, and that is the lesson worth
   keeping.** All the server can see is that the file exists on disk; whether a session
   LOADED it is invisible to it, exactly as `primed` being reader-declared already says. The
@@ -316,6 +418,15 @@ When a field is added to `Report`, add it to the schema in the same commit.
   positions 8-10 with buckets deeper than forty; up, a clean run at 15-25 finding nothing.
   `position` is on every reading and `by_position` buckets per position, so any run adds a
   point to that curve for free — read it before touching the constant.
+  **It is not a user-facing control, and a slider for it was built and removed.** The trade
+  is real and tempting — one function per reader is five times the cost and about five times
+  the speed, which is the honest answer to "why is a ten-function run slow" — but the curve
+  has no knee to aim at, so the control offers a choice with nothing to base it on. Worse,
+  the batch is a reading CONDITION: it is recorded per reading as `position`, and varying it
+  across one repo makes that corpus a mixture in exactly the way two models do, with nothing
+  on the map saying which wedge was read under which arrangement. Same rule as `model`. The
+  number lives in `agentapi::BATCH`, which `reader_prompt` formats into the ask and the wave
+  is sized by, so the two cannot drift.
   The one repo-shaped limit: the queue rests a file after drawing from it, so on a small
   repo a reader deep into a batch gets handed a file it already opened. That bit a
   43-file repo at three and not a 731-file one at ten. **The binding constraint on batch
@@ -574,7 +685,27 @@ second metric, and the line between those is the whole design.
   `just scan <path>` is the headless scorer and the fastest way to test a change to the
   metric.
 - **Never launch the app yourself** — `just dev` opens a window; that's the human's to
-  run. Verify with check/test/scan.
+  run. Verify with check/test/scan. `just cli <verb> <path>` is the headless half, and
+  since `sanity check` is how a run starts it is now the more useful one.
+- **A GUI app does not inherit your shell's PATH, so never resolve a tool by bare name.**
+  Launched from Finder an app gets about `/usr/bin:/bin:/usr/sbin:/sbin`, and coding agents
+  install nowhere near it — `claude` in `~/.local/bin`, `codex` in `/opt/homebrew/bin`. So
+  `Command::new("claude")` works in every terminal and fails for every user who installed
+  the app normally: the Read button would report no agent on a machine holding two. It
+  cannot reproduce in development, where everything is started from a shell.
+  `Harness::resolve` asks the inherited PATH, then the user's LOGIN shell (`$SHELL -lc
+  'command -v …'`, which reads the profile that put the tool there), then a short fixed
+  list — and readers are spawned by the ABSOLUTE path it returns, so a run means the same
+  thing however Sanity itself was started.
+- **The app and the CLI are one binary, and that is what makes shipping the CLI a PATH
+  problem rather than a build one.** `sanity` with no arguments opens the window; with a
+  verb it is the CLI. `just publish` GENERATES the cask (into `monsterdept/homebrew-tap`),
+  so the `binary` stanza that puts `sanity` on PATH is in the justfile beside the rest of
+  the release, not in the tap — the tap holds no hand-written file to keep in step. A
+  direct download gets the app's own "Install `sanity` command" instead, which symlinks
+  into `/usr/local/bin` or `~/.local/bin`. **Never tell anyone to put `Contents/MacOS` on their
+  PATH** — `sanity-scan`, `sanity-history`, `sanity-sample` and `sanity-tokens` live there
+  too — and never an alias, which no script can see.
 - `web/src/lib/mascot.js` is a committed placeholder. `just mascot` replaces it with the
   real bundle from the private lapbar/neo-mascots repo; the placeholder exists so a
   fresh checkout and CI both build without SSH access to that org. Don't delete it.

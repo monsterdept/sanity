@@ -63,15 +63,21 @@ fn main() {
 
     // ── The fixed prefix: what every reader loads before it sees any code ──────────
 
-    let tools = sanity_lib::mcp::tools();
+    // The READER's surface, not the whole contract. Since the shim advertises by role,
+    // the orchestrator's tools are no longer loaded into a reader's context at all — so
+    // charging them here would price a cost nobody pays and hide the one that shrank.
+    let tools = sanity_lib::mcp::reader_surface();
     let tools_json = serde_json::to_string(&tools).unwrap_or_default();
+    let whole = sanity_lib::mcp::all_tools();
 
     // Two constants, not one string searched for a heading. The first version of this
     // located the boundary by looking for "SUBAGENT PROMPT:", the heading was reworded an
     // hour later, and the tool silently charged every reader for the orchestrator's half
     // as well. A measurement that can be broken by an edit somewhere else is not one.
     let protocol = agentapi::PROTOCOL;
-    let subagent = agentapi::READER_PROMPT;
+    // The default batch. The number is substituted into the prompt now, and it moves the
+    // total by a few tokens — measure the arrangement that ships.
+    let subagent = agentapi::reader_prompt(agentapi::default_batch());
 
     println!("\nMCP TOKEN BUDGET — {}", path.display());
     println!(
@@ -85,14 +91,7 @@ fn main() {
         for t in list {
             let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("?");
             let n = serde_json::to_string(t).map(|s| s.len()).unwrap_or(0);
-            // A reader only ever calls two of these. The rest are loaded anyway — the
-            // tool list is per connection, not per role — so they are dead weight in
-            // every reader's context and worth seeing priced separately.
-            let used = matches!(name, "sanity_next" | "sanity_report");
-            row(
-                &format!("{name:<16} {}", if used { "" } else { "· never called" }),
-                n,
-            );
+            row(&format!("{name:<16}"), n);
         }
     }
     row("tools/list, whole", tools_json.len());
@@ -103,6 +102,14 @@ fn main() {
 
     println!("\n  For the orchestrator only, once per run:");
     row("protocol (whole)", protocol.len());
+    // What the role split keeps out of every reader. Reported rather than assumed: it is
+    // the whole justification for a shim that serves two different tool lists, and a
+    // change that quietly stopped working would otherwise look like nothing.
+    let held_back = serde_json::to_string(&whole)
+        .map(|s| s.len())
+        .unwrap_or(0)
+        .saturating_sub(tools_json.len());
+    row("tools a reader is not shown", held_back);
 
     // ── The variable part: the payload this repo would actually hand out ───────────
 
@@ -128,7 +135,7 @@ fn main() {
         }
     };
 
-    let tasks = agentapi::all_tasks(&scanned, &path);
+    let tasks = agentapi::all_tasks(&scanned);
     if tasks.is_empty() {
         eprintln!("no functions found — nothing to weigh");
         return;
@@ -193,26 +200,14 @@ fn main() {
          the FLOOR, and which part of the floor is ours to shrink.\n"
     );
 
-    // The point of the exercise, stated rather than left to be inferred.
-    let unused: usize = tools
-        .as_array()
-        .map(|l| {
-            l.iter()
-                .filter(|t| {
-                    !matches!(
-                        t.get("name").and_then(|v| v.as_str()),
-                        Some("sanity_next") | Some("sanity_report")
-                    )
-                })
-                .map(|t| serde_json::to_string(t).map(|s| s.len()).unwrap_or(0))
-                .sum()
-        })
-        .unwrap_or(0);
+    // The point of the exercise, stated rather than left to be inferred. It used to name
+    // what a reader was being charged for and never called; the shim serves by role now,
+    // so the same number is a saving rather than a debt. Kept in the report either way —
+    // a justification nobody can see the size of is one that quietly stops holding.
     println!(
-        "  Of the fixed prefix, {} tok is tool descriptions a reader never calls —\n  \
-         {} tok across the repo. That is ours to cut without touching the contract\n  \
-         a reader is actually held to.\n",
-        tok(unused),
-        big(tok(unused) * n)
+        "  The role split keeps {} tok of orchestrator tools out of every reader —\n  \
+         {} tok across the repo, not spent.\n",
+        tok(held_back),
+        big(tok(held_back) * n)
     );
 }

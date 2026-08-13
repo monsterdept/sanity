@@ -54,7 +54,8 @@ dirs = "6.0.0"
 # user and a working app on every Linux and Windows machine.
 llama-cpp-4 = { version = "0.5.0", default-features = false, optional = true }
 axum = "0.8.9"
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net"] }
+# `process` and `time`: `sanity check` spawns readers and waves them. See `harness.rs`.
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "process", "time", "signal"] }
 tree-sitter-swift = "0.7.3"
 tree-sitter-c = "0.24.2"
 tree-sitter-cpp = "0.23.4"

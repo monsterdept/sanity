@@ -240,6 +240,108 @@ export interface McpClient {
   writable: boolean
 }
 
+/** Pick a repo and hand it to Sanity.
+ *
+ *  Resolves to the chosen path, or null if the picker was dismissed. Rejects with a
+ *  sentence to show when the directory is not a single repo — see `add_project`, which
+ *  refuses a folder holding several rather than scanning all of them. */
+export async function pickProject(): Promise<string | null> {
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const picked = await open({ directory: true, multiple: false, title: 'Add a repo' })
+  if (typeof picked !== 'string') return null
+  return invoke<string>('add_project', { path: picked })
+}
+
+/** Put `sanity` on the PATH — a symlink into /usr/local/bin or ~/.local/bin.
+ *
+ *  Only needed for a direct download; the Homebrew cask links it for you. Resolves to
+ *  where it went and whether that directory is visible from here — which is a weaker
+ *  claim than it sounds, since a GUI app's PATH is not the user's. */
+export function installCli(): Promise<{ path: string; on_path: boolean }> {
+  return invoke<{ path: string; on_path: boolean }>('install_cli')
+}
+
+/** Which coding agents are installed. The app's real prerequisite now that it runs the
+ *  readers itself — and, unlike "configure an MCP server", something we can just look for. */
+export interface ModelChoice {
+  /** What goes on the command line. */
+  id: string
+  /** What the harness calls it. Equal to `id` where there is nothing better. */
+  label: string
+  /** The harness's own default. Shown, never auto-selected. */
+  default: boolean
+}
+
+export interface HarnessInfo {
+  id: string
+  installed: boolean
+  /** Models the harness names for itself. Empty is a real answer — the app server may not
+   *  answer, or the agent may not be installed — and the picker degrades to a text field. */
+  models: ModelChoice[]
+  /** True when `models` is the agent's own catalogue rather than aliases we wrote down.
+   *
+   *  Only Claude Code is false: it publishes nothing a program can read, so its four
+   *  entries name families and a full version has to be typed. The other three enumerate
+   *  real ids, where a text field would only let somebody type one that gets rejected at
+   *  spawn time. */
+  enumerated: boolean
+}
+
+/** Cumulative lines the queue will have handed out, one entry per ten functions.
+ *
+ *  Why a lookup and not a multiplication: a partial run reads the functions the queue picks,
+ *  in the order it picks them, and those are not average-sized. Apportioning by count would
+ *  make the lines figure a restatement of the function count, and the two bars in the Read
+ *  dialog would paint identically. Empty when the project is unknown or fully read. */
+export function readCurve(key: string): Promise<number[]> {
+  return invoke<number[]>('read_curve', { key }).catch(() => [])
+}
+
+/** Take a project out of the sidebar. Not a delete: the repo and its committed readings
+ *  are untouched, and re-adding it restores everything it knew. */
+export function forgetProject(key: string): Promise<void> {
+  return invoke<void>('forget_project', { key })
+}
+
+export function harnesses(): Promise<HarnessInfo[]> {
+  return invoke<HarnessInfo[]>('harnesses').catch(() => [])
+}
+
+/** Record who reads a project. Once per project — see `ProjectSummary.harness`. */
+export function setReader(
+  key: string,
+  harness: string | null,
+  model: string | null,
+): Promise<void> {
+  return invoke<void>('set_reader', { key, harness, model })
+}
+
+/** Start a wave. Resolves to the backend's own answer, including its refusals — a missing
+ *  agent or a run already going are sentences worth showing, not exceptions. */
+export function startCheck(
+  key: string,
+  opts: {
+    model?: string | null
+    readers?: number | null
+    /** How many functions each reader takes. Fewer is faster and dearer — see `Run.batch`. */
+    batch?: number | null
+    limit?: number | null
+  } = {},
+): Promise<{ ok: boolean; error?: string; hint?: string; harness?: string }> {
+  return invoke('start_check', {
+    key,
+    model: opts.model ?? null,
+    readers: opts.readers ?? null,
+    batch: opts.batch ?? null,
+    limit: opts.limit ?? null,
+  })
+}
+
+/** Ask a wave to stop. Honoured between readers, never mid-reading. */
+export function stopCheck(key: string): Promise<void> {
+  return invoke<void>('stop_check', { key })
+}
+
 export function mcpCommand(): Promise<McpCommand | null> {
   return invoke<McpCommand>('mcp_command').catch(() => null)
 }
@@ -287,6 +389,76 @@ export interface ProjectSummary {
   assessed: number
   /** Readings whose code has changed since. Already excluded from `assessed`. */
   stale: number
+  /** Node ids out with a reader right now — the map pulses them, so a run reads as a
+   *  sweep across the repo rather than as a list of names scrolling past.
+   *
+   *  Safe to key on node ids only because nothing here is stored: it is one frame of the
+   *  poll, matched against a tree from the same process. Anything durable uses `key_of`. */
+  reading: string[]
+  /** Lines of code in the functions still outstanding. The size of the job in the unit the
+   *  map is drawn in — a count says how many things, this says how much code. */
+  unread_lines: number
+  /** Which agent reads this repo. Machine-local — which CLI you have is a fact about this
+   *  laptop, not about the repo. Null until somebody chooses. */
+  harness: string | null
+  /** Which model was chosen here, for a repo with no readings yet to say. */
+  model: string | null
+  /** Which model the banked readings were actually taken by, when they agree.
+   *
+   *  The authority, over `model`. Never mixing models in one repo is what keeps the map on
+   *  one scale, and a stored preference cannot enforce that across two laptops. Null when
+   *  there are no readings, or when they already disagree — and disagreement is worth
+   *  showing rather than resolving. */
+  banked_model: string | null
+  /** Which agent the banked readings were actually taken by, when they agree.
+   *
+   *  The authority over `harness`, on the same grounds: the index is one laptop's
+   *  preference, while this travels with the repo. Null when there are no readings or when
+   *  they disagree, which is the case where choosing for somebody would be wrong. */
+  banked_harness: string | null
+  /** Every model this repo's readings were taken by, commonest first.
+   *
+   *  One entry is the ordinary case. More than one means the map is already on two scales,
+   *  which `banked_model` reports only as `null` — this is the part somebody can act on. */
+  banked_models: { model: string; readings: number }[]
+  /** The model of the newest DATED reading, when there is one.
+   *
+   *  What a mixed corpus offers in place of a banked model: with several scales in the
+   *  repo there is nothing to "continue", and the last one used is what somebody most
+   *  likely means. Null for a corpus banked entirely before readings carried a date. */
+  recent_model: string | null
+  /** The wave in progress, if any. */
+  run: {
+    harness: string
+    model: string
+    readers: number
+    spawned: number
+    finished: number
+    failed: number
+    running: boolean
+    /** Asked to stop, readers not yet dead. Reported by the backend rather than held by
+     *  whichever window clicked, so a terminal tailing the same run sees it too. */
+    stopping: boolean
+    /** Reader processes still alive. Counts down while stopping. */
+    live: number
+    ended: string | null
+    /** What failed readers said on the way out, deduped and capped. Empty when nothing
+     *  failed, or when the readers were killed on purpose. */
+    failures?: string[]
+  } | null
+  /** The last few functions out and back, oldest first.
+   *
+   *  Sanity can say what is being read RIGHT NOW, which it could not while an agent
+   *  session was the only party that knew. In memory and bounded: the record is
+   *  `.sanity/`, and a second store the user cannot see is the mirror that made deleting
+   *  the visible one appear to do nothing. */
+  events: {
+    seq: number
+    stage: 'out' | 'read'
+    name: string
+    path: string
+    predicted?: 'full' | 'most' | 'some' | 'none'
+  }[]
   touched: number
   /** An agent has called about this project in the last minute. Per project, so two
    *  sessions working two repos both report as working. */
@@ -937,7 +1109,7 @@ export function onSetTheme(cb: (theme: string) => void): () => void {
   return () => void un.then((f) => f())
 }
 
-/** The app menu's File → Open Project… (⌘O). */
+/** The app menu's File → Add Project… (⌘O). */
 export function onOpenProject(cb: () => void): () => void {
   const un = listen('open-project', () => cb())
   return () => void un.then((f) => f())

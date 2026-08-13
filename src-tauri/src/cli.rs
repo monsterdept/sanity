@@ -312,6 +312,48 @@ pub fn serve() -> i32 {
     let _rt = rt;
 
     let me = std::process::id();
+
+    // **Nothing this backend spawned outlives it, including when it is killed.**
+    //
+    // Measured: SIGTERM to the daemon left three readers running. The graceful paths —
+    // idling out, and the window's `RunEvent::Exit` — call `stop_all_runs`, and neither
+    // one is what happens when somebody closes a terminal or a supervisor stops the
+    // service. A signal terminates the process without unwinding, so `kill_on_drop` never
+    // fires either, and what survives is three coding agents spending tokens on readings
+    // that have nowhere to land.
+    //
+    // SIGKILL cannot be caught and is the one case left. The backstop there is the reader
+    // itself: `SANITY_BACKEND` points at a port that no longer answers and also stops the
+    // shim starting a replacement, so each one fails its retries and exits within about
+    // twelve seconds. That is a bounded leak rather than a permanent one.
+    {
+        let dying = state.clone();
+        _rt.spawn(async move {
+            #[cfg(unix)]
+            {
+                use tokio::signal::unix::{signal, SignalKind};
+                let mut term = match signal(SignalKind::terminate()) {
+                    Ok(t) => t,
+                    Err(_) => return,
+                };
+                tokio::select! {
+                    _ = term.recv() => {}
+                    _ = tokio::signal::ctrl_c() => {}
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                if tokio::signal::ctrl_c().await.is_err() {
+                    return;
+                }
+            }
+            eprintln!("\nsanity: stopping readers…");
+            agentapi::stop_all_runs(&dying);
+            agentapi::release_endpoint(std::process::id());
+            std::process::exit(0);
+        });
+    }
+
     println!(
         "Sanity backend on port {port} (pid {me}). Idles out after {} minutes.",
         IDLE_FOR.as_secs() / 60
@@ -355,6 +397,8 @@ pub fn serve() -> i32 {
         };
         if idle >= IDLE_FOR {
             println!("Nothing has called in {} minutes. Standing down.", IDLE_FOR.as_secs() / 60);
+            // Same rule as the window's exit: nothing this backend spawned outlives it.
+            agentapi::stop_all_runs(&state);
             agentapi::release_endpoint(me);
             return 0;
         }
@@ -371,6 +415,302 @@ pub fn serve() -> i32 {
 /// `show` is the only way the window moves. Without it the repo appears in the sidebar
 /// with its own progress and the pane the human is reading stays put, because a shell
 /// command is not evidence that they wanted to stop looking at what they had open.
+/// `sanity init --harness <name> [--model <id>]` — say which agent reads this repo.
+///
+/// **A human naming a project, in the one place a human is not a contaminant.** Readers
+/// may never name a repo; a person in a terminal always may, and this is the terminal half
+/// of the same door the window's Add project button is.
+///
+/// It records the harness and the model, and nothing else. No global MCP config is
+/// touched: a reader's server carries a role and a project in its environment, and writing
+/// that into `~/.claude.json` would turn every session the user starts by hand into a
+/// reader for whichever repo was initialised last.
+///
+/// **`--model` is here because it was already being typed.** The flag parser has always
+/// taken a value for it, so `init --harness agy --model gemini-3.6-flash-medium` was
+/// accepted, silently dropped, and the next `check` ran on the agent's own default — which
+/// is precisely the unannounced change of scale the `model` column exists to catch. The
+/// window has remembered both settings per project since it grew a Read button; this is
+/// the terminal half of the same memory.
+pub fn init(path: &str, harness: Option<&str>, model: Option<&str>) -> i32 {
+    let repo = match resolve(path) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("sanity: {e}");
+            return 1;
+        }
+    };
+    if crate::scan::git_root(&repo).is_none() {
+        eprintln!("sanity: {}", crate::scan::not_a_repo(&repo));
+        return 1;
+    }
+    let key = agentapi::project_key(&repo);
+    let name = repo
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| key.clone());
+
+    // Recorded before the harness branch, so `init --model <id>` on its own changes the
+    // model without also demanding you restate the agent — the two are independent choices
+    // and `set_reader` leaves the one it was not given alone.
+    let model = model.map(str::trim).filter(|m| !m.is_empty());
+    if let Some(m) = model {
+        crate::reports::set_reader(&key, &repo.to_string_lossy(), &name, None, Some(m));
+    }
+
+    let Some(asked) = harness else {
+        // Nothing chosen: say what is set and what could be, rather than picking. Which
+        // agent reads is the same class of choice as which model reads.
+        match crate::reports::harness_for(&key) {
+            Some(h) => println!("{name} reads with {h}. Change it with --harness <name>."),
+            None => println!("{name} has no agent configured yet."),
+        }
+        if let Some(m) = crate::reports::model_for(&key) {
+            println!("Its readings are taken by {m}.");
+        }
+        let found: Vec<&str> = crate::harness::Harness::all()
+            .into_iter()
+            .filter(|h| h.available())
+            .map(|h| h.name())
+            .collect();
+        println!();
+        if found.is_empty() {
+            println!(
+                "No supported agent is on PATH. Sanity can read with {}.",
+                crate::harness::supported()
+            );
+        } else {
+            println!("On this machine: {}", found.join(", "));
+            println!();
+            println!("    sanity init --harness {}", found[0]);
+        }
+        return if harness.is_none() && found.is_empty() { 1 } else { 0 };
+    };
+    let Some(h) = crate::harness::Harness::parse(asked) else {
+        eprintln!(
+            "sanity: `{asked}` is not an agent Sanity can run. Supported: {}.",
+            crate::harness::supported()
+        );
+        return 2;
+    };
+    // Warned, not refused. Somebody setting a machine up before installing the agent is a
+    // normal order to do things in, and `sanity check` checks again at the moment it
+    // matters — where a missing binary is an error rather than a guess about the future.
+    if !h.available() {
+        eprintln!("sanity: note — `{}` is not on PATH yet.", h.program());
+    }
+    crate::reports::set_harness(&key, &repo.to_string_lossy(), &name, h.name());
+    println!();
+    match crate::reports::model_for(&key) {
+        Some(m) => println!("{name} will be read by {}, using {m}.", h.name()),
+        None => println!("{name} will be read by {}.", h.name()),
+    }
+    println!();
+    println!("    sanity check");
+    println!();
+    println!("Readers run as separate processes, outside this directory, with no access to");
+    println!("the repo — they see only what Sanity hands them. That is what makes a reading");
+    println!("a prediction rather than a recollection.");
+    println!();
+    0
+}
+
+/// `sanity check` — run readers over this repo until it is read.
+///
+/// The verb `study` printed a sentence for a human to paste at an agent, deliberately, so
+/// that Sanity would not own model choice or concurrency. This owns both, and the reason
+/// the trade changed is in `harness.rs`: a reader is now a stateless MCP client, so
+/// spawning one is shelling out to a CLI the user has already authenticated, and what
+/// Sanity gets in return is isolation it can guarantee instead of ask for.
+pub fn check(
+    path: &str,
+    model: Option<&str>,
+    readers: Option<usize>,
+    limit: Option<usize>,
+    detach: bool,
+) -> i32 {
+    let repo = match resolve(path) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("sanity: {e}");
+            return 1;
+        }
+    };
+    let ep = match ensure_backend() {
+        Ok(ep) => ep,
+        Err(e) => {
+            eprintln!("sanity: {e}");
+            return 1;
+        }
+    };
+    // Opened first, because `check` is something you run standing in a repo and the repo
+    // may never have been scanned. This is the same "a human may name a project" rule
+    // `init` follows.
+    let opened = match post(
+        &ep,
+        "/open",
+        json!({ "path": repo.to_string_lossy(), "focus": false }),
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("sanity: {e}");
+            return 1;
+        }
+    };
+    if !opened.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+        eprintln!("sanity: {}", text(&opened, "error"));
+        return 1;
+    }
+    let key = agentapi::project_key(&repo);
+    let started = match post(
+        &ep,
+        "/check",
+        json!({
+            "project": key,
+            "model": model,
+            "readers": readers,
+            "limit": limit,
+        }),
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("sanity: {e}");
+            return 1;
+        }
+    };
+    if !started.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+        eprintln!("sanity: {}", text(&started, "error"));
+        let hint = text(&started, "hint");
+        if !hint.is_empty() {
+            eprintln!("        {hint}");
+        }
+        return 1;
+    }
+
+    let name = text(&opened, "name");
+    let harness = text(&started, "harness");
+    let model_said = text(&started, "model");
+    println!();
+    println!(
+        "Reading {name} with {harness}{}.",
+        if model_said.is_empty() {
+            String::new()
+        } else {
+            format!(" ({model_said})")
+        }
+    );
+    // Said out loud because it is the choice that decides what the numbers mean, and the
+    // one somebody would otherwise discover months later from the `model` column.
+    if model_said.is_empty() {
+        println!();
+        println!("No model named, so {harness}'s own default reads. Which model reads IS the");
+        println!("measurement — a smaller one is surprised by more — and mixing them within one");
+        println!("repo gives you a map on two scales. Pass --model to decide.");
+    }
+    println!();
+    if detach {
+        println!("Running in the background. `sanity status {path}` says how far along it is.");
+        println!();
+        return 0;
+    }
+    // Tailing by default, because somebody who typed this is watching.
+    //
+    // **And Ctrl-C stops the run, not just the watching.** The readers are children of the
+    // backend rather than of this process, so nothing about this terminal going away would
+    // end them — they would go on spending tokens for as long as the wave had left. A
+    // command that keeps costing money after you interrupt it is the wrong default however
+    // the ownership is arranged; `--detach` is how you start one and walk away.
+    println!("Ctrl-C stops the run. Use --detach to start it and leave it running.");
+    println!();
+    tail(&ep, &key)
+}
+
+/// Print readings as they land, until the run ends.
+///
+/// **Sanity can do this at all only because it runs the readers.** Progress used to be two
+/// counts, because the one party that knew which function was in flight was an agent
+/// session narrating into a chat that nothing kept. Every hand-out and every report passes
+/// through the backend now, so the terminal and the window can show the same feed without
+/// asking a model what it is doing.
+///
+/// Polls rather than streams. The feed is bounded and carries a sequence number, so a
+/// watcher asks "what is newer than what I have" and a missed tick costs nothing; a stream
+/// would need the backend to hold a subscriber list for a viewer that can vanish with a
+/// Ctrl-C.
+fn tail(ep: &Endpoint, key: &str) -> i32 {
+    // Set by the signal handler; read at the top of every poll. A flag rather than
+    // stopping from inside the handler because the stop is an HTTP call, and a handler is
+    // not the place to make one.
+    let interrupted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let flag = interrupted.clone();
+        // Tokio's handler rather than a new dependency; a current-thread runtime on its
+        // own thread is enough to own it, and the tail itself stays blocking.
+        std::thread::spawn(move || {
+            if let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                rt.block_on(async {
+                    if tokio::signal::ctrl_c().await.is_ok() {
+                        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                });
+            }
+        });
+    }
+    let mut seen = 0u64;
+    loop {
+        if interrupted.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            println!();
+            println!("Stopping — readers are being shut down.");
+            let _ = post(ep, "/stop", json!({ "project": key }));
+            // Kept tailing rather than returning: the readers take a moment to die, and
+            // the run's own summary is the honest answer to "what did I just spend".
+        }
+        let Ok(st) = get(ep, &format!("/status?project={}", urlencode(key))) else {
+            eprintln!("sanity: lost the backend. The run may still be going — `sanity status`.");
+            return 1;
+        };
+        if let Some(events) = st.get("events").and_then(|v| v.as_array()) {
+            for e in events {
+                let seq = e.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
+                if seq <= seen {
+                    continue;
+                }
+                seen = seq;
+                // Only readings. Hand-outs churn several a second during a wave and would
+                // bury the results they precede.
+                if e.get("stage").and_then(|v| v.as_str()) != Some("read") {
+                    continue;
+                }
+                println!(
+                    "  {:<48} {}",
+                    text(e, "name"),
+                    text(e, "predicted")
+                );
+            }
+        }
+        let run = st.get("run").cloned().unwrap_or(Value::Null);
+        if run.get("running").and_then(|v| v.as_bool()) == Some(false) {
+            let failed = num(&run, "failed");
+            println!();
+            println!("{}", text(&run, "ended"));
+            println!(
+                "  {} read, {} to go",
+                commas(num(&st, "assessed")),
+                commas(num(&st, "remaining"))
+            );
+            // Named rather than folded into the total. A misconfigured agent exits
+            // instantly, so a run that banked nothing looks merely disappointing until you
+            // see that every reader failed.
+            if failed > 0 {
+                println!("  {} readers failed", commas(failed));
+            }
+            println!();
+            return 0;
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+}
+
 pub fn study(path: &str, show: bool) -> i32 {
     let repo = match resolve(path) {
         Ok(p) => p,
@@ -459,17 +799,17 @@ pub fn study(path: &str, show: bool) -> i32 {
         // wrong for anybody who had already excluded it, which is precisely the person who
         // took the advice. You cannot tell someone they made a mistake they did not make.
         println!("Before you start — this repo has {docs} at its root, and Sanity cannot");
-        println!("see whether your session loaded it. If you launched normally, Claude Code");
-        println!("puts it in every reader, and they arrive already holding a description of");
-        println!("the code they are about to predict — which grades as recall, not surprise.");
+        println!("see whether your agent's session loaded it. If it did, its readers arrive");
+        println!("already holding a description of the code they are about to predict, which");
+        println!("grades as recall rather than surprise.");
         println!();
-        println!("If you did not, this is the launch that drops them:");
+        println!("`sanity check` does not have this problem: it launches each reader itself,");
+        println!("outside this directory and without the project's own settings, so the brief");
+        println!("cannot reach them. Driving by hand, it is yours to rule out.");
         println!();
-        println!("    claude --setting-sources user");
+        println!("    sanity check {path}");
         println!();
-        println!("It keeps Sanity's MCP server and applies to subagents, which is where it");
-        println!("matters. Readers are asked either way, and `sanity summary {path}`");
-        println!("reports the split.");
+        println!("Readers are asked either way, and `sanity summary {path}` reports the split.");
         println!();
     }
     if remaining == 0 {
@@ -503,7 +843,10 @@ fn read_verb(path: &str, endpoint: &str) -> Result<Value, i32> {
         1
     })?;
     let Some(ep) = live() else {
-        eprintln!("sanity: nothing is running. Start the app, or run `sanity study {path}`.");
+        // Names the verb that STARTS something, not the one that prints a sentence for a
+        // human to paste at an agent. `study` still exists for driving by hand; `check` is
+        // what somebody looking at an empty status wants.
+        eprintln!("sanity: nothing is running. Open the app, or run `sanity check {path}`.");
         return Err(1);
     };
     let key = agentapi::project_key(&repo);
@@ -512,7 +855,7 @@ fn read_verb(path: &str, endpoint: &str) -> Result<Value, i32> {
         1
     })?;
     if !v.get("open").and_then(|x| x.as_bool()).unwrap_or(false) {
-        eprintln!("sanity: {} is not open. Run `sanity study {path}`.", repo.display());
+        eprintln!("sanity: {} is not open. Run `sanity check {path}`.", repo.display());
         return Err(1);
     }
     Ok(v)
@@ -698,6 +1041,14 @@ sanity — see where the thinking in your codebase actually is
   sanity                     open the window
   sanity study <path>        open a repo for assessment and print what to ask your agent
                              (--show also points the window at it)
+  sanity init <path>         say which agent reads this repo, and with which model
+                             (--harness claude|codex|opencode|agy, --model <id>)
+  sanity check <path>        read it — Sanity runs the readers itself
+                             --model <name>    which model reads (it is the scale)
+                             --readers <n>     how many at once
+                             --limit <n>       stop once this many have landed
+                                               (a reader does ten, so ten is the step)
+                             --detach          start it and return, don't watch
   sanity status <path>       how far along that repo's assessment is
   sanity summary <path>      what the assessment found, in aggregate
   sanity refresh <path>      rewrite that repo's .sanity/ in the current format
@@ -705,14 +1056,53 @@ sanity — see where the thinking in your codebase actually is
   sanity mcp                 the stdio MCP server, for an agent to launch
 ";
 
+/// Pull the repo path out of an argument list, ignoring the values of flags.
+///
+/// Split out of `main` so it can be tested: the failure it prevents does not look like an
+/// argument bug from the outside. `sanity init --harness claude` has one bare word in it,
+/// and taken as a positional it resolves `./claude`, fails to canonicalise, and reports
+/// that the repo does not exist — pointing the user at their path rather than at the
+/// parser.
+pub fn repo_arg(rest: &[&str]) -> String {
+    const TAKES_VALUE: [&str; 4] = ["--harness", "--model", "--readers", "--limit"];
+    let mut skip = false;
+    for a in rest {
+        let was = skip;
+        skip = TAKES_VALUE.contains(a);
+        if !was && !a.starts_with('-') {
+            return (*a).to_string();
+        }
+    }
+    // Every one of these verbs is something you run while standing in the repo you mean.
+    ".".to_string()
+}
+
 /// Dispatch for everything that is not the window. Returns a process exit code.
 pub fn main(args: &[String]) -> i32 {
     let rest: Vec<&str> = args[1..].iter().map(|s| s.as_str()).collect();
     // Defaulting to the working directory, because every one of these verbs is something
     // you run while standing in the repo you mean.
-    let path = rest.iter().find(|a| !a.starts_with('-')).copied().unwrap_or(".");
+    let path_owned = repo_arg(&rest);
+    let path = path_owned.as_str();
+    // `--flag value` and `--flag=value` both, because a person typing this will do either
+    // and being told "unknown argument" for a spelling is a worse tool.
+    let opt = |name: &str| -> Option<String> {
+        let long = format!("--{name}");
+        let eq = format!("--{name}=");
+        rest.iter().position(|a| *a == long).and_then(|i| rest.get(i + 1).map(|s| s.to_string()))
+            .or_else(|| rest.iter().find_map(|a| a.strip_prefix(&eq).map(|s| s.to_string())))
+    };
+    let num = |name: &str| opt(name).and_then(|v| v.parse::<usize>().ok());
     match args[0].as_str() {
         "serve" => serve(),
+        "init" => init(path, opt("harness").as_deref(), opt("model").as_deref()),
+        "check" => check(
+            path,
+            opt("model").as_deref(),
+            num("readers"),
+            num("limit"),
+            rest.contains(&"--detach"),
+        ),
         "study" => study(path, rest.contains(&"--show")),
         "status" => status(path),
         "summary" => summary(path),
@@ -733,6 +1123,23 @@ pub fn main(args: &[String]) -> i32 {
 mod tests {
     use super::*;
     use crate::agentapi::tests::data_home;
+
+    /// A flag's value is never mistaken for the repo path.
+    ///
+    /// `sanity init --harness claude` is the case: one bare word, and it names an agent.
+    /// Read as a positional it resolves `./claude` and the user is told their repo does
+    /// not exist, which sends them looking at the wrong thing entirely.
+    #[test]
+    fn a_flags_value_is_not_the_repo() {
+        assert_eq!(repo_arg(&["--harness", "claude"]), ".");
+        assert_eq!(repo_arg(&["--harness=claude"]), ".");
+        assert_eq!(repo_arg(&["--model", "sonnet", "--readers", "8"]), ".");
+        // A real path still wins, before or after the flags.
+        assert_eq!(repo_arg(&["--harness", "claude", "/repo"]), "/repo");
+        assert_eq!(repo_arg(&["/repo", "--harness", "claude"]), "/repo");
+        // A valueless flag does not swallow what follows it.
+        assert_eq!(repo_arg(&["--show", "/repo"]), "/repo");
+    }
 
     /// The whole point of the lock: a cold wave cannot put two backends on one machine.
     ///

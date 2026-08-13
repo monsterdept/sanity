@@ -22,6 +22,7 @@ pub mod cache;
 pub mod churn;
 pub mod cli;
 pub mod commands;
+pub mod harness;
 pub mod heuristic;
 pub mod history;
 #[cfg(feature = "local-model")]
@@ -129,18 +130,18 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<(tauri::menu::Menu<tauri:
             &PredefinedMenuItem::quit(app, None)?,
         ],
     )?;
-    // "Connect an Agent…", not "Open Project…".
+    // "Add Project…", which is what ⌘O does again.
     //
-    // Opening by hand is gone: a project arrives when an agent calls `sanity_open`. The item
-    // was left saying "Open Project…" and quietly repointed at the connect sheet, which is
-    // worse than either removing it or renaming it — it promises a repo and delivers a
-    // dialog, and a menu that does something other than what it says is the same failure as
-    // a doc comment describing a function it no longer belongs to.
+    // It has been all three things this menu can be. It said "Open Project…" and opened a
+    // repo; then opening by hand was removed and it was quietly repointed at the connect
+    // sheet while keeping its name, which is a menu doing something other than what it
+    // says; then it was renamed "Connect an Agent…" to match where it actually went.
     //
-    // Kept on ⌘O rather than deleted, because the shortcut is muscle memory and connecting
-    // is now the one thing that leads to a project. The name is what had to change.
+    // Adding a repo by hand is the entrance now — a reader has no working directory and
+    // cannot name one — so the item goes back to naming a repo, and this time the label and
+    // the destination agree.
     let open_item =
-        MenuItem::with_id(app, "open-project", "Connect an Agent…", true, Some("CmdOrCtrl+O"))?;
+        MenuItem::with_id(app, "open-project", "Add Project…", true, Some("CmdOrCtrl+O"))?;
     let file_menu = Submenu::with_items(app, "File", true, &[&open_item])?;
 
     // Without an Edit menu the standard clipboard shortcuts stop working in text fields —
@@ -199,6 +200,7 @@ pub fn run() {
         .manage(state)
         .setup(move |_app| {
             build_window(_app.handle());
+            crate::harness::warm();
             #[cfg(target_os = "macos")]
             {
                 use tauri::{Emitter, Manager};
@@ -264,6 +266,14 @@ pub fn run() {
             commands::scan_history,
             commands::warm_history,
             commands::agent_activity,
+            commands::add_project,
+            commands::harnesses,
+            commands::read_curve,
+            commands::forget_project,
+            commands::install_cli,
+            commands::set_reader,
+            commands::start_check,
+            commands::stop_check,
             commands::mcp_command,
             commands::mcp_clients,
             commands::mcp_connect,
@@ -280,6 +290,14 @@ pub fn run() {
             // shim: nothing answering AND no file is a state `sanity_open` knows how to
             // fix by starting a backend.
             if let tauri::RunEvent::Exit = event {
+                // Before the claim is withdrawn, because the readers still need the
+                // backend's address to be told to stop being useful. They are children of
+                // this process and nothing about quitting a window kills them: left alone
+                // they would go on spending tokens on readings with nowhere to land.
+                use tauri::Manager;
+                if let Some(state) = _app.try_state::<agentapi::Shared>() {
+                    agentapi::stop_all_runs(&state);
+                }
                 agentapi::release_endpoint(std::process::id());
             }
         });

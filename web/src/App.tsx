@@ -7,8 +7,11 @@ import {
   applyAgentReports,
   applyScores,
   countPending,
-  mcpClients,
+  forgetProject,
+  harnesses,
   onOpenProject,
+  pickProject,
+  scanRepo,
   onSetTheme,
   syncThemeMenu,
   onScanScore,
@@ -47,7 +50,7 @@ import { CodeView } from './components/CodeView'
 import { ColourLegend, ModeSwitcher } from './components/ColourKey'
 import { Detail } from './components/Detail'
 import { SideBar } from './components/SideBar'
-import { AgentSetup } from './components/AgentSetup'
+import { ReadDialog } from './components/ReadDialog'
 
 /** Do two project lists say the same thing?
  *
@@ -55,6 +58,39 @@ import { AgentSetup } from './components/AgentSetup'
  *  new array of new objects every time regardless — identity can only ever say "different".
  *  Everything the sidebar draws is compared; anything not compared here is something the
  *  sidebar must not be showing. */
+/** The wave, as far as anything on screen is concerned.
+ *
+ * **Its absence from the comparison froze the whole agent panel.** A run starting, a reader
+ * spawning, `live` counting down to zero — none of it touches `assessed` or any other field
+ * compared here, so the poll judged the list unchanged, kept the previous objects, and the
+ * panel went on describing a run that had already finished. That is both halves of "it takes
+ * a second to say WORKING" and "it takes forever to stop": the readers were long dead and
+ * the numbers on screen were from whenever a reading last landed.
+ *
+ * Compared field by field rather than by identity, because the poll builds a fresh object
+ * every tick — comparing references would be the same as not comparing at all, which is the
+ * mistake `activeProject` already taught this file once. */
+function sameRun(a: ProjectSummary['run'], b: ProjectSummary['run']): boolean {
+  if (!a || !b) return a === b
+  return (
+    a.running === b.running &&
+    a.stopping === b.stopping &&
+    a.live === b.live &&
+    a.spawned === b.spawned &&
+    a.finished === b.finished &&
+    a.failed === b.failed &&
+    a.readers === b.readers &&
+    a.ended === b.ended
+  )
+}
+
+/** Two id lists, in order. Absent counts as empty — see the call site. */
+function sameIds(a?: string[], b?: string[]): boolean {
+  const x = a ?? []
+  const y = b ?? []
+  return x.length === y.length && x.every((id, i) => id === y[i])
+}
+
 function sameProjects(a: ProjectSummary[], b: ProjectSummary[]): boolean {
   if (a.length !== b.length) return false
   return a.every((p, i) => {
@@ -72,7 +108,32 @@ function sameProjects(a: ProjectSummary[], b: ProjectSummary[]): boolean {
       p.working === q.working &&
       p.loading === q.loading &&
       p.read_done === q.read_done &&
-      p.read_total === q.read_total
+      p.read_total === q.read_total &&
+      // The settings and the derived-from-corpus pair. They move rarely, which is exactly
+      // why leaving them out is easy and wrong: choosing an agent in the Read dialog
+      // changes `harness` and nothing else, so an omitted field means the dialog reopens
+      // showing the value you just replaced. Every field this list forgets is a stale
+      // reading of the same shape.
+      p.harness === q.harness &&
+      p.model === q.model &&
+      p.banked_model === q.banked_model &&
+      p.banked_harness === q.banked_harness &&
+      p.recent_model === q.recent_model &&
+      sameIds(
+        p.banked_models?.map((m) => `${m.model}:${m.readings}`),
+        q.banked_models?.map((m) => `${m.model}:${m.readings}`),
+      ) &&
+      p.unread_lines === q.unread_lines &&
+      // Compared, not ignored. The map pulses these, so a change here has to reach the
+      // frontend — and a field the poll drops out of the comparison is a highlight that
+      // freezes on whatever was in flight the last time some OTHER number moved.
+      //
+      // Defaulted, because the backend answering may predate the field: `serve` is
+      // idempotent, so an app somebody started this morning goes on answering a window
+      // built tonight. Reading `.length` off `undefined` there would throw inside the
+      // poll, which is a dead sidebar rather than a missing highlight.
+      sameIds(p.reading, q.reading) &&
+      sameRun(p.run, q.run)
     )
   })
 }
@@ -105,6 +166,8 @@ function parentOf(node: Node, id: string): Node | null {
 export default function App() {
   const [scan, setScan] = useState<Scan | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** A repo just added by hand, waiting for its scan to reach the project list. */
+  const [pendingAdd, setPendingAdd] = useState<string | null>(null)
   /** What is selected, as the NODE rather than its id.
    *
    *  It was an id, resolved against the tree on every render — which quietly cannot
@@ -123,7 +186,8 @@ export default function App() {
   const [reveal, setReveal] = useState<{ id: string; n: number } | null>(null)
   /** The file whose code is open over the map, by node id. */
   const [codeFile, setCodeFile] = useState<string | null>(null)
-  const [showAgents, setShowAgents] = useState(false)
+  /** The Read dialog, for the project it was opened from. */
+  const [readFor, setReadFor] = useState<string | null>(null)
   // One geometry, five encodings. The sunburst was never the thing worth swapping out —
   // what changes the question is what the colour MEANS, and the same rings answer five
   // different ones depending on that.
@@ -182,20 +246,6 @@ export default function App() {
    *  Beside `shown` because the pair is one fact: WHICH tree is on screen. Split apart, the
    *  poll can hold a revision belonging to a project nobody is looking at. */
   const shownRev = useRef(0)
-  const [connected, setConnected] = useState(false)
-  useEffect(() => {
-    let alive = true
-    const read = () =>
-      void mcpClients().then((cs) => {
-        if (alive) setConnected(cs.some((c) => c.registered && c.current))
-      })
-    read()
-    const t = setInterval(read, 4000)
-    return () => {
-      alive = false
-      clearInterval(t)
-    }
-  }, [])
   // ── The replay ──────────────────────────────────────────────────────────────
   //
   // History is a MODE, not a sixth lens. The lenses answer "what should the colour mean",
@@ -371,7 +421,107 @@ export default function App() {
   // only when an agent calls `sanity_open` — so the menu item now opens the one thing that
   // can still get you one. Kept rather than deleted because ⌘O is muscle memory, and a
   // shortcut that does nothing teaches people the app is broken.
-  useEffect(() => onOpenProject(() => setShowAgents(true)), [])
+  /** Fetch the project list once, now, instead of waiting for the next tick.
+   *
+   *  The poll runs every 1.5 seconds, which is invisible while nothing is happening and
+   *  the whole story right after you press a button: `start_check` sets the run
+   *  synchronously, so the backend knows immediately and the window is the only thing that
+   *  does not. Pressing Read looked like pressing nothing for a second. Refetching is
+   *  better than an optimistic label because what appears is the real state — including
+   *  the refusals, which a fake "starting…" would paper over. */
+  const refreshProjects = useCallback(() => {
+    void listProjects().then((list) => {
+      setProjects((prev) => (sameProjects(prev, list.projects) ? prev : list.projects))
+    })
+  }, [])
+
+  // One add path for the sidebar's `+` and the empty gate's button.
+  //
+  // Two copies would be two chances for them to disagree about what happens when the
+  // picker is dismissed or the directory is refused — and the gate is exactly where a
+  // first-time user meets the refusal.
+  const addProject = useCallback(() => {
+    setError(null)
+    void pickProject()
+      .then((path) => {
+        if (!path) return
+        // Remembered so the new project can be selected when it shows up. The scan
+        // publishes it and the poll renders it, which are two different moments — without
+        // this the repo you just added appears in the list and the map stays on whatever
+        // you were looking at.
+        setPendingAdd(path)
+        return scanRepo(path)
+      })
+      .catch((e) => {
+        setPendingAdd(null)
+        setError(String(e))
+      })
+  }, [])
+
+  /** Take a project out of the sidebar. The repo and its readings are untouched.
+   *
+   *  Selection is cleared when it was the one removed, before the refetch rather than
+   *  after: the poll would drop the row and leave `activeKey` naming a project that is not
+   *  in the list, which renders as a window still showing a map nothing can be selected
+   *  for. */
+  const forget = useCallback(
+    (key: string) => {
+      if (activeKey === key) setActiveKey(null)
+      void forgetProject(key).then(refreshProjects)
+    },
+    [activeKey, refreshProjects],
+  )
+
+  /** WebKit's own context menu, which is Reload and Inspect Element, does not ship.
+   *
+   *  It is a developer menu — pressing Reload in a Tauri window throws away the scan and
+   *  looks like a crash — and it appeared everywhere, including on rows where right-click
+   *  now means something. Suppressed in release only: Inspect Element is how this UI gets
+   *  worked on, and losing it in `just dev` would cost more than the menu does.
+   *
+   *  Not suppressed over text. Right-clicking a selection or a field is how somebody
+   *  copies an id out of the model box or a path out of the detail panel, and taking that
+   *  away to hide two developer items would be a worse trade than leaving them. */
+  useEffect(() => {
+    if (import.meta.env.DEV) return
+    const block = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null
+      if (el?.closest('input, textarea, select, [contenteditable]')) return
+      if (window.getSelection()?.toString()) return
+      e.preventDefault()
+    }
+    document.addEventListener('contextmenu', block)
+    return () => document.removeEventListener('contextmenu', block)
+  }, [])
+
+  // ⌘O adds a repo again, matching what the item now says. It pointed at the connect
+  // sheet for as long as adding by hand did not exist.
+  useEffect(() => onOpenProject(() => addProject()), [addProject])
+
+  /** Which of the active project's functions are out with a reader, for the map's pulse.
+   *
+   *  A Set, memoised on the ARRAY's contents rather than on the project object: the poll
+   *  hands back a fresh object every tick, so keying this on `activeProject` would build a
+   *  new Set 40 times a minute and re-render every arc under it — the exact shape of the
+   *  stutter the history replay exists to warn about.
+   *
+   *  Empty rather than undefined when nothing is running, so the prop is always a Set and
+   *  the wedge test has one branch. */
+  const readingIds = projects.find((p) => p.key === activeKey)?.reading
+  const readingKey = readingIds?.join('\u0000') ?? ''
+  const readingNow = useMemo(() => {
+    const ids = readingKey ? readingKey.split('\u0000') : []
+    // **The containing FILE goes in too, and without it the pulse was invisible.** A
+    // function wedge on a real repo is a fraction of a degree, and past the ring's budget
+    // it is not drawn at all — folded into a roll-up — so a marker on it lit nothing you
+    // could see and sometimes nothing that existed. A file always has its own band.
+    //
+    // One Set for both because a file node's id IS its path, and a function's is
+    // `path#name`, so the prefix of a reading id is exactly the id of the file to light.
+    // Directories deliberately stay dark: at the root they are most of the picture, and a
+    // marker covering half the map says nothing about where the work is.
+    return new Set(ids.flatMap((id) => [id, id.split('#')[0]]))
+  }, [readingKey])
 
   /** Where the open project lives on disk.
    *
@@ -425,6 +575,19 @@ export default function App() {
       .catch((e) => setError(String(e)))
       .finally(() => setHistoryBusy(false))
   }, [historyOn, repoPath, activeKey, historyKey, historyBusy])
+
+  // Follow a hand-added repo to the map once its scan has landed.
+  //
+  // Only for a repo the person just picked, never for one that merely appeared. An agent
+  // opening a project in another repo must not retarget this window — that is the rule
+  // `focus` follows on the backend, arrived at from the frontend side.
+  useEffect(() => {
+    if (!pendingAdd) return
+    const arrived = projects.find((p) => p.repo === pendingAdd)
+    if (!arrived) return
+    setPendingAdd(null)
+    setActiveKey(arrived.key)
+  }, [pendingAdd, projects])
 
   // A different project is a different timeline. Dropped rather than kept per project:
   // holding several megabytes of somebody else's commits against the chance they click
@@ -521,6 +684,18 @@ export default function App() {
 
   /** Show me inside this. Shared by the ring and by the detail panel's contents list,
    *  so the gesture means the same thing wherever it is made. */
+  /** The rank lookup and the age span, memoised.
+   *
+   *  They were computed inline at two call sites, so every render walked the whole tree
+   *  twice — and, being fresh objects, they defeated any memo on the components below.
+   *  `Sunburst` renders every arc in the repo, so that is the difference between opening a
+   *  dialog and rebuilding the map behind it. */
+  const ranks = useMemo(() => (tree ? rankCategories(tree, viewMode) : undefined), [tree, viewMode])
+  const ageSpan = useMemo(() => (tree ? ageSpanOf(tree) : undefined), [tree])
+  /** Stable identities, because an inline lambda makes the memo below do nothing. */
+  const pick = useCallback((n: Node) => setPicked(n), [])
+  const clearPick = useCallback(() => setPicked(null), [])
+
   const drill = useCallback(
     (n: Node) => {
       // A file drills like a directory: into its own ring, where its functions get the
@@ -699,8 +874,12 @@ export default function App() {
           projects={projects}
           active={activeKey}
           agent={agent}
-          connected={connected}
-          onConnect={() => setShowAgents(true)}
+          // The picker reports its own refusals — a directory holding twelve repos is a
+          // sentence worth reading, not a silent no-op. A dismissed dialog resolves null
+          // and says nothing, because cancelling is not an error.
+          onRead={(key) => setReadFor(key)}
+          onAdd={addProject}
+          onForget={forget}
           onSelect={(key) => {
             // Selected immediately, before the tree is fetched. A project still being
             // rescanned has no tree to return, and gating the selection on one meant
@@ -790,14 +969,15 @@ export default function App() {
                 root={focus}
                 selected={selected}
                 mode={viewMode}
-                ranks={tree ? rankCategories(tree, viewMode) : undefined}
+                ranks={ranks}
                 // The age ramp spans the REPO, not a fixed year — so it comes from the
                 // whole tree even when the view is drilled into one directory. Scoping it
                 // to `focus` would make a wedge change colour on the way in, which is the
                 // one thing drilling must not do.
-                ageSpan={tree ? ageSpanOf(tree) : undefined}
-                onSelect={(n) => setPicked(n)}
-                onClear={() => setPicked(null)}
+                ageSpan={ageSpan}
+                reading={readingNow}
+                onSelect={pick}
+                onClear={clearPick}
                 onDrill={drill}
                 onUp={goUp}
               />
@@ -819,7 +999,7 @@ export default function App() {
               // the wordmark and the answer.
               <div className="h-full" />
             ) : (
-              <Empty connected={connected} onConnect={() => setShowAgents(true)} />
+              <Empty onAdd={addProject} />
             )}
             </div>
 
@@ -887,8 +1067,8 @@ export default function App() {
             commits={scan?.stats.commits ?? 0}
             model={scan?.stats.model ?? null}
             mode={viewMode}
-            ranks={tree ? rankCategories(tree, viewMode) : undefined}
-            ageSpan={tree ? ageSpanOf(tree) : undefined}
+            ranks={ranks}
+            ageSpan={ageSpan}
             onSelect={setPicked}
             onDrill={drill}
             owners={owners}
@@ -899,7 +1079,20 @@ export default function App() {
         </aside>
       </div>
 
-      {showAgents && <AgentSetup onClose={() => setShowAgents(false)} />}
+      {/* Keyed off the live list rather than a captured object: the poll replaces these
+          every tick, and a dialog holding the row it was opened with would show counts
+          frozen at the moment it opened. */}
+      {readFor &&
+        (() => {
+          const p = projects.find((x) => x.key === readFor)
+          return p ? (
+            <ReadDialog
+              project={p}
+              onStarted={refreshProjects}
+              onClose={() => setReadFor(null)}
+            />
+          ) : null
+        })()}
 
       {/* The code, over the map. Modal because reading a file is a detour from the
           picture and not a new place in it — Escape and the backdrop both put it down,
@@ -1104,188 +1297,102 @@ function HistoryToggle({
  * headline and a paragraph about what the rings mean: a pitch, on the screen of someone who
  * has already installed the thing.
  *
- * **A gate, not a choice.** For a while this screen offered two doors — connect an agent, or
- * open a repo by hand — and its rationale argued that "not now" had to be survivable because
- * four of the five lenses work without a reader. That argument was sound and the product went
- * the other way: opening by hand is gone, because a repo opened that way gets four lenses and
- * a grey map, which is this app with its reason for existing removed. So there is one way in,
- * and a gate owes you the steps and your position in them.
+ * **One step, and that is the news.** This was a two-door choice, then a two-step gate:
+ * connect an agent over MCP, then go into a session and say a phrase, offered on a copy
+ * button because it had to arrive verbatim in another application. Both shapes were right
+ * for a product where a reader had to be a subagent of somebody's chat — only an agent
+ * could hold a repo, so only an agent could start anything.
  *
- * The two steps are numbered because they are ordered — the second cannot be done until the
- * first is — and the first ticks green off `connected`, so which half you are on is readable
- * without parsing either sentence. Step two's phrase is on a copy button because it is the
- * one thing here that has to arrive verbatim in another application.
+ * Sanity runs the readers itself now. There is nothing to configure, nothing to paste, and
+ * no session to enter: add a repo, press Read. MCP is demoted to a second way of pressing a
+ * button that is already on this screen, so it is a sentence at the bottom rather than
+ * step one.
  *
- * **This docstring was itself the finding that produced this rewrite.** A reader was handed
- * the version above — three facts about a choice the body had stopped offering two hours
- * earlier — and graded it `some`, noting it had been given a rationale the code already
- * overruled. That is the exact failure the metric exists to expose, caught on the file that
- * draws the metric's own front door.
+ * **What replaced the connect step is a prerequisite that can be CHECKED.** "Configure an
+ * MCP server" is a thing people get wrong silently; "have claude or codex installed" is a
+ * thing this card can look for and state, which is why it does.
+ *
+ * **The previous version of this docstring was itself a finding.** A reader was handed a
+ * description of a choice the body had stopped offering two hours earlier and graded it
+ * `some`, noting it had been given a rationale the code overruled — the exact failure the
+ * metric exists to expose, on the file that draws the metric's own front door. Hence the
+ * care taken to rewrite this one in the same commit as the body.
  *
  * No remembered "declined" flag, deliberately. This screen only exists while there are no
- * projects, so opening one dismisses it for good; a persisted dismissal would be state that
+ * projects, so adding one dismisses it for good; a persisted dismissal would be state that
  * can only ever go wrong, guarding a screen nobody will see again anyway.
  */
-function Empty({ connected, onConnect }: { connected: boolean; onConnect: () => void }) {
+function Empty({ onAdd }: { onAdd: () => void }) {
+  const [found, setFound] = useState<{ id: string; installed: boolean }[]>([])
+  useEffect(() => {
+    void harnesses().then(setFound)
+  }, [])
+  const have = found.filter((h) => h.installed).map((h) => h.id)
+  const checked = found.length > 0
+
   return (
     /* Boxed. The copy needs a ground of its own: over bare pane it read as text lying on
        the desk rather than as a card asking for something. */
     <div className="flex h-full items-center justify-center p-8">
       <div className="flex w-full max-w-[54ch] flex-col items-center gap-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-8 py-9">
-      {/* A heading, not the wordmark.
-          The mark says WHO this is, which the title bar, the sidebar and the icon in the dock
-          have all already said by the time anyone reads this card. What the card needed was a
-          name for what it IS — a two-step setup — so it says that. Set in LINE Seed JP, the
-          same voice the agent panel uses, so the two pieces of chrome that speak to the
-          reader rather than reporting numbers sound alike. */}
-      {/* `font-display` tracks OUT by 6% — it exists for the agent panel's small uppercase
-          label, where letters that tight would touch. At 26px in sentence case the same
-          setting reads as loose, so this one goes the other way. */}
-      <h2
-        className="font-display text-[26px] font-normal leading-none text-[var(--foreground)]"
-        style={{ fontFamily: "'LINE Seed JP', ui-sans-serif, system-ui", letterSpacing: '-0.06em' }}
-      >
-        Study your first project
-      </h2>
+        <h2
+          className="font-display text-[26px] font-normal leading-none text-[var(--foreground)]"
+          style={{ fontFamily: "'LINE Seed JP', ui-sans-serif, system-ui", letterSpacing: '-0.06em' }}
+        >
+          Read your first project
+        </h2>
 
-      {/* One way in, in two steps, shown in order.
-          There was a second column offering "Open a repo" by hand. That door is gone: a
-          repo opened by hand gets four lenses and a grey map, which is this app with its
-          reason for existing removed — and it was the door that handed a folder picker a
-          whole directory of repos. So the screen is a gate now rather than a choice, and a
-          gate owes you the steps and your position in them. */}
-      <div className="flex w-full max-w-[44ch] flex-col gap-4">
-        <Step n={1} title="Connect an agent" done={connected}>
-          {connected
-            ? 'Registered. An agent session can reach Sanity from inside your project.'
-            : 'Sanity checks are initiated from within an agent harness. Register the MCP server to begin.'}
-        </Step>
+        {/* One step now, and that is the whole change.
+            This was a two-step gate: connect an agent over MCP, then go into a session and
+            say a phrase, on a copy button, because a reader had to be a subagent of
+            somebody's chat and only an agent could name a repo. Sanity runs the readers
+            itself now — separate processes, no repo access — so there is nothing to
+            configure and nothing to paste. Add a repo and press Read.
+            The prerequisite that remains is a coding agent on this machine, which is a
+            thing that can be CHECKED rather than explained, so the card checks it. */}
+        <div className="flex w-full max-w-[44ch] flex-col gap-4">
+          <p className="text-sm leading-relaxed text-[var(--muted-foreground)]">
+            Add a repo and Sanity reads it — running a coding agent you already have as a
+            fleet of readers, each in its own process, none of them able to see the code
+            except what Sanity hands over one function at a time.
+          </p>
 
-        {/* Indented to the step's TEXT column, not to its number.
-            Flush left it sat between the two badges and read as a third item in the list —
-            the eye scans the numbers down the left edge, and an unnumbered thing on that
-            same edge breaks the count. `ml-8` is the badge (w-5) plus the row gap (gap-3),
-            so the button starts exactly where the sentence above it does and reads as
-            belonging to step one. */}
-        {!connected && (
           <button
-            onClick={onConnect}
-            className="ml-8 self-start rounded-[var(--radius-sm)] bg-[var(--accent)] px-3.5 py-2 text-xs font-semibold text-[var(--accent-foreground)] hover:opacity-90"
+            onClick={onAdd}
+            className="self-start rounded-[var(--radius-sm)] bg-[var(--accent)] px-3.5 py-2 text-xs font-semibold text-[var(--accent-foreground)] hover:opacity-90"
           >
-            Connect an agent
+            Add a repo
           </button>
-        )}
 
-        {/* Part of step one, not a footnote to the whole card.
-            It is a fact about connecting — where to go to do it again — so it belongs under
-            the step that connects, in the same indented column as that step's button. At the
-            bottom of the card it was a centred line of small print after the last
-            instruction, which is where people stop reading, and it followed step TWO, whose
-            subject is asking your agent to work. */}
-        <p className="ml-8 text-xs leading-relaxed text-[var(--muted-foreground)]">
-          Configure agents any time from the{' '}
-          <span className="text-[var(--foreground)]">⚙</span> in the Agent panel.
-        </p>
+          {/* Stated, not explained. A missing agent is the one thing that will stop this
+              working, and it is the kind of prerequisite people get wrong silently. */}
+          {checked && (
+            <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
+              {have.length > 0 ? (
+                <>
+                  Ready to read with{' '}
+                  <span className="text-[var(--foreground)]">{have.join(' or ')}</span>.
+                </>
+              ) : (
+                <>
+                  You will need <code>claude</code> or <code>codex</code> installed and
+                  signed in — Sanity reads by running one of them.
+                </>
+              )}
+            </p>
+          )}
 
-        <div className="mt-2" />
-        <Step n={2} title="Ask it to study a project" done={false}>
-          Enter a session inside your project and say{' '}
-          <span className="mono text-[var(--foreground)]">study this project in sanity</span>.
-          You will see your project fill in as the agent works.
-        </Step>
-
-        {/* The phrase itself, on the clipboard.
-            It is the one thing on this screen that has to arrive VERBATIM in another
-            application, and retyping it from a paragraph is where a typo turns "nothing
-            happened" into a mystery. Indented to the text column like the button above, so
-            the two steps each have their action in the same place. */}
-        <CopyPhrase phrase="study this project in sanity" />
-      </div>
-
-      </div>
-    </div>
-  )
-}
-
-/** The magic words, on one press.
- *
- *  Confirmed in place rather than with a toast: the feedback belongs on the control that
- *  was pressed, and a phrase you are about to paste somewhere else should not need you to
- *  look away from it. Reverts on a timer so the button is ready for a second project.
- *
- *  A clipboard that refuses is silent — the text is right there in the step above, and an
- *  error about a permission the user cannot see would be worse than the button appearing to
- *  do nothing. */
-function CopyPhrase({ phrase }: { phrase: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <button
-      onClick={() => {
-        navigator.clipboard
-          .writeText(phrase)
-          .then(() => {
-            setCopied(true)
-            setTimeout(() => setCopied(false), 1600)
-          })
-          .catch(() => {})
-      }}
-      className="group ml-8 flex items-center gap-3 self-start rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--secondary)] py-1.5 pl-3 pr-2 text-xs hover:border-[var(--muted-foreground)]"
-      title={`Copy "${phrase}"`}
-      aria-label={`Copy ${phrase}`}
-    >
-      {/* The ordinary shape: the code on the left, the copy affordance at the right edge.
-          It briefly became "Copy" followed by the phrase, which put the thing you are
-          about to paste in the wrong place and made the control read as a sentence. What
-          this needs to look like is a code block with a copy button, because that is what
-          it is and everyone already knows how to use one. */}
-      <span className="mono text-[var(--foreground)]">{phrase}</span>
-      <span className="shrink-0 text-[var(--muted-foreground)] group-hover:text-[var(--foreground)]">
-        {copied ? (
-          <span className="text-[10px] font-semibold uppercase tracking-wide">Copied</span>
-        ) : (
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <rect x="9" y="9" width="13" height="13" rx="2" />
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-          </svg>
-        )}
-      </span>
-    </button>
-  )
-}
-
-/** One numbered step of the gate, ticked once it is satisfied.
- *
- *  Numbered rather than bulleted because the two are ordered — the second cannot be done
- *  until the first is — and the tick is what turns instructions into a POSITION: which half
- *  you are on is readable without parsing either sentence. */
-function Step({
-  n,
-  title,
-  done,
-  children,
-}: {
-  n: number
-  title: string
-  done: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex gap-3">
-      <span
-        className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold"
-        style={{
-          background: done ? 'var(--accent)' : 'var(--secondary)',
-          color: done ? 'var(--accent-foreground)' : 'var(--muted-foreground)',
-        }}
-      >
-        {done ? '✓' : n}
-      </span>
-      <div className="min-w-0">
-        <p className="text-xs font-semibold text-[var(--foreground)]">{title}</p>
-        <p className="mt-0.5 text-xs leading-relaxed text-[var(--muted-foreground)]">
-          {children}
-        </p>
+          {/* Demoted, deliberately. It used to be step one; it is now a second way to
+              press a button that is already on screen. */}
+          <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
+            You can also start a read from a terminal with <code>sanity check</code>, or by
+            asking a connected chat client — see the{' '}
+            <span className="text-[var(--foreground)]">⚙</span> in the panel below.
+          </p>
+        </div>
       </div>
     </div>
   )
 }
+
+

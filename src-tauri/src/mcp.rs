@@ -45,6 +45,38 @@ fn project() -> Option<String> {
     PROJECT.lock().ok().and_then(|p| p.clone())
 }
 
+/// What this shim was spawned to be.
+///
+/// **The tool list is per connection, and until now that meant per connection was the
+/// only granularity available.** `just tokens` has been reporting the consequence for as
+/// long as it has existed: 752 tokens of every reader's context describing three tools it
+/// will never call, multiplied by the function count — 572k tokens across this repo alone.
+/// The rule that came out of that was to write the descriptions carefully, which is a
+/// standing tax on editing them and does not remove the ones that should not be there.
+///
+/// It stops being unavoidable the moment Sanity spawns the readers itself: the process
+/// that creates the connection knows what the connection is for, and can say so in the
+/// environment where no model can see it, forget it, or argue with it. Same reasoning as
+/// [`PROJECT`] and [`base_url`] — what the shim needs to know and the model does not, the
+/// shim is told directly.
+///
+/// Absent means human. A person who connected Sanity by hand gets the tools a person
+/// drives it with, which is also what every client configured before this existed gets.
+#[derive(PartialEq, Clone, Copy)]
+enum Role {
+    /// Spawned by `sanity check` to take readings, and nothing else.
+    Reader,
+    /// A client somebody configured: it starts and watches runs, it does not take readings.
+    Human,
+}
+
+fn role() -> Role {
+    match std::env::var("SANITY_ROLE").as_deref() {
+        Ok("reader") => Role::Reader,
+        _ => Role::Human,
+    }
+}
+
 /// Resolve the running app's port from the file it publishes, rather than assuming one.
 ///
 /// Re-read on every attempt, never cached: the app claims a **new port** each time it
@@ -327,17 +359,44 @@ pub(crate) fn urlencode(s: &str) -> String {
         .collect()
 }
 
-/// The tool contract, and the biggest fixed cost a reader carries.
+/// Every tool Sanity serves, whatever is asking.
+///
+/// **Not what gets advertised** — [`tools`] narrows this by role. This is the whole
+/// contract, and it exists as its own function for one reason: [`contract_fingerprint`]
+/// has to hash all of it. The bug that constant was written for was eighty readings taken
+/// against a schema missing two required fields, and a fingerprint covering only the
+/// caller's half would be blind to exactly that failure in the half it did not cover —
+/// worse, blind to it in the READER's half, which is the one that was wrong last time.
+/// The orchestrator is the party that calls `/open` and therefore the only party that can
+/// carry the fingerprint, so the fingerprint it carries has to speak for both surfaces.
+pub fn all_tools() -> Value {
+    let mut all = Vec::new();
+    for group in [reader_tools(), human_tools()] {
+        if let Some(list) = group.as_array() {
+            all.extend(list.iter().cloned());
+        }
+    }
+    Value::Array(all)
+}
+
+/// What THIS connection is offered.
+///
+/// **A reader is offered the three tools it uses and is never shown the rest.** They were
+/// loaded anyway for as long as the tool list could only be per connection: `just tokens`
+/// priced it at 752 tokens per reader, 572k across one pass of this repo, describing
+/// `sanity_open`, `sanity_status` and `sanity_summary` to a process that will never call
+/// any of them. The mitigation was to write shorter descriptions, which is a tax on every
+/// future edit and does not remove a single token that should not have been there.
+///
+/// Sanity spawning its own readers is what makes the honest fix available — see [`Role`].
 ///
 /// Public so `just tokens` can weigh the real thing. Measuring a copy would be the
 /// `mcp/sanity.mjs` mistake again: two versions of one contract, and the one you are
 /// reading is the one that is wrong.
 ///
-/// **These descriptions are priced per reading.** Every subagent loads all five before it
-/// reads a line of code, and at one function per reader that is once per function rather
-/// than once per ten. Measured on this repo, the context we write was 86% of a reader's
-/// input floor and the code it exists to read was 8% — and 800 of those tokens described
-/// three tools a reader never calls. So:
+/// **These descriptions are priced per reading.** Every reader loads its whole surface
+/// before it reads a line of code, once per function. Measured on this repo, the context
+/// we write was 86% of a reader's input floor and the code it exists to read was 8%. So:
 ///
 /// - **The wire carries the rule; the source carries the reason.** The arguments behind
 ///   these rules — why `derivable` exists, what happened when readings were keyed on node
@@ -353,27 +412,42 @@ pub(crate) fn urlencode(s: &str) -> String {
 ///
 /// Run `just tokens` before and after touching any of this.
 pub fn tools() -> Value {
+    match role() {
+        Role::Reader => reader_tools(),
+        Role::Human => human_tools(),
+    }
+}
+
+/// The reader's surface, whatever role this process happens to be in.
+///
+/// For `just tokens`, which has to price a reader from a process that is not one. Going
+/// through [`tools`] would make the measurement depend on an environment variable set at
+/// spawn time, so the number would silently become the orchestrator's.
+pub fn reader_surface() -> Value {
+    reader_tools()
+}
+
+/// What a reader may say. Multiplied by the function count — see [`tools`].
+fn reader_tools() -> Value {
     json!([
         {
-            "name": "sanity_open",
-            "description": "Point Sanity at a repo. Call this FIRST, with an absolute path — updating an existing assessment is the same call. Sanity does the walking, parsing and git history itself; you must NOT read `.sanity/` yourself, because knowing what the last reader found destroys the measurement. READ THE `protocol` FIELD IN THE RESPONSE AND FOLLOW IT. Check `functions` first: a full pass is a fresh subagent per ten functions, so on a large repo say what that would cost and ask how far to go before spawning anything. The response also carries `shape` — the repo by top-level directory — and `excluded`, what a `.sanityignore` at the repo root has set aside. If some slice of the repo is not worth reading, put that to the human WITH the numbers from `shape` and let them decide; the file is theirs to write, not yours, and there are no defaults in it. Never assume tests belong in it.",
-            "inputSchema": {
-                "type": "object",
-                "properties": { "path": { "type": "string", "description": "Absolute path to the repo." } },
-                "required": ["path"]
-            }
-        },
-        {
-            "name": "sanity_status",
-            "description": "What repo is open and how much work is left. Call after every wave of subagents, and follow `next_step`. `remaining` ignores leases and only falls when a reading lands; `in_flight` is how many of those are out with readers, so remaining == in_flight means wait rather than spawn. `outstanding` gives the oldest few as `{id, held_for_s}` — use the AGE: a wave out for minutes while `remaining` sits flat is dead, not busy. Never re-hand those functions to whoever was holding them; spawn a fresh reader instead.",
-            "inputSchema": { "type": "object", "properties": {} }
-        },
-        {
             "name": "sanity_next",
-            "description": "Get ONE function to assess. Call it with no arguments, from a fresh subagent that has not been reading this repo: a reader who already knows a file recalls it instead of predicting it, and recall marks everything unsurprising. You get its name, `owner` (the type it hangs off; one file can hold a dozen `parse`s), signature, location, docs, and `peers` — the nearest twenty siblings in file order, with `peers_omitted` saying how many more the file holds. You do NOT get the body. Then: (1) write what you expect the body to do from that alone; (2) read ONLY that function, opening abs_path bounded to `line`..`end_line`, never the whole file; (3) call sanity_report. The protocol asks you to do that ten times, calling this again only after reporting the last one — do not ask for several at once. It costs no less, and a reader holding ten tasks has already read nine signatures, owners and peer lists it has not predicted yet.",
+            "description": "Get ONE function to assess. Call it with no arguments, from a fresh subagent that has not been reading this repo: a reader who already knows a file recalls it instead of predicting it, and recall marks everything unsurprising. You get its name, `owner` (the type it hangs off; one file can hold a dozen `parse`s), signature, location, docs, and `peers` — the nearest twenty siblings in file order, with `peers_omitted` saying how many more the file holds. You do NOT get the body. Then: (1) write what you expect the body to do from that alone; (2) call sanity_reveal with that prediction to get the source; (3) call sanity_report. The protocol asks you to do that ten times, calling this again only after reporting the last one — do not ask for several at once. It costs no less, and a reader holding ten tasks has already read nine signatures, owners and peer lists it has not predicted yet.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "n": { "type": "number", "description": "How many to fetch. Leave it out: one at a time is the protocol, and fetching a batch is the same tokens for a warmer reading." } }
+            }
+        },
+        {
+            "name": "sanity_reveal",
+            "description": "Get the source of the function sanity_next just handed you, in exchange for your prediction. Send `expected` — what you think the body does, written BEFORE this call — and you get back exactly that function's lines, or the whole file for a file task. Do not open the repo yourself: what comes back is the extent the reading is graded against, re-cut against the file as it is now. Your prediction is recorded here and cannot be revised afterwards, so write it first; calling again returns the same source and changes nothing.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "The id from sanity_next." },
+                    "expected": { "type": "string", "description": "What you predict the body does, in two or three sentences. Written before this call." }
+                },
+                "required": ["id", "expected"]
             }
         },
         {
@@ -413,7 +487,7 @@ pub fn tools() -> Value {
                     "legible": {
                         "type": "string",
                         "enum": ["full", "most", "some", "none"],
-                        "description": "What READING it was like, judged by what you actually did, not by how clear it seems now. full — one pass, in order, nothing to go back for. most — one part needed a second look: a name that misleads, a branch whose purpose is not local. some — you had to jump around, or hold several things at once, to be sure what it does. none — after reading it you still could not say what it does. Different question from `predicted`, which asks whether you could get here without opening the file; a body can be unguessable from outside and a single pass once open, or the reverse."
+                        "description": "What reading it was like, judged by what you ACTUALLY DID with the text in front of you — not how clear it looks now that you understand it. full — read once, top to bottom, never went back. most — went back over one part once. some — went back more than once, or had to hold several things in your head at the same time to follow it. none — you finished it and still could not say with confidence what it does. Answer from your own pass. Most code is not `full`: if you re-read anything at all, it was not one pass. Different question from `predicted`, which is about getting here without the body; something can be unguessable from outside and still read cleanly once open."
                     },
                     "trap": {
                         "type": "boolean",
@@ -424,12 +498,45 @@ pub fn tools() -> Value {
                     "cold": { "type": "boolean", "description": "True if you had NOT read this file before predicting. Answer honestly — a warm reading is worth less, and Sanity marks it rather than discarding it." },
                     "position": { "type": "number", "description": "Where this function sat in your run — 1 for the first you assessed, 2 for the second, and so on up to the batch size. Report the truth, and report it even if you took more than you were asked for: `cold` only asks whether you had opened this FILE, and cannot see that a reader deep into a batch has learned the repo's idioms and predicts better for reasons that are nothing to do with the code. A reading that says where it sat can be weighed; one that does not silently widens the scale." },
                     "primed": { "type": "boolean", "description": "True if THIS REPO's own instructions file — the CLAUDE.md or AGENTS.md that describes this codebase — was in your context before you predicted. Your personal or global one does not count, however it is named; the question is only whether you were handed a description of the code you are predicting. Check rather than assume: your host may have injected it unasked." },
-                    "expected": { "type": "string", "description": "What you predicted BEFORE reading it." },
                     "found": { "type": "string", "description": "What it actually does." },
                     "note": { "type": "string", "description": "One sentence a human can read, only if surprised." }
                 },
-                "required": ["id", "predicted", "documented", "derivable", "legible", "trap", "cold", "position", "primed", "model", "expected", "found"]
+                "required": ["id", "predicted", "documented", "derivable", "legible", "trap", "cold", "position", "primed", "model", "found"]
             }
+        }
+    ])
+}
+
+/// What a person, or a client a person configured, drives a run with.
+///
+/// Loaded once per session rather than once per reading, which is why guidance that would
+/// be extravagant in a reader's surface is affordable here.
+fn human_tools() -> Value {
+    json!([
+        {
+            "name": "sanity_open",
+            "description": "Start here, with no arguments. Sanity tells you which repo it is holding — or lists them and asks the human to choose, if there is more than one. You cannot pick a repo for them: Sanity only reads repos a person has added. Updating an existing assessment is the same call. Sanity does the walking, parsing and git history itself; you must NOT read `.sanity/` yourself, because knowing what the last reader found destroys the measurement. READ THE `protocol` FIELD IN THE RESPONSE AND FOLLOW IT. Check `functions` first: a full pass is a fresh subagent per ten functions, so on a large repo say what that would cost and ask how far to go before spawning anything. The response also carries `shape` — the repo by top-level directory — and `excluded`, what a `.sanityignore` at the repo root has set aside. If some slice of the repo is not worth reading, put that to the human WITH the numbers from `shape` and let them decide; the file is theirs to write, not yours, and there are no defaults in it. Never assume tests belong in it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "path": { "type": "string", "description": "Absolute path to a repo the human has already added. LEAVE IT OUT unless they named one in this conversation — called bare, Sanity answers with what it is holding." } }
+            }
+        },
+        {
+            "name": "sanity_check",
+            "description": "Read the repo. Sanity spawns the readers itself, as separate processes with no access to the code — you do not spawn subagents and you must NOT assess anything yourself: your context is full of this repo, so your readings would be recall and would score as unsurprising. Ask the human which model should read before calling, unless they already said — a smaller model is surprised by more, so the reader IS the scale, and mixing models in one repo gives a map on two scales. Then poll sanity_status until the run ends, and report from sanity_summary rather than from anything you remember.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "model": { "type": "string", "description": "Which model reads, in the harness's own naming (e.g. sonnet). Omit only if the human declined to choose." },
+                    "readers": { "type": "number", "description": "How many readers at once. Leave it out unless the human asked for a specific load." },
+                    "limit": { "type": "number", "description": "Stop once this many readings have landed. Checked between waves, so the run may pass it slightly rather than kill a reader mid-reading. Use it when the human capped the spend, and report what the run actually did." }
+                }
+            }
+        },
+        {
+            "name": "sanity_status",
+            "description": "What repo is open and how much work is left. Call after every wave of subagents, and follow `next_step`. `remaining` ignores leases and only falls when a reading lands; `in_flight` is how many of those are out with readers, so remaining == in_flight means wait rather than spawn. `outstanding` gives the oldest few as `{id, held_for_s}` — use the AGE: a wave out for minutes while `remaining` sits flat is dead, not busy. Never re-hand those functions to whoever was holding them; spawn a fresh reader instead.",
+            "inputSchema": { "type": "object", "properties": {} }
         },
         {
             "name": "sanity_summary",
@@ -456,7 +563,11 @@ pub fn tools() -> Value {
 /// FNV over the serialised tools, which is enough to detect difference; nothing here needs
 /// to resist an adversary.
 pub fn contract_fingerprint() -> String {
-    let text = serde_json::to_string(&tools()).unwrap_or_default();
+    // `all_tools`, never `tools`: a fingerprint that covered only the caller's own surface
+    // would be blind to a stale schema in the other one — and the other one, for the party
+    // that carries this, is the READER's. That is precisely where the eighty-reading
+    // failure happened. See `all_tools`.
+    let text = serde_json::to_string(&all_tools()).unwrap_or_default();
     let mut h: u64 = 0xcbf29ce484222325;
     for b in text.as_bytes() {
         h ^= *b as u64;
@@ -465,7 +576,44 @@ pub fn contract_fingerprint() -> String {
     format!("{h:016x}")
 }
 
+/// Whether [`call`] has an arm for this tool.
+///
+/// Split out so it can be checked without making the call. A test that decided this by
+/// calling every tool would have to reach a backend — and `sanity_open` starts one, so the
+/// test would spawn a server on the machine running it.
+fn dispatches(name: &str) -> bool {
+    matches!(
+        name,
+        "sanity_open"
+            | "sanity_check"
+            | "sanity_status"
+            | "sanity_next"
+            | "sanity_reveal"
+            | "sanity_summary"
+            | "sanity_report"
+    )
+}
+
 fn call(name: &str, args: &Value) -> Result<Value, String> {
+    // Before anything else, and before any network. The list above is the same list the
+    // match below arms, and keeping them together is the point: `sanity_reveal` shipped
+    // once in the schema with no arm here, and the only symptom was a reader being told
+    // `unknown tool` by the server that had just advertised it.
+    if !dispatches(name) {
+        return Err(format!("unknown tool {name}"));
+    }
+    // Not advertised to a reader, and refused if one asks anyway. Withholding a tool from
+    // `tools/list` is what stops it being called in practice; this is what stops a reader
+    // that heard about `sanity_open` from somewhere else — an older prompt, a human
+    // pasting an instruction — from retargeting the run it is a part of.
+    if role() == Role::Reader && matches!(name, "sanity_open" | "sanity_status" | "sanity_summary")
+    {
+        return Err(format!(
+            "{name} is not yours to call. You are a reader: use sanity_next, sanity_reveal \
+             and sanity_report, and report to whoever spawned you. The project is already \
+             set for you and does not need opening."
+        ));
+    }
     match name {
         "sanity_open" => {
             // Where a backend gets started in the normal case: `open` means "I am starting
@@ -487,10 +635,17 @@ fn call(name: &str, args: &Value) -> Result<Value, String> {
             // a second error path here would be a second thing to keep saying the right
             // thing.
             let _ = crate::cli::ensure_backend();
+            // Null rather than an empty string when the caller gave no path. Absent means
+            // "tell me which repo the human has added"; an empty string is a path that
+            // matches nothing, and would be refused instead of answered.
+            let asked = args
+                .get("path")
+                .and_then(|v| v.as_str())
+                .filter(|p| !p.trim().is_empty());
             let out = post(
                 "/open",
                 json!({
-                    "path": args.get("path").and_then(|v| v.as_str()).unwrap_or(""),
+                    "path": asked,
                     // What this shim believes the contract to be. The backend compares it
                     // with its own and says so when they differ — see `contract_fingerprint`.
                     "contract": contract_fingerprint(),
@@ -508,6 +663,13 @@ fn call(name: &str, args: &Value) -> Result<Value, String> {
         // Carries the key like every other call. It did not, and it is the one an
         // orchestrator makes most often: a driving session polled its own run and was
         // answered about whichever repo the window had drifted to, then reported that.
+        "sanity_check" => {
+            let mut body = args.clone();
+            if let (Some(obj), Some(k)) = (body.as_object_mut(), project()) {
+                obj.insert("project".into(), Value::String(k));
+            }
+            post("/check", body)
+        }
         "sanity_status" => match project() {
             Some(k) => get(&format!("/status?project={}", urlencode(&k))),
             None => get("/status"),
@@ -536,6 +698,13 @@ fn call(name: &str, args: &Value) -> Result<Value, String> {
             Some(k) => get(&format!("/summary?project={}", urlencode(&k))),
             None => get("/summary"),
         },
+        "sanity_reveal" => {
+            let mut body = args.clone();
+            if let (Some(obj), Some(k)) = (body.as_object_mut(), project()) {
+                obj.insert("project".into(), Value::String(k));
+            }
+            post("/reveal", body)
+        }
         "sanity_report" => {
             let mut body = args.clone();
             if let (Some(obj), Some(k)) = (body.as_object_mut(), project()) {
@@ -548,6 +717,20 @@ fn call(name: &str, args: &Value) -> Result<Value, String> {
 }
 
 pub fn run() {
+    // A reader never calls `sanity_open`, so it never learns its project the way a
+    // hand-configured client does — and a shim with no `PROJECT` falls back to the last
+    // repo anybody opened. One study at a time that is right by luck; two in flight and a
+    // reading lands in the other repo's `.sanity/`, correctly hashed, correctly
+    // attributed, and wrong. The launcher knows the answer at spawn time, so it says so
+    // here: in the environment, where the model cannot see it, garble it or lose it to a
+    // compaction. Same argument as the key being absent from the tool schema.
+    if let Ok(key) = std::env::var("SANITY_PROJECT") {
+        if !key.is_empty() {
+            if let Ok(mut p) = PROJECT.lock() {
+                *p = Some(key);
+            }
+        }
+    }
     let stdin = std::io::stdin();
     let mut out = std::io::stdout();
     for line in stdin.lock().lines().map_while(Result::ok) {
@@ -595,5 +778,112 @@ pub fn run() {
         };
         let _ = writeln!(out, "{}", json!({ "jsonrpc": "2.0", "id": id, "result": result }));
         let _ = out.flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn names(v: &Value) -> Vec<String> {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// The two surfaces are disjoint, and together they are the whole contract.
+    ///
+    /// Both halves matter and they fail in opposite directions. An overlap means a tool
+    /// description is billed to every reader after all, which is the cost the split
+    /// exists to remove. A tool in neither list is served to nobody while still being
+    /// hashed into [`contract_fingerprint`] — so the backend would go on agreeing that the
+    /// contract matches while a tool quietly stopped existing, which is the same shape as
+    /// the `mcp/sanity.mjs` drift that ate four fields.
+    #[test]
+    fn the_two_tool_surfaces_are_disjoint_and_complete() {
+        let reader = names(&reader_tools());
+        let human = names(&human_tools());
+        for r in &reader {
+            assert!(!human.contains(r), "{r} is billed to readers and orchestrators both");
+        }
+        let mut both: Vec<String> = reader.iter().chain(human.iter()).cloned().collect();
+        both.sort();
+        let mut all = names(&all_tools());
+        all.sort();
+        assert_eq!(all, both, "all_tools disagrees with what the roles are served");
+    }
+
+    /// A reader is offered the three calls its loop makes, and nothing else.
+    ///
+    /// Named individually rather than counted: a count passes just as happily when one
+    /// tool is swapped for another, and the failure that would hide is a reader losing
+    /// `sanity_reveal` — which after Phase 1 is the only way it can see any code at all.
+    #[test]
+    fn a_reader_is_offered_exactly_its_own_loop() {
+        let mut got = names(&reader_tools());
+        got.sort();
+        assert_eq!(got, vec!["sanity_next", "sanity_report", "sanity_reveal"]);
+    }
+
+    /// Every advertised tool is one `call` knows how to dispatch.
+    ///
+    /// **Written because it happened.** `sanity_reveal` was added to the schema and not to
+    /// the match, so the shim advertised it, a reader called it, and got back `unknown
+    /// tool sanity_reveal` — four times, having refetched the schema in between, before
+    /// giving up and reporting nothing. Every other test passed: the schema was right, the
+    /// endpoint was right, the reader was right, and the one line joining them was
+    /// missing. This is the same shape as the `mcp/sanity.mjs` drift, with the two copies
+    /// of the contract twenty lines apart instead of in different languages.
+    ///
+    /// It asks [`dispatches`] rather than calling: `sanity_open` starts a backend, so a
+    /// test that dispatched for real would spawn a server on whatever machine ran it.
+    #[test]
+    fn every_advertised_tool_is_dispatchable() {
+        for name in names(&all_tools()) {
+            assert!(
+                dispatches(&name),
+                "{name} is advertised but `call` has no arm for it"
+            );
+        }
+    }
+
+    /// And nothing is dispatchable that is not advertised to somebody.
+    ///
+    /// The other direction of the same drift. A tool left in `call` after its schema was
+    /// removed is dead code that still answers — which is how a caller keeps using a tool
+    /// nobody has been maintaining.
+    #[test]
+    fn nothing_is_dispatchable_that_is_not_advertised() {
+        let advertised = names(&all_tools());
+        for name in [
+            "sanity_open",
+            "sanity_check",
+            "sanity_status",
+            "sanity_next",
+            "sanity_reveal",
+            "sanity_summary",
+            "sanity_report",
+        ] {
+            assert!(
+                advertised.contains(&name.to_string()),
+                "`call` dispatches {name}, which no role is offered"
+            );
+        }
+    }
+
+    /// The fingerprint covers the tools this process is NOT serving.
+    ///
+    /// It is carried by the orchestrator, because `/open` is an orchestrator call — so a
+    /// fingerprint over the caller's own surface would never once look at the reader's
+    /// schema. The failure it was written for was eighty readings taken against a reader
+    /// schema missing two required fields.
+    #[test]
+    fn the_fingerprint_sees_the_readers_half() {
+        let whole = serde_json::to_string(&all_tools()).unwrap();
+        for tool in names(&reader_tools()) {
+            assert!(whole.contains(&tool), "{tool} is outside the fingerprinted contract");
+        }
     }
 }

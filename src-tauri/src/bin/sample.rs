@@ -46,7 +46,7 @@ fn main() {
         }
     };
 
-    let tasks = agentapi::all_tasks(&scanned, &repo);
+    let tasks = agentapi::all_tasks(&scanned);
     if tasks.is_empty() {
         eprintln!("no functions found");
         std::process::exit(1);
@@ -60,7 +60,7 @@ fn main() {
         // be told to open. If those have drifted the exercise is wrong in exactly the way
         // a real reading would have been, which is worth preserving rather than papering
         // over — run `sanity_open` first if the tree is stale.
-        let Ok(src) = std::fs::read_to_string(&t.abs_path) else {
+        let Ok(src) = std::fs::read_to_string(repo.join(&t.path)) else {
             continue;
         };
         let lines: Vec<&str> = src.lines().collect();

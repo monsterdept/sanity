@@ -67,6 +67,36 @@ pub struct Project {
     /// case that matters is exactly the one it catches — the same reader coming back
     /// seconds later.
     pub recent_files: HashMap<String, std::time::Instant>,
+    /// What each reader said it expected, recorded when it asked for the body.
+    ///
+    /// **The prediction is the measurement, and it was the one piece of it the reader
+    /// wrote down after the fact.** `body`, `by`, `at` and `spec` are all stamped in
+    /// `report` on the standing rule that a field whose job is to be checkable later
+    /// cannot be self-certified — and `expected` sat beside them, arriving in the same
+    /// call as `found`, from a reader that had by then read the code. Nothing dishonest
+    /// has to happen for that to go wrong: a reader writing both at once composes them
+    /// together.
+    ///
+    /// `reveal` closes it. The prediction is the price of the body, so it is on the server
+    /// before the bytes leave it, and a second `reveal` for the same id cannot revise it.
+    /// Cleared when the reading lands.
+    pub predictions: HashMap<String, String>,
+    /// The wave of readers Sanity is running against this repo, if it is running one.
+    pub run: Option<Run>,
+    /// The last few functions to go out and come back, newest last.
+    ///
+    /// **Sanity can say what is being read right now, and until it ran the readers it
+    /// could not.** Progress was a pair of counts because the only party that knew which
+    /// function was in flight was the agent session, narrating into a chat that nothing
+    /// kept. Every `next`, `reveal` and `report` passes through here now, so the window
+    /// and the terminal can both show the same feed, live, without either asking a model
+    /// what it is doing.
+    ///
+    /// **In memory, bounded, and never a store.** Everything durable in it is already in
+    /// `.sanity/`, and a second copy of the readings that a user cannot see is the
+    /// `reports.rs` mirror that made deleting `.sanity/` appear to do nothing. This one
+    /// dies with the process, which is the property that keeps it honest.
+    pub events: std::collections::VecDeque<Event>,
     /// What each file looked like when its functions were last cut out of it.
     ///
     /// Modified-time and length, because a scan is a photograph and the repo is not
@@ -209,6 +239,7 @@ impl AppState {
             "a test persisted the project index outside a data_home() — hold one, or this \
              writes into the real sidebar and races every other test that has one"
         );
+        let mut index = crate::reports::load_index();
         let live: Vec<crate::reports::KnownProject> = self
             .projects
             .iter()
@@ -217,11 +248,25 @@ impl AppState {
                 repo: p.repo.to_string_lossy().to_string(),
                 name: p.name.clone(),
                 touched: p.touched,
+                // Carried across from the entry being replaced, because it is not held in
+                // memory at all. `AppState` knows nothing about which agent reads this
+                // repo — `sanity init` writes it straight to the index — so building a
+                // fresh record from the live project and saving it would erase the setting
+                // on the next touch of any kind, silently, minutes after it was made.
+                harness: index
+                    .projects
+                    .iter()
+                    .find(|k| &k.key == key)
+                    .and_then(|k| k.harness.clone()),
+                model: index
+                    .projects
+                    .iter()
+                    .find(|k| &k.key == key)
+                    .and_then(|k| k.model.clone()),
             })
             .collect();
         // Anything on disk this session has not loaded is carried through untouched. Live
         // entries win on key, so a project that IS loaded is updated rather than doubled.
-        let mut index = crate::reports::load_index();
         index
             .projects
             .retain(|known| !self.projects.contains_key(&known.key));
@@ -234,6 +279,40 @@ impl AppState {
         }
         index.projects.sort_by_key(|p| std::cmp::Reverse(p.touched));
         crate::reports::save_index(&index);
+    }
+
+    /// Take a project out of the sidebar, and out of the index.
+    ///
+    /// **It removes a listing, never a repo and never a reading.** The readings are in the
+    /// repo's own `.sanity/`, committed, and this does not touch them — re-adding the
+    /// project brings back everything it knew, which is what makes the menu item safe
+    /// enough to have no confirmation behind it. What is lost is a row and its position in
+    /// the history, and the way to undo it is the `+` button.
+    ///
+    /// Both halves or neither: dropping it from `projects` alone would leave the entry on
+    /// disk, so it would come back on the next launch, and dropping it from the index alone
+    /// would leave the row on screen until a restart. `persist` carries through any entry
+    /// this session has not loaded, so the index has to be edited directly rather than
+    /// rewritten from live state.
+    ///
+    /// A run in flight is stopped by the readers' own next call finding no project, which
+    /// is the same path a quit takes; nothing is left holding a lease on something that no
+    /// longer exists. The "last repo opened" fallback needs no clearing either — it is a
+    /// per-project clock, so it leaves with the project.
+    pub fn forget(&mut self, key: &str) {
+        self.projects.remove(key);
+        if self.active.as_deref() == Some(key) {
+            self.active = None;
+        }
+        let mut index = crate::reports::load_index();
+        index.projects.retain(|p| p.key != key);
+        if index.active.as_deref() == Some(key) {
+            index.active = None;
+        }
+        crate::reports::save_index(&index);
+        // After the index write, not before: `persist` merges live state over what is on
+        // disk, so running it second is what stops the entry being written back.
+        self.persist();
     }
 
     /// Move a project to the front of the history. Says nothing about the window.
@@ -544,14 +623,102 @@ pub fn lock(state: &Shared) -> MutexGuard<'_, AppState> {
     state.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// How many of a project's recent readings the feed remembers.
+///
+/// Small on purpose. It is a view of what is happening now, not a log — the record is
+/// `.sanity/`, which holds all of it and is meant to be read.
+const EVENTS_KEPT: usize = 40;
+
+/// One function going out to a reader, or coming back graded.
+#[derive(Debug, Clone, Serialize)]
+pub struct Event {
+    /// Monotonic within a project, so a watcher can ask for what it has not seen. A clock
+    /// would need a baseline to serialise and would say less: what a tail needs is "is
+    /// this new to me", which is an ordering question.
+    pub seq: u64,
+    /// `out` when a reader took it, `read` when a reading landed.
+    pub stage: &'static str,
+    /// Qualified with its owner where it has one, because a bare `parse` names a dozen
+    /// things in some files — the same reason `owner` rides beside `name` in a task.
+    pub name: String,
+    pub path: String,
+    /// How the prediction went. Only on `read`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub predicted: Option<Grade>,
+}
+
+/// A wave of readers Sanity spawned, and how it is going.
+///
+/// **The loop this describes used to be prose in `PROTOCOL`** — spawn five to ten, poll
+/// `remaining` and `in_flight`, go again unless they are equal, stop where the human said
+/// and say so. Every line of it was an instruction to a model that might follow it, on a
+/// harness that might be able to, and the two experiments that ever measured a full pass
+/// both ended with the driving session describing its own run from what subagents said in
+/// chat. As code it is merely a loop.
+#[derive(Debug, Clone)]
+pub struct Run {
+    pub harness: String,
+    pub model: String,
+    /// How many readers are wanted in flight at once.
+    pub width: usize,
+    /// Readers started, finished, and exited non-zero. `failed` is reported rather than
+    /// retried: a harness that cannot start is a fact about the machine, and a hundred
+    /// silent retries would look like a slow run.
+    pub spawned: usize,
+    pub finished: usize,
+    pub failed: usize,
+    /// What failed readers said on the way out, deduped — see the drain in `run_wave`.
+    ///
+    /// Kept because the run's own summary cannot diagnose anything: "three waves finished
+    /// without a reading landing" describes the symptom of every possible cause, from an
+    /// unsigned-in agent to a `--model` string the CLI rejects. The window shows the summary
+    /// and puts this behind an info icon, which is the right split — one is the state of the
+    /// run, the other is evidence, and evidence is what you want only once you are looking.
+    pub failures: Vec<String>,
+    /// When the loop stopped, for telling this run's dying chatter from new work.
+    ///
+    /// Not shown anywhere. It exists because "an agent called about this project in the
+    /// last 60 seconds" is how the panel decides somebody is working, and that window is
+    /// deliberately long — a reader predicting, revealing and reporting goes quiet for tens
+    /// of seconds inside one reading, and a shorter window flickers. The cost is that after
+    /// a Stop, the killed readers' last calls go on answering "yes" for up to a minute, so
+    /// the panel said WORKING over a finished run with the Read button already back.
+    pub ended_at: Option<Instant>,
+    /// Set when the loop has stopped, with why — a whole sentence, capitalised.
+    ///
+    /// Rendered bare wherever it appears. A caller that prefixes it produced "Stopped —
+    /// stopped" the first time somebody pressed the button, and a string that only reads
+    /// correctly after one particular prefix has a hidden dependency on one caller.
+    ///
+    /// `None` while it is still going.
+    pub ended: Option<String>,
+    /// Asked to stop. A reader that is already going is killed rather than waited for: it
+    /// runs for minutes, and the alternative is a coding agent still spending tokens after
+    /// the human asked it to stop. The reading it was on is lost, which is the cheaper half
+    /// of that trade.
+    pub stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// How many reader processes are alive right now.
+    ///
+    /// **Shutdown waits on this, and a timer is not good enough.** It was a flat 900ms
+    /// sleep, which is plenty for one reader and not for three: the kills are done by
+    /// per-reader tasks, so `exit(0)` after a fixed wait cuts off whichever ones had not
+    /// been scheduled yet. Measured — one reader died, three survived as orphans on PPID 1.
+    /// Counting them means the wait ends when the job is actually done.
+    pub live: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
 /// One unit of work: everything a reader gets *before* opening the file.
 #[derive(Debug, Clone, Serialize)]
 pub struct Task {
     pub id: String,
-    /// Absolute, so the agent can open it without having to know where the app's repo is
-    /// or assume it shares a working directory with it.
-    pub abs_path: String,
-    /// Repo-relative, which is what reads well in a report.
+    /// Repo-relative, and there is deliberately no absolute one beside it any more.
+    ///
+    /// `abs_path` existed so a reader could open the file itself. Under `reveal` the
+    /// source arrives from the server, so the only thing an absolute path could still do
+    /// is invite the read this design removed — and a field whose sole remaining use is
+    /// the forbidden one is not a convenience, it is a door. The relative path stays
+    /// because it is real evidence for a prediction: `src-tauri/src/parse.rs` tells a
+    /// reader something about what it is being asked to guess.
     pub path: String,
     pub line: u32,
     /// The last line of the body. Handed over so the reader opens the function and only
@@ -695,6 +862,12 @@ pub struct Report {
     pub id: String,
     /// What the agent expected before reading the body. Recorded even when it was right,
     /// because "expected X, found X" is the evidence that a wedge is genuinely boring.
+    ///
+    /// **Filled server-side from `reveal`, not from the report.** It arrived in the same
+    /// call as `found`, from a reader that had by then read the code — so the one field
+    /// that has to predate the body was the only part of the measurement written after it.
+    /// `Default` because the report no longer carries it; see [`Project::predictions`].
+    #[serde(default)]
     pub expected: String,
     /// What it actually found.
     pub found: String,
@@ -838,6 +1011,51 @@ pub struct Report {
     /// rather than inventing an attribution.
     #[serde(default)]
     pub model: String,
+    /// Which model the RUN asked for, stamped server-side beside what the reader says it is.
+    ///
+    /// **`model` alone cannot answer the question it exists for.** It is self-declared, so a
+    /// reading that says `claude-sonnet-4.5` is evidence of what the process believed it
+    /// was, and nothing else — and the failure worth catching is a repo quietly read on two
+    /// scales, where the thing that changed is what somebody ASKED for. Sanity spawns the
+    /// readers now, so the request is a fact it holds at the moment of the report and does
+    /// not have to take anybody's word for. It is stamped on the same rule as `body`, `by`,
+    /// `at` and `agent_docs`: the fields whose job is to be checkable later cannot be
+    /// self-certified.
+    ///
+    /// Empty when no model was named — the harness picked, which is itself the answer, and
+    /// the one `sanity check` warns about out loud.
+    ///
+    /// **Not a graded input**, so it is out of `reading_hash` and did not move `SPEC`.
+    /// Recording who was asked changes nothing about what the reader was asked.
+    #[serde(default)]
+    pub asked: String,
+    /// Which agent Sanity ran to take this reading, stamped server-side.
+    ///
+    /// **The harness is part of the instrument, not packaging around it.** The same model
+    /// id reads differently through two agents — a different system prompt, a different
+    /// tool surface, a different amount of its context already spent before it sees the
+    /// first function — so `read by claude-sonnet-4.6` is only half an attribution when
+    /// that model can be reached through Claude Code and through Antigravity both.
+    ///
+    /// It is also what makes an agent PRESELECTABLE. The machine-local project index
+    /// remembers which agent reads a repo, which is right for a preference and useless as
+    /// a record: a repo read on somebody else's laptop, or read by hand over MCP, arrives
+    /// with an index that has never heard of it while its `.sanity/` is full of readings.
+    /// The corpus is the thing that travels, so the corpus is asked.
+    ///
+    /// Empty for a reading taken outside a run Sanity started. **Not a graded input** — out
+    /// of `reading_hash`, no `SPEC` movement.
+    #[serde(default)]
+    pub harness: String,
+    /// When this reading was taken, UTC, stamped server-side — see `assessment::now_iso`.
+    ///
+    /// Sortable, and the only thing in a reading that is. `at` is the commit the code was
+    /// at, which every reading in one sitting shares; `by` is a person. Empty on everything
+    /// banked before this existed, which is why anything reading it has to cope with a
+    /// corpus that is partly undated. **Not a graded input** — out of `reading_hash`, no
+    /// `SPEC` movement, nothing expires.
+    #[serde(default)]
+    pub when: String,
     /// Set on the way OUT when `legible` was graded under a superseded question.
     ///
     /// Computed here rather than in the browser, and that is the whole point of the split:
@@ -879,6 +1097,9 @@ impl Report {
             id: String::new(),
             expected: String::new(),
             found: String::new(),
+            asked: String::new(),
+            harness: String::new(),
+            when: String::new(),
             surprised: false,
             predicted: None,
             documented: None,
@@ -993,7 +1214,6 @@ fn collect_tasks(
     node: &Node,
     done: &HashMap<String, Report>,
     leased: &HashMap<String, Instant>,
-    root: Option<&Path>,
     // The enclosing file's own comment, carried down so a chunk's task can hand over the
     // whole stack a reader would have rather than only the chunk's own line.
     file_doc: Option<&str>,
@@ -1027,9 +1247,6 @@ fn collect_tasks(
             priority,
             Task {
                 id: node.id.clone(),
-                abs_path: root
-                    .map(|r| r.join(&node.path).to_string_lossy().to_string())
-                    .unwrap_or_else(|| node.path.clone()),
                 path: node.path.clone(),
                 line: node.line.unwrap_or(0),
                 end_line: node
@@ -1085,9 +1302,6 @@ fn collect_tasks(
                 priority,
                 Task {
                     id: node.id.clone(),
-                    abs_path: root
-                        .map(|r| r.join(&node.path).to_string_lossy().to_string())
-                        .unwrap_or_else(|| node.path.clone()),
                     path: node.path.clone(),
                     line: 1,
                     // The last line anything in it reaches. A file reading is the one task
@@ -1145,7 +1359,7 @@ fn collect_tasks(
         let mut from: Vec<usize> = Vec::new();
         for (i, c) in node.children.iter().enumerate() {
             let mark = out.len();
-            collect_tasks(c, done, leased, root, node.doc.as_deref(), out);
+            collect_tasks(c, done, leased, node.doc.as_deref(), out);
             from.extend(std::iter::repeat_n(i, out.len() - mark));
         }
         for (k, (_, t)) in out.iter_mut().skip(before).enumerate() {
@@ -1156,7 +1370,7 @@ fn collect_tasks(
         return;
     }
     for c in &node.children {
-        collect_tasks(c, done, leased, root, None, out);
+        collect_tasks(c, done, leased, None, out);
     }
 }
 
@@ -1167,16 +1381,9 @@ fn collect_tasks(
 /// wrong thing the moment either drifted. `peers` in particular has no bound: it is every
 /// function in the file, and a 400-function file sends all 400 names to every reader that
 /// touches it.
-pub fn all_tasks(scan: &Scan, repo: &Path) -> Vec<Task> {
+pub fn all_tasks(scan: &Scan) -> Vec<Task> {
     let mut out = Vec::new();
-    collect_tasks(
-        &scan.root,
-        &HashMap::new(),
-        &HashMap::new(),
-        Some(repo),
-        None,
-        &mut out,
-    );
+    collect_tasks(&scan.root, &HashMap::new(), &HashMap::new(), None, &mut out);
     out.into_iter().map(|(_, t)| t).collect()
 }
 
@@ -1258,7 +1465,19 @@ fn default_n() -> usize {
 
 #[derive(Deserialize)]
 pub struct OpenRequest {
-    pub path: String,
+    /// Which repo. **Optional, and an agent should leave it out.**
+    ///
+    /// A reader has no filesystem and no working directory, so it cannot name a repo; and
+    /// a client that could name one could name any one, including a repo the person at the
+    /// window never chose. Absent, the backend answers from what the human has already
+    /// added — opening it when there is exactly one candidate, listing them when there are
+    /// several, and saying how to add one when there are none.
+    ///
+    /// Present, it must match a project already in the index. `sanity init`, `sanity
+    /// check` and the window's Add project button are the three ways something gets in
+    /// there, and all three are a person naming a repo in a place a person is allowed to.
+    #[serde(default)]
+    pub path: Option<String>,
     /// Make the window follow this repo as well as opening it.
     ///
     /// Absent by default, and absent is not "no" — see [`AppState::focus`], which still
@@ -1394,67 +1613,36 @@ fn contract_note(sent: Option<&str>) -> Option<String> {
 /// earlier prediction on every turn.
 pub const PROTOCOL: &str = "\
 HOW TO RUN THIS — read all of it before starting.\n\n\
-This is a LOOP, not a single pass. A wave of readers assesses a percent or two of a real \
-repo; stopping there leaves the map almost entirely grey and the job is not done.\n\n\
-YOUR JOB (the session that called sanity_open):\n\
-  1. Spawn 5-10 subagents IN PARALLEL, each with the prompt below. EACH ONE ASSESSES \
-     EXACTLY TEN FUNCTIONS and stops. The queue reserves what it hands out, so parallel \
-     readers get different functions.\n\
-  2. When they return, call sanity_status and read `remaining` and `in_flight`.\n\
-  3. If remaining > 0, go back to step 1 — UNLESS remaining == in_flight, which means \
-     everything left is already out with a reader and another wave would only wait. Keep \
-     going until remaining is 0, or until you hit a limit the user gave you. `remaining` \
-     ignores leases, so it does not flicker between calls and only falls when a reading \
-     actually lands.\n\
-  4. Only then summarise. Call sanity_summary for the actual numbers — the grade \
-     distribution, what the docs covered, how it splits by model. Do NOT reconstruct the \
-     result from what your subagents said in chat, and do NOT read `.sanity/` to get it. \
-     If you stopped before remaining hit 0, SAY SO and say how many are left — 'done' and \
-     'out of budget' are different outcomes and the user needs to know which.\n\n\
-TEN READINGS PER READER, FETCHED ONE AT A TIME. Ten because that is the edge of what has \
-actually been measured: two experiments, 784 readings across two codebases, looked for \
-readers grading greener as they work through a batch — the reason this used to be three — \
-and neither found it, while the cost falls from ~26,000 tokens per function at one to \
-~5,300 at ten. Fifteen might be fine and nobody has measured it, so do not raise it. One \
-at a time, because the saving comes from the shared context, not the shared handout: \
-fetching ten at once costs the same and shows the reader nine functions it has not \
-predicted yet.\n\n\
-WHICH MODEL READS IS PART OF THE MEASUREMENT — ASK BEFORE THE FIRST WAVE, unless the user \
-already said. Surprise is what a competent reader could predict, so the reader IS the \
-scale: a smaller model is surprised by more, and its readings are not comparable to the \
-ones already banked. Propose Sonnet and say why in one line, then spawn every reader in \
-this run on whatever they choose. Do not mix models within a repo to save money — a mixed \
-corpus gives you one map on two scales and nothing on screen says which wedge is which. \
-`model` is recorded on every reading, so an honest answer is available later; a mixture is \
-merely unreadable.\n\n\
-ON A LARGE REPO, ASK. `functions` PLUS `files` in the sanity_open response is the real \
-size of the job — a file is a reading too, graded on whether its header describes what is \
-in it — and at ten per reader, ten thousand of them is over a thousand subagents. If that is more than the user has agreed to spend, say what a full pass would \
-cost and ask how far to go BEFORE starting, then stop where they said and report how many \
-are left. A partial assessment is a normal outcome; an unannounced one is not.\n\n\
-IF YOU RUN OUT OF SUBAGENTS, THE ASSESSMENT IS NOT OVER — it is paused, and resuming it \
-costs nothing. Hosts cap how many subagents one session may spawn, and at ten functions \
-each a cap of two hundred is two thousand functions; a large repo will hit it. That is not \
-a failure and it is not a reason to improvise. Every reading is already saved in the repo, \
-so: tell the user how many are left, ask them to start a fresh session, and call \
-sanity_open again — `remaining` picks up exactly where this one stopped. Above all do NOT \
-start assessing functions yourself to finish the job. Your context is full of this repo; \
-your readings would be recall, they would score as unsurprising, and they would be \
-indistinguishable afterwards from honest ones.\n\n\
+YOU DO NOT ASSESS ANYTHING, AND YOU DO NOT SPAWN READERS. Sanity spawns them itself, as \
+separate processes that have no access to this repo and see only what they are handed. \
+Your context is full of this codebase: anything you 'predicted' you would be recalling, \
+which scores as unsurprising and quietly turns the measurement into a rubber stamp.\n\n\
+  1. WHICH MODEL READS IS PART OF THE MEASUREMENT — ASK BEFORE STARTING, unless the user \
+     already said. Surprise is what a competent reader could predict, so the reader IS the \
+     scale: a smaller model is surprised by more, and its readings are not comparable with \
+     the ones already banked. Propose Sonnet and say why in one line. Never mix models \
+     within a repo to save money — that is one map on two scales, with nothing on screen \
+     saying which wedge is which.\n\
+  2. ON A LARGE REPO, ASK FIRST. `functions` plus `files` in the sanity_open response is \
+     the size of the job — a file is a reading too, graded on whether its header describes \
+     what is in it. If that is more than the user has agreed to spend, say so and pass \
+     their cap as `limit` rather than starting and stopping.\n\
+  3. Call sanity_check. It returns as soon as the wave is launched; the run continues in \
+     the background and survives this session ending.\n\
+  4. Poll sanity_status. `remaining` only falls when a reading lands; `in_flight` is what \
+     is out with readers; `run` says how many readers Sanity has started, how many \
+     finished, and how many FAILED. Readers failing while nothing lands is a broken \
+     configuration, not a slow run — say so rather than waiting it out.\n\
+  5. When `run.running` is false, report from sanity_summary. Do NOT reconstruct the \
+     result from anything you remember, and do NOT read `.sanity/` — a session that has \
+     seen the previous readings cannot honestly describe the new ones. If the run stopped \
+     short, say so and say how many are left: 'done' and 'out of budget' are different \
+     outcomes.\n\n\
 Findings are written into the repo itself, at `.sanity/`, as Markdown a person can read. \
-That happens automatically on every report — do not write those files yourself. Tell the \
-user the assessment is there and that it is theirs to commit; it is not yours to commit \
+Tell the user they are there and that they are theirs to commit; it is not yours to commit \
 for them.\n\n\
-UPDATING AN EXISTING ASSESSMENT is this same loop, with nothing added. If `.sanity/` was \
-already there, sanity_open loaded it, and `stale` in sanity_status counts readings whose \
-code has since changed. Those are handed out FIRST. Never read `.sanity/` yourself before \
-assessing, and never pass its contents to a subagent — a reader who has been told what the \
-last reader found is no longer predicting, and the whole measurement is worthless.\n\n\
-Do NOT assess in this session. Your context is contaminated: anything you have already \
-read in this repo you will 'predict' from memory, which scores as unsurprising and makes \
-the result meaningless. Every subagent must be fresh.\n\n\
-SUBAGENT PROMPT — paste this and nothing else. The tools describe their own fields; \
-repeating them here would only bill every reader twice for one contract.\n\n";
+UPDATING AN EXISTING ASSESSMENT is the same call with nothing added. `stale` counts \
+readings whose code has since changed, and those are handed out first.";
 
 /// The half of the protocol a reader receives, split out because it is priced differently.
 ///
@@ -1486,20 +1674,38 @@ repeating them here would only bill every reader twice for one contract.\n\n";
 /// not otherwise say — WHICH readings leaned on the brief — and it narrows what `predicted`
 /// claims from "predictable to a new teammate" to "predictable from the handout", which is
 /// the only half this tool controls.
-pub const READER_PROMPT: &str = "\
-  You are reading a codebase you have never seen, and you are assessing EXACTLY TEN \
-  THINGS, ONE AT A TIME. Repeat this ten times: call sanity_next with no arguments and \
+/// What one reader is told to do, for a run that hands it `n` functions.
+///
+/// **A function rather than a constant, and `n` is always [`BATCH`].** It was ten in two
+/// places — spelled out in words here, and in `BATCH` for sizing a wave — which is two
+/// things that must agree and nothing making them. A wave sized for a batch the readers
+/// were never asked to take hands out work nobody collects.
+///
+/// It briefly took the batch from the request, as a speed-versus-cost slider in the Read
+/// dialog. That is removed: the cost curve has no knee to aim at, and the batch is a reading
+/// CONDITION — recorded per reading as `position` — so varying it across one repo makes that
+/// repo's corpus a mixture in the same way two models do. See the constant.
+///
+/// Digits, not words. "assessing EXACTLY TEN THINGS" reads better and does not survive
+/// substitution — "EXACTLY SEVEN THINGS" needs a spelling table for a string that is
+/// already priced per reading.
+pub fn reader_prompt(n: usize) -> String {
+    format!("\
+  You are reading a codebase you have never seen, and you are assessing EXACTLY {n} \
+  THINGS, ONE AT A TIME. Repeat this {n} times: call sanity_next with no arguments and \
   it hands you exactly one — usually a function, occasionally a whole file, which carries \
-  an `ask` field saying how its question differs and is the only case where you read more \
-  than the lines you were given; write what you expect its body to do from the name, \
-  owner, signature, siblings and docs alone — two or three sentences, no more — THEN open \
-  abs_path, bounded to the `line`..`end_line` you were given and nothing more, read it, \
-  and call sanity_report. Only then call sanity_next again. After the tenth report, \
-  stop.\n\n\
+  an `ask` field saying how its question differs; write what you expect its body to do \
+  from the name, owner, signature, siblings and docs alone — two or three sentences, no \
+  more — THEN call sanity_reveal with that prediction as `expected`, which returns the \
+  source; read it and call sanity_report. Only then call sanity_next again. After the \
+  last report, stop.\n\n\
+  Your prediction is recorded when you ask for the source, and asking again returns the \
+  same code and changes nothing. So write it before you call, and write what you actually \
+  expect rather than something safe.\n\n\
   Do not ask for more than one at a time. One handout is one function on purpose: a \
-  reader given ten at once has read ten signatures, ten owners and ten peer lists before \
-  it predicts the first, and it costs no less. Set `position` to 1 through 10 in the order \
-  you assess them.\n\n\
+  reader given several at once has read every signature, owner and peer list in the batch \
+  before it predicts the first, and it costs no less. Set `position` to 1 through {n} in \
+  the order you assess them.\n\n\
   Grade `predicted` against what you WROTE, not against what you understand now: the \
   question is what the code told a stranger.\n\n\
   THE PROJECT'S OWN BRIEF IS NOT THE HANDOUT. This repo's CLAUDE.md or AGENTS.md may \
@@ -1509,11 +1715,13 @@ pub const READER_PROMPT: &str = "\
   than from the handout, grade on the handout alone. Report `primed` on whether THIS \
   REPO's brief was in your context at all — a personal or global instructions file is not \
   it, and whether the brief helped is not the question, since you cannot fully know.\n\n\
-  Do not read any other file, do not spawn subagents, and do NOT read the `.sanity/` \
-  directory — it holds the previous reader's findings, and seeing them makes everything \
-  you say afterwards worthless. If a tool errors, read the message: connection failures \
+  Read only what sanity_reveal gives you. Do not open the repo yourself, do not spawn \
+  subagents, and do NOT read the `.sanity/` directory — it holds the previous reader's \
+  findings, and seeing them makes everything you say afterwards worthless. If a tool \
+  errors, read the message: connection failures \
   are usually transient, so wait and retry the same call a few times rather than \
-  inventing a prerequisite or running the tools as shell commands.";
+  inventing a prerequisite or running the tools as shell commands.")
+}
 
 /// Open a repo, and add it to what Sanity is holding.
 ///
@@ -1529,13 +1737,84 @@ pub const READER_PROMPT: &str = "\
 ///
 /// Scored with the offline proxy only, so every wedge starts grey. Nothing claims to have
 /// been understood until something actually reads it.
+/// Which repo an `/open` is about, given what the human has already added.
+///
+/// **The rule is that a person names a project and an agent never does**, and everything
+/// awkward about this function is that rule meeting a caller who supplied a path anyway.
+/// Three ways in put a repo on the list — `sanity init`, `sanity check`, and the window's
+/// Add project — and all three are somebody typing or clicking. A path that matches one of
+/// them is that person's choice arriving a second time, which is fine. A path that matches
+/// none of them is a caller choosing for them, which is the thing being refused.
+///
+/// Returning the candidates rather than picking is the same instinct as `.sanityignore`
+/// having no defaults: the mechanism is here, the judgement is the human's, and an agent's
+/// job is to put the list in front of them.
+fn resolve_open(
+    state: &Shared,
+    asked: Option<&str>,
+) -> Result<PathBuf, serde_json::Value> {
+    let known = crate::reports::load_index().projects;
+    let candidates = || -> Vec<serde_json::Value> {
+        known
+            .iter()
+            .map(|k| serde_json::json!({ "name": k.name, "path": k.repo }))
+            .collect()
+    };
+    if let Some(p) = asked {
+        let path = PathBuf::from(p);
+        let key = project_key(&path);
+        // Already loaded counts as added: `sanity check` opens the repo it was run in
+        // before starting a wave, and a project the window is already holding is one
+        // somebody has plainly named.
+        if lock(state).projects.contains_key(&key) || known.iter().any(|k| k.key == key) {
+            return Ok(path);
+        }
+        return Err(serde_json::json!({
+            "ok": false,
+            "error": format!("{p} is not a project anybody has added to Sanity."),
+            "hint": "Sanity reads repos a person has chosen, not paths an agent supplies. \
+                     Ask the human to add it in the app, or to run `sanity init` in it. \
+                     `projects` lists what is already there.",
+            "projects": candidates(),
+        }));
+    }
+    match known.len() {
+        0 => Err(serde_json::json!({
+            "ok": false,
+            "error": "No repo has been added to Sanity yet.",
+            "hint": "Ask the human to add one — the Add project button in the app, or \
+                     `sanity init --harness claude` in the repo. You cannot choose for them.",
+            "projects": [],
+        })),
+        // Exactly one is not a guess, it is the only answer there is.
+        1 => Ok(PathBuf::from(&known[0].repo)),
+        // Several, so say so and open nothing. Picking the most recent would be right most
+        // of the time and silently wrong the rest, and the wrong ones write readings into
+        // another repo's `.sanity/`.
+        _ => Err(serde_json::json!({
+            "ok": false,
+            "error": "Sanity is holding more than one repo, so it cannot tell which you mean.",
+            "hint": "Ask the human which of these to read, then call sanity_open again with \
+                     that exact path.",
+            "projects": candidates(),
+        })),
+    }
+}
+
 async fn open_project(
     State(state): State<Shared>,
     Json(req): Json<OpenRequest>,
 ) -> Json<serde_json::Value> {
-    let path = PathBuf::from(&req.path);
+    // Resolved against what a human has added, never taken on trust. See `OpenRequest::path`.
+    let path = match resolve_open(&state, req.path.as_deref()) {
+        Ok(p) => p,
+        Err(answer) => return Json(answer),
+    };
     if !path.is_dir() {
-        return Json(serde_json::json!({ "ok": false, "error": format!("{} is not a directory", req.path) }));
+        return Json(serde_json::json!({
+            "ok": false,
+            "error": format!("{} is not a directory", path.display()),
+        }));
     }
     // Same gate as the window's Open. An agent is likelier than a human to hand over a
     // parent directory — it is working from a path in a prompt, with no picker to look at.
@@ -1583,6 +1862,8 @@ async fn open_project(
             repo: path.to_string_lossy().to_string(),
             name,
             touched: 0,
+            harness: None,
+            model: None,
         });
     }
 
@@ -1681,6 +1962,9 @@ async fn open_project(
             // it is current.
             leased: HashMap::new(),
             recent_files: HashMap::new(),
+            predictions: HashMap::new(),
+            run: None,
+            events: Default::default(),
             file_marks: marks,
             marks: crate::watch::probe(&probe_path),
             scanned: 1,
@@ -1744,7 +2028,7 @@ async fn open_project(
         "scan_note": scan_note(scan_ms, reopened),
         // The two halves, rejoined for the one caller that needs both — it has to read
         // the orchestration half and paste the reader half.
-        "stale": stale, "protocol": format!("{PROTOCOL}{READER_PROMPT}"),
+        "stale": stale, "protocol": format!("{PROTOCOL}{}", reader_prompt(BATCH)),
     }))
 }
 
@@ -1806,7 +2090,7 @@ struct WorkLeft {
 fn work_left(project: &Project) -> WorkLeft {
     let none = HashMap::new();
     let mut unread = Vec::new();
-    collect_tasks(&project.scan.root, &project.reports, &none, None, None, &mut unread);
+    collect_tasks(&project.scan.root, &project.reports, &none, None, &mut unread);
     // A lease only counts as in flight while it covers work that is still outstanding: a
     // lease over a function whose reading has since landed explains nothing, and one past
     // LEASE has already returned to the pool.
@@ -1877,6 +2161,44 @@ fn assessed(project: &Project) -> usize {
             }
         }
     });
+    n
+}
+
+/// Lines of code sitting in functions that still need reading.
+///
+/// **The size of the job in the unit the code is written in.** A function count answers
+/// "how many things", and a token estimate answers "what will this cost", but neither says
+/// how much CODE is involved — and that is the figure somebody already has a feel for,
+/// because it is the one the map is drawn in. Width is lines.
+///
+/// Functions only. A file reading grades the file's header rather than its body, so adding
+/// a file's `loc` would count every one of its functions a second time and roughly double
+/// the estimate — the same double-count the `functions`/`files` split exists to avoid.
+///
+/// Stale readings count as outstanding, exactly as [`assessed`] excludes them: the work is
+/// there to be done again.
+fn unread_lines(project: &Project) -> usize {
+    let mut n = 0;
+    fn walk(node: &Node, out_of_scope: bool, project: &Project, n: &mut usize) {
+        let out_of_scope = out_of_scope || node.excluded;
+        if node.kind == NodeKind::Func {
+            if out_of_scope {
+                return;
+            }
+            let read = project
+                .reports
+                .get(&node.id)
+                .is_some_and(|r| !crate::assessment::is_stale(r, node.body.as_deref()));
+            if !read {
+                *n += node.loc as usize;
+            }
+            return;
+        }
+        for c in &node.children {
+            walk(c, out_of_scope, project, n);
+        }
+    }
+    walk(&project.scan.root, false, project, &mut n);
     n
 }
 
@@ -2223,7 +2545,6 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
         &project.scan.root,
         &project.reports,
         &project.leased,
-        Some(project.repo.as_path()),
         None,
         &mut tasks,
     );
@@ -2236,12 +2557,877 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
         project.leased.insert(t.id.clone(), now);
         project.recent_files.insert(t.path.clone(), now);
     }
+    // Named for the feed the way `peers` is named for a reader: qualified by owner, because
+    // a bare `parse` identifies nothing in a file that holds a dozen of them.
+    for t in &handed {
+        let name = match (&t.owner, t.file) {
+            (_, true) => t.path.clone(),
+            (Some(o), _) => format!("{o}::{}", t.name),
+            (None, _) => t.name.clone(),
+        };
+        project.note("out", name, t.path.clone(), None);
+    }
     // Handing out nothing when nothing is left is the end of the job, and the only moment
     // in the protocol worth a flourish. Handing out nothing while work is still leased is
     // an ordinary wait, so the two are pinged apart rather than both reading as "done".
     let done = handed.is_empty() && work_left(project).remaining == 0;
     state.ping(if done { "sanity_next:done" } else { "sanity_next" });
     Json(handed)
+}
+
+#[derive(Deserialize, Default)]
+pub struct CheckRequest {
+    #[serde(default)]
+    pub project: Option<String>,
+    /// Which agent to run readers with. Falls back to what `sanity init` recorded.
+    #[serde(default)]
+    pub harness: Option<String>,
+    /// Which model reads. **No default is invented here** — which model reads IS the
+    /// measurement, a smaller one is surprised by more, and its readings are not
+    /// comparable with what is already banked. Empty means the harness's own default,
+    /// which is at least a choice the user made somewhere.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// How many readers at once.
+    #[serde(default)]
+    pub readers: Option<usize>,
+    /// Stop once this many readings have landed. `None` runs to completion.
+    ///
+    /// Checked between waves, never mid-reader: a reader is doing ten readings and killing
+    /// it part-way through costs a prediction and banks nothing. So a cap of 5 with ten-wide
+    /// readers stops at the first wave boundary past 5, and the run reports what it actually
+    /// did rather than what was asked for.
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+/// How many readers a wave runs at once when nobody said.
+///
+/// `PROTOCOL` asked for five to ten and the number never mattered much, because a session
+/// spawning subagents was bounded by its host anyway. Spawning processes has no such
+/// backstop, so it is stated once, here, and it is deliberately at the low end: each one
+/// is a whole coding agent, and the cost of being wrong upwards is somebody's laptop.
+const DEFAULT_READERS: usize = 5;
+
+/// How many readings one reader takes.
+///
+/// **The single source of it.** [`reader_prompt`] formats this into what the reader is
+/// asked to do, and a wave is sized by it, so the two cannot disagree — they used to be
+/// separate, ten in words here and ten in a constant there.
+///
+/// **It is not offered as a control, and a slider for it was built and removed.** The trade
+/// is real — `23,110/n + 3,030` a reading, so one per reader is five times the cost of ten
+/// and about five times the speed — but the curve is a hyperbola with no knee, so there is
+/// no principled place on it to aim, and the batch is a reading CONDITION recorded per
+/// reading as `position`. Varying it across one repo makes that repo's corpus a mixture in
+/// exactly the way two models do, and the map has no way to say which readings were taken
+/// under which arrangement.
+///
+/// Ten is where the measurement stops, not a measured optimum: warming was looked for twice
+/// — a full pass at three, and forty readers at ten on a 10,828-function repo — and never
+/// found. Fifteen might be fine. Moving it is a decision about the instrument, taken here,
+/// with what it does to the existing corpus in mind.
+const BATCH: usize = 10;
+
+/// The default batch, for callers outside this module that need to price one.
+pub fn default_batch() -> usize {
+    BATCH
+}
+
+/// Lines of code the queue will have handed out, at each step of a partial run.
+///
+/// **The Read dialog's two bars only differ because this exists.** Lines and tokens are both
+/// magnitudes of the same slider, and if lines are apportioned — total outstanding times the
+/// fraction chosen — then the two are the same number twice and the bars paint identically.
+/// They are not the same thing: reading the first two hundred functions costs whatever those
+/// two hundred functions happen to be, and the queue hands them out in a decided order —
+/// stale first, then unread, round-robined across files. So a partial run's size in lines is
+/// a fact that can be looked up rather than estimated, and a repo whose expired readings sit
+/// in its long functions says so on the way up.
+///
+/// One entry per [`BATCH`], because that is the granularity a run actually has: the slider
+/// steps by a reader's handout, so every position it can stop at is an entry here. Cumulative
+/// rather than per-step, so the frontend indexes instead of summing.
+///
+/// Leases are ignored and `recent_files` is empty on purpose: this projects the order a run
+/// starting NOW would take, not the order the current one is partway through.
+pub fn reading_curve(state: &Shared, key: &str) -> Vec<u32> {
+    let mut st = lock(state);
+    let Some(project) = st.projects.get_mut(key) else {
+        return Vec::new();
+    };
+    let mut tasks: Vec<(f32, Task)> = Vec::new();
+    collect_tasks(
+        &project.scan.root,
+        &project.reports,
+        &HashMap::new(),
+        None,
+        &mut tasks,
+    );
+    let all = tasks.len();
+    let order = spread_across_files(tasks, &HashMap::new(), Instant::now(), all);
+    let mut out = Vec::with_capacity(order.len().div_ceil(BATCH));
+    let mut running: u32 = 0;
+    for (i, t) in order.iter().enumerate() {
+        running = running.saturating_add(t.lines);
+        // Every batch boundary, and the tail — a run of 43 can stop at 43.
+        if (i + 1) % BATCH == 0 || i + 1 == order.len() {
+            out.push(running);
+        }
+    }
+    out
+}
+
+/// Start a wave of readers against a project, and keep waving until the work is done.
+///
+/// **This is `PROTOCOL`'s orchestration loop, as code.** It was prose asking a session to
+/// spawn readers, poll `remaining` and `in_flight`, go again unless they are equal, stop
+/// where the human said and say which. As instructions it was contingent on a harness that
+/// could fan out at all — which is Claude Code and Roo and nothing else — and on a model
+/// choosing to follow it. Two full passes ended with the driving session reporting its own
+/// result from what subagents had said in chat, which is the failure `sanity_summary` was
+/// added to fix from the other end.
+///
+/// It returns as soon as the wave is launched. A full pass is hours; an HTTP call that
+/// waited for it would be a timeout with a run still going on behind it.
+async fn check(
+    State(state): State<Shared>,
+    Json(req): Json<CheckRequest>,
+) -> Json<serde_json::Value> {
+    Json(start_run(&state, req))
+}
+
+/// The body of [`check`], callable without an HTTP request.
+///
+/// The window starts runs too, and it holds the same `Shared` the router does — so going
+/// out to loopback to reach it would be the app talking to itself over a socket. What it
+/// must NOT be is a second implementation: `sanity check`, `sanity_check` and the Read
+/// button are three triggers, and the moment two of them decide anything differently the
+/// unwatched one goes quietly wrong. That is the same rule the CLI's read verbs follow —
+/// formatters over the endpoints, computing nothing.
+pub fn start_run(state: &Shared, req: CheckRequest) -> serde_json::Value {
+    let (key, repo, already) = {
+        let st = lock(state);
+        let Some(key) = st.for_client(req.project.as_deref()) else {
+            return serde_json::json!({ "ok": false, "error": NO_PROJECT });
+        };
+        let Some(p) = st.projects.get(&key) else {
+            return serde_json::json!({ "ok": false, "error": NO_PROJECT });
+        };
+        (
+            key.clone(),
+            p.repo.clone(),
+            p.run.as_ref().is_some_and(|r| r.ended.is_none()),
+        )
+    };
+    // One wave per project. Two would double every reader's chance of being handed work
+    // the other is already holding, and the leases would hide it rather than prevent it.
+    if already {
+        return serde_json::json!({
+            "ok": false,
+            "error": "A run is already going for this repo.",
+            "hint": "Call sanity_status to watch it. Starting a second wave against one \
+                     repo does not go faster; it just puts two readers on the same queue.",
+        });
+    }
+
+    let harness_name = match &req.harness {
+        Some(h) => h.clone(),
+        None => crate::reports::harness_for(&key).unwrap_or_default(),
+    };
+    if harness_name.is_empty() {
+        return serde_json::json!({
+            "ok": false,
+            "error": "No agent is configured to read with.",
+            "hint": format!(
+                "Run `sanity init --harness <name>` in the repo, or pass a harness with \
+                 this call. Supported: {}.",
+                crate::harness::supported()
+            ),
+        });
+    }
+    let Some(harness) = crate::harness::Harness::parse(&harness_name) else {
+        return serde_json::json!({
+            "ok": false,
+            "error": format!("`{harness_name}` is not an agent Sanity knows how to run."),
+            "hint": format!("Supported: {}.", crate::harness::supported()),
+        });
+    };
+    // Before a wave, not discovered from a hundred identical spawn failures.
+    if !harness.available() {
+        return serde_json::json!({
+            "ok": false,
+            "error": format!("`{}` is not on PATH, so no reader can be started.", harness.program()),
+            "hint": "Install it, or pass a different harness.",
+        });
+    }
+    let Some(backend) = read_endpoint().map(|e| e.url()) else {
+        return serde_json::json!({
+            "ok": false,
+            "error": "Sanity has not published an endpoint for its readers to call back on.",
+        });
+    };
+    let exe = std::env::current_exe().unwrap_or_default();
+    // **The model falls back to the project's, exactly as the harness above does, and it
+    // did not.** `/check` read the request and stopped there, so a repo whose model was
+    // chosen in the window and then read from the terminal ran on the harness's own
+    // default — silently, and recorded as whatever the reader turned out to be. That is
+    // the two-scale mixture the `model` field exists to expose, produced by the tool
+    // rather than caught by it. One resolution order for both settings: what this call
+    // asked for, else what the project is set to, else nothing and say so.
+    let model = req
+        .model
+        .clone()
+        .filter(|m| !m.trim().is_empty())
+        .or_else(|| crate::reports::model_for(&key))
+        .unwrap_or_default();
+    let width = req.readers.unwrap_or(DEFAULT_READERS).clamp(1, 32);
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let live = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    {
+        let mut st = lock(state);
+        if let Some(p) = st.projects.get_mut(&key) {
+            p.run = Some(Run {
+                harness: harness.name().to_string(),
+                model: model.clone(),
+                width,
+                spawned: 0,
+                finished: 0,
+                failed: 0,
+                ended: None,
+                stop: stop.clone(),
+                live: live.clone(),
+                ended_at: None,
+                failures: Vec::new(),
+            });
+        }
+    }
+
+    let shared = state.clone();
+    let key_for_run = key.clone();
+    let limit = req.limit;
+    let model_for_run = model.clone();
+    let wave = move || async move {
+        run_wave(
+            shared,
+            key_for_run,
+            harness,
+            exe,
+            backend,
+            model_for_run,
+            width,
+            limit,
+            stop,
+            live,
+        )
+        .await;
+    };
+    // **`tokio::spawn` panics with no runtime in scope, and this function promises to be
+    // callable from anywhere.** It was `tokio::spawn` flat, which is correct from the axum
+    // handler and fatal from the window: a Tauri command is sync and runs on the main
+    // thread, so pressing Read aborted the whole app on `TryCurrentError`. A function whose
+    // doc says "callable without an HTTP request" must not assume the HTTP request's
+    // runtime.
+    //
+    // Borrowing the caller's runtime when there is one keeps the wave on the same threads
+    // as the server it reports to. Otherwise it gets a thread and a runtime of its own,
+    // which is the honest cost of being called from a place that has neither.
+    detached(wave());
+
+    serde_json::json!({
+        "ok": true,
+        "started": true,
+        "project": key,
+        "repo": repo.to_string_lossy(),
+        "harness": harness.name(),
+        "model": if model.is_empty() { serde_json::Value::Null } else { model.into() },
+        "readers": width,
+        "note": "Readers are running as separate processes with no access to this repo. \
+                 Poll sanity_status for `remaining`, `in_flight` and the run's own counts; \
+                 call sanity_summary when it is done.",
+    })
+}
+
+/// Ask a run to stop, and kill the readers it has out.
+///
+/// Between readings, never mid-reading — except that a reader IS mid-reading for minutes
+/// at a time, so `run_wave` kills the process rather than waiting politely. The reading it
+/// was working on is lost, which is the correct trade: the alternative is a coding agent
+/// still spending tokens after the human asked it to stop.
+async fn stop(State(state): State<Shared>, Json(p): Json<StatusParams>) -> Json<serde_json::Value> {
+    let st = lock(&state);
+    let Some(key) = st.for_client(p.project.as_deref()) else {
+        return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
+    };
+    let stopped = st
+        .projects
+        .get(&key)
+        .and_then(|p| p.run.as_ref())
+        .filter(|r| r.ended.is_none())
+        .map(|r| r.stop.store(true, std::sync::atomic::Ordering::Relaxed))
+        .is_some();
+    Json(serde_json::json!({ "ok": true, "stopped": stopped }))
+}
+
+/// Run a future to completion in the background, with or without a runtime to hand.
+///
+/// **`tokio::spawn` panics when nothing is running, and that shipped.** `start_run` used it
+/// flat, which is correct from the axum handler and fatal from the window: a Tauri command
+/// is synchronous and runs on the main thread, so pressing Read aborted the whole app on
+/// `TryCurrentError`. A function documented as "callable without an HTTP request" must not
+/// assume the HTTP request's runtime.
+///
+/// Borrowing the caller's runtime where there is one keeps the wave on the same threads as
+/// the server it reports to. Where there is not, it takes a thread and a runtime of its
+/// own — the honest cost of being called from somewhere that has neither.
+///
+/// Split out from `start_run` so it can be tested, which is not incidental: a test of the
+/// crash through `start_run` needs an open project, a configured agent and that agent
+/// installed, so it would pass on a machine that never reached the spawn at all.
+fn detached(fut: impl std::future::Future<Output = ()> + Send + 'static) {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => {
+            handle.spawn(fut);
+        }
+        Err(_) => {
+            std::thread::spawn(move || {
+                match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                    Ok(rt) => rt.block_on(fut),
+                    // Nothing to report to — the caller had its answer long ago. The run
+                    // simply never starts, and `run` stays as it was: not running.
+                    Err(e) => eprintln!("sanity: could not start a runtime for readers: {e}"),
+                }
+            });
+        }
+    }
+}
+
+/// Keep `width` readers in flight until the work runs out, the limit is reached, or a stop
+/// is asked for.
+///
+/// A reader is a whole coding agent, so the failure to design against is not slowness but
+/// a wave that keeps launching against a queue that cannot give it work. The loop stops
+/// when `remaining` reaches zero and also when it stops FALLING while nothing is in flight
+/// — a harness that exits instantly, wrongly configured, would otherwise spin forever
+/// spawning processes that do nothing.
+#[allow(clippy::too_many_arguments)]
+async fn run_wave(
+    state: Shared,
+    key: String,
+    harness: crate::harness::Harness,
+    exe: std::path::PathBuf,
+    backend: String,
+    model: String,
+    width: usize,
+    limit: Option<usize>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    live: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+) {
+    // Built once, not per reader: it is the same string for every process in the run, and
+    // the number in it has to be the number the wave is sized against below — which is what
+    // [`reader_prompt`] taking the count is for.
+    let prompt = reader_prompt(BATCH);
+    // Readers are launched from a directory that is not the repo, which on Codex is the
+    // whole of the priming fix and on Claude is the belt beside `--setting-sources`.
+    //
+    // Its own directory per run, not the bare temp dir, because for opencode, Codex and
+    // Antigravity this is also where their MCP config goes — see `harness::write_config`.
+    // One scratch
+    // directory doing both jobs is not a coincidence worth undoing: the config has to be
+    // somewhere the reader will look, and the one place it is guaranteed to look is the
+    // directory we already chose for being nowhere near the repo.
+    let away = std::env::temp_dir().join(format!("sanity-readers-{}", std::process::id()));
+    if std::fs::create_dir_all(&away).is_err()
+        || crate::harness::write_config(harness, &away, &exe, &backend, &key).is_err()
+    {
+        if let Some(p) = lock(&state).projects.get_mut(&key) {
+            if let Some(r) = p.run.as_mut() {
+                r.ended = Some("Could not write the reader's configuration.".into());
+            }
+        }
+        return;
+    }
+    let started_at = assessed_now(&state, &key);
+    let mut barren = 0;
+    let ended = loop {
+        if stop.load(std::sync::atomic::Ordering::Relaxed) {
+            break "Stopped at your request.".to_string();
+        }
+        let (remaining, in_flight) = match lock(&state).projects.get(&key) {
+            Some(p) => {
+                let w = work_left(p);
+                (w.remaining, w.in_flight)
+            }
+            None => break "The project was closed.".to_string(),
+        };
+        if remaining == 0 {
+            break "Every function has an up-to-date reading.".to_string();
+        }
+        if let Some(n) = limit {
+            if assessed_now(&state, &key).saturating_sub(started_at) >= n {
+                break format!("Reached the limit of {n} readings.");
+            }
+        }
+        // Everything left is out with somebody. Waiting is right; another wave would only
+        // queue behind the leases.
+        if remaining == in_flight {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            continue;
+        }
+
+        let before = assessed_now(&state, &key);
+        // Sized by the work AND by what is left of the limit.
+        //
+        // A reader does ten readings, so a wave is `readers × 10` and the limit could only
+        // ever be honoured to that granularity — measured on a real run, `--limit 6` with
+        // two readers banked 19. That is the documented behaviour and it makes a small cap
+        // useless, which matters because a small cap is exactly what somebody sets to try
+        // this cheaply. Spawning `ceil(left / 10)` readers brings the smallest step down to
+        // ten, and the run still reports what it actually did rather than what was asked.
+        let mut wave = remaining.saturating_sub(in_flight).min(width).max(1);
+        if let Some(n) = limit {
+            let done = assessed_now(&state, &key).saturating_sub(started_at);
+            let left = n.saturating_sub(done);
+            wave = wave.min(left.div_ceil(BATCH).max(1));
+        }
+        let mut handles = Vec::new();
+        for _ in 0..wave {
+            let mut cmd = crate::harness::reader_command(
+                harness,
+                &exe,
+                &backend,
+                &key,
+                &model,
+                &prompt,
+                &away,
+            );
+            let stop = stop.clone();
+            let live = live.clone();
+            handles.push(tokio::spawn(async move {
+                let Ok(mut child) = cmd.spawn() else {
+                    return (false, format!("{} could not be started.", harness.program()));
+                };
+                // Counted from the moment there is a process, and decremented on every way
+                // out of this task — see `Run::live`.
+                live.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let _guard = LiveGuard(live);
+                // **Drained, not merely piped.** It was piped and never read, so a reader
+                // that died in one second saying `error: invalid model` threw the one useful
+                // sentence away and the run reported "three waves finished without a reading
+                // landing" — true, and no help at all. Draining also matters mechanically: a
+                // pipe nobody reads fills, and a chatty agent then blocks on its own stderr.
+                //
+                // Concurrently with the wait, on its own task, because reading after the
+                // child exits is the deadlock this is written to avoid.
+                let err = child.stderr.take();
+                let tail = tokio::spawn(async move {
+                    use tokio::io::AsyncReadExt;
+                    let mut buf = String::new();
+                    if let Some(mut e) = err {
+                        let _ = e.read_to_string(&mut buf).await;
+                    }
+                    buf
+                });
+                // Waited on alongside the stop flag rather than simply awaited. A reader
+                // is a coding agent that will happily run for minutes, so "stop" has to be
+                // able to reach one that is already going — otherwise quitting leaves
+                // every reader in the current wave spending tokens on readings that have
+                // nowhere to land.
+                loop {
+                    tokio::select! {
+                        st = child.wait() => {
+                            let said = tail.await.unwrap_or_default();
+                            return (matches!(st, Ok(s) if s.success()), said);
+                        }
+                        _ = tokio::time::sleep(Duration::from_millis(250)) => {
+                            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                                let _ = child.start_kill();
+                                let _ = child.wait().await;
+                                // Killed on purpose. Whatever it was saying is not a
+                                // failure worth reporting to anybody.
+                                return (false, String::new());
+                            }
+                        }
+                    }
+                }
+            }));
+        }
+        if let Some(p) = lock(&state).projects.get_mut(&key) {
+            if let Some(r) = p.run.as_mut() {
+                r.spawned += wave;
+            }
+        }
+        for h in handles {
+            let (ok, said) = h.await.unwrap_or((false, String::new()));
+            if let Some(p) = lock(&state).projects.get_mut(&key) {
+                if let Some(r) = p.run.as_mut() {
+                    r.finished += 1;
+                    if !ok {
+                        r.failed += 1;
+                        let said = said.trim();
+                        // Deduped, because a misconfiguration fails every reader the same
+                        // way and five copies of one sentence is not five findings. Capped
+                        // for the same reason a log tail is: nobody reads the sixth.
+                        if !said.is_empty()
+                            && r.failures.len() < 5
+                            && !r.failures.iter().any(|f| f == said)
+                        {
+                            r.failures.push(said.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        // A whole wave that banked nothing. Once is a harness hiccup; three times running
+        // is a misconfiguration, and spawning into it forever is worse than stopping.
+        if assessed_now(&state, &key) == before {
+            barren += 1;
+            if barren >= 3 {
+                // No guess about the cause. It used to add "check that the agent is
+                // installed and signed in", which was the best available advice while
+                // nothing captured what the readers said — and wrong at least as often as
+                // right, since a rejected `--model` looks identical from here. The readers'
+                // own output is kept now (`Run::failures`), so the summary states what
+                // happened and the evidence answers why.
+                break "Three waves in a row finished without a successful reading."
+                    .to_string();
+            }
+        } else {
+            barren = 0;
+        }
+    };
+    if let Some(p) = lock(&state).projects.get_mut(&key) {
+        // **The run's leases die with the run.** A lease means "a reader is working on
+        // this", and once the wave is over that is false however it ended: Stop kills
+        // readers mid-reading, and a reader that merely exited was not going to report
+        // either. Left alone they sat there for the rest of `LEASE`, which made the map go
+        // on pulsing wedges nobody was reading and made `in_flight` count work with no
+        // worker behind it — the same overstatement `work_left` exists to prevent, arriving
+        // from the other side.
+        //
+        // The functions simply return to the queue, which is what an expired lease does
+        // anyway; this only stops the wait. Safe here because the loop has ended, so every
+        // reader this run spawned is gone.
+        p.leased.clear();
+        if let Some(r) = p.run.as_mut() {
+            r.ended = Some(ended);
+            r.ended_at = Some(Instant::now());
+        }
+    }
+}
+
+impl Project {
+    /// Rebuild a project around a fresh scan, keeping everything the scan does not describe.
+    ///
+    /// **A rescan replaces the picture, not the run**, and the two used to be the same
+    /// operation. `scan_repo` built a whole new `Project` with every volatile field emptied,
+    /// and a rescan is an ordinary event — selecting a repo in the sidebar is one — so
+    /// switching away from a repo being read and back to it destroyed the wave's state while
+    /// the wave carried on. What that cost, in order of seriousness: the `predictions`
+    /// stamped by `sanity_reveal` before the source was served, which are the measurement
+    /// itself and would have come back empty; the leases, so functions already out with a
+    /// reader were handed out again; and the `run`, so the panel offered Read on a project
+    /// with five readers still spawning.
+    ///
+    /// Work keyed by node id survives this because ids come from `key_of` — path, name,
+    /// ordinal — so they do not move when code does. That is the rule's whole purpose.
+    pub fn rescan(
+        prev: Option<&Project>,
+        repo: std::path::PathBuf,
+        name: String,
+        scan: Scan,
+        reports: HashMap<String, Report>,
+    ) -> Project {
+        Project {
+            file_marks: stamp_marks(&repo, &scan),
+            marks: crate::watch::probe(&repo),
+            leased: prev.map(|p| p.leased.clone()).unwrap_or_default(),
+            recent_files: prev.map(|p| p.recent_files.clone()).unwrap_or_default(),
+            predictions: prev.map(|p| p.predictions.clone()).unwrap_or_default(),
+            run: prev.and_then(|p| p.run.clone()),
+            events: prev.map(|p| p.events.clone()).unwrap_or_default(),
+            touched: prev.map(|p| p.touched).unwrap_or(0),
+            last_agent: prev.and_then(|p| p.last_agent),
+            // Bumped, not set. The window watches this for "the tree changed, refetch", and
+            // a constant is a change exactly once — every rescan after the first looked
+            // identical to no rescan at all.
+            scanned: prev.map(|p| p.scanned).unwrap_or(0) + 1,
+            repo,
+            name,
+            scan,
+            reports,
+        }
+    }
+
+    /// Record one function going out or coming back, dropping the oldest.
+    fn note(&mut self, stage: &'static str, name: String, path: String, predicted: Option<Grade>) {
+        let seq = self.events.back().map(|e| e.seq + 1).unwrap_or(1);
+        self.events.push_back(Event { seq, stage, name, path, predicted });
+        while self.events.len() > EVENTS_KEPT {
+            self.events.pop_front();
+        }
+    }
+}
+
+/// Every model a project's readings were taken by, commonest first.
+///
+/// **The disagreement itself, made visible.** [`one_model`] answers `None` for a mixed
+/// corpus, on the grounds that a mixture is worth SHOWING rather than resolving to a
+/// majority — and then nothing showed it. The Read dialog fell back to a bare picker, which
+/// is indistinguishable from a repo nobody has ever read, so the one case the rule exists
+/// for was the one case it said nothing about. This is what the dialog says instead.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ModelCount {
+    pub model: String,
+    pub readings: usize,
+}
+
+/// What to ASK for, to carry on the way the last reading was taken.
+///
+/// **`asked`, not `model`, and the difference is the whole point of keeping both.** A
+/// reading records two things about its reader: what the run requested, stamped
+/// server-side, and what the reader said it was. They are not interchangeable — a run asks
+/// for `sonnet` and the reader reports `claude-sonnet-4.5`, which is that model's name for
+/// itself and not necessarily a string its CLI accepts. Feeding the self-report back to
+/// `--model` is how a wave dies on every reader at once with nothing to say beyond "three
+/// waves finished without a reading landing".
+///
+/// So: the newest dated reading's `asked`, falling back to its `model` for readings taken
+/// before `asked` existed — where the self-report is all there is, and a guess that might
+/// be rejected beats no suggestion at all.
+///
+/// **What a mixed corpus offers instead of nothing.** With readings on several scales there
+/// is no single banked model to continue, and the dialog otherwise falls back to the
+/// harness's own default — which is how a repo picks up one more scale.
+///
+/// `None` when nothing is dated, which is every corpus banked before `when` existed. A
+/// partly-dated corpus answers from the dated part: those are by definition the recent
+/// ones, since the undated readings predate the field.
+fn recent_model(p: &Project) -> Option<String> {
+    p.reports
+        .values()
+        .filter(|r| !r.when.is_empty())
+        // Lexicographic, which is chronological for this format — see `now_iso`.
+        .max_by(|a, b| a.when.cmp(&b.when))
+        .map(|r| if r.asked.trim().is_empty() { r.model.trim() } else { r.asked.trim() })
+        .filter(|m| !m.is_empty())
+        .map(str::to_string)
+}
+
+fn model_tally(p: &Project) -> Vec<ModelCount> {
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for r in p.reports.values() {
+        let m = r.model.trim();
+        if !m.is_empty() {
+            *counts.entry(m).or_default() += 1;
+        }
+    }
+    let mut out: Vec<ModelCount> = counts
+        .into_iter()
+        .map(|(model, readings)| ModelCount { model: model.to_string(), readings })
+        .collect();
+    // Commonest first, then by name so a tie does not reshuffle on every poll — which the
+    // frontend would read as a change and re-render for.
+    out.sort_by(|a, b| b.readings.cmp(&a.readings).then_with(|| a.model.cmp(&b.model)));
+    out
+}
+
+/// The one agent a project's readings were taken by, or `None` if they disagree.
+///
+/// Same rule as [`one_model`] below, and the same reason: two agents over one repo is worth
+/// seeing rather than resolving. Used to preselect the Read dialog, where `None` correctly
+/// means "do not choose for them".
+///
+/// Disagreement is left visible rather than resolved to a majority. A repo read by two
+/// models is one map on two scales, and the answer to that is for somebody to see it, not
+/// for this function to pick a winner.
+fn one_harness(p: &Project) -> Option<String> {
+    let mut seen: Option<&str> = None;
+    for r in p.reports.values() {
+        let h = r.harness.trim();
+        if h.is_empty() {
+            continue;
+        }
+        match seen {
+            None => seen = Some(h),
+            Some(prev) if prev == h => {}
+            Some(_) => return None,
+        }
+    }
+    seen.map(|s| s.to_string())
+}
+
+fn one_model(p: &Project) -> Option<String> {
+    let mut seen: Option<&str> = None;
+    for r in p.reports.values() {
+        let m = r.model.trim();
+        if m.is_empty() {
+            continue;
+        }
+        match seen {
+            None => seen = Some(m),
+            Some(prev) if prev == m => {}
+            Some(_) => return None,
+        }
+    }
+    seen.map(|s| s.to_string())
+}
+
+/// Decrements the live-reader count however its task ends — normally, killed, or panicking.
+///
+/// A guard rather than a decrement at each `return`, because there are three of those and
+/// the cost of missing one is a shutdown that waits its full deadline every time.
+struct LiveGuard(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for LiveGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// How many readings this project holds right now, excluding stale ones.
+fn assessed_now(state: &Shared, key: &str) -> usize {
+    lock(state).projects.get(key).map(assessed).unwrap_or(0)
+}
+
+/// A request for the source of one task, and the prediction it is being traded for.
+#[derive(Deserialize)]
+pub struct RevealRequest {
+    /// Supplied by the shim, never by the model — see [`QueueParams::project`].
+    #[serde(default)]
+    project: Option<String>,
+    id: String,
+    /// What the reader expects the body to do. Recorded before any bytes go back.
+    expected: String,
+}
+
+/// Hand over the source of one task, once its prediction is on record.
+///
+/// **The reader used to fetch this itself, and that was two problems wearing one coat.**
+/// It required a filesystem, which is why Claude Desktop could not take a single reading
+/// and why every harness read through a different door. And "open `abs_path`, bounded to
+/// the lines you were given and nothing more" was an instruction to a model — the same
+/// class of rule as "do not read `.sanity/`", which readers have improvised around three
+/// times (see `mcp.rs`'s error text for what that cost). Serving the bytes makes the
+/// bound a fact rather than a request, and costs nothing: the body crossed the wire
+/// either way.
+///
+/// The extent is recut first. A scan is a photograph and the repo is not standing still,
+/// so this and `queue` both go through `resync_changed` — which is the point of doing it
+/// here, because it collapses "the lines the scan remembers" and "the lines the reader
+/// reads" into ONE answer computed in one place. Previously the queue re-cut and then the
+/// reader did its own arithmetic against a file that may have moved again since.
+///
+/// A file task gets the whole file, because that is the reading: `FILE_ASK` asks what the
+/// file is FOR, and its `end_line` is only as far as the last declaration reaches.
+///
+/// It refuses without a live lease. Not as bookkeeping — an id nobody holds is a reader
+/// working from a task it was never handed, or one whose lease expired and whose work has
+/// since gone to somebody else, and serving it would produce a second reading of the same
+/// function that looks exactly as legitimate as the first.
+async fn reveal(
+    State(state): State<Shared>,
+    Json(req): Json<RevealRequest>,
+) -> Json<serde_json::Value> {
+    let mut state = lock(&state);
+    if state.for_client(req.project.as_deref()).is_none() {
+        return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
+    }
+    // Routed by where the TASK came from, exactly as `report` is: the shim's key is one
+    // cell shared by every reader in a session, and an id resolved through it can name a
+    // function in a repo this caller is not working on.
+    let Some(key) = state.owner_of(&req.id, req.project.as_deref()) else {
+        state.ping("sanity_error");
+        return Json(serde_json::json!({
+            "ok": false,
+            "error": format!("No open project holds `{}`, so there is no source to show.", req.id),
+            "hint": "The repo was very likely rescanned since you were handed this task — \
+                     ids carry line numbers and they move. Call sanity_next for fresh work.",
+        }));
+    };
+    let Some(project) = state.projects.get_mut(&key) else {
+        state.ping("sanity_error");
+        return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
+    };
+    project.last_agent = Some(Instant::now());
+    if !project
+        .leased
+        .get(&req.id)
+        .is_some_and(|t| t.elapsed() < LEASE)
+    {
+        state.ping("sanity_error");
+        return Json(serde_json::json!({
+            "ok": false,
+            "error": format!("`{}` is not out with you, so its source was not sent.", req.id),
+            "hint": "Either you were never handed this task, or it was out so long that the \
+                     lease expired and it has gone back in the queue for somebody else. Call \
+                     sanity_next for work of your own; do not report against this id.",
+        }));
+    }
+    // Before the extent is read off the scan, for the reason in the doc above.
+    resync_changed(project);
+
+    let mut found = None;
+    project.scan.root.visit(&mut |n| {
+        if n.id == req.id {
+            found = Some((
+                n.path.clone(),
+                n.line.unwrap_or(1),
+                n.end_line.unwrap_or_else(|| n.line.unwrap_or(1) + n.loc),
+                n.kind == NodeKind::File,
+            ));
+        }
+    });
+    let Some((path, line, end_line, whole_file)) = found else {
+        state.ping("sanity_error");
+        return Json(serde_json::json!({
+            "ok": false,
+            "error": format!("`{}` is no longer in this repo's scan.", req.id),
+            "hint": "Call sanity_next for fresh work.",
+        }));
+    };
+
+    let text = match std::fs::read_to_string(project.repo.join(&path)) {
+        Ok(t) => t,
+        Err(e) => {
+            state.ping("sanity_error");
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": format!("Could not read {path}: {e}. Nothing is wrong with your call."),
+                "hint": "Report this to the human and stop; do not guess at the body.",
+            }));
+        }
+    };
+    let source = if whole_file {
+        text
+    } else {
+        // 1-based and inclusive, which is what `line`/`end_line` mean everywhere else.
+        text.lines()
+            .skip(line.saturating_sub(1) as usize)
+            .take((end_line.saturating_sub(line) + 1) as usize)
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    // `or_insert`: a second reveal for the same id serves the same bytes and leaves the
+    // first prediction standing. A reader that could revise this after reading would be
+    // grading itself against a prediction it wrote with the answer in front of it, which
+    // is the whole thing this call exists to prevent.
+    project
+        .predictions
+        .entry(req.id.clone())
+        .or_insert_with(|| req.expected.clone());
+    state.ping("sanity_reveal");
+    Json(serde_json::json!({
+        "ok": true,
+        "id": req.id,
+        "path": path,
+        "line": line,
+        "end_line": end_line,
+        "whole_file": whole_file,
+        "source": source,
+    }))
 }
 
 /// A reading, plus which project it belongs to.
@@ -2392,6 +3578,15 @@ async fn report(
     };
     project.last_agent = Some(Instant::now());
     project.leased.remove(&r.id);
+    // The prediction as it stood BEFORE the body was served — see `Project::predictions`.
+    // Taken here rather than accepted from the report, on the same rule as `body` and `at`
+    // below: the field whose job is to be checkable cannot be self-certified.
+    //
+    // It falls back to what the caller sent, and that is not a loophole left open. A shim
+    // built before `reveal` existed has no stored prediction to find, and refusing its
+    // readings would discard work over a field it was never given the chance to record.
+    // What it cannot do is OVERWRITE a stored one.
+    let promised = project.predictions.remove(&r.id);
 
     // Provenance is stamped here, not accepted from the caller. The body hash is the
     // field a future reader checks this reading against, so it has to come from the same
@@ -2399,12 +3594,27 @@ async fn report(
     // the one thing a staleness marker cannot be is self-certified.
     let mut r = r;
     let mut body = None;
+    // Its name and path come off the same walk, for the feed. Derived from the id instead
+    // they would carry the `@line` an id embeds, and would be wrong the moment somebody
+    // added an import — which is the reason nothing durable is keyed on an id either.
+    let mut named = None;
     project.scan.root.visit(&mut |n| {
         if n.id == r.id {
             body = n.body.clone();
+            named = Some((
+                match (&n.owner, n.kind == NodeKind::File) {
+                    (_, true) => n.path.clone(),
+                    (Some(o), _) => format!("{o}::{}", n.name),
+                    (None, _) => n.name.clone(),
+                },
+                n.path.clone(),
+            ));
         }
     });
     r.body = body.unwrap_or_default();
+    if let Some(p) = promised {
+        r.expected = p;
+    }
     // Which question this answered — the same argument as the hash beside it. A reader
     // asked to declare its own spec could name the one that makes its grade look current,
     // and that claim is exactly what the field exists to test. This build asked, so this
@@ -2417,6 +3627,11 @@ async fn report(
     r.legible_dated = false;
     r.by = crate::assessment::who(&project.repo);
     r.at = crate::assessment::head(&project.repo);
+    // What this run asked for, from the run itself. A hand-driven reader belongs to no run
+    // and leaves it empty, which is honest: nobody here asked for anything.
+    r.asked = project.run.as_ref().map(|run| run.model.clone()).unwrap_or_default();
+    r.harness = project.run.as_ref().map(|run| run.harness.clone()).unwrap_or_default();
+    r.when = crate::assessment::now_iso();
     // The hazard half of the priming question, on the same grounds as the hash: what the
     // repo held is a fact about the reading conditions, and a reader has no business
     // declaring it. `primed` — what was actually in its context — stays as the reader sent
@@ -2436,6 +3651,11 @@ async fn report(
         "sanity_report:cold"
     };
 
+    // Before the map takes it, while the grade is still to hand.
+    if let Some((name, path)) = named {
+        let graded = Some(r.grades().0);
+        project.note("read", name, path, graded);
+    }
     project.reports.insert(r.id.clone(), r);
     // Written through on every report. An assessment is minutes of an agent's work and
     // must not depend on the app exiting cleanly to survive.
@@ -2612,6 +3832,39 @@ async fn status(
                 // "43 left" and "43 left, 12 of them readings that have expired" are the
                 // same number and different jobs.
                 "stale": stale,
+                // The wave Sanity is running, if it is running one. Absent rather than
+                // zeroed when there is none: a run that has never started and a run that
+                // has started and read nothing are different states, and only one of them
+                // is a reason to worry.
+                //
+                // `failed` is here because the alternative is a run that looks merely slow.
+                // A misconfigured harness exits instantly, so `spawned` climbs, nothing
+                // lands, and every other number on this page sits exactly where it was.
+                // The same feed the window shows, on the same data. `sanity check` tails
+                // this — so a terminal and a window watching one run see one thing, which
+                // they would not if the CLI had been given its own endpoint to compute
+                // from. Bounded and in memory; the record is `.sanity/`.
+                "events": p.events,
+                "run": p.run.as_ref().map(|r| serde_json::json!({
+                    "harness": r.harness,
+                    "model": if r.model.is_empty() { serde_json::Value::Null } else { r.model.clone().into() },
+                    "readers": r.width,
+                    "spawned": r.spawned,
+                    "finished": r.finished,
+                    "failed": r.failed,
+                    "running": r.ended.is_none(),
+                    // Asked to stop but not stopped yet. Killing five coding agents takes a
+                    // moment, and without this the only visible states are "running" and
+                    // "ended" — so pressing Stop looked like pressing nothing. Reported by
+                    // the BACKEND rather than held by the clicking window, so a terminal
+                    // tailing the same run sees it too.
+                    "stopping": r.ended.is_none() && r.stop.load(std::sync::atomic::Ordering::Relaxed),
+                    "live": r.live.load(std::sync::atomic::Ordering::Relaxed),
+                    "ended": r.ended,
+                    // Same as the window's copy — a terminal watching a failing run wants
+                    // the reason as much as the pane does.
+                    "failures": r.failures,
+                })),
                 "assessment_file": crate::assessment::dir(&p.repo).to_string_lossy(),
                 "done": remaining == 0,
                 "next_step": if remaining == 0 {
@@ -2942,6 +4195,53 @@ pub struct ProjectSummary {
     /// it — the sidebar's `81/377` is a claim about coverage, and a denominator that
     /// silently shrank is the same lie as a reading that outlived its code.
     pub excluded: usize,
+    /// Which agent reads this repo, as `sanity init` or the window recorded it.
+    ///
+    /// Machine-local — see `KnownProject::harness`. Which CLI is installed is a fact about
+    /// this laptop, not about the repo.
+    pub harness: Option<String>,
+    /// Which model this repo is read by, as chosen here.
+    pub model: Option<String>,
+    /// Which model the readings already banked were taken by, when they agree.
+    ///
+    /// **The corpus is the authority on this, not a setting.** Never mixing models within
+    /// one repo is the rule that keeps a map on one scale, and a stored preference cannot
+    /// enforce it across two laptops — two people would each pick, and nothing on screen
+    /// would say the wedges were measured differently. What the readings were actually
+    /// taken by is a fact, it is already recorded per reading, and it survives being
+    /// cloned. `None` when there are no readings, or when they already disagree — and
+    /// disagreeing is itself worth showing rather than resolving.
+    pub banked_model: Option<String>,
+    /// The one agent this repo's readings were actually taken by — see [`one_harness`].
+    /// Outranks the machine-local preference for the same reason `banked_model` does: it
+    /// is a fact that travels with the repo rather than a setting on one laptop.
+    pub banked_harness: Option<String>,
+    /// Every model in the corpus with its share — see [`model_tally`]. One entry is the
+    /// ordinary case; more than one is a repo already on two scales, and the dialog says so.
+    pub banked_models: Vec<ModelCount>,
+    /// The model of the newest dated reading — see [`recent_model`]. What a mixed corpus
+    /// offers in place of a banked model.
+    pub recent_model: Option<String>,
+    /// The wave in progress, if any — see [`Run`].
+    pub run: Option<serde_json::Value>,
+    /// The last few functions out and back, oldest first — see [`Event`].
+    pub events: Vec<Event>,
+    /// Node ids currently out with a reader, so the map can show where the work is.
+    ///
+    /// **The panel used to list function names and this replaces them.** A list of four
+    /// names in the narrowest column in the app is a progress indicator you have to read,
+    /// scrolling past faster than anybody can, and it says nothing about WHERE the work is
+    /// — which is the one thing this app draws. On the map the same fact is a glance: the
+    /// wedges being read pulse, and a run becomes visibly a sweep across the repo.
+    ///
+    /// Node ids, uniquely among everything durable here, and that is safe precisely because
+    /// this is not durable: it is a frame of the poll, matched against a tree from the same
+    /// process and thrown away. The `key_of` rule exists because ids embed `@line` and a
+    /// stored one orphans the moment somebody adds an import; nothing is stored here.
+    ///
+    /// Leases whose reading has already landed are dropped rather than left to expire, or a
+    /// finished function would go on pulsing for the rest of its lease.
+    pub reading: Vec<String>,
     /// Functions with a reading that still describes them.
     ///
     /// Stale readings are excluded rather than counted, so `assessed / functions` means
@@ -2949,6 +4249,8 @@ pub struct ProjectSummary {
     /// at some point". The same choice `collect_tasks` makes — a repo cannot be finished
     /// and have expired readings in it.
     pub assessed: usize,
+    /// Lines of code in the functions still outstanding — see [`unread_lines`].
+    pub unread_lines: usize,
     pub stale: usize,
     pub touched: u64,
     /// An agent has called about this project recently. Per project, so two sessions
@@ -2971,6 +4273,19 @@ pub struct ProjectSummary {
 
 impl ProjectList {
     pub fn from_state(state: &AppState) -> ProjectList {
+        // Read once for the whole list, not once per project: this is polled every second
+        // and a the-index-per-row version would open the same file a dozen times a tick.
+        let index = crate::reports::load_index();
+        let harnesses: HashMap<String, String> = index
+            .projects
+            .iter()
+            .filter_map(|k| k.harness.clone().map(|h| (k.key.clone(), h)))
+            .collect();
+        let models: HashMap<String, String> = index
+            .projects
+            .iter()
+            .filter_map(|k| k.model.clone().map(|m| (k.key.clone(), m)))
+            .collect();
         let mut projects: Vec<ProjectSummary> = state
             .projects
             .iter()
@@ -2982,9 +4297,19 @@ impl ProjectList {
                     // Same window as `agent_activity`: a reader predicting, opening a
                     // file and writing a report goes quiet for tens of seconds inside one
                     // continuous batch, and a shorter window makes it flicker.
-                    working: p
-                        .last_agent
-                        .is_some_and(|t| t.elapsed() < Duration::from_secs(60)),
+                    // And not counting this run's own death rattle. A stopped reader is
+                    // killed mid-call, so its last MCP calls sit inside the window above
+                    // with nothing behind them — see `Run::ended_at`. Chatter AFTER the run
+                    // ended is real work (a hand-driven session on the same repo) and still
+                    // counts, which is why this compares times rather than simply muting a
+                    // project that has ever had a run.
+                    working: p.last_agent.is_some_and(|t| {
+                        t.elapsed() < Duration::from_secs(60)
+                            && p.run
+                                .as_ref()
+                                .and_then(|r| r.ended_at)
+                                .is_none_or(|end| t > end)
+                    }),
                     key: key.clone(),
                     name: p.name.clone(),
                     repo: p.repo.to_string_lossy().to_string(),
@@ -2992,9 +4317,40 @@ impl ProjectList {
                     files,
                     scanned: p.scanned,
                     excluded,
+                    harness: harnesses.get(key).cloned(),
+                    model: models.get(key).cloned(),
+                    banked_harness: one_harness(p),
+                    banked_model: one_model(p),
+                    banked_models: model_tally(p),
+                    recent_model: recent_model(p),
+                    run: p.run.as_ref().map(|r| serde_json::json!({
+                        "harness": r.harness,
+                        "model": r.model,
+                        "readers": r.width,
+                        "spawned": r.spawned,
+                        "finished": r.finished,
+                        "failed": r.failed,
+                        "running": r.ended.is_none(),
+                        // See the same field in `/status`: pressing Stop has to be visible
+                        // before the readers have actually died.
+                        "stopping": r.ended.is_none() && r.stop.load(std::sync::atomic::Ordering::Relaxed),
+                        "live": r.live.load(std::sync::atomic::Ordering::Relaxed),
+                        "ended": r.ended,
+                        "failures": r.failures,
+                    })),
+                    events: p.events.iter().cloned().collect(),
                     // The same walk `assessed` does, and for the reason written there:
                     // `reports.len() - stale` counts readings whose function was deleted.
                     assessed: assessed(p),
+                    unread_lines: unread_lines(p),
+                    reading: p
+                        .leased
+                        .iter()
+                        .filter(|(id, at)| {
+                            at.elapsed() < LEASE && !p.reports.contains_key(*id)
+                        })
+                        .map(|(id, _)| id.clone())
+                        .collect(),
                     stale,
                     touched: p.touched,
                     loading: false,
@@ -3032,7 +4388,21 @@ impl ProjectList {
                         // the first real scan is a change from it.
                         scanned: 0,
                         excluded: 0,
+                        // Configured settings survive a restore in progress — they come
+                        // from the index, which is the thing being restored FROM.
+                        harness: known.harness.clone(),
+                        model: known.model.clone(),
+                        // Nothing has been read back yet, so the corpus cannot speak. Zero
+                        // guesses here, same as the counts above.
+                        banked_model: None,
+                        banked_harness: None,
+                        banked_models: Vec::new(),
+                        recent_model: None,
+                        run: None,
+                        events: Vec::new(),
                         assessed: 0,
+                        unread_lines: 0,
+                        reading: Vec::new(),
                         stale: 0,
                         touched: known.touched,
                         working: false,
@@ -3070,6 +4440,9 @@ pub fn router(state: Shared) -> Router {
         .route("/health", get(health))
         .route("/open", post(open_project))
         .route("/queue", get(queue))
+        .route("/reveal", post(reveal))
+        .route("/check", post(check))
+        .route("/stop", post(stop))
         .route("/report", post(report))
         .route("/status", get(status))
         .route("/summary", get(summary))
@@ -3133,6 +4506,54 @@ pub fn read_endpoint() -> Option<Endpoint> {
 /// hint, `probe` is the evidence, and a stale one costs a probe that fails and a fresh
 /// spawn. Nothing here is unrecoverable, which is why it can be a best-effort tidy rather
 /// than a shutdown protocol.
+/// Stop every run this backend is driving, and wait briefly for its readers to die.
+///
+/// **A reader must not outlive the backend that spawned it.** It is a whole coding agent,
+/// spending somebody's tokens on readings that now have nowhere to land — expensive and
+/// useless at once, which is the worst kind of orphan to leave behind. Quitting the window
+/// is the case that matters: the backend is a thread in that process, so the readers are
+/// its children, and nothing about a normal exit kills them.
+///
+/// The wait is short and best-effort on purpose. It is a tidy-up on the way out, and a
+/// shutdown that blocks because an agent is slow to die is worse than one stray process:
+/// `kill_on_drop` and the process going away cover what this misses.
+pub fn stop_all_runs(state: &Shared) {
+    let mut any = false;
+    {
+        let st = lock(state);
+        for p in st.projects.values() {
+            if let Some(r) = &p.run {
+                if r.ended.is_none() {
+                    r.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                    any = true;
+                }
+            }
+        }
+    }
+    if !any {
+        return;
+    }
+    // Waited on the COUNT, not a clock. Each reader is killed by its own task, so a fixed
+    // sleep races the scheduler: three readers reliably outlived a 900ms one and were left
+    // orphaned on PPID 1. This ends as soon as the last process is gone, and gives up after
+    // a bounded wait because a shutdown that hangs on a slow agent is worse than a stray.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let alive: usize = {
+            let st = lock(state);
+            st.projects
+                .values()
+                .filter_map(|p| p.run.as_ref())
+                .map(|r| r.live.load(std::sync::atomic::Ordering::Relaxed))
+                .sum()
+        };
+        if alive == 0 || Instant::now() >= deadline {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 pub fn release_endpoint(pid: u32) {
     if read_endpoint().is_some_and(|ep| ep.pid == pid) {
         if let Some(path) = endpoint_file() {
@@ -3228,6 +4649,9 @@ pub fn restore(state: Shared) {
                     reports,
                     leased: HashMap::new(),
                     recent_files: HashMap::new(),
+                    predictions: HashMap::new(),
+                    run: None,
+                    events: Default::default(),
                     file_marks: marks,
                     marks: crate::watch::probe(&probe_path),
                     scanned: 1,
@@ -3386,7 +4810,6 @@ pub(crate) mod tests {
     fn task(path: &str, name: &str) -> Task {
         Task {
             id: format!("{path}#{name}"),
-            abs_path: path.to_string(),
             path: path.to_string(),
             line: 1,
             end_line: 10,
@@ -3425,6 +4848,9 @@ pub(crate) mod tests {
             reports: HashMap::new(),
             leased: HashMap::new(),
             recent_files: HashMap::new(),
+            predictions: HashMap::new(),
+            run: None,
+            events: Default::default(),
             file_marks: marks,
             marks: crate::watch::probe(dir),
             scanned: 1,
@@ -3517,12 +4943,16 @@ fn second() { println!(\"2\"); }\n").unwrap();
                     repo: "/a".into(),
                     name: "a".into(),
                     touched: 7,
+                    harness: None,
+                    model: None,
                 },
                 crate::reports::KnownProject {
                     key: "/b".into(),
                     repo: "/b".into(),
                     name: "b".into(),
                     touched: 4,
+                    harness: None,
+                    model: None,
                 },
             ],
         });
@@ -3653,7 +5083,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
 
         let ids: Vec<String> = {
             let mut out = Vec::new();
-            collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, None, &mut out);
+            collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, &mut out);
             // Functions only. The file itself is queued too — see `Task::file` — and this
             // test is about what a lease does to unread work, not about which kinds exist.
             out.into_iter().filter(|(_, t)| !t.file).map(|(_, t)| t.id).collect()
@@ -3685,6 +5115,69 @@ fn second() { println!(\"2\"); }\n").unwrap();
         assert_eq!(w.remaining, 2, "one function read; its twin and their file are left");
         assert_eq!(w.in_flight, 0, "the reading landed; the stale lease is moot");
         assert!(w.outstanding.is_empty());
+    }
+
+    /// A rescan keeps the run going, and keeps the predictions it has already taken.
+    ///
+    /// **The volatile half of a project is not derivable from the repo**, which is exactly
+    /// why rebuilding it from a fresh scan lost it. Selecting a repo in the sidebar rescans
+    /// it, so this fired whenever somebody switched projects and switched back — and the
+    /// worst of it was silent: `predictions` holds what a reader committed to BEFORE it was
+    /// shown the source, so losing them means the readings still in flight come back with an
+    /// empty `expected`. That is the measurement, not a display detail.
+    #[test]
+    fn a_rescan_does_not_throw_away_the_run_it_lands_in_the_middle_of() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let mut before = project_of(dir.path());
+        before.leased.insert("a.rs#one".into(), Instant::now());
+        before.predictions.insert("a.rs#one".into(), "it prints".into());
+        before.run = Some(Run {
+            harness: "claude".into(),
+            model: "sonnet".into(),
+            width: 5,
+            spawned: 3,
+            finished: 0,
+            failed: 0,
+            ended: None,
+            ended_at: None,
+            failures: Vec::new(),
+            stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            live: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(3)),
+        });
+        before.note("out", "one".into(), "a.rs".into(), None);
+
+        let scan = before.scan.clone();
+        let after = Project::rescan(
+            Some(&before),
+            dir.path().to_path_buf(),
+            "t".into(),
+            scan,
+            HashMap::new(),
+        );
+
+        assert_eq!(
+            after.predictions.get("a.rs#one").map(String::as_str),
+            Some("it prints"),
+            "a prediction taken before the source was served did not survive the rescan"
+        );
+        assert!(after.leased.contains_key("a.rs#one"), "in-flight work would be handed out twice");
+        assert!(after.run.is_some(), "the panel would offer Read while readers are still up");
+        assert_eq!(after.run.as_ref().map(|r| r.spawned), Some(3));
+        assert_eq!(after.events.len(), 1);
+        // And the counter the window watches for "refetch the tree" has to MOVE, or a
+        // rescan after the first is indistinguishable from no rescan.
+        assert_eq!(after.scanned, before.scanned + 1);
+
+        // A repo being seen for the first time starts empty rather than inheriting anything.
+        let fresh = Project::rescan(
+            None,
+            dir.path().to_path_buf(),
+            "t".into(),
+            before.scan.clone(),
+            HashMap::new(),
+        );
+        assert!(fresh.run.is_none() && fresh.leased.is_empty() && fresh.predictions.is_empty());
     }
 
     /// The summary is the orchestrator's only honest account of its own run, so what it
@@ -3775,7 +5268,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
         let p = project_of(dir.path());
 
         let mut out = Vec::new();
-        collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, None, &mut out);
+        collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, &mut out);
         let tasks: Vec<Task> = out.into_iter().map(|(_, t)| t).filter(|t| !t.file).collect();
         assert_eq!(tasks.len(), 2);
 
@@ -3830,7 +5323,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
 
         // The queue works from the narrowed set.
         let mut out = Vec::new();
-        collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, None, &mut out);
+        collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, &mut out);
         let names: Vec<String> = out.into_iter().filter(|(_, t)| !t.file).map(|(_, t)| t.name).collect();
         assert_eq!(names, vec!["one"], "excluded functions are never handed out");
 
@@ -3956,7 +5449,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
         let p = project_of(dir.path());
 
         let mut out = Vec::new();
-        collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, None, &mut out);
+        collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, &mut out);
         let file: Vec<&Task> = out.iter().map(|(_, t)| t).filter(|t| t.file).collect();
         assert_eq!(file.len(), 1, "one file, one file reading");
         let t = file[0];
@@ -4196,6 +5689,327 @@ fn second() { println!(\"2\"); }\n").unwrap();
         // names whose it is either way, which is what makes a mismatch visible.
         let Json(out) = status(State(shared), Query(StatusParams { project: None })).await;
         assert_eq!(out["project"], "mine");
+    }
+
+    /// Hand out tasks until one of the kind asked for appears, taking the leases with them.
+    ///
+    /// The lease is the part that matters: `reveal` refuses without one, so a test that
+    /// reached into the scan for an id would be exercising a path no reader can take.
+    ///
+    /// `want_file` rather than "the first one", because the queue interleaves and which
+    /// kind arrives first is not a promise. A test that happens to pass because a file
+    /// task sorted second is the ordering luck this repo keeps a rule about.
+    async fn lease_kind(shared: &Shared, key: &str, want_file: bool) -> Task {
+        for _ in 0..16 {
+            let Json(mut handed) = queue(
+                State(shared.clone()),
+                Query(QueueParams { n: 1, project: Some(key.to_string()) }),
+            )
+            .await;
+            if handed.is_empty() {
+                break;
+            }
+            let t = handed.remove(0);
+            if t.file == want_file {
+                return t;
+            }
+        }
+        panic!("the fixture never handed out a {} task", if want_file { "file" } else { "function" });
+    }
+
+    /// The source comes from the server, bounded to the extent that will be graded.
+    ///
+    /// A function gets its own lines and nothing else. This is the property that used to
+    /// be an instruction — "open abs_path, bounded to `line`..`end_line`, never the whole
+    /// file" — and instructions to a model are the class of rule this repo has watched
+    /// readers improvise around three times.
+    #[tokio::test]
+    async fn reveal_serves_the_functions_own_lines_and_no_more() {
+        let _data = data_home();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("a.rs"),
+            "fn one() {\n    println!(\"1\");\n}\n\nfn two() {\n    println!(\"SECRET\");\n}\n",
+        )
+        .unwrap();
+        let mut state = AppState::default();
+        state.projects.insert("/p".into(), project_of(dir.path()));
+        state.touch("/p");
+        let shared: Shared = Arc::new(Mutex::new(state));
+
+        let task = lease_kind(&shared, "/p", false).await;
+        let Json(out) = reveal(
+            State(shared.clone()),
+            Json(RevealRequest {
+                project: Some("/p".into()),
+                id: task.id.clone(),
+                expected: "prints something".into(),
+            }),
+        )
+        .await;
+        assert_eq!(out["ok"], true, "{out}");
+        let src = out["source"].as_str().unwrap();
+        assert!(src.contains(&task.name), "the body served was not this function's");
+        // The neighbour is the test. An unbounded read hands the reader the body of a
+        // function it has not predicted yet, which is the read-ahead the ordering exists
+        // to prevent.
+        let other = if task.name == "one" { "SECRET" } else { "\"1\"" };
+        assert!(
+            !src.contains(other),
+            "reveal leaked a sibling's body into the handout:\n{src}"
+        );
+    }
+
+    /// A second reveal serves the same source and leaves the first prediction standing.
+    ///
+    /// The prediction is the measurement, and the whole point of trading it for the body
+    /// is that it cannot be composed afterwards alongside `found`. A reader that could
+    /// call again with a better guess would be grading itself against a prediction it
+    /// wrote with the answer in front of it — which is the failure `reveal` exists to
+    /// close, reintroduced one layer down.
+    #[tokio::test]
+    async fn a_second_reveal_cannot_revise_the_prediction() {
+        let _data = data_home();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn one() {\n    println!(\"1\");\n}\n").unwrap();
+        let mut state = AppState::default();
+        state.projects.insert("/p".into(), project_of(dir.path()));
+        state.touch("/p");
+        let shared: Shared = Arc::new(Mutex::new(state));
+
+        let task = lease_kind(&shared, "/p", false).await;
+        let ask = |expected: &str| {
+            let shared = shared.clone();
+            let id = task.id.clone();
+            let expected = expected.to_string();
+            async move {
+                reveal(
+                    State(shared),
+                    Json(RevealRequest { project: Some("/p".into()), id, expected }),
+                )
+                .await
+            }
+        };
+        let Json(first) = ask("a wild guess").await;
+        let Json(second) = ask("actually it prints 1").await;
+        assert_eq!(first["source"], second["source"], "the same id served different code");
+
+        let mut r = Report::blank();
+        r.id = task.id.clone();
+        r.predicted = Some(Grade::Full);
+        r.documented = Some(Grade::None);
+        r.legible = Some(Grade::Full);
+        r.found = "prints 1".into();
+        // What a reader that revised its prediction would have sent.
+        r.expected = "actually it prints 1".into();
+        let Json(out) = report(
+            State(shared.clone()),
+            Json(ReportRequest { project: Some("/p".into()), report: r }),
+        )
+        .await;
+        assert_eq!(out["ok"], true, "{out}");
+        let stored = lock(&shared).projects["/p"].reports[&task.id].expected.clone();
+        assert_eq!(
+            stored, "a wild guess",
+            "the reading kept a prediction written after the body was served"
+        );
+    }
+
+    /// An id that is not out with the caller gets no source.
+    ///
+    /// Not bookkeeping. An unleased id is a reader working from a task it was never
+    /// handed, or one whose lease expired and whose function has since gone to somebody
+    /// else — and serving it produces a second reading of the same code that looks
+    /// exactly as legitimate as the first.
+    #[tokio::test]
+    async fn reveal_without_a_lease_is_refused() {
+        let _data = data_home();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn one() {\n    println!(\"1\");\n}\n").unwrap();
+        let mut state = AppState::default();
+        state.projects.insert("/p".into(), project_of(dir.path()));
+        state.touch("/p");
+        let shared: Shared = Arc::new(Mutex::new(state));
+
+        // A real id, taken from the scan rather than from the queue — so nothing leased it.
+        let mut id = String::new();
+        lock(&shared).projects["/p"].scan.root.visit(&mut |n| {
+            if n.kind == crate::model::NodeKind::Func {
+                id = n.id.clone();
+            }
+        });
+        assert!(!id.is_empty(), "the fixture must hold a function");
+
+        let Json(out) = reveal(
+            State(shared.clone()),
+            Json(RevealRequest {
+                project: Some("/p".into()),
+                id: id.clone(),
+                expected: "anything".into(),
+            }),
+        )
+        .await;
+        assert_eq!(out["ok"], false, "an unleased id was served source: {out}");
+        assert!(out["source"].is_null());
+        assert!(
+            !lock(&shared).projects["/p"].predictions.contains_key(&id),
+            "a refused reveal recorded a prediction anyway"
+        );
+    }
+
+    /// A file task is the one reading that legitimately wants the whole file.
+    ///
+    /// `FILE_ASK` asks what the file is FOR, and a file node's `end_line` only reaches its
+    /// last declaration — so slicing to it would hand the reader a truncated file and ask
+    /// it to grade the header against what it could see.
+    #[tokio::test]
+    async fn a_file_task_is_revealed_whole() {
+        let _data = data_home();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("a.rs"),
+            "//! A header.\nfn one() {\n    println!(\"1\");\n}\n\n// TRAILING\n",
+        )
+        .unwrap();
+        let mut state = AppState::default();
+        state.projects.insert("/p".into(), project_of(dir.path()));
+        state.touch("/p");
+        let shared: Shared = Arc::new(Mutex::new(state));
+
+        let task = lease_kind(&shared, "/p", true).await;
+        let Json(out) = reveal(
+            State(shared.clone()),
+            Json(RevealRequest {
+                project: Some("/p".into()),
+                id: task.id,
+                expected: "a module".into(),
+            }),
+        )
+        .await;
+        assert_eq!(out["ok"], true, "{out}");
+        assert_eq!(out["whole_file"], true);
+        let src = out["source"].as_str().unwrap();
+        assert!(src.contains("//! A header."), "the header was cut off:\n{src}");
+        assert!(
+            src.contains("// TRAILING"),
+            "the file was sliced to its last declaration:\n{src}"
+        );
+    }
+
+    /// A caller with no path is told what the human has added, and nothing is invented.
+    ///
+    /// One candidate is the only answer there is, so it is taken. Several is a question,
+    /// not a guess: picking the most recent would be right most of the time and silently
+    /// wrong the rest, and being wrong here writes a reading into another repo's
+    /// `.sanity/` — correctly hashed and attributed, with nothing to say it happened.
+    /// None is neither; it is a thing only a person can fix.
+    #[test]
+    fn a_pathless_open_answers_from_what_a_human_added() {
+        let _data = data_home();
+        let state: Shared = Default::default();
+
+        // Nothing added yet.
+        let err = resolve_open(&state, None).expect_err("nothing is added, so nothing opens");
+        assert_eq!(err["ok"], false);
+        assert!(err["hint"].as_str().unwrap().contains("add"));
+
+        let mut index = crate::reports::KnownProjects::default();
+        index.projects.push(crate::reports::KnownProject {
+            key: "/a".into(),
+            repo: "/a".into(),
+            name: "a".into(),
+            touched: 1,
+            harness: None,
+            model: None,
+        });
+        crate::reports::save_index(&index);
+        assert_eq!(resolve_open(&state, None).unwrap(), PathBuf::from("/a"));
+
+        index.projects.push(crate::reports::KnownProject {
+            key: "/b".into(),
+            repo: "/b".into(),
+            name: "b".into(),
+            touched: 2,
+            harness: None,
+            model: None,
+        });
+        crate::reports::save_index(&index);
+        let err = resolve_open(&state, None).expect_err("two candidates is a question");
+        assert_eq!(err["ok"], false);
+        let listed: Vec<&str> =
+            err["projects"].as_array().unwrap().iter().map(|p| p["path"].as_str().unwrap()).collect();
+        assert_eq!(listed, vec!["/a", "/b"], "the human was not shown the choice");
+    }
+
+    /// A path nobody added is refused, however real it is.
+    ///
+    /// The rule this protects is that a person names a project and an agent never does. A
+    /// caller that can name any path can point a run at a repo the person at the window
+    /// never chose — and readings are written into the repo, so being wrong leaves files
+    /// behind in it.
+    #[test]
+    fn a_path_the_human_never_added_is_refused() {
+        let _data = data_home();
+        let state: Shared = Default::default();
+        crate::reports::save_index(&crate::reports::KnownProjects {
+            active: None,
+            projects: vec![crate::reports::KnownProject {
+                key: "/added".into(),
+                repo: "/added".into(),
+                name: "added".into(),
+                touched: 1,
+                harness: None,
+                model: None,
+            }],
+        });
+
+        assert_eq!(resolve_open(&state, Some("/added")).unwrap(), PathBuf::from("/added"));
+        let err = resolve_open(&state, Some("/somewhere-else")).expect_err("an unadded path opened");
+        assert_eq!(err["ok"], false);
+        assert!(
+            err["error"].as_str().unwrap().contains("/somewhere-else"),
+            "the refusal must name what was asked for"
+        );
+    }
+
+    /// Starting a run from a thread with no tokio runtime does not panic.
+    ///
+    /// **This is a crash that shipped to the window.** `start_run` used a bare
+    /// `tokio::spawn`, which is right from the axum handler and aborts the process
+    /// anywhere else: a Tauri command is synchronous and runs on the main thread, so
+    /// pressing Read killed the app on `TryCurrentError`. Every other test passed, because
+    /// every other test either had a runtime or never reached the spawn.
+    ///
+    /// A plain `#[test]` is the whole point — no `#[tokio::test]` here, deliberately. The
+    /// annotation that would make this convenient is the one that would stop it testing
+    /// anything.
+    ///
+    /// It waits for the future to actually RUN, not merely for `detached` to return. A
+    /// version that only checked for the absence of a panic would pass against an
+    /// implementation that quietly dropped the work.
+    #[test]
+    fn work_detaches_from_a_thread_with_no_runtime() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        detached(async move {
+            let _ = tx.send(());
+        });
+        assert!(
+            rx.recv_timeout(Duration::from_secs(5)).is_ok(),
+            "the future never ran"
+        );
+    }
+
+    /// And it still works from inside one, which is the axum handler's case.
+    #[tokio::test]
+    async fn work_detaches_from_inside_a_runtime() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        detached(async move {
+            let _ = tx.send(());
+        });
+        let got = tokio::task::spawn_blocking(move || rx.recv_timeout(Duration::from_secs(5)))
+            .await
+            .unwrap();
+        assert!(got.is_ok(), "the future never ran");
     }
 
     /// A named project that is not loaded must not be answered for by another one.
