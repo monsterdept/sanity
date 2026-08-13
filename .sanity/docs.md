@@ -1,6 +1,6 @@
 # docs — sanity assessment
 
-1 of 2 read · 1 surprising
+2 of 2 read · 1 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An agent was
 given its name, signature, neighbouring names and comments — never its body — and
@@ -14,6 +14,12 @@ stops matching the code, the reading is marked STALE and goes back in the queue.
 What this is and how to add to it: [README.md](README.md)
 
 ## docs/bugs/OpenPanelListViewRepro.swift
+
+### the file itself
+- spec 2 · read at `5809d94c635d` · commit `e5ac296` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:37:18Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A minimal, standalone Swift repro script demonstrating a macOS NSOpenPanel bug related to its list view mode — likely toggling a "mode" setting and presenting the panel to show broken behavior, kept in docs/bugs/ as documentation/evidence for an upstream issue rather than shipped app code.
+- found: Standalone AppKit script that shows an NSOpenPanel (directories-only) and prints the persisted NSGlobalDomain view-mode keys before/after the modal closes, to prove/repro whether switching the panel's view (icon/list/column) actually persists — plus prints the modal's response and selected URL(s).
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
 
 ### `mode` — QUIRKY
 - spec 2 · read at `a24c4861041e` · commit `3b19ac9` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:35:47Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded

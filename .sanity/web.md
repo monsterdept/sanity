@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-263 of 265 read · 47 surprising · 5 stale
+265 of 265 read · 50 surprising
 
 197 of these graded legibility under an earlier question and are not counted; see the note below.
 
@@ -99,14 +99,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: A button with dynamic title text explaining what toggling does, styled via inline style (accent background when on, muted otherwise), disabled and dimmed with label 'Reading…' when busy, otherwise label 'History'.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
-### `Empty` — STALE
-- spec 2 · read at `39046e657b2f` · commit `2903db5` · read by gemini-3.6-flash-medium · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Empty is a React component rendered when no projects exist in Sanity. It renders a clean empty state UI presenting the next primary action—adding a project via the onAdd callback—along with status checks for available agents/harnesses on the machine and minimal secondary setup hints.
-- found: React component fetching installed harnesses on mount and rendering a centered empty state card with an 'Add a repo' button, harness readiness details, and terminal/MCP info.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- note: Prediction captured the purpose, button action, and harness check accurate to the code.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `Empty` — QUIRKY — TANGLED
+- spec 2 · read at `c802f4eaedc1` · commit `e5ac296` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:36:22Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Renders the first-run empty state: a single prominent "add a repo" call-to-action wired to onAdd, a card that checks/displays whether claude or codex is installed locally (a checkable prerequisite), and a small line at the bottom mentioning MCP as a secondary way to trigger a read. No pitch paragraph about what the rings mean, and no persisted dismissal state since the screen only shows while there are zero projects.
+- found: Renders the first-run card: headline, "Add a repo" CTA, a checked-harness status line (which of claude/codex are installed), a demoted mention of `sanity check` from the terminal, and a whole additional CLI-on-PATH section that checks whether the `sanity` binary on PATH resolves to this app and offers a button to link it if not, with feedback on where it linked to and whether something else still wins on PATH.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: Missed the entire CLI-symlink/PATH-precedence section of the component, which is roughly half the body.
 
 ## web/src/CodeWindow.tsx
 
@@ -130,13 +128,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/AgentMascot.tsx
 
-### the file itself — QUIRKY — STALE
-- spec 1 · read at `09e7db32db54` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: A small self-contained decorative component showing agent status via icon/SVG, undocumented because trivial.
-- found: A code-splitting boundary: lazily imports a heavy (~1.2MB, three.js-based) MascotFigure component so it only loads when a scan indicator actually appears, wrapping it in Suspense with a size-reserving invisible placeholder fallback to avoid layout reflow. The file has no header doc but the two inline comments above the lazy() call and the component fully explain the reasoning (bundle size, chunk splitting, reflow avoidance) — so a header would be redundant, not missing information.
-- predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### the file itself — QUIRKY
+- spec 2 · read at `915999d15278` · commit `e5ac296` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:37:03Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A tiny, doc-less file exporting a single small React functional component `AgentMascot` that renders a simple visual mascot/avatar (likely an SVG icon) representing the agent in the UI. Probably takes minimal props (size/status/className) and has little to no logic beyond returning JSX.
+- found: A thin lazy-loading wrapper around the real mascot component (MascotFigure, which pulls in a ~1.2MB three.js bundle). It wraps MascotFigure in React.lazy + Suspense with a size-reserving placeholder fallback, so the heavy chunk is only fetched when a scan indicator actually appears rather than at app startup.
+- predicted: some · documented: full · derivable: no · legible: not judged · trap: no
+- note: Predicted a simple mascot-rendering component; the file is actually just a code-splitting/lazy-load boundary, with the real rendering delegated to MascotFigure.
 
 ### `AgentMascot`
 - spec 2 · read at `5266beca935b` · commit `3b19ac9` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:35:39Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -453,13 +450,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/MascotFigure.tsx
 
-### the file itself — STALE
-- spec 1 · read at `5f3896c40a27` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A React component rendering a persistent per-machine mascot avatar: loadOrMint loads a saved mascot config from storage or mints a new random one, moodFor/pick map some kind of event or status (agent tool calls, given the AgentCall import) to an animation/mood the mascot plays, and MascotFigure is the component that ties config + mood into a rendered creature reacting to app/agent activity.
-- found: Exactly that, plus more texture: the mascot is minted once per machine and persisted in localStorage (loadOrMint); MOODS maps regex-matched agent tool-call names (report:hot, next:done, error, status, etc.) to weighted animation sets under a deliberate design rule (loudness follows rarity, never overclaims success); the component replays a capped backlog of recent AgentCall events as a timed burst of animations keyed by sequence number (not render count) so fast polling doesn't drop calls, and sleeps/wakes the mascot based on an `active` prop.
-- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### the file itself — QUIRKY
+- spec 2 · read at `38b35ed56074` · commit `e5ac296` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:37:16Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Defines a MascotFigure React component rendering an illustrated mascot whose mood/expression reflects assessment results. loadOrMint persists a stable mascot identity (e.g. via localStorage) so the same identity/variant recurs across sessions rather than re-randomizing each time; pick selects an asset/variant from a small set; moodFor maps grade/score data to a mood category used to pick the expression.
+- found: Defines the MascotFigure component: persists/mints a mascot identity via localStorage (loadOrMint), maps recent agent tool calls to mood-based animation sets (moodFor/MOODS) played on a beat as a replay queue, drives a sleeping/working/stopping state machine synced to run state, and hides a 6-click-within-2s easter egg to remint a fresh random mascot.
+- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
 
 ### `loadOrMint`
 - spec 1 · read at `296f66e763ec` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -615,13 +610,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/SideBar.tsx
 
-### the file itself — STALE
-- spec 2 · read at `ad7b1cdec4b9` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: SideBar renders the list of open/known projects with an add button, delegating each row to ProjectItem (name, scan/read progress, select/forget/read actions, active highlight) and showing AgentPanel, which displays live agent activity (what tool/project an agent is currently working on) as seen consumed in App.tsx.
-- found: SideBar renders the project list (with an inline add button and right-click "remove from list" menu) plus a permanently-present AgentPanel. ProjectItem is a simple row showing name and read progress. AgentPanel is more than an activity indicator: it merges MCP agent activity and the backend's own spawned-reader run state into one three-rung label (Sleeping/Working/Stopping), shows a Read/Stop button depending on run state, reports failed reader counts and why a run ended, and renders a per-project progress bar for any project currently being read in the background (not just the active one).
-- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### the file itself
+- spec 2 · read at `43c6737e605e` · commit `e5ac296` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:37:04Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This file defines the app's left sidebar UI: a SideBar component listing known/recent projects (each rendered as a ProjectItem row with click-to-open, add, and forget/remove actions) plus an AgentPanel section showing live agent activity or reports for the currently open project, wiring into the backend project/agent commands.
+- found: SideBar renders the project list (ProjectItem rows with per-project progress rule + reading-sweep animation, right-click context menu to forget a project) plus an AgentPanel that shows a single merged working/stopping/sleeping state for the currently selected project, with Read/Stop controls, a run-status line, and a failure-details overlay.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: Extensive prose comments explain design history (why things were merged/removed) that couldn't be derived from the code alone, and cover far more than just 'what this file is for'.
 
 ### `SideBar`
 - spec 2 · read at `fb405a5ee41e` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T17:01:37Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -804,14 +798,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/api.ts
 
-### the file itself — STALE
-- spec 2 · read at `bafbb031195f` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: The frontend's data/IPC layer: thin wrapper functions (listProjects, pickProject, forgetProject, harnesses, setReader, startCheck, stopCheck, scanRepo, readCurve, readSource, openCodeWindow, mcpCommand/mcpConnect/mcpDisconnect/mcpClients, onOpenProject/onScanProgress/onSetTheme event subscriptions) that call into an Electron/IPC or HTTP backend and expose typed types (Node, Progress, ProjectSummary, Scan, Upgrade referenced elsewhere). It also bundles data-shaping and derived-state helpers (toNode, summarize, reaggregate, applyAgentReports, applyScores, countPending, isReportStale, legibleOf, reportGrades, readingWords) and a color-ramp/heat subsystem (temperature, wedgeHeat, shareRamp, paintHeat, heatColor, rampStop, rampAt, isAnalyzed) used to color the sunburst visualization by how "hot" (stale/surprising) a node's readings are — a fairly overloaded module doing both networking and view-model math.
-- found: A Tauri (not Electron/HTTP as I guessed) IPC wrapper module: typed interfaces (Node, Score, Hotspot, Provenance, etc.) mirroring the Rust backend's model.rs, thin invoke()/listen() wrappers for backend calls (listProjects, pickProject, startCheck, mcpConnect, etc.), plus view-model/data-shaping helpers (toNode, summarize, reaggregate, applyScores) and a heat/color-ramp subsystem (wedgeHeat, temperature, heatColor, rampAt) for coloring the sunburst by staleness/surprise.
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: Correctly predicted the module mixes IPC plumbing with view-model math and a color-ramp subsystem, but guessed the wrong IPC technology (Tauri, not Electron).
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### the file itself — QUIRKY
+- spec 2 · read at `49cdd68096be` · commit `e5ac296` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:37:22Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: The frontend's central API/data-access layer: a large collection of exported functions wrapping Tauri IPC commands and event listeners for project management (list/pick/forget projects), scanning/reports (scanRepo, projectScan, onScanProgress, applyScores, reaggregate, reportGrades, agentReports), MCP client commands, and CLI install/status. It also bundles unrelated color-ramp/heat-visualization math (wedgeHeat, heatColor, rampStop, rampAt, paintHeat) used to render grade/coverage heat visuals, making this a somewhat overloaded "everything talking to the backend or drawing heat colors" module rather than a narrowly scoped API client.
+- found: The frontend's API/data layer: it hand-mirrors backend types from model.rs (NodeKind, Score, Hotspot, Node, Provenance) with per-field doc comments explaining what each number means, then wraps Tauri invoke calls and event listeners for project management, scanning, MCP, CLI install, plus a cluster of heat/color-ramp math functions for visualizing grade/coverage.
+- predicted: some · documented: some · derivable: no · legible: not judged · trap: no
+- note: Correctly predicted the API-wrapper + heat-ramp-utility mix, but missed that a large chunk of the file is hand-written TypeScript type definitions mirroring the Rust backend model, each with explanatory field comments.
 
 ### `showsShare`
 - spec 1 · read at `92308d117684` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -1038,6 +1030,19 @@ What this is and how to add to it: [README.md](README.md)
 - found: Subscribes to the Tauri 'open-project' event, calling cb() on each firing; returns a cleanup closure that awaits the listen promise and then unsubscribes.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: The ⌘O / File menu binding is only in the doc string, not derivable from the event name alone.
+
+### `cliStatus`
+- spec 2 · read at `31d26e37e056` · commit `e5ac296` · read by claude-sonnet-5 · when 2026-08-13T19:41:09Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Calls into a backend (likely Tauri invoke) to check whether an external CLI tool is installed on the system, returning a CliState object like {installed, version, path} used to drive UI prompts such as "Install CLI".
+- found: Calls Tauri invoke('cli_status') to get CLI symlink state, with a catch fallback returning a default CliState (linked:false, path:null, on_path:false, resolved:null, is_this_app:false) if the invoke fails.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+### `onInstallCli`
+- spec 2 · read at `cb552cac5719` · commit `e5ac296` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:41:43Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Registers an IPC/event listener (likely Electron ipcRenderer.on) tied to the "Install Command Line Tool…" menu item, invoking cb when it fires, and returns a cleanup/unsubscribe function that removes the listener.
+- found: Subscribes to the Tauri 'install-cli' event via listen(), calling cb() when it fires; returns an unsubscribe function that resolves the listen promise and calls the resulting unlisten function.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: I guessed Electron ipcRenderer specifically but it's Tauri's listen() — same event-subscription shape, wrong framework detail.
 
 ### `syncThemeMenu`
 - spec 1 · read at `6746257ef32c` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded

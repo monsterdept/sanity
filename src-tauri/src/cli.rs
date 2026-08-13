@@ -396,12 +396,20 @@ pub fn serve() -> i32 {
         match agentapi::read_endpoint() {
             Some(ep) if ep.pid != me => {
                 println!("Sanity app took over on port {}. Standing down.", ep.port);
+                // **Readers stopped on the way out, like every other exit.** This path
+                // returned without doing it, and `main` ends in `process::exit`, so no
+                // destructor runs and `kill_on_drop` never fires: the readers were orphaned
+                // and spent another twelve seconds failing retries against a port that had
+                // gone. The rule this file states forty lines up — nothing this backend
+                // spawned outlives it — had two exits that did not obey it.
+                agentapi::stop_all_runs(&state);
                 return 0;
             }
             // The file was removed out from under us. Nothing can reach this process any
             // more, so it is a daemon nobody can address: same outcome.
             None => {
                 println!("Endpoint file is gone; nothing can reach me. Standing down.");
+                agentapi::stop_all_runs(&state);
                 return 0;
             }
             _ => {}
@@ -825,7 +833,45 @@ pub fn check(
     // the ownership is arranged; `--detach` is how you start one and walk away.
     println!("Ctrl-C to stop. Run in background with --detach.");
     println!();
-    tail(&ep, &key)
+    tail(
+        &ep,
+        &key,
+        &Wanted {
+            repo: repo.clone(),
+            model: model.map(str::to_string),
+            readers,
+            limit,
+        },
+    )
+}
+
+/// Open the repo on a backend and start the same wave again.
+fn resume(ep: &Endpoint, want: &Wanted) -> Result<(), ()> {
+    let opened = post(
+        ep,
+        "/open",
+        json!({ "path": want.repo.to_string_lossy(), "focus": false }),
+    )
+    .map_err(|_| ())?;
+    if !opened.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+        return Err(());
+    }
+    let started = post(
+        ep,
+        "/check",
+        json!({
+            "project": agentapi::project_key(&want.repo),
+            "model": want.model,
+            "readers": want.readers,
+            "limit": want.limit,
+        }),
+    )
+    .map_err(|_| ())?;
+    if started.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+        Ok(())
+    } else {
+        Err(())
+    }
 }
 
 /// Print readings as they land, until the run ends.
@@ -901,7 +947,23 @@ fn grade_ink(grade: &str) -> (&'static str, &'static str) {
     }
 }
 
-fn tail(ep: &Endpoint, key: &str) -> i32 {
+/// What a run was asked for, so it can be asked for again.
+///
+/// **The client that wanted the run is the one that can restart it.** Nothing durable
+/// records an in-flight wave — deliberately, since a backend holds nothing precious — so
+/// after a handover there is no state to recover from. But the command that typed `check`
+/// still knows the model, the width and the limit, and the readings already banked are in
+/// `.sanity/`, so reissuing costs only whatever was in flight.
+struct Wanted {
+    repo: PathBuf,
+    model: Option<String>,
+    readers: Option<usize>,
+    limit: Option<usize>,
+}
+
+fn tail(ep: &Endpoint, key: &str, want: &Wanted) -> i32 {
+    // Copied, because it is replaced when a run follows itself to another backend.
+    let mut ep = *ep;
     // Set by the signal handler; read at the top of every poll. A flag rather than
     // stopping from inside the handler because the stop is an HTTP call, and a handler is
     // not the place to make one.
@@ -946,13 +1008,38 @@ fn tail(ep: &Endpoint, key: &str) -> i32 {
         if interrupted.swap(false, std::sync::atomic::Ordering::Relaxed) {
             println!();
             println!("Stopping readers…");
-            let _ = post(ep, "/stop", json!({ "project": key }));
+            let _ = post(&ep, "/stop", json!({ "project": key }));
             // Kept tailing rather than returning: the readers take a moment to die, and
             // the run's own summary is the honest answer to "what did I just spend".
         }
-        let Ok(st) = get(ep, &format!("/status?project={}", urlencode(key))) else {
-            // **Reported as the RUN ending, because that is the only part anybody has a
-            // stake in.** It said "lost the backend … the run may still be going", which
+        let Ok(st) = get(&ep, &format!("/status?project={}", urlencode(key))) else {
+            // **Opening the app kills the daemon this run was living in**, by design: one
+            // backend per machine, and a human at the window beats a background process. The
+            // run went with it, and the only way to continue was to notice and retype the
+            // command — which is what happened, and is not a thing a tool should ask of
+            // somebody watching a progress bar.
+            //
+            // So: look for whoever is serving now, and reissue. Bounded and single-shot,
+            // because a loop that keeps re-starting waves against a backend that keeps
+            // dying is a worse failure than stopping.
+            if let Some(next) = await_backend(Instant::now() + START_WAIT) {
+                if next.pid != ep.pid {
+                    if drawn {
+                        print!("\r\x1b[K");
+                        drawn = false;
+                    }
+                    println!();
+                    println!("The app took over. Continuing there.");
+                    println!();
+                    if resume(&next, want).is_ok() {
+                        ep = next;
+                        continue;
+                    }
+                }
+            }
+            // Nothing is serving, or the new backend refused. Reported as the RUN ending,
+            // because that is the only part anybody has a stake in.
+            // It said "lost the backend … the run may still be going", which
             // asks somebody to hold a lifecycle in their head: backends are ephemeral, there
             // is only ever one, the next command starts another and so does opening the
             // window. None of that is a fact worth teaching at the moment a run stops.
