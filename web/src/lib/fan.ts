@@ -71,7 +71,7 @@ export const RIM = 340
  *  the same number of pixels comes out. What decides how many functions can be drawn is the
  *  SHAPE — the span, and the core's share of the radius — because capacity is the sector's
  *  area in real pixels over `MIN_PATCH_PX`, and shape is the only part of that the fit does
- *  not normalise away.
+ *  not normalize away.
  *
  *  So the span is measured rather than picked: `fanFor` tries the range and keeps whichever
  *  puts the most area on screen once the pane has had its say. The BOUNDS are the design
@@ -186,7 +186,7 @@ export function place(cell: Arc, dest: Sector, live: Sector): Arc {
 
 /** The middle of an arc, in screen coordinates. Angles run clockwise from twelve o'clock,
  *  matching `arcPath`, so outward at `a` is `(sin a, −cos a)`. */
-export function centre(g: Arc): { x: number; y: number; r: number; a: number } {
+export function center(g: Arc): { x: number; y: number; r: number; a: number } {
   const a = (g.a0 + g.a1) / 2
   const r = (g.r0 + g.r1) / 2
   return { x: r * Math.sin(a), y: -r * Math.cos(a), r, a }

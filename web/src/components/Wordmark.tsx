@@ -2,9 +2,9 @@
  *
  *  Inlined rather than loaded as an <img> or a CSS mask so it inherits `currentColor` —
  *  the brand ships ink and white variants that differ only in fill, and one path set
- *  that takes the surrounding colour covers both themes without shipping two files or
+ *  that takes the surrounding color covers both themes without shipping two files or
  *  picking one at runtime. Same shape as tally's, so a block lifted from one drops into
- *  the other. Brand rule: no recolouring beyond ink/white, no effects, no rotation.
+ *  the other. Brand rule: no recoloring beyond ink/white, no effects, no rotation.
  *
  *  The default height is larger than tally's 14 on purpose. Both marks fill their box
  *  ascender-to-descender, so equal heights are equal EXTENTS — but this one is a light

@@ -16,7 +16,7 @@ import {
 } from './api'
 import { inkOn } from './ink'
 
-/** What the colour in the sunburst means. One geometry, seven encodings.
+/** What the color in the sunburst means. One geometry, seven encodings.
  *
  *  `surprise`, `legible` and `traps` all come from a reader's report and answer three
  *  different questions about it: could you reach the intent from outside, was the body clear
@@ -43,7 +43,7 @@ export type ColorMode =
  * is the whole timeline. Entering it is then a continuation of the gesture rather than a
  * mode change out of nowhere.
  *
- * Named for the SUBJECT, and the colour carries the direction. This tab was `Opacity` for a
+ * Named for the SUBJECT, and the color carries the direction. This tab was `Opacity` for a
  * while, on the rule that a lens should be named for its bright end — and that rule cost more
  * than it bought here, because `opaque` is an optical word and optically clear means light
  * gets THROUGH. So the tab, its rows (`crystal`, `murky`) and the ramp were in a three-way
@@ -82,8 +82,8 @@ export const MODE_HINT: Record<ColorMode, string> = {
 
 /** Which lenses are painted from a reader's report rather than from git or the parse.
  *
- *  They share the things that follow from that: a wedge with no reading is grey rather than
- *  coloured, a stale reading is hatched because its grade describes a body that has changed,
+ *  They share the things that follow from that: a wedge with no reading is gray rather than
+ *  colored, a stale reading is hatched because its grade describes a body that has changed,
  *  and the legend has to say so. Asking it once here stops three call sites each deciding
  *  for themselves and drifting — the stale hatch was `mode === 'surprise'` in two places and
  *  would have silently stopped marking anything under the two new lenses. */
@@ -95,10 +95,10 @@ export function paintsFromReadings(mode: ColorMode): boolean {
  * Categorical palette for blame and language.
  *
  * Qualitative, not a ramp — these are names, and any sequential scale would imply an
- * order that does not exist. Chosen to stay distinguishable under the common colour
+ * order that does not exist. Chosen to stay distinguishable under the common color
  * vision deficiencies by separating on lightness as well as hue, which a rainbow does
  * not. Deliberately muted: a categorical field can fill the whole chart, and at that
- * coverage saturated colours are unreadable.
+ * coverage saturated colors are unreadable.
  */
 /**
  * Eight slots, assigned by rank — biggest category first — and never cycled.
@@ -133,7 +133,7 @@ const CATEGORICAL = [
 ]
 export const OTHER = 'var(--structure)'
 export const OTHER_LABEL = 'other'
-/** How many categories get a colour of their own. Exported because the legend has to
+/** How many categories get a color of their own. Exported because the legend has to
  *  name exactly the ones that have one — it counted to four itself, and a legend with its
  *  own copy of the palette's size is a legend that can disagree with the map. */
 export const SLOTS = CATEGORICAL.length
@@ -142,25 +142,25 @@ export const SLOTS = CATEGORICAL.length
  *
  *  It arrives as an author string and it is not an author: it is a STATE, and treating it
  *  as a person cost this map twice over. It sorted second by lines in a repo mid-session
- *  and took `--cat-2`, so one of eight measured colour slots went to a non-person and a
+ *  and took `--cat-2`, so one of eight measured color slots went to a non-person and a
  *  real author was pushed toward "Other" — while the legend listed it among people. Now it
  *  is an absence, like a file with no blame at all, and the two say which they are. */
 const UNCOMMITTED = 'Not Committed Yet'
 
 /** Neither an author nor a language: a fact about git's view of the line, not about who
- *  wrote it. Both are drawn in the unanalysed neutral and named for what they are. */
+ *  wrote it. Both are drawn in the unanalyzed neutral and named for what they are. */
 export function isAuthor(key: string | null): key is string {
   return key !== null && key !== UNCOMMITTED
 }
 
-/** Rank → colour. Beyond the palette, everything is "Other". */
+/** Rank → color. Beyond the palette, everything is "Other". */
 export function slotColor(rank: number): string {
   return rank < CATEGORICAL.length ? CATEGORICAL[rank] : OTHER
 }
 
 /** A ramped fill, the stop it sits nearest, and the ink that survives on it. The three
  *  move together and always have to: a caller that took the fill without the ink is how
- *  every label in the map came to be one colour over a ramp spanning 6:1 of lightness.
+ *  every label in the map came to be one color over a ramp spanning 6:1 of lightness.
  *  See `ink.ts`. */
 function ramped(v: number, ramp: Ramp = 'heat'): Paint {
   const stop = rampStop(v, ramp)
@@ -168,7 +168,7 @@ function ramped(v: number, ramp: Ramp = 'heat'): Paint {
 }
 
 /** What the ramp spans for a caller that has a node but not the tree it came from. A
- *  year, which is what the scale was fixed at before it was normalised. */
+ *  year, which is what the scale was fixed at before it was normalized. */
 const SPAN_UNKNOWN_DAYS = 365
 
 /** How far back this repo goes, in days, as the age ramp should span it.
@@ -191,10 +191,10 @@ export function ageSpanOf(root: Node): number {
  *  repo is a week old, so every wedge landed in the top few percent and the map was one flat
  *  green. The lens worked and the calibration was borrowed from somebody else's repo.
  *
- *  Normalising costs something real and it is worth saying out loud: a green wedge here and
+ *  Normalizing costs something real and it is worth saying out loud: a green wedge here and
  *  a green wedge in a ten-year-old repo are no longer the same fact. That is already true of
  *  every other lens on this map — surprise is calibrated per repo, churn is a share of a
- *  window, blame slots are ranked within one project — and a colour that means "old FOR
+ *  window, blame slots are ranked within one project — and a color that means "old FOR
  *  THIS CODEBASE" is the reading anybody actually wants. Cross-repo comparison was never
  *  something this app offered.
  *
@@ -229,7 +229,7 @@ function ageRamp(days: number, span: number): number {
  * and make every unread repo look pristine — the same trap `assessed` avoids by excluding
  * stale rather than counting it as progress.
  *
- * `null` when nothing under it has been read, which the caller paints grey. Absence stated,
+ * `null` when nothing under it has been read, which the caller paints gray. Absence stated,
  * never filled in.
  *
  * Walks the subtree on each call. That is affordable because every caller memoises container
@@ -256,7 +256,7 @@ function opaqueShare(node: Node): number | null {
  *
  *  **`derivable` forces it to `none`.** A doc a model could write from the body explains
  *  nothing that was not already there, so it must not paint a wedge as covered — the same
- *  rule `reportGrades` applies to the number, applied here to the colour, because a lens
+ *  rule `reportGrades` applies to the number, applied here to the color, because a lens
  *  that disagreed with the dial beside it would be two answers to one question. */
 function docGrade(n: Node): Grade | undefined {
   if (!n.agent || n.agentStale) return undefined
@@ -280,7 +280,7 @@ function docGrade(n: Node): Grade | undefined {
  * small files nobody has described. One reading is one vote, which is also what makes files
  * and functions addable at all.
  *
- * `null` when nothing underneath has been graded, which the caller paints grey — absence
+ * `null` when nothing underneath has been graded, which the caller paints gray — absence
  * stated, never filled in.
  */
 function undocShare(node: Node): number | null {
@@ -304,21 +304,21 @@ function undocShare(node: Node): number | null {
  * Whether this lens has nothing to say about this node — as opposed to something absent.
  *
  * The tooltip's swatch-and-label row states an absence rather than hiding it: `not measured
- * yet` is a fact about a function nobody has read, and dropping it would let grey pass for
+ * yet` is a fact about a function nobody has read, and dropping it would let gray pass for
  * cold. That rule needs an exception exactly where the absence is not a fact about the code
  * but about the QUESTION.
  *
  * Traps over a container is the case. A trap is one boolean a reader reported against one
  * body; a directory has no body and was never asked, so there is no reading to be missing.
  * A count of the ones underneath was tried and read worse: `16 traps` beside a neutral
- * swatch describes a colour nothing on screen is wearing, and it puts a roll-up in the one
+ * swatch describes a color nothing on screen is wearing, and it puts a roll-up in the one
  * slot on this card reserved for what the wedge itself is. The panel lists the sixteen by
  * name, which is what you would do with them anyway.
  *
  * Blame and Language over a DIRECTORY are the same shape and were missed with it. Both are
  * categorical — a directory is not written in a language and was not last committed to by
  * anybody; its files were. There is nothing to average and nothing to be missing, and
- * "not measured yet" over `web/src` under Language is the map apologising for a measurement
+ * "not measured yet" over `web/src` under Language is the map apologizing for a measurement
  * it correctly never took. A FILE has both and keeps its row, including the row that says
  * `not in git`, which IS a fact about that file.
  */
@@ -340,10 +340,10 @@ export interface Paint {
 }
 
 /**
- * The colour for one wedge under one mode, plus what to say about it.
+ * The color for one wedge under one mode, plus what to say about it.
  *
  * Returns null when the mode has nothing to say for this node — no history, no language,
- * nothing analysed. The caller paints those with the structural neutral rather than
+ * nothing analyzed. The caller paints those with the structural neutral rather than
  * inventing a value, which is the same rule the whole app follows: absence is stated,
  * never filled in.
  */
@@ -352,7 +352,7 @@ export function colorFor(
   mode: ColorMode,
   ranks?: Map<string, number>,
   /** The repo's own span for the age ramp, from `ageSpanOf(root)`. Optional because a
-   *  caller that has a node but not the tree it came from should still get a colour —
+   *  caller that has a node but not the tree it came from should still get a color —
    *  it falls back to the floor, which is the old fixed scale's short end. */
   ageSpan?: number,
 ): (Paint & { label: string }) | null {
@@ -363,7 +363,7 @@ export function colorFor(
     const share = showsShare(node)
     const t = share ? s.hotShare : s.surprise
     // The fill is calibrated and the label is not, and that split is the whole point:
-    // `shareRamp` decides where 9% lands on the colour bar, the label says 9%. Ramping
+    // `shareRamp` decides where 9% lands on the color bar, the label says 9%. Ramping
     // the printed number too would report the calibration as if it were the reading.
     // A function a reader read is named, not numbered — its scale has four steps and a
     // printed 62 claims otherwise. A container keeps its percentage: that one is a
@@ -386,7 +386,7 @@ export function colorFor(
     // unreadable is not "somewhat readable". That was wrong for the same reason it would be
     // wrong for surprise: nobody asks a directory to have a legibility, they ask HOW MUCH OF
     // IT is hard to read — and that is a share, which aggregates honestly. Leaving the inner
-    // rings grey also threw away the one thing the map can say that a list cannot, which is
+    // rings gray also threw away the one thing the map can say that a list cannot, which is
     // where the unreadable code CLUSTERS.
     if (showsShare(node)) {
       const share = opaqueShare(node)
@@ -421,7 +421,7 @@ export function colorFor(
       // `header: none` rather than "covers none": the word is a rung on a ladder, and a
       // sentence built round it has to bend for the bottom one.
       if (own) return { ...ramped(DOC_GAP[own], 'docs'), label: `header: ${DOC_WORDS[own]}` }
-      // A file nobody has read yet is grey, not an average of its functions. Its own header
+      // A file nobody has read yet is gray, not an average of its functions. Its own header
       // is the thing this lens asks a file about, and guessing it from the contents would
       // be the map answering a question nobody put to it.
       return null
@@ -449,7 +449,7 @@ export function colorFor(
   if (mode === 'traps') {
     // Two states and an absence, not a ramp: a trap is a boolean and shading it would
     // invent degrees of danger nobody reported. Read-and-clear is drawn in the structural
-    // neutral rather than left grey, because "a reader looked and found nothing" and
+    // neutral rather than left gray, because "a reader looked and found nothing" and
     // "nobody has looked" are opposite facts and this is the one lens where confusing them
     // would read as an all-clear.
     // `kind === 'func'` and not merely "has a reading": a FILE has one too, and `trap` is
@@ -500,14 +500,14 @@ export function colorFor(
     fill: slot,
     stop: slot,
     ink: inkOn(slot),
-    // The label names the value even when the colour is "Other", so identity is never
-    // carried by colour alone — which is what makes the 14.3 CVD margin legal.
+    // The label names the value even when the color is "Other", so identity is never
+    // carried by color alone — which is what makes the 14.3 CVD margin legal.
     label: key,
   }
 }
 
 /** Category → slot index, biggest first by lines. Computed once per scan so every wedge
- *  and the legend agree, and so a colour follows the entity rather than its position on
+ *  and the legend agree, and so a color follows the entity rather than its position on
  *  screen. */
 export function rankCategories(root: Node, mode: ColorMode): Map<string, number> {
   const m = new Map<string, number>()
@@ -515,7 +515,7 @@ export function rankCategories(root: Node, mode: ColorMode): Map<string, number>
   return m
 }
 
-/** One row of the panel's breakdown: a slice of the picture, its colour, and its members. */
+/** One row of the panel's breakdown: a slice of the picture, its color, and its members. */
 export interface Bucket {
   key: string
   label: string
@@ -548,7 +548,7 @@ const AGE_BANDS: { label: string; under: number }[] = [
 /**
  * The subtree broken into the slices the current mode is painting it in.
  *
- * **One walk, and the colours come from `colorFor`'s own inputs rather than a second
+ * **One walk, and the colors come from `colorFor`'s own inputs rather than a second
  * palette.** A panel that invented its own fills would be a legend disagreeing with the
  * map it sits beside — the failure `Spread` already calls out for the grade ramp, which is
  * why its segments are drawn from `heatColor` too.
@@ -558,12 +558,12 @@ const AGE_BANDS: { label: string; under: number }[] = [
  * drawn on the map, and the header still names them separately — what they are not is
  * silently folded into somebody's line count.
  *
- * A ramped mode's band takes the ramp colour at the MEAN of its members' ramp inputs, so
- * every swatch here is a colour actually on screen rather than a representative guess. The
- * bands are fixed and the colours are measured; doing it the other way round would put a
+ * A ramped mode's band takes the ramp color at the MEAN of its members' ramp inputs, so
+ * every swatch here is a color actually on screen rather than a representative guess. The
+ * bands are fixed and the colors are measured; doing it the other way round would put a
  * swatch in the key that no wedge is wearing.
  *
- * Whatever the mode cannot colour gets a final bucket in the structural neutral rather than
+ * Whatever the mode cannot color gets a final bucket in the structural neutral rather than
  * being dropped. Absence is stated, never filled in — and never quietly excluded from a
  * total either, which is how a breakdown comes to describe a subset of the picture.
  */
@@ -624,7 +624,7 @@ export function bucketsFor(
       if (mode === 'legible' || mode === 'docs' || mode === 'traps') {
         // Both are read straight off the reading, so both share one absence: a function
         // nobody has read yet. It is a bucket rather than a drop, for the same reason the
-        // map greys it rather than hiding it — a breakdown that silently omits the unread
+        // map grays it rather than hiding it — a breakdown that silently omits the unread
         // reports a coverage it has not got.
         const r = n.agent && !n.agentStale ? n.agent : undefined
         if (!r) {
@@ -662,12 +662,12 @@ export function bucketsFor(
           // unsaved" and "this file is not in git" are different things to be told.
           put('\u0000uncommitted', 'uncommitted lines', 'var(--unanalyzed)', n)
         } else {
-          // No blame at all: untracked, a symlink, or not a repo. It was labelled
+          // No blame at all: untracked, a symlink, or not a repo. It was labeled
           // `uncommitted`, which is the other thing entirely.
           put(UNKNOWN, mode === 'blame' ? 'not in git' : 'unknown', 'var(--unanalyzed)', n)
         }
       } else if (mode === 'churn') {
-        // Same gate `colorFor` uses, so a wedge the map left grey is not given a band here.
+        // Same gate `colorFor` uses, so a wedge the map left gray is not given a band here.
         if (s && s.ageDays !== null) {
           const band = CHURN_BANDS.find((b) => s.commits >= b.min) ?? CHURN_BANDS[CHURN_BANDS.length - 1]
           put(band.label, band.label, '', n, s.churn)
@@ -708,7 +708,7 @@ export function bucketsFor(
     // direction each ramp's own legend reads in (`crystal → nonsense`, `covered →
     // undocumented`). It was worst-first, so the same bar meant "getting worse" left to
     // right under Surprise and "getting better" under the two lenses beside it. Nothing was
-    // mis-COLOURED — bright has always been the thing to act on — but a reader moving
+    // mis-COLORED — bright has always been the thing to act on — but a reader moving
     // between tabs had to re-learn which way to read a row of five.
     const order: string[] = ['full', 'most', 'some', 'none']
     out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
@@ -716,7 +716,7 @@ export function bucketsFor(
     const order = mode === 'churn' ? CHURN_BANDS.map((b) => b.label) : AGE_BANDS.map((b) => b.label)
     out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
   }
-  // Whatever the mode could not colour goes last whichever way the rest is sorted: it is
+  // Whatever the mode could not color goes last whichever way the rest is sorted: it is
   // the one row that is not a value, and interleaving it by size would read as one.
   return [...out.filter((b) => b.key !== UNKNOWN), ...out.filter((b) => b.key === UNKNOWN)]
 }
@@ -727,7 +727,7 @@ export function legendFor(root: Node, mode: ColorMode): string[] {
   const seen = new Map<string, number>()
   const walk = (n: Node) => {
     const key = mode === 'blame' ? n.lastAuthor : n.lang
-    // Uncommitted lines never enter the ranking, so they cannot hold a colour slot.
+    // Uncommitted lines never enter the ranking, so they cannot hold a color slot.
     if (key && n.kind === 'func' && (mode !== 'blame' || isAuthor(key))) {
       seen.set(key, (seen.get(key) ?? 0) + n.loc)
     }

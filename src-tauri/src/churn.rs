@@ -25,7 +25,7 @@ const MAX_COMMITS: usize = 5000;
 
 /// Commits in the window at which a file counts as fully churning.
 ///
-/// An **absolute** anchor, not a percentile of the repo's own files. Normalising against
+/// An **absolute** anchor, not a percentile of the repo's own files. Normalizing against
 /// the repo sounds more adaptive and is a trap: a single generated artefact — a
 /// lockfile, a changelog, a vendored client — racks up hundreds of commits, becomes the
 /// denominator, and squashes every hand-written file to nearly zero churn, which is
@@ -65,7 +65,7 @@ pub struct History {
 }
 
 impl History {
-    /// Normalised 0..1 churn for a repo-relative path. See [`CHURN_SATURATION`] for why
+    /// Normalized 0..1 churn for a repo-relative path. See [`CHURN_SATURATION`] for why
     /// the scale is absolute rather than relative to the repo.
     pub fn churn_of(&self, path: &str) -> f32 {
         let Some(h) = self.files.get(path) else {
@@ -74,7 +74,7 @@ impl History {
         (h.recent_commits as f32 / CHURN_SATURATION).clamp(0.0, 1.0)
     }
 
-    /// Raw commits in the window. The normalised `churn_of` is what the maths uses; this
+    /// Raw commits in the window. The normalized `churn_of` is what the math uses; this
     /// is what a person can act on — "changed 14 times since May" means something,
     /// "churn 100%" does not.
     pub fn commits_of(&self, path: &str) -> u32 {

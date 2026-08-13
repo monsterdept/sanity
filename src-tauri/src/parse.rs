@@ -251,7 +251,7 @@ fn func_kinds(lang: Lang) -> &'static [&'static str] {
 }
 
 /// `const Foo = () => {…}` is a function; `const n = 4` is not. Only accept a
-/// declarator whose initialiser is itself a function.
+/// declarator whose initializer is itself a function.
 fn declarator_is_function(node: TsNode) -> bool {
     node.child_by_field_name("value").is_some_and(|v| {
         matches!(
@@ -267,7 +267,7 @@ fn text<'a>(node: TsNode, src: &'a str) -> &'a str {
 
 /// Comment lines sitting directly above the definition, with no blank line between.
 ///
-/// The adjacency check is most of the trick: a licence header at the top of the file is a
+/// The adjacency check is most of the trick: a license header at the top of the file is a
 /// comment immediately preceding the first function in token order, and counting it as
 /// that function's documentation would cool the file's first wedge on every scan.
 ///
@@ -524,13 +524,13 @@ fn strip_comment_markers(raw: &str) -> String {
 /// reader predicting confidently from half a description.
 const FILE_DOC_MAX: usize = 600;
 
-/// Markers that say a header is a licence rather than an explanation.
+/// Markers that say a header is a license rather than an explanation.
 ///
-/// A licence block is the single most common thing at the top of a file and it explains
+/// A license block is the single most common thing at the top of a file and it explains
 /// nothing about the code — feeding it to a reader would spend the payload on boilerplate
 /// and, worse, dress every file in the repo in identical prose, which is exactly the kind
 /// of text that makes unrelated functions look like they share context.
-const LICENCE_MARKERS: &[&str] = &[
+const LICENSE_MARKERS: &[&str] = &[
     "copyright",
     "spdx-license-identifier",
     "licensed under",
@@ -589,7 +589,7 @@ pub fn file_doc(lang: Lang, src: &str) -> Option<String> {
             for child in root.children(&mut cursor) {
                 let k = child.kind();
                 if k.contains("comment") {
-                    // A blank line ends a run. Without this a licence, a banner and the
+                    // A blank line ends a run. Without this a license, a banner and the
                     // first item's own doc comment all merge into one block, and the
                     // adjacency rule below then throws away the banner along with the doc.
                     if !open_run.is_empty() && child.start_position().row > last_end + 1 {
@@ -645,11 +645,11 @@ pub fn file_doc(lang: Lang, src: &str) -> Option<String> {
     }?;
 
     let doc = raw.trim();
-    // A licence is not an explanation. Checked over the whole header rather than line by
+    // A license is not an explanation. Checked over the whole header rather than line by
     // line: stripping the matching lines leaves fragments — "This file is part of Foo", a
     // lone asterisk — that read as a description and are not one.
     let lower = doc.to_lowercase();
-    if LICENCE_MARKERS.iter().any(|m| lower.contains(m)) {
+    if LICENSE_MARKERS.iter().any(|m| lower.contains(m)) {
         return None;
     }
     if doc.is_empty() {
@@ -935,7 +935,7 @@ fn body_node<'a>(node: TsNode<'a>, lang: Lang) -> Option<TsNode<'a>> {
         // CMake calls it `body` too, but as a node kind rather than a field — so the
         // field lookup above misses it and it has to be matched by name.
         Lang::Cmake => "body",
-        // `const Foo = () => {}` hangs the body off the initialiser, not the declarator.
+        // `const Foo = () => {}` hangs the body off the initializer, not the declarator.
         _ => {
             return node
                 .child_by_field_name("value")
@@ -1071,7 +1071,7 @@ fn undocumented() {
 
     #[test]
     fn a_blank_line_severs_a_comment_from_the_function() {
-        // Otherwise every file's licence header documents its first function.
+        // Otherwise every file's license header documents its first function.
         let src = "// SPDX-License-Identifier: MIT\n\nfn thing() { }\n";
         assert!(parse_functions(Lang::Rust, src)[0].doc.is_none());
     }
@@ -1126,11 +1126,11 @@ class Store {
 
     /// The one comment every file has, and the one that explains nothing.
     ///
-    /// A licence at the top of a file would otherwise become the module header of most of
+    /// A license at the top of a file would otherwise become the module header of most of
     /// the open-source world — priced per reading, identical across every file in the repo,
     /// and describing none of them.
     #[test]
-    fn a_licence_header_is_not_documentation() {
+    fn a_license_header_is_not_documentation() {
         let src = "// Copyright 2019 Someone\n// Licensed under the Apache License.\n\nfunc go() {}\n";
         assert_eq!(file_doc(Lang::Go, src), None);
     }
@@ -1324,7 +1324,7 @@ fn free_standing() -> u8 { 0 }
     ///
     /// The doc walk used to climb three parents and take the first comment it found, so
     /// `Context.init` was handed the `SentenceSuggester` class docstring. The reader was
-    /// then asked to predict an initialiser from a paragraph about filter enforcement,
+    /// then asked to predict an initializer from a paragraph about filter enforcement,
     /// guessed wrong, and the wedge read hot — a surprise the instrument invented, and
     /// indistinguishable in the output from one it measured.
     #[test]

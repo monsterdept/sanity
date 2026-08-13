@@ -3,7 +3,7 @@
 //! The pipeline, in the order it runs:
 //!
 //! ```text
-//!   scan.rs      walk the repo (honouring .gitignore), group files by directory
+//!   scan.rs      walk the repo (honoring .gitignore), group files by directory
 //!   parse.rs     tree-sitter → functions, with signatures and doc comments
 //!   heuristic.rs the offline surprise proxy + the measured doc-coverage term
 //!   surprise.rs  the model-backed scorer, when one is available
@@ -11,9 +11,9 @@
 //!   model.rs     the tree, LOC-weighted aggregation, temperature and quadrants
 //! ```
 //!
-//! The one invariant worth stating at the top: **size is lines, colour is
+//! The one invariant worth stating at the top: **size is lines, color is
 //! surprise, and they are independent.** Size is the axis everyone copies and the axis
-//! that tells you nothing. Colour is the product.
+//! that tells you nothing. Color is the product.
 
 pub mod agentapi;
 pub mod assessment;
@@ -112,7 +112,7 @@ impl ThemeMenu {
 ///
 /// The menu is otherwise the platform default, rebuilt rather than extended because Tauri
 /// gives no way to insert items into the stock menu. Everything else here is a predefined
-/// item, so the standard behaviours (Hide, Quit, copy/paste, ⌘W) stay the system's rather
+/// item, so the standard behaviors (Hide, Quit, copy/paste, ⌘W) stay the system's rather
 /// than being reimplemented badly.
 #[cfg(target_os = "macos")]
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<(tauri::menu::Menu<tauri::Wry>, ThemeMenu)> {
@@ -156,7 +156,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<(tauri::menu::Menu<tauri:
     let file_menu = Submenu::with_items(app, "File", true, &[&open_item])?;
 
     // Without an Edit menu the standard clipboard shortcuts stop working in text fields —
-    // on macOS ⌘C and ⌘V are menu items, not free behaviour, so replacing the stock menu
+    // on macOS ⌘C and ⌘V are menu items, not free behavior, so replacing the stock menu
     // silently breaks typing anywhere until they are put back.
     let edit_menu = Submenu::with_items(
         app,

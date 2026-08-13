@@ -18,7 +18,7 @@
 //!   uses, so a probe built on it inherits `.gitignore` for free and cannot disagree with the
 //!   scan about which files are the user's code. A watcher would need that filter rebuilt, and
 //!   a rebuilt filter is a second opinion about `node_modules`.
-//! - **Recursive watches are platform behaviour.** FSEvents coalesces and can drop under load,
+//! - **Recursive watches are platform behavior.** FSEvents coalesces and can drop under load,
 //!   inotify has per-user watch limits a large repo can exhaust, and both need a debounce whose
 //!   correct value differs by platform. A stat walk behaves identically everywhere and is
 //!   trivially testable.

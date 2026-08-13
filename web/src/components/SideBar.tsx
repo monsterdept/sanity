@@ -21,7 +21,7 @@ import { readable, stopCheck, type AgentActivity, type ProjectSummary } from '..
 // The floor offset that used to live here was for `align-items: last baseline`, which
 // stood the creature on the underline of the last word — the right alignment for a label
 // that ran to two and three lines ("AGENT IS WORKING"). One word has no paragraph to stand
-// on, so the row centres instead and all that is left is a small nudge.
+// on, so the row centers instead and all that is left is a small nudge.
 const MASCOT_SIZE = 40
 
 /** How far the mascot moves to sit level with a single line of type. Negative is up.
@@ -100,11 +100,11 @@ export function SideBar({
         {/* The `+` is back, and the reason it went is worth keeping here because it was a
             good reason. A project used to arrive exactly one way — an agent called
             `sanity_open` in the repo it was already working in — so opening by hand was a
-            dead end that got you four lenses and a grey map, which is the app with its
+            dead end that got you four lenses and a gray map, which is the app with its
             reason for existing removed.
             What changed is the reader. It has no filesystem and no working directory now,
             so it cannot name a repo at all, and somebody has to: adding is the entrance
-            rather than a sideshow, and every project is grey until it has been read.
+            rather than a sideshow, and every project is gray until it has been read.
             The other objection was not an argument, it was a bug — this picker once took a
             whole directory of repos and set thirty minutes of CPU on fire — and it is
             guarded in `add_project` rather than avoided by removing the button. */}
@@ -241,7 +241,7 @@ function ProjectItem({
           block behind the row is the same visual idea at a different width, and a
           half-finished project read as half-selected.
           An edge rule shares nothing with either. It is inside the row's own height, so it
-          still costs nothing, and it is drawn in the mark colour readings already use rather
+          still costs nothing, and it is drawn in the mark color readings already use rather
           than the accent that means "selected". */}
       {!project.loading && total > 0 && project.assessed > 0 && (
         <span
@@ -412,7 +412,7 @@ function AgentPanel({
           transition: 'background 200ms, border-color 200ms, color 200ms',
         }}
       >
-        {/* Centred, not stood on a baseline. The baseline trick existed because the label
+        {/* Centered, not stood on a baseline. The baseline trick existed because the label
             ran to two and three lines — "AGENT IS WORKING" — and a mascot aligned to the
             middle of a paragraph floats. One word has no paragraph to align to, so the two
             objects simply sit level, and the word takes the height that frees up.

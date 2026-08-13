@@ -11,7 +11,7 @@
 //!
 //! The obvious protocol is to hand the agent a function and ask whether it understood.
 //! It will say yes; models asked to rate their own comprehension almost always do. So the
-//! queue hands out **signature, name and neighbours — never the body.** The agent commits
+//! queue hands out **signature, name and neighbors — never the body.** The agent commits
 //! to what it expects, *then* opens the file itself and reports where it was wrong.
 //!
 //! That is the same contrastive shape that made the token-level hotspots trustworthy, and
@@ -381,7 +381,7 @@ impl AppState {
     ///
     /// `touched` is the right fallback because it means what this needs it to mean: every
     /// open bumps it, nothing else does, and no view moves it. It restores exactly the
-    /// behaviour keyless callers had before the split, without tying it back to a pane.
+    /// behavior keyless callers had before the split, without tying it back to a pane.
     ///
     /// It remains a fallback and not a mechanism. A shim that handled `sanity_open` sends
     /// its key on every call and never comes through here.
@@ -467,7 +467,7 @@ impl AppState {
             .map(|(k, _)| k)
             .collect();
         // Sorted, because a HashMap's order is not one: two repos that both hold an id
-        // must not resolve differently between two calls. Ties break towards the most
+        // must not resolve differently between two calls. Ties break toward the most
         // recently opened, which is the closest thing to an intent we have left.
         found.sort();
         match found.len() {
@@ -649,7 +649,7 @@ pub struct Event {
     /// one quarter of it.
     ///
     /// **A bare `most` in a scrolling list says nothing.** The CLI printed `predicted`
-    /// alone, unlabelled, so a run scrolled a column of `full`/`some`/`none` past somebody
+    /// alone, unlabeled, so a run scrolled a column of `full`/`some`/`none` past somebody
     /// with no way to know which question they answered — and three of the four axes a
     /// reader grades never reached the terminal at all. They cost a few bytes on a poll
     /// that already carries the name.
@@ -662,7 +662,7 @@ pub struct Event {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub legible: Option<Grade>,
     /// Whether the docs could have been written from the code alone. Not a grade, and the
-    /// defence against generated documentation counting as documentation.
+    /// defense against generated documentation counting as documentation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub derivable: Option<bool>,
 }
@@ -780,7 +780,7 @@ pub struct Task {
     /// before the code, so predicting without them measures a harder question than anyone
     /// actually faces.
     ///
-    /// It used to be the whole stack, the chunk's doc and then the file's, in one unlabelled
+    /// It used to be the whole stack, the chunk's doc and then the file's, in one unlabeled
     /// array. That was fine while file headers were rare and became a defect the day they
     /// were collected for every file: two readers in one wave reported a module's header as
     /// the function's own documentation, and one of them graded it against the wrong subject.
@@ -835,7 +835,7 @@ unset — both are judgements about one body.";
 ///
 /// Deliberately not a 0-100. A model asked for a number emits one, but 73 versus 68 is
 /// noise: it is not stable across runs on unchanged code, and an unstable score quietly
-/// destroys the thing the layout works hardest to protect — recognising the shape you
+/// destroys the thing the layout works hardest to protect — recognizing the shape you
 /// saw last time. Four steps are a judgement a reader can actually make and repeat. The
 /// arithmetic stays here, where it is inspectable, rather than in the model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -845,7 +845,7 @@ pub enum Grade {
     Full,
     /// Broadly right, with a detail that wasn't obvious.
     Most,
-    /// Recognisable, but the body does real work the prediction didn't cover.
+    /// Recognizable, but the body does real work the prediction didn't cover.
     Some,
     /// The prediction did not describe this code.
     None,
@@ -925,7 +925,7 @@ pub struct Report {
     /// different verdicts and scored identically.
     ///
     /// It is free to ask, because by the time this is filled in the reader has read the
-    /// body anyway. And it is the half that inline comments legitimately count towards —
+    /// body anyway. And it is the half that inline comments legitimately count toward —
     /// they are invisible to `predicted` by construction, since they live inside the thing
     /// being predicted, and feeding them to the predictor would be handing over the answer.
     #[serde(default)]
@@ -947,7 +947,7 @@ pub struct Report {
     /// disagree: a perfectly clear body with a mine under it reads as safe.
     ///
     /// It is also what makes a notes list usable. Notes conflate defects, missing
-    /// documentation and readers apologising for their own misreadings; nothing but the
+    /// documentation and readers apologizing for their own misreadings; nothing but the
     /// reader knows which it wrote, and this is it saying so.
     #[serde(default)]
     pub trap: bool,
@@ -1085,8 +1085,8 @@ pub struct Report {
     /// is exactly how a whole repo's readings lost `derivable`.
     ///
     /// The grade itself is NOT cleared. It is what a reader said, and the panel shows it as
-    /// history the same way it shows a stale reading; what it must not do is colour a wedge
-    /// or count towards a dial. Deleting the reader's answer to make the display simpler
+    /// history the same way it shows a stale reading; what it must not do is color a wedge
+    /// or count toward a dial. Deleting the reader's answer to make the display simpler
     /// would be destroying evidence to avoid writing a conditional.
     #[serde(default, rename = "legibleDated")]
     pub legible_dated: bool,
@@ -1178,9 +1178,9 @@ impl Report {
 /// contract. It is by a distance the largest thing we control, and it was invisible until
 /// `just tokens` was pointed at a repo with big files.
 ///
-/// Twenty, centred on the function, because the value was never a census. "What else is in
-/// this file" is a claim about the neighbourhood, and the findings this field earns — a
-/// test named for a property its neighbours show it does not have — come from the
+/// Twenty, centered on the function, because the value was never a census. "What else is in
+/// this file" is a claim about the neighborhood, and the findings this field earns — a
+/// test named for a property its neighbors show it does not have — come from the
 /// functions either side. Five hundred names are not five hundred times as informative.
 ///
 /// The remainder is reported rather than dropped: a reader handed twenty names with no
@@ -1189,9 +1189,9 @@ const PEER_WINDOW: usize = 20;
 
 /// The functions either side of this one, and how many were left out.
 ///
-/// Centred where it can be, and sliding to the edges where it cannot — the first function
+/// Centered where it can be, and sliding to the edges where it cannot — the first function
 /// in a file gets twenty below it rather than ten of nothing and ten below.
-fn neighbours(names: &[String], i: usize) -> (Vec<String>, usize) {
+fn neighbors(names: &[String], i: usize) -> (Vec<String>, usize) {
     if names.len() <= PEER_WINDOW + 1 {
         let peers: Vec<String> = names
             .iter()
@@ -1337,7 +1337,7 @@ fn collect_tasks(
                     owner: None,
                     signature: String::new(),
                     // Every declaration, not a window. The window exists because a function
-                    // needs its NEIGHBOURS and a file's list of two hundred is mostly noise
+                    // needs its NEIGHBORS and a file's list of two hundred is mostly noise
                     // to it; a file reading is a judgement about exactly that list, so
                     // truncating it would be asking about a file while hiding part of it.
                     peers: node
@@ -1363,7 +1363,7 @@ fn collect_tasks(
         // Qualified by owner, and kept in FILE ORDER rather than sorted. Order is what
         // makes the window below mean something: the functions either side of this one are
         // what a person scrolling past would see, and the findings this field actually
-        // produces — a test whose name promises more than its neighbours deliver — come
+        // produces — a test whose name promises more than its neighbors deliver — come
         // from that adjacency, not from an alphabetical census.
         let names: Vec<String> = node
             .children
@@ -1373,7 +1373,7 @@ fn collect_tasks(
         // AFTER the file's own task, which already carries the complete list and must not
         // have it replaced by a function's window.
         let before = out.len();
-        // Which child produced which task, so each one gets its own neighbourhood. Not
+        // Which child produced which task, so each one gets its own neighborhood. Not
         // every child yields a task — read and leased ones are skipped — so the index
         // cannot be inferred from position in `out`.
         let mut from: Vec<usize> = Vec::new();
@@ -1383,7 +1383,7 @@ fn collect_tasks(
             from.extend(std::iter::repeat_n(i, out.len() - mark));
         }
         for (k, (_, t)) in out.iter_mut().skip(before).enumerate() {
-            let (peers, omitted) = neighbours(&names, from[k]);
+            let (peers, omitted) = neighbors(&names, from[k]);
             t.peers = peers;
             t.peers_omitted = omitted;
         }
@@ -1755,7 +1755,7 @@ pub fn reader_prompt(n: usize) -> String {
 /// second of Rust and would be thousands of tokens of agent time. The agent supplies the
 /// part only it can: judgement about whether the code reads the way its name implies.
 ///
-/// Scored with the offline proxy only, so every wedge starts grey. Nothing claims to have
+/// Scored with the offline proxy only, so every wedge starts gray. Nothing claims to have
 /// been understood until something actually reads it.
 /// Which repo an `/open` is about, given what the human has already added.
 ///
@@ -3073,8 +3073,8 @@ async fn run_wave(
         // Sized by the work AND by what is left of the limit.
         //
         // A reader does ten readings, so a wave is `readers × 10` and the limit could only
-        // ever be honoured to that granularity — measured on a real run, `--limit 6` with
-        // two readers banked 19. That is the documented behaviour and it makes a small cap
+        // ever be honored to that granularity — measured on a real run, `--limit 6` with
+        // two readers banked 19. That is the documented behavior and it makes a small cap
         // useless, which matters because a small cap is exactly what somebody sets to try
         // this cheaply. Spawning `ceil(left / 10)` readers brings the smallest step down to
         // ten, and the run still reports what it actually did rather than what was asked.
@@ -3613,7 +3613,7 @@ pub struct ReportRequest {
 /// reasoning lives), and this hint names it for the reader that hits the case regardless.
 fn mangled(r: &Report) -> Option<&'static str> {
     // The grades are what the guard is protecting. `predicted` folds to `Full` when
-    // absent, so its loss is the expensive one; the other two go grey, which is a smaller
+    // absent, so its loss is the expensive one; the other two go gray, which is a smaller
     // lie but still one this build asked a reader for and did not get.
     if r.predicted.is_some() && r.documented.is_some() && r.legible.is_some() {
         return None;
@@ -3775,7 +3775,7 @@ async fn report(
     // grades that mean the reader was actually caught out — the same test the surprise
     // rate is counted with, so the mascot and the hint cannot disagree about what
     // "surprising" means. A report landing on an id that already held one is a re-read of
-    // work that expired, which is honest labour but not news.
+    // work that expired, which is honest labor but not news.
     let outcome = if project.reports.contains_key(&r.id) {
         "sanity_report:stale"
     } else if matches!(r.grades().0, Grade::Some | Grade::None) {
@@ -4022,7 +4022,7 @@ async fn status(
                 "assessment_file": crate::assessment::dir(&p.repo).to_string_lossy(),
                 "done": remaining == 0,
                 "next_step": if remaining == 0 {
-                    "Every function has an up-to-date reading. Summarise the surprises.".to_string()
+                    "Every function has an up-to-date reading. Summarize the surprises.".to_string()
                 } else if remaining == in_flight {
                     format!(
                         "{remaining} still unread, all of them out with readers right now. \
@@ -4123,7 +4123,7 @@ impl Tally {
         self.documented.add(documented);
         self.derivable += usize::from(r.derivable);
         // A grade from a superseded question lands in `ungraded`, not in its rung. The map
-        // stops colouring those wedges, and an aggregate that kept counting them would be
+        // stops coloring those wedges, and an aggregate that kept counting them would be
         // the orchestrator's copy of the answer disagreeing with the human's — the same
         // split `assessed` was fixed for, where the optimistic number was the one making
         // decisions.
@@ -4214,7 +4214,7 @@ fn aggregate(project: &Project) -> Aggregate {
 /// answering without a backend cannot drift from the endpoint answering with one.
 pub fn aggregate_of(scan: &Scan, reports: &HashMap<String, Report>) -> Aggregate {
     let mut agg = Aggregate::default();
-    // Through `each_unit`, so `.sanityignore` is honoured here as it is everywhere else —
+    // Through `each_unit`, so `.sanityignore` is honored here as it is everywhere else —
     // the aggregate is what `sanity summary` prints, and counting readings the queue would
     // never hand out is the same overstatement one level along.
     each_unit(scan, &mut |node| {
@@ -5682,35 +5682,35 @@ fn second() { println!(\"2\"); }\n").unwrap();
         );
     }
 
-    /// A big file hands over its neighbourhood, and says how much it left out.
+    /// A big file hands over its neighborhood, and says how much it left out.
     ///
     /// The whole-file list was 91% of tonepoet's median task payload, 30k characters at its
     /// p90. What a truncated list must never do is look complete.
     #[test]
-    fn a_long_file_sends_the_neighbourhood_and_counts_the_rest() {
+    fn a_long_file_sends_the_neighborhood_and_counts_the_rest() {
         let names: Vec<String> = (0..100).map(|i| format!("fn_{i:02}")).collect();
 
-        // Middle of the file: centred, and the remainder is stated rather than dropped.
-        let (peers, omitted) = neighbours(&names, 50);
+        // Middle of the file: centered, and the remainder is stated rather than dropped.
+        let (peers, omitted) = neighbors(&names, 50);
         assert_eq!(peers.len(), PEER_WINDOW);
         assert_eq!(omitted, 99 - PEER_WINDOW);
         assert!(!peers.contains(&"fn_50".to_string()), "never its own peer");
         assert!(peers.contains(&"fn_49".to_string()) && peers.contains(&"fn_51".to_string()));
 
         // First in the file: the window slides rather than half-emptying.
-        let (peers, omitted) = neighbours(&names, 0);
+        let (peers, omitted) = neighbors(&names, 0);
         assert_eq!(peers.len(), PEER_WINDOW);
         assert_eq!(omitted, 99 - PEER_WINDOW);
         assert!(peers.contains(&"fn_01".to_string()));
 
         // Last, likewise.
-        let (peers, _) = neighbours(&names, 99);
+        let (peers, _) = neighbors(&names, 99);
         assert_eq!(peers.len(), PEER_WINDOW);
         assert!(peers.contains(&"fn_98".to_string()));
 
         // A file that fits is handed over whole, and says so with a zero.
         let small: Vec<String> = (0..5).map(|i| format!("f{i}")).collect();
-        let (peers, omitted) = neighbours(&small, 2);
+        let (peers, omitted) = neighbors(&small, 2);
         assert_eq!(peers.len(), 4);
         assert_eq!(omitted, 0);
     }
@@ -5924,7 +5924,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
         assert_eq!(out["ok"], true, "{out}");
         let src = out["source"].as_str().unwrap();
         assert!(src.contains(&task.name), "the body served was not this function's");
-        // The neighbour is the test. An unbounded read hands the reader the body of a
+        // The neighbor is the test. An unbounded read hands the reader the body of a
         // function it has not predicted yet, which is the read-ahead the ordering exists
         // to prevent.
         let other = if task.name == "one" { "SECRET" } else { "\"1\"" };
@@ -6189,7 +6189,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
     /// A named project that is not loaded must not be answered for by another one.
     ///
     /// The shim carries the project key so the model cannot lose it; that only helps if
-    /// the key is honoured or refused, never quietly replaced. Falling back to `active`
+    /// the key is honored or refused, never quietly replaced. Falling back to `active`
     /// here would write one repo's reading into another repo's `.sanity/`, correctly
     /// hashed and attributed, with nothing anywhere to say it happened.
     #[test]

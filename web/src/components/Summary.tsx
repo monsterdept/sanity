@@ -96,7 +96,7 @@ function ListWindow({
   rows: Node[]
   onSelect?: (n: Node) => void
   goTo: (n: Node) => void
-  /** The row's swatch — the same colour the wedge is wearing, from `colorFor`. Defaults to
+  /** The row's swatch — the same color the wedge is wearing, from `colorFor`. Defaults to
    *  the reading's heat, which is what the surprise panel wants. The trailing text is not a
    *  caller's business: it is `rowNote`, so no list can end up restating its own heading. */
   paint?: (n: Node) => { fill: string }
@@ -167,7 +167,7 @@ function ListWindow({
  * The spread of readings, as one bar and its key.
  *
  * Segments in grade order, cold to hot, painted from the SAME ramp as the wedges — a
- * panel that invented its own four colours would be a second legend disagreeing with the
+ * panel that invented its own four colors would be a second legend disagreeing with the
  * first. Unread and expired are their own segments in the structural neutral, never
  * folded into `cold`: "nobody looked" and "a reader predicted it exactly" are opposite
  * findings, and stacking them together is how a map claims coverage it hasn't got.
@@ -368,7 +368,7 @@ function Buckets({
  * not picked a wedge yet.
  *
  * Everything here is counted off `node` — the subtree the map is currently showing — for
- * the same reason `ColourLegend` counts its hatches off `focus`: drilled two levels in,
+ * the same reason `ColorLegend` counts its hatches off `focus`: drilled two levels in,
  * repo-wide numbers annotate a picture nobody is looking at. The sidebar row remains the
  * repo-wide count, and the header names what this one covers so the two can never be
  * mistaken for each other.
@@ -407,7 +407,7 @@ export function Summary({
    *  nothing else, and under Blame they were a page of confident numbers about a quantity
    *  the rings in front of you were not showing. */
   mode: ColorMode
-  /** Category → colour slot, so a row's swatch is the wedge's own colour. */
+  /** Category → color slot, so a row's swatch is the wedge's own color. */
   ranks?: Map<string, number>
   /** The repo's age span — see `ageSpanOf`. Threaded rather than derived from `node`,
    *  which is the drilled-into subtree and would put this panel on its own scale. */
@@ -430,7 +430,7 @@ export function Summary({
    *  `null` means "not chosen", which is not the same as "none" — an unchosen panel falls
    *  back to the hottest grade that has anything in it, so opening a repo lands on the
    *  readings worth looking at rather than on an empty `full`. Held as an absence rather
-   *  than initialised to that grade because the repo can change under the panel, and a
+   *  than initialized to that grade because the repo can change under the panel, and a
    *  remembered default would then be a choice nobody made. */
   const [picked, setPicked] = useState<Grade | null>(null)
   const shown: Grade =
@@ -513,7 +513,7 @@ export function Summary({
               <Buckets buckets={buckets} picked={bucket?.key ?? null} onPick={setPickedBucket} />
             ) : (
               // No legibility bar and no traps chip here any more: both are lenses of their
-              // own, and a panel that also summarises the other two makes the Surprise tab a
+              // own, and a panel that also summarizes the other two makes the Surprise tab a
               // dashboard rather than an answer to one question.
               <Spread
                 spread={s.spread}
@@ -553,7 +553,7 @@ export function Summary({
                 </p>
               </div>
               {/* Painted by the same call the wedge is, so the swatch beside a name in this
-                  list is the colour that name is wearing on the map. `colorFor` returns null
+                  list is the color that name is wearing on the map. `colorFor` returns null
                   for what the mode cannot speak about, which is exactly the "no git history"
                   bucket — those take the neutral, and the label says why rather than showing
                   a blank. */}
@@ -618,7 +618,7 @@ export function Summary({
           them, they are sentences about nothing: the reader cannot see the signature, the
           docs, the grades or the body any of them is qualifying, which is exactly the
           context the panel supplies when you have a wedge selected. The list said WHICH
-          functions have something to say — and the map already says that, in the colour it
+          functions have something to say — and the map already says that, in the color it
           is painted, and the readings list above says it by name.
 
           So a note is shown where it means something: on the function it was written about,

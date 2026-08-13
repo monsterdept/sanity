@@ -5,15 +5,15 @@
  * spans a 6:1 range of lightness, so that cannot work at both ends and did not: in light
  * mode, Ink on `--heat-0` is 2.2:1, and a file full of hot functions had its names sunk
  * into their own wedges. Flipping the pair with the THEME does not fix it, it moves the
- * failure to the other end of the ramp — the wedge's colour is the reading, and the
+ * failure to the other end of the ramp — the wedge's color is the reading, and the
  * reading does not care what the app's chrome is set to.
  *
  * This is the answer the separation treatments were reaching for and is not one of them.
  * Halo, shadow and plate all tried to insert something BETWEEN the name and the fill,
  * which is why all three lost: the halo reads as outlined type, the plate covers the very
- * colour the label stands on, the shadow is a wash. Choosing the ink adds nothing to the
+ * color the label stands on, the shadow is a wash. Choosing the ink adds nothing to the
  * picture at all — it is still plain type on the wedge, the decision `labelStyle` settled
- * — it just stops picking the wrong one of the two colours the app already has.
+ * — it just stops picking the wrong one of the two colors the app already has.
  *
  * There is no threshold constant here on purpose. The rule is "whichever contrasts more",
  * computed, so the palette can move without a number here quietly going stale — the same
@@ -28,7 +28,7 @@ export const PAPER = '#f5f1ea'
 export const INK = '#1a1a1a'
 
 /** What a label takes when nothing said what it is standing on — the app's own chrome
- *  colour, which is the right answer for anything drawn on the pane rather than on a
+ *  color, which is the right answer for anything drawn on the pane rather than on a
  *  wedge, and the safe answer for a fill this cannot read. */
 export const CHROME_INK = 'var(--foreground)'
 
@@ -38,14 +38,14 @@ export const CHROME_INK = 'var(--foreground)'
  *
  * Only property names, never a `color-mix()` or a computed fill: a mix is resolved by the
  * renderer, in oklch, and nothing exposes the result to JavaScript — which is what
- * `rampStop` exists to route around. A name that will not resolve to a plain colour falls
+ * `rampStop` exists to route around. A name that will not resolve to a plain color falls
  * back to the chrome ink rather than to a guess, on the rule the rest of this codebase
  * follows: state what you have got.
  *
  * `alpha` is the wedge's `fillOpacity`, and it is not optional detail: a directory plate
  * under Surprise is drawn at 0.6 (see `heatShare`), so what the eye receives is the stop
- * composited over the pane, not the stop. Measuring the declared colour there picks the
- * ink for a colour nobody is looking at — on light paper a damped `--heat-0` plate is
+ * composited over the pane, not the stop. Measuring the declared color there picks the
+ * ink for a color nobody is looking at — on light paper a damped `--heat-0` plate is
  * pale, and the undamped answer would set Paper on it.
  */
 export function inkOn(token: string, alpha = 1): string {
@@ -91,7 +91,7 @@ function luminance(hex: string): number {
 }
 
 /** Luminance of `hex` painted at `alpha` over `ground`. Composited per CHANNEL, in linear
- *  light — the compositor works on colours, and averaging two luminances instead would
+ *  light — the compositor works on colors, and averaging two luminances instead would
  *  give a different answer wherever the two differ in hue, which is everywhere here. */
 function over(hex: string, ground: string, alpha: number): number {
   const [a, b] = [srgb(hex), srgb(ground)]

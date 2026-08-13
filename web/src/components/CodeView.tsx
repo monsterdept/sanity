@@ -5,13 +5,13 @@ import { heatColor, isAnalyzed, paintHeat, readSource, type Node } from '../lib/
  * Rough syntax highlighting for the six languages the scanner parses.
  *
  * Deliberately a small tokenizer and not a highlighting library. What this view is for
- * is READING HEAT — the colour that matters is the heat gutter, and syntax is scenery
+ * is READING HEAT — the color that matters is the heat gutter, and syntax is scenery
  * that stops the page looking like a log file. A real highlighter would be a dependency,
  * a bundle, and a second grammar to keep in step with the tree-sitter ones that already
  * decide what a function is.
  *
  * It is approximate and says so: it does not track state across lines, so a multi-line
- * string containing `//` will mis-colour. That is an acceptable failure for scenery and
+ * string containing `//` will mis-color. That is an acceptable failure for scenery and
  * would not be for the metric.
  */
 const KEYWORDS =
@@ -81,7 +81,7 @@ function rampAt(stops: Array<[number, number, number]>, t: number): string {
  * file, visible without scrolling, and clickable to get there.
  *
  * The code is drawn as one bar per line from its indent to its end — the indentation
- * profile is what the eye actually uses to recognise a place in a file, and drawing
+ * profile is what the eye actually uses to recognize a place in a file, and drawing
  * glyphs at this scale costs far more and reads as noise.
  */
 function Minimap({
@@ -165,7 +165,7 @@ function Minimap({
     ctx.globalAlpha = 1
   }, [lines, owners, scroller, scrollTick, insetTop])
 
-  // Click or drag anywhere on it to go there, centred on the pointer like VS Code's.
+  // Click or drag anywhere on it to go there, centered on the pointer like VS Code's.
   const seek = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const box = scroller.current
     const canvas = ref.current
@@ -329,7 +329,7 @@ export function CodeView({
                 // The reading, as a wash behind the whole chunk.
                 //
                 // Background and text are different channels, so this doesn't fight the
-                // syntax colours the way tinting the code itself would — and at a fixed
+                // syntax colors the way tinting the code itself would — and at a fixed
                 // 16% the ramp carries the value while the text stays at full contrast.
                 // Fixed rather than scaled by heat: fading the alpha with the reading
                 // would encode the same number twice, and the cool end would disappear

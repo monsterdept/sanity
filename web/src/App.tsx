@@ -52,7 +52,7 @@ import { populationOf } from './lib/population'
 import { dismissSplash } from './lib/splash'
 import { loadTheme, saveTheme, watchSystemTheme, type Theme } from './lib/theme'
 import { CodeView } from './components/CodeView'
-import { ColourLegend, ModeSwitcher } from './components/ColourKey'
+import { ColorLegend, ModeSwitcher } from './components/ColorKey'
 import { Detail } from './components/Detail'
 import { SideBar } from './components/SideBar'
 import { Overlay } from './components/Overlay'
@@ -195,7 +195,7 @@ export default function App() {
   /** The Read dialog, for the project it was opened from. */
   const [readFor, setReadFor] = useState<string | null>(null)
   // One geometry, five encodings. The sunburst was never the thing worth swapping out —
-  // what changes the question is what the colour MEANS, and the same rings answer five
+  // what changes the question is what the color MEANS, and the same rings answer five
   // different ones depending on that.
   const [mode, setMode] = useState<ColorMode>('surprise')
   // Open projects, in the order they were opened. The sidebar lists everything sanity
@@ -254,9 +254,9 @@ export default function App() {
   const shownRev = useRef(0)
   // ── The replay ──────────────────────────────────────────────────────────────
   //
-  // History is a MODE, not a sixth lens. The lenses answer "what should the colour mean",
+  // History is a MODE, not a sixth lens. The lenses answer "what should the color mean",
   // and in here that question is already settled: surprise is a reading taken against
-  // today's code and cannot be replayed onto a 2019 body, so a frame is coloured by
+  // today's code and cannot be replayed onto a 2019 body, so a frame is colored by
   // recency and the switcher is disabled rather than offered with one option that lies.
   const [historyOn, setHistoryOn] = useState(false)
   const [history, setHistory] = useState<HistoryScan | null>(null)
@@ -293,7 +293,7 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return
-      // Pinned while the replay is up, for the same reason the switcher is greyed: the
+      // Pinned while the replay is up, for the same reason the switcher is grayed: the
       // shortcut is the switcher, and a control that is disabled in one place and live on
       // the keyboard is not disabled.
       if (historyOn) return
@@ -348,7 +348,7 @@ export default function App() {
           setStack([])
           setPicked(null)
           // Both, together. `project_scan` returns the tree as Rust scored it — proxy only —
-          // so fetching it without the readings shows an assessed repo as entirely grey
+          // so fetching it without the readings shows an assessed repo as entirely gray
           // until some later poll happens to repaint it.
           const [s, reports] = await Promise.all([
             projectScan(list.active),
@@ -933,7 +933,7 @@ export default function App() {
           agent={agent}
           // The picker reports its own refusals — a directory holding twelve repos is a
           // sentence worth reading, not a silent no-op. A dismissed dialog resolves null
-          // and says nothing, because cancelling is not an error.
+          // and says nothing, because canceling is not an error.
           onRead={(key) => setReadFor(key)}
           onAdd={addProject}
           onForget={forget}
@@ -952,7 +952,7 @@ export default function App() {
             setStack([])
             setPicked(null)
             // Readings fetched WITH the scan, not left to the next poll: `project_scan`
-            // returns the proxy-scored tree, so between the two the repo renders grey.
+            // returns the proxy-scored tree, so between the two the repo renders gray.
             void Promise.all([projectScan(key), agentReports(key)]).then(([s, reports]) => {
               if (!s) {
                 // Nothing to draw yet; the poll picks it up when the rescan lands.
@@ -968,8 +968,8 @@ export default function App() {
           {focus && (
             <div className="flex items-center gap-2">
               {/* Disabled rather than hidden while the replay is up. The switcher is the
-                  window's statement of what colour means, and removing it would leave the
-                  rings recoloured with nothing on screen saying by what. Greyed, with the
+                  window's statement of what color means, and removing it would leave the
+                  rings recolored with nothing on screen saying by what. Grayed, with the
                   reason in the tooltip, it still answers the question. */}
               <ModeSwitcher mode={viewMode} onMode={setMode} disabled={historyOn} />
               <HistoryToggle
@@ -1029,7 +1029,7 @@ export default function App() {
                 ranks={ranks}
                 // The age ramp spans the REPO, not a fixed year — so it comes from the
                 // whole tree even when the view is drilled into one directory. Scoping it
-                // to `focus` would make a wedge change colour on the way in, which is the
+                // to `focus` would make a wedge change color on the way in, which is the
                 // one thing drilling must not do.
                 ageSpan={ageSpan}
                 reading={readingNow}
@@ -1066,7 +1066,7 @@ export default function App() {
                 nothing and buys back a whole row of window height. */}
             {focus && focus.kind !== 'file' && (
               <div className="absolute bottom-2 right-2 z-20">
-                <ColourLegend
+                <ColorLegend
                   mode={viewMode}
                   categories={tree ? legendFor(tree, viewMode) : []}
                   // Counted from `focus`, not the whole scan: drilled into one
@@ -1306,7 +1306,7 @@ function ProgressTrack({ progress, pct }: { progress: Progress | null; pct: numb
   )
 }
 
-/** The same wait, on an empty pane rather than over a map you can already read. Centred
+/** The same wait, on an empty pane rather than over a map you can already read. Centered
  *  and wider because there is nothing else on the screen to be beside. */
 function ProgressPane({
   progress,
@@ -1377,7 +1377,7 @@ function ProgressStrip({
  * The door into the replay.
  *
  * Beside the lens switcher rather than inside it, because it is not a sixth lens. The
- * lenses answer "what should the colour mean"; this one changes what the rings ARE — the
+ * lenses answer "what should the color mean"; this one changes what the rings ARE — the
  * repo as it stood at some commit rather than as it stands now — and folding a change of
  * subject into a row of encodings would make the two look interchangeable.
  */
@@ -1397,7 +1397,7 @@ function HistoryToggle({
       title={
         on
           ? 'Back to the repo as it stands now'
-          : 'Replay the repo commit by commit — coloured by recency, not by surprise'
+          : 'Replay the repo commit by commit — colored by recency, not by surprise'
       }
       className="rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
       style={{

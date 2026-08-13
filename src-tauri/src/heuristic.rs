@@ -175,7 +175,7 @@ fn shingles(src: &str) -> HashSet<u64> {
 /// **Left as it is, deliberately.** Nothing here needs FNV: shingles need a stable
 /// spread, and the structure is the same — a power of two plus a small odd number — so it
 /// mixes on the same principle. Correcting it would move every shingle hash, hence every
-/// distinctiveness score, hence the colour of every proxy-scored wedge in every repo; and
+/// distinctiveness score, hence the color of every proxy-scored wedge in every repo; and
 /// the twin in `assessment.rs` is inside `body_hash`, so changing that one expires every
 /// committed reading everywhere. A doc that names an algorithm the code does not
 /// implement is the bug. Fixed by saying so.
@@ -319,7 +319,7 @@ pub fn surprise(signature: &str, body: &str, distinctiveness: f32) -> f32 {
 ///
 /// 1. Averaging four partly-correlated signals is a central-limit machine. The mix has a
 ///    theoretical range of 0..1 but on real code occupies roughly 0.15..0.95 in a tidy
-///    bell centred near 0.60 — so untreated, a repo comes out uniformly lukewarm.
+///    bell centered near 0.60 — so untreated, a repo comes out uniformly lukewarm.
 /// 2. A bell is the wrong *shape*, not just the wrong range. The product's whole claim
 ///    is that a small fraction of a codebase is where the thinking lives; a symmetric
 ///    distribution says the opposite, and no linear rescaling of a bell is anything but
@@ -386,7 +386,7 @@ mod tests {
     fn words_split_identifiers_and_drop_noise() {
         assert_eq!(words("parseHTTPHeader"), vec!["parse", "httpheader"]);
         assert_eq!(words("retry_with_backoff"), vec!["retry", "with", "backoff"]);
-        // Keywords and one/two-letter names carry no meaning about behaviour.
+        // Keywords and one/two-letter names carry no meaning about behavior.
         assert!(words("let x = self.a").is_empty());
     }
 

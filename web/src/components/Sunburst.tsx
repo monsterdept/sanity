@@ -62,10 +62,10 @@ const HUB_FITS = 17
  *  Directories, files and functions are three different KINDS of thing and were drawn as
  *  one continuous mass of arcs. Hue cannot carry the distinction — hue is the reading —
  *  so it falls to geometry: a visible gutter between levels, and a frame of the file's
- *  own colour around the functions it holds. */
+ *  own color around the functions it holds. */
 const RING_GAP = 3
 
-/** The rim of its own colour a file leaves around the functions it holds — the thing
+/** The rim of its own color a file leaves around the functions it holds — the thing
  *  that says "these belong to that" with geometry instead of with a legend.
  *
  *  ONE constant, in user units, for all four edges. The azimuthal rim used to be a
@@ -86,7 +86,7 @@ const RING_GAP = 3
  *  Bought from the function stack, which loses about eight pixels of band — three slices
  *  of capacity at five rings, 17 down to 14, before the overflow aggregate absorbs the
  *  rest. A file you can select, against a few more functions drawn rather than
- *  summarised. */
+ *  summarized. */
 const FUNC_RIM = 7
 
 /** Floor on how much of a narrow file's span the functions keep. Without it, converting
@@ -123,7 +123,7 @@ const MIN_STACK_ARC = 2
 /** Patches a wedge must have room for before it is opened at all.
  *
  *  One is not enough: a wedge with capacity for a single patch draws its roll-up across
- *  its own area, which repaints the file in the roll-up's colour and says nothing the
+ *  its own area, which repaints the file in the roll-up's color and says nothing the
  *  file's own fill was not already saying. Four is the smallest tiling that shows a file
  *  has PARTS, which is the claim opening it makes. */
 const OPEN_PATCHES = 4
@@ -153,8 +153,8 @@ const MIN_PATCH_PX = 12
 /** How coarsely the pane's size is read when deriving that threshold.
  *
  *  Wedges winking in and out while a window edge is dragged would be worse than the
- *  problem: this codebase argues everywhere that the picture should stay recognisable
- *  between visits, and a layout that reflows continuously is not recognisable at all.
+ *  problem: this codebase argues everywhere that the picture should stay recognizable
+ *  between visits, and a layout that reflows continuously is not recognizable at all.
  *  Quantising also breaks the feedback loop — the viewBox is measured from what was
  *  drawn, so a threshold read off a continuously-varying size could chase its own tail.
  *  At this step a normal resize crosses no boundary and nothing moves; opening the same
@@ -172,14 +172,14 @@ const SIZE_STEP = 160
  *  `extentOf` is given file wedges grown by this much, so the viewBox reserves the room
  *  rather than relying on `MARGIN` to happen to cover it — a label cropped by the fit is a
  *  label that reads as a bug. */
-/** How much of its own angular width a rim name gives up, per side, so two neighbours read
+/** How much of its own angular width a rim name gives up, per side, so two neighbors read
  *  as two names rather than one run of letters. */
 const RIM_INSET = 0.06
 
 /** Arc a file's rim needs before it is worth reserving a label band above it.
  *
  *  `MIN_KEPT` characters at `MIN_SIZE`, roughly — the shortest name this app will draw. A
- *  wedge narrower than that cannot be labelled however much room is set aside for it, so
+ *  wedge narrower than that cannot be labeled however much room is set aside for it, so
  *  setting room aside only moves the picture. */
 const RIM_MIN_ARC = 28
 
@@ -209,19 +209,19 @@ const CHROME_BOTTOM = 0.03
 
 /** How strongly each level carries the heat ramp.
  *
- *  Directories were zeroed here, on the argument that a directory's colour is `hotShare` —
+ *  Directories were zeroed here, on the argument that a directory's color is `hotShare` —
  *  what FRACTION of its lines are hot, a different quantity wearing the same ramp — and
  *  that because the inner rings dominate by area it would be the loudest thing on screen
  *  while the actual findings sat in thin bands at the edge.
  *
  *  Both halves of that have since stopped being true. The findings are no longer in thin
- *  bands: `tileFunctions` fills every file's wedge with per-function colour, so the leaves
+ *  bands: `tileFunctions` fills every file's wedge with per-function color, so the leaves
  *  now carry most of the painted area and a directory tint is no longer the loudest thing
  *  in the window. And the quantity is no longer raw — `shareRamp` calibrates it onto the
  *  ramp's own scale, which is what a share needed all along. Zeroing it was the right
  *  answer to a scale problem and the wrong place to fix it: measured across three repos,
  *  35 of 37 directories sat in the bottom fifth of the raw ramp, so even un-zeroed they
- *  would all have been the same grey. That is why turning this up alone would have looked
+ *  would all have been the same gray. That is why turning this up alone would have looked
  *  like it did nothing.
  *
  *  Still not 1. Functions are the level where the number means exactly what the legend
@@ -233,7 +233,7 @@ const HEAT_BY_KIND: Record<string, number> = { dir: 0.6, file: 0.55, func: 1 }
 /**
  * ...but only under Surprise.
  *
- * The damping above is about ONE quantity: a directory's surprise colour is its hot share,
+ * The damping above is about ONE quantity: a directory's surprise color is its hot share,
  * a roll-up rather than a reading, and the ring carrying it is the one that dominates by
  * area. That argument does not generalise. A directory's churn, its age, its dominant
  * language and its last author are all perfectly well-defined aggregates of exactly the
@@ -245,9 +245,9 @@ function heatShare(kind: string, mode: ColorMode): number {
   return 1
 }
 
-/** The cut between one wedge and its neighbour, in user units.
+/** The cut between one wedge and its neighbor, in user units.
  *
- *  Drawn as a background-coloured stroke rather than an angular pad, so the gap is a
+ *  Drawn as a background-colored stroke rather than an angular pad, so the gap is a
  *  CONSTANT width at every radius. An angular pad would open up at the rim and close to
  *  nothing near the hub, which is exactly backwards — the inner rings are where wedges
  *  are already hardest to tell apart. Narrower for the finer levels so a file's rim
@@ -274,7 +274,7 @@ function SunburstView({
   mode: ColorMode
   ranks?: Map<string, number>
   /** The repo's age span — see `ageSpanOf`. Comes from the whole tree, not from `root`,
-   *  so drilling into a directory does not recalibrate the colours on the way in. */
+   *  so drilling into a directory does not recalibrate the colors on the way in. */
   ageSpan?: number
   /** Undefined at the top level, which is what disables the hub's go-up affordance. */
   onUp?: () => void
@@ -452,7 +452,7 @@ function SunburstView({
    *  level. In the ordinary case — going back up to the parent — those are the same wedge,
    *  because the level being returned to is the one the file was opened from. Reusing the
    *  source guarantees the first frame of the exit is exactly the picture on screen, where
-   *  re-deriving it would risk a pop on a jump that reorganised the ring. */
+   *  re-deriving it would risk a pop on a jump that reorganized the ring. */
   const fileLeaving = useRef<{ node: Node; from: Sector } | null>(null)
   const prevRoot = useRef(root)
   const dir = useRef<Direction>('across')
@@ -464,10 +464,10 @@ function SunburstView({
    *  safe to run on every layout: changing the box cannot change the measurement, so
    *  there is no loop to converge.
    *
-   *  Centred on the CONTENT, not on the origin. The origin is the hub, and the hub is
+   *  Centered on the CONTENT, not on the origin. The origin is the hub, and the hub is
    *  only the middle of the composition when the painted wedges happen to be symmetric
    *  about it — which depends entirely on the repo. Squaring about the origin fit the
-   *  extent correctly and then hung it off-centre: the same map sat high on one project
+   *  extent correctly and then hung it off-center: the same map sat high on one project
    *  and low on the next, by however lopsided that project's outer ring was.
    *
    *  Square, because the rings are a circle and a tight rectangular crop would scale the
@@ -556,7 +556,7 @@ function SunburstView({
         from: was.get(w.node.id) as Geo,
         to: exitTo(was.get(w.node.id) as Geo, dir.current, R_INNER, R_OUTER),
       }))
-    // A file is a destination rather than a level: the rings do not reorganise around it,
+    // A file is a destination rather than a level: the rings do not reorganize around it,
     // its own tiling unrolls into the pane. What that needs is the one thing only this
     // moment has — where the file's wedge stood on screen just before it was opened. The
     // insets match the ones the patch renderer applies, because a source sector a few
@@ -685,9 +685,9 @@ function SunburstView({
 
   /** The highlighted wedge's outline, drawn once over everything at the end.
    *
-   *  A stroke straddles its path, so half of it lies inside the neighbouring wedge —
+   *  A stroke straddles its path, so half of it lies inside the neighboring wedge —
    *  and siblings are painted in walk order, so every edge shared with a LATER-drawn
-   *  neighbour had its outer half covered and came out at half width. The outer arc
+   *  neighbor had its outer half covered and came out at half width. The outer arc
    *  kept its full width because the ring gap leaves it free, which is what made one
    *  edge of a hovered wedge look thinner than the rest. Collected as the wedges are
    *  built below and rendered after them, so nothing can paint over it.
@@ -851,20 +851,20 @@ function SunburstView({
           .map((w) => {
           // Directories get the full gap and a visible rule; files sit tighter to the
           // functions they contain, so the eye groups file-with-contents rather than
-          // file-with-neighbouring-directory.
+          // file-with-neighboring-directory.
           // Geometry comes from `geo`, which is the settled position when nothing is
           // moving and a point on the way there when something is. One source, so the
           // moving picture and the still one cannot disagree.
           const g = geo(w.node.id)
           const { a0, a1, r0, r1 } = g
           // Directories used to be hard-nulled here, and that made `HEAT_BY_KIND.dir`
-          // dead code: the damping is applied as `fillOpacity` on a colour, so a wedge
-          // with no colour at all could never be damped, only blanked. Turning that
+          // dead code: the damping is applied as `fillOpacity` on a color, so a wedge
+          // with no color at all could never be damped, only blanked. Turning that
           // constant up did nothing, which is a bad way for a policy to be stated twice.
           //
           // It also blanked directories in EVERY mode, while `heatShare` carves out an
           // explicit exception for the other four — a directory's churn, age, owner and
-          // language are the same measurement over more code, so a grey inner ring there
+          // language are the same measurement over more code, so a gray inner ring there
           // is a hole rather than restraint. That exception was unreachable.
           //
           // One mechanism now: `colorFor` decides WHAT a wedge means, `heatShare` decides
@@ -917,7 +917,7 @@ function SunburstView({
               // inset inside that band, so the file's own fill shows as a rim around
               // them — the containment is drawn, not implied by adjacency.
               d={arcPath(a0, a1, r0, r1)}
-              // Unanalysed wedges take the neutral, not the ramp — see `isAnalyzed`.
+              // Unanalyzed wedges take the neutral, not the ramp — see `isAnalyzed`.
               // A folded directory is drawn a shade heavier than an open one, so the
               // ring that ends at it reads as packed rather than as genuinely empty.
               fill={
@@ -945,7 +945,7 @@ function SunburstView({
               // wedges, so the thing under the cursor now states its own boundary.
               //
               // Everything else is separated by a CUT, not a line: the stroke is the
-              // background colour, so what you see is the gap between two plates. The
+              // background color, so what you see is the gap between two plates. The
               // drawn foreground outline directories used to carry was the brightest
               // thing on screen, and it sat around the level whose reading is the
               // quietest — the eye went to structure instead of to heat.
@@ -1021,7 +1021,7 @@ function SunburstView({
             const bandStart = R_INNER + (w.depth - 1) * band
             const r0 = bandStart + FUNC_RIM
             // Inset angularly so the file's fill frames its own functions on both sides.
-            // A root file spans the whole circle and has no neighbours to be told apart
+            // A root file spans the whole circle and has no neighbors to be told apart
             // from, so it takes no inset — an inset there would cut a wedge-shaped
             // notch out of a full ring for no reason.
             // Same rim as the arc edges, expressed as the angle that subtends it at
@@ -1098,18 +1098,18 @@ function SunburstView({
                 </path>
                 {/* Drawn over the wedge, deaf to the mouse so the wedge underneath keeps
                     every gesture. The wedge itself has already fallen back to the proxy
-                    colour — `applyAgentReports` drops a stale reading's score — so
+                    color — `applyAgentReports` drops a stale reading's score — so
                     without this the only sign a function was ever read would be in the
                     panel, one wedge at a time. The whole argument for a map is that you
                     can see where the problem is without clicking.
 
                     **Surprise only, because staleness is a fact about a READING and only
-                    this mode is painted from readings.** In blame the colour is an author,
+                    this mode is painted from readings.** In blame the color is an author,
                     in age a date, in language an extension — none of which expire when a
                     body changes. A hatch there marks the wedge as untrustworthy in an
                     encoding it cannot be untrustworthy in: the author of a function that
                     was edited is not in doubt. It read as damage to the layer underneath,
-                    which is the same sin as a stale reading keeping its colour, pointed the
+                    which is the same sin as a stale reading keeping its color, pointed the
                     other way. */}
                 {paintsFromReadings(mode) && slot.node.agentStale && (
                   <path
@@ -1153,7 +1153,7 @@ function SunburstView({
                       <RollupDots
                         id={dotsId(w.node.path)}
                         angle={(slot.a0 + slot.a1) / 2}
-                        // The patch's own middle, so the lattice is centred on it rather
+                        // The patch's own middle, so the lattice is centered on it rather
                         // than on the hub. Mid-angle at mid-radius: not the true centroid
                         // of an annular sector, which sits a little outward of it, but the
                         // dots are a texture and the difference is under a tile.
@@ -1172,12 +1172,12 @@ function SunburstView({
                     </>
                   )}
                 {/* And its name, if the patch can hold one.
-                    The old rule was that functions are never labelled here, on the grounds
+                    The old rule was that functions are never labeled here, on the grounds
                     that they are laid out angularly by `layout` but DRAWN tiled inside
                     their file's band — so a name placed from the layout angle lands nowhere
                     near the patch it names. True, and it argued against the wrong thing:
                     the tiling hands back the patch's REAL geometry, which is what the fan
-                    has always labelled from. Fitting to `slot` rather than to the wedge is
+                    has always labeled from. Fitting to `slot` rather than to the wedge is
                     the whole difference, and a file drawn large enough has room for several.
 
                     The fan's tight bend, not the ring's generous one. These are treemap
@@ -1213,7 +1213,7 @@ function SunburstView({
             theirs — because they compete for the same ground and the one rule that decides
             them has to see both.
 
-            Functions are not labelled from this pass. They are laid out angularly by
+            Functions are not labeled from this pass. They are laid out angularly by
             `layout` but DRAWN tiled inside their file's band, so a name placed from the
             layout angle lands nowhere near the patch it names. The fan labels them, where
             they have room to be read. */}
@@ -1221,7 +1221,7 @@ function SunburstView({
           .filter((w) => w.node.kind === 'dir' || w.node.kind === 'file')
           .map((w) => {
             // Fixed to where the wedge is THIS frame, like everything else. A label left at
-            // its settled angle while its wedge travels is text sitting on a neighbouring
+            // its settled angle while its wedge travels is text sitting on a neighboring
             // directory for the length of the transition.
             const g = geo(w.node.id)
             const isDir = w.node.kind === 'dir'
@@ -1230,7 +1230,7 @@ function SunburstView({
             //
             // A file is the opposite: its band is its own function tiling, and a name
             // printed over that is printed over the data it names. Files were therefore not
-            // labelled at all. What they have instead is the one thing nothing else on the
+            // labeled at all. What they have instead is the one thing nothing else on the
             // ring has — a file is the outermost structural level, so the ground just past
             // its rim belongs to nobody. The name goes THERE, curled around the outside,
             // where it costs the tiling nothing.
@@ -1270,7 +1270,7 @@ function SunburstView({
                 at={at}
                 // A directory's name sits ON its plate, so the plate picks the ink — and at
                 // the plate's own opacity, because under Surprise it is damped to 0.6 and
-                // what the eye gets is the stop composited over the pane. An unanalysed
+                // what the eye gets is the stop composited over the pane. An unanalyzed
                 // plate is `--structure`, a near-background neutral, and takes the chrome's
                 // foreground: background-on-background is why these went invisible the
                 // moment the plates stopped being outlined in white.
@@ -1357,7 +1357,7 @@ function SunburstView({
         {/* The disc is solid throughout — it is what the directory you clicked is turning
             INTO, so it has to be there to be turned into. Its label is not: swapping the
             name on the first frame would announce the destination before the thing that is
-            travelling has arrived. It fades up with the rest of the detail. */}
+            traveling has arrived. It fades up with the rest of the detail. */}
         <g className="patches-in" key={`hub-${root.id}`}>
         {/* Sized to the hub rather than fixed: a long repo name at a fixed size either
             overflows the circle or gets truncated to nothing useful. Shrinking to fit
@@ -1380,7 +1380,7 @@ function SunburstView({
 
             `WEIGHT` too, for the same reason it is one constant for all three kinds of
             label: it was 600, and a semibold hub in the middle of a chart of regular-weight
-            names read as emphasis rather than as the centre. Size and position already say
+            names read as emphasis rather than as the center. Size and position already say
             which one this is. */}
         <text
           textAnchor="middle"

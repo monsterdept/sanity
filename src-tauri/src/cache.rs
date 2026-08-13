@@ -14,7 +14,7 @@
 //!
 //! Entries are **content-addressed**: the key includes a hash of the function body, so
 //! resuming and incremental rescanning are the same mechanism. Edit a function and it is
-//! re-scored because its hash moved; edit its neighbour and it is not. Move it down the
+//! re-scored because its hash moved; edit its neighbor and it is not. Move it down the
 //! file and nothing happens at all, because line numbers are deliberately not part of
 //! the key — otherwise adding an import at the top of a file would invalidate every
 //! score in it.
@@ -222,7 +222,7 @@ mod tests {
     ///
     /// Nothing has gone wrong here yet — `hotspots` was defaulted from the first commit,
     /// and the heuristic's computation has not moved since, so version 1 is honest. The
-    /// test is not about the past. It is that this cache pins the COLOUR of every wedge a
+    /// test is not about the past. It is that this cache pins the COLOR of every wedge a
     /// model never scored, and the failure mode next door was invisible for months: a
     /// `#[serde(default)]` field lets an old record load as current, and nothing complains.
     #[test]

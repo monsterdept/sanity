@@ -12,7 +12,7 @@ import type { ReactNode } from 'react'
  *  empty state, where opening something is the only thing you could want, and the theme
  *  follows the system rather than offering a preference the OS already holds.
  *
- *  What it holds now is the colour-mode switcher, centred, with the whole strip around it
+ *  What it holds now is the color-mode switcher, centered, with the whole strip around it
  *  a drag region — the control sits in the chrome and the chrome is still a handle. Tauri
  *  drags only when the EVENT TARGET carries the attribute, so the buttons keep taking
  *  their own clicks without opting out of anything.

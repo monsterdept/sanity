@@ -9,7 +9,7 @@ import {
 import type { AgentCall } from '../lib/api'
 
 /** One creature per machine, minted on first run and kept, so the thing working through
- *  your repo is recognisably the same thing each time you open the app. */
+ *  your repo is recognizably the same thing each time you open the app. */
 const STORAGE_KEY = 'sanity.mascot'
 
 function loadOrMint(): MascotConfig {
@@ -89,7 +89,7 @@ const BEAT_MS = 520
  *  permanent fixture in the corner of a panel with a Read button in it, so a single click
  *  replacing the thing you have watched work through your repo for a week would be a small
  *  cruelty. Six deliberate ones is a gesture nobody performs by mistake, and the window
- *  means a stray click on Tuesday does not count towards one on Friday.
+ *  means a stray click on Tuesday does not count toward one on Friday.
  *
  *  There is deliberately no confirmation and no undo: the blueprint is random, so the old
  *  one cannot be described to somebody in a dialog, and getting another is six more

@@ -173,7 +173,7 @@ fn commit_count(repo: &Path) -> usize {
 
 /// One function's score, the moment it is known.
 ///
-/// Streamed so the map can colour in as the model works rather than staying grey until
+/// Streamed so the map can color in as the model works rather than staying gray until
 /// the whole scan returns. On a repo where analysis takes twenty minutes, a picture that
 /// fills in is the difference between watching progress and watching a progress bar.
 /// Only the field that changed. `churn`, `age` and `documented` are properties of the
@@ -201,7 +201,7 @@ pub struct Progress {
 
 /// Collect the parseable source files under `root`.
 ///
-/// `ignore::WalkBuilder` honours .gitignore/.ignore for free — the same matcher ripgrep
+/// `ignore::WalkBuilder` honors .gitignore/.ignore for free — the same matcher ripgrep
 /// uses. This is not a nicety: without it `node_modules` and `target` are the two
 /// biggest wedges in every JavaScript and Rust project on earth, and the picture says
 /// nothing about the code the user wrote.
@@ -211,7 +211,7 @@ fn collect_files(root: &Path) -> Vec<(PathBuf, Lang)> {
         .git_ignore(true)
         .git_global(true)
         .parents(true)
-        // Honour .gitignore even when the directory isn't a git repo. `ignore` defaults
+        // Honor .gitignore even when the directory isn't a git repo. `ignore` defaults
         // to requiring one, which is right for ripgrep and wrong here: a downloaded
         // tarball, a worktree, or a project whose history hasn't been created yet still
         // has a .gitignore that says which files are not the user's code.
@@ -344,8 +344,8 @@ fn scope_of(root: &Path) -> Option<ignore::gitignore::Gitignore> {
 /// near the top of it.
 fn context_for(file: &ParsedFile, skip: usize) -> String {
     let mut out = file.head.clone();
-    // Centred on the function, then clamped — so one near the top or the bottom still gets a
-    // full window, from whichever side has neighbours.
+    // Centered on the function, then clamped — so one near the top or the bottom still gets a
+    // full window, from whichever side has neighbors.
     let half = CONTEXT_SIBLINGS / 2;
     let start = skip.saturating_sub(half.max(1));
     for f in file
@@ -458,7 +458,7 @@ fn parse_file(
 /// answer is a lookup on the directory's own path.
 ///
 /// Churn itself stays the children's LOC-weighted mean rather than `churn_of(dir)`: the
-/// normalisation constant is tuned for a single file, and a directory pooling every
+/// normalization constant is tuned for a single file, and a directory pooling every
 /// commit beneath it would saturate to 1.0 the moment anyone touched anything.
 ///
 /// **Files as well as directories, despite the name.** A file node's score comes from
@@ -735,7 +735,7 @@ struct Work<'a> {
     cache_key: (String, u64),
 }
 
-/// Replace proxy surprise with the model's, marking those leaves analysed.
+/// Replace proxy surprise with the model's, marking those leaves analyzed.
 ///
 /// `documented` is left alone: it is a property of the docs, not of the surprise, and
 /// the model path does not grade documentation — it only consumes it. The comment stack
@@ -877,8 +877,8 @@ pub fn scan(
     scans.retain(&for_blame.iter().map(|(p, _)| p.clone()).collect());
     let is_model = model.is_model();
 
-    // Build the whole tree from the proxy first. It is fast, it is entirely grey (no
-    // wedge claims to have been analysed), and it means the user has the repo's shape on
+    // Build the whole tree from the proxy first. It is fast, it is entirely gray (no
+    // wedge claims to have been analyzed), and it means the user has the repo's shape on
     // screen in about a second instead of after the model finishes.
     let per_dir: Vec<Vec<(String, Node)>> = parsed_dirs
         .par_iter()
@@ -907,11 +907,11 @@ pub fn scan(
     // Forced decoding costs a decode step per token, so a large repo takes hours. Rather
     // than make the user wait for all of it, the work is ordered by how much it could
     // possibly matter — lines × the proxy's guess at surprise — and streamed
-    // as it lands. The most consequential wedges colour in within the first minutes, and
+    // as it lands. The most consequential wedges color in within the first minutes, and
     // stopping early costs the least valuable results rather than an arbitrary
     // directory's worth. Total runtime stops being the number that matters.
     if is_model {
-        // The proxy scores already live on the grey tree; read them back rather than
+        // The proxy scores already live on the gray tree; read them back rather than
         // recomputing, so the priority ordering and the model's fallback both use
         // exactly the number the user is currently looking at.
         let mut proxies: std::collections::HashMap<String, f32> = std::collections::HashMap::new();
@@ -992,7 +992,7 @@ pub fn scan(
                 cache.put(&w.cache_key, &surprise);
                 // Emitted HERE, inside the parallel map, not after it. Reporting from
                 // the apply step meant nothing reached the UI until the whole scan
-                // finished — which on a repo this size is hours of a grey map with a
+                // finished — which on a repo this size is hours of a gray map with a
                 // moving progress bar, the exact thing streaming exists to prevent.
                 on_scored(&w.id, &surprise);
                 on_progress(Progress {
@@ -1194,7 +1194,7 @@ mod tests {
     /// second function in a file was scored against the same opening pair — the context
     /// depended on position in the file, which is a fact about layout and not about code.
     #[test]
-    fn a_functions_context_is_its_neighbours() {
+    fn a_functions_context_is_its_neighbors() {
         let funcs: Vec<crate::parse::FuncDef> = (0..8)
             .map(|i| crate::parse::FuncDef {
                 name: format!("f{i}"),
@@ -1222,7 +1222,7 @@ mod tests {
         assert!(!ctx.contains("fn f0"), "not the top of the file: {ctx}");
         assert!(!ctx.contains("fn f6"), "and never itself: {ctx}");
 
-        // A function at the top still gets a full window, from the side that has neighbours.
+        // A function at the top still gets a full window, from the side that has neighbors.
         let top = context_for(&file, 0);
         assert!(top.contains("fn f1") && top.contains("fn f2"), "{top}");
         assert!(!top.contains("fn f0"), "{top}");

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-/** Dimmed backdrop that centres a modal panel. Clicking the backdrop closes; the panel
+/** Dimmed backdrop that centers a modal panel. Clicking the backdrop closes; the panel
  *  itself must stop propagation so clicks inside don't. */
 export function Overlay({ children, onClose }: { children: ReactNode; onClose: () => void }) {
   return (

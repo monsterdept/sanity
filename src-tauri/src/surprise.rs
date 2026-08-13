@@ -1,14 +1,14 @@
 //! Where the surprise number comes from.
 //!
 //! The definition the whole product rests on: **boilerplate is code a model can predict
-//! from its context.** Feed a function its name, signature and neighbours; measure how
+//! from its context.** Feed a function its name, signature and neighbors; measure how
 //! surprised the model is by the body. Low surprise is scaffolding. High surprise is
 //! where the thinking is.
 //!
 //! What ships here is [`HeuristicModel`] — no model, no setup, no network — and it is an
 //! honest **proxy**, not the metric (see `heuristic.rs`). The measurement the product is
 //! actually built on now arrives from readers over MCP: an agent is given a function's
-//! name, signature and neighbours, commits to what it expects, then opens the file. That
+//! name, signature and neighbors, commits to what it expects, then opens the file. That
 //! is the same question asked of something that can answer it.
 //!
 //! # The model path was here, and what it proved
@@ -92,7 +92,7 @@ pub trait SurpriseModel: Send + Sync {
     /// Body lines below which this scorer returns the proxy without doing real work.
     ///
     /// Exposed so two things can be honest: progress can count only the functions that
-    /// will actually be visited, and the map can leave the rest uncoloured instead of
+    /// will actually be visited, and the map can leave the rest uncolored instead of
     /// painting them with a proxy score the user didn't ask for.
     fn min_lines(&self) -> usize {
         0
@@ -100,10 +100,10 @@ pub trait SurpriseModel: Send + Sync {
 
     /// Whether this scorer is a real model, as opposed to the offline stand-in.
     ///
-    /// The map colours only what a model actually looked at. The proxy is measurably
+    /// The map colors only what a model actually looked at. The proxy is measurably
     /// close to sorting by line count (`just scan` prints the baseline), so painting
     /// heat with it is a claim the numbers do not support — those wedges render neutral
-    /// instead, and the colour arrives when the model does.
+    /// instead, and the color arrives when the model does.
     fn is_model(&self) -> bool {
         false
     }

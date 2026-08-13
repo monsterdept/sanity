@@ -127,7 +127,7 @@ export function CommitLog({
    * Follow the playhead — but only when the playhead is the thing moving.
    *
    * Centring is right while playing: the frontier is arriving continuously and the reader
-   * is watching, not aiming. It is wrong the moment they take hold of it. A click centred
+   * is watching, not aiming. It is wrong the moment they take hold of it. A click centered
    * the row under the cursor, which means the list scrolls out from under the pointer at
    * the instant of the click — so the row you chose lands somewhere other than where you
    * clicked, and what should read as "selected" reads as "the pane jumped". A reader
@@ -144,7 +144,7 @@ export function CommitLog({
    * A LAYOUT effect, so the scroll lands in the same frame as the row it is following. As
    * an ordinary effect it runs after paint, which at three hundred commits a second means
    * frames where the highlight has already moved and the list has not — the highlight
-   * flickering out and reappearing somewhere else rather than travelling.
+   * flickering out and reappearing somewhere else rather than traveling.
    */
   useLayoutEffect(() => {
     const el = scroller.current
@@ -247,7 +247,7 @@ export function CommitLog({
               
               Sized to the rows it covers, NOT stretched to the bottom and slid down. It
               was the latter, which meant a full-height box hanging `(pos + 1)` rows past
-              the end of the list — and an absolutely-positioned overhang counts towards
+              the end of the list — and an absolutely-positioned overhang counts toward
               the scroll extent, so the pane grew a screenful of dead space that got longer
               the further the replay ran. Height and offset from the same arithmetic, so
               the covered region is exactly the commits still to come. */}

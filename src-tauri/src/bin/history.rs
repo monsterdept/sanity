@@ -98,7 +98,7 @@ fn main() {
 
     if files {
         // Per file, so the total can be reconciled against `just scan` on the same repo.
-        // The two disagree legitimately — the scan honours .gitignore and skips hidden
+        // The two disagree legitimately — the scan honors .gitignore and skips hidden
         // directories, git has opinions about neither — and this is where that shows.
         let mut per: HashMap<u32, (usize, u32)> = HashMap::new();
         for (f, loc) in &live {

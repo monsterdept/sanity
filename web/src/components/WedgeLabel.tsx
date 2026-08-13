@@ -36,9 +36,9 @@ export function WedgeLabel({
    * Plain type on the wedge.
    *
    * The fill IS the reading and ranges the whole ramp, so the obvious worry is that one
-   * foreground colour cannot sit on all of it. Three separations were built for that and
+   * foreground color cannot sit on all of it. Three separations were built for that and
    * a workbench put them side by side on real repos: the halo reads as outlined type, the
-   * plate covers the very colour the label is standing on, and the shadow is a wash. None
+   * plate covers the very color the label is standing on, and the shadow is a wash. None
    * of them beat leaving it alone, so none of them ships and the control is gone with them.
    */
   const ink: CSSProperties = {

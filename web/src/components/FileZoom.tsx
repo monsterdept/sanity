@@ -6,7 +6,7 @@ import { CHROME_INK } from '../lib/ink'
 import { arcPath, tileFunctions, type Slot } from '../lib/sunburst'
 import {
   arcOf,
-  centre,
+  center,
   fanFor,
   lerpSector,
   place,
@@ -41,7 +41,7 @@ import { WEIGHT } from '../lib/labelStyle'
 /** The type a function's name is set in.
  *
  *  Lighter than the structure labels. A function name is the most numerous thing on this
- *  screen and the least load-bearing — the colour is the reading, the name is how you find
+ *  screen and the least load-bearing — the color is the reading, the name is how you find
  *  it again — so it is set to be legible and then to get out of the way. */
 const FUNC_MAX = 15
 const FUNC_BEND = 0.45
@@ -150,7 +150,7 @@ export function FileZoom({
         // per overlay would be three placements of the same cell that could disagree by a
         // rounding, and a hatch a hair off its own patch reads as a rendering fault.
         const d = arcPath(g.a0, g.a1, g.r0, g.r1)
-        const mid = centre(g)
+        const mid = center(g)
         const size = room(g)
         return (
           <g key={c.node.id}>
@@ -181,7 +181,7 @@ export function FileZoom({
               onMouseEnter={() => onHover(c.node)}
               onMouseLeave={() => onHover(null)}
             />
-            {/* Expired. The fill underneath has already fallen back to the proxy colour —
+            {/* Expired. The fill underneath has already fallen back to the proxy color —
                 `applyAgentReports` drops a stale reading's score — so without the hatch the
                 only sign a function was ever read is in the panel, one at a time. Deaf to
                 the mouse, so the patch below keeps every gesture.

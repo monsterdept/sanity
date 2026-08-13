@@ -22,7 +22,7 @@ import { shareBelow, type Population } from '../lib/population'
  * function belongs to one.
  */
 
-/** The unlit part of an instrument. `--border` is a rule colour — a couple of steps off the
+/** The unlit part of an instrument. `--border` is a rule color — a couple of steps off the
  *  panel's own ground, drawn to be ignored — and this rail IS the scale: without it the tick
  *  is a mark at a position with nothing behind it. */
 const TRACK = 'color-mix(in oklch, var(--muted-foreground) 32%, transparent)'
@@ -139,7 +139,7 @@ export function FunctionRanks({ node, pop }: { node: Node; pop?: Population }) {
                   : s.lastTouchedDays < 1
                     ? 'Last touched today. '
                     : `Last touched ${Math.round(s.lastTouchedDays)} days ago. `
-              }The dial above is the same fact on the scale the map is coloured by.`
+              }The dial above is the same fact on the scale the map is colored by.`
         }
       />
     </div>

@@ -80,7 +80,7 @@
   --accent-foreground: #f5f1ea;
 
   --destructive: #8f5753; /* Danger */
-  /* Traps get their own colour rather than borrowing `--destructive`.
+  /* Traps get their own color rather than borrowing `--destructive`.
    *
    * Destructive is the app's error red — it marks things that went wrong for the user, and
    * a wedge is not an error. A trap is a warning about the CODE, it is meant to be the
@@ -98,9 +98,9 @@
    * is less of it — and a diverging ramp claims a polarity the data does not have.
    *
    * Red/green for the poles was measured and rejected outright: Success #597244
-   * against Danger #8F5753 is ΔE 1.6 under deuteranopia, the same colour to 8% of
-   * men, and only 12.1 even with full colour vision because both sit at chroma
-   * 0.075. Those are chip colours; they cannot carry a map.
+   * against Danger #8F5753 is ΔE 1.6 under deuteranopia, the same color to 8% of
+   * men, and only 12.1 even with full color vision because both sit at chroma
+   * 0.075. Those are chip colors; they cannot carry a map.
    *
    * One hue per lens so the modes are told apart at a glance, on ONE shared
    * lightness profile (L .443 .538 .627 .721 .804) so switching mode never changes
@@ -111,7 +111,7 @@
    * CHROMA RAMPS TOO, and that is the fix for a map that lied. Lightness alone
    * carried the reading and all five stops sat at full chroma — heat-0 was C .074,
    * a committed amber. So "a reader predicted this exactly" and "a reader was
-   * blindsided" differed only in brightness within one fire colour, and a repo whose
+   * blindsided" differed only in brightness within one fire color, and a repo whose
    * readings are 96% cold-or-warm rendered as a forge. The scale had no resting
    * state. Chroma now runs C0 → C4 (.048 → .140, clamped down per stop where sRGB
    * runs out) on the unchanged lightness profile: same ordering, same numbers, but
@@ -120,7 +120,7 @@
    *
    * THE HUES ARE SEARCHED, NOT PICKED, AND THE CYAN IS WHY. The set used to be
    * amber / violet / cyan / blue / green, and cyan sat 40° from blue in OKLCH: docs
-   * and churn were the same colour to anyone not holding them side by side, closest
+   * and churn were the same color to anyone not holding them side by side, closest
    * hot pair 17.7, the tightest number in the palette. Nudging hues and chroma around
    * it produced three candidate sets indistinguishable from each other and from what
    * shipped, which is the tell — with cyan in the ring the other four have nowhere to
@@ -132,7 +132,7 @@
    * age, blue on churn, violet on legibility, so nothing already learned is relearned.
    *
    * The floor is NOT zero, and the bar is measured. Dark-mode --unanalyzed is a warm
-   * grey (L .397 C .009 h 68) and heat shares its hue, so draining to neutral would
+   * gray (L .397 C .009 h 68) and heat shares its hue, so draining to neutral would
    * put "cold" on top of "nobody has looked at this" — the one distinction this app
    * exists to be able to state. C0 is solved for ΔE00 ≥ 10 against --unanalyzed in
    * BOTH themes (worst is heat at 11.5 / 36.0), comfortably past the 6.9 all-pairs
@@ -161,7 +161,7 @@
 
   /* legible — violet. Its own hue, not surprise's amber, and that is the whole point:
    * the pair is meant to be TOGGLED, and a blink comparison between two identically
-   * coloured maps cannot tell you whether the picture changed or you imagined it. Violet
+   * colored maps cannot tell you whether the picture changed or you imagined it. Violet
    * because amber, blue and green are taken and the warm end belongs to docs — and it
    * takes the same dark→light climb as the others, which is what carries the reading for
    * anyone who cannot separate the hues. Same direction as heat, too: bright means harder,
@@ -179,10 +179,10 @@
    * about is the undocumented end. So the input is the gap, never the coverage.
    *
    * It was cyan, and cyan is what wrecked the palette: 40° from churn's blue, closest hot
-   * pair in the set at 17.7, two lenses reading as one colour. Warm is the far side of the
+   * pair in the set at 17.7, two lenses reading as one color. Warm is the far side of the
    * wheel from the three cool lenses, which is why the search lands here — 14.3 from the
    * nearest other cold end, 27.2 from the nearest other hot end, spanning 39.9 cold→hot.
-   * The binding constraint on this ramp is now --trap rather than its neighbours: a warm
+   * The binding constraint on this ramp is now --trap rather than its neighbors: a warm
    * bright end is the only one that can be mistaken for hot pink, and 20.5 is the margin
    * that keeps "nobody has described this" from reading as "this will bite you".
    * Re-solve, don't eyeball. */
@@ -210,18 +210,18 @@
    *
    * `--cat-1` and `--cat-2` are the blue and amber this map already wore; keeping
    * them costs 2 points of worst-pair against a free search and keeps the picture
-   * recognisable between versions.
+   * recognizable between versions.
    *
    * Assigned in fixed order by size, never cycled — so the ORDER matters as much as
    * the set. A repo with three authors only ever sees the first three, so the list is
    * sorted by prefix separation: the first three clear 20.2, the first four 15.3, and
    * it only reaches 14.3 at the eighth. Every slot also clears 12.6 against the "Other"
-   * neutral and the unanalysed grey, which are the two things every wedge sits beside.
+   * neutral and the unanalyzed gray, which are the two things every wedge sits beside.
    *
    * Past eight, categories still fold into "Other" rather than inventing a ninth hue —
    * a ninth costs 15% of the worst pair and it keeps falling. The tail is reachable by
-   * PICKING it in the panel, which is identity by selection rather than by a colour too
-   * close to another one to trust. Identity is never colour alone anyway: the legend and
+   * PICKING it in the panel, which is identity by selection rather than by a color too
+   * close to another one to trust. Identity is never color alone anyway: the legend and
    * the tooltips name every value. */
   --cat-1: #3987e5;
   --cat-2: #c98500;
@@ -242,7 +242,7 @@
   --agent-mark: #358189; /* Info */
   /* Directories. Structure, not a reading — deliberately off the heat ramp and off the
    * "unseen" neutral too, so it says "container" rather than "cold" or "unlooked-at".
-   * Lifted off the page far enough (1.46:1) that a background-coloured hairline between
+   * Lifted off the page far enough (1.46:1) that a background-colored hairline between
    * two sibling directories reads as a cut. It used to sit at 1.33 and lean on a drawn
    * outline instead, which put the brightest lines on screen around the one level that
    * carries no reading at all. */
@@ -269,7 +269,7 @@
 
   /* The one place dark mode cannot just take the sheet value: Primary on Ink is
    * 3.17:1, under AA for text. The lift is the ground gradient's top stop — an
-   * existing brand colour, not a new one — at 4.88:1, and Primary steps down into
+   * existing brand color, not a new one — at 4.88:1, and Primary steps down into
    * the hover slot. Same two-step-of-one-hue move the mark itself makes. */
   --accent: #a87a96; /* Ground top stop — lifted to carry on Ink */
   --accent-dim: #895b77; /* Primary */
@@ -402,8 +402,8 @@ textarea,
   );
 }
 
-/* Nav surfaces tinted with the accent rather than a neutral grey — selection is the one
- * place the chrome's colour earns its keep. */
+/* Nav surfaces tinted with the accent rather than a neutral gray — selection is the one
+ * place the chrome's color earns its keep. */
 .shell-chrome--active {
   background: color-mix(in oklch, var(--accent) 22%, transparent);
 }
@@ -427,7 +427,7 @@ textarea,
  * and remounting is what made it impossible for a wedge to travel — nothing survived the
  * change, so nothing could move from where it was to where it belongs. The group persists
  * now and its arcs are interpolated per frame, which needs the geometry rather than a
- * matrix, so it lives in TypeScript. Reduced motion is honoured there too, by finishing
+ * matrix, so it lives in TypeScript. Reduced motion is honored there too, by finishing
  * the transition on its first frame.
  *
  * The 120ms `fill-opacity` and `stroke` transition above stays: those are per-wedge state
@@ -481,13 +481,13 @@ textarea,
 
 /* ── Code view tokens ─────────────────────────────────────────────────────────
  *
- * Syntax colour is SCENERY here, and it has to stay scenery: the reading lives in the
- * heat gutter, and a fully saturated theme beside it would put two colour scales in one
+ * Syntax color is SCENERY here, and it has to stay scenery: the reading lives in the
+ * heat gutter, and a fully saturated theme beside it would put two color scales in one
  * field of view competing to be the message. So these are low-chroma and close
  * together — enough to tell a string from a keyword at a glance, not enough to look at.
  *
  * Nothing here touches the ramp hues. Comments deliberately sit near the muted text
- * colour, because a comment is the one token the metric has an opinion about and it
+ * color, because a comment is the one token the metric has an opinion about and it
  * should read as prose rather than as code. */
 .tok-plain { color: var(--foreground); }
 .tok-punct { color: color-mix(in oklch, var(--foreground) 62%, transparent); }
@@ -507,7 +507,7 @@ textarea,
  * Slow and shallow. A wedge that flashes is an alarm; one that breathes is a marker, and
  * the map has to stay readable while it does it.
  *
- * Off entirely under reduced motion, where the colour alone carries the meaning — the trap
+ * Off entirely under reduced motion, where the color alone carries the meaning — the trap
  * pink is already the loudest thing in its lens, so nothing is lost but the movement. */
 @keyframes trap-pulse {
   0%, 100% { opacity: 1; }
@@ -529,11 +529,11 @@ textarea,
  * from React would show up as a stutter on a period.
  *
  * White, and white is deliberate: every lens in this app spends hue on the reading, so a
- * coloured marker would be a claim about the code. This one says only "work is happening
+ * colored marker would be a claim about the code. This one says only "work is happening
  * here", and it says it by going lighter than anything a ramp can produce.
  *
  * It breathes from nearly invisible to a wash rather than from solid to gone. The wedge
- * underneath is the measurement and has to stay readable while its neighbour is being
+ * underneath is the measurement and has to stay readable while its neighbor is being
  * read; at full opacity a run would blank out whole directories of the map it is meant to
  * be illustrating.
  *
@@ -556,7 +556,7 @@ textarea,
 /* A project with readers out, in the sidebar list.
  *
  * Louder than `wedge-reading` next door and for the opposite reason: that one sits over a
- * wedge whose colour is the measurement and must not drown it, while this is a 11px glyph
+ * wedge whose color is the measurement and must not drown it, while this is a 11px glyph
  * that has to be noticeable from the corner of the eye on a row nobody is looking at. */
 @keyframes reading-pulse {
   0%, 100% { opacity: 1; }

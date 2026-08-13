@@ -55,7 +55,7 @@ export function WedgeTip({
   box: { w: number; h: number }
   mode: ColorMode
   ranks?: Map<string, number>
-  /** The repo's age span, so the tooltip's swatch is the colour the wedge is wearing. */
+  /** The repo's age span, so the tooltip's swatch is the color the wedge is wearing. */
   ageSpan?: number
   /** Whether this node is folded shut, for geometries that fold. `undefined` means the
    *  geometry has no such gesture, and the card offers none — an affordance named in a
@@ -154,9 +154,9 @@ export function WedgeTip({
         </p>
       )}
 
-      {/* The reading is the SWATCH — it is a colour on the map, so stating it as a
+      {/* The reading is the SWATCH — it is a color on the map, so stating it as a
           number here would be describing the encoding rather than reading it. The
-          label beside it names the value, which is what keeps identity off colour
+          label beside it names the value, which is what keeps identity off color
           alone. */}
       {/* The reading gets the row to itself, and size goes below it.
           They shared a line, on the argument that "46 lines" is a two-word fact that does
@@ -168,7 +168,7 @@ export function WedgeTip({
       {!saysNothing(n, mode) && (
       <div className="flex items-baseline gap-1.5">
         {/* Hatched when the reading has expired, the same 45° rule the wedge and the key
-            both wear. The swatch's whole job is to be the colour you are pointing at, and a
+            both wear. The swatch's whole job is to be the color you are pointing at, and a
             flat square beside the word `stale` described a wedge that is not on screen —
             the one on screen is hatched. Reproduced in CSS rather than reaching into the
             SVG's <defs>: it only has to look alike, but it does have to STAY alike, so the

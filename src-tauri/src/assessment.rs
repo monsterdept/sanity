@@ -124,7 +124,7 @@ pub const LEGIBLE_SINCE: u32 = 2;
 /// different builds. A reading from an OLDER app carries no spec, parses as 0, and its
 /// grade is not trusted — unknown provenance is exactly the thing not to trust. A reading
 /// from a NEWER app carries a spec above anything this build knows about, and is trusted:
-/// a later spec is by construction a refinement of the question, and greying out a
+/// a later spec is by construction a refinement of the question, and graying out a
 /// colleague's fresh work because we are behind would be the map punishing them for
 /// updating first. An older app, meanwhile, has never heard of the bullet and ignores it —
 /// `parse_shard` skips prefixes it does not know — so it simply behaves as it did before.
@@ -310,7 +310,7 @@ fn parse_grade(s: &str) -> Option<Grade> {
 // It turned one of five grades into the entry's title — "`open` — nearly" — so a reader
 // skimming a shard was told what the prediction scored and had to go four rows down for
 // whether the docs covered anything, whether they were derivable, whether the body could be
-// followed, or whether the thing is a footgun. Surprise is what the MAP is coloured by; it is
+// followed, or whether the thing is a footgun. Surprise is what the MAP is colored by; it is
 // not what a reading IS. See `render_entry`, where the loud end of any axis earns a marker
 // and nothing earns the title.
 
@@ -376,7 +376,7 @@ fn read_all(dir: &Path) -> HashMap<String, Report> {
 /// Deliberately forgiving. This file is committed, so it will be hand-edited and it will
 /// be merged by hand after a conflict; a parser that rejects the whole file over one
 /// malformed bullet would throw away everyone else's work to punish one typo. An
-/// unrecognised line is skipped, and an entry missing its `expected`/`found` is dropped
+/// unrecognized line is skipped, and an entry missing its `expected`/`found` is dropped
 /// on its own.
 fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
     let mut file = String::new();
@@ -476,7 +476,7 @@ fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
                 } else if let Some(v) = seg.strip_prefix("priming: ") {
                     // "CLAUDE.md in context" / "CLAUDE.md excluded" — the file list is
                     // everything up to the verdict, so a repo carrying two of them round
-                    // trips. An unrecognised tail is neither, and leaves both halves at
+                    // trips. An unrecognized tail is neither, and leaves both halves at
                     // their defaults rather than guessing which way it fell.
                     let v = v.trim();
                     if let Some(f) = v.strip_suffix(" in context") {
@@ -642,7 +642,7 @@ struct Compiled {
     ///
     /// Counted rather than marked per entry. The grade a reader gave is still printed —
     /// it is what they said, and the store's job is to record that — but a human reading
-    /// a shard has no way to know the app has stopped honouring it, and a store whose
+    /// a shard has no way to know the app has stopped honoring it, and a store whose
     /// numbers quietly diverge from the map is the failure this whole file exists against.
     /// One count in the header, where `read`, `surprising` and `stale` already answer
     /// "how much of this still counts".
@@ -918,7 +918,7 @@ fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) 
     // every entry would annotate none of them.
     //
     // Everything after the em-dash is decoration `parse_shard` splits off and recomputes on
-    // write, so these cost nothing durable and cannot drift from the record they summarise.
+    // write, so these cost nothing durable and cannot drift from the record they summarize.
     let mut marks = String::new();
     // Named for the CODE, like the app's own words — see `HEAT_WORDS`. A skim is looking for
     // the thing that caught somebody out, and `predicted: none` is the alarming end while
@@ -1077,7 +1077,7 @@ fn render_shard(
          \"how clear is it on its own terms\", which defined no rung but the top one; it now\n\
          asks what reading it was like — one pass, a second look, jumping around, or never\n\
          being sure. Grades from before that are kept here, because they are what a reader\n\
-         said, but they no longer colour the map. Re-read those functions to replace them."
+         said, but they no longer color the map. Re-read those functions to replace them."
     } else {
         ""
     };
@@ -1087,7 +1087,7 @@ fn render_shard(
          {read} of {total} read · {surprising} surprising{stale_note}{dated_note}\n\
          \n\
          Each entry below is one **reading**, of a function or of a whole file. An agent was\n\
-         given its name, signature, neighbouring names and comments — never its body — and\n\
+         given its name, signature, neighboring names and comments — never its body — and\n\
          wrote down what it expected to find. Then it opened the file. The gap between the\n\
          two is the finding. A file's own entry is titled `the file itself` and asks whether\n\
          the header at the top describes what is actually in there.\n\
@@ -1135,28 +1135,25 @@ fn render_index(repo: &str, shards: &[(String, usize, usize, usize, usize, usize
     format!(
         "# Sanity assessment — {repo}\n\
          \n\
-         A record of how well this repo reads to someone who has not read it.\n\
+         A record of how well this repo might read to someone who has not read it.\n\
          \n\
          Each entry in the files below is one **reading**: an agent was shown a\n\
-         function's name, signature, neighbouring function names and comments — never its\n\
-         body — and wrote down what it expected to find. Then it opened the file. The gap\n\
-         between the prediction and the code is the finding.\n\
+         function's name, signature, neighboring function names and comments, but never its\n\
+         body. It was asked what it expected to find. Then it was given the file and asked\n\
+         to explain the difference.\n\
          \n\
-         A function nobody guessed wrong about is boilerplate. A function that caught out\n\
-         a competent reader is where this repo keeps its decisions — and is worth either\n\
-         a comment or a second look.\n\
+         **These files are meant to be read.**\n\
          \n\
-         **These files are meant to be read.** You need no software to get the value out\n\
-         of them: open one and read it like notes from a code review. A human and an\n\
-         agent can both work from them as they are.\n\
+         You do not need the Sanity CLI or GUI to get the information out of them: open one\n\
+         and read it like notes from a code review.\n\
          \n\
          {table}\
          \n\
          ## Seeing it as a map\n\
          \n\
-         Sanity draws the same repo as a sunburst — every function a wedge, width by\n\
-         lines, colour by how much of it nobody saw coming. Open this repo in the app and\n\
-         these readings load with it.\n\
+         Sanity draws the same repo as a sunburst with every file and function represented,\n\
+         colored by surprise, legibility, doc coverage, churn, and four other dimensions.\n\
+         Open this repo in the app to visualize these readings.\n\
          \n\
          ```\n\
          brew install --cask monsterdept/tap/sanity\n\
@@ -1168,32 +1165,25 @@ fn render_index(repo: &str, shards: &[(String, usize, usize, usize, usize, usize
          \n\
          Readings go stale. Each one records a hash of the code and the comments it was\n\
          made against, so when either moves out from under a reading, Sanity marks it\n\
-         STALE and offers it for re-reading before anything else. Nothing here silently\n\
-         keeps claiming to be current.\n\
+         STALE and offers it for re-reading before anything else.\n\
          \n\
          Coding agents do the reading, and Sanity runs them. From this repo:\n\
          \n\
          ```\n\
-         sanity init --harness claude\n\
+         sanity init\n\
          sanity check\n\
          ```\n\
          \n\
-         Or add the repo in the app and press Read. Either way it re-reads what changed\n\
-         and what was never covered, and rewrites these files. Each reader is a separate\n\
-         process started outside this directory with no access to the repo — it sees only\n\
-         what Sanity hands it, which is what makes a reading a prediction rather than a\n\
-         recollection. The window does not have to be open while it works.\n\
+         Or add the repo in the app and press Read.\n\
          \n\
-         **Anyone with the repo can do this.** Readings are not owned by whoever made\n\
-         them: `by` on each entry is provenance you can read, not a claim on the entry.\n\
-         Files are split by top-level directory and entries are ordered by position in\n\
-         the file, never by when they were written, so two people assessing different\n\
-         areas produce diffs that do not touch.\n\
+         Each reader is a separate process started outside this directory with no\n\
+         access to the repo. It sees only what Sanity hands it. The window does\n\
+         not have to be open while it works.\n\
          \n\
          ## Commit this directory\n\
          \n\
-         A reading is minutes of careful work by a reader that will never see this code\n\
-         fresh again. Unlike everything else Sanity shows you, it cannot be recomputed.\n"
+         A reading is minutes of careful work and tokens spent. Commit it so\n\
+         others can benefit from it.\n"
     )
 }
 
@@ -1343,7 +1333,7 @@ mod tests {
 
         assert!(mine.exists(), "a human's note was deleted by a save");
         // `gone.md` was never linked by an index this tool wrote, so it is not ours to
-        // remove either — the rule is "what we claimed", not "what we recognise".
+        // remove either — the rule is "what we claimed", not "what we recognize".
         assert!(orphan.exists(), "a file this tool never linked was removed");
     }
 
@@ -1448,7 +1438,7 @@ mod tests {
     ///
     /// The case this file cannot control. Somebody runs an older app, or a newer one, and
     /// both write into the same `.sanity/`. A reading from a NEWER spec is trusted — a later
-    /// spec refines the question, and greying out a colleague's fresh reading because we are
+    /// spec refines the question, and graying out a colleague's fresh reading because we are
     /// behind would punish them for updating first. A reading from an OLDER spec is not.
     /// Both fall out of one `>=`; the test is here because the asymmetry is easy to
     /// "correct" into an equality by somebody who has not thought about the second case.
@@ -1640,7 +1630,7 @@ mod tests {
     ///
     /// This is the property the whole "add a field, don't change the format" rule rests on,
     /// and it is worth a test rather than a promise: `parse_shard` matches segment prefixes
-    /// and drops what it does not recognise, so a shard written by a future build still
+    /// and drops what it does not recognize, so a shard written by a future build still
     /// yields its readings here. If that ever stops being true, adding a field stops being
     /// free and becomes the class of change that once destroyed a project's readings.
     #[test]
@@ -1665,7 +1655,7 @@ mod tests {
     /// The shard says how many of its grades no longer answer today's question.
     ///
     /// Because the store is the copy people read without the app, and a shard printing
-    /// `legible: clean` beside a map that has gone grey is the same failure as an index
+    /// `legible: clean` beside a map that has gone gray is the same failure as an index
     /// claiming a coverage it has not got — two records of one thing, disagreeing, with the
     /// unwatched one wrong.
     ///
@@ -1888,7 +1878,7 @@ mod tests {
         let mut out = HashMap::new();
         parse_shard(text, &mut out);
         assert!(!out.contains_key("src/a.rs#broken"), "an entry with no reading is dropped");
-        let ok = out.get("src/a.rs#intact").expect("its neighbour survives");
+        let ok = out.get("src/a.rs#intact").expect("its neighbor survives");
         assert_eq!(ok.predicted, Some(Grade::Most));
         assert!(ok.derivable);
     }

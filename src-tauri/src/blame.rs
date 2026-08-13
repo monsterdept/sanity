@@ -1,7 +1,7 @@
 //! Per-line history, so churn, age and blame mean something at the function level.
 //!
 //! `churn.rs` reads one `git log` pass and keys everything by file, which made three of
-//! the five colour lenses flat across the outer ring: every function in a file carried
+//! the five color lenses flat across the outer ring: every function in a file carried
 //! its file's churn, its file's age and its file's last author, so the ring that holds
 //! the actual findings had no internal variation at all in Churn, Age or Blame. The
 //! rings looked like data and were a solid block per file.
@@ -186,7 +186,7 @@ fn blame_file(repo: &Path, path: &str) -> Option<FileBlame> {
 /// the sha, the author and the author time, and the final line number tells us where to
 /// put them — which matters, because the header order follows the ORIGINAL file, not the
 /// current one, and assuming sequential output puts a function's lines under its
-/// neighbour.
+/// neighbor.
 fn parse_porcelain(text: &str) -> FileBlame {
     let mut lines: Vec<Line> = Vec::new();
     let mut authors: Vec<String> = Vec::new();
@@ -268,7 +268,7 @@ summary second
     }
 
     /// The header order follows the original file, so a function's lines must be placed
-    /// by their FINAL line number or they land under a neighbour.
+    /// by their FINAL line number or they land under a neighbor.
     #[test]
     fn places_lines_by_their_final_number() {
         let out_of_order = "\

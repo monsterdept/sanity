@@ -30,9 +30,9 @@ import {
  * measurement and this panel is where you come when the map was not enough.
  *
  * **Each dial wears its own lens's ramp, at its own value.** They were all `--accent`, so
- * the loudest property on the row carried nothing — the one place in this app where colour
+ * the loudest property on the row carried nothing — the one place in this app where color
  * meant nothing at all — while four feet below, the same four readings each had a hue of
- * their own that the whole map is built on. A dial is now literally the colour that wedge
+ * their own that the whole map is built on. A dial is now literally the color that wedge
  * takes when you press that tab, which makes the row a preview of the four lenses rather
  * than a chart-shaped decoration.
  *
@@ -76,7 +76,7 @@ export function Gauge({
   const LEN = Math.PI * R
   const v = Math.max(0, Math.min(1, value))
   const arc = `M ${50 - R} 50 A ${R} ${R} 0 0 1 ${50 + R} 50`
-  // A ramp colour when the reading has a lens, the chrome's accent when it does not. Sampled
+  // A ramp color when the reading has a lens, the chrome's accent when it does not. Sampled
   // at `rampValue` where the printed number counts the other way — see the prop.
   const c = Math.max(0, Math.min(1, rampValue ?? value))
   const fill = unread ? 'var(--secondary)' : ramp ? heatColor(c, ramp) : 'var(--accent)'
@@ -87,7 +87,7 @@ export function Gauge({
       <svg viewBox="0 0 100 58" className="w-full overflow-visible">
         {/* The track, quieter than it was. It used to be `--secondary` at the same weight as
             the value arc, so at 5% documented the picture was dominated by the part that is
-            not the reading — a big grey horseshoe with a nub on it. Thinner and dimmer: the
+            not the reading — a big gray horseshoe with a nub on it. Thinner and dimmer: the
             track is the scale, the arc is the answer. */}
         <path
           d={arc}
@@ -114,7 +114,7 @@ export function Gauge({
             scale differs.
 
             Shrunk to fit rather than clipped or truncated. The words are the ones `.sanity/`
-            prints now, and `unrecognisable` is fourteen characters where `warm` was four — a
+            prints now, and `unrecognizable` is fourteen characters where `warm` was four — a
             fixed size would have run it off both ends of the arc. A name a reader cannot
             finish is worse than one set a little smaller, and this is the same fit-or-shrink
             the wedge labels make. */}
@@ -134,7 +134,7 @@ export function Gauge({
           four, `UNDOCUMENTED` is wider than its column and ran into `HOT SHARE` beside it.
           `break-words` lets the long ones take two lines, and the tracking comes off so
           they need fewer — a label that collides is worse than a label set slightly tighter
-          than its neighbours. */}
+          than its neighbors. */}
       <span className="mt-0.5 w-full cursor-help break-words text-center text-[9px] font-semibold uppercase leading-tight tracking-tight text-[var(--muted-foreground)]">
         {label}
       </span>
@@ -156,7 +156,7 @@ export function Gauge({
  * **Direction follows the dial's own number, not the ramp.** Surprise counts UP toward
  * surprising, because a container's surprise dial is a percentage that does; Docs and
  * Legibility count up toward the good end, because theirs do. That is the same rule the
- * printed number already obeyed — the colour is the thing that always paints the gap.
+ * printed number already obeyed — the color is the thing that always paints the gap.
  */
 const RUNG_GOOD: Record<Grade, number> = { full: 4, most: 3, some: 2, none: 1 }
 const RUNG_HOT: Record<Grade, number> = { full: 1, most: 2, some: 3, none: 4 }
@@ -177,7 +177,7 @@ function graded(node: Node, which: 'legible' | 'documented'): Grade | undefined 
   }
   // Through `legibleOf`, so a grade whose question has been rewritten reads as ungraded here
   // exactly as it does on the map. A dial that kept counting it would be the sidebar telling
-  // you 100% legible over a ring that had gone grey.
+  // you 100% legible over a ring that had gone gray.
   return legibleOf(node.agent)
 }
 
@@ -273,7 +273,7 @@ export function Dials({ node, lead }: { node: Node; lead?: ReactNode }) {
           one line in the pane that means "different section". */}
       {lead}
       <div className="grid grid-cols-4 gap-1">
-      {/* Surprise. A container reports the share of its analysed lines sitting in hot code
+      {/* Surprise. A container reports the share of its analyzed lines sitting in hot code
           — `wedgeHeat` — which is the figure its wedge is painted with, so the dial and the
           ring agree. A function reports its own temperature. */}
       {/* Adjectives on containers, nouns on functions, and the difference is not cosmetic:
@@ -289,13 +289,13 @@ export function Dials({ node, lead }: { node: Node; lead?: ReactNode }) {
         word={predicted ? fraction(RUNG_HOT[predicted]) : words?.heat}
         hint={
           share
-            ? 'The share of analysed lines under here sitting in surprising code — the figure this wedge is coloured by.'
-            : `How little of this body a reader could predict from its name, signature, neighbours and docs. This is the colour. Four steps, counting up toward surprising: 1 predictable, 2 typical, 3 quirky, 4 obscure.${
+            ? 'The share of analyzed lines under here sitting in surprising code — the figure this wedge is colored by.'
+            : `How little of this body a reader could predict from its name, signature, neighbors and docs. This is the color. Four steps, counting up toward surprising: 1 predictable, 2 typical, 3 quirky, 4 obscure.${
                 predicted ? ` This one: ${HEAT_WORDS[predicted]}.` : ''
               }`
         }
       />
-      {/* Documentation is a REPORT, not a discount. It no longer multiplies into the colour
+      {/* Documentation is a REPORT, not a discount. It no longer multiplies into the color
           — the reader who graded it had the docs in hand, so a good comment already lowered
           the surprise beside it. Shown because "surprising and undocumented" and
           "surprising but well covered" are different situations, and only one of them is
@@ -307,10 +307,10 @@ export function Dials({ node, lead }: { node: Node; lead?: ReactNode }) {
       {/* The same question the Docs lens paints, at whichever level this node is: a function
           or a file answers for its own doc, a directory for its files.
 
-          **The NUMBER counts up for the good thing; the COLOUR still paints the gap.** A
+          **The NUMBER counts up for the good thing; the COLOR still paints the gap.** A
           directory reads `DOC'D 47`, and the ramp beside it is bright because 53% is not.
           Those are two facts, not a contradiction: the number says how much you have, the
-          colour says whether there is work. Naming the dial `Files undescribed` and printing
+          color says whether there is work. Naming the dial `Files undescribed` and printing
           the gap made the row read one way and the label another — `LEGIBILITY 0` meant
           perfectly legible, which is the opposite of what it says. */}
       <Gauge
@@ -330,7 +330,7 @@ export function Dials({ node, lead }: { node: Node; lead?: ReactNode }) {
         ramp="docs"
         unread={node.kind === 'dir' ? docs === null : !docGrade && share}
         word={node.kind === 'dir' ? null : docGrade ? fraction(RUNG_GOOD[docGrade]) : null}
-        hint={`How much of what this code does somebody has explained — graded by the reader that read both the docs and the body, not counted in comment lines. Four steps, counting up toward covered: 1 none, 2 some, 3 decent, 4 full. A directory reports the share of its files whose header describes them instead; a doc the reader judged derivable from the code counts as none, whatever grade it gave. The colour runs the other way: bright is the part nobody has written.${
+        hint={`How much of what this code does somebody has explained — graded by the reader that read both the docs and the body, not counted in comment lines. Four steps, counting up toward covered: 1 none, 2 some, 3 decent, 4 full. A directory reports the share of its files whose header describes them instead; a doc the reader judged derivable from the code counts as none, whatever grade it gave. The color runs the other way: bright is the part nobody has written.${
           docGrade ? ` This one: ${DOC_WORDS[docGrade]}.` : ''
         }`}
       />
@@ -360,7 +360,7 @@ export function Dials({ node, lead }: { node: Node; lead?: ReactNode }) {
         ramp="legible"
         unread={share ? legible === null : !legibleGrade}
         word={share ? null : legibleGrade ? fraction(RUNG_GOOD[legibleGrade]) : null}
-        hint={`What reading this was like, judged by what the reader actually did. Four steps, counting up toward clear: 1 unclear, 2 tangled, 3 nuanced, 4 clean. Surprise asks whether the intent was reachable from outside; this asks what was there when they looked. The colour runs the other way: bright is the tangled end.${
+        hint={`What reading this was like, judged by what the reader actually did. Four steps, counting up toward clear: 1 unclear, 2 tangled, 3 nuanced, 4 clean. Surprise asks whether the intent was reachable from outside; this asks what was there when they looked. The color runs the other way: bright is the tangled end.${
           legibleGrade ? ` This one: ${LEGIBLE_WORDS[legibleGrade]}.` : ''
         }`}
       />

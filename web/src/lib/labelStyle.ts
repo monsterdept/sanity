@@ -46,7 +46,7 @@ export const MIN_SIZE = 6
  *  which is the thing actually carrying the measurement.
  *
  *  There is no separation treatment behind it. Halo, shadow and plate were all built and
- *  all looked at: the halo reads as outlined type, the plate covers the very colour the
+ *  all looked at: the halo reads as outlined type, the plate covers the very color the
  *  label is standing on, and the shadow is a wash. Plain type on the wedge won, so what
  *  ships is nothing. */
 export const OPACITY = 0.88

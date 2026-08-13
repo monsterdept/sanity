@@ -8,7 +8,7 @@
 //! **Surprise is not replayed.** A function's temperature is a reading taken against the
 //! code as it is now; stamping it onto the same function's 2019 body would be the map
 //! claiming a measurement nobody took. So the history frames carry structure and dates
-//! and nothing else, and what colours them is recency — how long, *as of the frame's own
+//! and nothing else, and what colors them is recency — how long, *as of the frame's own
 //! date*, since anyone touched this. That is a fact about the commit stream, which is the
 //! only thing this module actually reads.
 //!
@@ -678,7 +678,7 @@ impl Replayer {
     /// already been computed — which is why a resumed walk never re-parses anything. What
     /// is lost is exactly what a pre-window function is supposed to lose: its dates. A
     /// folded function makes no claim about when it was last touched, and `frameTree`
-    /// leaves it uncoloured rather than dating it to the edge of the window.
+    /// leaves it uncolored rather than dating it to the edge of the window.
     fn fold(&mut self, limit: usize) {
         if self.out.commits.len() <= limit {
             return;

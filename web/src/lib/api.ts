@@ -17,11 +17,11 @@ export interface Score {
   /** Raw commits in the 90-day window — the fact behind `churn`. */
   commits: number
   provenance: Provenance
-  /** Fraction of this node's ANALYSED lines sitting in hot code. What a
-   *  directory or file wedge is coloured by — see `wedgeHeat`. */
+  /** Fraction of this node's ANALYZED lines sitting in hot code. What a
+   *  directory or file wedge is colored by — see `wedgeHeat`. */
   hotShare: number
   source: 'proxy' | 'model' | 'agent'
-  /** Share of this node's lines a model actually looked at. 0 means uncoloured. */
+  /** Share of this node's lines a model actually looked at. 0 means uncolored. */
   analyzedShare: number
 }
 
@@ -64,7 +64,7 @@ export interface Node {
   /** Set when an agent assessed this function over MCP. */
   agent?: AgentReport
   /** The reading in `agent` was made against a different body than the one here.
-   *  It is kept, and shown, but it no longer colours the wedge — see
+   *  It is kept, and shown, but it no longer colors the wedge — see
    *  `applyAgentReports`. */
   agentStale?: boolean
   /** The score before an agent's reading overwrote it.
@@ -73,7 +73,7 @@ export interface Node {
    *  it, so by the time a reading goes stale the proxy number it replaced is gone and
    *  there is nothing to fall back to. Today a rescan happens to supply a fresh tree
    *  first, which hides it — but that is a coincidence of ordering, not a guarantee, and
-   *  the failure it hides is a wedge keeping an expired colour. */
+   *  the failure it hides is a wedge keeping an expired color. */
   proxyScore?: Score
   /** How many functions this node stands in for, on the synthetic wedge a band draws when
    *  it runs out of room. Undefined on everything else, which is what makes it the test
@@ -85,7 +85,7 @@ export interface Node {
 /**
  * Does this wedge report a SHARE rather than a temperature?
  *
- * The two are on one colour ramp and are not comparable, so which one a wedge is showing
+ * The two are on one color ramp and are not comparable, so which one a wedge is showing
  * has to be decided in exactly one place. It used to be decided as `kind === 'func'` in
  * four, and the overflow aggregate — a stand-in for hundreds of functions, drawn at the
  * size of a container — fell on the function side of it. So the only large objects on the
@@ -254,7 +254,7 @@ export function agentActivity(): Promise<AgentActivity> {
  *  (column) both return the folder that was double-clicked. Same binary, same gesture, one
  *  variable — and only the view that HAS disclosure triangles is affected, which is what
  *  makes the toggle the likely culprit. On a macOS public beta, so it may be a regression
- *  rather than long-standing behaviour.
+ *  rather than long-standing behavior.
  *
  *  Deliberately not worked around here. A delegate that refused non-repos "fixed" it by
  *  making the wrong answer invalid, which is a folder filter wearing a bug fix's clothes —
@@ -307,7 +307,7 @@ export interface HarnessInfo {
   /** Models the harness names for itself. Empty is a real answer — the app server may not
    *  answer, or the agent may not be installed — and the picker degrades to a text field. */
   models: ModelChoice[]
-  /** True when `models` is the agent's own catalogue rather than aliases we wrote down.
+  /** True when `models` is the agent's own catalog rather than aliases we wrote down.
    *
    *  Only Claude Code is false: it publishes nothing a program can read, so its four
    *  entries name families and a full version has to be typed. The other three enumerate
@@ -366,7 +366,7 @@ export function startCheck(
   })
 }
 
-/** Ask a wave to stop. Honoured between readers, never mid-reading. */
+/** Ask a wave to stop. Honored between readers, never mid-reading. */
 export function stopCheck(key: string): Promise<void> {
   return invoke<void>('stop_check', { key })
 }
@@ -545,7 +545,7 @@ export interface AgentReport {
    *  is to paint what it is told.
    *
    *  Treated exactly like `agentStale`: the grade is kept and shown as history, but it does
-   *  not colour a wedge and does not count in a dial. A number whose question has moved is
+   *  not color a wedge and does not count in a dial. A number whose question has moved is
    *  a term claiming confidence it has not got. */
   legibleDated?: boolean
   /** The reader says something here will bite whoever edits it next. */
@@ -583,7 +583,7 @@ export function isReportStale(r: AgentReport, node: Node): boolean {
  *  reviewable in the two places the metric is computed. */
 /** Exported so the summary can paint a grade with the ramp the map paints it with. The
  *  spacing is deliberately uneven — see `HEAT_WORDS` — so a panel that re-derived its own
- *  swatches from an even 0/⅓/⅔/1 would show four colours the map never uses. */
+ *  swatches from an even 0/⅓/⅔/1 would show four colors the map never uses. */
 export const GRADE_SURPRISE: Record<Grade, number> = { full: 0.08, most: 0.3, some: 0.62, none: 0.92 }
 const GRADE_DOCUMENTED: Record<Grade, number> = { full: 0.95, most: 0.7, some: 0.35, none: 0 }
 
@@ -600,11 +600,11 @@ export const DOC_GAP: Record<Grade, number> = { full: 0.05, most: 0.3, some: 0.6
  * One accessor, because a grade whose question has moved is not a grade any more and every
  * consumer has to agree about that — the lens, the breakdown, the dial and the spread. When
  * `legible` was read straight off the report in four places, a bump to the ask would have
- * been honoured wherever somebody remembered and ignored everywhere else, which is worse
+ * been honored wherever somebody remembered and ignored everywhere else, which is worse
  * than not bumping: the map would disagree with the panel beside it about the same wedge.
  *
  * A dated grade is kept on the report and shown as history — see `legibleDated`. What it
- * does not do is colour, count, or bucket.
+ * does not do is color, count, or bucket.
  */
 export function legibleOf(r: AgentReport | undefined): Grade | undefined {
   if (!r || r.legibleDated) return undefined
@@ -650,7 +650,7 @@ export function reportGrades(r: AgentReport): { surprise: number; documented: nu
  *  belong to neither frame. Nothing has to be read backwards to be understood.
  *
  *  `nuanced` is no longer shared with `LEGIBLE_WORDS`, and the two second rungs are better
- *  apart: here it is code that holds nothing its neighbours have not already taught you,
+ *  apart: here it is code that holds nothing its neighbors have not already taught you,
  *  which is `typical`; there it is a body with one wrinkle to go back for, which is
  *  `nuanced`. One word for both said they were the same finding.
  *
@@ -681,12 +681,12 @@ export const HEAT_WORDS: Record<Grade, string> = {
  * about light passing through, so they fought the ramp: clear means light gets through, and
  * the ramp puts the thing you must act on at the BRIGHT end. `murky` therefore named a bright
  * wedge with a word meaning cloudy, and `crystal` named a dark one with a word meaning
- * transparent. Nothing was mis-coloured; the vocabulary was arguing with the colour. These
+ * transparent. Nothing was mis-colored; the vocabulary was arguing with the color. These
  * are structural — how tangled it was to get through — and carry no brightness at all.
  *
  * `nuanced` was briefly shared with `HEAT_WORDS`, which read as the two scales making the
  * same finding. They are not: surprise's second rung is code that holds nothing its
- * neighbours have not already taught you, and this one is a body with one wrinkle to go back
+ * neighbors have not already taught you, and this one is a body with one wrinkle to go back
  * for. Surprise's is `typical` now, and the word belongs here.
  *
  * Display only. `.sanity/` records the GRADE a reader sent — `legible: full` — so renaming
@@ -730,8 +730,8 @@ export const DOC_WORDS: Record<Grade, string> = {
  *
  *  Null for a proxy or model score on purpose: those are continuous and mean something
  *  different, and giving them one of four words would claim a reader's judgement where
- *  there is an estimate. A stale reading is null too — it has already stopped colouring
- *  the wedge, and a word is a colour in text. */
+ *  there is an estimate. A stale reading is null too — it has already stopped coloring
+ *  the wedge, and a word is a color in text. */
 export function readingWords(node: Node): { heat: string; documented: string | null } | null {
   if (node.kind !== 'func' || !node.agent || node.agentStale) return null
   const r = node.agent
@@ -763,7 +763,7 @@ export function applyAgentReports(root: Node, reports: AgentReport[]): Node {
     if (node.children.length === 0) {
       const r = byId.get(node.id)
       if (!r || !node.score) return node
-      // A reading whose code has changed does NOT colour the wedge. It described a body
+      // A reading whose code has changed does NOT color the wedge. It described a body
       // that is not there any more, and letting it keep painting is the exact failure
       // the metric refuses everywhere else — a number claiming confidence it no longer
       // has. The wedge falls back to the proxy, which is what an unread function looks
@@ -817,8 +817,8 @@ export function applyAgentReports(root: Node, reports: AgentReport[]): Node {
 }
 
 /**
- * The two things on the map that a colour ramp cannot explain: hatched wedges and
- * uncoloured ones.
+ * The two things on the map that a color ramp cannot explain: hatched wedges and
+ * uncolored ones.
  *
  * Counted off the tree rather than read from the project list so the legend always
  * describes the picture actually on screen — drilled into one directory, the repo-wide
@@ -864,7 +864,7 @@ export const HOT = 0.5
  *
  * `spread` counts only readings that still describe their code. Stale ones are their own
  * bucket and are NOT folded into a grade — the wedge has already stopped taking their
- * colour, and a count that quietly included them would let the panel read as finished
+ * color, and a count that quietly included them would let the panel read as finished
  * while holding expired work, which is the one thing `assessed` exists to prevent.
  */
 export interface RepoSummary {
@@ -1009,7 +1009,7 @@ export function onScanScore(cb: (id: string, u: Upgrade) => void): () => void {
  * Mirrors `Node::aggregate` in model.rs, and has to keep mirroring it — the two are the
  * same arithmetic reached from opposite ends, and if they drift the map will disagree
  * with itself depending on whether you watched it fill in or waited for the final tree.
- * The LOC-weighted mean and the analysed-lines-only hot share are both load-bearing;
+ * The LOC-weighted mean and the analyzed-lines-only hot share are both load-bearing;
  * see the Rust for why.
  *
  * Returns a new root; nodes on the path to a change are cloned, the rest are shared.
@@ -1075,7 +1075,7 @@ function reaggregate(node: Node, children: Node[]): Node {
       // ...and was last touched when the most recent thing in it was. This was hardcoded
       // `null` below, which is the same bug Rust's `aggregate` already fixed and this
       // copy never got: any subtree an agent reported on was re-aggregated here, lost its
-      // last-touched date, and went grey in Age mode. The most-read directory in the repo
+      // last-touched date, and went gray in Age mode. The most-read directory in the repo
       // was the one that looked least measured.
       if (c.score.lastTouchedDays !== null) {
         touched = touched === null ? c.score.lastTouchedDays : Math.min(touched, c.score.lastTouchedDays)
@@ -1172,15 +1172,15 @@ export function syncThemeMenu(theme: string): Promise<void> {
 // ── Derived reads of a score ────────────────────────────────────────────────────
 //
 // These live here, next to the types, so the sunburst and the detail panel can never
-// disagree about what a colour means.
+// disagree about what a color means.
 
-/** What the wedge is coloured by.
+/** What the wedge is colored by.
  *
  *  Just the surprise now. Documentation reaches the instrument rather than the
  *  arithmetic — the model gets the comment stack in its prompt, and an agent reads the
  *  docs before it predicts — so a well-documented function is cold because the reader
  *  was not surprised, not because a multiplier discounted a surprise it still reported.
- *  Keeping it as a function because this is THE number the colour means, and it has
+ *  Keeping it as a function because this is THE number the color means, and it has
  *  changed definition once. */
 export function temperature(s: Score | null): number {
   if (!s) return 0
@@ -1197,18 +1197,18 @@ export function temperature(s: Score | null): number {
  * A verdict is only useful with its reasons attached, and the reasons have to be the
  * actual numbers that produced it.
  *
- * Raw counts, not normalised scores: "changed 14 times since May" is something a person
+ * Raw counts, not normalized scores: "changed 14 times since May" is something a person
  * can check and act on; "churn 100%" is a percentage of a saturation constant they have
  * never heard of.
  */
 
 /**
- * What a wedge is actually coloured by, which depends on what the wedge IS.
+ * What a wedge is actually colored by, which depends on what the wedge IS.
  *
  * A function shows its own temperature. A file, a directory, or an overflow roll-up shows
  * the *share* of its lines that are hot — because averaging temperature over hundreds of
  * functions converges on the repo mean, and every inner ring, which is most of the picture
- * by area, comes out the same lukewarm colour. That was the first screenshot.
+ * by area, comes out the same lukewarm color. That was the first screenshot.
  *
  * The two readings stay compatible: both answer "how much of what I'm looking at needs
  * my attention", one for a single body and one for a collection.
@@ -1225,7 +1225,7 @@ export function wedgeHeat(node: Node): number {
  * do not use the top of theirs: measured line-weighted across tonepoet, sanity and
  * ComfyUI, 37 directories run from 0.0% to 37.8% hot with a median of 5.9%, so on the raw
  * number 35 of the 37 land in the bottom fifth of the ramp and every folder in the window
- * is the same grey. That is the same failure a flat histogram is for the proxy: the scale
+ * is the same gray. That is the same failure a flat histogram is for the proxy: the scale
  * looks like a measurement and reports a constant.
  *
  * `min(1, share/BAND)^SKEW` with the constants below puts the p10–p90 across 0.80 of the
@@ -1236,7 +1236,7 @@ export function wedgeHeat(node: Node): number {
  *
  * Two properties this is not allowed to lose. It is MONOTONIC, so it changes no ordering —
  * which is why `wedgeHeat` above is left raw for sorting and for the numbers the panel
- * prints, and this is applied only where a colour is produced. And `0` maps to `0`, so a
+ * prints, and this is applied only where a color is produced. And `0` maps to `0`, so a
  * directory with nothing hot in it still reads as nothing hot: ComfyUI has six of those,
  * and a scale that lifted them off the floor could not say that anything was fine.
  *
@@ -1252,7 +1252,7 @@ export function shareRamp(share: number): number {
 
 /** What a wedge is PAINTED with: `wedgeHeat`, with a share put on the ramp's own scale.
  *  Separate from `wedgeHeat` because that one is the reported quantity — the tooltip's
- *  "9% hot" is the measurement and this is where it lands on the colour bar. */
+ *  "9% hot" is the measurement and this is where it lands on the color bar. */
 export function paintHeat(node: Node): number {
   if (!node.score) return 0
   return showsShare(node) ? shareRamp(node.score.hotShare) : temperature(node.score)
@@ -1264,7 +1264,7 @@ export function paintHeat(node: Node): number {
  * Wedges the model hasn't reached render neutral rather than borrowing the offline
  * proxy's guess. That proxy is measurably close to sorting by line count — `just scan`
  * prints the baseline check that says so — so painting heat with it states a finding the
- * numbers don't support. Grey is not a gap in the picture; it is the picture telling you
+ * numbers don't support. Gray is not a gap in the picture; it is the picture telling you
  * what it has and hasn't examined, which is the honest thing for a comprehension tool to
  * be able to say about itself.
  */
@@ -1287,10 +1287,10 @@ export function heatColor(t: number, ramp: Ramp = 'heat'): string {
 }
 
 /**
- * The stop a mixed ramp colour is NEAREST to, as a bare custom-property name.
+ * The stop a mixed ramp color is NEAREST to, as a bare custom-property name.
  *
  * For anyone who has to know how dark the fill actually came out — `inkOn` does, to pick
- * a label colour. A `color-mix()` string is not something JavaScript can read back: the
+ * a label color. A `color-mix()` string is not something JavaScript can read back: the
  * mix happens in the renderer, in oklch, and nothing exposes the result. Rounding to the
  * nearer of the two stops sidesteps it entirely, and costs nothing worth having, because
  * the decision this feeds is a binary one and the two candidate stops sit a fifth of a

@@ -114,7 +114,7 @@ function Slider({
       </div>
       {/* Drawn over both track and fill, so a notch stays visible on the part already
           selected — a scale that disappears as you use it is not a scale. Painted in the
-          dialog's own background rather than a colour: a notch crosses two very different
+          dialog's own background rather than a color: a notch crosses two very different
           fills, and any single ink is invisible against one of them, while a GAP reads as a
           gap on both. A blend mode was the other candidate and lands differently in every
           theme, which is not a thing to discover on somebody else's screen. */}
@@ -246,7 +246,7 @@ export function ReadDialog({
   }, [])
 
   // **The agent's default model, when nothing has already decided.** `prev ||` is the whole
-  // condition: the state is initialised from the corpus and then the stored preference, so
+  // condition: the state is initialized from the corpus and then the stored preference, so
   // a repo with readings to continue never reaches this and a default can never quietly
   // change the scale a project is already on. What it fixes is the other case — a fresh
   // repo opening on a list of ids with nothing ticked and a button that cannot be pressed.
@@ -300,7 +300,7 @@ export function ReadDialog({
   // Whatever the agent said about itself — see `Harness::models`. Never a list of ours.
   const chosen = installed.find((h) => h.id === harness)
   const models = chosen?.models ?? []
-  // Aliases need somewhere to type a full version; a real catalogue does not — see
+  // Aliases need somewhere to type a full version; a real catalog does not — see
   // `Harness::enumerates`. Defaults to true so the field does not flash into existence
   // during the moment before `harnesses()` answers.
   const enumerated = chosen?.enumerated ?? true
@@ -388,7 +388,7 @@ export function ReadDialog({
 
             {/* **Absent until an agent is picked, not present and disabled.** The field
                 cannot be filled in before then — the completions come from the agent, and
-                so does what counts as a valid id — so what it offered was a greyed box
+                so does what counts as a valid id — so what it offered was a grayed box
                 reading "choose an agent first", which is a control whose whole content is
                 an instruction to use the control above it. The chips above are the step;
                 this appears when it has something to say. */}

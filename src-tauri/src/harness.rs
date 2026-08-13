@@ -132,7 +132,7 @@ impl Harness {
         [Harness::Claude, Harness::Codex, Harness::OpenCode, Harness::Agy]
     }
 
-    /// Whether [`models`] is the agent's own catalogue, or a list of ours.
+    /// Whether [`models`] is the agent's own catalog, or a list of ours.
     ///
     /// **Three of the four enumerate properly and one does not.** Codex answers `model/list`
     /// over JSON-RPC, opencode and Antigravity each have a `models` subcommand — all real,
@@ -141,7 +141,7 @@ impl Harness {
     /// than a model: `sonnet` has meant three different ones.
     ///
     /// The window uses this to decide whether to offer a text field beside the list. Where
-    /// the catalogue is real the list is the whole truth and a free-text box invites people
+    /// the catalog is real the list is the whole truth and a free-text box invites people
     /// to type ids that will be rejected at spawn time, minutes later. Where it is aliases,
     /// typing a full version is the only way to pin the scale, and pinning it is the thing
     /// the `model` column exists to make possible.
@@ -201,7 +201,7 @@ impl Harness {
         found
     }
 
-    /// Ask Codex's app server for its catalogue.
+    /// Ask Codex's app server for its catalog.
     ///
     /// Two lines of JSON-RPC on stdin — `initialize`, then `model/list` — and the first
     /// reply carrying our id is the answer. Read on a thread with a deadline because a
@@ -222,7 +222,7 @@ impl Harness {
         };
         // **Held open until the answer arrives, not dropped after writing.** Closing stdin
         // makes the app server shut down, and it does so before it replies: measured, with
-        // stdin closed it never answers at all and with it held it returns the catalogue
+        // stdin closed it never answers at all and with it held it returns the catalog
         // every time. Dropping it at the end of a `if let` block is exactly what the tidy
         // version of this code did, and the symptom was an empty model list in the window
         // while the same two lines of JSON-RPC worked by hand.
@@ -268,7 +268,7 @@ impl Harness {
             .as_array()
             .map(|list| {
                 list.iter()
-                    // `hidden` is the catalogue saying "not in the default picker", and
+                    // `hidden` is the catalog saying "not in the default picker", and
                     // this is a picker.
                     .filter(|m| !m["hidden"].as_bool().unwrap_or(false))
                     .filter_map(|m| {
@@ -325,7 +325,7 @@ impl Harness {
     /// What `agy models` prints: `id<TAB>display name`, one per line.
     ///
     /// The good case, like Codex and unlike Claude — real versioned ids from the harness
-    /// itself, and a short enough list to render as chips. It is a mixed catalogue (Gemini,
+    /// itself, and a short enough list to render as chips. It is a mixed catalog (Gemini,
     /// Claude and GPT-OSS ids all appear), which matters here more than usual: the reader IS
     /// the scale, so picking a Claude model inside Antigravity is not the same measurement as
     /// picking a Gemini one, and both are on the same menu.
@@ -540,7 +540,7 @@ const CLAUDE_TOOLS: &str = "mcp__sanity__sanity_next \
 /// Provider ids opencode holds credentials for.
 ///
 /// Read from its own store rather than parsed out of `opencode providers list`, whose
-/// output is a drawn box with colour codes and display names — "OpenRouter" — where this
+/// output is a drawn box with color codes and display names — "OpenRouter" — where this
 /// needs the id, `openrouter`. A file the tool maintains beats scraping the tool's screen,
 /// the same argument that ruled out driving Claude's `/model` picker with a PTY.
 fn opencode_providers() -> Vec<String> {
@@ -759,7 +759,7 @@ pub fn reader_command(
         Harness::Codex => {
             c.arg("exec").arg("--skip-git-repo-check");
             // **`--dangerously-bypass-approvals-and-sandbox`, and it is not decoration.**
-            // Measured: with anything weaker every MCP call returns "user cancelled MCP
+            // Measured: with anything weaker every MCP call returns "user canceled MCP
             // tool call" — `codex exec` reports `approval: never`, and never means DENIED
             // rather than waved through, so a reader loads the tools, calls one, is
             // refused, and exits SUCCESSFULLY having done nothing. A wave looked like

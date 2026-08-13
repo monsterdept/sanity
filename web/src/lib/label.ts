@@ -198,7 +198,7 @@ export interface Placement {
   axis: 'arc' | 'radial'
   text: string
   size: number
-  /** The radius the text is centred on. */
+  /** The radius the text is centered on. */
   r: number
   /** For `arc`, the span to run along. For `radial`, the bearing to run out on. */
   a0: number
@@ -211,7 +211,7 @@ export interface FitOpts {
   weight: number
   /** Largest the type may be, whatever the room. A name is a label, not a headline. */
   max: number
-  /** Where along the radius the arc-run sits, as a fraction of the cell's depth. Centre
+  /** Where along the radius the arc-run sits, as a fraction of the cell's depth. Center
    *  for a patch; near the outer edge for a name set OUTSIDE its wedge. */
   at?: number
   /** How far an arc run may curve, in radians. See `DEFAULT_BEND` — the ring wants a
@@ -251,7 +251,7 @@ export function fitLabel(cell: Cell, name: string, opts: FitOpts): Placement | n
   )
 
   /**
-   * A radial name is CENTRED in its wedge, and sized so that it can be.
+   * A radial name is CENTERED in its wedge, and sized so that it can be.
    *
    * Equal ground before the first letter and after the last one. Anything else reads as a
    * label that slid: `tests` and two of the three `src`s sat out near their rims with the
@@ -260,10 +260,10 @@ export function fitLabel(cell: Cell, name: string, opts: FitOpts): Placement | n
    * That was the second wrong answer here, and both came from solving for the wrong thing.
    * Measuring the fit at `r0` asked whether the name could sit in the narrowest part of the
    * wedge, which for a slice against the hub is nowhere; pushing it out to where it fits
-   * answered that, and put it off centre. The question is neither — it is how big the type
-   * can be GIVEN that it is centred.
+   * answered that, and put it off center. The question is neither — it is how big the type
+   * can be GIVEN that it is centered.
    *
-   * Centred, the run reaches `mid ± wpp·s/2`, so its inner end is the narrowest point it
+   * Centered, the run reaches `mid ± wpp·s/2`, so its inner end is the narrowest point it
    * passes and the size that just fits is the fixed point of
    * `LINE·s = Δθ·(mid − wpp·s/2)`. Solved directly.
    *

@@ -47,7 +47,7 @@ export function Crumbs({
               <button
                 type="button"
                 // The current level is still a button, just not an offer: it keeps the
-                // row's rhythm and it re-centres the view, which is what clicking where
+                // row's rhythm and it re-centers the view, which is what clicking where
                 // you already are should do.
                 onClick={() => onGo(i)}
                 aria-current={last ? 'page' : undefined}

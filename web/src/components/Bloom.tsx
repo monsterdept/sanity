@@ -17,7 +17,7 @@
  * between a star and a flower. `|cos(kθ)|` turns `2k` lobes per revolution, so `k = 2.5` gives
  * **five petals**: buttercup, wild rose, apple, flax.
  *
- * # The centre: phyllotaxis
+ * # The center: phyllotaxis
  *
  * Vogel's model of sunflower packing — seed `n` at angle `n·φ`, radius `c·√n`, where `φ` is the
  * **golden angle**, 137.507…°. The `√n` keeps density even, because area grows linearly with n;
@@ -28,28 +28,28 @@
  * # Why six petals, and not five
  *
  * **The crystallographic restriction**: a wallpaper pattern's rotations can only be of order
- * 2, 3, 4 or 6. Five is impossible — a five-fold centre cannot be repeated by translations
+ * 2, 3, 4 or 6. Five is impossible — a five-fold center cannot be repeated by translations
  * without contradicting itself, which is why no wallpaper anywhere has it and why quasicrystals
  * were such a shock. The rose had `k = 2.5`, so five petals, so it could never sit on a rotation
- * centre of any of the seventeen groups. That is exactly why the scattered version felt
+ * center of any of the seventeen groups. That is exactly why the scattered version felt
  * arbitrary: there was no symmetry available for it to obey, so placement was down to taste,
  * and taste with no constraint reads as randomness.
  *
  * At `k = 3` the rose has six petals and is D6 — six-fold rotation and six mirror lines — which
- * is precisely what a six-fold centre wants.
+ * is precisely what a six-fold center wants.
  *
  * # p6m
  *
- * The richest of the seventeen: six-fold rotation, with mirrors through every centre at 30°.
+ * The richest of the seventeen: six-fold rotation, with mirrors through every center at 30°.
  * The motifs are not scattered, they are placed where the group's own machinery puts them, on a
  * **hexagonal lattice** drawn here in its rectangular cell — width `T`, height `T√3`, with
  * lattice points at the corners and one in the middle.
  *
  * | site | what sits there | why it fits |
  * |---|---|---|
- * | 6-fold centres — the lattice points | the large rose | D6 motif on a 6-fold centre |
- * | 3-fold centres — triangle centroids | a smaller rose | D6 contains D3, so it obeys |
- * | 2-fold centres — edge midpoints | a leaf, along the edge | the vesica is D2 |
+ * | 6-fold centers — the lattice points | the large rose | D6 motif on a 6-fold center |
+ * | 3-fold centers — triangle centroids | a smaller rose | D6 contains D3, so it obeys |
+ * | 2-fold centers — edge midpoints | a leaf, along the edge | the vesica is D2 |
  *
  * Every position below is one of those three sites. Nothing is placed by eye, which is the
  * whole difference between a pattern and a sprinkle.
@@ -67,7 +67,7 @@
  * **Everything is drawn nine times.** An SVG `<pattern>` CLIPS its contents to the tile, so a
  * flower straddling an edge is cut in half rather than wrapping — which is exactly what the
  * first version did, visibly. Drawing the whole group at every offset in `{-T, 0, T}²` means
- * the part clipped off one edge is supplied by the neighbour that overlaps it. Nine copies of
+ * the part clipped off one edge is supplied by the neighbor that overlaps it. Nine copies of
  * the definition, not nine copies of the work: `<pattern>` defines its tile once and the
  * renderer repeats it.
  */
@@ -77,7 +77,7 @@ const A = 12
 /** Half the petal count: `|cos(kθ)|` turns `2k` lobes in a full revolution.
  *
  *  3, so six petals. Not a look — a requirement. See the crystallographic restriction above:
- *  the five-petal rose this started with cannot sit on any wallpaper rotation centre. */
+ *  the five-petal rose this started with cannot sit on any wallpaper rotation center. */
 const K = 3
 /** Plumpness. 1 is Grandi's original and draws spikes; 3 is a flower; past ~5 the petals swell
  *  into each other and the outline reads as a scalloped disc. */
@@ -86,7 +86,7 @@ const P = 3
 /** The golden angle in radians, `2π·(1 − 1/φ)`. */
 const GOLDEN = Math.PI * (3 - Math.sqrt(5))
 
-/** Spacing of the hexagonal lattice — the distance between neighbouring 6-fold centres.
+/** Spacing of the hexagonal lattice — the distance between neighboring 6-fold centers.
  *
  *  Density is set HERE, not by the motif scales: shrinking the lattice while the flowers keep
  *  their size packs them together, where scaling the flowers up in a bigger lattice just gives
@@ -137,7 +137,7 @@ function Flower({ s = 1 }: { s?: number }) {
 }
 
 /** A leaf: the **vesica**, the lens where two equal circles overlap, each arc through the
- *  other's centre — the leaf every illuminator has drawn since the twelfth century. */
+ *  other's center — the leaf every illuminator has drawn since the twelfth century. */
 function Leaf({ s = 1 }: { s?: number }) {
   const L = 7.4
   const R = L * 1.16
@@ -162,7 +162,7 @@ function Leaf({ s = 1 }: { s?: number }) {
  *
  *  The rotations are there for the same reason. Identical copies at identical angles read as
  *  a stamp repeated; a few degrees apiece is enough to read as scattered. */
-/** Lattice points — 6-fold centres. The corners and the middle of the rectangular cell. */
+/** Lattice points — 6-fold centers. The corners and the middle of the rectangular cell. */
 const SIXFOLD: [number, number][] = [
   [0, 0],
   [T, 0],
@@ -171,7 +171,7 @@ const SIXFOLD: [number, number][] = [
   [T / 2, H / 2],
 ]
 
-/** Centroids of the lattice triangles — 3-fold centres. */
+/** Centroids of the lattice triangles — 3-fold centers. */
 const THREEFOLD: [number, number][] = [
   [T / 2, H / 6],
   [T / 2, (5 * H) / 6],
@@ -181,7 +181,7 @@ const THREEFOLD: [number, number][] = [
   [T, (2 * H) / 3],
 ]
 
-/** Midpoints of lattice edges — 2-fold centres — each with the angle of the edge it bisects,
+/** Midpoints of lattice edges — 2-fold centers — each with the angle of the edge it bisects,
  *  because a leaf laid across the mirror rather than along it would break the group. */
 const TWOFOLD: [number, number, number][] = [
   [T / 2, 0, 0],

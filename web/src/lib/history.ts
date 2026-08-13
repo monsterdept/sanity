@@ -8,7 +8,7 @@ import type { Node, Progress, Score } from './api'
  * Mirrors `history.rs`, and carries the one rule that module exists to enforce:
  * **surprise is not replayed.** A temperature is a reading taken against the code as it
  * is today, and stamping it onto the same function's 2019 body would be the map claiming
- * a measurement nobody took. What colours a frame is recency — how long, as of *that
+ * a measurement nobody took. What colors a frame is recency — how long, as of *that
  * frame's own date*, since anyone touched this — which is a fact about the commit stream
  * and nothing else. That is why history mode pins the encoding and disables the lens
  * switcher rather than offering five readings of which one would be a lie.
@@ -85,11 +85,11 @@ function daysBetween(now: number, then: number): number {
   return Math.max(0, (now - then) / 86_400)
 }
 
-/** Commits inside this window count towards a frame's churn — the same 90 days
+/** Commits inside this window count toward a frame's churn — the same 90 days
  *  `churn.rs` uses, so the number means the same thing in both views. */
 const CHURN_WINDOW_DAYS = 90
 /** Commits in the window at which a file counts as fully churning. Absolute, matching
- *  `churn::CHURN_SATURATION`; normalising against the repo's own busiest file is the trap
+ *  `churn::CHURN_SATURATION`; normalizing against the repo's own busiest file is the trap
  *  that module is written up against. */
 const CHURN_SATURATION = 8
 /** Touches remembered per function. Past `CHURN_SATURATION` the churn scale is pinned, so
@@ -135,7 +135,7 @@ function opening(hist: HistoryScan): Frame {
     frame.loc.set(f, loc)
     // Deliberately NOT marked as touched or born. Everything here predates the window, so
     // the only honest thing to say about when it was last written is that we do not know —
-    // and an undated function draws uncoloured rather than being dated to the start of the
+    // and an undated function draws uncolored rather than being dated to the start of the
     // window, which would make the opening frame flare as though somebody had just written
     // the entire repo.
   }
@@ -200,7 +200,7 @@ function replay(hist: HistoryScan, index: number): Frame {
  *
  *  Every field it cannot honestly fill is left at the value that means "no claim":
  *  surprise stays 0 with `analyzedShare` 0, which is exactly what `isAnalyzed` refuses to
- *  colour. */
+ *  color. */
 function scoreInto(into: Score | null, frame: Frame, f: number): Score {
   const touched = frame.touched.get(f)
   const born = frame.born.get(f)
@@ -413,7 +413,7 @@ export function frameTree(hist: HistoryScan, index: number, repoName: string): N
  * A view of the timeline, never a re-fold of it. The rings for a given commit are still
  * built from the full replay: a commit outside the scope cannot change what is inside it,
  * so filtering is safe for what is DRAWN — but folding only the scoped commits would give
- * the frame the wrong date, and the date is what the colour means here. So the scoped list
+ * the frame the wrong date, and the date is what the color means here. So the scoped list
  * addresses real commits, and the frame is always the real one.
  */
 export function scopedCommits(hist: HistoryScan, scope: string): number[] {

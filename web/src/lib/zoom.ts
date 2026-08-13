@@ -186,7 +186,7 @@ export const ZOOM_MS = 260
  * Ease in and out, symmetric.
  *
  * The old curve was `cubic-bezier(.2, .8, .3, 1)` — nearly all deceleration, which is
- * right for something appearing and wrong for something travelling. A wedge that starts
+ * right for something appearing and wrong for something traveling. A wedge that starts
  * at full speed reads as having been thrown; easing both ends reads as having been moved.
  */
 export function ease(t: number): number {
@@ -228,7 +228,7 @@ export function hubGeo(rInner: number): Geo {
   return { a0: 0, a1: Math.PI * 2, r0: 0, r1: rInner - 4 }
 }
 
-/** The drawn box: where it is centred and how wide, in user units. */
+/** The drawn box: where it is centered and how wide, in user units. */
 export interface View {
   cx: number
   cy: number
@@ -242,7 +242,7 @@ export interface View {
  * that only shows up in motion: it reports the extent of whatever is on screen THIS
  * frame. At the start of a drill-in every arriving wedge is still collapsed onto its
  * ancestor, so the union of them is a small lopsided shape somewhere off to one side —
- * the box centres on that, the hub is drawn at the origin, and the whole composition
+ * the box centers on that, the hub is drawn at the origin, and the whole composition
  * appears to start low and slide up as the ring opens out. The measurement was honest and
  * the picture was still wrong, because a viewBox fitted to a half-finished animation is
  * fitting to something nobody asked to see.

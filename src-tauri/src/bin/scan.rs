@@ -130,7 +130,7 @@ fn main() {
     // Temperature is an intensity — surprise *per line* — and a seven-line function can
     // legitimately max it out. But the question this list answers is "where is my
     // attention owed", and that is intensity times how much of it there is. It is also
-    // what the sunburst does: the eye reads area × colour, so a list ordered on colour
+    // what the sunburst does: the eye reads area × color, so a list ordered on color
     // alone disagrees with the picture it is supposed to explain.
     section("HOTTEST — surprising and nothing explains why", &mut funcs, |n| {
         n.score.map_or(0.0, |s| s.temperature() * n.loc as f32)
@@ -170,7 +170,7 @@ fn histogram(funcs: &[&Node]) {
 /// entirely by the LOC term. This prints the overlap between the real ranking and a dumb
 /// sort by line count.
 ///
-/// High overlap is a verdict on the metric, not a curiosity: it means the colour is
+/// High overlap is a verdict on the metric, not a curiosity: it means the color is
 /// decoration and the user could get the same answer from `wc -l`. Sanity's whole claim
 /// is that size is the boring axis, so this number is the claim's own falsification test
 /// and it belongs in the default output where it cannot be quietly skipped.
@@ -199,7 +199,7 @@ fn baseline_check(funcs: &mut [&Node]) {
         "  {}",
         match shared {
             0..=6 => "the metric is finding things size alone does not",
-            7..=11 => "partly size — the colour is doing some work",
+            7..=11 => "partly size — the color is doing some work",
             _ => "SIZE IS DOING THE WORK: this ranking is `wc -l` with extra steps",
         }
     );

@@ -96,9 +96,9 @@ pub async fn scan_repo(
             }
             let _ = app.emit("scan-progress", p);
         };
-        // Per-function scores go out as they land so the sunburst colours in live. The
+        // Per-function scores go out as they land so the sunburst colors in live. The
         // full tree still returns at the end — the stream is an accelerant, not the
-        // source of truth, so a dropped event costs a few seconds of grey rather than a
+        // source of truth, so a dropped event costs a few seconds of gray rather than a
         // permanently wrong wedge.
         let scored = |id: &str, reading: &crate::surprise::Reading| {
             let _ = app.emit(
@@ -120,7 +120,7 @@ pub async fn scan_repo(
         // for a file nobody touched and cost 51s an open on a large C++ tree.
         let scans = crate::scancache::ScanCache::open(&root);
         // Ordering fidelity: in the app this number is only ever a queue sort key. A
-        // proxy-scored function is `Source::Proxy`, which the UI refuses to colour, so
+        // proxy-scored function is `Source::Proxy`, which the UI refuses to color, so
         // the all-pairs term would cost 27 of these 34 seconds to produce a value no
         // user ever sees. See `scan::Fidelity`.
         scan::scan(
@@ -343,8 +343,8 @@ pub fn open_code_window(app: tauri::AppHandle, repo: String, rel_path: String) -
 /// wrong: an agent opening a repo makes it active, so the window — still showing the
 /// first — began receiving the second's readings, whose ids match nothing in the tree on
 /// screen. Switching back through the sidebar loads a fresh proxy-scored tree from here,
-/// and the readings that would have recoloured it were never sent. A repo with a thousand
-/// assessed functions rendered entirely grey while the sidebar counted them.
+/// and the readings that would have recolored it were never sent. A repo with a thousand
+/// assessed functions rendered entirely gray while the sidebar counted them.
 #[tauri::command]
 pub fn agent_reports(
     state: tauri::State<'_, crate::agentapi::Shared>,
@@ -469,12 +469,12 @@ pub fn stop_scan() {
 /// **The `+` was deliberately removed once, and this is it coming back for a different
 /// reason.** The argument then was that opening by hand was a dead end: an agent called
 /// `sanity_open` in the repo it was already working in, and a project arrived by hand gave
-/// you a grey map and four lenses, which is the app with its reason for existing removed.
+/// you a gray map and four lenses, which is the app with its reason for existing removed.
 ///
 /// A reader has no filesystem now, and no working directory. It cannot name a repo at all,
 /// so somebody has to, and the only parties who may are a person at this window and a
 /// person in a terminal running `sanity init`. Adding is the entrance rather than a
-/// sideshow, and a grey map is what every project looks like before it is read.
+/// sideshow, and a gray map is what every project looks like before it is read.
 ///
 /// **It required a `.git` at the root, and no longer does.** That guard was doing two jobs
 /// and only one of them was its own. The real one: a picker was once handed a directory of
@@ -538,7 +538,7 @@ pub fn add_project(path: String) -> Result<Added, String> {
 // each one's config. The sheet went when Sanity started launching its own readers:
 // connecting a client stopped being the way in and became a way to ASK for a run in a
 // conversation. The commands stayed registered and unreachable after it, which is the state
-// this file's neighbours argue against most consistently — kept "just in case" is how a
+// this file's neighbors argue against most consistently — kept "just in case" is how a
 // decision comes back in a second copy nobody is watching.
 //
 // Connecting a client by hand is still supported and needs nothing from here: the command
@@ -714,7 +714,7 @@ pub fn harnesses() -> Vec<serde_json::Value> {
                 "models": if installed { h.models() } else { Vec::new() },
                 // Whether that list is the agent's own — see `Harness::enumerates`. The
                 // window offers a text field only where it is not, because typing an id
-                // into a real catalogue is how somebody gets an auth-time rejection
+                // into a real catalog is how somebody gets an auth-time rejection
                 // minutes after pressing Read.
                 "enumerated": h.enumerates(),
             })
@@ -773,7 +773,7 @@ pub fn start_check(
 
 /// Ask a running wave to stop.
 ///
-/// Honoured between readers, never mid-reading: a reader killed part-way through has cost
+/// Honored between readers, never mid-reading: a reader killed part-way through has cost
 /// a prediction and banked nothing, and the lease it holds re-queues on its own.
 #[tauri::command]
 pub fn stop_check(

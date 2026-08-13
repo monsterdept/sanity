@@ -1,12 +1,12 @@
 //! The shared vocabulary: what a wedge is, and what a score means.
 //!
 //! One rule governs everything downstream — **the ring's SIZE is lines, the ring's
-//! COLOUR is surprise, and they are independent measurements.** Size is the
-//! boring axis (you already know your parser is long); colour is the product. Anything
+//! COLOR is surprise, and they are independent measurements.** Size is the
+//! boring axis (you already know your parser is long); color is the product. Anything
 //! that blurs the two, like folding LOC into the score, throws away the only interesting
 //! thing the picture says.
 //!
-//! Colour is read from two different fields depending on the ring, and this is
+//! Color is read from two different fields depending on the ring, and this is
 //! deliberate: a function wedge shows [`Score::temperature`] (how hot *this* code is),
 //! while a file or directory wedge shows [`Score::hot_share`] (how much of what's inside
 //! is hot). Averaging temperature upward would flatten every inner ring to the repo mean
@@ -86,7 +86,7 @@ pub enum Lang {
 }
 
 impl Lang {
-    /// Extension → language. Deliberately conservative: an unrecognised extension is
+    /// Extension → language. Deliberately conservative: an unrecognized extension is
     /// `None`, never a guess, because mis-parsing a file invents functions that aren't
     /// there and those go straight into the score.
     pub fn from_extension(ext: &str) -> Option<Lang> {
@@ -128,7 +128,7 @@ impl Lang {
             "m" | "mm" => Lang::ObjC,
             "sh" | "bash" => Lang::Shell,
             // `.zsh` used to parse as bash. Zsh's own grammar is a superset, so this only
-            // ever finds more — but it is a behaviour change on repos that already scan.
+            // ever finds more — but it is a behavior change on repos that already scan.
             "zsh" => Lang::Zsh,
             "sql" => Lang::Sql,
             "gd" => Lang::GdScript,
@@ -310,16 +310,16 @@ pub enum Quadrant {
     Trouble,
     /// Low surprise, lots of it. Scaffolding that could be generated or collapsed.
     Bloat,
-    /// Low surprise, small. Fine. Grey it out and never mention it again.
+    /// Low surprise, small. Fine. Gray it out and never mention it again.
     Quiet,
 }
 
 /// Which instrument produced a leaf's score.
 ///
 /// The map must never paint a wedge with a number the user didn't ask for. When a model
-/// is enabled, everything it hasn't reached yet stays uncoloured rather than borrowing
-/// the offline proxy's guess. Grey means "not looked at", which is information; a
-/// plausible colour that turns out to be the proxy is worse than no colour at all.
+/// is enabled, everything it hasn't reached yet stays uncolored rather than borrowing
+/// the offline proxy's guess. Gray means "not looked at", which is information; a
+/// plausible color that turns out to be the proxy is worse than no color at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Source {
@@ -333,7 +333,7 @@ pub enum Source {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Score {
-    /// 0..1 — how unpredictable the body is given its name, signature and neighbours.
+    /// 0..1 — how unpredictable the body is given its name, signature and neighbors.
     /// The whole product rests on this number being meaningful.
     pub surprise: f32,
     /// 0..1 — how well the attached documentation covers what the code actually does.
@@ -347,14 +347,14 @@ pub struct Score {
     /// documentation is the common failure and ought to read hot.
     ///
     /// Now the reader with the docs in hand grades them, and the grade is shown rather
-    /// than folded into the colour.
+    /// than folded into the color.
     pub documented: f32,
-    /// 0..1 — commits touching this code in the churn window, normalised across the repo.
+    /// 0..1 — commits touching this code in the churn window, normalized across the repo.
     pub churn: f32,
     /// Days since the code first appeared. `None` when there is no git history.
     pub age_days: Option<f32>,
     /// Commits touching this file inside the churn window — the raw count behind
-    /// `churn`. Shown to the user instead of the normalised figure, because a number of
+    /// `churn`. Shown to the user instead of the normalized figure, because a number of
     /// commits is a fact and a percentage of a saturation constant is not.
     pub commits: u32,
     /// Days since the most recent commit. `None` without history.
@@ -362,10 +362,10 @@ pub struct Score {
     pub provenance: Provenance,
     /// The fraction of this node's lines that sit in code which is hot.
     ///
-    /// **This, not `temperature`, is what colours a directory or file wedge.** Averaging
+    /// **This, not `temperature`, is what colors a directory or file wedge.** Averaging
     /// temperature up the tree destroys the signal: a mean over four hundred functions
     /// converges on the repo's mean by construction, so every inner ring comes out the
-    /// same lukewarm colour and the biggest wedges on screen — the ones the eye reads
+    /// same lukewarm color and the biggest wedges on screen — the ones the eye reads
     /// first — say nothing. Thresholding at the leaf and averaging the 0/1 indicator
     /// keeps the spread, because you are no longer averaging a bell.
     ///
@@ -374,7 +374,7 @@ pub struct Score {
     pub hot_share: f32,
     pub source: Source,
     /// Share of this node's lines whose score came from the model. 0 on a wedge nothing
-    /// has analysed, 1 when the model reached everything underneath.
+    /// has analyzed, 1 when the model reached everything underneath.
     pub analyzed_share: f32,
 }
 
@@ -382,7 +382,7 @@ pub struct Score {
 pub const HOT: f32 = 0.5;
 
 impl Score {
-    /// What the wedge is coloured by.
+    /// What the wedge is colored by.
     ///
     /// Now simply the surprise, because documentation reaches the measurement itself:
     /// the model is given the comment stack a reader would have, and an agent reads the
@@ -390,7 +390,7 @@ impl Score {
     /// genuinely less surprising — the map still drains as you document, but through
     /// the instrument rather than through a multiplier bolted on afterwards.
     ///
-    /// Kept as a named method rather than inlined: this is the one number the colour
+    /// Kept as a named method rather than inlined: this is the one number the color
     /// means, and it has changed definition once already.
     pub fn temperature(&self) -> f32 {
         self.surprise.clamp(0.0, 1.0)
@@ -459,7 +459,7 @@ pub struct Node {
     /// The declaration line — everything up to the body.
     ///
     /// Carried so the queue can hand it to a reader. The metric has always been "predict
-    /// the body from its name, signature and neighbours", but the signature was never
+    /// the body from its name, signature and neighbors", but the signature was never
     /// actually sent: readers got a bare name, which makes an overloaded pair literally
     /// unresolvable. On a real repo an encoder/decoder sharing a name appeared in the
     /// sibling list twice, the reader guessed the wrong direction, and was scored as
@@ -495,7 +495,7 @@ pub struct Node {
     pub body: Option<String>,
     pub score: Option<Score>,
     /// Places the model did not see coming, with what it expected instead. Empty unless
-    /// a model analysed this function — this is the evidence behind the number, and the
+    /// a model analyzed this function — this is the evidence behind the number, and the
     /// only part of a reading a reader can act on directly.
     #[serde(default)]
     pub hotspots: Vec<crate::surprise::Hotspot>,
@@ -557,8 +557,8 @@ impl Node {
             // A leaf contributes all of its lines or none of them; a parent contributes
             // whatever share its own subtree worked out. Either way this is a weighted
             // mean of a 0..1 share, so it composes to any depth.
-            // Hot share is computed over ANALYSED lines only — "of what we have actually
-            // looked at here, how much is hot". Including unanalysed lines in the
+            // Hot share is computed over ANALYZED lines only — "of what we have actually
+            // looked at here, how much is hot". Including unanalyzed lines in the
             // denominator would make every directory look cold early in a scan and then
             // heat up as work arrived, which reads as the code changing rather than our
             // knowledge of it changing.
@@ -684,14 +684,14 @@ mod tests {
         let s = d.score.unwrap();
         assert!((s.hot_share - 0.25).abs() < 1e-6, "hot_share was {}", s.hot_share);
         // The mean is still available and still says "lukewarm" — which is exactly why
-        // it is not what the wedge is coloured by.
+        // it is not what the wedge is colored by.
         assert!(s.surprise < 0.3);
     }
 
     #[test]
-    fn unanalysed_lines_are_left_out_of_hot_share_entirely() {
+    fn unanalyzed_lines_are_left_out_of_hot_share_entirely() {
         // Hot share answers "of what we have LOOKED AT here, how much is hot". Counting
-        // unanalysed lines in the denominator would make every directory read cold early
+        // unanalyzed lines in the denominator would make every directory read cold early
         // in a scan and warm up as results arrived, which looks like the code changing
         // rather than our knowledge of it changing.
         let mut d = Node::dir("src", "src");
@@ -710,13 +710,13 @@ mod tests {
         d.aggregate();
 
         let s = d.score.unwrap();
-        assert_eq!(s.hot_share, 1.0, "all analysed lines here are hot");
+        assert_eq!(s.hot_share, 1.0, "all analyzed lines here are hot");
         assert!((s.analyzed_share - 0.25).abs() < 1e-6, "got {}", s.analyzed_share);
     }
 
     #[test]
-    fn a_wedge_nothing_has_analysed_reports_no_heat_at_all() {
-        // The frontend keys "render this grey" off analyzed_share, so a fully unanalysed
+    fn a_wedge_nothing_has_analyzed_reports_no_heat_at_all() {
+        // The frontend keys "render this gray" off analyzed_share, so a fully unanalyzed
         // directory must not emit a hot_share the map could paint with.
         let mut d = Node::dir("src", "src");
         let mut f = Node::dir("src/a.rs", "a.rs");

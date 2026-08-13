@@ -11,13 +11,13 @@ import { isAnalyzed, temperature, type Node } from './api'
  * **The repo, not the file.** The file is what the reader was shown as peers, and ranking
  * against it was the other candidate — but half this repo's files hold fewer than a dozen
  * functions, and "2nd of 3" is a rank with no distribution behind it. The repo is also the
- * population the map is coloured against, so a percentile printed here and a wedge's colour
+ * population the map is colored against, so a percentile printed here and a wedge's color
  * are answering on one scale.
  *
  * Each array holds only the functions ENTITLED to be in it, which is why there are three
  * rather than one walk with three fields:
  *  - `loc` is every function, because every function has a length.
- *  - `heat` is only the analysed ones. An unscored function is not a cold one, and padding
+ *  - `heat` is only the analyzed ones. An unscored function is not a cold one, and padding
  *    the distribution with zeroes would make every real reading look hotter than it is.
  *  - `commits` is only the ones under git. No history is not "never touched" — see the
  *    churn dial, which draws an empty track rather than a needle at zero for the same
@@ -26,7 +26,7 @@ import { isAnalyzed, temperature, type Node } from './api'
 export interface Population {
   /** Lines per function, ascending. */
   loc: number[]
-  /** Temperature per analysed function, ascending. */
+  /** Temperature per analyzed function, ascending. */
   heat: number[]
   /** Commits in the 90-day window per function with history, ascending. */
   commits: number[]
@@ -65,7 +65,7 @@ export function populationOf(root: Node): Population {
  *
  * Null under `MIN_POP`, which is the same rule every other term in this app follows: a
  * percentile over eight functions is a rank wearing two significant figures. It reads as
- * grey rather than as a confident number nobody should trust.
+ * gray rather than as a confident number nobody should trust.
  */
 const MIN_POP = 20
 

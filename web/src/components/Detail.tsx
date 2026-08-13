@@ -37,8 +37,8 @@ function Markdown({ text }: { text: string }) {
         out.push(
           <code
             key={`${key}-c${i}`}
-            // A wash of whatever ink this paragraph is set in, not a fixed grey. The
-            // trap note is a solid pink box with its own inherited colour, and a
+            // A wash of whatever ink this paragraph is set in, not a fixed gray. The
+            // trap note is a solid pink box with its own inherited color, and a
             // `--secondary` chip on it is a swatch of the panel's chrome sitting in the
             // middle of a sentence. Derived from `currentColor`, it is right on every
             // ground this renderer is used on without any of them being told about it.
@@ -130,7 +130,7 @@ function CopyButton({ text, title }: { text: string; title: string }) {
   )
 }
 
-/** What the list ranks by, per mode — the same quantity the ring is coloured by. */
+/** What the list ranks by, per mode — the same quantity the ring is colored by. */
 function rank(n: Node, mode: ColorMode): number {
   const s = n.score
   if (!s) return -1
@@ -154,10 +154,10 @@ function measure(n: Node, mode: ColorMode): string | null {
     return s.lastTouchedDays < 1 ? 'today' : `${Math.round(s.lastTouchedDays)}d ago`
   }
   // The reading itself, not the line count. Lines were the complement to the swatch —
-  // colour is surprise, width is lines, the invariant side by side — but it made Surprise
+  // color is surprise, width is lines, the invariant side by side — but it made Surprise
   // and Language render an identical column, so the mode you were in stopped being
   // legible from the list. Every other mode reports its own quantity; this one may as
-  // well too, and the swatch is a colour you have to decode where a number is not.
+  // well too, and the swatch is a color you have to decode where a number is not.
   if (mode === 'surprise') {
     if (!s || !isAnalyzed(n)) return '\u2014'
     // A read function says its grade; a model-scored one keeps its degrees, because that
@@ -198,9 +198,9 @@ function provenance(node: Node, model: string | null): string {
  * the same gestures as the ring: click selects, double-click drills in.
  *
  * Ordered by heat, not by size or name. The ring is size-ordered because that keeps its
- * shape recognisable between scans; this list is for reading, and the thing worth reading
+ * shape recognizable between scans; this list is for reading, and the thing worth reading
  * first is the thing nobody predicted. Unread rows sink to the bottom rather than sorting
- * as cold — grey means "not looked at", which is not the same as "fine".
+ * as cold — gray means "not looked at", which is not the same as "fine".
  */
 function Contents({
   node,
@@ -218,7 +218,7 @@ function Contents({
   onDrill?: (n: Node) => void
 }) {
   if (node.children.length === 0) return null
-  // Ordered and measured by whatever the ring is currently coloured by. The list was
+  // Ordered and measured by whatever the ring is currently colored by. The list was
   // always sorted by surprise and always trailed a line count, so in Churn mode it sat
   // beside a blue ring ranking things by a quantity the ring was not showing — two
   // answers to one question, in the same panel, disagreeing.
@@ -326,7 +326,7 @@ export function Detail({
         onDrill={onDrill}
       />
     ) : (
-      // No scan yet — nothing to summarise, so the pane says nothing rather than showing a
+      // No scan yet — nothing to summarize, so the pane says nothing rather than showing a
       // frame full of zeroes. It is not blank, though: this is the pane's one idle state,
       // during onboarding and again while a project's first scan runs, and a column of
       // dead space beside a card of instructions reads as something failing to load.
@@ -341,7 +341,7 @@ export function Detail({
   const isLeaf = node.kind === 'func'
   const analyzed = isAnalyzed(node)
   /** The same gate the header badge takes: a stale trap describes a body that has changed,
-   *  so it must not colour anything, here or on the map. */
+   *  so it must not color anything, here or on the map. */
   const trapped = node.agent?.trap === true && !node.agentStale
 
   /** The path is the way back to where the thing IS.
@@ -396,14 +396,14 @@ export function Detail({
      lens I am looking through, and which things are they. So drilling in is a change of
      SUBJECT and not of layout, which is what the header line already claimed to be.
      What a container loses is the list of its immediate children; what it gains is the
-     mode's own breakdown and a list that follows it, which is what the map is coloured by. */
+     mode's own breakdown and a list that follows it, which is what the map is colored by. */
   /* What a reader made of this container.
      No HEADER block. The file's own banner is the file's own text — one click into the
      source and it is right there at the top, in its own syntax, unwrapped and untruncated.
      Reprinting it here spends the pane's most valuable space on something the reader
      already has, and it is not what this panel is for: everywhere else, this pane shows
      what was MEASURED about a thing, not the thing. The header still reaches the reader as
-     context, is still graded, and still colours the wedge under Docs — it is just not
+     context, is still graded, and still colors the wedge under Docs — it is just not
      quoted back at you.
 
      A directory has no reading of its own, so it gets nothing rather than an empty frame. */
@@ -420,7 +420,7 @@ export function Detail({
             describes a file whose declarations have since changed. */}
         {node.agentStale && (
           <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
-            This file has changed since it was read, so the reading below no longer colours
+            This file has changed since it was read, so the reading below no longer colors
             it.
           </p>
         )}
@@ -492,7 +492,7 @@ export function Detail({
           history headers get, where a name and its path were never further apart than a path
           and its totals. */}
       <div className="flex items-center gap-2">
-        {/* No swatch. It was the wedge's own colour repeated beside its name, and the dial
+        {/* No swatch. It was the wedge's own color repeated beside its name, and the dial
             directly under it already says that — in words, on the scale the reading actually
             has. Two encodings of one number, the smaller of which cannot be read. */}
         {/* The label face, not the monospace one — see `FAMILY`. A name is a NAME here, the
@@ -551,13 +551,13 @@ export function Detail({
       {!s ? (
         <p className="text-xs text-[var(--muted-foreground)]">Not scored.</p>
       ) : !analyzed ? (
-        /* Say what grey means rather than showing proxy numbers under a grey swatch —
+        /* Say what gray means rather than showing proxy numbers under a gray swatch —
            the numbers exist, but presenting them here is how a proxy reading gets
            mistaken for a finding. */
         /* Sent to the reader that can actually act, and no longer to a menu that does
            not exist. This said "enable a model under Model…" — a live instruction to
            use the Ollama path, which was removed endpoint and all, so the one panel a
-           person reaches by clicking any grey wedge told them to do something
+           person reaches by clicking any gray wedge told them to do something
            impossible. Readings come from agents over MCP now, and the only thing that
            produces one here is a reader being pointed at this repo. */
         /* The same rule the reading sits under when there IS one, so the unread pane has
@@ -573,7 +573,7 @@ export function Detail({
           {node.agent && (
             <div className="mt-4 space-y-3 border-t border-[var(--border)] pt-3">
               {/* No section heading. "What an agent made of it" was a label for two
-                  labelled things — the rows already say who is speaking, and the heading
+                  labeled things — the rows already say who is speaking, and the heading
                   only pushed them down the panel. The warm-read caveat moves onto the
                   block it qualifies. */}
               {/* Before the reading, not after it. Everything below this is a claim
@@ -592,7 +592,7 @@ export function Detail({
                         <span className="mono">{node.agent.at}</span>
                       </>
                     )}
-                    , so it no longer colours this wedge — the number above is the offline
+                    , so it no longer colors this wedge — the number above is the offline
                     proxy again. Kept below because what a reader expected last time is
                     still worth knowing. Ask an agent to update the assessment and it will
                     re-read this one first.
@@ -603,9 +603,9 @@ export function Detail({
               {/* No card for a grade that answered a question we have since rewritten.
                   It explained, at the length of the stale block above it, a distinction the
                   panel no longer draws anywhere else: `legibleOf` returns nothing for a
-                  dated grade, so the dial reads grey and the lens, the breakdown and the
+                  dated grade, so the dial reads gray and the lens, the breakdown and the
                   spread have already left it out. A paragraph is the wrong weight for
-                  "there is no reading here" — the grey dial says it, and this said it again
+                  "there is no reading here" — the gray dial says it, and this said it again
                   in six lines about the app's own history. */}
 
               {!node.agent.cold && (
@@ -654,15 +654,15 @@ export function Detail({
               {node.agent.note && (
                 /* The takeaway, marked as one. It reads as a quote of the paragraph above
                    it otherwise — the mark on the left is what says "this is the bit that
-                   matters", and it is the same warning colour the warm-read caveat uses so
+                   matters", and it is the same warning color the warm-read caveat uses so
                    the panel has one vocabulary for "pay attention here".
 
                    **A trap's note is pink, because the note IS the trap.** `trap` is a
                    boolean; the note is the only thing that says what will bite you, so the
                    badge in the header should not announce one and then hand you to a
-                   paragraph in the same neutral grey every other reading gets.
+                   paragraph in the same neutral gray every other reading gets.
 
-                   The colour goes on the TAB and nowhere else. Filling the box was tried and
+                   The color goes on the TAB and nowhere else. Filling the box was tried and
                    it is wrong twice over: `--trap` is set to be the loudest thing on the map
                    and a ground for prose is the one job it is not for, and reversing a
                    paragraph out of it makes the note harder to read the more it matters. */
@@ -672,13 +672,13 @@ export function Detail({
                       ground, same prose — so the difference reads as this note being flagged
                       rather than as a different kind of note.
 
-                      LABELLED, because a colour is not a word. The pink says "this one" and
+                      LABELED, because a color is not a word. The pink says "this one" and
                       the ⚠ says "careful", and neither says which of the two things this
                       panel can put in a box you are looking at; the reader would have to have
                       seen the other kind to know this is the other kind.
 
-                      No `--warning` amber. Amber was the app's colour for "pay attention"
-                      before traps had one; now they do, and a second alert colour beside it
+                      No `--warning` amber. Amber was the app's color for "pay attention"
+                      before traps had one; now they do, and a second alert color beside it
                       means the panel says "careful" in two vocabularies that do not agree.
                       Paper on the pink tab, `--foreground` off it — which is Ink on the light
                       ground and follows the theme on the dark one, where a literal black

@@ -1,7 +1,7 @@
 /**
  * Hatching for readings whose code has moved.
  *
- * Deliberately a TEXTURE and not a colour: the map has exactly one colour encoding, and
+ * Deliberately a TEXTURE and not a color: the map has exactly one color encoding, and
  * adding a second hue for "expired" would put two scales on one surface. A hatch sits on
  * top of whatever the wedge already is and says "don't trust this", which is a different
  * kind of statement from "this is hot".

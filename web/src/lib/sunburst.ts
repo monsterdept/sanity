@@ -6,7 +6,7 @@ export interface Wedge {
   /** Radians, clockwise from 12 o'clock. */
   a0: number
   a1: number
-  /** Position among its siblings, used to stagger dots so neighbours don't collide. */
+  /** Position among its siblings, used to stagger dots so neighbors don't collide. */
   index: number
 }
 
@@ -25,12 +25,12 @@ export interface Layout {
  *  "below this a wedge is under a pixel at any realistic radius". But arc length is
  *  `radius × angle`, so a fixed angle is a fixed pixel width at exactly one radius: 0.0025
  *  is 1px when the outer ring is 400px across the screen. Below that it culled things that
- *  were visible; above it — a maximised window on a large display — it went on culling
+ *  were visible; above it — a maximized window on a large display — it went on culling
  *  wedges that would have rendered two pixels wide and been perfectly clickable. The map
  *  hid the same amount of the repo however much room you gave it.
  *
  *  So it is now a default rather than the rule. `LayoutOpts.minAngle` carries the real
- *  threshold, derived from the pane, and the neighbouring `MIN_SLICE` — which was always
+ *  threshold, derived from the pane, and the neighboring `MIN_SLICE` — which was always
  *  honest about being in pixels — is the model. */
 const MIN_ANGLE = 0.0025
 
@@ -60,7 +60,7 @@ export interface LayoutOpts {
   /** Order siblings by temperature instead of by name.
    *
    *  Directory order is the default because it makes the picture stable between scans,
-   *  which is what lets you recognise a repo's shape and spot what changed. Sorting by
+   *  which is what lets you recognize a repo's shape and spot what changed. Sorting by
    *  heat gathers everything worth reading into one contiguous arc, which is much faster
    *  to find and destroys that stability — a deliberate trade, per view. */
   byHeat?: boolean
@@ -104,7 +104,7 @@ export function layout(root: Node, maxDepth: number, opts: LayoutOpts = {}): Lay
     // Biggest first, running clockwise from 9 o'clock. Size order is worth having
     // because it puts the wedge most worth reading where its label has the most room,
     // and it is stable in a way heat order is not: a file's line count barely moves
-    // between two scans, so the ring you recognise stays the ring you recognise.
+    // between two scans, so the ring you recognize stays the ring you recognize.
     // Falls back to name for equal sizes, so the order is fully determined rather than
     // left to sort stability.
     const kids = opts.byHeat
@@ -185,7 +185,7 @@ export function arcPath(a0: number, a1: number, r0: number, r1: number): string 
  * Both dimensions, where this used to be radius alone. A band is a fixed slice of radius
  * however many functions share it, so stacking them radially pinned a file's capacity at
  * about twenty whatever its size — `probe.rs` is 786 functions in 22,974 lines, and 766 of
- * them went into one roll-up whose colour said more about where the truncation fell than
+ * them went into one roll-up whose color said more about where the truncation fell than
  * about the code. Angle was sitting there unused: every slice spanned the file's full
  * width, so a file 40× another file's size drew its functions 40× longer and no more
  * numerous.
@@ -242,7 +242,7 @@ const ROLLUP_PATCHES = 4
  * Capacity was `span / minimum`, which packs the run to the brim with minimums and leaves
  * about a pixel of proportional budget for every slice to share. Everything then renders
  * at the floor again — including the aggregate, which stood for 925 lines and drew the
- * same width as its three-line neighbour. That is the original bug wearing a different
+ * same width as its three-line neighbor. That is the original bug wearing a different
  * number: a floor is only a floor while something else decides the rest.
  *
  * Half. Fewer slices, each of which is honestly sized, beats more slices that are all the
@@ -255,8 +255,8 @@ const FLOOR_SHARE = 0.5
 /**
  * Everything the band could not fit, as one wedge.
  *
- * A synthetic function node rather than a special case in the renderer: colour, heat,
- * hover and all five colour modes key off a `Node`, so giving the aggregate a real one
+ * A synthetic function node rather than a special case in the renderer: color, heat,
+ * hover and all five color modes key off a `Node`, so giving the aggregate a real one
  * means none of them have to learn it exists.
  *
  * Its score is the LOC-weighted mean of the members that have actually been read. This is
@@ -281,7 +281,7 @@ function aggregate(fns: Node[], filePath: string): Node {
   // to hold `mean(surprise)`, a different quantity under this field's name; nothing read
   // it, because the wedge was `kind: 'func'` and took the temperature branch everywhere.
   // Both halves of that are the bug: this pool is what is LEFT after the hottest members
-  // were drawn as their own wedges, so a mean of it is bounded by its coldest neighbour
+  // were drawn as their own wedges, so a mean of it is bounded by its coldest neighbor
   // and reports the truncation rather than the code.
   const hotLoc = read.reduce(
     (n, f) => n + (temperature(f.score) > HOT ? Math.max(f.loc, 1) : 0),
@@ -306,9 +306,9 @@ function aggregate(fns: Node[], filePath: string): Node {
     lastAuthor: first.lastAuthor,
     body: null,
     hotspots: [],
-    // What makes this a collection rather than a function, everywhere colour is decided.
+    // What makes this a collection rather than a function, everywhere color is decided.
     // Carried on the node and not just on the `Slot` because `colorFor` is handed a node
-    // and nothing else — a wedge cannot be coloured correctly by a fact its own node does
+    // and nothing else — a wedge cannot be colored correctly by a fact its own node does
     // not hold.
     rest: fns.length,
     // The members it stands for, kept rather than dropped. The detail panel lists a
@@ -363,7 +363,7 @@ interface Sector {
 /** Worst aspect ratio among a row of patches — measured on SCREEN, in the sector the
  *  patches will actually occupy, not in the `(θ, v)` rectangle. A cell that is square in
  *  `v` is not square once `√` has had it, and the whole point of squarifying is that the
- *  ratio being minimised is the one the eye sees. */
+ *  ratio being minimized is the one the eye sees. */
 function worstRatio(dims: { w: number; h: number }[]): number {
   let worst = 1
   for (const d of dims) {
@@ -422,7 +422,7 @@ function rowPlacement(
  * The alternative — giving functions their own outer ring, subdivided angularly — makes
  * containment a hint rather than a fact. A dot or a sliver sits in a *different ring*
  * from its file, so which file it belongs to has to be inferred from angle, and at any
- * real function count that inference fails: siblings scatter, neighbours from adjacent
+ * real function count that inference fails: siblings scatter, neighbors from adjacent
  * files interleave, and everything lands near a boundary. Here a function is literally
  * inside its file, and that is not negotiable.
  *
@@ -561,7 +561,7 @@ export function tileFunctions(
   for (const f of members) wanted += want(f)
   const scale = wanted > 0 ? area / wanted : 0
   // File order, not size order. The findings this map earns — a test named for a property
-  // its neighbours show it lacks — come from adjacency, which is the same argument `peers`
+  // its neighbors show it lacks — come from adjacency, which is the same argument `peers`
   // makes for handing a reader the nearest twenty in file order. Squarifying wants items
   // largest-first to pack well; that is traded away deliberately.
   const items = members.map((f) => ({ node: f, area: want(f) * scale }))
@@ -669,7 +669,7 @@ export function sliceFunctions(
   return out
 }
 
-/** Where a label's optical centre sits relative to its baseline, as a fraction of font
+/** Where a label's optical center sits relative to its baseline, as a fraction of font
  *  size — and it is not the same in both directions.
  *
  *  Cap height is about 0.7em, so the arithmetic answer is half of that either way. The
@@ -678,8 +678,8 @@ export function sliceFunctions(
  *  about the baseline in the two cases. These two are eyeballed against the running app
  *  rather than derived; they are optical constants and the only honest way to set them
  *  is to look. */
-const BASELINE_TO_CENTRE_FORWARD = 0.35
-const BASELINE_TO_CENTRE_REVERSED = 0.28
+const BASELINE_TO_CENTER_FORWARD = 0.35
+const BASELINE_TO_CENTER_REVERSED = 0.28
 
 /**
  * An arc for a label to sit ON, rather than a point to rotate a label about.
@@ -696,8 +696,8 @@ const BASELINE_TO_CENTRE_REVERSED = 0.28
  * readable without rotating the glyphs.
  */
 export function labelArc(a0: number, a1: number, r: number, fontSize: number): string {
-  // Normalised, because the layout starts at -π/2 and midpoints can be negative — an
-  // un-normalised comparison silently stops flipping the labels that need it.
+  // Normalized, because the layout starts at -π/2 and midpoints can be negative — an
+  // un-normalized comparison silently stops flipping the labels that need it.
   const mid = (((a0 + a1) / 2) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2)
   const upsideDown = mid > Math.PI / 2 && mid < (3 * Math.PI) / 2
 
@@ -706,14 +706,14 @@ export function labelArc(a0: number, a1: number, r: number, fontSize: number): s
   // direction: glyphs rise outward on a forward arc and inward on a reversed one.
   //
   // `dominant-baseline: central` is the declarative way to say this and WebKit does not
-  // honour it on textPath content, so the labels drifted by an amount proportional to
+  // honor it on textPath content, so the labels drifted by an amount proportional to
   // their font size — invisible on the small deep ones, obvious on the big inner rings.
   // Geometry is not optional in the same way a style property is.
   const rr =
     r +
     (upsideDown
-      ? fontSize * BASELINE_TO_CENTRE_REVERSED
-      : -fontSize * BASELINE_TO_CENTRE_FORWARD)
+      ? fontSize * BASELINE_TO_CENTER_REVERSED
+      : -fontSize * BASELINE_TO_CENTER_FORWARD)
   const x = (a: number) => (rr * Math.sin(a)).toFixed(2)
   const y = (a: number) => (-rr * Math.cos(a)).toFixed(2)
   const large = a1 - a0 > Math.PI ? 1 : 0

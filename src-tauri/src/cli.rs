@@ -465,7 +465,7 @@ fn interactive() -> bool {
 ///
 /// Returns `None` for an empty answer, which every caller reads as "you decide" — so the
 /// non-interactive path and the just-press-return path arrive at the same place rather than
-/// at two behaviours somebody has to know apart.
+/// at two behaviors somebody has to know apart.
 fn choose(prompt: &str, options: &[String], default: Option<&str>) -> Option<String> {
     use std::io::Write;
     println!();
@@ -529,7 +529,7 @@ fn reveal_in_window(repo: &std::path::Path, show: bool) {
 /// It records the harness and the model, and nothing else. No global MCP config is
 /// touched: a reader's server carries a role and a project in its environment, and writing
 /// that into `~/.claude.json` would turn every session the user starts by hand into a
-/// reader for whichever repo was initialised last.
+/// reader for whichever repo was initialized last.
 ///
 /// **`--model` is here because it was already being typed.** The flag parser has always
 /// taken a value for it, so `init --harness agy --model gemini-3.6-flash-medium` was
@@ -988,13 +988,13 @@ fn elapsed(since: Instant) -> String {
     }
 }
 
-/// How a grade is coloured, or nothing when the output is not a terminal.
+/// How a grade is colored, or nothing when the output is not a terminal.
 ///
 /// **Loudness follows what the reading FOUND, not how well it went.** `full` means the code
 /// read the way its name implied, which is the common case and the least interesting line on
 /// the screen, so it is dimmed. `none` means a reader was completely wrong about a function,
 /// which is the finding the whole instrument exists to produce — it gets the brightest ink
-/// in the run. Colouring these the other way round, as a pass/fail would, makes a wall of
+/// in the run. Coloring these the other way round, as a pass/fail would, makes a wall of
 /// green out of the answers nobody needs to read.
 fn grade_ink(grade: &str) -> (&'static str, &'static str) {
     if !fancy() {
@@ -1628,7 +1628,7 @@ pub fn summary(path: &str) -> i32 {
         println!("  {} unhelpful doc strings found", commas(n("derivable")));
     }
     // `cold` is not printed. It is 99% on every corpus — the queue round-robins across
-    // files precisely so a reader is not handed neighbours — so a line that says the same
+    // files precisely so a reader is not handed neighbors — so a line that says the same
     // thing about every repo is a line nobody reads twice. It stays in the payload, where
     // the number stops being decoration and becomes checkable if it ever moves.
 
@@ -1828,11 +1828,11 @@ fn grades(v: Option<&Value>) -> String {
 // old parser was thirty lines and worked: a positional path defaulting to `.`, `--flag
 // value` and `--flag=value` both, `repo_arg` skipping flag VALUES so `--harness claude` did
 // not resolve `./claude`. What it could not do was look like a tool anybody else ships —
-// one flat block of hand-aligned text, no per-verb help, no colour, and an unknown flag
+// one flat block of hand-aligned text, no per-verb help, no color, and an unknown flag
 // silently ignored rather than named.
 //
 // clap is what the CLIs this wants to resemble are built on, `uv` and `rg` among them. It
-// brings `sanity check --help`, alignment that survives editing, coloured headings, "did
+// brings `sanity check --help`, alignment that survives editing, colored headings, "did
 // you mean" on a typo, and errors for the arguments the old parser dropped on the floor.
 #[derive(clap::Parser)]
 #[command(

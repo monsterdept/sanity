@@ -13,7 +13,7 @@ function Legend({ mode, categories }: { mode: ColorMode; categories: string[] })
   if (categories.length > 0) {
     return (
       <div className="flex max-w-[300px] flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
-        {/* Only the slots that have their own colour are named individually. Listing
+        {/* Only the slots that have their own color are named individually. Listing
             the rest would imply they are distinguishable on screen, and they are not —
             they all share the "Other" neutral. */}
         {categories.slice(0, SLOTS).map((c, i) => (
@@ -38,7 +38,7 @@ function Legend({ mode, categories }: { mode: ColorMode; categories: string[] })
   // A gradient with two ends says "these are the extremes of a continuum" — and a trap is a
   // boolean somebody either reported or did not. Shading it would invent degrees of danger
   // nobody graded, and a two-ended label would ask the reader to find the middle of a set
-  // with no middle. One filled bar in the colour the map is actually using, named once.
+  // with no middle. One filled bar in the color the map is actually using, named once.
   if (mode === 'traps') {
     return (
       <div className="flex items-center gap-2">
@@ -116,12 +116,12 @@ export function ModeSwitcher({
 }: {
   mode: ColorMode
   onMode: (m: ColorMode) => void
-  /** Greyed out, but still showing which encoding is in force.
+  /** Grayed out, but still showing which encoding is in force.
    *
-   *  History mode sets this. There the colour is not a choice: a temperature is a reading
+   *  History mode sets this. There the color is not a choice: a temperature is a reading
    *  taken against today's code, and four of the five lenses would be claiming a
    *  measurement of a commit nobody took it against. Hiding the control instead would
-   *  leave the rings recoloured with nothing on screen saying by what. */
+   *  leave the rings recolored with nothing on screen saying by what. */
   disabled?: boolean
 }) {
   return (
@@ -175,7 +175,7 @@ export function ModeSwitcher({
 }
 
 /** The key, boxed to match the switcher so the two read as a pair across the graph. */
-export function ColourLegend({
+export function ColorLegend({
   mode,
   categories,
   stale = 0,
@@ -187,7 +187,7 @@ export function ColourLegend({
    *  a legend entry for a texture that is nowhere on screen teaches the reader to
    *  ignore the legend. */
   stale?: number
-  /** Wedges drawn in the flat unanalysed grey, having never been read. */
+  /** Wedges drawn in the flat unanalyzed gray, having never been read. */
   unread?: number
 }) {
   return (
@@ -195,22 +195,22 @@ export function ColourLegend({
       <Legend mode={mode} categories={categories} />
       {paintsFromReadings(mode) && (stale > 0 || unread > 0) && (
         /* The two things the ramp above cannot explain: a wedge can be hatched, or it can
-           be uncoloured. Both are absences of a reading rather than positions on the
-           scale, which is exactly why they need saying — a reader who takes the grey for
+           be uncolored. Both are absences of a reading rather than positions on the
+           scale, which is exactly why they need saying — a reader who takes the gray for
            "cold" has read the map backwards.
 
            **Surprise only, because both are facts about READINGS and this is the one mode
            painted from them.** The map stops hatching outside this mode for the same
-           reason, so the key follows it — but the grey needed the gate independently: an
+           reason, so the key follows it — but the gray needed the gate independently: an
            unread function still has an author, a date and a language, so in those modes it
-           takes a real colour and is not grey at all. "192 unread" beside a swatch nothing
+           takes a real color and is not gray at all. "192 unread" beside a swatch nothing
            on screen is wearing describes a picture the reader cannot find.
 
            Each swatch is reproduced in CSS rather than by reusing the chart's own fill:
            two lines beat threading a <defs> out of the SVG, and they only have to look
-           alike, not be the same object. They do have to STAY alike, though — the grey is
+           alike, not be the same object. They do have to STAY alike, though — the gray is
            `--unanalyzed` at 0.4 because that is what `Sunburst` draws an unread wedge
-           with, and a key painted in a colour the map does not use is worse than no key. */
+           with, and a key painted in a color the map does not use is worse than no key. */
         <div className="mt-1.5 flex items-center gap-3 border-t border-[var(--border)] pt-1.5">
           {stale > 0 && (
             <span className="flex items-center gap-1.5">

@@ -38,7 +38,7 @@ export const ROLLUP_TEXTURE_PX = 10
  * claim" have to be told apart at a glance or neither means anything. A field of dots also
  * says the right thing on its own terms — many small things — which stripes do not.
  *
- * Painted in `--background`, the same colour as the cut between two patches. So the
+ * Painted in `--background`, the same color as the cut between two patches. So the
  * roll-up is drawn in the visual language the tiling already uses for "these are
  * separate": it reads as a patch full of separations, which is what it stands for.
  *
@@ -56,14 +56,14 @@ export function RollupDots({
 }: {
   id: string
   angle: number
-  /** The patch's own centre, in user units. */
+  /** The patch's own center, in user units. */
   cx: number
   cy: number
 }) {
   const deg = (angle * 180) / Math.PI - 90
   const rad = (deg * Math.PI) / 180
   // Where the tile's dot lands once the lattice is turned. Subtracting it from the
-  // patch's centre is what puts a dot exactly there — `translate` then `rotate` means a
+  // patch's center is what puts a dot exactly there — `translate` then `rotate` means a
   // pattern-space point `p` is drawn at `T + R(θ)p`, so `T = C − R(θ)·(HALF, HALF)`.
   const dx = HALF * Math.cos(rad) - HALF * Math.sin(rad)
   const dy = HALF * Math.sin(rad) + HALF * Math.cos(rad)
@@ -80,7 +80,7 @@ export function RollupDots({
         takes the ring's orientation; the dots were the one thing that did not.
 
         A rotation, not a curve: the grid is aligned to the patch's MID-angle, so the rows
-        are tangent to the arc at the middle and drift from it towards the sides. Over a
+        are tangent to the arc at the middle and drift from it toward the sides. Over a
         patch of thirty pixels at a radius of two hundred that is a fraction of a dot, and
         the alternative is a per-patch curved fill for a texture whose whole job is to be
         read as "many, small".
@@ -103,7 +103,7 @@ export function RollupDots({
         // is (sin, −cos) — the +x axis turned by `angle − 90`.
         patternTransform={`translate(${cx - dx} ${cy - dy}) rotate(${deg})`}
       >
-        {/* At the tile's centre, not its corner. A pattern clips its content to the tile,
+        {/* At the tile's center, not its corner. A pattern clips its content to the tile,
             so a dot on the corner renders as a quarter of itself. */}
         <circle cx={HALF} cy={HALF} r={0.7} fill="var(--background)" fillOpacity={0.85} />
       </pattern>

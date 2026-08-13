@@ -9,7 +9,7 @@
 //! That was the mistake, and it cost a real measurement. Two copies of one tool contract
 //! drift, and the schema here gained `predicted`, `documented` and `derivable` while the
 //! Node copy did not. `.mcp.json` pointed at the Node copy, so every reading taken in this
-//! repo silently dropped all three — including `derivable`, the whole defence against
+//! repo silently dropped all three — including `derivable`, the whole defense against
 //! generated documentation counting as documentation. The protocol asked for them, the
 //! store accepted them, and the contract in between threw them away.
 //!
@@ -249,7 +249,7 @@ fn client() -> Result<reqwest::blocking::Client, RetryableError> {
 /// **A rejected call used to arrive as "error decoding response body".** Every response was
 /// parsed as JSON regardless of status, so a request axum's extractor turned away — 422,
 /// body in plain text, naming the exact field — failed at `r.json()` and the one useful
-/// sentence on the wire was thrown away in favour of the decode error. What reached the
+/// sentence on the wire was thrown away in favor of the decode error. What reached the
 /// agent said nothing about its arguments, nothing about whether anything had been
 /// recorded, and nothing about what to do; and this is a file whose standing rule is that
 /// models fill silence with invention. It cost a real debugging session here: a report
@@ -473,12 +473,12 @@ fn reader_tools() -> Value {
                     "predicted": {
                         "type": "string",
                         "enum": ["full", "most", "some", "none"],
-                        "description": "How much of the body your prediction covered. full — you called it, nothing missed. most — broadly right, one detail that was not obvious. some — recognisable, but it does real work you did not cover. none — your prediction did not describe this code."
+                        "description": "How much of the body your prediction covered. full — you called it, nothing missed. most — broadly right, one detail that was not obvious. some — recognizable, but it does real work you did not cover. none — your prediction did not describe this code."
                     },
                     "documented": {
                         "type": "string",
                         "enum": ["full", "most", "some", "none"],
-                        "description": "How well the docs you were given cover what the code actually does, same scale. none if there were no docs. Reported, never subtracted from the colour."
+                        "description": "How well the docs you were given cover what the code actually does, same scale. none if there were no docs. Reported, never subtracted from the color."
                     },
                     "derivable": {
                         "type": "boolean",
@@ -491,7 +491,7 @@ fn reader_tools() -> Value {
                     },
                     "trap": {
                         "type": "boolean",
-                        "description": "True ONLY if the CODE will bite whoever edits it next: an ordering assumption nothing enforces, a silent failure, an unguarded index or unchecked arithmetic, a resource that leaks on one path, a cache key missing something the value depends on. A documentation problem is NOT a trap — a doc describing behaviour the body does not have is `documented: none`, and flagging it here counts one defect twice. Nor is 'this surprised me', which is about you. Default to false; this field is only useful if it stays rare."
+                        "description": "True ONLY if the CODE will bite whoever edits it next: an ordering assumption nothing enforces, a silent failure, an unguarded index or unchecked arithmetic, a resource that leaks on one path, a cache key missing something the value depends on. A documentation problem is NOT a trap — a doc describing behavior the body does not have is `documented: none`, and flagging it here counts one defect twice. Nor is 'this surprised me', which is about you. Default to false; this field is only useful if it stays rare."
                     },
                     "surprised": { "type": "boolean", "description": "Superseded by `predicted` — send that instead. Kept so older callers still work." },
                     "model": { "type": "string", "description": "Which model you are, name and version, e.g. claude-haiku-4.5. A grade from a small fast model and one from a large one are not the same evidence. Say what you are; omit it rather than guess." },
