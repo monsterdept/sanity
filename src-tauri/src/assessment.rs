@@ -1062,8 +1062,11 @@ fn render_shard(
     // per-reading information — and the question a person actually has here is "how much of
     // this still counts", which is what the rest of this line answers.
     let dated_note = if dated > 0 {
+        // Wrapped like every other paragraph here — it is prose in the same file, and a
+        // single unbroken line is exactly the drift `render_index` warns about, hidden by
+        // the fact that this one is built rather than written out.
         format!(
-            "\n\n{dated} of these graded legibility under an earlier question and are not \
+            "\n\n{dated} of these graded legibility under an earlier question and are not\n\
              counted; see the note below."
         )
     } else {
@@ -1073,11 +1076,12 @@ fn render_shard(
     // release notes in somebody's repo.
     let spec_note = if dated > 0 {
         "\n\n\
-         `spec` is which version of the questions a reading answered. `legible` used to ask\n\
-         \"how clear is it on its own terms\", which defined no rung but the top one; it now\n\
-         asks what reading it was like — one pass, a second look, jumping around, or never\n\
-         being sure. Grades from before that are kept here, because they are what a reader\n\
-         said, but they no longer color the map. Re-read those functions to replace them."
+         `spec` is which version of the questions a reading answered. `legible` used to\n\
+         ask \"how clear is it on its own terms\", which defined no rung but the top one;\n\
+         it now asks what reading it was like — one pass, a second look, jumping\n\
+         around, or never being sure. Grades from before that are kept here, because\n\
+         they are what a reader said, but they no longer color the map. Re-read those\n\
+         functions to replace them."
     } else {
         ""
     };
@@ -1086,14 +1090,16 @@ fn render_shard(
          \n\
          {read} of {total} read · {surprising} surprising{stale_note}{dated_note}\n\
          \n\
-         Each entry below is one **reading**, of a function or of a whole file. An agent was\n\
-         given its name, signature, neighboring names and comments — never its body — and\n\
-         wrote down what it expected to find. Then it opened the file. The gap between the\n\
-         two is the finding. A file's own entry is titled `the file itself` and asks whether\n\
-         the header at the top describes what is actually in there.\n\
+         Each entry below is one **reading**, of a function or of a whole file. An\n\
+         agent was given its name, signature, neighboring names and comments — never\n\
+         its body — and wrote down what it expected to find. Then it opened the file.\n\
+         The gap between the two is the finding. A file's own entry is titled `the file\n\
+         itself` and asks whether the header at the top describes what is actually in\n\
+         there.\n\
          \n\
          `read at` is a hash of the body as it was when the reading was made. When it\n\
-         stops matching the code, the reading is marked STALE and goes back in the queue.\
+         stops matching the code, the reading is marked STALE and goes back in the\n\
+         queue.\
          {spec_note}\n\
          \n\
          What this is and how to add to it: [README.md](README.md)\n\
@@ -1132,28 +1138,33 @@ fn render_index(repo: &str, shards: &[(String, usize, usize, usize, usize, usize
     }
     table.push_str(" |\n");
 
+    // **Wrapped at 78, every paragraph, and worth keeping that way.** The prose is edited
+    // one sentence at a time and the lines drift, which is invisible in the source — the
+    // continuations hide it — and glaring in the file somebody opens on GitHub, where a
+    // 68-character line sits above an 84-character one. Rewrap the whole paragraph after
+    // editing it, rather than pushing the overflow onto the next line.
     format!(
         "# Sanity assessment — {repo}\n\
          \n\
          A record of how well this repo might read to someone who has not read it.\n\
          \n\
          Each entry in the files below is one **reading**: an agent was shown a\n\
-         function's name, signature, neighboring function names and comments, but never its\n\
-         body. It was asked what it expected to find. Then it was given the file and asked\n\
-         to explain the difference.\n\
+         function's name, signature, neighboring function names and comments, but never\n\
+         its body. It was asked what it expected to find. Then it was given the file\n\
+         and asked to explain the difference.\n\
          \n\
          **These files are meant to be read.**\n\
          \n\
-         You do not need the Sanity CLI or GUI to get the information out of them: open one\n\
-         and read it like notes from a code review.\n\
+         You do not need the Sanity CLI or GUI to get the information out of them: open\n\
+         one and read it like notes from a code review.\n\
          \n\
          {table}\
          \n\
          ## Seeing it as a map\n\
          \n\
-         Sanity draws the same repo as a sunburst with every file and function represented,\n\
-         colored by surprise, legibility, doc coverage, churn, and four other dimensions.\n\
-         Open this repo in the app to visualize these readings.\n\
+         Sanity draws this repo as a sunburst with every file and function represented,\n\
+         colored by surprise, legibility, doc coverage, churn, and four other\n\
+         dimensions. Open the app to visualize these readings.\n\
          \n\
          ```\n\
          brew install --cask monsterdept/tap/sanity\n\
@@ -1177,13 +1188,13 @@ fn render_index(repo: &str, shards: &[(String, usize, usize, usize, usize, usize
          Or add the repo in the app and press Read.\n\
          \n\
          Each reader is a separate process started outside this directory with no\n\
-         access to the repo. It sees only what Sanity hands it. The window does\n\
-         not have to be open while it works.\n\
+         access to the repo. It sees only what Sanity hands it. The window does not\n\
+         have to be open while it works.\n\
          \n\
          ## Commit this directory\n\
          \n\
-         A reading is minutes of careful work and tokens spent. Commit it so\n\
-         others can benefit from it.\n"
+         A reading is minutes of careful work and tokens spent. Commit it so others can\n\
+         benefit from it.\n"
     )
 }
 
