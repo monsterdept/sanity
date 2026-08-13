@@ -1079,8 +1079,6 @@ fn tail(ep: &Endpoint, key: &str, want: &Wanted, banner: &[String]) -> i32 {
     /// nine characters — a heading wider than its own column pushes every column right of
     /// it out of line with the rows beneath, which is what the header was doing.
     const GRADE_COL: usize = 10;
-    // The header is printed with the first reading rather than up front: a run that fails to
-    // bank anything should not leave column headings over an empty table.
     // Carried across polls, because the poll that fails is the one that cannot tell you what
     // the run got through — and that is exactly when somebody wants to know.
     let mut done = 0u64;
@@ -1096,22 +1094,27 @@ fn tail(ep: &Endpoint, key: &str, want: &Wanted, banner: &[String]) -> i32 {
     for line in banner {
         println!("{line}");
     }
-    if fancy() {
+    // **Held until the first reading lands.** A wave takes minutes to bank anything, and a
+    // run that banks nothing at all — a misconfigured harness, a repo somebody has already
+    // read — leaves four headings floating over an empty table with a progress bar under
+    // them. Headings label rows; with no rows they are decoration that looks like a fault.
+    let header = if fancy() {
         let (d, o) = ("\x1b[2m", "\x1b[0m");
-        println!(
+        format!(
             "  {d}{:<NAME$} {:<G$}{:<G$}{:<G$}derivable{o}",
             "function", "predicted", "doc'd", "legible",
             NAME = NAME_COL,
             G = GRADE_COL,
-        );
+        )
     } else {
-        println!(
+        format!(
             "  {:<NAME$} {:<G$}{:<G$}{:<G$}derivable",
             "function", "predicted", "doc'd", "legible",
             NAME = NAME_COL,
             G = GRADE_COL,
-        );
-    }
+        )
+    };
+    let mut header_drawn = false;
     /// How many readings stay on screen. Enough to see a run working and to catch a
     /// surprising grade going past; few enough that the block fits any terminal worth
     /// running this in.
@@ -1229,6 +1232,19 @@ fn tail(ep: &Endpoint, key: &str, want: &Wanted, banner: &[String]) -> i32 {
                 // A log gets every reading, in order, as it lands. A terminal gets the last
                 // few, rewritten in place — the same information, with the header still
                 // above it.
+                // The header arrives with the row it labels. In a terminal the progress line
+                // is already on screen and the cursor is sitting on it, so it is erased first
+                // — printing over it would leave its tail beside the headings. `block` is
+                // still zero here (nothing has been drawn above the progress line yet), so
+                // the next redraw starts below the header and leaves it alone.
+                if !header_drawn {
+                    if fancy() && drawn {
+                        print!("\r\x1b[K");
+                        drawn = false;
+                    }
+                    println!("{header}");
+                    header_drawn = true;
+                }
                 if fancy() {
                     recent.push_back(row);
                     while recent.len() > KEEP {
@@ -1287,7 +1303,14 @@ fn tail(ep: &Endpoint, key: &str, want: &Wanted, banner: &[String]) -> i32 {
         // at all.
         if fancy() {
             let frac = if target == 0 { 0.0 } else { done as f64 / target as f64 };
+            // **Live AND spawned, because the two answer different questions and the line
+            // used to answer only one.** `live` is the concurrency somebody chose in the
+            // dialog and does not move; what climbs is how many readers have been out, since
+            // each takes a batch and exits. The window's panel shows `spawned` in the same
+            // visual slot, so a line saying "5 readers" beside a panel saying "30 started"
+            // read as two counts of one thing disagreeing.
             let readers = num(&run, "live");
+            let spawned = num(&run, "spawned");
             let mut out = String::new();
             // Back to the top of what was drawn last time. Relative, so it does not care
             // where on the screen it is — the mistake the scroll region made.
@@ -1308,11 +1331,12 @@ fn tail(ep: &Endpoint, key: &str, want: &Wanted, banner: &[String]) -> i32 {
                 out.push('\n');
             }
             out.push_str(&format!(
-                "\r\x1b[K\x1b[2m▕\x1b[0m{}\x1b[2m▏\x1b[0m {}/{} · {} · {}",
+                "\r\x1b[K\x1b[2m▕\x1b[0m{}\x1b[2m▏\x1b[0m {}/{} · {} of {} · {}",
                 bar(frac),
                 commas(done),
                 commas(target),
-                plural(readers, "reader"),
+                commas(readers),
+                plural(spawned, "reader"),
                 elapsed(started),
             ));
             print!("{out}");
