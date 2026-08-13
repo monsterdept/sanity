@@ -258,6 +258,11 @@ pub fn run() {
             // Bring back whatever was open before. The window follows the active
             // project as soon as it reappears, so a restart lands you where you were.
             agentapi::restore(api_state.clone());
+            // Stamped here for the same reason `serve` stamps it: read lazily on the first
+            // `/health`, it would describe whatever binary is at this path by then. The
+            // window is never retired over it — a CLI on a newer build says so and carries
+            // on — but a wrong answer would send that warning to the wrong person.
+            let _ = agentapi::build_id();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = agentapi::serve(api_state).await {
                     eprintln!("agent API not available: {e}");

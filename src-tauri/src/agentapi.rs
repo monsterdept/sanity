@@ -4606,12 +4606,109 @@ impl ProjectList {
 /// The pid is the answer to "already serving, but by whom" — a daemon compares it against
 /// its own to notice it has been superseded.
 async fn health() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "ok": true,
+        "pid": std::process::id(),
+        "build": build_id(),
+        "headless": headless(),
+    }))
+}
+
+/// What build this process is running, for a caller to compare against its own.
+///
+/// **The version alone cannot answer this**, and the case that made it necessary is the
+/// ordinary one: a developer rebuilds, `serve` is idempotent so the running daemon is
+/// reused, and it renders the format it was compiled with while every file on disk says
+/// otherwise. `CARGO_PKG_VERSION` moves once a release; a binary moves all afternoon. So
+/// the fingerprint is the version plus the size and mtime of the executable behind this
+/// process — the same three facts a person would compare by hand.
+///
+/// **Stamped once, at bind time, or it answers the wrong question.** Read lazily on the
+/// first `/health`, it would describe whatever binary is at that path NOW — which after a
+/// rebuild is the new one, so a stale daemon would vouch for itself. `serve` calls this
+/// before it binds, so what is reported is the build that is actually executing.
+///
+/// Unknown when the executable cannot be stat-ed, and a caller must read that as "cannot
+/// tell" rather than as a mismatch: killing a working backend over a missing `st_mtime` is
+/// a worse failure than serving one release too long.
+pub fn build_id() -> &'static str {
+    static ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ID.get_or_init(|| {
+        let stamp = || -> Option<String> {
+            let m = std::fs::metadata(std::env::current_exe().ok()?).ok()?;
+            let t = m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
+            Some(format!("{}-{}", m.len(), t.as_secs()))
+        };
+        match stamp() {
+            Some(s) => format!("{}+{s}", env!("CARGO_PKG_VERSION")),
+            None => "unknown".to_string(),
+        }
+    })
+}
+
+/// Whether this backend is a daemon rather than the window's own.
+///
+/// It decides whether a stale backend can be retired at all: a daemon holds nothing and
+/// can be replaced, while the window's backend is a thread inside somebody's open app and
+/// retiring it would close their work to fix a formatting drift.
+static HEADLESS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_headless() {
+    HEADLESS.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn headless() -> bool {
+    HEADLESS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Set by `/retire`, read by the daemon's watch loop.
+static RETIRING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn retiring() -> bool {
+    RETIRING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Whether any project has a wave still going.
+pub fn any_run_live(state: &Shared) -> bool {
+    lock(state).projects.values().any(|p| p.run.as_ref().is_some_and(|r| r.ended.is_none()))
+}
+
+/// Stand down so a caller on a newer build can take over.
+///
+/// **It answers, then exits — it does not exit from here.** The flag is read by the watch
+/// loop in `cli::serve`, which is the audited stand-down path: readers stopped, endpoint
+/// released, process gone. Exiting inside the handler would drop the response the caller
+/// is waiting on, and the caller would have to tell a dead connection from a refusal.
+///
+/// **Two refusals, and both are the point of having the endpoint rather than a signal.**
+/// A window is somebody's open app, not a background process, so it says so and the caller
+/// warns instead. A wave in flight is minutes of a reader's work and tokens already spent;
+/// a build old enough to render last week's headings is not worth throwing that away for,
+/// and the run will end on its own. SIGTERM could express neither, which is why the CLI
+/// asks rather than kills.
+async fn retire(State(state): State<Shared>) -> Json<serde_json::Value> {
+    if !headless() {
+        return Json(serde_json::json!({
+            "ok": false,
+            "reason": "window",
+            "hint": "This backend belongs to the open app. Quit and reopen it to serve a newer build.",
+        }));
+    }
+    if any_run_live(&state) {
+        return Json(serde_json::json!({
+            "ok": false,
+            "reason": "busy",
+            "hint": "A wave is still reading. It will stand down once the run ends.",
+        }));
+    }
+    RETIRING.store(true, std::sync::atomic::Ordering::Relaxed);
     Json(serde_json::json!({ "ok": true, "pid": std::process::id() }))
 }
 
 pub fn router(state: Shared) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/retire", post(retire))
         .route("/open", post(open_project))
         .route("/queue", get(queue))
         .route("/reveal", post(reveal))
@@ -5825,6 +5922,55 @@ fn second() { println!(\"2\"); }\n").unwrap();
     /// them. Nothing in the response said the subject had moved, and `queue` and `report`
     /// went on serving the session's real repo — so the same server described two
     /// different subjects in one run.
+    /// A stale backend is replaced only when replacing it is free.
+    ///
+    /// Both refusals are the reason `/retire` exists instead of the CLI sending a signal:
+    /// the caller knows the builds differ and nothing else, while the backend knows whether
+    /// it is a daemon and whether readers are mid-reading. A wave costs minutes and real
+    /// tokens per function; a build old enough to render last week's headings is not worth
+    /// spending that to correct, and it stands down on its own once the run ends.
+    #[tokio::test]
+    async fn a_backend_with_a_wave_in_flight_is_not_retired() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let mut p = project_of(dir.path());
+        p.run = Some(Run {
+            harness: "claude".into(),
+            model: "sonnet".into(),
+            width: 5,
+            spawned: 3,
+            finished: 0,
+            failed: 0,
+            ended: None,
+            ended_at: None,
+            failures: Vec::new(),
+            stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            live: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(3)),
+        });
+        let mut state = AppState::default();
+        state.projects.insert("/p".into(), p);
+        let shared: Shared = Arc::new(Mutex::new(state));
+
+        // A window says so and keeps its readers, whatever else is true — checked first
+        // because it is the refusal that protects somebody's open app.
+        let Json(out) = retire(State(shared.clone())).await;
+        assert_eq!(out["ok"], false);
+        assert_eq!(out["reason"], "window", "the window's backend offered to shut itself down");
+
+        set_headless();
+        let Json(out) = retire(State(shared.clone())).await;
+        assert_eq!(out["ok"], false);
+        assert_eq!(out["reason"], "busy", "a wave of readers was thrown away over a build number");
+        assert!(!retiring(), "the watch loop would have stood the daemon down anyway");
+
+        // The run ends; now there is nothing to lose and it goes.
+        lock(&shared).projects.get_mut("/p").unwrap().run.as_mut().unwrap().ended =
+            Some("Done.".into());
+        let Json(out) = retire(State(shared)).await;
+        assert_eq!(out["ok"], true);
+        assert!(retiring());
+    }
+
     #[tokio::test]
     async fn status_answers_about_the_callers_repo_not_the_window() {
         // `touch` persists.

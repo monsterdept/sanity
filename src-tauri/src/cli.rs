@@ -157,12 +157,70 @@ const WATCH_EVERY: Duration = Duration::from_secs(5);
 /// process that died, and the port it names may since have been claimed by something
 /// else — so the file is a hint about where to look and the reply is the evidence.
 fn probe(ep: Endpoint) -> Option<u32> {
+    health(ep).and_then(|h| u32::try_from(h.get("pid")?.as_u64()?).ok())
+}
+
+/// The whole health reply, for the one caller that needs more than "somebody is there".
+fn health(ep: Endpoint) -> Option<Value> {
     let client = reqwest::blocking::Client::builder()
         .timeout(PROBE_TIMEOUT)
         .build()
         .ok()?;
-    let body: Value = client.get(format!("{}/health", ep.url())).send().ok()?.json().ok()?;
-    u32::try_from(body.get("pid")?.as_u64()?).ok()
+    client.get(format!("{}/health", ep.url())).send().ok()?.json().ok()
+}
+
+/// Stand down a backend that is serving from a different build than this one.
+///
+/// **The hazard is quiet, which is why this exists rather than a shorter idle timer.**
+/// `serve` is idempotent, so whatever is already answering wins — and a process keeps the
+/// code image it started with. Rebuild, run `sanity check`, and the readings are written by
+/// the binary from an hour ago: it renders the headings it was compiled with, over a
+/// `.sanity/` whose format has moved, and nothing on screen says which build produced the
+/// file you are looking at. Waiting for a timer to kill it treats the symptom and cannot
+/// help the case that matters, which is rebuilding and re-running immediately.
+///
+/// Three things it will not do. It does not compare versions — see `build_id`, a release
+/// number cannot see an afternoon of rebuilds. It does not kill: SIGTERM to a daemon leaves
+/// its readers running, and a signal cannot be refused by a backend that knows something
+/// the caller does not. And it does not touch the window's backend, which belongs to
+/// somebody's open app; that one is reported and left alone.
+///
+/// A backend too old to have `/retire` — or one that refuses — is reported the same way.
+/// Every branch here ends in the run going ahead, because a formatting drift is not worth
+/// refusing to work over.
+fn retire_stale_backend() {
+    let Some(ep) = agentapi::read_endpoint() else { return };
+    let Some(h) = health(ep) else { return };
+    let mine = agentapi::build_id();
+    let theirs = h.get("build").and_then(|v| v.as_str()).unwrap_or("unknown");
+    // Unknown either way is "cannot tell", never "different" — the reply of a backend that
+    // predates this endpoint reads identically to one whose binary cannot be stat-ed.
+    if theirs == mine || theirs == "unknown" || mine == "unknown" {
+        return;
+    }
+    let pid = h.get("pid").and_then(|v| v.as_u64()).unwrap_or(0);
+    let reply = post(&ep, "/retire", json!({}));
+    let ok = reply.as_ref().is_ok_and(|v| v.get("ok").and_then(|b| b.as_bool()) == Some(true));
+    if !ok {
+        let hint = reply
+            .as_ref()
+            .ok()
+            .and_then(|v| v.get("hint").and_then(|h| h.as_str()).map(str::to_string))
+            .unwrap_or_else(|| format!("Stop it with `kill {pid}` to use this build."));
+        println!("sanity: the backend answering is from another build. {hint}");
+        println!();
+        return;
+    }
+    // It stands down on its next watch tick, so this waits for the endpoint to be given up
+    // rather than assuming. Bounded: if it never goes, the run proceeds against it, which
+    // is where we started.
+    let deadline = Instant::now() + START_WAIT;
+    while Instant::now() < deadline {
+        if live().is_none() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
 }
 
 /// The backend that is actually up, if any.
@@ -321,6 +379,13 @@ pub fn serve() -> i32 {
             return 1;
         }
     };
+    // Both before the bind, and the order matters for one of them. `build_id` reads the
+    // executable behind this process, so it has to be stamped while that file is still the
+    // one running — after a rebuild it would describe the new binary and a stale daemon
+    // would vouch for itself.
+    agentapi::set_headless();
+    let _ = agentapi::build_id();
+
     let state: agentapi::Shared = Default::default();
     // Same as the window's startup: bring back what was open, on its own thread, so the
     // server answers before the slowest repo has finished rescanning.
@@ -387,6 +452,17 @@ pub fn serve() -> i32 {
     let started = Instant::now();
     loop {
         std::thread::sleep(WATCH_EVERY);
+
+        // Asked to make way for a newer build. Same exit as idling out, and it reaches here
+        // rather than happening in the handler so the caller gets its answer before this
+        // process goes: `/retire` has already refused if a wave is live or if this is the
+        // window's backend, so by the time the flag is set there is nothing left to weigh.
+        if agentapi::retiring() {
+            println!("A newer build asked to take over. Standing down.");
+            agentapi::stop_all_runs(&state);
+            agentapi::release_endpoint(me);
+            return 0;
+        }
 
         // Superseded. The window claims the endpoint file when it starts, and a human who
         // has opened the app beats a background process every time — so the daemon retires
@@ -691,6 +767,11 @@ pub fn check(
             return 1;
         }
     };
+    // Before the backend is resolved, and only here. `check` is where a person starts work,
+    // which makes it the one caller entitled to replace what is running — a reader's shim
+    // asking the same question mid-wave is a subprocess proposing to restart the server it
+    // is talking to.
+    retire_stale_backend();
     let ep = match ensure_backend() {
         Ok(ep) => ep,
         Err(e) => {
