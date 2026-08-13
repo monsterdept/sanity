@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-606 of 615 read · 109 surprising · 2 stale
+615 of 615 read · 110 surprising
 
 409 of these graded legibility under an earlier question and are not counted; see the note below.
 
@@ -37,13 +37,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/agentapi.rs
 
-### the file itself — STALE
-- spec 2 · read at `6e4d194b3a19` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:20:22Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: The entire backend implementing the sanity agent-facing service inside a Tauri app: AppState (project loading, persistence, focus/touch), task-queue construction (collecting functions/files, spreading across files, batching, leases), the grading/report data model (Grade, Report, Tally, GradeCounts, aggregate/summary), an HTTP router (router/serve/health/endpoint) exposing these as the loopback API agents call, file-watch/rescan logic to keep tasks in sync with source edits, lock/lease semantics preventing double-claims, and a large embedded test suite (snake_case sentence-named tests) encoding invariants like rescan-mid-run safety and stale-reading expiry. The doc header only explains the philosophical motivation for the tool, not its structure.
-- found: A single monolithic Rust file that is the whole loopback API/backend for sanity: AppState (project load/persist/focus/touch/lock), Task/Project/Report/Grade/Endpoint data structs, queueing and grading logic (all_tasks, default_batch, reading_curve, grades, surprise, documented), an axum Router exposing endpoints (router, start_run/stop_all_runs, restore, read_endpoint/release_endpoint), plus a large #[cfg(test)] mod tests block with sentence-named test functions encoding invariants. The doc header at the top is a philosophical justification for why the tool exists (predict-first-then-look), not a structural description of the file's contents.
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### the file itself
+- spec 2 · read at `9afa8b32e394` · commit `61d7eb0` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:44:21Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This is the entire Rust backend module implementing the sanity agent-facing loopback API: an AppState holding one or more scanned Projects (with persistence/load/save of prior reports), logic to walk source files and cut them into gradable "units" (functions or whole files) respecting peer/neighbour context, a queue/distribution algorithm that spreads handed-out tasks across files rather than clustering in one, the reveal/report protocol enforcing that a prediction is recorded before source is shown and can't be revised, lease/ownership tracking so concurrent runs or detached work don't collide, an HTTP router (endpoints like next/reveal/report/status/health/aggregate/summary) that agents actually call, and a large embedded test suite (the many snake_case "sentence" peer names) asserting each of these invariants individually. Overall it's the single large file that both defines and behaviorally specifies the whole tool's server-side contract.
+- found: The file is sanity's own Axum-style HTTP backend (router/serve/endpoints) backing the MCP tools, with AppState managing loaded projects (persist/forget/touch/focus/ping/for_client), a task queue builder that spreads/interleaves tasks across files without repeats (queue, collect_tasks, spread_across_files, interleave_by_file), a lease/prediction-lock system so reveal can't be re-predicted, report/grade aggregation and JSON persistence (save/load_reports, aggregate, summary), file rescanning/watch_tick to re-cut tasks on edits, and a very large embedded unit-test suite using long descriptive snake_case names as the test names, asserting these invariants directly.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+- note: Couldn't do a full line-by-line read due to file size (4001 lines / 340k chars) exceeding tool limits; graded shape from a grep of fn/struct/impl signatures plus the doc header rather than reading every body, so this reading is shallower than the function-level tasks will be.
 
 ### `persist`
 - spec 2 · read at `678296663940` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -328,11 +327,24 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 - note: File-level doc explains the rationale (predict-first, why an agent not a scoring backend) but there's no per-function doc; missed the multi-caller leasing/logging details in my prediction.
 
+### `default_batch`
+- spec 2 · read at `be58df657f50` · commit `61d7eb0` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:43:57Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Returns a hardcoded constant integer representing the default number of items in a batch (likely 10, matching the protocol's batch-of-ten convention), used by external callers needing to estimate pricing/cost.
+- found: Returns a module-level BATCH constant rather than an inline literal - value not shown but confirms it's a shared constant, matching prediction of a fixed default batch size.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
 ### `reading_curve`
 - spec 2 · read at `2c2bd3620c6c` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:20:12Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
 - expected: Builds the reading queue for the project at `key` as if a fresh run were starting now (ignoring active leases and recent_files, per the docs), then walks it in BATCH-sized chunks, summing each function's line count and accumulating a running total across chunks. Returns a Vec<u32> where each entry is the cumulative lines handed out through that many BATCHes, for the Read dialog's lines-vs-tokens bar comparison.
 - found: Collects all tasks for the project, orders them via spread_across_files (ignoring leases/recent_files by passing empty maps and no exclusion), then accumulates line counts, pushing a cumulative total at every BATCH boundary plus the final tail entry.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `check` — OBSCURE
+- spec 2 · read at `093c37e54faa` · commit `61d7eb0` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:44:02Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: An Axum handler that takes a CheckRequest, looks up the relevant project/run state, and returns a JSON status object (e.g. remaining, in_flight counts, whether the run is done) for a polling client to decide whether to launch another wave.
+- found: Thin Axum handler that just delegates to start_run(&state, req) and wraps the result in Json — it's the "wave" launcher, not a passive status check despite the name.
+- predicted: none · documented: some · derivable: no · legible: full · trap: no
+- note: Name "check" suggests a read-only status poll, but it actually kicks off/continues a run via start_run — misleading name given the file doc's framing of run_wave as the orchestration loop.
 
 ### `start_run`
 - spec 2 · read at `b44f62c18769` · commit `298f9f5` · read by claude-sonnet-5 · when 2026-08-13T16:30:33Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -836,13 +848,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/assessment.rs
 
-### the file itself — STALE
-- spec 2 · read at `06b9db33416e` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This file implements the .sanity/ on-disk assessment store: markdown-as-storage for repo readings, sharded by top-level directory. It has hashing helpers (reading_hash, body_hash) to detect when a function's body/docs changed and mark old readings stale, key-generation for identifying functions across scans (file_key, key_of, shard_of), grade parsing/rendering (grade_word, parse_grade), load/save/refresh/compile functions to read and merge shards into a live index (load, read_all, parse_shard, compile, live_funcs, live_files, is_stale), git metadata capture (git, head, who) for provenance, markdown rendering functions (render_entry, render_shard, render_index) to write the store back out, and an extensive suite of round-trip and staleness unit tests confirming readings survive saves, expire when code changes, and preserve fields like position/spec/priming/model/agent.
-- found: Implements the .sanity/ markdown store: hashing (reading_hash/body_hash) for staleness detection covering body+docs+module header, durable keys for functions/files (key_of/file_key/shard_of) that survive line moves and disambiguate same-named twins, a spec/versioning system (SPEC, *_SINCE constants, legible_current) that tracks which build's question a grade answered so rewordings don't silently misrepresent old grades as current, load/save/refresh (compile → render_shard/render_index) that rewrite the store atomically and only remove shard files the tool itself previously linked (never touching human-added notes), git provenance capture (head/who/agent_docs), and an extensive test suite covering round-tripping of every field, staleness, key collisions, and index refresh semantics.
-- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### the file itself
+- spec 2 · read at `46ed2e28330b` · commit `61d7eb0` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:45:39Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: 
+- found: It is the persistence layer for the Sanity tool's own assessments: Markdown under `.sanity/` (sharded by top-level directory, plus a README index) is the authoritative store, parsed back on load rather than mirrored from a separate JSON file. Functions cover: content hashing of a reading's inputs (body + docs, whitespace-insensitive) to detect staleness; durable identity keys for functions (`path#name#ord`, disambiguating same-named siblings by line order rather than line number) and files; parsing/rendering the Markdown shard/index format including a hand-rolled forgiving parser (skips malformed bullets rather than rejecting the whole file); a `compile` step shared between `save` and `refresh` so the index and shards can never disagree; git integration for commit/author; a hand-rolled ISO-8601 date formatter (Hinnant's civil-from-days, to avoid a chrono dependency); and a versioned `SPEC`/`*_SINCE` scheme so old readings expire gracefully when the meaning of a grade changes rather than being silently misread. Extensive doc comments narrate the reasoning/history behind nearly every design decision (e.g. why ordinals not line numbers, why per-reading spec not per-axis, why Markdown is the store not a rendering).
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: The file is essay-length doc comments explaining WHY each decision was made (past bugs, rejected alternatives, measured effects on the corpus) — far beyond what's derivable from the code, so documented=full but derivable=false is a strong signal, not a contradiction.
 
 ### `legible_current`
 - spec 1 · read at `c629493a51d2` · commit `2903db5` · read by claude-sonnet-5 · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -1723,6 +1734,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: some · derivable: no · legible: most · trap: no
 - note: No spawn-lock usage here at all (that must live in a caller like ensure_backend) — I predicted it wrongly; the real logic is a takeover-detection + idle-timeout watch loop plus a signal handler for cleanup on kill.
 
+### `interactive`
+- spec 2 · read at `bd3deef0c049` · commit `61d7eb0` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:44:03Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether both stdin and stdout are terminals (e.g. via std::io::IsTerminal), returning true only if both are — this is used elsewhere to decide whether it's safe to prompt the user interactively, since piping stdout (like `| tee log`) means a prompt would hang invisibly even though a human is present.
+- found: Uses std::io::IsTerminal to check both stdin and stdout are terminals, returning true only if both are — exactly as predicted.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
 ### `choose`
 - spec 2 · read at `ae1003f026ee` · commit `e5ac296` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:37:58Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
 - expected: Prints prompt + numbered options (marking default), reads a trimmed line from stdin. Empty input returns None (meaning "you decide"). A numeric in-range answer returns the corresponding option; otherwise the raw typed text is returned as Some(text), covering free-form answers.
@@ -1754,6 +1771,12 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Re-opens the current repo (likely from cwd) against the new backend `ep` via an HTTP call like /open, then re-issues the same wave/run request using the fields in `want` (limit, filters, etc.) via something like /start. Returns Ok(()) if both calls succeed, Err(()) otherwise, so tail() can decide whether to keep following the new backend.
 - found: Posts /open with the repo path to re-open the project on the new backend, then posts /check with project key, model, readers, and limit from `want` to restart the same wave. Returns Ok(()) only if both calls succeed and report ok:true, else Err(()).
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `fancy`
+- spec 2 · read at `2ed08bb71b2e` · commit `61d7eb0` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:44:05Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether stdout is connected to a terminal (isatty) and returns true if so, deciding whether to draw fancy progress output (carriage-return redraws) versus plain line-by-line printing.
+- found: Uses std::io::IsTerminal to check if stdout is a terminal, exactly as predicted.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `plural`
 - spec 2 · read at `5d2354082e2b` · commit `e5ac296` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:42:52Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -2074,11 +2097,23 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/harness.rs
 
+### the file itself
+- spec 2 · read at `98362179931f` · commit `61d7eb0` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:44:20Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Defines the Harness enum for supported coding-agent CLIs (Claude, Codex, OpenCode, Antigravity/Agy, Gemini, etc.) with parsing/naming/program-path resolution (which/via_login_shell), per-harness model enumeration, resolving a harness+model choice, generating MCP config and per-harness config files, and building the subprocess command that launches an isolated "reader" with no filesystem access to the repo, carrying project/role via environment. Tests verify name round-tripping, readers never launching inside the repo, and per-harness isolation specifics (Claude reader can't reach filesystem, Gemini not an Antigravity alias, Antigravity gets its own config).
+- found: Exactly as predicted: Harness enum (Claude, Codex, OpenCode, Agy) with name/label/program resolution, per-harness model enumeration (JSON-RPC for Codex, subcommand parsing for OpenCode/Agy, hardcoded aliases for Claude), PATH/login-shell/candidate-dir binary resolution, MCP config generation per harness (flag vs file-based), and reader_command building the isolated subprocess (cwd outside repo, restricted tools, no-prompt flags). Tests cover exactly what I predicted: name round-tripping, readers never launched inside the repo, isolation specifics per harness.
+- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
+
 ### `parse`
 - spec 2 · read at `bd103db291a6` · commit `2903db5` · read by claude-sonnet-5 · asked for sonnet · via claude · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
 - expected: A simple match/switch over the string `s` against the known Harness enum variant names (claude, codex, opencode, agy, etc.), returning Some(Harness) for a match and None otherwise — with no special-case for "gemini", which falls through to None per the docs' explanation that it's deliberately not aliased.
 - found: Trims and lowercases the input, then matches against harness names: "claude"/"claude-code" → Claude, "codex" → Codex, "opencode" → OpenCode, "agy"/"antigravity" → Agy, anything else (including "gemini") → None.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `name`
+- spec 2 · read at `8ce0121ef21e` · commit `61d7eb0` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:44:11Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A match statement over Harness enum variants that returns each variant's canonical lowercase name as a &'static str, e.g. Claude => "claude", Codex => "codex", used for display and parsing round-trips.
+- found: Match over Harness variants (Claude, Codex, OpenCode, Agy) returning each one's lowercase name string.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ### `label`
 - spec 2 · read at `1939ccacef2e` · commit `298f9f5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:21:03Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -2176,6 +2211,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: The doc explains WHY -l matters (profile-set PATH) which the code alone wouldn't convey.
 
+### `via_login_shell` #2
+- spec 2 · read at `444f25d9976b` · commit `61d7eb0` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:43:54Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Platform-specific fallback variant (likely cfg(windows) or non-unix) of via_login_shell, where the unused _prog parameter signals it doesn't perform a login-shell PATH lookup on this platform and simply returns None unconditionally.
+- found: A two-line no-op stub that ignores its argument and always returns None — the non-Unix (cfg-gated) counterpart to a real via_login_shell implementation that presumably spawns a login shell elsewhere.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
 ### `mcp_config`
 - spec 2 · read at `b2d4e63edaf4` · commit `298f9f5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:20:57Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
 - expected: Builds and serializes a JSON object describing an MCP server entry (e.g. under "mcpServers") that points "command" at the given exe with args to run it as an MCP server, and sets environment variables carrying the backend/role and project so the spawned reader knows which repo and role it's reading for. Returns the JSON as a String to be written to a per-invocation config file.
@@ -2193,6 +2234,18 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Spawns a single background thread at startup that iterates over all harnesses, calling their resolve/availability check and model-enumeration once each so results land in shared caches before the Read dialog is opened. One thread rather than four in parallel because these calls are dominated by process-spawn latency and share a mutex-guarded cache; the function itself returns immediately without waiting on or returning anything.
 - found: Exactly as predicted: one background thread, loops over Harness::all(), skips unavailable ones, calls models() on available ones purely for the caching side effect, discards the result, returns nothing.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `supported`
+- spec 2 · read at `d32c01a289c0` · commit `61d7eb0` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:43:50Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Joins the names of all harnesses returned by Harness::all() with ", " to produce a human-readable comma-separated list, used in error messages like "Supported: claude, codex.".
+- found: Maps each Harness from Harness::all() to its name() and joins with ", ".
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `toml_string`
+- spec 2 · read at `8504a333ca24` · commit `61d7eb0` · read by claude-sonnet-5 · via claude · when 2026-08-13T19:43:50Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Escapes backslashes and double quotes in the input string (and likely other control chars like newlines) then wraps the result in double quotes to produce a valid TOML string literal.
+- found: Escapes backslashes then double quotes via string replace, wraps result in double quotes. Simpler than I guessed - only handles those two chars, no newline/control char handling.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `write_config`
 - spec 2 · read at `f31d79b88879` · commit `298f9f5` · read by claude-sonnet-5 · asked for sonnet · via claude · when 2026-08-13T06:21:50Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded

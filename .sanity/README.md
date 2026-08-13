@@ -19,9 +19,9 @@ agent can both work from them as they are.
 |---|---|---|---|---|---|
 | [docs](docs.md) | 2 | 2 | 1 | 0 | 0 |
 | [scripts](scripts.md) | 8 | 8 | 0 | 0 | 6 |
-| [src-tauri](src-tauri.md) | 606 | 615 | 109 | 2 | 409 |
+| [src-tauri](src-tauri.md) | 615 | 615 | 110 | 0 | 409 |
 | [web](web.md) | 265 | 265 | 50 | 0 | 197 |
-| **total** | **881** | **890** | **160** | **2** | **612** |
+| **total** | **890** | **890** | **161** | **0** | **612** |
 
 ## Seeing it as a map
 
