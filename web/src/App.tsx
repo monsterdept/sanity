@@ -37,6 +37,7 @@ import {
   type HistoryScan,
 } from './lib/history'
 import { Sunburst } from './components/Sunburst'
+import type { MascotState } from './components/MascotFigure'
 import { CommitLog } from './components/CommitLog'
 import { HistoryBar } from './components/HistoryBar'
 import { Crumbs } from './components/Crumbs'
@@ -608,6 +609,38 @@ export default function App() {
     [projects, activeKey],
   )
 
+  /** What the creature in the hub is doing.
+   *
+   *  The same three-rung ladder the sidebar panel used to run, and about the project on
+   *  SCREEN — which is what the hub is about. It was global once ("an agent called Sanity
+   *  recently, about anything"), and that was fine while an agent was the only way in and
+   *  wrong for a picture of one repo: `project.working` is the backend's per-project answer
+   *  and it discounts a finished run's dying calls, which is what used to leave this reading
+   *  WORKING for a minute over a run that had stopped.
+   *
+   *  **A wave that has ended is not finished while its readers are alive.** `live` counts
+   *  processes the backend has not yet reaped, so the creature stays flustered until the
+   *  last one is gone rather than snapping back to work on the readers' own last calls. */
+  const mascotState = useMemo<MascotState>(() => {
+    const run = activeProject?.run ?? null
+    const running = !!run?.running
+    const winding = !!run && !running && (run.live ?? 0) > 0
+    if (run?.stopping || winding) return 'stopping'
+    return running || activeProject?.working ? 'working' : 'sleeping'
+  }, [activeProject])
+  /** Kept stable between polls, on the SEQUENCE rather than on the array.
+   *
+   *  `agentActivity` returns a fresh object every two seconds whether or not anything
+   *  happened, and this prop reaches the sunburst — which is a few thousand arcs. A new
+   *  identity per poll is a re-render of the whole map twice a minute to carry a list that
+   *  did not change. The last call's `seq` is the one thing that moves when it does. */
+  const lastCall = agent.events.length > 0 ? agent.events[agent.events.length - 1].seq : 0
+  const mascot = useMemo(
+    () => ({ events: agent.events, state: mascotState }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lastCall, mascotState],
+  )
+
   useEffect(() => onHistoryProgress(setHistoryProgress), [])
 
   // Keep this repo's timeline current, if it has one. Never builds one — see
@@ -930,7 +963,6 @@ export default function App() {
         <SideBar
           projects={projects}
           active={activeKey}
-          agent={agent}
           // The picker reports its own refusals — a directory holding twelve repos is a
           // sentence worth reading, not a silent no-op. A dismissed dialog resolves null
           // and says nothing, because canceling is not an error.
@@ -1033,6 +1065,10 @@ export default function App() {
                 // one thing drilling must not do.
                 ageSpan={ageSpan}
                 reading={readingNow}
+                // Not during the replay. A run is a fact about the repo as it is now, and a
+                // creature working away over a frame from 2019 would be the same claim a
+                // replayed temperature would be — see `history.rs`.
+                mascot={historyOn ? undefined : mascot}
                 onSelect={pick}
                 onClear={clearPick}
                 onDrill={drill}

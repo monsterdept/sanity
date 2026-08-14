@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Mascot,
   randomizeMascot,
@@ -65,12 +65,20 @@ const MOODS: Array<{ match: RegExp; play: MascotAnimation[] }> = [
 
 const DEFAULT_PLAY: MascotAnimation[] = ['wave', 'nod', 'wiggle', 'headTilt']
 
-/** What the creature is doing, which is the panel's own state rather than a guess at it.
+/** What the creature is doing.
  *
  *  **A boolean could not express stopping.** `active` meant "something is happening", so a
  *  run being torn down looked identical to one working — the mascot went on playing the
- *  moods of whatever calls the dying readers still made. Three states, matching the three
- *  words the panel puts beside it, so the picture and the label cannot disagree. */
+ *  moods of whatever calls the dying readers still made.
+ *
+ *  **`sleeping` no longer puts it to sleep.** It did, and that was the panel's doing: a word
+ *  sat beside the creature reading SLEEPING, so the picture had to match the label or the
+ *  two contradicted each other. The word is gone with the panel, and what is left is a
+ *  creature in the middle of the map with its own idle ladder — active, bored, sleepy,
+ *  asleep — which the bundle runs on its own clock and which is better company than a thing
+ *  that snaps into a coma the moment a wave ends. So this rung means only "nothing to play",
+ *  and the library decides what a lull looks like. Nothing here calls `sleep` or `wake`:
+ *  `play` wakes the creature itself when a reading lands. */
 export type MascotState = 'sleeping' | 'working' | 'stopping'
 
 /** Confusion, for a run being taken apart. Repeated on a beat rather than played once: the
@@ -101,6 +109,117 @@ const REMINT_WINDOW_MS = 2000
  *  a sequence and becomes a twitch, and the oldest calls are the least interesting. */
 const MAX_REPLAY = 4
 
+/** How often a mouse that is moving is allowed to poke the creature, in ms.
+ *
+ *  Moving the pointer anywhere in the window wakes it — the map is the thing people are
+ *  using and the creature lives in the middle of it, so a person working the sunburst is
+ *  company. `wake` only resets the idle clock, so calling it on every one of the hundreds of
+ *  mousemove events a second would be free and pointless; a couple of times a second is well
+ *  inside the bundle's own bored/sleepy thresholds. */
+const WAKE_EVERY_MS = 400
+
+/** After this long without a mouse, the next movement gets an animation and not just a
+ *  reset clock — see `STIRRED`.
+ *
+ *  **`wake` alone does not wake it, and that is not a bug in the bundle.** It clears the idle
+ *  state and the sleep flags; what it does not do is reopen the eyes, because the eyelids are
+ *  the animation's business and there is no animation running. So a creature poked only by
+ *  `wake` sits there with its eyes shut looking exactly as asleep as it did before — which is
+ *  what "I am clicking around and it is still asleep" looks like. `play` is the path that
+ *  handles a sleeping creature properly: it starts the wake animation and queues what you
+ *  asked for behind it.
+ *
+ *  Which is why this is a GAP and not every movement. Playing something on every stir would
+ *  be a creature that twitches whenever the pointer crosses the window, and the bundle's own
+ *  idle ladder — bored, sleepy, asleep — is the thing worth preserving in a window nobody is
+ *  at. This only fires when somebody has actually been away. */
+const STIR_AFTER_MS = 8000
+
+/** What a creature does when somebody comes back. Small, and none of them are the flourishes
+ *  a reading earns: noticing you is not news about the repo. */
+const STIRRED: MascotAnimation[] = ['lookAround', 'headTilt', 'wiggle', 'stretch']
+
+/** The creature's own vertical offset inside the canvas, in fractions of the canvas height.
+ *
+ *  **A digital apple box.** The bundle renders every blueprint standing on the same ground
+ *  plane, and blueprints are not the same height — a tall one fills the frame, a short one
+ *  sits in the bottom third with a lot of sky above it. In a panel that is invisible; in the
+ *  middle of a disc it is the whole impression, because the disc is a circle and the eye
+ *  reads the creature against its center.
+ *
+ *  So the ink is measured rather than guessed: one snapshot after the scene settles, scanned
+ *  for the topmost and bottommost pixel that is not transparent, and the creature is shifted
+ *  by however far the middle of that band is from the middle of the frame. Measured per
+ *  blueprint, because that is the thing that varies, and once, because it does not move.
+ *
+ *  It cannot be a constant. Every value a constant could take is right for one creature and
+ *  wrong for the next, and the next one is a random mint away. */
+function inkOffset(url: string, box: number): Promise<number> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const w = img.naturalWidth
+      const h = img.naturalHeight
+      if (w === 0 || h === 0) return resolve(0)
+      const c = document.createElement('canvas')
+      c.width = w
+      c.height = h
+      const ctx = c.getContext('2d', { willReadFrequently: true })
+      if (!ctx) return resolve(0)
+      ctx.drawImage(img, 0, 0)
+      let top = -1
+      let bottom = -1
+      let data: Uint8ClampedArray
+      try {
+        data = ctx.getImageData(0, 0, w, h).data
+      } catch {
+        // A tainted canvas. Nothing to measure and nothing to be done about it; standing on
+        // the floor is the behaviour this replaces, not a broken state.
+        return resolve(0)
+      }
+      // Rows, not pixels: the answer is a vertical extent, and a row is decided by the first
+      // opaque pixel in it. `> 8` rather than `> 0` because the renderer leaves a whisper of
+      // antialiasing well outside the creature, and measuring to that measures the frame.
+      for (let y = 0; y < h && top < 0; y++) {
+        for (let x = 0; x < w; x++) {
+          if (data[(y * w + x) * 4 + 3] > 8) {
+            top = y
+            break
+          }
+        }
+      }
+      for (let y = h - 1; y >= 0 && bottom < 0; y--) {
+        for (let x = 0; x < w; x++) {
+          if (data[(y * w + x) * 4 + 3] > 8) {
+            bottom = y
+            break
+          }
+        }
+      }
+      if (top < 0 || bottom < top) return resolve(0)
+      // In CSS pixels of the box we are drawing into: the snapshot comes back at the
+      // renderer's own resolution, which is the device pixel ratio times the size we asked
+      // for, and a shift computed in those units would be twice as far on a retina display.
+      resolve(((h / 2 - (top + bottom) / 2) * box) / h)
+    }
+    img.onerror = () => resolve(0)
+    img.src = url
+  })
+}
+
+/** How long after the scene reports itself ready to let it settle before measuring, in ms.
+ *  The creature arrives mid-build and mid-entry-pose, and measuring there measures a
+ *  raised arm or a half-assembled body. */
+const SETTLE_MS = 500
+
+/** The backstop, from mount: measure anyway, ready or not. A bundle that never reports ready
+ *  must not leave an invisible creature forever. */
+const MEASURE_AFTER_MS = 1200
+
+/** How often to look for the settle point. Short enough that the wait is the settle and not
+ *  the polling. */
+const POLL_MS = 100
+
 function pick(from: MascotAnimation[]): MascotAnimation {
   return from[Math.floor(Math.random() * from.length)]
 }
@@ -127,48 +246,146 @@ export default function MascotFigure({
    *  half-finished gesture is not state anything renders. */
   const clicks = useRef({ n: 0, at: 0 })
   const handle = useRef<MascotHandle>(null)
-  const asleep = useRef(false)
+  /** How far this creature has to be lifted to look centred — see `inkOffset`.
+   *
+   *  **Null means "not measured yet", and while it is null the creature is not shown.** It
+   *  used to be zero, which draws the creature standing on the floor of its box for the
+   *  second it takes to measure and then jumps it into place — and a jump is worse than a
+   *  wait, because the wait is invisible and the jump is the first thing you see it do. */
+  const [lift, setLift] = useState<number | null>(null)
   /** Highest call sequence already animated. Starts at zero rather than at the first
    *  batch's head on purpose — opening the window mid-run should replay the tail, which
    *  is the only way the indicator says anything about a session already in progress. */
   const seen = useRef(0)
 
-  // Doze off when the work ends, wake when it starts, come apart while it is being stopped.
-  // The indicator is permanent, so a creature that idles identically whatever is happening
-  // would make the corner of the window meaningless.
-  //
-  // Driven by the STATE rather than by events, so the three pictures are guaranteed to match
-  // the three words. A stopping run still produces MCP chatter — the dying readers' last
-  // calls — and animating that chatter is how the creature came to look busy underneath the
-  // word Stopping.
+  /** Whether this instance is still on screen, so a measurement that resolves after a remint
+   *  or an unmount is dropped rather than written to a creature that has gone. */
+  const mounted = useRef(true)
   useEffect(() => {
-    let confusing: number | undefined
-    const id = requestAnimationFrame(() => {
-      if (!handle.current) return
-      if (state === 'sleeping') {
-        if (!asleep.current) {
-          asleep.current = true
-          handle.current.play('sleep')
-        }
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+
+  // Measure the creature and build its box. Once per blueprint and per size: a remint is a
+  // different creature standing at a different height, and the offset is in pixels of the
+  // box it is drawn into.
+  //
+  // **Once. Measuring twice is the jump wearing the other shoe.** It measured on `onReady`
+  // and again on the timer, and the two disagreed — the ready frame is the scene's first,
+  // not its settled one, so the creature appeared high and then dropped into place. Which of
+  // the two was right does not matter: any pair of measurements a person can see between is
+  // a jump, and the second one is always the one worth keeping.
+  const measure = useCallback(() => {
+    // **`snapshot`, and not the bundle's `captureImage`.** The latter looks like the right
+    // tool — it renders with the background removed, which is what makes alpha mean
+    // "creature" — and it is unreachable: it is defined on the renderer underneath, and the
+    // wrapper the React handle hands back does not forward it. Called through `renderer` it
+    // is `undefined`, the effect throws, and nothing is ever measured, which is exactly how
+    // this broke once.
+    // `snapshot` works because the canvas is transparent as composited — that is why the
+    // creature sits on the map with no square around it. If a scene ever arrives with a
+    // background, every row carries alpha, the offset comes out zero, and the creature
+    // stands on the floor as it did before any of this existed.
+    const shot = handle.current?.snapshot()
+    if (!shot) return false
+    void inkOffset(shot, size).then((y) => {
+      if (mounted.current) setLift(y)
+    })
+    return true
+  }, [size])
+  /** When the scene reported itself ready, if it has. Read by the measuring effect, which is
+   *  what makes this a signal rather than a second place that measures. */
+  const readyAt = useRef(0)
+  /** Stable, because the bundle rebuilds the whole creature whenever this identity changes —
+   *  an inline arrow here is a scene disposed and built again on every render of the app. */
+  const onReady = useCallback(() => {
+    readyAt.current = performance.now()
+  }, [])
+
+  useEffect(() => {
+    let live = true
+    let id = 0
+    setLift(null)
+    // Wait for the scene to say it is ready, then let it settle, and measure that. `onReady`
+    // fires on the FIRST frame — parts still arriving, the entry pose not finished — and a
+    // measurement taken there is of a creature that is not yet standing where it will stand.
+    //
+    // The poll is what keeps this honest against a bundle that never reports ready: the
+    // committed placeholder does not, so `MEASURE_AFTER_MS` from mount the creature is
+    // measured anyway, and if there is nothing to snapshot even then it is revealed where it
+    // stands rather than left as an empty disc in the middle of the map.
+    const began = performance.now()
+    const check = () => {
+      if (!live) return
+      const now = performance.now()
+      const settled = readyAt.current > 0 && now - readyAt.current >= SETTLE_MS
+      if (!settled && now - began < MEASURE_AFTER_MS) {
+        id = window.setTimeout(check, POLL_MS)
         return
       }
-      if (asleep.current) {
-        asleep.current = false
-        handle.current.wake()
-      }
-      if (state === 'stopping') {
-        const fluster = () => handle.current?.play(pick(CONFUSED))
-        fluster()
-        confusing = window.setInterval(fluster, CONFUSED_EVERY_MS)
-      }
+      if (!measure()) setLift(0)
+    }
+    id = window.setTimeout(check, POLL_MS)
+    return () => {
+      live = false
+      window.clearTimeout(id)
+    }
+  }, [config, measure])
+
+  // **Moving the mouse anywhere in the window wakes it.** The bundle sleeps on its own idle
+  // clock, which is the right behaviour for a window nobody is at — and the wrong one for a
+  // person working the map the creature is sitting in the middle of. Whole window rather
+  // than the canvas: a creature that only stirs when you point directly at it is a hover
+  // effect, and what this is trying to say is "somebody is here".
+  //
+  // Clicks count as well as movement: somebody working a trackpad without moving the pointer
+  // is as present as somebody sweeping it across the map.
+  useEffect(() => {
+    let last = 0
+    const stir = () => {
+      const now = performance.now()
+      const away = now - last
+      if (away < WAKE_EVERY_MS) return
+      last = now
+      // Back after a while — say hello, which is also what actually opens the eyes. Never
+      // over a run being torn down: that has its own loop and its own thing to say.
+      if (away > STIR_AFTER_MS && state !== 'stopping') handle.current?.play(pick(STIRRED))
+      else handle.current?.wake()
+    }
+    window.addEventListener('mousemove', stir, { passive: true })
+    window.addEventListener('mousedown', stir, { passive: true })
+    return () => {
+      window.removeEventListener('mousemove', stir)
+      window.removeEventListener('mousedown', stir)
+    }
+  }, [config, state])
+
+  // Come apart while a run is being stopped, and otherwise leave the creature alone.
+  //
+  // Driven by the STATE rather than by events: a stopping run still produces MCP chatter —
+  // the dying readers' last calls — and animating that chatter is how the creature came to
+  // look busy while its run was being killed.
+  //
+  // The quiet rung does nothing at all. It used to play `sleep` and hold it there, which was
+  // a picture matched to a word that no longer exists; the bundle has its own idle ladder and
+  // reaches sleep on its own clock, having been bored first.
+  useEffect(() => {
+    if (state !== 'stopping') return
+    let confusing: number | undefined
+    // Deferred a frame: play() before the scene mounts is silently dropped.
+    const id = requestAnimationFrame(() => {
+      const fluster = () => handle.current?.play(pick(CONFUSED))
+      fluster()
+      confusing = window.setInterval(fluster, CONFUSED_EVERY_MS)
     })
     return () => {
       cancelAnimationFrame(id)
       window.clearInterval(confusing)
     }
-    // `config` too: a remint REMOUNTS the scene, and the new one arrives awake. Without
-    // this, six clicks during a quiet moment left a bright-eyed creature under the word
-    // SLEEPING until the next run started.
+    // `config` too: a remint REMOUNTS the scene, so a run being stopped while somebody is
+    // minting a new creature keeps its fluster on the creature that arrives.
   }, [state, config])
 
   // Play whatever happened since the last poll, in order.
@@ -190,10 +407,9 @@ export default function MascotFigure({
 
     const timers: number[] = []
     const id = requestAnimationFrame(() => {
-      if (asleep.current) {
-        asleep.current = false
-        handle.current?.wake()
-      }
+      // No `wake` first: the bundle's own `play` wakes a sleeping creature and queues the
+      // animation behind it, so a reading landing after a quiet hour still shows up — and
+      // waking it by hand is exactly the lifecycle control that was taken out.
       fresh.forEach((e, i) => {
         const play = () => handle.current?.play(pick(moodFor(e.tool)))
         if (i === 0) play()
@@ -214,8 +430,6 @@ export default function MascotFigure({
     run.at = now
     if (run.n < REMINT_CLICKS) return
     run.n = 0
-    // The new scene has never been told to doze, whatever the old one was doing.
-    asleep.current = false
     const fresh = randomizeMascot()
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh))
@@ -234,7 +448,29 @@ export default function MascotFigure({
           builds its parts when it mounts and the handle is imperative — feeding a fresh
           config to the same instance leaves the old creature on screen, which reads as six
           clicks doing nothing. */}
-      <Mascot key={JSON.stringify(config)} ref={handle} config={config} size={size} />
+      {/* Stood on its box. Negative is up, and it is nearly always negative: the ground
+          plane is at the bottom of the frame, so a creature shorter than the frame sits
+          below the middle of it. Applied to the canvas rather than to the layout, so
+          nothing around it moves when a remint changes the number.
+
+          Invisible until the box is known, and NOT unmounted: the scene has to be built and
+          drawn before there is anything to measure, so a creature that waits for its offset
+          before rendering waits forever. It draws, it is measured off its own first frame,
+          and it is revealed already standing where it belongs.
+
+          No fade. A transition here is the same jump wearing a longer coat, and the arrival
+          is already soft — the creature is doing something within the second. */}
+      <Mascot
+        key={JSON.stringify(config)}
+        ref={handle}
+        config={config}
+        size={size}
+        onReady={onReady}
+        style={{
+          transform: `translateY(${lift ?? 0}px)`,
+          visibility: lift === null ? 'hidden' : 'visible',
+        }}
+      />
     </span>
   )
 }

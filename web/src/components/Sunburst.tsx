@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { type Node } from '../lib/api'
+import { type AgentCall, type Node } from '../lib/api'
 import { clsx } from '../lib/cn'
 import { colorFor, type ColorMode, paintsFromReadings } from '../lib/colorMode'
 import { CHROME_INK, inkOn } from '../lib/ink'
@@ -30,6 +30,8 @@ import { fitLabel } from '../lib/label'
 import { FAMILY, WEIGHT } from '../lib/labelStyle'
 import { StaleHatch } from './StaleHatch'
 import { WedgeTip } from './WedgeTip'
+import { AgentMascot } from './AgentMascot'
+import type { MascotState } from './MascotFigure'
 
 /** Rings drawn at once. Deeper than this and the outer annuli are hairlines; the
  *  answer is to drill in, which is what clicking a directory does. */
@@ -48,6 +50,22 @@ const FILE_MAX = 11
 const RINGS = 5
 const R_INNER = 62
 const R_OUTER = 340
+
+/** The mascot's box in the hub, in user units, and where its middle sits.
+ *
+ *  Centred, and large, because it is the only thing in the disc — the name and the line
+ *  count both went, being answered by the crumbs and the panel. The box is a little taller
+ *  than the creature, since the bundle renders into a square with room underneath, so the y
+ *  is eyeballed against the rendered thing rather than derived from the geometry. Every
+ *  value this has held was arrived at by looking at it.
+ *
+ *  **In user units, drawn in pixels.** The creature is a three.js canvas and canvases do not
+ *  scale like paths, so it is not in the SVG at all — it is an HTML layer over the pane,
+ *  moved and scaled to wherever the hub currently is. `HUB_MASCOT` is therefore both: the
+ *  side of the box in user units AND the canvas's own pixel size at scale 1, which is what
+ *  keeps it crisp at the sizes the map actually draws at. */
+const HUB_MASCOT = 94
+const HUB_MASCOT_Y = 0
 
 /** How much of a name the hub can hold at the smallest size it will shrink to.
  *
@@ -265,6 +283,7 @@ function SunburstView({
   ranks,
   ageSpan,
   onUp,
+  mascot,
 }: {
   root: Node
   selected: Node | null
@@ -278,6 +297,18 @@ function SunburstView({
   ageSpan?: number
   /** Undefined at the top level, which is what disables the hub's go-up affordance. */
   onUp?: () => void
+  /** The creature in the middle of the hub, and what it is doing.
+   *
+   *  **It lives here because the hub is the one part of the window that is about the whole
+   *  repo.** It used to sit in a panel under the sidebar, beside a word — Sleeping, Working,
+   *  Stopping — and that panel is gone: everything else in it was about ONE project and
+   *  belongs on that project's row. What was left was the app's own pulse, which has no row
+   *  and does not want one. The hub already names the repo and its size; the state of the
+   *  thing reading it is the third fact about the same subject.
+   *
+   *  Absent is a legitimate value — the history replay has no run to depict — and absence
+   *  draws nothing rather than a sleeping creature over a story from 2019. */
+  mascot?: { events: AgentCall[]; state: MascotState }
   /** Node ids out with a reader right now. They pulse.
    *
    *  **This is where a run is legible.** The sidebar used to list the names of functions
@@ -377,6 +408,11 @@ function SunburstView({
    *  on the element and in a ref rather than in state — see the fit effect. */
   const svg = useRef<SVGSVGElement>(null)
   const fitted = useRef('-360 -360 720 720')
+  /** The mascot layer, moved with the hub. A ref rather than state for the same reason the
+   *  viewBox is written to the element: this is updated every frame of a level change, and
+   *  a second React render per frame to carry two numbers is most of what made the motion
+   *  feel heavy. */
+  const hubMascot = useRef<HTMLDivElement>(null)
   const hover = hoverNode ? { node: hoverNode, ...pos } : null
   /** Directories folded shut by clicking them. A view concern, so it lives here rather
    *  than in the app's drill stack — and it survives drilling, so a directory you closed
@@ -681,7 +717,25 @@ function SunburstView({
       fitted.current = next
       svg.current.setAttribute('viewBox', next)
     }
-  }, [viewTo, e, moving])
+    // The hub is the user-space origin, always — so where it lands on screen is the box's
+    // own arithmetic and nothing has to be measured. The viewBox is square and the SVG is
+    // fitted `xMidYMid`, so one scale serves both axes and the middle of the box is the
+    // middle of the pane. Written here rather than in its own effect because it has to move
+    // on the SAME frame as the wedges: a creature that arrives one frame late slides across
+    // the map behind the disc it belongs to.
+    const el = hubMascot.current
+    if (el && box.w > 0 && box.h > 0) {
+      const s = Math.min(box.w, box.h) / v.side
+      const x = box.w / 2 + (0 - v.cx) * s
+      const y = box.h / 2 + (HUB_MASCOT_Y - v.cy) * s
+      el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${s})`
+      // Hidden until it has been placed. Untransformed it sits in the pane's top-left
+      // corner, which is a creature in the wrong place for however long the first
+      // measurement takes — and `mascot` in the deps is what re-places it after the replay
+      // is switched off and the layer mounts again with no transform on it.
+      el.style.visibility = 'visible'
+    }
+  }, [viewTo, e, moving, box.w, box.h, mascot])
 
   /** The highlighted wedge's outline, drawn once over everything at the end.
    *
@@ -1382,23 +1436,63 @@ function SunburstView({
             label: it was 600, and a semibold hub in the middle of a chart of regular-weight
             names read as emphasis rather than as the center. Size and position already say
             which one this is. */}
-        <text
-          textAnchor="middle"
-          y={-4}
-          fontFamily={FAMILY}
-          fontSize={Math.max(9, Math.min(15, 150 / Math.max(hubName.length, 5)))}
-          fill="var(--foreground)"
-          fontWeight={WEIGHT}
-        >
-          {hubName !== root.name && <title>{root.name}</title>}
-          {hubName}
-        </text>
-        <text textAnchor="middle" y={13} fontSize={9.5} fill="var(--muted-foreground)">
-          {root.loc.toLocaleString()} lines
-        </text>
+        {/* **The disc holds one thing, and the creature is it.**
+            It held three: a name repeated verbatim in the breadcrumb an inch above and again
+            in the panel's header, a line count the panel also states, and the one fact
+            nothing else on screen carries — what the readers are doing. Two of those were
+            already answered elsewhere on the same screen, and the middle of the map is the
+            worst place to answer a question twice: it is the smallest surface here and the
+            one every wedge points at.
+            The name survives where the creature does not — the history replay has no run to
+            depict, and a hub with neither would be a blank disc in the middle of the story. */}
+        {!mascot && (
+          <text
+            textAnchor="middle"
+            y={4}
+            fontFamily={FAMILY}
+            fontSize={Math.max(9, Math.min(15, 150 / Math.max(hubName.length, 5)))}
+            fill="var(--foreground)"
+            fontWeight={WEIGHT}
+          >
+            {hubName !== root.name && <title>{root.name}</title>}
+            {hubName}
+          </text>
+        )}
         </g>
         </g>
       </svg>
+
+      {/* The creature in the hub.
+          A layer over the SVG rather than a `foreignObject` inside it: what is being placed
+          is a WebGL canvas, and a canvas scaled by an SVG transform is a bitmap stretched
+          rather than a picture redrawn. Positioned imperatively in the fit effect above, so
+          it travels with the disc through a level change instead of jumping to the new
+          middle a frame early.
+
+          It sits at the top-left with everything in one transform, which is what lets the
+          effect write a single property. `pointer-events` stay on: the six-click remint is
+          the only way to get another creature, and this is now the only creature there is.
+
+          **It carries the hub's own gesture rather than swallowing it.** The creature covers
+          most of the disc, and the disc means "go up a level" — a dead patch in the middle
+          of that target is worse than the one thing it costs, which is that six rapid clicks
+          at a drilled-in level walk you out as well as reminting. Six clicks is a gesture
+          people perform at rest, on the repo root, where there is nowhere to go up to. */}
+      {mascot && (
+        <div
+          ref={hubMascot}
+          className="absolute left-0 top-0 origin-center"
+          style={{
+            width: HUB_MASCOT,
+            height: HUB_MASCOT,
+            visibility: 'hidden',
+            cursor: onUp ? 'zoom-out' : undefined,
+          }}
+          onDoubleClick={onUp ? (ev) => { ev.stopPropagation(); onUp() } : undefined}
+        >
+          <AgentMascot size={HUB_MASCOT} events={mascot.events} state={mascot.state} />
+        </div>
+      )}
 
       {/* The tooltip. Instant, because it is ours: it appears the moment a wedge is
           entered instead of waiting out the OS delay, and it can say what is actually

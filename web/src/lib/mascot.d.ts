@@ -16,6 +16,11 @@ export interface MascotProps {
   size?: number
   className?: string
   style?: CSSProperties
+  /** Called once the scene has built its parts and drawn a first frame — which is the
+   *  earliest moment a snapshot means anything. **It is a dependency of the effect that
+   *  builds the scene**, so it must be stable: a fresh arrow each render disposes and
+   *  rebuilds the creature on every render. */
+  onReady?: (renderer: unknown) => void
 }
 
 export type MascotAnimation =
@@ -41,6 +46,13 @@ export type MascotAnimation =
   | 'idle'
   | 'bored'
 
+// **Declare only what the React handle actually forwards.** `captureImage` was declared
+// here as `renderer.captureImage` and it does not exist at that address: the bundle defines
+// it on the renderer underneath, and the object the handle returns forwards play, wake,
+// snapshot and the animation lists and nothing else. A hand-written declaration cannot be
+// checked against the bundle, so a wrong one type-checks perfectly and throws at runtime —
+// which it did, silently, inside a timeout, and the only symptom was a measurement that
+// never happened.
 export interface MascotHandle {
   play(animation: MascotAnimation | string): void
   wake(): void
