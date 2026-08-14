@@ -30,6 +30,7 @@ import {
 } from './lib/api'
 import {
   frameTree,
+  headSizes,
   onHistoryProgress,
   scanHistory,
   scopedCommits,
@@ -715,6 +716,16 @@ export default function App() {
     [historyOn, history, historyKey, activeKey, histIndex, activeProject?.name],
   )
 
+  /** What the replay sorts its rings by: every path's size at HEAD — see `headSizes`.
+   *
+   *  Undefined whenever history is off, which is what keeps the live map sorting by its own
+   *  sizes: today IS today there, and a second rule for the same picture is how two views
+   *  that should agree come apart. */
+  const headOrder = useMemo(
+    () => (historyOn && history && historyKey === activeKey ? headSizes(history) : undefined),
+    [historyOn, history, historyKey, activeKey],
+  )
+
   /** What the map is drawing: the frame when history is on, the scan otherwise. Every
    *  navigation below reads this rather than `scan`, so drilling, crumbs and selection
    *  work the same in both — they are the same rings. */
@@ -1065,10 +1076,21 @@ export default function App() {
                 // one thing drilling must not do.
                 ageSpan={ageSpan}
                 reading={readingNow}
-                // Not during the replay. A run is a fact about the repo as it is now, and a
-                // creature working away over a frame from 2019 would be the same claim a
-                // replayed temperature would be — see `history.rs`.
-                mascot={historyOn ? undefined : mascot}
+                // **Through the replay too.** It was held back on the grounds that a run is a
+                // fact about the repo as it is NOW, and a creature working away over a frame
+                // from 2019 would be the claim a replayed temperature would be. That reads
+                // the creature as a reading, and it is not one: it is the app's own pulse,
+                // and it is doing the same thing in History that it does anywhere else —
+                // being awake because somebody is here. What must not travel back in time is
+                // a MEASUREMENT, which is why the lens switcher greys out. Nothing in the
+                // creature's three states says anything about the code on screen.
+                mascot={mascot}
+                // Only the replay. A commit landing is a change the viewer asked to watch,
+                // so it should move; a rescan or a landed reading changes the live map under
+                // somebody who is reading it, and sliding the wedges there would animate a
+                // measurement arriving rather than a story advancing.
+                morph={historyOn}
+                sortBy={headOrder}
                 onSelect={pick}
                 onClear={clearPick}
                 onDrill={drill}

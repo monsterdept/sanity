@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { type AgentCall, type Node } from '../lib/api'
+import { trapOf, type AgentCall, type Node } from '../lib/api'
 import { clsx } from '../lib/cn'
 import { colorFor, type ColorMode, paintsFromReadings } from '../lib/colorMode'
 import { CHROME_INK, inkOn } from '../lib/ink'
@@ -64,6 +64,31 @@ const R_OUTER = 340
  *  moved and scaled to wherever the hub currently is. `HUB_MASCOT` is therefore both: the
  *  side of the box in user units AND the canvas's own pixel size at scale 1, which is what
  *  keeps it crisp at the sizes the map actually draws at. */
+/** How fast a ring catches up with a shape that changed under it, as a time constant in ms.
+ *
+ *  **History moves the picture without changing the LEVEL, and nothing was animating that.**
+ *  The zoom machinery below is keyed on the root changing identity — drill in, pop out — so
+ *  a replay, which keeps the same root and hands the renderer a different tree thirty times
+ *  a second, went straight to the new geometry every frame. Every commit landed as a snap.
+ *
+ *  Exponential rather than a keyframe, and that is the whole reason this is affordable. A
+ *  keyframed tween has to be STARTED, which means noticing that a target changed, deciding
+ *  how long the move should take, and being interrupted by the next commit before it lands —
+ *  three problems a replay creates constantly. Easing a fraction of the remaining distance each
+ *  frame has no start, no end and no state beyond where the rings are now: a target that
+ *  moves again mid-flight is simply the next thing being chased. Frame-rate independent
+ *  through `1 - exp(-dt/tau)`, so it eases the same on a slow machine as on a fast one.
+ *
+ *  Tuned against a replay rather than against a single step: at 90ms a wedge covers most of
+ *  its distance inside a frame's own dwell time, so a commit still reads as an event instead
+ *  of smearing into the next one. */
+const MORPH_TAU_MS = 90
+
+/** Close enough to be there, in user units and radians. Without a floor the chase never
+ *  formally ends, and a re-render every frame forever is the cost of the last hundredth of a
+ *  pixel. */
+const MORPH_EPS = 0.02
+
 const HUB_MASCOT = 94
 const HUB_MASCOT_Y = 0
 
@@ -284,6 +309,8 @@ function SunburstView({
   ageSpan,
   onUp,
   mascot,
+  morph,
+  sortBy,
 }: {
   root: Node
   selected: Node | null
@@ -309,6 +336,17 @@ function SunburstView({
    *  Absent is a legitimate value — the history replay has no run to depict — and absence
    *  draws nothing rather than a sleeping creature over a story from 2019. */
   mascot?: { events: AgentCall[]; state: MascotState }
+  /** Ease the rings toward the shape they are given, instead of taking it.
+   *
+   *  On for the history replay, which is where a tree arrives that is neither a new level
+   *  nor the same picture — see `MORPH_TAU_MS`. Off for the live map: a rescan or a landed
+   *  reading changes wedges too, and sliding them under somebody who is reading the map is
+   *  a different decision from smoothing a replay they asked to watch. */
+  morph?: boolean
+  /** Sort siblings by this rather than by their size in the frame being drawn — see
+   *  `LayoutOpts.sortBy` and `headSizes`. The replay's answer to wedges trading places
+   *  under the playhead. */
+  sortBy?: ReadonlyMap<string, number>
   /** Node ids out with a reader right now. They pulse.
    *
    *  **This is where a run is legible.** The sidebar used to list the names of functions
@@ -419,8 +457,8 @@ function SunburstView({
    *  stays closed when you come back past it. */
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
   const { wedges, hidden } = useMemo(
-    () => layout(root, RINGS, { collapsed, minAngle }),
-    [root, collapsed, minAngle],
+    () => layout(root, RINGS, { collapsed, minAngle, sortBy }),
+    [root, collapsed, minAngle, sortBy],
   )
 
   /** Files whose functions get stacked.
@@ -463,6 +501,21 @@ function SunburstView({
    *  quickly used to restart the keyframe from its own beginning, so the second move
    *  visibly jumped backwards before going forwards. */
   const live = useRef<Map<string, Geo>>(new Map())
+  /** Where the rings are while they ease toward a shape that changed under them — see
+   *  `MORPH_TAU_MS`. Empty unless the caller asked for morphing, and cleared on a level
+   *  change, which owns the picture outright while it runs.
+   *
+   *  The entries are MUTATED rather than replaced. The chase touches every structural wedge
+   *  on every frame of a replay, and handing the collector a few hundred fresh objects
+   *  thirty times a second is the hitch-on-a-fixed-period this app has already paid for once,
+   *  in the frame pool. */
+  const soft = useRef<Map<string, Geo>>(new Map())
+  /** What the chase is chasing, and whether a level change has taken the picture off it.
+   *  Refs because the loop runs between renders and must not hold the frame it started on. */
+  const softTarget = useRef<Map<string, Geo>>(new Map())
+  const softMoving = useRef(false)
+  /** Bumped by the chase to draw its next frame. Nothing reads the value. */
+  const [, redraw] = useState(0)
   /** The wedges of the level being left, so they can be animated out rather than dropped.
    *  The old transition unmounted them, which is why changing level read as a hard cut
    *  with an ease-in after it rather than as one movement. */
@@ -644,17 +697,105 @@ function SunburstView({
     return () => cancelAnimationFrame(raf)
   }, [run])
 
+  /** The chase: every frame, close some of the gap between where the rings are and the shape
+   *  they have been given.
+   *
+   *  It runs for as long as morphing is on rather than being started and stopped per change,
+   *  because a replay changes the target constantly and a loop that has to be re-armed is a
+   *  loop that misses the first frame of every commit. Idle it costs one pass over a few
+   *  hundred structural wedges — `geoOf` skips functions, so the thousands are not in here —
+   *  and, crucially, no re-render: nothing moved, nothing is drawn.
+   *
+   *  It defers to the level change entirely. While the keyframe runs it copies what is on
+   *  screen instead of easing, so the moment the zoom lands the chase is already holding the
+   *  picture and there is nothing to jump from. */
+  useEffect(() => {
+    if (!morph) {
+      soft.current.clear()
+      return
+    }
+    let raf = 0
+    let prev = performance.now()
+    const step = (now: number) => {
+      raf = requestAnimationFrame(step)
+      // Clamped: a backgrounded tab hands back one enormous delta, and a frame that closes
+      // 100% of every gap is the snap this exists to remove, arriving all at once on return.
+      const dt = Math.min(120, now - prev)
+      prev = now
+      const to = softTarget.current
+      const at = soft.current
+      if (softMoving.current) {
+        for (const [id, g] of live.current) {
+          const cur = at.get(id)
+          if (cur) Object.assign(cur, g)
+          else at.set(id, { ...g })
+        }
+        return
+      }
+      const k = 1 - Math.exp(-dt / MORPH_TAU_MS)
+      let busy = false
+      for (const [id, g] of to) {
+        const cur = at.get(id)
+        // Unseeded wedges are the renderer's business — see `geo`. Skipping them here means
+        // one that appears between frames opens on the next one rather than half-open.
+        if (!cur) continue
+        if (
+          Math.abs(cur.a0 - g.a0) < MORPH_EPS &&
+          Math.abs(cur.a1 - g.a1) < MORPH_EPS &&
+          Math.abs(cur.r0 - g.r0) < MORPH_EPS &&
+          Math.abs(cur.r1 - g.r1) < MORPH_EPS
+        ) {
+          // Snapped rather than left a hundredth of a unit short: an asymptote that never
+          // arrives is a re-render every frame forever.
+          Object.assign(cur, g)
+          continue
+        }
+        cur.a0 += (g.a0 - cur.a0) * k
+        cur.a1 += (g.a1 - cur.a1) * k
+        cur.r0 += (g.r0 - cur.r0) * k
+        cur.r1 += (g.r1 - cur.r1) * k
+        busy = true
+      }
+      // A wedge that has left the tree stops being chased. It is not animated out: what a
+      // deletion looks like is the wedges beside it closing over the space, which they do,
+      // because they are chasing a target that no longer leaves room for it.
+      if (at.size > to.size) for (const id of at.keys()) if (!to.has(id)) at.delete(id)
+      if (busy) redraw((n) => n + 1)
+    }
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+  }, [morph])
+
   const moving = t < 1
   const e = ease(t)
   /** A wedge's geometry for this frame: where it belongs once nothing is moving, and on
-   *  the way there while something is. */
+   *  the way there while something is.
+   *
+   *  Three sources, in order of who owns the picture. A level change owns it outright, so
+   *  the keyframe wins while it runs. Otherwise, if the caller asked for morphing, the eased
+   *  position is the truth — including for a wedge nobody has seen before, which is SEEDED
+   *  here at zero width so it opens rather than appearing. Seeding has to happen here and
+   *  not in the loop below: a wedge drawn at its target for one frame and then rewound to
+   *  nothing is a flicker, and it is the first thing a new file would do in a replay. */
   const geo = (id: string): Geo => {
     const to = target.get(id)
     if (!to) return { a0: 0, a1: 0, r0: 0, r1: 0 }
-    if (!moving) return to
-    const f = from.current.get(id)
-    return f ? lerpGeo(f, to, e) : to
+    if (moving) {
+      const f = from.current.get(id)
+      return f ? lerpGeo(f, to, e) : to
+    }
+    if (!morph) return to
+    const known = soft.current.get(id)
+    if (known) return known
+    const mid = (to.a0 + to.a1) / 2
+    const seeded = { a0: mid, a1: mid, r0: to.r0, r1: to.r1 }
+    soft.current.set(id, seeded)
+    return seeded
   }
+  // Keep the chase pointed at what is being drawn now.
+  softTarget.current = target
+  softMoving.current = moving
+
   // Where the picture IS, recorded for whatever interrupts it. Without this an
   // interrupted transition would restart from the last run's starting positions and the
   // ring would visibly snap backwards before setting off again.
@@ -679,6 +820,22 @@ function SunburstView({
       // the frame the movement ends. `extentOf` already folds the hub in, which is exactly
       // right here: the fan's core IS the hub.
       const fan = root.kind === 'file' ? fanOf(fileFrom.current, paneAspect) : null
+      // **A replay is fitted to the composition it will BECOME, not to the frame on screen.**
+      // The fit is measured off what is drawn, which is right for a map somebody is reading
+      // and wrong for a story: commit one is an empty repo, so the extent is the hub alone
+      // and the hub is blown up to fill the pane — a creature the size of a dinner plate,
+      // and then a map that pumps in and out for the next nine hundred commits as the
+      // outermost ring comes and goes. Nothing in that motion is about the code; it is the
+      // camera reacting to it.
+      //
+      // Pinned to the nominal circle instead, so the rings grow into a frame that holds
+      // still and the hub stays exactly where the playhead found it. The label band is
+      // included because file names hang outside their wedge and a fixed box cannot notice
+      // that it has clipped one.
+      if (morph && !fan) {
+        const reach = R_OUTER + LABEL_GAP + LABEL_BAND
+        return viewFor({ x0: -reach, x1: reach, y0: -reach, y1: reach }, MARGIN, CHROME_BOTTOM)
+      }
       // File wedges are handed to the fit GROWN by the label ring they hang a name off.
       // Without it the box is fitted to the wedges alone and the outermost names sit in
       // whatever `MARGIN` happens to leave — which is a crop that depends on the repo.
@@ -697,7 +854,7 @@ function SunburstView({
       const geos = fan ? [arcOf(fan)] : grown
       return viewFor(extentOf(geos, R_INNER), MARGIN, CHROME_BOTTOM)
     },
-    [target, root.kind, root.id, paneAspect, fileIds],
+    [target, root.kind, root.id, paneAspect, fileIds, morph],
   )
   const viewFrom = useRef(viewTo)
   const viewNow = useRef(viewTo)
@@ -1072,7 +1229,14 @@ function SunburstView({
             // Inside the file's OWN band — (depth - 1) — not the one beyond it. Inset
             // on both radii so the file's fill reads as a rim on the inside and outside
             // edges too, not just the angular sides.
-            const bandStart = R_INNER + (w.depth - 1) * band
+            // **From `geo`, not from the wedge.** The tiling used to be laid out straight
+            // off the layout's own angles, which is the wedge's FINAL position — fine while
+            // the only thing that moved was a level change, because patches are not drawn
+            // during one. Once the rings can ease toward a shape that changed under them,
+            // a file's functions laid out at the target while its wedge is still on its way
+            // there are functions hanging outside their own file. One source for both.
+            const g = geo(w.node.id)
+            const bandStart = g.r0
             const r0 = bandStart + FUNC_RIM
             // Inset angularly so the file's fill frames its own functions on both sides.
             // A root file spans the whole circle and has no neighbors to be told apart
@@ -1081,10 +1245,10 @@ function SunburstView({
             // Same rim as the arc edges, expressed as the angle that subtends it at
             // the band's mid-radius — so the frame is the same width all the way round.
             const rMid = bandStart + band / 2
-            const pad = Math.min(FUNC_RIM / rMid, (w.a1 - w.a0) * FUNC_RIM_MAX_SHARE)
-            const fa0 = w.a0 + pad
-            const fa1 = w.a1 - pad
-            const r1 = bandStart + band - RING_GAP * 0.4 - FUNC_RIM
+            const pad = Math.min(FUNC_RIM / rMid, (g.a1 - g.a0) * FUNC_RIM_MAX_SHARE)
+            const fa0 = g.a0 + pad
+            const fa1 = g.a1 - pad
+            const r1 = g.r1 - FUNC_RIM
             // Too small to say anything: draw the file solid instead.
             //
             // The test is AREA now, and the arc floor that used to carry it alone is down
@@ -1125,7 +1289,7 @@ function SunburstView({
                   // the bar anything decorative has to clear in this app.
                   className={clsx(
                     'wedge',
-                    mode === 'traps' && slot.node.agent?.trap && !slot.node.agentStale && 'trap-pulse',
+                    mode === 'traps' && trapOf(slot.node.agent) && !slot.node.agentStale && 'trap-pulse',
                   )}
                   d={d}
                   fill={c ? c.fill : 'var(--unanalyzed)'}

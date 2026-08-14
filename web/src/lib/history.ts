@@ -196,6 +196,43 @@ function replay(hist: HistoryScan, index: number): Frame {
   return frame
 }
 
+/** Every path's size at the END of the timeline, by node id, for ordering the rings.
+ *
+ *  **The replay's sort order is today's, not each frame's.** Sorting a frame by its own sizes
+ *  is right for a map somebody is reading and wrong for a story: a directory that grows past
+ *  its neighbour swaps places with it mid-playback, and the whole ring reshuffles around a
+ *  commit that did nothing of the kind. Pinned to HEAD, a wedge stays where it will end up
+ *  and only its width moves, which is the thing that actually changed.
+ *
+ *  Every ancestor gets the roll-up, because a directory is sorted among its siblings by the
+ *  same rule as a file — and the ids here are paths, which is exactly what the frame tree
+ *  uses for both. `collapse` folds a lone-child chain into the deepest of them and keeps that
+ *  node's id, so the folded ring finds itself here too.
+ *
+ *  It folds the whole timeline once and keeps it. Deliberately NOT through `replay`: that
+ *  memo exists to make playing forward cheap, and driving it to the last commit would leave
+ *  every subsequent frame rebuilding from the opening state — 26ms a frame on a big repo, to
+ *  answer a question that has one answer for the whole timeline.
+ */
+let sizes: { hist: HistoryScan; at: Map<string, number> } | null = null
+
+export function headSizes(hist: HistoryScan): ReadonlyMap<string, number> {
+  if (sizes && sizes.hist === hist) return sizes.at
+  const frame = opening(hist)
+  advance(frame, hist, hist.commits.length - 1)
+  const at = new Map<string, number>()
+  for (const [f, loc] of frame.loc) {
+    const path = hist.paths[hist.funcs[f].path]
+    at.set(path, (at.get(path) ?? 0) + loc)
+    for (let cut = path.lastIndexOf('/'); cut > 0; cut = path.lastIndexOf('/', cut - 1)) {
+      const dir = path.slice(0, cut)
+      at.set(dir, (at.get(dir) ?? 0) + loc)
+    }
+  }
+  sizes = { hist, at }
+  return at
+}
+
 /** A function's score as of one frame, written into `into` when there is one to reuse.
  *
  *  Every field it cannot honestly fill is left at the value that means "no claim":

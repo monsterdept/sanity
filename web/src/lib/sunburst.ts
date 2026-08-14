@@ -69,6 +69,19 @@ export interface LayoutOpts {
    *  remaining band thicker rather than just blanking one. Contents are not counted as
    *  `hidden`: that number means "too thin to draw", and this omission was asked for. */
   collapsed?: ReadonlySet<string>
+  /** What to SORT siblings by, when it should not be their size right now.
+   *
+   *  Keyed by node id, and it decides order only — angles are still lines, because that is
+   *  the encoding. The replay is what needs it: a frame's own sizes are the right sort for a
+   *  map you are reading and the wrong one for a story, since a directory that overtakes its
+   *  neighbour trades places with it mid-playback and the ring reshuffles for a reason that
+   *  has nothing to do with the commit. Ordering every frame by the sizes at HEAD makes the
+   *  ring you recognize at the end the ring you were watching all along.
+   *
+   *  A node with no entry sorts last: it does not exist at HEAD, so there is no place in
+   *  today's order to give it, and the tail is the one place that cannot push anything else
+   *  around as it comes and goes. */
+  sortBy?: ReadonlyMap<string, number>
 }
 
 function heatOf(n: Node): number {
@@ -107,9 +120,14 @@ export function layout(root: Node, maxDepth: number, opts: LayoutOpts = {}): Lay
     // between two scans, so the ring you recognize stays the ring you recognize.
     // Falls back to name for equal sizes, so the order is fully determined rather than
     // left to sort stability.
+    // Containers only. `sortBy` is keyed by path, and a function's id is not one — every
+    // function would miss the map, come back as "not at HEAD", and the ring of functions
+    // would silently resort itself by name, which is the shuffle this exists to stop.
+    const size = (c: Node) =>
+      opts.sortBy && c.kind !== 'func' ? (opts.sortBy.get(c.id) ?? 0) : c.loc
     const kids = opts.byHeat
       ? [...node.children].sort((x, y) => heatOf(y) - heatOf(x))
-      : [...node.children].sort((x, y) => y.loc - x.loc || x.name.localeCompare(y.name))
+      : [...node.children].sort((x, y) => size(y) - size(x) || x.name.localeCompare(y.name))
     const weight = (c: Node) => (opts.even ? 1 : Math.max(c.loc, 1))
     const total = kids.reduce((s, c) => s + weight(c), 0)
     let a = a0

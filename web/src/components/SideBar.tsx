@@ -67,7 +67,11 @@ export function SideBar({
     >
       <SideBarHeader />
 
-      <nav className="mt-1 min-h-0 flex-1 space-y-px overflow-y-auto px-2 [overscroll-behavior:contain]">
+      {/* A pixel between rows was right when a row was a 28px strip and its neighbours were
+          the only thing separating them. Each row now ends in a six-pixel progress rule, and
+          at one pixel apart two of those read as one band belonging to neither project. Six
+          is enough that a rule sits under the row it measures. */}
+      <nav className="mt-1 min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2 [overscroll-behavior:contain]">
         {/* The `+` is back, and the reason it went is worth keeping here because it was a
             good reason. A project used to arrive exactly one way — an agent called
             `sanity_open` in the repo it was already working in — so opening by hand was a
@@ -210,8 +214,12 @@ export function SideBar({
 /** A row's height. It was the sibling apps' 28, which is right for a strip holding a name
  *  and a number and tight for one that also holds a button: a 20px control in a 28px row
  *  leaves four pixels either side, so the button reads as filling the row rather than
- *  sitting in it. The type is unchanged — this is breathing room, not a bigger list. */
-const ROW_H = 34
+ *  sitting in it. The type is unchanged — this is breathing room, not a bigger list.
+ *
+ *  It grew again with the progress rule. The rule is six pixels of the row's own height, so
+ *  a row that fitted a button before now fits a button standing on a kerb — the content has
+ *  to clear the band, not share it. */
+const ROW_H = 40
 
 /** One project, and everything you can do to it.
  *
@@ -343,11 +351,14 @@ function ProjectItem({
           half-finished project read as half-selected.
           An edge rule shares nothing with either. It is inside the row's own height, so it
           still costs nothing, and it is drawn in the mark color readings already use rather
-          than the accent that means "selected". */}
+          than the accent that means "selected".
+          Six pixels rather than two: at a hairline the one thing this is FOR — how far along
+          a repo is — had to be looked for, and the sweep that rides in the same band had
+          almost no room to read as movement. The row grew to hold a button and can spend it. */}
       {!project.loading && total > 0 && project.assessed > 0 && (
         <span
           aria-hidden
-          className="absolute bottom-0 left-0 h-[2px] rounded-full"
+          className="absolute bottom-0 left-0 h-[6px] rounded-full"
           style={{
             width: `${Math.min(100, (project.assessed / total) * 100)}%`,
             background: 'var(--agent-mark)',
@@ -368,7 +379,7 @@ function ProjectItem({
           at any coverage, and it sits under the fill rather than replacing it, so "how far
           along" and "working right now" stay two separate readings. */}
       {reading && (
-        <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] overflow-hidden">
+        <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[6px] overflow-hidden">
           <span
             className="reading-sweep absolute inset-y-0 w-1/4"
             style={{
