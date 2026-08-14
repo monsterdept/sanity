@@ -1201,7 +1201,7 @@ img{max-width:100%; display:block}
     <div class="body">
       <div class="doc">
         <div class="doc-bar">
-          <span class="lbl">Instructions for your MCP host</span>
+          <span class="lbl">Instructions for your coding agent</span>
           <button type="button" id="doc-open">Maximize</button>
         </div>
         <div class="doc-well" id="doc-well">
@@ -1213,24 +1213,33 @@ img{max-width:100%; display:block}
 
                Use <span class="pill"> for anything typed or named exactly,
                and <pre> for commands. Both are already styled. -->
-          <p>If you are an AI assistant here to set Sanity up: the app <em>is</em> its own MCP server. Register it, restart, and you can drive the whole reading by tool call. The app does not have to be running — starting work starts what it needs — but if a window is open, the human watches the map color in as you read.</p>
+          <p>If you are an AI assistant here to set Sanity up, here is what you need to know. Sanity spawns its own readers, one per process, outside the repository and with no access to it, so a reading pass is started from the terminal or from the window, and never by you assessing anything yourself. Your context is already full of this repository; anything you graded would be recall, would score as unsurprising, and would quietly turn the whole measurement into a rubber stamp.</p>
           <ol>
             <li>
-              <strong>Register <span class="pill">sanity mcp</span> with the host.</strong>
-              <p>The easy path is the human’s: <span class="pill">Connect an agent</span> in Sanity lists the hosts it knows and writes the entry itself, resolving the executable path for you. Nothing puts <span class="pill">sanity</span> on a <span class="pill">PATH</span> — the binary lives inside the app bundle — so to write the config yourself, name the installed executable plus the <span class="pill">mcp</span> argument:</p>
-<pre><span class="c"># macOS</span>   /Applications/Sanity.app/Contents/MacOS/Sanity
-<span class="c"># Windows</span> %LOCALAPPDATA%\Sanity\Sanity.exe
-<span class="c"># Linux</span>   /usr/bin/sanity</pre>
-              <p>Restart the host afterwards; clients read their config at startup.</p>
+              <strong>Get <span class="pill">sanity</span> onto the <span class="pill">PATH</span>.</strong>
+              <p>The Homebrew cask puts it there. A downloaded app does not, because the binary lives inside the bundle, so the human presses <span class="pill">Install sanity command</span> on Sanity’s welcome screen, which links it into <span class="pill">/usr/local/bin</span> or <span class="pill">~/.local/bin</span>. Do not add <span class="pill">Contents/MacOS</span> to a <span class="pill">PATH</span>, and do not write an alias: several other binaries live beside it, and no script can see an alias.</p>
+              <p>Reading also needs a coding agent installed and signed in on this machine: <span class="pill">claude</span>, <span class="pill">codex</span>, <span class="pill">opencode</span> or <span class="pill">agy</span>. Sanity reads by running one of them.</p>
             </li>
             <li>
-              <strong>Say <span class="pill">study this project in sanity</span>.</strong>
-              <p>Opening the project starts a backend if nothing is answering yet, and the project opens in the window if one is up. The backend is loopback only, on a port the OS picks, written where the MCP server can find it; nothing leaves the machine. Sanity hands back the protocol. Follow it exactly — and read it before you start, because the one rule that matters is easy to skip: <b>predict the body before you open the file, and assess in fresh subagents.</b> A reader that has already seen the code recalls instead of predicting, scores everything as unsurprising, and quietly turns the whole measurement into a rubber stamp.</p>
+              <strong>Ask which model should read, then <span class="pill">sanity init</span>.</strong>
+              <p>Ask before the first pass, unless the human has already said. The reader <em>is</em> the scale: a smaller model is surprised by more, so its readings are not comparable with what is already banked, and a repo read by two models is one map on two scales with nothing on screen saying which wedge is which.</p>
+<pre><span class="c"># claude and sonnet are one example; name whichever agent and model the human chose</span>
+sanity init --harness claude --model sonnet</pre>
+              <p>Run it in the repository, or give it a path. <span class="pill">--harness</span> takes <span class="pill">claude</span>, <span class="pill">codex</span>, <span class="pill">opencode</span> or <span class="pill">agy</span>, and <span class="pill">--model</span> takes any model id that agent can reach.</p>
+            </li>
+            <li>
+              <strong>Start the pass with <span class="pill">sanity check</span>, or the human presses Read.</strong>
+              <p>Both do the same thing: Sanity spawns the readers and they work through the queue. No window is required, and nothing leaves the machine.</p>
+<pre>sanity check                 <span class="c"># watch it here</span>
+sanity check --readers 8     <span class="c"># how many at once</span>
+sanity check --limit 50      <span class="c"># stop after this many readings</span>
+sanity check --detach        <span class="c"># start it and return</span></pre>
+              <p>Report from <span class="pill">sanity status</span> and <span class="pill">sanity summary</span> rather than from anything you remember. If Sanity is registered as an MCP server (<span class="pill">sanity mcp</span>), the same three answers arrive as <span class="pill">sanity_open</span>, <span class="pill">sanity_status</span> and <span class="pill">sanity_summary</span>.</p>
             </li>
           </ol>
           <!-- The gate: what the agent may do alone, and what waits for a
                human. Every habitat has one; say yours plainly. -->
-          <p class="gate"><b>Trust boundary:</b> You may open projects, request work and report what you find. You cannot change the code — Sanity never writes to the source it is looking at, so nothing you do here can edit the human’s work. The one thing it does write into the repository is the readings themselves, as Markdown under <span class="pill">.sanity/</span>, to be committed alongside the code they describe.</p>
+          <p class="gate"><b>Trust boundary:</b> You may start a pass and report what it found. You may not take readings, because that is what the spawned readers are for, and a reading of yours would be worth nothing. You cannot change the code either: Sanity never writes to the source it is looking at, so nothing done here can edit the human’s work. The one thing it writes into the repository is the readings themselves, as Markdown under <span class="pill">.sanity/</span>, to be committed alongside the code they describe.</p>
         </div>
       </div>
     </div>
