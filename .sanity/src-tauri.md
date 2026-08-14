@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-621 of 621 read · 109 surprising
+622 of 622 read · 111 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -3913,12 +3913,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/screen.rs
 
-### the file itself
-- spec 2 · read at `ef91a30fbfc5` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:01:24Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Terminal-control helpers for `sanity check`'s live watch mode, avoiding a full TUI framework. A `Keys` type (with `capture` and `drop`/RAII cleanup) puts the terminal into raw mode and lets a background thread or poll loop read individual keypresses non-blockingly, so the user can press a key to stop watching without sending a kill signal to the terminal. Separately, header-pinning logic keeps a column-header line visible while the readings below it scroll, using cursor save/restore or relative positioning rather than an absolute DECSTBM scroll region (since the doc says that approach broke because rows are pinned in absolute screen coordinates).
-- found: The file contains only the `Keys` RAII raw-mode capture (ICANON/ECHO off, ISIG left on so Ctrl-C still works; restores termios state on Drop; falls back to None on non-terminal stdin or non-unix). The header-pinning/scroll-region logic I predicted would also live here was actually abandoned — the doc explains that approach broke and was replaced by simple in-place redraw living in `check` itself, not in this file.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: I over-scoped the file: assumed it also implemented the header-pinning cursor logic described in the doc's history, but that logic was abandoned/moved elsewhere — this file is just the raw-mode keystroke capture.
+### the file itself — QUIRKY
+- spec 2 · read at `f9c5a1e00d99` · commit `d88c484` · read by claude-sonnet-5 · via claude · when 2026-08-13T23:09:02Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A terminal helper for the "sanity check" watch UI: a Screen-ish construct that computes the cursor's current row and sets a DECSTBM scroll region relative to it (so a pinned header of ~2 lines survives scrolling, rather than pinning absolute rows 1-2), and a Keys guard type with capture()/drop() that puts the terminal into raw mode to read a single keypress (e.g. to quit watching) without killing the underlying run, restoring cooked mode via Drop/RAII.
+- found: The file only contains the Keys RAII guard (unix: raw-mode-minus-ISIG termios toggle to read a keystroke without newline/echo, restored on Drop; non-unix: a no-op stub). The DECSTBM/scroll-region approach I predicted was explicitly abandoned per the module doc comment — that redraw logic lives elsewhere (`check`), not in this file. The doc comment explains the history/reasoning (why not DECSTBM, why not full raw mode, why the non-unix Drop impl exists despite doing nothing) in a way the code alone wouldn't convey.
+- predicted: some · documented: full · derivable: no · legible: not judged · trap: no
+- note: I predicted a Screen/scroll-region struct that turned out not to exist in this file at all — the docs describe it as a rejected approach, not something implemented here.
 
 ### `capture`
 - spec 2 · read at `a52863241018` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:46:04Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -3939,6 +3939,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: This is the non-Unix (fallback) stub of an apparently cfg-gated pair — it just always returns None, doing no raw-mode setup at all. The real implementation must be the other `capture` overload guarded for the supported platform.
 - predicted: some · documented: none · derivable: no · legible: full · trap: no
 - note: I predicted an actual raw-mode implementation; this variant is a trivial always-None stub for whichever platform lacks the real one.
+
+### `drop` #2 — OBSCURE — TRAP
+- spec 2 · read at `cf6ca66c9379` · commit `d88c484` · read by claude-sonnet-5 · via claude · when 2026-08-13T23:08:59Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Restores the terminal to its normal (non-raw) state, undoing whatever capture() enabled, since Keys is a RAII guard that pairs capture/drop to leave the terminal as it found it when dropped.
+- found: The Drop impl body is empty — it does nothing at all, not even restoring raw mode or cursor state.
+- predicted: none · documented: none · derivable: no · legible: full · trap: yes
+- note: Empty Drop impl on a struct named Keys is surprising given the file doc talks about needing a way to stop watching without killing the run; if capture() enables raw mode, this leaves it unrestored on drop, which looks like it could be an intentional no-op (cleanup done elsewhere) or a real bug.
 
 ## src-tauri/src/surprise.rs
 
