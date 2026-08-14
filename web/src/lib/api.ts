@@ -550,6 +550,11 @@ export interface AgentReport {
   legibleDated?: boolean
   /** The reader says something here will bite whoever edits it next. */
   trap?: boolean
+  /** This answer was given under an earlier version of the trap question — see
+   *  `legibleDated`, which this follows in every respect. Two flags and not one, because
+   *  the two axes moved at different specs and a reading can be current on one and
+   *  superseded on the other. */
+  trapDated?: boolean
   note: string
   /** Was the reader seeing this file for the first time? Self-declared. */
   cold: boolean
@@ -609,6 +614,22 @@ export const DOC_GAP: Record<Grade, number> = { full: 0.05, most: 0.3, some: 0.6
 export function legibleOf(r: AgentReport | undefined): Grade | undefined {
   if (!r || r.legibleDated) return undefined
   return r.legible
+}
+
+/**
+ * Whether this reading reports a trap under TODAY's question — see `legibleOf`, which this
+ * is the twin of, for why an accessor and not a field read.
+ *
+ * The four places that ask are the lens, the pulse on the patch, the panel's own banner and
+ * the tally in the summary. When they read `r.trap` directly, a bump to the ask was honored
+ * wherever somebody remembered, which is worse than not bumping: the map would flag a wedge
+ * the panel beside it describes as ungraded.
+ *
+ * The reader's answer is kept and shown as history. What it no longer does is color, pulse
+ * or count.
+ */
+export function trapOf(r: AgentReport | undefined): boolean {
+  return !!r?.trap && !r.trapDated
 }
 
 /** The report's two grades, with two rules applied that the grades themselves do not carry.
@@ -949,7 +970,7 @@ export function summarize(root: Node): RepoSummary {
           s.legible[lg]++
           s.legibleRead++
         }
-        if (n.agent?.trap) s.traps++
+        if (trapOf(n.agent)) s.traps++
         if (temperature(n.score) > HOT) s.hot.push(n)
       } else {
         s.unread++

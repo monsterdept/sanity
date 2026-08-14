@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-622 of 622 read · 111 surprising
+628 of 628 read · 113 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -31,26 +31,24 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/agentapi.rs
 
-### the file itself — OBSCURE — UNCLEAR
-- spec 2 · read at `b09947dda79b` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:13:22Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This is the core backend implementing the agent-facing loopback API described in the doc header — the "next/reveal/report" protocol I'm currently using. It manages AppState/Project lifecycle (open, rescan, persist/restore), a work queue that spreads tasks across files without repeats, leases on outstanding readings, grading/aggregation (Grade, Report, Tally, GradeCounts), and an HTTP-like router/serve loop with endpoint discovery, plus a large test suite covering races, resync on file changes, stale/expired readings, and priming detection.
-- found: Could not read the body: this environment denies Bash, direct filesystem Read of the repo, and LSP (policy-enforced to prevent opening the repo directly), and the sanity_reveal tool-result for this file is a single 348KB JSON line that exceeds the Read tool's per-call token cap regardless of offset/limit, so it could not be sliced. My report here reflects only the doc header and peer/name list from sanity_next, not verified against source.
-- predicted: none · documented: none · derivable: no · legible: none · trap: no
-- note: Environment/tooling limitation, not a finding about the code: this file (4106 lines) is too large for the available reveal/read pipeline in this sandboxed session, so this data point should probably be discarded or re-run in an environment with a working large-file reader.
+### the file itself
+- spec 3 · read at `756af115d574` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T05:00:33Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: This is the whole backend implementation of the agent-facing loopback API the header describes — the AppState/Project state machine (leases, queue, persisted Report data), the actual next/reveal/report-style HTTP endpoints (task, reveal, report, status), background scan/watch machinery (start_run, watch_tick, resync_file, rescans on file changes), a small HTTP router plus an endpoint-file mechanism so other processes can discover a running instance, and a large embedded test suite asserting protocol invariants (staleness, leasing, priming warnings, queue fairness across files, file-vs-function tasks).
+- found: Confirmed: the full server-side loopback API (AppState/Project state, queue/leasing, HTTP router with next/reveal/report/status/summary endpoints, background rescan/watch, persistence to .sanity/, endpoint-file discovery) plus an embedded test suite (~20% of the file). I missed a major functional area though: it also spawns and supervises actual coding-agent subprocesses as "reader waves" (start_run/run_wave, LiveGuard, stderr draining, stop flags) and does model/harness reconciliation tracking (one_model/model_tally/suggested_model) — neither of which I predicted.
+- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
+- note: File is huge (4224 lines, ~358K chars) — sanity_reveal on a whole-file task can exceed tool output limits and needs to be read via a saved-to-disk fallback / subagent chunking rather than directly.
 
-### `persist` — TRAP
-- spec 2 · read at `678296663940` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:20:33Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Reads the existing project index file from disk, merges in only the projects currently held in this session's in-memory map (overwriting entries for those specific keys but leaving all other on-disk entries untouched), and writes the merged result back to disk — so a project that failed to load or hasn't finished its background restore scan isn't wiped from the index by a partial in-memory view.
-- found: Loads the on-disk index, builds live KnownProject records from in-memory projects (carrying forward harness/model fields not held in memory), removes on-disk entries whose key is currently loaded and extends with the live ones (disk entries for unloaded projects pass through untouched), conditionally updates 'active', sorts by touched time descending, and saves. Also has a debug_assert under #[cfg(test)] enforcing tests hold a data_home() on the current thread before writing, to prevent cross-test races.
-- predicted: most · documented: most · derivable: no · legible: most · trap: yes
-- note: harness/model fields are preserved by look-up from disk on every persist since AppState doesn't hold them in memory — a subtle carry-forward I hadn't predicted.
+### `persist`
+- spec 3 · read at `678296663940` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:58:23Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Reads the existing on-disk project-list file, then merges in only the projects present in this session's live in-memory state (overwriting those entries but leaving any other on-disk entries untouched — including ones mid-restore or on a disconnected volume), and writes the merged result back to disk on every call.
+- found: Merges live in-memory projects into the on-disk index (untouched entries for anything not loaded this session, live entries win by key), but additionally preserves each entry's harness/model fields by looking them up in the still-loaded old index (since AppState never holds those in memory and a fresh record would silently erase them), conditionally updates `active` only when this session has one, sorts by most-recently-touched, and (test-only) asserts the current thread holds a `data_home()` guard to avoid cross-test races writing into the real sidebar.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
-### `forget` — TRAP
-- spec 2 · read at `f08d4013e135` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:04:34Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Removes the project from the in-memory `projects` map by key, and also removes its entry from the persisted index list (writing that out), but does not touch anything under the project's own `.sanity/` directory on disk. Likely locks state, removes from a map, filters the index vector, and persists it.
-- found: Removes the project from the in-memory map, clears `active` if it pointed at this key, then loads the persisted index, retains all entries except this key (and clears its active there too), saves the index, and finally calls self.persist() — in that specific order, since persist() merges live state back over disk and calling it before the index write would resurrect the entry.
-- predicted: most · documented: most · derivable: no · legible: full · trap: yes
-- note: Missed the `active` field clearing (both in-memory and in the index) and the load-modify-save-then-persist ordering, which the docs explain is load-bearing — a trap for anyone who reorders it.
+### `forget`
+- spec 3 · read at `f08d4013e135` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:35Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Removes the project matching `key` from AppState's in-memory `projects` collection, and separately edits the on-disk index file directly (rather than calling `persist`, since that would skip unloaded entries) to remove the same row, so both the sidebar and the index drop the entry together. It does not touch the project's repo or its .sanity/ readings on disk.
+- found: Removes the project from self.projects and clears self.active if it pointed at this key; loads the on-disk index, retains all but the matching entry, clears its active too, saves the index, then calls self.persist() last (order matters: persist merges live state over disk, so writing the index first is what prevents the entry being written back).
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `touch` — QUIRKY
 - spec 2 · read at `55fd28ba8d19` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:33:19Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -135,18 +133,18 @@ What this is and how to add to it: [README.md](README.md)
 - note: Got the enum-to-score mapping shape right but the exact constants (0.95/0.7/0.35, not 1.0/0.66/0.33) — Full is deliberately capped below 1.0.
 
 ### `blank`
-- spec 2 · read at `4f2079eb951d` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:24:45Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Constructs and returns a Report struct literal with every field set to a zero/empty default: empty strings for text fields, empty Vec for lists like grades, false/None for booleans and optionals, 0 for numeric fields. Exists as an explicit constructor because Report likely doesn't derive Default, or because callers want an explicit blank starting point to fill in field by field.
-- found: Exactly a struct literal with every one of Report's ~22 fields set to its zero value (empty String, false, None, 0) — a manual Default-equivalent constructor.
+- spec 3 · read at `ea2c8667213c` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:49:54Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Report::blank() constructs an empty/default Report — every field (id, position, predicted, documented, derivable, legible, trap, cold, note, model, found, etc.) set to its zero value (empty string, false, or a default enum variant) so parsers/tests can fill in fields one at a time without constructing the whole literal.
+- found: Constructs a Report with every field set to its zero value; matches prediction closely, though I didn't anticipate the exact field set (asked/harness/when/spec/legible_dated/trap_dated/by/at) which extend beyond the report fields visible in sanity_report's own schema.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Correct shape overall, though I underestimated the field count and couldn't have named them exactly.
+- note: Field list is longer/more specific than the sanity_report tool schema alone would suggest (harness, spec, legible_dated/trap_dated, by/at provenance fields).
 
 ### `grades` — TRAP
-- spec 2 · read at `ff2b681f16b3` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:48:09Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Returns (predicted_grade, documented_grade). For predicted, it checks whether the report used the old boolean `surprised` field (mapping true/false to the ends of the grade scale) or the newer four-value `predicted` grade, falling back to whichever is present. For documented, it takes the reported `documented` grade but forces it to None whenever `derivable` is true, regardless of what the reader actually reported.
-- found: predicted falls back from self.predicted to a mapping of the old surprised bool (true->None, false->Full) when the new field is absent; documented is forced to Some(Grade::None) whenever derivable is true, else passes through self.documented unchanged.
+- spec 3 · read at `ff2b681f16b3` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:16Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Returns a tuple (predicted_grade, documented_grade) derived from the Report's raw fields. If the report only has the old `surprised` boolean (no `predicted` grade), it maps true/false to the extreme ends of the Grade scale rather than inventing a middle value. Separately, if `derivable` is true, it forces the documented grade to None regardless of what `documented` field the reader actually set, since a doc a model could regenerate explains nothing.
+- found: Computes predicted grade from self.predicted, falling back to Grade::None/Full based on the old surprised boolean when absent; computes documented grade by forcing Some(Grade::None) when derivable is true, otherwise passing through self.documented unchanged.
 - predicted: full · documented: most · derivable: no · legible: full · trap: yes
-- note: Docs explicitly called out that a cold reader once predicted this and found the derivable-override undocumented at the point of use — matches the trap description in the docs themselves.
+- note: The docs note this exact issue: the TS mirror `reportGrades` documents both override rules while this Rust version's doc comment only mentions the derivable-forces-None rule inline, not the surprised-boolean fallback, so a reader diffing the two implementations could miss that this one applies a second silent rule.
 
 ### `neighbors`
 - spec 2 · read at `946e01897a8c` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:06:59Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -161,12 +159,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: Docs shown were for the whole file, not this function; qualify itself had no doc comment, just an inline code comment explaining the Ruby exclusion.
 
-### `collect_tasks` — TANGLED
-- spec 2 · read at `5a8efb962f03` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:02:25Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks the Node tree, and for every eligible leaf (func or file) that isn't already in `done` or currently `leased`, builds a Task (name, signature, docs, file_doc, peers) paired with a priority/ordering score, pushing (priority, Task) into `out`; recurses into directory children, threading file_doc down from file nodes to their function children.
-- found: Recursively walks the Node tree. For func nodes: skips if done-and-not-stale or currently leased, else pushes a Task with priority = surprise score + 1.0 if stale (so stale-but-previously-read outranks unread). For file nodes: skips excluded/empty files, else (if stale or unread and not leased) pushes a whole-file Task with the full children list as peers and priority = hot_share + stale bonus; then recurses into children threading the file's doc down, and afterward retroactively assigns each child function task its windowed peer list via `neighbors` using the child's index among siblings. Non-func/file nodes (dirs) just recurse.
-- predicted: most · documented: none · derivable: yes · legible: some · trap: no
-- note: Missed the staleness re-queue mechanic, .sanityignore/empty-file exclusion, and that peers for function tasks are computed in a second pass after recursion rather than inline.
+### `collect_tasks` — QUIRKY — TANGLED
+- spec 3 · read at `ba43a5f81445` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:56:22Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Recursively walks the Node tree (files/dirs containing functions or chunks), skipping any whose key is already in `done` or currently `leased`, and for each remaining candidate constructs a Task along with a computed priority f32 (maybe based on size or staleness), pushing (priority, task) pairs into `out`. Threads `file_doc` down through recursive calls so nested items inherit the enclosing file's doc comment.
+- found: Recursively walks the Node tree building a priority-ordered task list. For Func nodes: checks staleness/datedness against prior reports, skips if leased recently or unstale/undated-done, computes a priority score (surprise + stale/dated band offset) and pushes a Task. For File nodes: separately queues a whole-file task (when non-empty and stale/unread and not leased) with its own priority band and full children peer list, then recurses into children passing the file's doc down, and afterward back-fills each child task's `peers`/`peers_omitted` via a `neighbors` windowing function keyed by child index. Other node kinds just recurse with no file_doc.
+- predicted: some · documented: none · derivable: no · legible: some · trap: no
 
 ### `all_tasks`
 - spec 2 · read at `2c3019c16f73` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:08:12Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -252,12 +249,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds OfflineCounts: functions/excluded from count_funcs, files from count_files, assessed by counting reports whose report is not stale (via is_stale against the node's current body), remaining from the length of an unread-tasks list built by collect_tasks, and stale from count_stale.
 - predicted: most · documented: none · derivable: no · legible: most · trap: no
 
-### `unread_lines` — TRAP
-- spec 2 · read at `884bc1516061` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:53:33Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Walks the project's scan via each_unit, filtering to Func nodes only (skipping file headers to avoid double-counting), and sums the loc of each function whose reading is missing or stale (using the same staleness check as assessed/count_stale), returning the total lines of code still outstanding to be read.
-- found: Its own recursive walk (not reusing each_unit) that propagates exclusion, and for Func nodes sums loc when there's no report or the report is stale (via assessment::is_stale), stopping recursion at Func nodes (doesn't descend into their children).
-- predicted: most · documented: full · derivable: no · legible: full · trap: yes
-- note: Reimplements the exclusion-propagating walk inline instead of calling the peer each_unit — a duplicate of that logic that could drift if each_unit's exclusion rules change.
+### `unread_lines`
+- spec 3 · read at `884bc1516061` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:30Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Walks the project's node tree, and for each function-kind node (skipping file/dir nodes) checks whether it has a current, non-stale report in the project's done/reports map; if not (unread or stale), adds that function's loc to a running total, which it returns.
+- found: Recursively walks the scan tree, propagating an `excluded`/out-of-scope flag down to children, and for each in-scope function node without a current (non-stale) report, adds its loc to a running total; returns the sum.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Missed the excluded-subtree propagation (out_of_scope flag inherited by children) which isn't hinted at by the doc.
 
 ### `count_funcs`
 - spec 2 · read at `7b3363869ffa` · commit `ba429b4` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T20:53:38Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -434,18 +431,25 @@ What this is and how to add to it: [README.md](README.md)
 - found: Resolves the task's owning project via owner_of, checks lease is live, calls resync_changed to recut extent, reads file from disk, slices to whole file or bounded lines, records the prediction with or_insert (so a second reveal doesn't overwrite it), and returns JSON with source and bounds.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 
-### `mangled`
-- spec 2 · read at `7e26bddb000e` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:41:43Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether a Report struct looks like a mangled/truncated tool call — e.g. a required grade field is missing/None while `found` is suspiciously long or contains stray XML-like tags — and if so returns Some(&'static str) with a hint message telling the reader to resend, otherwise returns None. It's used by the report-handling code to decide whether to refuse a submission.
-- found: Returns None if predicted/documented/legible are all present. Otherwise scans expected/found/note fields for XML-tag leak markers (</parameter>, <parameter name=, or a closing tag matching the field name) and returns Some(field_name) identifying which field leaked the rest of a malformed tool call.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: I predicted it returns a hint string for the caller to show, but it actually returns the name of the leaked field itself — the hint message is constructed elsewhere.
+### `trap_without_note`
+- spec 3 · read at `a445b5c3d632` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:50:32Z · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: One-line function: returns r.trap && r.note.trim().is_empty() — true when trap is flagged but the note is empty or whitespace-only.
+- found: Exactly r.trap && r.note.trim().is_empty(), as predicted (and as already inferred from the prior test's behavior).
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: Already saw this function's behavior fully specified via the preceding test, so this reading was effectively warm despite not having opened this exact file/line before.
 
-### `report` — QUIRKY — TANGLED
-- spec 2 · read at `b9b2b12e247d` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:02:11Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: HTTP handler backing the sanity_report MCP tool: looks up the in-flight task by req.id (erroring if it wasn't actually revealed/predicted first), builds a report record from the request fields (predicted/documented/derivable/legible/trap/cold/position/primed/model/found/note), persists it (likely appended to a file under .sanity/), updates running tallies (assessed count, surprised count, per-grade counts) on the project/state, removes the task from the in-flight set, and returns a JSON object summarizing status: ok, ordinary echo fields, remaining count, in_flight count, and updated repo-wide stats.
-- found: Validates the report (rejects malformed/'mangled' field-overflow calls with a specific self-correcting error), routes the id to its owning project, overwrites caller-supplied provenance fields (body, expected/promised prediction, spec, by/at/when, harness, agent_docs) with server-derived truth rather than trusting the client, classifies the outcome (stale/hot/cold) for a UI ping, appends to project.reports, persists to disk, computes repo-wide surprise-rate stats and an anti-rubber-stamp hint, and returns a rich status JSON. Much more validation/anti-gaming logic than I predicted.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+### `mangled` — QUIRKY
+- spec 3 · read at `a6c7b510cf76` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:49:16Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Validates a submitted Report for internal inconsistency, returning Some(reason) describing what's wrong (e.g. trap=true without a note, or documented=none but derivable=true) or None if the report looks self-consistent. Used server-side to catch reports that violate the tool's own stated invariants (like "trap requires note").
+- found: Detects a malformed/suspicious Report: if predicted/documented/legible grades are all present, it's fine. Otherwise it checks the free-text fields (expected, found, note) for signs of tool-call/XML leakage (closing parameter tags or a closing tag matching the field name) and returns which field looks mangled/injected.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+
+### `report` — TANGLED
+- spec 3 · read at `886538cbaadf` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:49:59Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Validates the incoming ReportRequest — checks the id matches a pending reveal, detects a "mangled" emission (fields swallowed into a long prose field) and rejects with a hint, enforces that trap:true requires a note — then persists the report, updates tallies/aggregates, and returns a JSON status object (ok/error/hint/in_flight/remaining/saved/repo_assessed/etc) matching the shape seen from every sanity_report call this session.
+- found: Validates the report (mangled-field detection, trap-without-note rejection, project/id routing), then re-derives provenance server-side rather than trusting the caller: overwrites body/name/path from the live scan, restores the originally-promised prediction if one was stored, stamps spec/legible_dated/trap_dated/by/at/asked/harness/when/agent_docs itself, inserts into the reports map, writes through to disk, computes repo-wide surprise-rate stats for a coaching hint, and returns a status JSON naming which project/repo it actually landed in.
+- predicted: most · documented: none · derivable: yes · legible: some · trap: no
+- note: Almost every field on the incoming Report is discarded/overwritten server-side except the reader's actual grades — worth knowing before assuming a field like `expected` or `at` round-trips as sent.
 
 ### `status`
 - spec 2 · read at `ff8aa7b8c185` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:02:06Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -460,12 +464,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Matches the Option<Grade> and increments the corresponding counter field (full/most/some/none/ungraded) on self.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `add` #2 — QUIRKY
-- spec 2 · read at `4840baa6a6a7` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:02:04Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Folds one Report into the Tally's running aggregate: increments per-model and per-harness counts, and merges the report's grade into a GradeCounts accumulator via GradeCounts::add, so summary/aggregate can later report totals across all reports seen so far.
-- found: Folds a Report into Tally counters: bumps readings, adds predicted/documented grades via GradeCounts::add, tallies derivable/traps/cold as usize counts, and adds legible only if the report's spec is still the current one (not superseded), so stale-question grades don't color the map.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
-- note: I imagined per-model/per-harness tallying happening here, but that's apparently done elsewhere (model_tally etc. are just peers, not called by this function); I missed derivable/traps/cold and the superseded-spec filter on legible entirely.
+### `add` #2
+- spec 3 · read at `94a6842dfb80` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:49:39Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Takes a Report and increments running counters on self (Tally) — bumping grade-spread counts (delegating to something like GradeCounts::add), legibility counts, a trap counter, and possibly other totals — mutating in place with no return value.
+- found: Increments running counters on self from a Report: readings count, predicted/documented grade tallies via a sub-add, derivable count, cold count, and traps count — but legible and trap are only counted if the report's spec is still 'current' (not superseded by a schema/question change), filtering out stale-question answers so the aggregate reflects only answers to the currently-asked questions.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+- note: The legible_current/trap_current filtering (excluding answers to superseded questions from aggregates) isn't guessable from the signature alone — worth flagging for anyone extending Tally with a new gradable field.
 
 ### `aggregate`
 - spec 2 · read at `ecaf4c953547` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:27:59Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -479,12 +483,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Iterates every func node via each_unit (respecting .sanityignore), skips nodes without a report or with a stale report (counting staleness separately), and folds the rest into agg.total, a per-model bucket (blank model -> "unattributed"), a three-way priming bucket (not_applicable/exposed/clean based on whether agent_docs existed and r.primed), and a by_position bucket keyed on r.position.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 
-### `summary` — QUIRKY — TRAP
-- spec 2 · read at `05f8a8d8370a` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:19:58Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Axum handler that reads the shared state's saved reports for the project given in query params, filters out stale readings (code that has changed since it was graded, via something like `mangled`), aggregates the rest into repo-wide grade counts/tallies (e.g. via GradeCounts::add / Tally::add / aggregate), and returns a JSON object with only totals — no per-file or per-function breakdown — plus a separate count of excluded stale readings.
-- found: Axum handler resolving the project from query params, returning aggregate JSON (functions/files/excluded counts, assessed, stale, remaining, total/by_model/by_position/priming aggregates) plus a long inline note explaining deliberate omission of per-file data and flagging a prior bug where 'assessed' diverged between this endpoint and /status.
-- predicted: some · documented: full · derivable: no · legible: most · trap: yes
-- note: In-code comments document a real historical bug (mismatched 'assessed' definitions between /summary and /status) rather than just describing current behavior — unusually load-bearing comments.
+### `summary`
+- spec 3 · read at `05f8a8d8370a` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:58:05Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: An axum handler that, given SummaryParams (probably identifying a project), loads that project's reports, excludes stale ones (counting them separately), and aggregates the rest into repo-wide grade tallies (predicted/documented/legible distributions, counts) using GradeCounts::add/Tally::add/aggregate helpers. Returns a JSON object of pure totals and percentages with no per-file or per-function breakdown, since the orchestrator calling this endpoint is deliberately kept blind to anything that would let it reconstruct .sanity/'s per-item findings.
+- found: Axum handler that resolves the target project (returning an "open: false" hint if none), then computes function/file counts, exclusions, assessed/stale counts, remaining work, and an aggregate (total, by_model, by_position, priming) grade breakdown, returning it all as JSON with a lengthy embedded `note` explaining how to interpret by_position as a learning curve and priming as invalidating predicted-rate claims — deliberately naming no specific function or file.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+- note: A comment flags a past bug where this endpoint and /status computed 'assessed' from different definitions (agg.total.readings counts functions only vs. a broader count) and disagreed by 63 — worth checking both stay aligned if either is touched.
 
 ### `from_state` — QUIRKY
 - spec 2 · read at `1bd9cf146ae3` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:23:21Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -606,11 +610,24 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: none · documented: none · derivable: no · legible: full · trap: no
 - note: Name suggested a registry lookup ('project_of' a shared map); it's actually a from-scratch test fixture constructor.
 
-### `a_shim_serving_a_stale_contract_is_told_to_restart`
-- spec 2 · read at `889c2e2dbbe0` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:19:24Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Test function that sets up a fake/mock shim endpoint reporting an outdated schema (e.g. missing fields such as `legible`/`trap`), runs it through the compatibility-checking logic, and asserts that the result explicitly signals the shim needs a restart rather than silently returning nothing. Likely paired conceptually with a matching-schema case that gets no warning, per the file_doc's point that silence on the happy path is meaningful and must not be confused with an unflagged mismatch.
-- found: Test asserts contract_note() returns None when the given fingerprint matches crate::mcp::contract_fingerprint(), returns Some(msg containing "restart") when it doesn't match, and also returns Some() when no fingerprint at all was given (None case, treated as an old shim unable to report its contract).
+### `a_superseded_answer_is_re_offered_after_everything_else` — QUIRKY
+- spec 3 · read at `573c67310d97` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:20Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A test that seeds a repo/store with one function already reported using an old/mismatched contract (missing fields like `legible`/`trap`), plus some other functions that are genuinely unread or stale, then calls the task-collection logic and asserts ordering: the superseded answer is queued behind the unread and stale ones, i.e. last, rather than being silently treated as satisfied or jumping the queue.
+- found: Builds a fake file with four functions in different states — a stale one (body hash changed since the report), an unread one (never reported), a dated one (trap flagged under an older spec version, before TRAP_SINCE), and a current one (fully up to date) — runs collect_tasks, sorts by priority, and asserts the offered order is stale, unread, dated, with the current one not offered at all.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The file doc's mention of missing legible/trap fields describes a different scenario (a stale shim schema) than what this specific test exercises (body-hash staleness and spec-version-gated trap re-asking) — the file doc covers the module's motivation broadly, not this test's exact mechanism.
+
+### `a_trap_must_say_what_it_is`
+- spec 3 · read at `8660069cfe98` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:04Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A unit test that submits a report with trap: true but no note (or an empty note) and asserts the API/handler rejects it (returns an error rather than silently accepting or coercing trap to false), enforcing the invariant described in the doc that a trap claim without an actionable note is not allowed to be stored.
+- found: A unit test for a `trap_without_note` predicate: trap=true with no note or whitespace-only note returns true (bare trap, not a finding); trap=true with an actual sentence returns false (stands); trap=false always returns false regardless of note.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `a_shim_serving_a_stale_contract_is_told_to_restart`
+- spec 3 · read at `df1e4e73450a` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:49:57Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A test (name-as-sentence style) asserting that when an agent-facing shim/endpoint is serving an outdated contract version (e.g. mismatched schema/API version from a prior run), the loopback API detects the mismatch and responds by telling that shim to restart itself, rather than silently continuing to serve it stale data or crashing. Probably constructs an endpoint/state with an old contract stamp, invokes the relevant check (maybe via serve/watch_tick), and asserts a restart signal or error in the response.
+- found: Tests contract_note(): a matching fingerprint (crate::mcp::contract_fingerprint()) returns None (no warning needed); a mismatched fingerprint string returns Some(message) containing "restart"; and a caller sending no fingerprint at all (None) also gets Some(...) — an old-enough shim that can't even report its contract is treated the same as a stale one. Got the concept (stale contract -> told to restart) right but expected it to go through endpoint/serve/watch_tick machinery rather than a direct pure function test of contract_note.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ### `a_file_edited_before_the_first_handout_is_still_re_cut`
 - spec 2 · read at `df278033b628` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:14:14Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -631,12 +648,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: none · documented: none · derivable: no · legible: full · trap: no
 - note: Owner name DataHome and peer list (stop_all_runs, release_endpoint) misled me into expecting production shutdown logic; it's actually a test-only env-var/lock guard.
 
-### `data_home` — OBSCURE — TRAP
-- spec 2 · read at `6936aefd7812` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:48:19Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Resolves the OS app-data directory path for sanity's persistent state (likely via an env var override or a platform dirs helper), ensures it exists, and returns a DataHome guard struct. Given the DataHome::drop peer, it likely also takes some kind of lock/claim on that directory that gets released on drop, to prevent two sanity processes from colliding on the same data home.
-- found: This is a test-only fixture, not production path resolution. It takes a global ENV_LOCK mutex guard (to serialize tests that mutate process env), creates a real tempdir, sets SANITY_DATA_DIR to point at it (unsafely, since set_var is unsafe in this edition), records the previous value to restore later, marks which thread currently owns the env override, and returns a DataHome guard bundling the lock guard, tempdir, and previous value — presumably restored on Drop.
-- predicted: none · documented: none · derivable: no · legible: full · trap: yes
-- note: Guessed this resolved a real OS app-data directory for production; it's actually a per-test tempdir + env var swap guarded by a global mutex, which only makes sense once you see the ENV_LOCK/HOME_THREAD globals and the long list of test-name peers.
+### `data_home`
+- spec 3 · read at `6936aefd7812` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:26Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A test helper that creates a fresh temporary directory to act as an isolated data home (so tests don't collide with each other or the real user data directory), likely setting an env var or similar to point the app at it, and returns a DataHome guard struct whose Drop impl cleans the temp directory back up when the test ends.
+- found: Test helper: takes a global ENV_LOCK mutex guard (serializing tests that touch env vars), creates a tempdir, sets SANITY_DATA_DIR to it (saving the previous value), records the current thread id in HOME_THREAD, and returns a DataHome guard bundling the lock guard, tempdir, and previous env value for restoration on drop.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ### `standing_down_withdraws_only_its_own_claim`
 - spec 2 · read at `47867a4f2199` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:18:37Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -895,11 +911,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/assessment.rs
 
 ### the file itself
-- spec 2 · read at `46ed2e28330b` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:10:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This file implements the `.sanity/` assessment store described in its header: it defines the data model for readings (grades, predictions, hashes) keyed by function/file identity, hashing utilities (body_hash, reading_hash) to detect staleness when code changes, sharding logic (shard_of, shard_file, shards_by_top_level_dir) to split assessments by top-level directory, markdown rendering/parsing (render_entry, render_shard, render_index, parse_shard) since markdown is the authoritative store, git helpers (git, head, who) to attribute readings to an agent/commit, and load/save/refresh orchestration (load, save, refresh) to reconcile the store with the current repo state — plus a large battery of round-trip and staleness tests (the sentence-named functions) verifying the markdown-as-store invariants.
-- found: The file implements the markdown-backed `.sanity/` assessment store: data model (Live, Placed, Compiled, Index) tied to Grade/Report from agentapi; hashing (body_hash/reading_hash) for staleness detection that also expires readings when doc comments or the module header change; directory-based sharding (shard_of/shard_file/shard_links) plus a durable path#name#ordinal key scheme replacing an older line-based one; a forgiving line-based markdown parser/renderer (parse_shard/render_entry/render_shard/render_index) that round-trips deterministically; live-scan enumeration and staleness checks; load/save/refresh orchestration where refresh only updates an existing store non-destructively and save always rewrites and sweeps orphaned shard files; git provenance helpers (git/head/who/agent_docs); hand-rolled date formatting (civil_from_days); and a large test module (~35-40% of the file) covering round-trips and staleness edge cases.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: My prediction captured the shape well but missed specifics: the doc-comment-inclusive reading_hash (not just body), the ordinal key scheme fixing a duplicate-name bug, and the asymmetric refresh-never-creates/save-always-writes-and-sweeps distinction.
+- spec 3 · read at `8f3e06228a14` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:58:59Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Implements the entire .sanity/ persistence layer — storing per-function/per-file readings (grades, predictions, docs) as human-readable Markdown files sharded by top-level directory, with an embedded JSON block as authoritative parse target. Computes content/doc hashes to detect staleness relative to current code, handles staleness/expiry rules per axis, maintains a compiled index for fast lookups, does git plumbing for commit/author metadata, has custom date arithmetic rather than a date crate dependency, and includes a large inline test suite validating round-tripping, staleness rules, and shard integrity.
+- found: Persistence/rendering layer for .sanity/ assessments: parses/writes readings as Markdown shards keyed by top-level directory, matches readings to live code via a path#name(#ordinal) key scheme, detects staleness via content/doc hashing (body_hash with a deliberately distinct FNV-1a variant), maintains a spec-versioning system where legible/documented/trap axes can independently expire when the grading question changes, compiles a queryable index, does minimal git shell-outs for provenance (commit hash, author), hand-rolls civil-date arithmetic to avoid a dependency, and ships a large inline test suite validating round-tripping and staleness edge cases. The save routine only deletes shard files it previously linked from the index (not any .md file present) to avoid destroying human-authored notes.
+- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
+- note: The module header explains the Markdown-as-store and sharding design well but says nothing about the spec-versioning/per-axis expiry system or the same-named-function ordinal disambiguation, both of which carry their own rich but header-absent doc comments citing real corpus incident data.
 
 ### `legible_current`
 - spec 2 · read at `8c75b2b322f6` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:04:16Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -907,6 +923,19 @@ What this is and how to add to it: [README.md](README.md)
 - found: Returns spec >= LEGIBLE_SINCE, exactly as predicted from the docs' explanation of the >= semantics.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: The doc comment explains the WHY (asymmetric trust direction) that the one-line body itself couldn't convey — good example of non-derivable documentation.
+
+### `trap_current`
+- spec 3 · read at `6d01b9f28351` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:50:27Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: trap_current(spec) compares the reading's spec version number against a current "trap question" spec constant using >=, returning true if the reading answered today's version of the trap question (matching the same currency check legible_current does for its axis).
+- found: spec >= TRAP_SINCE — a one-line comparison against a constant marking when the trap question was last redefined.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `dated_axis`
+- spec 3 · read at `df1820f94877` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:19Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A short boolean check, called from legible_current/trap_current-style helpers, that says whether a report's answer predates the current spec version for the axis being asked about — but only if the report actually holds an answer at all (e.g. `legible.is_some()`), since an ungraded reading isn't "dated," it's just missing. It likely compares a stored spec/version number on the report against a current constant.
+- found: Returns true if either: the report has a legible grade but it predates the current legible spec version, OR the report's trap flag is true but predates the current trap spec version — combining both axis checks with OR rather than being single-axis as the name might suggest.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Despite being named "dated_axis" (singular), it actually ORs together dated-ness for two separate axes (legible and trap) in one call.
 
 ### `reading_hash`
 - spec 2 · read at `06911bed7259` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:16:05Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -1009,11 +1038,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: Got the filtering and keying right but expected the Live payload to carry staleness metadata like a hash/mtime; instead it carries id/name/body with line and ord zeroed out, presumably placeholders since a file itself has no line/ord the way a function declaration would.
 
 ### `is_stale` — QUIRKY — TRAP
-- spec 2 · read at `cbdbbaa52183` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:25:20Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Computes body_hash(node_body) if node_body is Some, compares it to report's stored hash field. If report has no stored hash (empty/None), returns false (not stale, taken at its word per the doc). If node_body is None (function vanished) or hashes differ, returns true.
-- found: Plain string comparison, no hashing done inside this function: report.body with empty string means no recorded hash so not stale; if node_body (already a precomputed hash, passed in by caller) is Some, stale iff it differs from recorded; if node_body is None (function no longer found/no hash available), returns false rather than true.
-- predicted: some · documented: most · derivable: no · legible: full · trap: yes
-- note: I wrongly assumed hashing happened inside is_stale (param is already a hash string per the earlier test) and wrongly guessed the None case returns true — it returns false instead, which seems like it could hide a genuinely deleted function as 'not stale'.
+- spec 3 · read at `cbdbbaa52183` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:58:42Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Returns false (not stale) when report.body is None, since a hash-less reading predates the hashing scheme and is trusted as-is; otherwise compares report's stored body hash against node_body and returns true if they differ (or if node_body is None, meaning the code disappeared).
+- found: Three-way match: empty recorded body (pre-hash migration) is never stale; a recorded hash compared against a present node_body is stale iff they differ; but when node_body is None (the function/file is gone from the current scan) it also returns false, i.e. NOT stale — the opposite of what I predicted.
+- predicted: some · documented: some · derivable: no · legible: full · trap: yes
+- note: The `(_, None) => false` branch means a reading for code that has disappeared is reported as still-fresh by is_stale alone; nothing here documents that deletion must be handled by a separate check elsewhere (peers suggest `a_function_that_is_gone_stops_being_offered` covers it), so a future caller of just this function could wrongly treat a deleted function's old reading as current.
 
 ### `row` — QUIRKY
 - spec 2 · read at `6f5e58cf55bc` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:25:44Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1021,12 +1050,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Returns a tuple of (shard name, read count, total count, surprising count, stale count, dated count) pulled directly from fields on self — a simple field-tuple accessor with no computation.
 - predicted: some · documented: none · derivable: yes · legible: full · trap: no
 
-### `compile` — QUIRKY — TANGLED
-- spec 2 · read at `ccdadd50cc08` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:03:58Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Groups the reports map's entries by their target shard file (via shard_of), sorts entries within each shard deterministically, and renders each shard's markdown text via render_shard. Likely also renders the top-level index/README via render_index using the scan for context (e.g. live/stale status), returning a Vec<Compiled> of {path, content} pairs — one per shard plus the index — entirely in memory, so save() and refresh_index() both call this and can never produce diverging output.
-- found: Walks the scan's live functions and readable files (not the reports map directly, to avoid resolving reports back to functions by name and confusing same-named twins), looks each up by its stable id in reports, groups matches into BTreeMaps by shard then by file path for deterministic output, sorts entries within a file (file heading first, then by line/name), and for each shard builds a Compiled record with rendered markdown body plus read/total/surprising/stale/dated counters — no index rendering happens here.
-- predicted: some · documented: most · derivable: no · legible: some · trap: no
-- note: I assumed compile() also rendered the top-level index and iterated reports directly; instead it's driven off live scan functions (to avoid name-collision bugs) and produces per-shard coverage statistics I hadn't anticipated, with no index output at all.
+### `compile`
+- spec 3 · read at `1da8911fc05d` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:56:15Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Takes the scan (list of files/functions currently in the repo) and the reports map (readings keyed by id), and for each function/file in the scan looks up its report(s), groups them by shard (probably by file or some partition key), and builds a Vec<Compiled> representing rows to be rendered — computing derived fields like grade/status per entry. It does not touch the filesystem or produce a String; it's a pure data transformation that both `save` and `refresh_index` call so they stay consistent.
+- found: Iterates live functions and files from the scan, joins each against its report by id, groups into shards→files→Placed entries (sorted file-first then by line), and per shard renders each entry into a text body via render_entry while tallying read/surprising/stale/dated counts against the shard's total live count. Returns Vec<Compiled> with shard name, counts, and rendered body — driven from the live scan (not from the reports map) so stale/missing entries are handled correctly.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `repo_name`
 - spec 2 · read at `e44c150f0a11` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:22:19Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -1053,19 +1081,17 @@ What this is and how to add to it: [README.md](README.md)
 - found: Compiles scan+reports into shards, writes each shard's markdown file and builds an index, writes README.md as the rendered index, then diffs the previous README's shard links against the new set to delete only orphaned shard files this tool previously created and no longer claims — ordered so a write failure never leaves the shards and index disagreeing.
 - predicted: some · documented: none · derivable: no · legible: most · trap: no
 
-### `render_entry` — QUIRKY
-- spec 2 · read at `0d68106adaf4` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:42:18Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Formats one Report as a Markdown block/section for the `.sanity/` file: a heading line with `ord`, `name`, and an is_file marker, followed by fields like predicted/documented/derivable/legible/trap/model/note rendered as labeled lines or a small table, plus a "stale" marker if `stale` is true. Since markdown is the authoritative store (per the file doc) and gets parsed back in on open, the format is likely a fairly rigid key: value list so parse_shard can round-trip it exactly.
-- found: Renders one reading as a markdown block: heading is the bare name (with an ordinal suffix only for name collisions) plus trailing markers ONLY for extreme/loud grades (OBSCURE, QUIRKY, UNCLEAR, TANGLED, TRAP, STALE) — not for every axis. Then a provenance bullet line (spec version, body hash, commit, model, only-if-disagreeing "asked for", harness, when, by, cold/warm, position, priming), then expected/found lines, then a grades line (predicted/documented/derivable/legible/trap), then an optional note and a stale-warning paragraph.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
-- note: I expected a fairly uniform key:value list of all five grades in the heading/body; actual format deliberately keeps the heading clean (only loud outliers get a marker) and buries most fields in a dense provenance line with lots of conditional omission logic (e.g. 'asked for' only shown on disagreement, spec omitted at 0).
+### `render_entry`
+- spec 3 · read at `9efc6d8e2d65` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:49:23Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Formats one assessed function/file's report as a Markdown block for the `.sanity/` store: a heading using `ord` and `name` (marking it as a file heading differently if `is_file`), then a bulleted/field list of the Report's fields (predicted, documented, derivable, legible, trap, note, found, etc.), and some indicator if `stale` is true (e.g. a "STALE" marker) since the code has changed since this entry was recorded. Returns the assembled String to be concatenated into the larger markdown document.
+- found: Renders one Report into a markdown block: a heading (name + ordinal-if-twin + terse marker suffix for only the loud/notable grade ends — OBSCURE/QUIRKY/UNCLEAR/TANGLED/TRAP/STALE), a provenance meta line (spec version, read-at commit, model, asked-for-vs-model disagreement, harness, when, by, cold/warm, position in run, priming), expected/found lines, a grades summary line, an optional note, and a stale-warning paragraph. Confirmed my structural guess but missed the specific gating logic (marks only shown when still "current" per legible_current/trap_current), the omit-if-agreeing logic for asked vs model, and the exact field set.
+- predicted: most · documented: none · derivable: no · legible: most · trap: no
 
 ### `render_shard`
-- spec 2 · read at `4e15fb847928` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:00:54Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Renders a markdown header block for a shard file, e.g. a heading with the shard name and a summary line built from read/total/surprising/stale/dated counts (like "12/50 read, 3 surprising"), then appends the given body markdown beneath it, returning the full string to write to the shard's markdown file.
-- found: Builds the markdown header for a shard file: title, a summary line with read/total/surprising counts plus optional " · N stale" suffix, explanatory boilerplate paragraphs about what a reading is and what `read at` hashing means, an optional paragraph about `dated` readings from an older grading spec, a link to README.md, then appends the body.
-- predicted: most · documented: none · derivable: yes · legible: most · trap: no
-- note: I predicted the counts/header/body-append structure correctly but missed the dated/stale conditional explanatory paragraphs and spec-versioning note.
+- spec 3 · read at `937d543802a9` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:49:45Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: render_shard builds the markdown text for one shard file in the `.sanity/` store: a header line naming the shard and summarizing progress stats (read/total, surprising, stale, dated counts), followed by the body of rendered entries, formatted as a single markdown string to write to disk.
+- found: Formats the shard's markdown header: title, read/total/surprising counts plus optional stale/dated notes, boilerplate explaining what a reading entry is and what 'read at' means, an optional spec-versioning explanation when dated readings exist, a README link, then appends the body of rendered entries.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ### `render_index` — QUIRKY
 - spec 2 · read at `9cb8e1d98830` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:02:24Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -1148,6 +1174,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Parses a markdown shard whose reading bullet omits a spec line, then asserts the resulting Reading has spec==0 (default) and that its legible grade (Full) is preserved as data, but legible_current(spec) returns false — i.e. the grade is kept but not counted as answering the current spec's question.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
+### `each_axis_expires_on_its_own_spec`
+- spec 3 · read at `fe4a3f53842f` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:50:11Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A test that constructs a Report stamped at spec 2, then asserts legible_current returns true (not yet expired) while trap_current returns false (expired, since trap moved at spec 3) — proving the two axes expire independently rather than sharing one combined 'dated' flag.
+- found: Asserts legible_current(2) is true and trap_current(2) is false (confirming the two axes expire on different spec boundaries), plus boundary checks: trap_current(TRAP_SINCE) is true, trap_current(SPEC+99) is true (future builds still trusted), and trap_current(0) is false (unversioned counts as unknown, not current).
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
 ### `a_reading_from_a_newer_build_is_still_trusted` — QUIRKY
 - spec 2 · read at `c47a941b7865` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:02:37Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
 - expected: A unit test that constructs a fake report/reading whose `spec` field is set higher than the current build's `SPEC` constant, then asserts that the code path deciding whether to trust/count that reading (probably a `>=` comparison against SPEC) treats it as valid/current rather than stale, likely alongside or contrasted with an older-spec case being rejected.
@@ -1193,11 +1225,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Unit test: parses a shard bullet block containing two unrecognized segments (`confidence high` on the header line, `vibes: good` on the grade line) mixed with recognized fields, and asserts the recognized fields (body/hash, by, legible, spec) still parsed correctly from the resulting map, proving unknown segments are dropped in isolation without breaking the rest of the entry.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `a_shard_counts_grades_that_answer_an_older_question`
-- spec 2 · read at `1a65121a0bfa` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:02:31Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Builds a shard with several readings — one whose spec matches the current question (fresh), one whose spec is for an older version of the question (stale, should count as "no longer answers today's question"), and one with no spec set at all (never graded, not stale) — then asserts the shard's expired-count only includes the genuinely outdated one and treats the never-graded reading as merely ungraded rather than expired.
-- found: Builds three readings (old-spec, current-spec, never-graded), compiles them into a shard, and asserts only the old-spec one counts as `dated` (not the never-graded one), then checks the rendered shard text mentions the earlier-question count when nonzero and says nothing when the shard is clean.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+### `a_shard_counts_grades_that_answer_an_older_question` — QUIRKY
+- spec 3 · read at `ebd58acdc2c0` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:49:56Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A unit test that builds a couple of synthetic Reports/specs — one with a legible/trap grade recorded against an old spec version (so it should count as "dated" under today's spec) and one that never graded legibility at all (so it should NOT count as dated even though it also doesn't match today's spec) — runs them through compile (or the shard-stat computation), and asserts the resulting dated count only reflects the first case, not the ungraded one.
+- found: Builds three synthetic functions (one graded under an old spec, one under today's spec, one never graded), runs compile, and asserts only the old-spec grade counts as dated — not the ungraded one. Then extends the test to show the trap axis expires independently of the legible axis (each on its own spec version), and checks render_shard's wording for both the dated case and the fully-clean, nothing-to-say case.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: Missed that the test also exercises independent per-axis expiry (trap vs legible on different spec versions) and asserts on render_shard's actual output text, not just the numeric dated count.
 
 ### `key_ignores_line_numbers`
 - spec 2 · read at `efd0813c8a57` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:15:41Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -1249,12 +1282,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Test builds markdown text for one file with two function entries — "broken" has no reading bullet lines and "intact" has a full valid reading — calls parse_shard, and asserts the broken entry is entirely dropped from the output map while the intact one survives with correctly parsed fields (predicted grade, derivable flag).
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `scan_of` — TRAP
-- spec 2 · read at `cff5ae6ffd72` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:19:02Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Groups the (path, name, ord, body) tuples by file path, creates a Func-kind node per tuple with id = key_of(path, name, ord) and the given body text/hash, nests those function nodes under a file node per path, and assembles them into a Scan with a root tree — mirroring the same node/id scheme the real scanner produces so fixtures exercise the same identity logic as the app.
-- found: Groups tuples by file into Func nodes nested under File nodes as I predicted, but two details I missed: the third tuple field is a line number, not an ordinal — `ord` is instead computed internally via a (path,name) counter map so same-named functions in one file get distinct keys automatically; and file nodes get their own body hash from a synthetic 'header of {path}' string, plus a ScanStats block is filled in with functions.len() and placeholder/default fields.
-- predicted: most · documented: most · derivable: no · legible: full · trap: yes
-- note: Signature's third field name isn't given, and I assumed it was the ord used in key_of; it's actually the line number, with ord derived separately — a caller passing duplicate (path,name) pairs with different intended ordinals would silently get auto-incremented ones instead, a mismatch between the tuple shape and what it's used for.
+### `scan_of`
+- spec 3 · read at `cff5ae6ffd72` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:58:07Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A test-fixture builder that takes tuples of (path, name, ord, body), groups them by path, and constructs a Scan whose tree has a file Node per distinct path with Func children for each entry — each child's id computed via the real key_of(path, name, ord) so tests exercise the app's actual identity scheme rather than a simplified one.
+- found: Builds a Scan from (path, name, line, body) tuples: for each entry it creates a Func Node, computes id via key_of(path, name, ord) where ord is an auto-incrementing occurrence counter per (path,name) pair (not a passed-in field, as I'd assumed), hashes the body, groups funcs by file into File nodes each stamped with its own header body_hash, and returns a Scan with a root tree plus a mostly-zeroed ScanStats.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `a_stale_index_is_rewritten_on_open_and_an_absent_one_is_not_created`
 - spec 2 · read at `81d89007d616` · commit `51b9d8d` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T21:23:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1425,12 +1457,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Runs `git -C repo blame --line-porcelain -- path`, returns None on command failure or non-success exit, otherwise parses stdout with parse_porcelain into a FileBlame. Matches my prediction closely.
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
 
-### `parse_porcelain` — TRAP
-- spec 2 · read at `9af37f5e7799` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:44:16Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Iterates porcelain text line by line, tracking current commit sha/author/author-time from header lines, and when hitting the tab-prefixed source line, stores those values indexed by the final line number (not sequential order) in a FileBlame struct. Handles the case where header info is omitted for repeated commits by carrying forward previously seen values for that sha.
-- found: Parses porcelain output, interning author names into a Vec<String> with u16 ids via a HashMap, encoding commit sha as a u64 from its first 16 hex chars, and placing a Line{commit,author,time} record at the final line number (resizing the lines vec as needed) when it hits the tab-prefixed source line. Sha lines are validated heuristically (length>=16, first char hex digit) to distinguish them from key/value header lines.
-- predicted: most · documented: most · derivable: no · legible: most · trap: yes
-- note: Trap: sha collisions truncated to 16 hex chars (u64) could theoretically merge distinct commits, though astronomically unlikely in practice.
+### `parse_porcelain`
+- spec 3 · read at `9af37f5e7799` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:56:35Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Iterates lines of the porcelain output, maintaining current sha/author/author-time as it parses header and key-value lines (author, author-time), and when it reaches a line starting with a tab (the actual source line) it commits an entry keyed by the final line number parsed from the header record into a per-line vector inside FileBlame, growing/indexing that vector by final line number rather than by output order.
+- found: Streams porcelain lines, tracking a current commit (sha truncated/parsed as u64), interned author index (via a HashMap<String,u16> + Vec<String> to dedupe author names), and author-time; on the tab-prefixed source-line record it resizes/writes into a `lines` Vec indexed by final line number minus one, then returns a FileBlame{lines, authors}.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Author names are interned to u16 indices and commit shas truncated to a u64 via hex parse — compact representation not obvious from the signature/docs.
 
 ### `parses_a_commit_author_and_time_per_line` — QUIRKY
 - spec 2 · read at `83b21a2d2547` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:01:22Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -1641,12 +1673,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: SystemTime::now() minus UNIX_EPOCH, as seconds i64, defaulting to 0 on error (clock before epoch) — matches prediction exactly except for the unwrap_or(0) fallback detail.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `credit` — TRAP
-- spec 2 · read at `1a421829daf9` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:45:56Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Looks up (or inserts a default) FileHistory entry for `key` in the `files` map, then updates it with this commit's data: oldest commit seen sets the "age" field, most recent commit sets "last_touched" and "last_author", and it increments/adds to a churn or commit count. Likely dedups by `oid` so a single commit touching multiple files under one directory only counts once for that directory's aggregate.
-- found: Gets/inserts the FileHistory entry; on first sighting (relying on git log's newest-first order) sets last_touched/author/commit; increments recent_commits only if within CHURN_WINDOW_DAYS; and unconditionally overwrites age_days each call, so the final call (oldest commit, since log walks newest→oldest) ends up being the age.
-- predicted: most · documented: most · derivable: no · legible: most · trap: yes
-- note: The relies-on-call-order trick (first call sets last_touched, last call sets age, because git log order is newest-first) is a real trap for anyone reordering the log walk or calling credit out of order.
+### `credit` — QUIRKY — TRAP
+- spec 3 · read at `1a421829daf9` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:56:41Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Looks up or inserts a FileHistory entry for `key` in `files`, then updates it with this commit: increments a commit counter, updates the oldest-seen age (age_of) and most-recent touch/author/oid, and adds to a churn accumulator that saturates rather than growing unbounded so one pathological file doesn't squash the rest.
+- found: Gets or creates the FileHistory entry; on first sighting for this key it sets last_touched/author/commit from this commit (relying on the caller feeding commits newest-first from git log); increments recent_commits only if age_days is within CHURN_WINDOW_DAYS; unconditionally overwrites age_days each call, so the final value ends up being the oldest commit's age (again relying on newest→oldest call order).
+- predicted: some · documented: none · derivable: yes · legible: full · trap: yes
+- note: Correctness silently depends on the caller iterating git log in newest-to-oldest order — nothing in the type signature enforces it, and calling credit() out of order would silently corrupt last_touched/author/oid and age_days.
 
 ### `flush_commit`
 - spec 2 · read at `cd3690e69372` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:00:19Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -2021,11 +2053,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: Missed the hand-rolled percent-encoding (avoiding a crate dependency) and the macOS-specific titlebar/traffic-light styling to match the main window — both called out in code comments as deliberate.
 
-### `agent_reports`
-- spec 2 · read at `105ecf936ff6` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:45:31Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Looks up the project path to filter by using the `key` param if given, otherwise falls back to the project the window is currently displaying (not necessarily "active"). Then filters/clones the shared state's list of agent reports to just those belonging to that project, returning them as a Vec. Likely locks a mutex/RwLock on state.
-- found: Locks shared state, resolves the target project by explicit key or falls back to the "active" project, then returns cloned reports for that project. On the way out, it recomputes and stamps `legible_dated` on each report based on current assessment-spec constants, without persisting that judgement back into the store.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
+### `agent_reports` — QUIRKY
+- spec 3 · read at `bceec9f091bd` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:49:23Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Locks the shared state, resolves which project's reports to return using either the given `key` override or a stored "currently displayed project" path (separate from any agent's notion of "active" project), then filters/returns that project's Vec<Report>, defaulting to an empty vec if none exist yet.
+- found: Locks shared state, resolves the project key (explicit or falling back to the active project), looks up that project's reports, and returns a cloned Vec — but also recomputes two derived fields on the way out (legible_dated and trap_dated) by comparing each stored report's spec against the current build's assessment logic, rather than storing those judgements.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: The recompute-on-read pattern for legible_dated/trap_dated isn't hinted at by the signature at all — it's the most interesting part of the function.
 
 ### `agent_activity` — QUIRKY
 - spec 2 · read at `9961e7b7663e` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:13:02Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -2191,12 +2224,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Checks a static process-wide OnceLock<Mutex<HashMap>> cache keyed by harness name first; on miss, dispatches to the harness-specific method (codex_models/claude_aliases/opencode_models/agy_models), caches the result, and returns it.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 
-### `codex_models` — TRAP
-- spec 2 · read at `5afe7fba648d` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:45:57Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Spawns the codex binary as a subprocess speaking JSON-RPC over stdin/stdout, writes an `initialize` request followed by a `model/list` request, then reads lines from stdout on a separate thread with a timeout, looking for the response whose id matches the model/list request. Parses the result into a Vec<ModelChoice>; any error (spawn failure, timeout, malformed JSON) is swallowed and an empty Vec is returned instead of propagating an error.
-- found: Spawns `codex app-server`, writes initialize+model/list JSON-RPC requests to stdin, keeps stdin open (closing it early makes the server exit without answering) while a background thread scans stdout lines for the response with id 2, waits up to 10s, then kills the child and parses result.data into ModelChoice, filtering out hidden entries and marking isDefault.
-- predicted: most · documented: most · derivable: no · legible: most · trap: yes
-- note: The requirement to hold stdin open until the answer arrives (else the server exits silently) was a non-obvious trap called out explicitly in the comment — that's a real gotcha for future editors who'd tidy the code into an `if let` block and reintroduce it.
+### `codex_models`
+- spec 3 · read at `5afe7fba648d` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:56:53Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Spawns the codex binary as a subprocess with piped stdin/stdout, writes an `initialize` JSON-RPC request followed by a `model/list` request. Reads stdout on a separate thread so a deadline/timeout can be enforced from the calling thread (e.g. via a channel with recv_timeout), scanning replies for one whose id matches the model/list request. Parses the matching response into a Vec<ModelChoice>, returning an empty vec on any spawn failure, write failure, parse failure, or timeout.
+- found: Spawns `codex app-server`, writes initialize + model/list JSON-RPC requests, keeps stdin deliberately open (closing it early makes the server exit before replying, per inline comment), reads stdout on a thread scanning for the response with id 2, waits up to 10s via a channel, then kills the child and parses the result array into ModelChoice, filtering out entries marked `hidden`.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: The keep-stdin-open requirement is a non-obvious, previously-broken behavior (closing stdin after write caused an always-empty list) — worth flagging to anyone tempted to 'clean up' the drop timing.
 
 ### `opencode_models`
 - spec 2 · read at `35fa9f148b61` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:02:46Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -2251,12 +2284,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Gets $SHELL (or /bin/sh fallback), runs it with -lc "command -v <prog>", stdin/stderr null. Returns None on spawn failure or non-success exit. Trims stdout to a path and returns it only if is_runnable(&p) passes.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `via_login_shell` #2 — OBSCURE — TRAP
-- spec 2 · read at `444f25d9976b` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:25:57Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Looks up the given program name by invoking the user's login shell (e.g. `$SHELL -lic "command -v prog"`), so that shell-initialization-dependent PATH entries (nvm, rbenv, homebrew, etc.) are honored. Returns Some(PathBuf) if the shell resolves the program to a path, otherwise None. This is a fallback used when a plain `which`/PATH lookup fails to find harness binaries.
-- found: This is a stub that unconditionally returns None — presumably a non-unix (e.g. Windows) fallback for a platform-gated variant elsewhere that actually shells out to the login shell.
-- predicted: none · documented: none · derivable: yes · legible: full · trap: yes
-- note: Name and doc-comment strongly imply real login-shell lookup logic, but this particular definition (marked #2, so a cfg-gated duplicate) is a no-op stub always returning None — a trap for anyone assuming this path resolves anything.
+### `via_login_shell` #2
+- spec 3 · read at `444f25d9976b` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:58:50Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A platform-gated stub (likely #[cfg(not(unix))]) — since Windows has no login-shell concept, it just returns None unconditionally, ignoring _prog.
+- found: Unconditionally returns None, ignoring the argument — a non-unix platform stub for the login-shell PATH lookup.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ### `mcp_config`
 - spec 2 · read at `b2d4e63edaf4` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:12:52Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -2295,12 +2327,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: most · derivable: no · legible: most · trap: no
 - note: Missed the Codex-specific auth isolation logic (private CODEX_HOME, symlinked auth.json, why --ignore-user-config and per-key overrides don't work) — assumed it would just be a similar config-file write like the others.
 
-### `reader_command` — TRAP
-- spec 2 · read at `97330b944fca` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:01:22Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Builds a tokio::process::Command that differs per Harness variant (claude, gemini, opencode, antigravity, etc.) — picking the right executable/aliases, passing the prompt and model as CLI args, setting cwd to the passed-in directory outside the repo, and setting environment variables that carry the project name and possibly a shim path so the MCP config resolves correctly. Likely a match on harness with mostly-similar but not identical argument lists per tool.
-- found: Matches on Harness (Claude, Codex, OpenCode, Agy) to build very different command lines — each needing its own combination of MCP config flag, sandbox/permission bypass flag, cwd flag, and model flag, plus shared cwd/stdio/kill_on_drop setup at the end. Each arm's comments record a specific footgun discovered by testing (silent MCP failures, approvals denied-not-waved-through, workspace discovery needing --add-dir).
-- predicted: most · documented: some · derivable: no · legible: full · trap: yes
-- note: Several of the per-harness flags exist only because of an empirically-discovered silent failure mode (e.g. Codex returning success with zero tool calls, Agy loading no MCP tools at all) that isn't visible from the API surface — you'd have to hit it to know.
+### `reader_command` — QUIRKY
+- spec 3 · read at `97330b944fca` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:58:09Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Matches on `harness` to build a per-agent tokio::process::Command: resolves the right CLI binary/args for that harness (claude/codex/gemini/opencode/antigravity, etc.), passing `model` and `prompt` in whatever form that CLI expects (arg vs stdin), pointing it at an MCP config (possibly writing one via write_config first) so the reader only has the three sanity_* tools and, for Claude specifically, no filesystem tools. Sets env vars that carry `project`/`backend`/role info through to the MCP shim, and sets the command's working directory to `cwd` (deliberately outside the repo) so the reader can't stumble onto the repo's own files/brief.
+- found: Matches on harness (Claude/Codex/OpenCode/Agy), building very different flag sets per binary's quirks: Claude gets --strict-mcp-config + --allowedTools + --setting-sources user to keep it sandboxed and un-primed; Codex needs --dangerously-bypass-approvals-and-sandbox (weaker settings silently no-op MCP calls) plus a CODEX_HOME env pointing at a written config; OpenCode reads opencode.json from cwd with no per-invocation MCP flag; Agy needs --add-dir cwd or it silently loads no MCP at all. Common tail sets current_dir, null/piped stdio, and kill_on_drop(true) so readers die with their spawning task.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: Each harness branch encodes a specific hard-won failure mode (e.g. Codex reporting success with zero actual tool calls, Agy silently loading no MCP) that isn't visible from the signature — worth reading the inline comments before touching any branch.
 
 ### `an_agent_is_found_without_a_shell_path`
 - spec 2 · read at `81c427e9f09d` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:07:32Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -2547,19 +2579,18 @@ What this is and how to add to it: [README.md](README.md)
 - found: Spawns `git cat-file --batch` with piped stdin/stdout, wraps the child, stdin, and buffered stdout in a Blobs struct for later on-demand blob reads.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `read` — QUIRKY — TRAP
-- spec 2 · read at `4b11abeacd7b` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:49:21Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: 
-- found: Writes the sha to a persistent `git cat-file --batch` subprocess's stdin, reads the response header line (oid, kind, size), returns None immediately if kind isn't "blob" (missing objects) without draining further. Otherwise it always reads exactly `size+1` bytes (payload + trailing newline) to keep the pipe stream in sync for future reads, then checks size against MAX_BLOB_BYTES (returning None but only after draining), pops the trailing newline, and returns the bytes as a String if valid UTF-8.
-- predicted: some · documented: most · derivable: no · legible: full · trap: yes
-- note: I predicted a git2/gix API call with an explicit binary-content check; the actual mechanism is a hand-rolled git cat-file --batch pipe protocol where staying in sync with the stream (always draining the payload) is the load-bearing subtlety, and "binary" filtering is just UTF-8 validation failure, not a dedicated check.
+### `read` — QUIRKY
+- spec 3 · read at `4b11abeacd7b` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:34Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the git blob for `sha` (likely via git2's Repository/Odb, since owner is `Blobs`), checks if it's binary (e.g. git2's `is_binary()`) or exceeds a size cap meant to exclude non-code blobs, and returns `None` in either case. Otherwise converts the blob's bytes to a String (probably via `String::from_utf8_lossy`) and returns `Some(text)`. May cache the lookup since it takes `&mut self`.
+- found: Talks to a long-lived `git cat-file --batch`-style subprocess over stdin/stdout pipes: writes the sha, reads the header line to get kind/size, bails to None for non-blob kinds, then unconditionally reads exactly `size+1` bytes off stdout (draining the payload even when it will be discarded) before checking the size cap and returning the UTF-8 text.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: The payload must always be read off the pipe even when the result will be None (oversized or wrong kind) — skipping the drain desyncs every subsequent read by one blob, silently misattributing later files' functions; this isn't a git2 API call, it's a hand-rolled batch-pipe protocol.
 
-### `drop` — OBSCURE — TRAP
-- spec 2 · read at `af7d03b498b1` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:48:32Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Blobs::drop persists or flushes the in-memory cache of blob lookups/parsed results built up during history replay to a backing store on disk, so that a future run doesn't repeat the same parsing work — reflecting the file's 'say only what the evidence supports, and pay for it once' principle, rather than being a trivial resource-cleanup no-op.
-- found: Blobs wraps a long-lived `git cat-file --batch` child process for looking up blob contents by oid. Drop closes stdin (which is the signal that tells cat-file to exit) and then waits on the child, with a comment explaining that skipping the stdin close would hang the wait forever on a process still expecting input.
-- predicted: none · documented: none · derivable: no · legible: full · trap: yes
-- note: Assumed 'pay for it once' meant a persisted cache; it actually meant reusing one long-lived git subprocess across the whole replay instead of spawning cat-file per blob, and drop's job is just shutting that subprocess down cleanly.
+### `drop` — OBSCURE
+- spec 3 · read at `af7d03b498b1` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:56:14Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Blobs is a cache wrapper around git blob reads; this Drop impl likely logs or flushes cache statistics (hits/misses) or releases some resource explicitly before the struct is deallocated, since a manual Drop suggests non-trivial cleanup beyond what auto-derived drop would do.
+- found: Blobs wraps a spawned `git cat-file --batch` child process. Drop closes stdin (by dropping it) which signals the batch process to exit, then waits on the child to reap it and avoid a zombie/hang.
+- predicted: none · documented: none · derivable: yes · legible: full · trap: no
 
 ### `intern`
 - spec 2 · read at `e3d8905f5ffc` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:07:39Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -2821,12 +2852,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: local.rs implements local scoring via llama_cpp_4: LocalModel loads a GGUF and spawns a dedicated owner thread (context is !Send) that receives scoring jobs over a channel; score_one tokenizes prefix+body, decodes in one batch requesting logits only over the body span, and computes mean bits-per-token surprisal via log-softmax. discover_models scans Ollama's blob store directory for files over 100MB as a cheap way to find already-downloaded weights, with no format/magic-number check.
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
 
-### `load` — TRAP
-- spec 2 · read at `59001fb85ed8` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:00:21Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Loads the GGUF model file at `path` (via a llama.cpp binding) and spawns a dedicated owner thread that holds the model/context, since the underlying handle likely isn't safely shareable across threads. Sets up a channel (mpsc or similar) so `LocalModel` callers can send scoring requests to that thread and receive results back, returning a `LocalModel` handle wrapping the sender. The expensive load work (hundreds of ms) happens once inside this call, blocking until ready.
-- found: Spawns an owner thread that loads the llama.cpp backend and model, leaking both to 'static (since LlamaContext borrows its model and the struct would otherwise be self-referential — the app loads one model for its whole lifetime). The thread reports load success/failure back over a one-shot ready channel so `load` can block and return a Result synchronously, then loops forever servicing scoring jobs sent over an mpsc channel until every sender is dropped.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: yes
-- note: Box::leak'ing the model/backend means calling load() more than once leaks unboundedly — nothing in the signature signals it's meant to be called exactly once, which the file doc even says ('done once') but the type doesn't enforce.
+### `load`
+- spec 3 · read at `59001fb85ed8` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:56:41Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Loads the GGUF model file at `path` (likely via llama-cpp-rs bindings), builds a context, and spawns a dedicated owner thread that holds the model/context (since these types are typically !Send/!Sync) and receives scoring requests over a channel. Returns a LocalModel handle wrapping the thread's sender and a derived label (e.g. from the filename), erroring if the file can't be loaded as a valid GGUF model.
+- found: Spawns an owner thread that loads the GGUF via llama-cpp-rs, leaking the backend and model to 'static to avoid a self-referential struct (context borrows model), builds a context sized for MAX_TOKENS, then reports load success/failure back over a dedicated ready channel before entering a job loop that scores requests received over an mpsc channel until all senders drop.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: Missed the Box::leak-to-'static trick for the self-referential model/context borrow and the separate ready_tx/ready_rx handshake used specifically because load errors happen on the spawned thread and can't be a normal return value.
 
 ### `surprisal` — OBSCURE
 - spec 2 · read at `476dc5b143b1` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:04:37Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -2917,12 +2948,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Loops until a deadline; each pass gets the base_url (missing file is treated as "still starting", not an error) and calls attempt. Fatal errors return immediately; transient ones fall through. On deadline expiry it distinguishes UNREACHABLE vs NOT_RUNNING via a live-process probe rather than endpoint-file presence. If nothing is live, it triggers heal() exactly once across the whole call (gated by a `healed` flag and by cli::live().is_none()), retrying immediately on success rather than sleeping; otherwise it sleeps RETRY_EVERY and loops.
 - predicted: some · documented: most · derivable: no · legible: most · trap: no
 
-### `heal` — TRAP
-- spec 2 · read at `893c3d008631` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:44:49Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether the backend process is running and restarts it if not, then—if this shim previously opened a repo (stored in its own PROJECT memory)—synchronously re-opens that same repo path against the freshly restarted backend so it's ready before any retried tool call goes out. Returns Ok(()) on success or an error string if the backend can't be brought up or the repo can't be reopened. Skips the reopen step if PROJECT is empty (cold start, sanity_open about to run).
-- found: Ensures the backend process is running, then if a project was previously opened (via `project()`), re-POSTs /open with that path directly (not through the normal `post` retry helper, to avoid recursion). Returns Ok(()) if no project was ever opened.
-- predicted: full · documented: full · derivable: no · legible: full · trap: yes
-- note: Called out in the code comment as deliberately bypassing the normal `post` helper to avoid infinite recursion — a subtle invariant future editors could break by 'simplifying' it to use post().
+### `heal`
+- spec 3 · read at `893c3d008631` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:56:14Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Restarts/relaunches the backend process (spawns it fresh), then synchronously reopens the previously-remembered repo by reading the path from the shim's own PROJECT state (not from any tool argument) and issuing an open-project call against the new backend. Returns Ok(()) if PROJECT is empty/unset (cold-start, nothing to restore) or after successfully reopening; returns Err(String) if either the restart or the reopen call fails.
+- found: Calls ensure_backend() to make sure a backend is up, then if no remembered project path exists returns Ok immediately (cold start). Otherwise it directly POSTs to {base}/open with the remembered path, deliberately bypassing the normal `post` helper (which is what calls heal on failure) to avoid infinite recursion.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The doc explains the surrounding recovery design well but doesn't mention the deliberate bypass of `post` to avoid recursion — that's only in an inline comment, which is the real payoff detail.
 
 ### `client`
 - spec 2 · read at `0f6714dc0296` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:03:40Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -2973,12 +3004,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Just returns reader_tools() directly.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `reader_tools` — TRAP
-- spec 2 · read at `1783980a0ad8` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:46:09Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Returns a JSON Value describing the three reader-facing MCP tools (sanity_next, sanity_reveal, sanity_report) — their names, descriptions and input schemas — to be advertised in the MCP server's tools/list response for reader clients. Likely constructed via serde_json::json! literal listing each tool object with name/description/inputSchema fields.
-- found: Returns a json! literal array of the three reader-facing MCP tool definitions (sanity_next, sanity_reveal, sanity_report) with names, descriptions, and inputSchema objects, exactly matching the tool descriptions used at the protocol layer.
-- predicted: full · documented: none · derivable: yes · legible: most · trap: yes
-- note: Field ORDER in sanity_report's inputSchema is load-bearing — a long prose field placed before the short grade fields caused readers' mangled emissions to swallow grades into it; that's a genuine trap for whoever reorders these fields for readability.
+### `reader_tools`
+- spec 3 · read at `770d85cbc597` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:49:27Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Builds and returns a JSON array/Value of MCP tool definitions (name, description, inputSchema) for exactly the three reader-facing tools: sanity_next, sanity_reveal, sanity_report — mirroring the schemas exposed to the reader agent.
+- found: Returns a json!() literal array of the three tool definitions (sanity_next, sanity_reveal, sanity_report) with their names, prose descriptions, and JSON input schemas — exactly matching what I was handed as a reader this session. Also contains a load-bearing comment explaining that field order in sanity_report's schema matters because a mangled/truncated emission swallows whatever follows a long prose field, so short fields are ordered first and long prose fields (expected/found/note) last.
+- predicted: full · documented: most · derivable: no · legible: most · trap: no
+- note: The comment documents a real historical failure mode (argument mangling swallowing fields after long prose) that isn't visible from the schema alone — worth preserving if this function is ever refactored.
 
 ### `human_tools` — QUIRKY
 - spec 2 · read at `ecee0d4f15ea` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:03:43Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -3036,12 +3067,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Iterates all_tools() names and asserts dispatches(&name) for each, exactly as predicted.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `nothing_is_dispatchable_that_is_not_advertised` — TRAP
-- spec 2 · read at `e899b57d66a0` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:08:00Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Iterates the set of tool names the dispatcher (`call`/`dispatches`) will actually handle and asserts each one appears in the advertised tool list from `all_tools()`, ensuring there's no dead/undocumented handler still answering calls after its schema was removed.
-- found: Asserts that a hardcoded literal list of the 7 known tool names (sanity_open, check, status, next, reveal, summary, report) all appear in the advertised all_tools() list, catching a handler that stays dispatchable after its schema is removed.
-- predicted: most · documented: most · derivable: no · legible: full · trap: yes
-- note: The list of dispatchable names is a hand-maintained literal rather than pulled from the actual dispatcher, so it can silently go stale if a new tool is added to `call` but not this list.
+### `nothing_is_dispatchable_that_is_not_advertised`
+- spec 3 · read at `e899b57d66a0` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:48Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A test (like its peers `every_advertised_tool_is_dispatchable` and `the_two_tool_surfaces_are_disjoint_and_complete`) that checks the converse invariant: it enumerates the tool names `call` actually dispatches on and asserts each one appears in the advertised tool list (from `tools`/`all_tools`/`names`), failing if a dispatchable tool exists that isn't advertised in any schema — the "dead code that still answers" case described in the docs.
+- found: A test asserting that every name in a hardcoded list of the actual sanity_* tool names `call` dispatches is present in the advertised tool set from `all_tools()`, catching the case where a tool was removed from the schema/advertisement but its dispatch arm in `call` was left behind.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The dispatchable set is a hand-maintained literal string list rather than derived from `call`'s match arms, so this test only catches drift if someone remembers to update this list too.
 
 ### `the_fingerprint_sees_the_readers_half` — QUIRKY
 - spec 2 · read at `1e5340813abc` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:07:22Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -3195,12 +3226,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
 - note: More languages supported than I guessed (60+), impressively broad.
 
-### `func_kinds` — TRAP
-- spec 2 · read at `3a5b17a6cb09` · commit `51b9d8d` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T21:24:45Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A match/switch over the Lang enum returning a static slice of tree-sitter node kind strings that count as functions for that language — e.g. "function_item" for Rust, "function_definition" for Python, "function_declaration"/"method_definition"/"variable_declarator" for JS/TS, "function_declaration"/"method_declaration" for Go, etc. — deliberately excluding bare arrow_function/function_expression per the docs.
-- found: A giant match over ~50 languages returning the tree-sitter node kinds that count as functions in each. I got the mainstream languages (Rust/Python/JS-TS/Go) essentially right, but massively underestimated scope — it covers dozens of niche/DSL languages (Elixir, Lisp family, R, OCaml, Erlang, Prolog, VHDL, GLSL, Solidity, etc.) many of which have no dedicated function node and instead match generic nodes like "call", "list", "binary_operator", "binding", relying on a separate `accepts` predicate to disambiguate.
-- predicted: most · documented: most · derivable: no · legible: most · trap: yes
-- note: Undercounted scope drastically (50 langs vs my ~6 guesses) and missed the whole class of languages with no function node where kind-matching alone is insufficient and a companion `accepts` check is needed.
+### `func_kinds` — QUIRKY
+- spec 3 · read at `3a5b17a6cb09` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:58:24Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A match on `lang` returning a static string slice of tree-sitter node kind names that count as function-like units for that language — e.g. Rust's "function_item", Python's "function_definition", Go's "function_declaration"/"method_declaration", and for the JS/TS family "function_declaration", "method_definition", and "variable_declarator" (to catch `const Foo = () => {}` per the docs) but deliberately excluding bare "arrow_function"/"function_expression". Likely one match arm per Lang variant, each returning a small array literal.
+- found: A large match over ~50 Lang variants (not just the handful I imagined), returning per-language tree-sitter kind lists. Most languages get an obvious kind, but many rely on `accepts` doing extra structural checks because the kind alone is ambiguous — Elixir/Clojure's `call`/`list_lit` (macro-shaped defs), R's `binary_operator` and OCaml's `let_binding` (assignment-shaped), Erlang's `function_clause` (per-clause, not per-declaration), and deliberate omissions (Swift subscripts/deinits, C++ class bodies) explained inline.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: Many entries are only safe because a paired check in `accepts` narrows a structurally ambiguous kind (call/list/binding) down to an actual function — reading this list alone without `accepts` would overcount for Elixir, Clojure, Lisp, OCaml, R and Nix.
 
 ### `declarator_is_function`
 - spec 2 · read at `b42761bf14e5` · commit `10d6afa` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T22:03:56Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -3214,12 +3245,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Uses tree-sitter's node.utf8_text helper to get the node's source text, falling back to empty string on invalid utf8 rather than manually slicing by byte range.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `leading_doc` — TRAP
-- spec 2 · read at `e476d7e6be02` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:42:04Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Walks backward through node's previous siblings, skipping over attribute/decorator nodes (e.g. #[derive(...)] or @override) without breaking the chain, and collecting consecutive comment nodes as long as there's no blank line between them and the definition (or between successive comments). Stops at the first sibling that's neither a comment nor an attribute, or when a blank line gap is found, then joins/strips comment markers from the collected lines and returns them as Some(String), or None if no leading comment was found.
-- found: Walks backward through prev_sibling nodes, stepping over attribute_item/decorator nodes, collecting comment nodes as long as there's no blank-line gap; also breaks if a comment is a Rust inner doc comment (//! or /*!) since those belong to the module, not the following item. Reverses, joins with newlines, trims, and returns None if empty.
-- predicted: most · documented: most · derivable: no · legible: full · trap: yes
-- note: Third, undocumented rule excludes //! inner doc comments — the file_doc/leading_doc docs only mention the adjacency and attribute-skipping rules.
+### `leading_doc`
+- spec 3 · read at `e476d7e6be02` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:45Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Walks backward from node through its preceding siblings, skipping over attribute/decorator nodes (e.g. #[derive(...)], @override) to find the comment(s) actually attached to the definition, then checks that the comment sits with no blank line gap (comparing row numbers) before treating it as a doc comment. It collects contiguous comment lines directly above, strips comment markers, and returns the joined text, or None if nothing sits immediately adjacent.
+- found: Walks backward over preceding siblings, stepping past attribute/decorator nodes, and also explicitly excludes inner doc comments (//! or /*!) which belong to the module rather than the following item (a case the blank-line check can't catch because tree-sitter gives them a trailing newline that closes the row gap). Stops on a blank-line gap or a non-comment/non-attribute sibling, collects and reverses the comment lines, strips markers, and returns the joined trimmed text or None.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `wrapper_doc`
 - spec 2 · read at `3bb3df0748bc` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:53:48Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -3258,12 +3288,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Creates a tree-sitter Parser, sets language (returning empty vec on failure), parses source (returning empty vec if None), then gets func_kinds for the language and calls collect() on the root node to populate a Vec<FuncDef>, which is returned.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
-### `collect` — TRAP
-- spec 2 · read at `600851bbefb7` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:48:36Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks the tree-sitter node tree; for each node, if its kind is present in `kinds`, it extracts a FuncDef (name, body, doc, etc., using lang-specific helpers) and pushes to `out`. Regardless of a match, it recurses into the node's children so nested functions are also collected.
-- found: Checks accepts() for the node kind, with a special case requiring variable_declarator nodes to actually declare a function; on successful extract() it pushes the FuncDef and returns WITHOUT descending into children (so nested closures aren't double-counted as separate functions), otherwise recurses into all children.
-- predicted: most · documented: none · derivable: no · legible: full · trap: yes
-- note: Missed that matched nodes stop recursion entirely — a closure inside a collected function is deliberately not walked, which anyone extending this to add a new matchable kind could easily break by descending anyway.
+### `collect` — QUIRKY
+- spec 3 · read at `600851bbefb7` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:56:16Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Recursively walks the tree-sitter node tree (likely via a manual stack or recursion over node.children()), checking each node's kind against the `kinds` slice. When a node's kind matches, it calls something like `extract` to build a FuncDef (using lang/src for name/doc/span info) and pushes it into `out`. It recurses into all children regardless of whether the current node matched, so nested functions are still found.
+- found: Recursively walks the tree, and when a node's kind matches (with a special case: variable_declarator nodes only count if they declare a function), extracts a FuncDef and pushes it, then explicitly stops descending into that node's children to avoid double-counting nested closures as siblings. Only recurses into children when the current node did not match.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: I predicted it recurses into children regardless of match, but it actually returns early after a match specifically to avoid counting nested closures as separate sibling functions — the opposite of my guess.
 
 ### `accepts` — QUIRKY
 - spec 2 · read at `fe5c77dc9b54` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:17:16Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -3284,19 +3314,19 @@ What this is and how to add to it: [README.md](README.md)
 - found: Gets the first named child's text via the `text` helper and trims it, returning None via `?` if there is no named child; matches prediction except I didn't anticipate the trim() call.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `name_node` — QUIRKY — TANGLED — TRAP
-- spec 2 · read at `675b18990ee4` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:05:11Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A big match over lang and node.kind() that returns the child node holding the function's name for each supported language/grammar — most cases just child_by_field_name("name"), but several languages (e.g. Lisp-style forms, TS arrow-const assignments, Python decorated/nested defs) need special-cased traversal (like the sibling lisp_head helper) because the name isn't a direct named field, returning None if no such node exists for that node kind.
-- found: A huge match over ~30 languages, each with its own bespoke traversal to find the name node (declarator chains for C/C++/GLSL, positional named_child indexing for Lisp-family languages, first-identifier scans for ObjC/Odin/D, field lookups for others), with only the fallback arm using a plain child_by_field_name(\"name\"); several arms encode hard-won fixes for real historical bugs (e.g. C++ reference_declarator and operator_cast silently mis-naming functions).
-- predicted: some · documented: some · derivable: no · legible: some · trap: yes
-- note: Underestimated how much of the function is per-language bespoke logic vs. the simple common-field-name case — I expected the field-name approach to dominate, but it's only the catch-all.
+### `name_node` — QUIRKY
+- spec 3 · read at `675b18990ee4` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:44Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Tries node.child_by_field_name("name") as the common case, then falls back to language- and node-kind-specific handling for grammars where the name isn't exposed as a "name" field — e.g. an arrow function assigned to a variable (walk up to the variable_declarator's identifier), a Python decorated_definition (descend into the wrapped def), or similar per-kind/per-lang special cases — returning None if no name can be found.
+- found: A giant match over ~25 languages, each with its own grammar-specific path to the name node: C/C++ walks down nested declarators (with special cases for operator overloads and conversion operators), ObjC/Odin/D/PowerShell/Verilog find a bare identifier or specific wrapper kind, Elixir/Cmake/Prolog pull the name out of call arguments/functor position, Lisp-family languages index into named_child positions, and several (R, Nix, OCaml) reuse an assignment-target field (lhs/attrpath/pattern); default falls back to child_by_field_name("name").
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: The file doc's framing (kind-matching over queries, failing loudly) explains why this function exists but gives no hint of just how many languages and how idiosyncratic each one's name location is — that's only visible in the body's per-arm comments.
 
-### `body_node` — TRAP
-- spec 2 · read at `03bfaee5dbf3` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:01:01Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Looks up the body/block child of a function node, likely trying node.child_by_field_name("body") first since many tree-sitter grammars expose that field, then falling back to scanning children for a block-like node kind per language (since not all grammars use a "body" field). Probably branches on `lang` to know which node kind counts as a block for languages that lack the field.
-- found: Resolves the body/block node of a function across ~20 languages. A handful of languages (R, Nix, Odin, Prolog, GdShader) need bespoke traversal before the generic path; otherwise it tries the "body" field, then falls back to a per-language node-kind name, then finally falls back to value→body for arrow-function-style const bindings.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: yes
-- note: Adding a new language's function-body lookup means knowing which of three different fallback tiers to add it to, with no compiler check that you picked the right one.
+### `body_node` — QUIRKY
+- spec 3 · read at `03bfaee5dbf3` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:49Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Given a function/chunk node and its language, finds and returns the child node representing the function's body block (e.g. "block" in Rust, "statement_block" in JS/TS, "block" in Python), matching by node kind per-language since queries aren't used. Returns None when there's no body — e.g. a trait/interface method signature with no implementation, or an arrow function with an expression body instead of a block.
+- found: Per-language special-cased lookup of the body node: a handful of languages (R, Nix, Odin, Prolog, GdShader) need custom nested traversal because the body binds one level down from the function node or under a differently-named field; most others try the "body" field first, then fall back to a per-language node-kind name lookup (Kotlin, ObjC, Sql, Elixir, Haskell, D, Vhdl, PowerShell, Ada, Cmake each spell it differently), and the final default handles JS/TS-style `const Foo = () => {}` by reaching into the initializer's own body field.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+- note: The doc handed with this only described a sibling node ("the node holding the chunk's body") rather than this function itself, so it gave almost no signal about the dozens of per-language branches.
 
 ### `body_span`
 - spec 2 · read at `1f2c8fc01706` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:20:26Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -3783,12 +3813,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Locks a dirty set, inserts the key, and if the set has reached FLUSH_EVERY size, calls self.save() to persist the cache to disk.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `save` — TRAP
-- spec 2 · read at `8f02cea7e101` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:53:34Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Writes only the entries marked dirty/touched since last save by appending them as log lines to the cache file on disk, rather than rewriting the whole store — cheap because cost scales with what changed, not total cache size. It also checks some ratio of log size to live entry count and rewrites/compacts the file from scratch when the log has grown too much larger than the current data it represents. All I/O errors are swallowed (logged at most) rather than propagated, per the module's stated silent-on-failure policy.
-- found: Locks inner state and dirty tracker; if a rewrite is forced, the log is too many lines relative to live entries (stale), or lines==0, it rewrites the whole file via temp+rename (atomic, crash-safe) and resets dirty tracking. Otherwise it appends only the changed entries' lines to the file (using create+append, since deleting the cache file externally would otherwise make appends silent no-ops forever), swallowing all I/O errors by simply not clearing dirty state on failure so it retries next time.
-- predicted: most · documented: most · derivable: no · legible: most · trap: yes
-- note: Got the two-path shape (compact rewrite vs cheap append) and silent-failure policy right; missed the specific compaction trigger formula and the OpenOptions::create fix for a deleted-cache-file bug, which the comments flag as a real footgun for future editors.
+### `save`
+- spec 3 · read at `8f02cea7e101` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:56:29Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Computes the dirty/touched entries since last save, and appends their log lines (header_line/entry_line format) to the cache file on disk rather than rewriting the whole store. If the log has grown too far past the size of the actual data it represents, it instead does a full rewrite/compaction. Any I/O error is swallowed (returns unit, no Result) per the module's "silent on failure" design.
+- found: Locks state, decides between a full atomic rewrite (via temp file + rename, triggered by staleness ratio, explicit rewrite flag, or an empty log) versus the common-path append of only the dirty entries' lines, using create+append OpenOptions so a deleted cache file doesn't silently no-op forever. All fallible steps use let-else/is_ok patterns to stay silent on failure.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: Missed the atomic temp-file+rename mechanism for the rewrite path and the create(true) fix for a specific bug (deleted-cache-file silent no-op) — both called out in inline comments.
 
 ### `header_line`
 - spec 2 · read at `814484f4c4b2` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:27:45Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -3941,11 +3971,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: I predicted an actual raw-mode implementation; this variant is a trivial always-None stub for whichever platform lacks the real one.
 
 ### `drop` #2 — OBSCURE — TRAP
-- spec 2 · read at `cf6ca66c9379` · commit `d88c484` · read by claude-sonnet-5 · via claude · when 2026-08-13T23:08:59Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Restores the terminal to its normal (non-raw) state, undoing whatever capture() enabled, since Keys is a RAII guard that pairs capture/drop to leave the terminal as it found it when dropped.
-- found: The Drop impl body is empty — it does nothing at all, not even restoring raw mode or cursor state.
-- predicted: none · documented: none · derivable: no · legible: full · trap: yes
-- note: Empty Drop impl on a struct named Keys is surprising given the file doc talks about needing a way to stop watching without killing the run; if capture() enables raw mode, this leaves it unrestored on drop, which looks like it could be an intentional no-op (cleanup done elsewhere) or a real bug.
+- spec 3 · read at `cf6ca66c9379` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:04Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A one-line Drop impl that disables raw mode (e.g. crossterm::terminal::disable_raw_mode()) to restore normal terminal input behavior, undoing whatever Keys::capture enabled, ignoring any error since Drop can't propagate one.
+- found: An empty Drop impl body — it does nothing. Presumably exists only so Keys is droppable/RAII-shaped, or cleanup happens elsewhere (e.g. explicitly in capture's counterpart) and this is a leftover no-op.
+- predicted: none · documented: none · derivable: yes · legible: full · trap: yes
+- note: Whoever reads this expecting Drop to restore terminal state (raw mode, etc.) will be wrong — it's a no-op; if cleanup is meant to happen, it must happen somewhere else or not at all, worth checking where Keys::capture's effects actually get undone.
 
 ## src-tauri/src/surprise.rs
 

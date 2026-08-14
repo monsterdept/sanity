@@ -15,6 +15,7 @@ import {
   type AgentReport,
   type Grade,
   type Node,
+  trapOf,
 } from '../lib/api'
 
 
@@ -342,7 +343,7 @@ export function Detail({
   const analyzed = isAnalyzed(node)
   /** The same gate the header badge takes: a stale trap describes a body that has changed,
    *  so it must not color anything, here or on the map. */
-  const trapped = node.agent?.trap === true && !node.agentStale
+  const trapped = trapOf(node.agent) && !node.agentStale
 
   /** The path is the way back to where the thing IS.
    *
@@ -514,7 +515,7 @@ export function Detail({
             warning about this specific function, and it was reachable only by finding the
             same function again in the notes list. Beside the name is where it is unmissable,
             and it is the same badge the list uses so the two read as one fact. */}
-        {node.agent?.trap && !node.agentStale && (
+        {trapped && (
           <span
             className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
             style={{ background: 'var(--trap)', color: 'var(--card)' }}

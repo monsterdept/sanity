@@ -367,6 +367,14 @@ pub fn agent_reports(
                     // would freeze one build's opinion into the store and make the next
                     // bump invisible.
                     r.legible_dated = !crate::assessment::legible_current(r.spec);
+                    // **Only a `true` expires.** Spec 3 narrowed what counts as a trap —
+                    // a hazard the code already warns about stopped being one — and a
+                    // narrowing can only turn old trues into falses, never the other way
+                    // round. So a reader that looked under the old question and found
+                    // nothing has still found nothing under this one, and greying its
+                    // answer would throw away 855 clear readings in this repo alone to
+                    // re-ask a question whose answer cannot have changed.
+                    r.trap_dated = r.trap && !crate::assessment::trap_current(r.spec);
                     r
                 })
                 .collect()

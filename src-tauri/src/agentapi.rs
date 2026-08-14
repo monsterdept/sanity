@@ -1090,6 +1090,16 @@ pub struct Report {
     /// would be destroying evidence to avoid writing a conditional.
     #[serde(default, rename = "legibleDated")]
     pub legible_dated: bool,
+    /// The same, for `trap` — see [`crate::assessment::TRAP_SINCE`]. Two flags rather than
+    /// one "this reading is dated": the axes moved at different specs and a reading can be
+    /// current on one and superseded on the other, so a single flag would grey out a
+    /// legibility grade to report a trap question that changed.
+    ///
+    /// It is also the narrower of the two, and deliberately: a `false` from an older spec
+    /// survives, because every change to this question has REMOVED things from it and a
+    /// narrowing cannot turn a no into a yes. Only the `true`s are dated.
+    #[serde(default, rename = "trapDated")]
+    pub trap_dated: bool,
     /// Which reading spec this was taken under — see [`crate::assessment::SPEC`].
     ///
     /// Stamped server-side in the `report` handler, beside `body`, `by` and `at`, and for
@@ -1135,6 +1145,7 @@ impl Report {
             body: String::new(),
             spec: 0,
             legible_dated: false,
+            trap_dated: false,
             by: String::new(),
             at: String::new(),
         }
@@ -1244,14 +1255,28 @@ fn collect_tasks(
         // moves, the reading is evidence about code that no longer exists and the
         // function is unread again — which is what makes "update my sanity assessment"
         // the same protocol as making one, rather than a second mode.
-        let stale = match done.get(&node.id) {
+        //
+        // **A reading can also be superseded without the code moving.** When a graded
+        // question is rewritten, the answers to it stop counting — the map greys them, the
+        // dials drop them — and until this existed there was no way to work that off: the
+        // reading still described the body, so the function returned here and the hole was
+        // permanent for anything nobody happened to edit. An expiry a person cannot act on
+        // is worse than no expiry, because the app states a gap and then offers no verb.
+        //
+        // It re-queues for an ORDINARY reading, not for the missing answer alone. Asking a
+        // reader only the expired question is the one thing `SPEC` exists to prevent — a
+        // grade made by a reader that never predicted this function lands in the same column
+        // as one that did, looking comparable. What this buys is a place in the queue.
+        let (stale, dated) = match done.get(&node.id) {
             Some(prior) => {
-                if !crate::assessment::is_stale(prior, node.body.as_deref()) {
+                let stale = crate::assessment::is_stale(prior, node.body.as_deref());
+                let dated = crate::assessment::dated_axis(prior);
+                if !stale && !dated {
                     return;
                 }
-                true
+                (stale, dated)
             }
-            None => false,
+            None => (false, false),
         };
         if leased
             .get(&node.id)
@@ -1262,7 +1287,21 @@ fn collect_tasks(
         // Stale readings outrank everything unread. Code somebody bothered to assess and
         // then changed is where an assessment goes wrong quietly — a wedge that still
         // looks cool because of a reading that expired.
-        let priority = node.score.map_or(0.5, |s| s.surprise) + if stale { 1.0 } else { 0.0 };
+        //
+        // A superseded ANSWER ranks below both, and the order is the honest one: stale means
+        // the reading describes code that is gone, unread means there is no reading at all,
+        // and dated means there is a good reading with one answer greyed out. Three
+        // situations, worst first. Bands do not overlap — dated sits at [-1, 0], unread at
+        // [0, 1], stale at [1, 2] — so a run works through them in that order however
+        // surprising the code is.
+        let priority = node.score.map_or(0.5, |s| s.surprise)
+            + if stale {
+                1.0
+            } else if dated {
+                -1.0
+            } else {
+                0.0
+            };
         out.push((
             priority,
             Task {
@@ -3611,6 +3650,16 @@ pub struct ReportRequest {
 /// What actually works is ORDER — grades first, prose last, so a mangle swallows nothing
 /// that matters. The schema now declares the fields that way (see `mcp.rs`, where the
 /// reasoning lives), and this hint names it for the reader that hits the case regardless.
+/// A trap with nothing said about it.
+///
+/// Its own function so it can be tested without standing up a server, and because the rule
+/// is a claim about reports rather than a step in a handler: `trap` is a boolean, the panel
+/// draws the NOTE as the trap, and a bare `true` is a flag on a wedge that has nothing to
+/// tell whoever opens it. Two of those are in this repo's own corpus.
+fn trap_without_note(r: &Report) -> bool {
+    r.trap && r.note.trim().is_empty()
+}
+
 fn mangled(r: &Report) -> Option<&'static str> {
     // The grades are what the guard is protecting. `predicted` folds to `Full` when
     // absent, so its loss is the expensive one; the other two go gray, which is a smaller
@@ -3672,6 +3721,30 @@ async fn report(
                      prose fields last — that is what fixes it. Keep the same text in \
                      full: its length is not the problem, and shortening it or dropping \
                      `note` loses the reading for nothing.",
+        }));
+    }
+    // A trap with no sentence says nothing anybody can act on. `trap` is a boolean and the
+    // finding is the note beside it — the panel draws the note AS the trap — so a bare
+    // `true` is a flag on a wedge that, opened, has nothing to tell you. Two of them are in
+    // this repo's own corpus.
+    //
+    // Refused rather than downgraded to `trap: false`. Silently clearing it would discard a
+    // reader's actual judgement to make the store tidy, and the reader is the one party that
+    // can say what it meant — it is still there, and this is one field away from correct.
+    // The schema cannot express "required when another field is true", so the rule lives
+    // here, where it can be enforced, and is stated in `trap`'s own description so a reader
+    // meets it before it answers rather than after.
+    if trap_without_note(&r) {
+        {
+            let mut state = lock(&state);
+            state.refused += 1;
+            state.ping("sanity_error");
+        }
+        return Json(serde_json::json!({
+            "ok": false,
+            "saved": false,
+            "error": "`trap` is true with no `note`, so this reading names a hazard without                       saying what it is. Nothing was saved.",
+            "hint": "Send it again for the same id with `note` set to one sentence naming                      what breaks and when. If on reflection the code does not bite the next                      editor — or a comment already warns about it — send `trap: false`                      instead; that is a real answer, not a retreat.",
         }));
     }
     let mut state = lock(&state);
@@ -3758,6 +3831,7 @@ async fn report(
     // the way in — a reader that sent `legibleDated: false` would otherwise be voting on
     // whether its own grade still counts.
     r.legible_dated = false;
+    r.trap_dated = false;
     r.by = crate::assessment::who(&project.repo);
     r.at = crate::assessment::head(&project.repo);
     // What this run asked for, from the run itself. A hand-driven reader belongs to no run
@@ -4129,7 +4203,11 @@ impl Tally {
         // decisions.
         self.legible
             .add(r.legible.filter(|_| crate::assessment::legible_current(r.spec)));
-        self.traps += usize::from(r.trap);
+        // Same rule as `legible` above: an answer to a superseded question is not counted.
+        // It matters more here than there, because this number is the one somebody acts on
+        // — an aggregate that kept counting old traps would send a maintainer looking for
+        // hazards under a definition the map no longer uses.
+        self.traps += usize::from(r.trap && crate::assessment::trap_current(r.spec));
         self.cold += usize::from(r.cold);
     }
 }
@@ -5138,6 +5216,80 @@ pub(crate) mod tests {
     /// and eighty readings landed before an aggregate of zeroes gave it away. Silence on the
     /// happy path is part of the contract too — a warning that is always present is one an
     /// orchestrator stops reading.
+    /// An answer that stopped answering today's question goes back in the queue, LAST.
+    ///
+    /// Without this a bump was an expiry nobody could work off: the reading still described
+    /// the body, so `collect_tasks` returned early and the grey stayed until somebody
+    /// happened to edit that function. The order matters as much as the fact — a stale
+    /// reading describes code that is gone and an unread function has nothing at all, so
+    /// both outrank a good reading with one answer greyed.
+    #[test]
+    fn a_superseded_answer_is_re_offered_after_everything_else() {
+        let mut file = crate::model::Node::dir("src/a.rs", "a.rs");
+        file.kind = NodeKind::File;
+        file.path = "src/a.rs".into();
+        let mut root = crate::model::Node::dir("", "");
+        let mut done: HashMap<String, Report> = HashMap::new();
+        for (i, name) in ["stale_one", "unread_one", "dated_one", "current_one"].iter().enumerate() {
+            let mut n = crate::model::Node::dir("src/a.rs", name);
+            n.kind = NodeKind::Func;
+            n.id = format!("src/a.rs#{name}");
+            n.path = "src/a.rs".into();
+            n.line = Some(i as u32 * 10);
+            n.body = Some(crate::assessment::body_hash(name));
+            let mut r = Report::blank();
+            r.id = n.id.clone();
+            r.body = n.body.clone().unwrap_or_default();
+            r.spec = crate::assessment::SPEC;
+            match *name {
+                // Its body moved under it.
+                "stale_one" => r.body = crate::assessment::body_hash("something else entirely"),
+                // A trap flagged under the question spec 3 narrowed.
+                "dated_one" => {
+                    r.trap = true;
+                    r.note = "the bite".into();
+                    r.spec = crate::assessment::TRAP_SINCE - 1;
+                }
+                _ => {}
+            }
+            if *name != "unread_one" {
+                done.insert(n.id.clone(), r);
+            }
+            file.children.push(n);
+        }
+        root.children.push(file);
+        let mut out = Vec::new();
+        collect_tasks(&root, &done, &HashMap::new(), None, &mut out);
+        out.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        // The file's own header reading is in here too and is not what this is about.
+        let order: Vec<&str> =
+            out.iter().filter(|(_, t)| !t.file).map(|(_, t)| t.name.as_str()).collect();
+        assert_eq!(
+            order,
+            vec!["stale_one", "unread_one", "dated_one"],
+            "worst first, and a reading that is current on every axis is not offered at all"
+        );
+    }
+
+    /// A trap arrives with its sentence or it does not arrive.
+    ///
+    /// The boolean is not the finding. Reading back 894 readings in this repo, two functions
+    /// were flagged `trap: true` with no note at all — a warning on a wedge that, opened,
+    /// says nothing anybody can act on. The refusal is deliberate over the alternative of
+    /// quietly storing `trap: false`: that would discard a reader's actual judgement to keep
+    /// the store tidy, and the reader is the one party that knows what it meant.
+    #[test]
+    fn a_trap_must_say_what_it_is() {
+        let mut r = Report { trap: true, ..Report::blank() };
+        assert!(trap_without_note(&r), "a bare trap is not a finding");
+        r.note = "   ".into();
+        assert!(trap_without_note(&r), "and whitespace is not a sentence");
+        r.note = "Reordering the log walk breaks the age stamp.".into();
+        assert!(!trap_without_note(&r), "with the bite named, it stands");
+        let clear = Report { trap: false, ..Report::blank() };
+        assert!(!trap_without_note(&clear), "no trap, nothing to say");
+    }
+
     #[test]
     fn a_shim_serving_a_stale_contract_is_told_to_restart() {
         let mine = crate::mcp::contract_fingerprint();

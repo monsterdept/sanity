@@ -10,6 +10,7 @@ import {
   readingWords,
   shareRamp,
   showsShare,
+  trapOf,
   type Grade,
   type Node,
   type Ramp,
@@ -456,8 +457,12 @@ export function colorFor(
     // one of the two fields `FILE_ASK` tells a reader to leave unset on it. Read as a leaf
     // it came back `no traps reported` — an all-clear over a question nobody asked, printed
     // in the same words a reader's real all-clear uses. It counts its contents instead.
-    if (node.kind === 'func' && node.agent && !node.agentStale) {
-      const trap = node.agent.trap === true
+    // A reading whose trap answer predates the current question is treated as no answer at
+    // all, on the same rule the legible lens follows — and it matters more here, because the
+    // other reading of a dated answer is `no trap reported`, which is an all-clear. Grey
+    // says nobody has looked under today's question, which is what happened.
+    if (node.kind === 'func' && node.agent && !node.agentStale && !node.agent.trapDated) {
+      const trap = trapOf(node.agent)
       const fill = trap ? 'var(--trap)' : 'var(--structure)'
       return { fill, stop: fill, ink: inkOn(fill), label: trap ? 'trap' : 'no trap reported' }
     }
@@ -630,13 +635,19 @@ export function bucketsFor(
         if (!r) {
           put(UNKNOWN, 'not read yet', 'var(--unanalyzed)', n)
         } else if (mode === 'traps') {
-          const trap = r.trap === true
-          put(
-            trap ? 'trap' : 'clear',
-            trap ? 'trap' : 'no trap reported',
-            trap ? 'var(--trap)' : 'var(--structure)',
-            n,
-          )
+          // A dated answer falls in with the unread, one bucket, for the reason the legible
+          // branch below gives: from where the reader stands they are the same fact.
+          if (r.trapDated) {
+            put(UNKNOWN, 'not read yet', 'var(--unanalyzed)', n)
+          } else {
+            const trap = trapOf(r)
+            put(
+              trap ? 'trap' : 'clear',
+              trap ? 'trap' : 'no trap reported',
+              trap ? 'var(--trap)' : 'var(--structure)',
+              n,
+            )
+          }
         } else if (mode === 'docs') {
           const g = docGrade(n)
           if (g) put(g, DOC_WORDS[g], heatColor(DOC_GAP[g], 'docs'), n)

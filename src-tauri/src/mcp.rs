@@ -491,7 +491,7 @@ fn reader_tools() -> Value {
                     },
                     "trap": {
                         "type": "boolean",
-                        "description": "True ONLY if the CODE will bite whoever edits it next: an ordering assumption nothing enforces, a silent failure, an unguarded index or unchecked arithmetic, a resource that leaks on one path, a cache key missing something the value depends on. A documentation problem is NOT a trap — a doc describing behavior the body does not have is `documented: none`, and flagging it here counts one defect twice. Nor is 'this surprised me', which is about you. Default to false; this field is only useful if it stays rare."
+                        "description": "True ONLY if the CODE will bite whoever edits it next and nothing here warns them: an ordering assumption nothing enforces, a silent failure, an unguarded index, a resource that leaks on one path, a cache key missing something the value depends on. A hazard a comment already calls out is NOT a trap — the repo knows. Nor is a doc problem (`documented: none`), nor 'this surprised me', which is about you. When true, `note` must say what breaks and when: the boolean is not the finding, the sentence is. Default to false."
                     },
                     "surprised": { "type": "boolean", "description": "Superseded by `predicted` — send that instead. Kept so older callers still work." },
                     "model": { "type": "string", "description": "Which model you are, name and version, e.g. claude-haiku-4.5. A grade from a small fast model and one from a large one are not the same evidence. Say what you are; omit it rather than guess." },
@@ -499,7 +499,7 @@ fn reader_tools() -> Value {
                     "position": { "type": "number", "description": "Where this function sat in your run — 1 for the first you assessed, 2 for the second, and so on up to the batch size. Report the truth, and report it even if you took more than you were asked for: `cold` only asks whether you had opened this FILE, and cannot see that a reader deep into a batch has learned the repo's idioms and predicts better for reasons that are nothing to do with the code. A reading that says where it sat can be weighed; one that does not silently widens the scale." },
                     "primed": { "type": "boolean", "description": "True if THIS REPO's own instructions file — the CLAUDE.md or AGENTS.md that describes this codebase — was in your context before you predicted. Your personal or global one does not count, however it is named; the question is only whether you were handed a description of the code you are predicting. Check rather than assume: your host may have injected it unasked." },
                     "found": { "type": "string", "description": "What it actually does." },
-                    "note": { "type": "string", "description": "One sentence a human can read, only if surprised." }
+                    "note": { "type": "string", "description": "One sentence for whoever edits this next: what they need that the code does not tell them. Not a recap of how your prediction differed — `expected` and `found` already hold that. Omit it when you have nothing to add; required when `trap` is true." }
                 },
                 "required": ["id", "predicted", "documented", "derivable", "legible", "trap", "cold", "position", "primed", "model", "found"]
             }

@@ -76,7 +76,21 @@ use std::path::{Path, PathBuf};
 /// was LIKE, and half of its scale was about navigation: "you had to jump around" is not a
 /// judgement a reader can make when jumping is not available. Every grade before this
 /// answered a question that assumed a freedom the reader no longer has.
-pub const SPEC: u32 = 2;
+///
+/// **3: `trap` stopped meaning "something here surprised me".** Read back over 894 readings
+/// the field had drifted into three different jobs. Eighteen of thirty-nine were what it is
+/// for — an ordering assumption nothing enforces, a leak on one path, a field order that is
+/// load-bearing. Ten restated a hazard the CODE ALREADY WARNS ABOUT in a comment, which is
+/// not news and is the population that would teach somebody to stop opening the lens. Nine
+/// were about the reader — "I underestimated", "a different mechanism than I guessed" — the
+/// exact thing the description already forbade, which is how we know the wording was not
+/// carrying its weight. Two were flagged with no note at all, and a trap with no sentence
+/// says nothing anybody can act on.
+///
+/// So the question is narrower now: a hazard the code documents is not a trap, and a trap
+/// cannot be reported without the sentence that says what will bite. Both are changes to
+/// what an answer MEANS, which is exactly what this constant is for.
+pub const SPEC: u32 = 3;
 
 /// The spec at which `predicted`'s question last changed meaning.
 ///
@@ -130,6 +144,42 @@ pub const LEGIBLE_SINCE: u32 = 2;
 /// `parse_shard` skips prefixes it does not know — so it simply behaves as it did before.
 pub fn legible_current(spec: u32) -> bool {
     spec >= LEGIBLE_SINCE
+}
+
+/// The spec at which `trap`'s question last changed meaning.
+///
+/// Spec 3: two narrowings, from reading the corpus rather than from taste — see [`SPEC`].
+/// A hazard the code already warns about is no longer a trap, so a documented footgun and
+/// an unknown one stop scoring the same; and the note is now required, because the boolean
+/// is not the finding, the sentence is.
+///
+/// It expires the whole banked set, and the trade is worth stating: `trap` is the cheap
+/// half of a reading — it is answered after the body is open, unlike `predicted` — so what
+/// a bump costs here is the lens going grey until repos are read again, not six thousand
+/// cold predictions. That asymmetry is why this one is affordable and a `predicted` bump
+/// would not be.
+pub const TRAP_SINCE: u32 = 3;
+
+/// Whether a reading's `trap` answer was made under today's question. `>=`, for the reasons
+/// [`legible_current`] gives — this is the same rule, one axis over.
+pub fn trap_current(spec: u32) -> bool {
+    spec >= TRAP_SINCE
+}
+
+/// Does this reading hold an answer that no longer answers the question it was given?
+///
+/// One definition, in the same file as the constants, because four places have to agree
+/// about it: the shard header that counts it, the queue that re-offers it, the map that
+/// stops coloring it and the panel that shows it as history. Spread across those, a bump
+/// would be honored wherever somebody remembered.
+///
+/// Only an answer that EXISTS can be dated. A reading that never graded legibility is
+/// ungraded, not superseded, and re-queueing it on a bump would be the app asking for work
+/// nobody ever did — the same conflation the shard counter is written against. `trap` is
+/// narrower still: a `false` from an older spec survives, because every rewriting of that
+/// question has taken things out of it and a narrowing cannot turn a no into a yes.
+pub fn dated_axis(r: &crate::agentapi::Report) -> bool {
+    (r.legible.is_some() && !legible_current(r.spec)) || (r.trap && !trap_current(r.spec))
 }
 use std::process::Command;
 
@@ -724,7 +774,7 @@ fn compile(scan: &Scan, reports: &HashMap<String, Report>) -> Vec<Compiled> {
                 // A grade that is present and no longer answers today's question. Both
                 // halves matter: a reading that never graded legibility is not dated, it
                 // is ungraded, and folding the two together would report work nobody did.
-                if e.report.legible.is_some() && !legible_current(e.report.spec) {
+                if dated_axis(e.report) {
                     dated += 1;
                 }
                 body.push_str(&render_entry(&e.name, e.ord, e.is_file, e.report, e.stale));
@@ -928,12 +978,19 @@ fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) 
         Grade::Some => marks.push_str(" — QUIRKY"),
         _ => {}
     }
-    match r.legible {
+    // **Both gated on the axis still answering today's question.** A heading mark is this
+    // file's version of coloring a wedge — it is what a skim reads, and it is decoration the
+    // writer recomputes rather than a fact the store holds. So it follows the same rule the
+    // map does: the bullet keeps what the reader said (`trap: yes` is still there to read),
+    // and the mark stops advertising it. A shard that went on shouting TRAP over an answer
+    // the lens has greyed would be the readable copy disagreeing with the picture, which is
+    // the one thing the Markdown-as-store design cannot afford.
+    match r.legible.filter(|_| legible_current(r.spec)) {
         Some(Grade::None) => marks.push_str(" — UNCLEAR"),
         Some(Grade::Some) => marks.push_str(" — TANGLED"),
         _ => {}
     }
-    if r.trap {
+    if r.trap && trap_current(r.spec) {
         marks.push_str(" — TRAP");
     }
     if stale {
@@ -1066,7 +1123,7 @@ fn render_shard(
         // single unbroken line is exactly the drift `render_index` warns about, hidden by
         // the fact that this one is built rather than written out.
         format!(
-            "\n\n{dated} of these graded legibility under an earlier question and are not\n\
+            "\n\n{dated} of these answered an earlier version of a question and are not\n\
              counted; see the note below."
         )
     } else {
@@ -1076,12 +1133,15 @@ fn render_shard(
     // release notes in somebody's repo.
     let spec_note = if dated > 0 {
         "\n\n\
-         `spec` is which version of the questions a reading answered. `legible` used to\n\
-         ask \"how clear is it on its own terms\", which defined no rung but the top one;\n\
-         it now asks what reading it was like — one pass, a second look, jumping\n\
-         around, or never being sure. Grades from before that are kept here, because\n\
-         they are what a reader said, but they no longer color the map. Re-read those\n\
-         functions to replace them."
+         `spec` is which version of the questions a reading answered. Two of them have\n\
+         been rewritten. `legible` used to ask \"how clear is it on its own terms\",\n\
+         which defined no rung but the top one; it now asks what reading it was like —\n\
+         one pass, a second look, jumping around, or never being sure. `trap` used to\n\
+         collect anything that surprised a reader, including hazards the code itself\n\
+         already warns about; it now means only what will bite the next editor and\n\
+         nothing has written down. Answers from before those changes are kept here,\n\
+         because they are what a reader said, but they no longer color the map.\n\
+         Re-read those functions to replace them."
     } else {
         ""
     };
@@ -1445,6 +1505,21 @@ mod tests {
         assert!(!legible_current(r.spec), "but it does not answer today's question");
     }
 
+    /// A whole corpus's traps expire when the question narrows, and each axis expires alone.
+    ///
+    /// The pair is what makes this worth a test. `trap` moved at spec 3 and `legible` at
+    /// spec 2, so a reading taken under spec 2 is current on one axis and superseded on the
+    /// other — and the obvious simplification, one `dated` flag for the whole reading, would
+    /// throw away a legibility grade to report a trap question that changed under it.
+    #[test]
+    fn each_axis_expires_on_its_own_spec() {
+        assert!(legible_current(2), "spec 2 answered today's legibility question");
+        assert!(!trap_current(2), "and an earlier trap question");
+        assert!(trap_current(TRAP_SINCE), "the spec that narrowed it");
+        assert!(trap_current(SPEC + 99), "and anything a later build stamps");
+        assert!(!trap_current(0), "everything unversioned is unknown, not clear");
+    }
+
     /// Two builds, one repo: neither one throws away the other's work.
     ///
     /// The case this file cannot control. Somebody runs an older app, or a newer one, and
@@ -1684,6 +1759,10 @@ mod tests {
         for (id, l) in live_funcs(&scan) {
             let mut r = report(&id, &l.name);
             r.body = l.body.clone();
+            // The helper flags a trap on everything, and a trap is graded too — see
+            // `TRAP_SINCE`. Cleared so this half of the test is about `legible` alone;
+            // the trap axis gets its own reading below.
+            r.trap = false;
             match l.name.as_str() {
                 // Graded under the question we have since rewritten.
                 "old" => r.legible = Some(Grade::Full),
@@ -1702,7 +1781,22 @@ mod tests {
         assert_eq!(src.dated, 1, "only the pre-spec GRADE counts, not the ungraded reading");
 
         let text = render_shard(&src.shard, src.read, src.total, src.surprising, src.stale, src.dated, &src.body);
-        assert!(text.contains("1 of these graded legibility under an earlier question"), "{text}");
+        assert!(text.contains("1 of these answered an earlier version of a question"), "{text}");
+
+        // **Any graded axis counts, not just legibility.** `trap` moved at spec 3 while
+        // `legible` moved at 2, so the reading below is current on one and superseded on
+        // the other — and a header that only looked at legibility would report this shard
+        // as entirely up to date while the map greys half its trap answers.
+        for r in reports.values_mut() {
+            if r.id.contains("never") {
+                r.trap = true;
+                r.note = "the bite".into();
+                r.spec = LEGIBLE_SINCE;
+            }
+        }
+        let compiled = compile(&scan, &reports);
+        let src = compiled.iter().find(|c| c.shard == "src").expect("one shard");
+        assert_eq!(src.dated, 2, "a trap answered under spec 2 is dated too");
         // And nothing about it when there is nothing to say.
         let quiet = render_shard("src", 1, 1, 0, 0, 0, "");
         assert!(!quiet.contains("earlier question"), "no release notes in a clean repo");

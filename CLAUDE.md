@@ -220,6 +220,15 @@ readings (1.4 MB) parse in 30ms, once, on open.
   asked to declare which question it answered could name the one that makes its grade look
   current, which is the claim the field exists to test. Absence is `0`, meaning "question
   unknown", never "the current one".
+  **An expiry a person cannot work off is worse than no expiry.** A superseded answer used
+  to be unreachable: the reading still described the body, so `collect_tasks` returned early
+  and the grey stayed until somebody happened to edit that function. It re-queues now,
+  ranked below both — stale means the reading describes code that is gone, unread means
+  there is no reading at all, dated means a good reading with one answer greyed — and the
+  bands do not overlap, so a run works them in that order. It re-queues for an ORDINARY
+  reading, never for the missing answer alone; that distinction is the next paragraph but
+  one. `dated_axis` is the single definition, because the shard counter, the queue, the map
+  and the panel all have to agree about it.
   **A bump expires an AXIS, not the reading.** `predicted` is the expensive half — it can
   only be answered once cold — and discarding 6,900 cold predictions to fix a legibility ask
   would be the worst trade available. A dated grade is kept and shown as history; what it
@@ -248,6 +257,36 @@ readings (1.4 MB) parse in 30ms, once, on open.
   **15%** / 0%, so `some` gained nine-fold on the same code. `none` is still unobserved —
   the scale is improved, not proven. **Read the distribution before spending a corpus on a
   reworded ask; that is what the bump costs.**
+  **Spec 3 is `trap`, and it came out of reading the store rather than the code.** Across
+  this repo's 894 readings the field had drifted into three jobs. Eighteen of thirty-nine
+  were what it is for — an ordering assumption nothing enforces, a leak on one path, a
+  field order that is load-bearing. Ten restated a hazard **the code already warns about
+  in a comment**, which is not news and is the population that teaches somebody to stop
+  opening the lens; worse, it scores a documented footgun and an unknown one the same.
+  Nine were about the reader — "I underestimated", "a different mechanism than I guessed" —
+  which the description already forbade, so the wording was not carrying its weight. Two
+  were `true` with no note at all. So the question narrowed on both counts, and the note is
+  now **required** with a trap, enforced in the `report` handler because a JSON schema
+  cannot say "required when another field is true" (`trap_without_note`, refused rather
+  than downgraded to `false`: clearing a reader's judgement to tidy the store is not ours
+  to do).
+  **A narrowing only expires the YESES.** Every change this question has taken away has
+  removed things from it, and a narrowing cannot turn a no into a yes — so a reader that
+  looked under spec 2 and found nothing has still found nothing. `trap_dated` is therefore
+  `trap && !current`, which cost this repo 39 expired answers instead of 894. The same
+  argument does not extend to a graded scale: a reworded `legible` moves grades in both
+  directions, which is why that one expires whole.
+  **The bump was affordable for a reason worth keeping straight.** `trap` is answered
+  *after* the body is open, so it refills on any ordinary re-read; `predicted` can only be
+  answered once, cold. Expiring the trap axis costs a grey lens until repos are read again.
+  The same reasoning applied to `predicted` would cost six thousand cold predictions and
+  should be refused on those grounds alone.
+  **A dated axis must not read as an all-clear.** `legible` going grey says "not graded",
+  which is honest on its own. A dated `trap` read as `no trap reported` would be the map
+  stating a clean bill of health from a question nobody asked — so `trapOf` returns false
+  and the lens buckets it with the unread. Two flags (`legibleDated`, `trapDated`) and not
+  one, because the axes moved at different specs and a spec-2 reading is current on one and
+  superseded on the other.
 - **A failed write is reported, never absorbed.** `save_reports` returns an error and the
   `report` handler puts it in `ok`/`error`/`hint` so the agent stops. Silently diverting
   to a hidden file is how a reading looks saved and isn't.
