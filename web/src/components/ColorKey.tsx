@@ -9,7 +9,40 @@ import { heatColor, type Ramp } from '../lib/api'
 
 /** The legend follows the mode. A heat ramp under a categorical encoding would be a
  *  lie — "owner" has no order, so showing a gradient would invent one. */
-function Legend({ mode, categories }: { mode: ColorMode; categories: string[] }) {
+function Legend({
+  mode,
+  categories,
+  history = false,
+}: {
+  mode: ColorMode
+  categories: string[]
+  history?: boolean
+}) {
+  // A replay paints one event and nothing else, so its key has one entry. Showing the age
+  // ramp here while every wedge on screen is grey would be the legend describing a lens the
+  // map is not using — see `colorFor` for why a frame is uncoloured.
+  if (history) {
+    return (
+      <div className="flex items-center gap-2.5">
+        {/* Squares, like the trap key below and for the same reason: these are events a
+            wedge either had or did not, not positions on a scale. Arrival leads, because
+            it is the loud one and the order on the key should match the order the eye
+            picks them out in. */}
+        {[
+          ['--birth', 'new here'],
+          ['--touch', 'touched'],
+        ].map(([token, word]) => (
+          <span key={token} className="flex items-center gap-1">
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+              style={{ background: `var(${token})` }}
+            />
+            <span className="text-[10px] text-[var(--muted-foreground)]">{word}</span>
+          </span>
+        ))}
+      </div>
+    )
+  }
   if (categories.length > 0) {
     return (
       <div className="flex max-w-[300px] flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
@@ -153,7 +186,7 @@ export function ModeSwitcher({
             // control itself should be — discoverable once, noise every time after.
             title={
               disabled
-                ? 'Pinned to recency while history plays — a past commit has no surprise reading'
+                ? 'A trace is uncoloured — a past commit has no reading, and nothing in the commit stream stood in for one'
                 : `${MODE_HINT[k]}  (⌘${i + 1})`
             }
             className="rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
@@ -178,11 +211,14 @@ export function ModeSwitcher({
 export function ColorLegend({
   mode,
   categories,
+  history = false,
   stale = 0,
   unread = 0,
 }: {
   mode: ColorMode
   categories: string[]
+  /** Replaying. The key then describes the flash rather than the pinned lens. */
+  history?: boolean
   /** Wedges drawn with the stale hatch. Each entry only appears when there are some —
    *  a legend entry for a texture that is nowhere on screen teaches the reader to
    *  ignore the legend. */
@@ -192,7 +228,7 @@ export function ColorLegend({
 }) {
   return (
     <div className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-2 py-1.5">
-      <Legend mode={mode} categories={categories} />
+      <Legend mode={mode} categories={categories} history={history} />
       {paintsFromReadings(mode) && (stale > 0 || unread > 0) && (
         /* The two things the ramp above cannot explain: a wedge can be hatched, or it can
            be uncolored. Both are absences of a reading rather than positions on the

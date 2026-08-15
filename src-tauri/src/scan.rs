@@ -199,6 +199,37 @@ pub struct Progress {
     pub total: usize,
 }
 
+/// One file's shape, streamed the moment it parses.
+///
+/// **The map draws itself while the scan runs, and this is all it takes to draw it.** Width
+/// is lines, so a wedge needs a name and a line count and nothing else; colour is a reading,
+/// and during a scan there isn't one — the assembling map is entirely grey, which is the
+/// same thing it says about unread code anywhere else.
+///
+/// Deliberately not a [`Node`]: a node carries scores, hotspots, docs and body hashes, none
+/// of which exist yet at the moment this is emitted, and half of which are only known after
+/// the blame pass. The two shapes are allowed to differ because the streamed one is thrown
+/// away — the scan's real tree replaces it whole when it lands.
+#[derive(Clone, serde::Serialize)]
+pub struct ShapeFile {
+    /// Repo-relative, which is what the receiving side builds its directories from.
+    pub path: String,
+    pub lang: Lang,
+    /// `(name, lines)` per function, in file order.
+    pub funcs: Vec<(String, u32)>,
+}
+
+fn shape_of(files: &[ParsedFile]) -> Vec<ShapeFile> {
+    files
+        .iter()
+        .map(|f| ShapeFile {
+            path: f.rel_path.clone(),
+            lang: f.lang,
+            funcs: f.funcs.iter().map(|d| (d.name.clone(), d.loc())).collect(),
+        })
+        .collect()
+}
+
 /// Collect the parseable source files under `root`.
 ///
 /// `ignore::WalkBuilder` honors .gitignore/.ignore for free — the same matcher ripgrep
@@ -316,7 +347,7 @@ struct ParsedFile {
 /// way anyone would expect. Committed with the repo like `.sanity/` is, because scoping is
 /// a claim about what this map MEANS: kept on one machine, two people looking at the same
 /// sunburst would be looking at different denominators with no way to tell.
-fn scope_of(root: &Path) -> Option<ignore::gitignore::Gitignore> {
+pub fn scope_of(root: &Path) -> Option<ignore::gitignore::Gitignore> {
     let path = root.join(".sanityignore");
     if !path.exists() {
         return None;
@@ -812,6 +843,9 @@ pub fn scan(
     on_progress: &(dyn Fn(Progress) + Sync),
     // Called with (function id, reading) the instant each score is known.
     on_scored: &(dyn Fn(&str, &Reading) + Sync),
+    // Called with one directory's files the instant they parse, so the window can draw the
+    // repo taking shape instead of a bar. See [`ShapeFile`].
+    on_shape: &(dyn Fn(&[ShapeFile]) + Sync),
     // Set to stop the model pass early. Everything already scored is kept — with no
     // length filter, being able to stop IS the cost control, so this is load-bearing
     // rather than a convenience.
@@ -842,12 +876,19 @@ pub fn scan(
     let parsed_dirs: Vec<Vec<ParsedFile>> = by_dir
         .par_iter()
         .map(|(_dir, entries)| {
-            entries
+            let files: Vec<ParsedFile> = entries
                 .iter()
                 .filter_map(|(p, lang)| {
                     parse_file(root, p, *lang, fidelity, scope.as_ref(), scans)
                 })
-                .collect()
+                .collect();
+            // Streamed HERE, from inside the parallel map, for the same reason `on_scored`
+            // is: reported after the loop, nothing would reach the window until the whole
+            // parse finished — and on a repo the size of ceph the parse is not even the
+            // long part. What follows it is the blame pass, which is minutes, and which the
+            // map can sit fully drawn through instead of blank.
+            on_shape(&shape_of(&files));
+            files
         })
         .collect();
 
@@ -1061,6 +1102,51 @@ mod tests {
         dir
     }
 
+    /// The streamed shape describes the same repo the scan returns.
+    ///
+    /// **Written because the streaming half is invisible when it breaks.** What it feeds is
+    /// a loading state — a picture that is replaced seconds later by the real tree — so an
+    /// `on_shape` that never fires, or fires with nothing in it, looks exactly like a scan
+    /// that was simply fast. The map either assembles or it does not, and nobody can tell
+    /// from the finished window which of those happened.
+    #[test]
+    fn the_streamed_shape_matches_the_tree_it_precedes() {
+        let dir = fixture();
+        let seen = std::sync::Mutex::new(Vec::<ShapeFile>::new());
+        let m = Memos::ephemeral();
+        let scanned = scan(
+            dir.path(),
+            &HeuristicModel,
+            &|_| {},
+            &|_, _: &Reading| {},
+            &|files| seen.lock().unwrap().extend_from_slice(files),
+            &AtomicBool::new(false),
+            Memos { scores: &m.0, scans: &m.1 },
+            Fidelity::Ordering,
+        )
+        .unwrap();
+
+        let streamed = seen.into_inner().unwrap();
+        assert!(!streamed.is_empty(), "the shape never reached the window");
+
+        // Every file the scan drew, and every function in it, with the same line counts —
+        // the loading map has to be the same picture, or it is an animation of a repo
+        // nobody has.
+        let mut want: Vec<(String, String, u32)> = Vec::new();
+        scanned.root.visit(&mut |n| {
+            if n.kind == NodeKind::Func {
+                want.push((n.path.clone(), n.name.clone(), n.loc));
+            }
+        });
+        let mut got: Vec<(String, String, u32)> = streamed
+            .iter()
+            .flat_map(|f| f.funcs.iter().map(|(name, loc)| (f.path.clone(), name.clone(), *loc)))
+            .collect();
+        want.sort();
+        got.sort();
+        assert_eq!(got, want);
+    }
+
     /// Ordering fidelity may drop the all-pairs term. It may not drop the tree.
     ///
     /// The app scans at `Ordering` and the whole UI is built on what comes back, so the
@@ -1077,6 +1163,7 @@ mod tests {
             &HeuristicModel,
             &|_| {},
             &|_, _: &Reading| {},
+            &|_| {},
             &AtomicBool::new(false),
             Memos { scores: &m.0, scans: &m.1 },
             Fidelity::Ordering,
@@ -1111,6 +1198,7 @@ mod tests {
             &HeuristicModel,
             &|_| {},
             &|_, _: &Reading| {},
+            &|_| {},
             &AtomicBool::new(false),
             Memos { scores: &m.0, scans: &m.1 },
             Fidelity::Full,
@@ -1246,6 +1334,7 @@ mod tests {
                 &crate::surprise::HeuristicModel,
                 &|_| {},
                 &|_, _: &crate::surprise::Reading| {},
+                &|_| {},
                 &std::sync::atomic::AtomicBool::new(false),
                 Memos { scores: &cache, scans: &scans },
                 Fidelity::Ordering,
@@ -1283,6 +1372,7 @@ mod tests {
             &crate::surprise::HeuristicModel,
             &|_| {},
             &|_, _: &crate::surprise::Reading| {},
+            &|_| {},
             &std::sync::atomic::AtomicBool::new(false),
             Memos { scores: &cache, scans: &scans },
             Fidelity::Ordering,

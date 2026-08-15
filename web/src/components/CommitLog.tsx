@@ -1,5 +1,6 @@
-import { memo, useCallback, useLayoutEffect, useRef } from 'react'
-import { posOf, type HistoryCommit, type HistoryScan } from '../lib/history'
+import { memo, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import { posOf } from '../lib/history'
+import { historyLog, type LogRow, type Tables } from '../lib/timeline'
 import { compactCount, elide } from '../lib/text'
 
 /** One row's height, in pixels, fixed rather than measured.
@@ -9,6 +10,32 @@ import { compactCount, elide } from '../lib/text'
  *  the DOM where a row is. That is what makes following the replay `O(1)` per frame rather
  *  than a layout query at three hundred commits a second. */
 const ROW_H = 42
+
+/** Rows rendered beyond the viewport, above and below.
+ *
+ *  Enough that a fast scroll or a playhead jump lands on rows that already exist. Two
+ *  screens' worth would be safer and is not free: every row is a subscription the browser
+ *  has to lay out, and the reason this list is windowed at all is that there can be five
+ *  thousand of them. */
+const OVERSCAN = 12
+
+/** Rows fetched per request. A few screens' worth: small enough that scrolling fast does not
+ *  queue megabytes, large enough that a steady scroll is not a request per row. */
+const PAGE = 200
+
+/** How often the list may follow the playhead, in milliseconds.
+ *
+ *  **A replay does not need thirty scroll positions a second.** Following per frame put the
+ *  log inside the render loop twice over: setting `scrollTop` fires a scroll event, which
+ *  moves the window, which re-renders the rows and re-runs the fetch that keeps them — and at
+ *  sixty commits a frame the text is unreadable anyway. Six updates a second looks identical
+ *  and costs a fifth as much. */
+const FOLLOW_MS = 160
+
+/** Page requests allowed in flight at once. A replay sweeping the whole log would otherwise
+ *  queue one per page — six hundred on a large repo — and every one of them lands after the
+ *  playhead has moved past the rows it holds. */
+const INFLIGHT = 2
 
 /**
  * One commit.
@@ -32,7 +59,10 @@ const Row = memo(function Row({
   selected,
   onPick,
 }: {
-  c: HistoryCommit
+  /** Undefined until this row's page arrives. A blank row of the right height, rather than a
+   *  spinner or a collapsed list: the scrollbar must not move under somebody's hand because
+   *  the data they scrolled to has not landed. */
+  c: LogRow | undefined
   real: number
   selected: boolean
   onPick: (real: number) => void
@@ -40,29 +70,28 @@ const Row = memo(function Row({
   return (
     <button
       onClick={() => onPick(real)}
-      className="relative z-10 block w-full overflow-hidden border-b border-[var(--border)] px-4 text-left"
-      style={{
-        height: ROW_H,
-        // The same fill a selected project gets in the sidebar (`.shell-chrome--active`).
-        background: selected ? 'color-mix(in oklch, var(--accent) 22%, transparent)' : undefined,
-        boxShadow: selected ? 'inset 4px 0 0 var(--accent)' : undefined,
-      }}
+      className="block w-full border-b border-[var(--border)] px-4 py-1.5 text-left hover:bg-[var(--secondary)]"
+      style={{ height: ROW_H, background: selected ? 'var(--secondary)' : undefined }}
     >
-      <p
-        className="truncate text-[12px] leading-tight text-[var(--foreground)]"
-        style={{ fontWeight: selected ? 600 : 400 }}
-      >
-        {c.subject}
-      </p>
-      <p className="mono truncate text-[10px] leading-tight text-[var(--muted-foreground)]">
-        {c.short} · {c.author} · {stamp(c.ts)}
-        {/* What this commit did to the picture — the only reason the log sits beside the
-            rings rather than in a terminal. Zeroes are left off: a commit that touched no
-            function still touched files, and a row of "+0 −0" teaches the reader to stop
-            looking at the numbers. */}
-        {c.set.length > 0 && <> · +{c.set.length}</>}
-        {c.del.length > 0 && <> · −{c.del.length}</>}
-      </p>
+      {c && (
+        <>
+          <p
+            className="truncate text-[12px] leading-tight text-[var(--foreground)]"
+            style={{ fontWeight: selected ? 600 : 400 }}
+          >
+            {c.subject}
+          </p>
+          <p className="mono truncate text-[10px] leading-tight text-[var(--muted-foreground)]">
+            {c.short} · {c.author} · {stamp(c.ts)}
+            {/* What this commit did to the picture — the only reason the log sits beside the
+                rings rather than in a terminal. Zeroes are left off: a commit that touched no
+                function still touched files, and a row of "+0 −0" teaches the reader to stop
+                looking at the numbers. */}
+            {c.sets > 0 && <> · +{c.sets}</>}
+            {c.dels > 0 && <> · −{c.dels}</>}
+          </p>
+        </>
+      )}
     </button>
   )
 })
@@ -87,7 +116,8 @@ function stamp(ts: number): string {
  * still to come. Same picture, one update instead of a thousand.
  */
 export function CommitLog({
-  hist,
+  repoPath,
+  tables,
   frames,
   scope,
   index,
@@ -98,11 +128,13 @@ export function CommitLog({
   loc,
   functions,
 }: {
-  hist: HistoryScan
+  /** Where to fetch rows from. The log is paged — see `pages` below. */
+  repoPath: string | null
+  tables: Tables
   repo?: string | null
   loc: number
   functions: number
-  /** The commits in scope, as indices into `hist.commits`. Drilling into a directory asks
+  /** The commits in scope, as indices into the timeline. Drilling into a directory asks
    *  a narrower question, and a log still listing the whole repo answers a different one —
    *  most of its rows would be commits that change nothing on screen. */
   frames: number[]
@@ -120,6 +152,46 @@ export function CommitLog({
 }) {
   const scroller = useRef<HTMLDivElement>(null)
   const pos = posOf(frames, index)
+
+  /**
+   * The rows that exist right now, by their position in `frames`.
+   *
+   * **Loaded and unloaded as you scroll, because a log can be a hundred thousand rows.** A
+   * frame is a commit and every one of them is addressable, so the list is as long as the
+   * repo's history — and holding all of it was the same mistake at a different layer as
+   * shipping the whole timeline: ceph's log alone is 16MB of subjects and authors to render
+   * a dozen lines of text.
+   *
+   * Pages of `PAGE`, keyed by page number, with everything more than a page away from the
+   * viewport dropped. Nothing here is authoritative — a page that has fallen out is fetched
+   * again, which is a request, not a loss.
+   */
+  const pages = useRef(new Map<number, LogRow[]>())
+  const wanted = useRef(new Set<number>())
+  /** Rows arrived. A counter rather than state holding the pages themselves: the fetch
+   *  effect must not depend on what it fetches, or every arrival re-runs it. */
+  const [, arrived] = useReducer((n: number) => n + 1, 0)
+  /** What part of the list is on screen, in rows.
+   *
+   *  **Only the visible rows are rendered, because a frame is addressable and there can be
+   *  thousands of them.** A trace produces every frame anybody might click — five thousand
+   *  four hundred at the longest replay this transport offers — and a list that puts all of
+   *  them in the DOM pays for that on every render of the pane, in a component whose entire
+   *  design note above is about not doing per-row work. The rows are a fixed height, so the
+   *  window is arithmetic rather than measurement.
+   *
+   *  Kept as one object so a scroll that changes neither number renders nothing. */
+  const [view, setView] = useState({ top: 0, height: 0 })
+  useLayoutEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    setView((v) => (v.height === el.clientHeight ? v : { ...v, height: el.clientHeight }))
+  })
+  const first = Math.max(0, Math.floor(view.top / ROW_H) - OVERSCAN)
+  const last = Math.min(
+    frames.length,
+    Math.ceil((view.top + Math.max(view.height, ROW_H)) / ROW_H) + OVERSCAN,
+  )
   /** Set when the position changed because somebody clicked a row in HERE. */
   const fromClick = useRef(false)
 
@@ -146,12 +218,20 @@ export function CommitLog({
    * frames where the highlight has already moved and the list has not — the highlight
    * flickering out and reappearing somewhere else rather than traveling.
    */
+  const lastFollow = useRef(0)
   useLayoutEffect(() => {
     const el = scroller.current
     if (!el) return
     if (fromClick.current) {
       fromClick.current = false
       return
+    }
+    // Throttled while playing — see `FOLLOW_MS`. Not while paused: a scrub is one movement
+    // somebody made and it has to land where they put it.
+    if (playing) {
+      const now = performance.now()
+      if (now - lastFollow.current < FOLLOW_MS) return
+      lastFollow.current = now
     }
     const top = pos * ROW_H
     if (playing) {
@@ -162,6 +242,49 @@ export function CommitLog({
       el.scrollTop = top + ROW_H - el.clientHeight
     }
   }, [pos, playing])
+
+  /** Fetch the pages the window is over, and forget the ones it has left.
+   *
+   *  Keyed on the scope as well as the range: drilling asks a different question of the same
+   *  timeline, and a page of the old answer at the same offset is a page of the wrong list. */
+  useEffect(() => {
+    if (!repoPath) return
+    const from = Math.floor(first / PAGE)
+    const to = Math.floor(Math.max(first, last - 1) / PAGE)
+    let live = true
+    for (let p = from; p <= to; p++) {
+      if (pages.current.has(p) || wanted.current.has(p)) continue
+      // **Never more than a couple at once.** The alternative is what a replay does to this
+      // component: the playhead sweeps the list, every frame asks for the page it has just
+      // reached, and the answers arrive behind a playhead that has moved on. The rows in
+      // flight are already the rows nobody is reading.
+      if (wanted.current.size >= INFLIGHT) break
+      wanted.current.add(p)
+      void historyLog(repoPath, p * PAGE, PAGE, scope)
+        .then((rows) => {
+          wanted.current.delete(p)
+          if (!live) return
+          pages.current.set(p, rows)
+          // Anything more than a page either side of the view is gone. The list is a view of
+          // a story, and a view that never lets go is a copy.
+          for (const held of [...pages.current.keys()]) {
+            if (held < from - 1 || held > to + 1) pages.current.delete(held)
+          }
+          arrived()
+        })
+        .catch(() => wanted.current.delete(p))
+    }
+    return () => {
+      live = false
+    }
+  }, [repoPath, scope, first, last])
+
+  /** A different question means different rows. */
+  useEffect(() => {
+    pages.current.clear()
+    wanted.current.clear()
+    arrived()
+  }, [scope, repoPath])
 
   /** Stable, so `Row`'s memo actually holds — a fresh arrow per render would re-render
    *  every row and undo the whole arrangement. */
@@ -197,11 +320,11 @@ export function CommitLog({
           {compactCount(frames.length)} commits
           {/* Said out loud whenever the list is a subset, so a short log reads as a
               narrowed question rather than as a repo with little history. */}
-          {scope && <> touching this, of {hist.commits.length}</>}
-          {!scope && hist.truncated > 0 && (
+          {scope && <> touching this, of {tables.commits}</>}
+          {!scope && tables.truncated > 0 && (
             /* Counted out loud. A timeline that quietly starts in the middle reads as the
                whole life of the repo — the same rule `excluded` follows in the scan. */
-            <> · {hist.truncated} earlier ones folded into the first frame</>
+            <> · {tables.truncated} earlier ones folded into the first frame</>
           )}
         </p>
 
@@ -226,20 +349,39 @@ export function CommitLog({
           the replay starts.
         </p>
       ) : (
-      <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref={scroller}
+        onScroll={(e) => {
+          const top = e.currentTarget.scrollTop
+          // Quantised to the row: a pixel of scroll cannot change which rows exist, and
+          // re-rendering on every pixel would undo the saving this window exists for.
+          setView((v) =>
+            Math.floor(v.top / ROW_H) === Math.floor(top / ROW_H) ? v : { ...v, top },
+          )
+        }}
+        className="relative min-h-0 flex-1 overflow-y-auto"
+      >
         {/* The list, and over it the two things that move. Both are transformed rather
             than re-laid-out, so following the playhead costs a compositor frame and no
             React work at all. */}
-        <div className="relative">
-          {frames.map((real, i) => (
-            <Row
-              key={hist.commits[real].sha}
-              c={hist.commits[real]}
-              real={real}
-              selected={i === pos}
-              onPick={pick}
-            />
-          ))}
+        {/* Full height whatever is rendered inside it, so the scrollbar describes the whole
+            log and `scrollTop` arithmetic — the playhead-following effect above, and this
+            window itself — keeps meaning what it meant. */}
+        <div className="relative" style={{ height: frames.length * ROW_H }}>
+          <div style={{ transform: `translateY(${first * ROW_H}px)` }}>
+            {frames.slice(first, last).map((real, i) => {
+              const at = first + i
+              return (
+                <Row
+                  key={real}
+                  c={pages.current.get(Math.floor(at / PAGE))?.[at % PAGE]}
+                  real={real}
+                  selected={at === pos}
+                  onPick={pick}
+                />
+              )
+            })}
+          </div>
 
           {/* Everything still to come, dimmed by one element rather than by a style on
               each row. Over the rows, because dimming text means covering it — and

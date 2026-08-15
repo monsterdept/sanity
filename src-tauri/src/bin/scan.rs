@@ -68,6 +68,7 @@ fn main() {
         model.as_ref(),
         &|_| {},
         &|_, _: &sanity_lib::surprise::Reading| {},
+        &|_| {},
         &std::sync::atomic::AtomicBool::new(false),
         // Ephemeral: the headless scanner is how the metric gets measured, and a run
         // that silently reuses yesterday's scores is not a measurement.

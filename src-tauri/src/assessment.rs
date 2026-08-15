@@ -1383,6 +1383,7 @@ mod tests {
             &crate::surprise::HeuristicModel,
             &|_| {},
             &|_, _: &crate::surprise::Reading| {},
+            &|_| {},
             &std::sync::atomic::AtomicBool::new(false),
             crate::scan::Memos {
                 scores: &crate::cache::Cache::ephemeral(),

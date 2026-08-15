@@ -26,7 +26,8 @@ const DURATIONS = [180, 60, 30, 10, 3]
  *  than the label promised and the promise is the whole control. Skipping keeps the
  *  duration honest, and nothing is lost by it: every frame is computed from the commit
  *  index, so a step of forty is as correct as forty steps of one. */
-const MAX_FPS = 30
+export const MAX_FPS = 30
+
 
 function pace(total: number): string {
   if (total >= 60) return `${Math.round(total / 60)}m`

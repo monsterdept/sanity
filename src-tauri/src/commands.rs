@@ -123,11 +123,19 @@ pub async fn scan_repo(
         // proxy-scored function is `Source::Proxy`, which the UI refuses to color, so
         // the all-pairs term would cost 27 of these 34 seconds to produce a value no
         // user ever sees. See `scan::Fidelity`.
+        // The repo's shape, streamed a directory at a time as it parses, so the window can
+        // draw the map assembling instead of a bar that cannot move. The wedges arrive grey
+        // and stay grey: a scan in progress has no reading to show, and the tree the scan
+        // returns replaces this one whole.
+        let shape = |files: &[crate::scan::ShapeFile]| {
+            let _ = app.emit("scan-shape", files);
+        };
         scan::scan(
             &root,
             &model,
             &emit,
             &scored,
+            &shape,
             &CANCEL,
             Memos { scores: &cache, scans: &scans },
             scan::Fidelity::Ordering,
@@ -206,20 +214,69 @@ pub async fn scan_history(
     app: AppHandle,
     path: String,
     limit: Option<usize>,
-) -> Result<crate::history::HistoryScan, String> {
+    // `trace`: walk the commits this repo has not walked yet, which is minutes on a large
+    // repo and an hour on ceph. Omitted or false means "hand me what is already banked" —
+    // see `history::stored`.
+    //
+    // **Two doors rather than one, because the cost is the difference.** This command used
+    // to always bring the timeline up to date, so the button that OPENS History was also the
+    // button that starts an hour of parsing, and there was no way to look at a trace
+    // somebody had already taken without extending it first.
+    trace: Option<bool>,
+) -> Result<usize, String> {
     let root = PathBuf::from(&path);
     if !root.is_dir() {
         return Err(format!("{path} is not a directory"));
     }
-    let limit = limit.unwrap_or(crate::history::MAX_COMMITS);
+    let limit = limit.unwrap_or(crate::history::ALL_COMMITS);
     tauri::async_runtime::spawn_blocking(move || {
+        // **The count, not the timeline.** Returning the story is what made a large repo
+        // unopenable: 122,792 frames is over a hundred megabytes of JSON, and the window
+        // parsed all of it to draw one frame. It asks for what it needs now — see
+        // `history_tables` and the two window commands below it.
+        if trace != Some(true) {
+            return crate::history::stored(&root, limit).map(|s| s.commits.len()).unwrap_or(0);
+        }
         let emit = |p: Progress| {
             let _ = app.emit("history-progress", p);
         };
-        crate::history::read_cached(&root, limit, &emit)
+        crate::history::read_cached(&root, limit, &emit).commits.len()
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// The tables a timeline is drawn from — paths, languages, functions, the opening state.
+///
+/// Sent once when History opens, and never again: everything per-commit is fetched in
+/// windows by the two commands below. See the note above `history::LOADED`.
+#[tauri::command]
+pub fn history_tables(path: String) -> Option<crate::history::Tables> {
+    crate::history::tables(&PathBuf::from(path))
+}
+
+/// `count` log rows from `offset`, for the list beside the map. `scope` narrows it to the
+/// commits that touched a directory, the way drilling does.
+#[tauri::command]
+pub fn history_log(
+    path: String,
+    offset: usize,
+    count: usize,
+    scope: Option<String>,
+) -> Vec<crate::history::LogRow> {
+    crate::history::log(&PathBuf::from(path), offset, count, scope.as_deref().unwrap_or(""))
+}
+
+/// The frame indices in `scope` — what the transport addresses when the map is drilled.
+#[tauri::command]
+pub fn history_scoped(path: String, scope: Option<String>) -> Vec<u32> {
+    crate::history::scoped(&PathBuf::from(path), scope.as_deref().unwrap_or(""))
+}
+
+/// The deltas for frames `[from, from + count)`, for a caller folding the map forward.
+#[tauri::command]
+pub fn history_deltas(path: String, from: usize, count: usize) -> Vec<serde_json::Value> {
+    crate::history::deltas(&PathBuf::from(path), from, count)
 }
 
 /// Top up this repo's timeline, if it already has one.
@@ -235,7 +292,7 @@ pub async fn warm_history(path: String) -> bool {
         return false;
     }
     tauri::async_runtime::spawn_blocking(move || {
-        crate::history::warm(&root, crate::history::MAX_COMMITS)
+        crate::history::warm(&root, crate::history::ALL_COMMITS)
     })
     .await
     .unwrap_or(false)
@@ -472,6 +529,13 @@ pub fn stop_scan() {
     CANCEL.store(true, Ordering::Relaxed);
 }
 
+/// Stop the history replay that is running. What it managed is kept — see
+/// [`crate::history::cancel`].
+#[tauri::command]
+pub fn stop_history() {
+    crate::history::cancel();
+}
+
 /// Add a folder to Sanity, from a directory a person picked.
 ///
 /// **The `+` was deliberately removed once, and this is it coming back for a different
@@ -500,6 +564,17 @@ pub fn stop_scan() {
 #[derive(serde::Serialize)]
 pub struct Added {
     path: String,
+    /// What this repo will be called in the project list, once its scan publishes it.
+    ///
+    /// **The window has to know this before the scan starts.** Adding a project sets it
+    /// aside as pending and selects it the moment its row appears — and the row was being
+    /// matched by comparing the picked path against the row's `repo` string. Those are the
+    /// same string today only by luck: `project_key` canonicalizes, `repo` does not, and a
+    /// symlinked home or a trailing slash is enough to make a repo the person just chose
+    /// sit in the sidebar unselected while the map stays on whatever was there before.
+    /// The key is the identity the backend actually files it under, so handing it over
+    /// removes the guess.
+    key: String,
     /// Git repos sitting directly inside it. Zero for an ordinary project.
     holds: usize,
     /// The first few, by name, so the warning can show what it found rather than a count.
@@ -536,7 +611,12 @@ pub fn add_project(path: String) -> Result<Added, String> {
     names.sort();
     let holds = names.len();
     names.truncate(3);
-    Ok(Added { path: root.to_string_lossy().to_string(), holds, names })
+    Ok(Added {
+        path: root.to_string_lossy().to_string(),
+        key: crate::agentapi::project_key(&root),
+        holds,
+        names,
+    })
 }
 
 // **The MCP-client helpers were here and are gone, because nothing reached them.**

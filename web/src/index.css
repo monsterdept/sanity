@@ -88,6 +88,39 @@
    * and Traps cannot be confused at a glance. Hot pink is louder than any ramp end here,
    * which is the point: this is the one lens where the answer is "look at these". */
   --trap: #ff4f95;
+  /* A replay's two flashes: `--birth` when a wedge first appears, `--touch` when one is
+   * edited. Everything else in that view is grey — see `colorFor`.
+   *
+   * **Green, because History is where Age ends up.** The switcher's right-hand end is a
+   * widening time window — blame is a point, churn is ninety days, age is unbounded, and
+   * History is the whole timeline — and Age is already the green lens. A replay is that
+   * question asked one commit at a time, so it inherits the vocabulary rather than teaching
+   * a second one. Every other candidate had to introduce a hue that meant nothing yet.
+   *
+   * **They part company from the ground in OPPOSITE directions, which is what makes them
+   * legible in both themes.** The ground is `--unanalyzed`, and it is a pale warm grey in
+   * light mode and a dark one in dark mode — so "brighter than the ground" cannot be the
+   * rule for both. `--touch` is a solid leaf green from inside the Age ramp's range, dark in
+   * light mode and lifted in dark mode, the same construction the ramps use. `--birth` is a
+   * chartreuse a step PAST the ramp's bright end, at a chroma no lens reaches.
+   *
+   * That last part is the meaning, not the decoration. Everything on the sequential ramps is
+   * a MEASUREMENT — a position on a scale — and this app already has an idiom for a mark
+   * that is not one: `--trap` sits off every ramp because a trap is an event somebody
+   * reported, not a degree of anything. An arrival is the same kind of fact. Off the end of
+   * the scale is where it belongs.
+   *
+   * **The volume came down when the DATA got fixed, and that is the lesson here.** The pair
+   * before this was hot pink and purple, chosen while every commit lit whole files: at that
+   * density nothing but a shout could be seen. The walk now reports only the functions a
+   * commit changed, and a flash lasts one step of the playhead, so a frame lights a handful
+   * of wedges in a grey field — where contrast against grey is the whole job and saturation
+   * past that is just loud. Earlier attempts, each failing the same way: `--agent-mark` teal
+   * (an annotation colour, vanished against the grey), cyan with violet (unrelated hues,
+   * read as two unrelated events), `--trap`'s pink with purple (loud, but spent the one
+   * colour this app teaches as "this will bite you" on "this is new"). */
+  --birth: #b6e024;
+  --touch: #5f7d3e;
   --warning: #bf965d;
   --success: #597244;
 
@@ -287,6 +320,11 @@
 
   --unanalyzed: #4a4642;
   --trap: #ff5ea1;
+  /* The ground is dark here, so both flashes climb rather than one of them descending.
+     `--touch` lands about where the Age ramp's upper steps sit; `--birth` stays past its
+     end, which is the distinction that carries the pair. */
+  --birth: #d4ff4a;
+  --touch: #8cba63;
   --agent-mark: #42a2ab; /* Teal */
   --structure: #38342f;
 }
@@ -403,12 +441,27 @@ textarea,
 }
 
 /* Nav surfaces tinted with the accent rather than a neutral gray — selection is the one
- * place the chrome's color earns its keep. */
+ * place the chrome's color earns its keep.
+ *
+ * **Three steps, and the resting one is new.** A row used to be nothing until you pointed
+ * at it, which is right for a 28px strip in a list of names: the names ARE the list, and a
+ * fill behind every one of them is chrome competing with content. It stopped being right
+ * when a row became a tile of three lines — at that size "nothing" is not a row at rest, it
+ * is several unrelated numbers floating on the sidebar, and a person has to reconstruct
+ * which belong together every time they look. The resting fill is what says "these five
+ * things are one project".
+ *
+ * 6 / 12 / 24 rather than 0 / 10 / 22: the steps have to stay legible against each OTHER,
+ * because selection is now a difference between two fills rather than the difference
+ * between a fill and the ground. */
+.shell-chrome--rest {
+  background: color-mix(in oklch, var(--accent) 6%, transparent);
+}
 .shell-chrome--active {
-  background: color-mix(in oklch, var(--accent) 22%, transparent);
+  background: color-mix(in oklch, var(--accent) 24%, transparent);
 }
 .shell-chrome--hover:hover {
-  background: color-mix(in oklch, var(--accent) 10%, transparent);
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
 }
 
 /* Wedges animate their fill only. Transitioning `d` would re-tessellate every arc on

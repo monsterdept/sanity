@@ -120,6 +120,7 @@ fn main() {
         &HeuristicModel,
         &|_| {},
         &|_, _: &sanity_lib::surprise::Reading| {},
+        &|_| {},
         &std::sync::atomic::AtomicBool::new(false),
         // Both memos ephemeral: a headless run that answers from a file on disk is not a
         // run of the thing being measured. Same rule `just history` follows.

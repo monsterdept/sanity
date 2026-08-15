@@ -159,6 +159,20 @@ export function slotColor(rank: number): string {
   return rank < CATEGORICAL.length ? CATEGORICAL[rank] : OTHER
 }
 
+/** One of a replay's two flashes: the token, flat, for as long as the flash lasts.
+ *
+ *  **Flat is the third answer here and the first one that worked.** It was a decaying mix
+ *  toward the ground, then a decaying mix with the quieter event held under a ceiling, and
+ *  both spent most of their life in colours nobody chose. Worse, `color-mix(in oklch, …)`
+ *  interpolates HUE along the shorter arc, so a partial mix of the flash colour with the
+ *  warm grey ground toured the wheel between them: the cyan arrival that shipped before
+ *  this went visibly GREEN on the way out, which read as a third event. `in oklab` fixes
+ *  that much — no hue axis to travel — but the mix earned its place back only if a partial
+ *  volume is wanted at all, and it is not. An event is on or it is over. */
+function flash(token: string, label: string): Paint & { label: string } {
+  return { fill: `var(${token})`, stop: token, ink: inkOn(token), label }
+}
+
 /** A ramped fill, the stop it sits nearest, and the ink that survives on it. The three
  *  move together and always have to: a caller that took the fill without the ink is how
  *  every label in the map came to be one color over a ramp spanning 6:1 of lightness.
@@ -358,6 +372,24 @@ export function colorFor(
   ageSpan?: number,
 ): (Paint & { label: string }) | null {
   const s = node.score
+
+  // **A replay is grey, whatever the switcher says, and the one event it paints is an
+  // arrival.** This sits above every mode rather than inside the pinned one, because the
+  // rule is about the SCORES: a history frame's score carries no reading and no scale worth
+  // drawing — see the note on `history.ts` for the three encodings that were tried here and
+  // what each of them turned out to be saying. A wedge flashes on the commit it first
+  // appears in, fades over `flashWindow`, and then sits at the ground with everything else.
+  if (s?.provenance === 'history') {
+    // Arrival first, and it is not a tie-break so much as the whole point: the commit that
+    // creates a function also touches it, so a wedge that has just been born qualifies for
+    // both and must show the loud one.
+    if (s.appeared != null) return flash('--birth', 'new here')
+    // Full strength, like the arrival. The two are ranked by their colours — a deep green
+    // against a near-yellow lime — rather than by diluting this one toward the ground,
+    // which was tried at 45% and then 55% and produced an event nobody could see.
+    if (s.edited != null) return flash('--touch', 'touched here')
+    return null
+  }
 
   if (mode === 'surprise') {
     if (!s || !isAnalyzed(node)) return null

@@ -30,24 +30,32 @@ use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::time::{Duration, Instant};
 
 /// Commits replayed, most recent first. Everything older becomes the opening frame.
 ///
-/// A **backstop**, not a window anybody should hit. It was 400, chosen against the scrub
-/// bar — at a thousand frames a pixel is four commits — and that traded away the thing
-/// the feature is for: a repo whose first 584 commits are folded into frame one opens
-/// with its directory structure already built, so the story starts in the middle and the
-/// map appears to have sprung up on day one. Addressing a commit is the log's job, and
-/// the log addresses all of them; only the bar was ever short.
+/// How many commits a replay covers by default: **all of them**.
 ///
-/// What makes the whole log affordable is [`read_cached`] — the first replay is paid once
-/// per repo and every later one costs the commits since. Matching `churn::MAX_COMMITS`
-/// for the same reason it does: past this the oldest commits change nothing anybody is
-/// looking at, and the payload starts to be the point.
+/// It was 400, then 5,000, and both were the same mistake at different sizes. 400 was
+/// chosen against the scrub bar — at a thousand frames a pixel is four commits — which
+/// traded away the thing the feature is for: a repo whose first 584 commits are folded into
+/// frame one opens with its directory structure already built, so the story starts in the
+/// middle and the map appears to have sprung up on day one. 5,000 only moved the number at
+/// which that happens, and every repo old enough to be interesting hits it: ceph is 163,916
+/// commits, so 97% of its life was the opening frame.
 ///
-/// What is dropped is never dropped silently — `truncated` is reported and the UI says
-/// so, the same rule `excluded` follows in the scan.
-pub const MAX_COMMITS: usize = 5000;
+/// **What makes the whole log affordable is that nobody pays for it twice.** [`read_cached`]
+/// pays the first replay once per repo and every later one costs the commits since. What it
+/// does not make affordable is the FIRST one on a very large repo — at the ~17ms a commit
+/// measured on tonepoet, ceph's log is on the order of an hour and a cache to match. That is
+/// a real cost and it is the user's to spend: `just history --limit` and the `limit`
+/// argument on the command both still bound it, and a bounded run still reports `truncated`
+/// rather than quietly starting in the middle.
+///
+/// Deliberately NOT matched to `churn::MAX_COMMITS` any more. That one bounds a 90-day
+/// window's worth of counting, where the oldest commits genuinely change nothing; this one
+/// bounds a story, where they are the beginning of it.
+pub const ALL_COMMITS: usize = usize::MAX;
 
 /// Blobs above this are the same vendored bundles and generated clients `scan` refuses,
 /// caught here by size for the same reason: at a megabyte apiece they would dominate the
@@ -132,7 +140,11 @@ pub struct HistoryCommit {
 }
 
 /// A repo's history, ready to replay.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `Default` is the empty timeline — a repo with no commits traced yet, which the viewer's
+/// door returns rather than refusing: a story nobody has walked is a story with no frames,
+/// and the window already draws that honestly.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryScan {
     /// Repo-relative, forward-slashed. Referred to by index from everywhere else.
@@ -252,6 +264,17 @@ struct FuncAt {
     /// Position among its file's same-named twins, from 1.
     ord: u32,
     loc: u32,
+    /// This version's signature and body, hashed, so the next commit can tell whether this
+    /// function CHANGED or merely sat in a file that did.
+    ///
+    /// `None` only after [`Replayer::resume`], which rebuilds the live state from stored
+    /// frames and has no source text to hash. An unknown hash compares unequal, so the
+    /// first appended commit re-reports the files it touches in full — one commit per file
+    /// per resume, and never a wrong live state.
+    ///
+    /// Not persisted. It answers a question about two ADJACENT versions, and both of them
+    /// are in hand whenever it is asked.
+    hash: Option<u64>,
 }
 
 /// One file's functions at one moment, in file order.
@@ -298,12 +321,21 @@ fn functions_of(path: &str, lang: Lang, src: &str) -> FileState {
             let ord = *slot;
             let owned = f.owner.clone().unwrap_or_default();
             let key = format!("{path}#{owned}::{}#{ord}", f.name);
-            FuncAt { key, loc: f.loc(), ord, name: f.name, owner: f.owner }
+            // Signature AND body, verbatim. Not `reading_hash`'s whitespace-collapsing
+            // hash: that one asks whether a READING is still valid, where a reflow changes
+            // nothing; this one asks whether this commit touched this function, and a
+            // commit that reformatted it did.
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            std::hash::Hash::hash(&f.signature, &mut h);
+            std::hash::Hash::hash(&f.body, &mut h);
+            let hash = Some(std::hash::Hasher::finish(&h));
+            FuncAt { key, loc: f.loc(), ord, name: f.name, owner: f.owner, hash }
         })
         .collect()
 }
 
 /// One entry of a commit's `--raw` diff: the blob to read and where it lands.
+#[derive(Clone)]
 struct Change {
     path: String,
     /// The new blob, or `None` when the path was deleted.
@@ -385,6 +417,10 @@ fn commits(repo: &Path, range: CommitRange) -> (Vec<RawCommit>, usize) {
         .unwrap_or(0);
 
     let selector = match &range {
+        // Unbounded asks for no bound at all rather than for an enormous one: `git log`
+        // parses `--max-count` into a signed int, so a `usize::MAX` written out is not a
+        // very large window, it is an error.
+        CommitRange::Last(limit) if *limit == ALL_COMMITS => "HEAD".to_string(),
         CommitRange::Last(limit) => format!("--max-count={limit}"),
         CommitRange::Since(sha) => format!("{sha}..HEAD"),
     };
@@ -568,6 +604,9 @@ impl Replayer {
                 owner: def.owner.clone(),
                 ord: def.ord,
                 loc,
+                // Nothing to hash: a resumed state is folded from frames, not parsed. See
+                // `FuncAt::hash`.
+                hash: None,
             };
             r.state.entry(path).or_default().push(at);
         }
@@ -649,12 +688,27 @@ impl Replayer {
             let pi = self.path_idx(&path);
             frame.files.push(pi);
             let prev = self.state.get(&path).cloned().unwrap_or_default();
+            let was: BTreeMap<&str, &FuncAt> =
+                prev.iter().map(|f| (f.key.as_str(), f)).collect();
             for f in &next {
                 let fi = self.funcs.intern(pi, f);
-                // Emitted whether or not the size changed. A frame's `set` is what the
-                // commit *touched*, not only what it resized — the glow is the story, and
-                // a rewrite that keeps the line count is still a rewrite.
-                frame.set.push((fi, f.loc));
+                // **Only what this commit actually changed.** A commit arrives as a set of
+                // changed FILES, and the whole file is re-parsed to diff it — so the
+                // obvious thing, and what this did, is to emit every function the new parse
+                // found. That makes `set` mean "every function in every file this commit
+                // touched", which is a different and much larger claim: on a real repo it
+                // lit whole files at once and there was no such thing on screen as a commit
+                // that changed part of a file. Nobody spotted it while `set` only drove
+                // wedge SIZES, because a function that did not change reports the size it
+                // already had.
+                //
+                // Comparing hashes is what makes the distinction available at all: the file
+                // changed, and which of its functions did is not derivable from that.
+                // Compared by KEY rather than by position, or inserting one function at the
+                // top of a file would report every function below it as rewritten.
+                if was.get(f.key.as_str()).is_none_or(|old| old.hash != f.hash) {
+                    frame.set.push((fi, f.loc));
+                }
             }
             for f in &prev {
                 if !next.iter().any(|n| n.key == f.key) {
@@ -702,12 +756,111 @@ impl Replayer {
         self.out.funcs = self.funcs.list;
         self.out
     }
+
+    /// The timeline as it stands, without ending the walk.
+    ///
+    /// A copy rather than a borrow, because what it is for is being written to disk while
+    /// the walk carries on. `head` already names the last commit applied — `apply` sets it
+    /// every time — which is the whole reason a half-finished timeline is a legal one: it
+    /// is indistinguishable from a complete timeline of an older HEAD, and that is a shape
+    /// this module already knows how to carry forward.
+    fn snapshot(&self) -> HistoryScan {
+        let mut out = self.out.clone();
+        out.funcs = self.funcs.list.clone();
+        out
+    }
+}
+
+/// The share of a walk that may be spent writing checkpoints, as a divisor: one part
+/// writing to twenty parts working.
+///
+/// **Fixing an interval was the wrong shape, because the cost is not fixed.** A checkpoint
+/// costs one serialization of the timeline so far, and that grows as the walk goes: ceph's
+/// first 6,393 commits are 8.9MB and serialize in tens of milliseconds, while the finished
+/// 122,792 would be ~170MB and closer to a second. So any single number is wrong at one end
+/// — 120s wasted almost nothing and risked two minutes of work, and 10s would have been
+/// free early and spent a tenth of the last hour writing.
+///
+/// Timing the write and waiting twenty times as long bounds the overhead at about 5%
+/// wherever the walk is, which is the property actually worth holding fixed. Small repos
+/// sit at the floor and large ones stretch toward the ceiling on their own.
+const CHECKPOINT_BUDGET: u32 = 20;
+
+/// Never more often than this, however cheap the write is. Below it the interval is
+/// measuring scheduler noise rather than anything about the walk.
+const CHECKPOINT_MIN: Duration = Duration::from_secs(5);
+
+/// Never rarer than this, however expensive the write is — the ceiling is what a person is
+/// willing to lose, and past a minute the answer stops being "it resumed" in any useful
+/// sense.
+const CHECKPOINT_MAX: Duration = Duration::from_secs(60);
+
+/// Set to stop the walk in progress. See [`cancel`].
+static CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Stop the replay that is running, wherever it has got to.
+///
+/// **Stopping is not throwing away.** The walk breaks out of its loop, its caller writes what
+/// it holds to the cache exactly as a completed one would, and what comes back is a timeline
+/// of everything replayed so far — which is a legal timeline of an older HEAD, the same shape
+/// a checkpoint has. So a cancelled replay is scrubbable up to where it stopped, and asking
+/// for History again later resumes from there rather than starting over.
+pub fn cancel() {
+    CANCELLED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn cancelled() -> bool {
+    CANCELLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Leaves a resumable timeline behind, often enough to matter and rarely enough to be free.
+struct Checkpoint {
+    at: Instant,
+    every: Duration,
+}
+
+impl Checkpoint {
+    fn new() -> Self {
+        Self { at: Instant::now(), every: CHECKPOINT_MIN }
+    }
+
+    /// Write, if one is due. `snapshot` is called only when it is — building one copies the
+    /// whole timeline, which is precisely the cost this is rationing.
+    fn maybe(&mut self, repo: &Path, limit: usize, snapshot: impl FnOnce() -> HistoryScan) {
+        if self.at.elapsed() < self.every {
+            return;
+        }
+        let started = Instant::now();
+        save_cache(repo, limit, &snapshot());
+        self.every = (started.elapsed() * CHECKPOINT_BUDGET).clamp(CHECKPOINT_MIN, CHECKPOINT_MAX);
+        // Timed from AFTER the write: the interval rations working time, and starting the
+        // clock before it would charge the walk for the write twice.
+        self.at = Instant::now();
+    }
 }
 
 /// Replay `repo`'s history into frames the sunburst can draw.
 ///
 /// Never fails: a directory with no git history is a perfectly reasonable thing to open,
 /// it simply has no story to tell, and an empty timeline says so honestly.
+///
+/// **It checkpoints, and that stopped being optional when the window became the whole
+/// repo.** How often is not a constant — see [`Checkpoint`], which times its own writes and
+/// keeps them to a twentieth of the walk. The cache used to be written once, at the end, which is the right shape for a
+/// walk that takes a minute: nothing is lost that git cannot produce again, and a
+/// half-written timeline is a file nobody asked for. At 5,000 commits that was true. At
+/// 122,792 — ceph, unbounded — a walk is the better part of an hour, and quitting the app
+/// threw away all of it.
+///
+/// **A partial timeline needs no new concept, which is why this is four lines.** `head`
+/// names the last commit applied, so what lands on disk is exactly a COMPLETE timeline of
+/// an older HEAD — and carrying one of those forward is what [`extend`] already does, down
+/// to the ancestry check that refuses a rewritten history. A resumed walk replays only what
+/// it had not reached.
+///
+/// Time, not commits, because the thing being bounded is how much work a person can lose.
+/// Two minutes says that in the unit they would say it in, and it costs a repo whose whole
+/// replay is shorter than that exactly nothing.
 pub fn read(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> HistoryScan {
     let (log, truncated) = commits(repo, CommitRange::Last(limit));
     let mut r = Replayer::empty();
@@ -732,9 +885,14 @@ pub fn read(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> HistorySc
     }
     progress(Progress { done: 1, total });
 
+    let mut checkpoint = Checkpoint::new();
     for (n, commit) in log.iter().enumerate() {
+        if cancelled() {
+            break;
+        }
         r.apply(&mut blobs, commit);
         progress(Progress { done: n + 2, total });
+        checkpoint.maybe(repo, limit, || r.snapshot());
     }
     r.finish()
 }
@@ -758,6 +916,9 @@ pub fn read(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> HistorySc
 /// a second home for readings was a bug where a second copy of a timeline is not — this
 /// one holds nothing that cannot be recomputed from git.
 pub fn read_cached(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> HistoryScan {
+    // Cleared here rather than by whoever cancelled: a flag that outlives its walk truncates
+    // the NEXT one, and `warm` calls this on every project that comes on screen.
+    CANCELLED.store(false, std::sync::atomic::Ordering::Relaxed);
     let head = head_of(repo);
     if let Some(cached) = load_cache(repo, limit) {
         if !head.is_empty() && cached.head == head {
@@ -771,7 +932,20 @@ pub fn read_cached(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> Hi
     }
     let scan = read(repo, limit, progress);
     save_cache(repo, limit, &scan);
+    // The held copy describes a story this walk has just replaced.
+    unload();
     scan
+}
+
+/// The timeline this repo already has, without walking a single commit.
+///
+/// **Looking at a trace and taking one are different acts, and only one of them costs an
+/// hour.** `read_cached` conflates them by design — it is what you call when you want the
+/// timeline to be CURRENT — so opening History on a repo with a partial trace resumed the
+/// walk, and the window that meant to show a picture started an hour of parsing instead.
+/// This is the viewer's door: whatever was banked, exactly as banked, or nothing.
+pub fn stored(repo: &Path, limit: usize) -> Option<HistoryScan> {
+    load_cache(repo, limit)
 }
 
 /// Carry a cached scan forward to HEAD, or `None` if it cannot be carried.
@@ -791,16 +965,29 @@ fn extend(
     if log.is_empty() {
         return None;
     }
+    let cached_len = cached.commits.len();
+    let mut checkpoint = Checkpoint::new();
     // Past this the append is doing the whole window's work with none of its clarity.
     if log.len() > limit {
         return None;
     }
     let mut blobs = Blobs::open(repo)?;
+    // **Counted from the beginning of the story, not from where this run picked it up.**
+    // Reporting `n / log.len()` describes the WORK, and what a person watching a resumed
+    // walk needs is where the walk IS: a run that recovered 6,393 of ceph's commits and
+    // reported `1 / 116,400` was indistinguishable on screen from one that had thrown them
+    // away and started again — which is exactly the question checkpointing exists to
+    // answer, made unanswerable by the progress line.
+    let banked = cached_len;
     let mut r = Replayer::resume(cached);
-    let total = log.len();
+    let total = banked + log.len();
     for (n, commit) in log.iter().enumerate() {
+        if cancelled() {
+            break;
+        }
         r.apply(&mut blobs, commit);
-        progress(Progress { done: n + 1, total });
+        progress(Progress { done: banked + n + 1, total });
+        checkpoint.maybe(repo, limit, || r.snapshot());
     }
     r.fold(limit);
     Some(r.finish())
@@ -861,7 +1048,18 @@ fn is_ancestor(repo: &Path, sha: &str) -> bool {
 /// closes it, and it belongs in this file's rules beside `MINIFIED_LINE_BYTES` and
 /// `VENDORED`, which are duplicated here for the same reason: what history refuses and how
 /// history parses must move with the scan or the two disagree in silence.
-const CACHE_VERSION: u32 = 2;
+///
+/// Moved to 4 when a frame stopped being a commit and became a BUCKET of them — see
+/// `FRAMES`. Old frames describe the same repo at a finer grain, and appending coarse ones
+/// to fine ones would leave a timeline whose scrub bar means two different things at its two
+/// ends.
+///
+/// Moved to 3 when `set` stopped meaning "every function in a file this commit touched"
+/// and started meaning "the functions this commit changed" — same fields, same live state,
+/// different claim. A stored timeline is EXTENDED rather than rebuilt, so without a bump an
+/// old cache would keep replaying whole-file flashes for its old commits and land sparse
+/// ones on the end: one timeline telling the story two ways, which is worse than the bug.
+const CACHE_VERSION: u32 = 4;
 
 #[derive(Serialize, Deserialize)]
 struct Cached {
@@ -887,7 +1085,10 @@ fn cache_path(repo: &Path, limit: usize) -> Option<PathBuf> {
         h ^= *b as u64;
         h = h.wrapping_mul(0x1000_0000_01b3);
     }
-    Some(dir.join(format!("{h:016x}-{limit}.json")))
+    // Named rather than numbered when unbounded — a file called `…-18446744073709551615`
+    // is a number nobody can read as "the whole repo".
+    let window = if limit == ALL_COMMITS { "all".to_string() } else { limit.to_string() };
+    Some(dir.join(format!("{h:016x}-{window}.json")))
 }
 
 fn load_cache(repo: &Path, limit: usize) -> Option<HistoryScan> {
@@ -899,11 +1100,45 @@ fn load_cache(repo: &Path, limit: usize) -> Option<HistoryScan> {
         .then_some(cached.scan)
 }
 
+/// What a timeline holds, without reading the timeline.
+///
+/// **A sidecar, because the answer is four bytes and the file is 170MB.** The sidebar wants
+/// to say how many commits a repo has left to replay, on every poll, for every project. That
+/// question is answered by `HistoryScan::commits.len()`, and reaching it through the cache
+/// would mean parsing ceph's whole timeline twice a second.
+///
+/// Written beside the cache and never read as authority: a missing or stale one costs a
+/// number in a sidebar, which is why nothing checks it against the timeline it describes.
+#[derive(Serialize, Deserialize)]
+struct Banked {
+    head: String,
+    commits: usize,
+}
+
+fn meta_path(repo: &Path, limit: usize) -> Option<PathBuf> {
+    cache_path(repo, limit).map(|p| p.with_extension("meta.json"))
+}
+
+/// How many commits of `repo` have been replayed and stored. 0 when none have.
+pub fn banked(repo: &Path, limit: usize) -> usize {
+    meta_path(repo, limit)
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str::<Banked>(&s).ok())
+        .map(|b| b.commits)
+        .unwrap_or(0)
+}
+
 fn save_cache(repo: &Path, limit: usize, scan: &HistoryScan) {
     let Some(path) = cache_path(repo, limit) else { return };
     // Nothing is reported when this fails. A reading that fails to save is an error the
     // agent must see, because the work is gone; a timeline that fails to save costs the
     // next replay some seconds and nothing else.
+    if let (Some(meta), Ok(text)) = (
+        meta_path(repo, limit),
+        serde_json::to_string(&Banked { head: scan.head.clone(), commits: scan.commits.len() }),
+    ) {
+        let _ = std::fs::write(meta, text);
+    }
     if let Ok(text) = serde_json::to_string(&Cached {
         version: CACHE_VERSION,
         parse: crate::parse::PARSE_VERSION,
@@ -1048,6 +1283,47 @@ mod tests {
         (h.commits.iter().map(|c| c.sha.clone()).collect(), h.truncated, alive)
     }
 
+    /// A walk stopped halfway leaves a timeline that can be carried the rest of the way.
+    ///
+    /// **This is the whole of resuming, and the point is that it needs no new concept.** A
+    /// checkpoint is [`Replayer::snapshot`] written to the cache mid-walk, and what it holds
+    /// is a complete timeline of an older HEAD — the same thing on disk after a quiet
+    /// afternoon as after a killed replay. So the recovery path is `extend`, which already
+    /// exists, is already tested against a fresh replay, and already refuses a history that
+    /// was rewritten underneath it.
+    ///
+    /// What this pins is the claim that makes that true: stop the walk at commit two, and
+    /// what you are holding is exactly what a replay of the two-commit repo produces. If
+    /// `snapshot` ever starts leaving something out, a resumed hour of parsing quietly
+    /// becomes a story that never happened.
+    #[test]
+    fn a_walk_stopped_early_holds_what_a_shorter_walk_would_have() {
+        let two = read(repo_with(2).path(), ALL_COMMITS, &|_| {});
+
+        // The same repo with a third commit on top, walked by hand so the walk can be
+        // stopped where a checkpoint would have landed.
+        let dir = repo_with(3);
+        let (log, _) = commits(dir.path(), CommitRange::Last(ALL_COMMITS));
+        let mut blobs = Blobs::open(dir.path()).expect("a repo has blobs");
+        let mut r = Replayer::empty();
+        r.out.base_ts = log.first().map(|c| c.ts).unwrap_or(0);
+        for commit in log.iter().take(2) {
+            r.apply(&mut blobs, commit);
+        }
+        let parked = r.snapshot();
+
+        assert_eq!(parked.head, log[1].sha, "a checkpoint names the last commit it applied");
+        assert_eq!(parked.commits.len(), 2);
+        // The functions and their sizes, not the whole shape: these are two temp repos, so
+        // their commits are the same CONTENT under different shas, and comparing those
+        // compares the fixture rather than the timeline.
+        assert_eq!(shape(&parked).2, shape(&two).2);
+
+        // And it carries forward to the same place a whole replay reaches.
+        let resumed = extend(dir.path(), parked, ALL_COMMITS, &|_| {}).expect("extends");
+        assert_eq!(shape(&resumed), shape(&read(dir.path(), ALL_COMMITS, &|_| {})));
+    }
+
     /// The whole point of the cache: a repo that gained a commit must not be re-parsed,
     /// and the timeline that comes out has to be the one a full replay would have
     /// produced. If these ever diverge, the app shows one story on a cold machine and a
@@ -1109,4 +1385,195 @@ mod tests {
         assert!(lang_of("web/src/main.tsx").is_some());
         assert!(lang_of("README.md").is_none());
     }
+}
+
+// ── Serving a timeline in windows ────────────────────────────────────────────────────────
+//
+// **The story stays here and the window borrows pieces of it.** A timeline used to cross to
+// the frontend whole, which is right up to a few thousand commits and impossible past that:
+// ceph's 122,792 are ~16MB of log metadata, ~47MB of deltas and a function table besides, and
+// handing all of it over froze the app for as long as it took to parse. What the window
+// actually needs at any moment is small — a screenful of log rows, the deltas between where
+// the playhead is and where it is going — so this holds the timeline and answers questions
+// about it.
+//
+// One at a time. Two timelines in memory is two hundred megabytes to save somebody the second
+// open of a repo they left, and the cache already makes that fast.
+
+/// The timeline currently loaded, and which repo it belongs to.
+static LOADED: std::sync::Mutex<Option<(PathBuf, HistoryScan)>> = std::sync::Mutex::new(None);
+
+/// Everything about a timeline that is NOT per-commit: the tables the tree is built from,
+/// and the counts a transport needs.
+///
+/// Sent once when History opens. Big on a large repo — ceph's function table is tens of
+/// megabytes — but bounded by the repo rather than by its history, which is the same size the
+/// live map already carries.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tables {
+    pub paths: Vec<String>,
+    /// Which of those paths `.sanityignore` sets aside, parallel to `paths`.
+    ///
+    /// **Read from the repo as it is now, applied to every version of it.** A file the person
+    /// has just declared not-their-code should not be the largest wedge in a replay either,
+    /// and the alternative — the ignore file as it stood at each commit — would mean a wedge
+    /// appearing and vanishing because somebody edited a config, which is a story about the
+    /// config rather than about the code.
+    ///
+    /// The trace still WALKS them: what a timeline holds is what happened, and pruning at the
+    /// walk would mean re-tracing an hour of a large repo every time this file changed.
+    pub excluded: Vec<bool>,
+    pub langs: Vec<String>,
+    pub funcs: Vec<HistoryFunc>,
+    pub base: Vec<(u32, u32)>,
+    pub base_ts: i64,
+    pub head: String,
+    pub truncated: usize,
+    /// How many frames the timeline holds. The scrub bar's extent, and the count the log
+    /// pages through.
+    pub commits: usize,
+}
+
+/// One row of the log: what a person reads, without what the map folds.
+///
+/// `set` and `del` are COUNTS here, not the arrays. The row prints `+12 −3`; shipping the
+/// indices to print their length is most of the 47MB this exists to avoid.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogRow {
+    pub sha: String,
+    pub short: String,
+    pub ts: i64,
+    pub author: String,
+    pub subject: String,
+    pub sets: usize,
+    pub dels: usize,
+}
+
+/// Load `repo`'s stored timeline, or keep the one already loaded.
+fn with_loaded<T>(repo: &Path, f: impl FnOnce(&HistoryScan) -> T) -> Option<T> {
+    let mut held = LOADED.lock().unwrap_or_else(|e| e.into_inner());
+    let fresh = match held.as_ref() {
+        Some((at, _)) if at == repo => false,
+        _ => true,
+    };
+    if fresh {
+        *held = Some((repo.to_path_buf(), stored(repo, ALL_COMMITS)?));
+    }
+    held.as_ref().map(|(_, scan)| f(scan))
+}
+
+/// Drop whatever is held. Called when a trace rewrites the timeline underneath it.
+pub fn unload() {
+    *LOADED.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+pub fn tables(repo: &Path) -> Option<Tables> {
+    let scope = crate::scan::scope_of(repo);
+    with_loaded(repo, |s| Tables {
+        excluded: s
+            .paths
+            .iter()
+            .map(|p| {
+                scope.as_ref().is_some_and(|g| {
+                    g.matched_path_or_any_parents(Path::new(p), false).is_ignore()
+                })
+            })
+            .collect(),
+        paths: s.paths.clone(),
+        langs: s.langs.clone(),
+        funcs: s.funcs.clone(),
+        base: s.base.clone(),
+        base_ts: s.base_ts,
+        head: s.head.clone(),
+        truncated: s.truncated,
+        commits: s.commits.len(),
+    })
+}
+
+/// `count` log rows from `offset`, of the commits in `scope`.
+///
+/// Short reads at the end rather than an error: the caller is a scrolling list and the end of
+/// a list is not a failure.
+///
+/// **Scoping moved here with the rest of the story.** Drilling into a directory narrows the
+/// log to the commits that touched it, which is a question about every commit's file list —
+/// the one part of a frame this deliberately does not send. Answering it here costs a prefix
+/// test per commit and answering it there would cost the 47MB.
+pub fn log(repo: &Path, offset: usize, count: usize, scope: &str) -> Vec<LogRow> {
+    with_loaded(repo, |s| {
+        let rows = s.commits.iter().enumerate();
+        let rows: Box<dyn Iterator<Item = (usize, &HistoryCommit)>> = if scope.is_empty() {
+            Box::new(rows)
+        } else {
+            Box::new(rows.filter(|(_, c)| touches(s, c, scope)))
+        };
+        rows.skip(offset)
+            .take(count)
+            .map(|(_, c)| c)
+            .map(|c| LogRow {
+                sha: c.sha.clone(),
+                short: c.short.clone(),
+                ts: c.ts,
+                author: c.author.clone(),
+                subject: c.subject.clone(),
+                sets: c.set.len(),
+                dels: c.del.len(),
+            })
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
+/// Did this commit touch anything under `scope`?
+///
+/// Segment-wise, or `web/src` takes in `web/src-old` — the same rule the frontend's own
+/// prefix test follows, and the reason this is a function rather than a `starts_with`.
+fn touches(scan: &HistoryScan, c: &HistoryCommit, scope: &str) -> bool {
+    c.files.iter().any(|f| {
+        let p = &scan.paths[*f as usize];
+        p.starts_with(scope) && p.as_bytes().get(scope.len()) == Some(&b'/')
+    })
+}
+
+/// The real frame indices in `scope`, oldest first.
+///
+/// Integers rather than rows: this is what the transport addresses and what the scrub bar's
+/// length is, and it is the whole list — a drilled repo whose subtree was touched by ninety
+/// thousand commits has a scrub bar ninety thousand long, which is the honest one.
+pub fn scoped(repo: &Path, scope: &str) -> Vec<u32> {
+    with_loaded(repo, |s| {
+        if scope.is_empty() {
+            return (0..s.commits.len() as u32).collect();
+        }
+        s.commits
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| touches(s, c, scope))
+            .map(|(i, _)| i as u32)
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
+/// The deltas for frames `[from, from + count)`, for a caller folding forward.
+pub fn deltas(repo: &Path, from: usize, count: usize) -> Vec<serde_json::Value> {
+    with_loaded(repo, |s| {
+        s.commits
+            .iter()
+            .skip(from)
+            .take(count)
+            .map(|c| {
+                serde_json::json!({
+                    "ts": c.ts,
+                    "author": c.author,
+                    "set": c.set,
+                    "del": c.del,
+                    "files": c.files,
+                })
+            })
+            .collect()
+    })
+    .unwrap_or_default()
 }

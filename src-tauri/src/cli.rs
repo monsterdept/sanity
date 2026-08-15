@@ -1544,6 +1544,7 @@ fn read_repo(
         &crate::surprise::HeuristicModel,
         &|_| {},
         &|_, _: &crate::surprise::Reading| {},
+        &|_| {},
         &std::sync::atomic::AtomicBool::new(false),
         crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
         // Ordering, like `refresh`: the proxy scores decide nothing this prints.
@@ -1831,6 +1832,7 @@ pub fn refresh(path: &str) -> i32 {
         &crate::surprise::HeuristicModel,
         &|_| {},
         &|_, _: &crate::surprise::Reading| {},
+        &|_| {},
         &std::sync::atomic::AtomicBool::new(false),
         crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
         // Ordering, matching an open. The proxy scores decide nothing that is written here —

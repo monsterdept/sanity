@@ -6,6 +6,7 @@ import {
   projectScan,
   applyAgentReports,
   applyScores,
+  pruneExcluded,
   countPending,
   type Added,
   cliStatus,
@@ -33,11 +34,11 @@ import {
   headSizes,
   onHistoryProgress,
   scanHistory,
-  scopedCommits,
   warmHistory,
-  type HistoryScan,
 } from './lib/history'
+import { Deltas, historyScoped, historyTables, type Tables } from './lib/timeline'
 import { Sunburst } from './components/Sunburst'
+import { onScanShape, shapeTree, type ShapeFile } from './lib/shape'
 import type { MascotState } from './components/MascotFigure'
 import { CommitLog } from './components/CommitLog'
 import { HistoryBar } from './components/HistoryBar'
@@ -59,6 +60,13 @@ import { Detail } from './components/Detail'
 import { SideBar } from './components/SideBar'
 import { Overlay } from './components/Overlay'
 import { ReadDialog } from './components/ReadDialog'
+
+/** Files that have to have arrived before the assembling map is drawn — see `shapeRoot`. */
+const SHAPE_FLOOR = 24
+
+/** Handlers the assembling map has no use for: it is a picture of a scan in progress, and
+ *  there is nothing under a wedge to select, drill into or clear yet. */
+const noop = () => {}
 
 /** Do two project lists say the same thing?
  *
@@ -174,7 +182,13 @@ function parentOf(node: Node, id: string): Node | null {
 export default function App() {
   const [scan, setScan] = useState<Scan | null>(null)
   const [error, setError] = useState<string | null>(null)
-  /** A repo just added by hand, waiting for its scan to reach the project list. */
+  /** A repo just added by hand, waiting for its scan to reach the project list.
+   *
+   *  Its KEY, not its path. It was the path, compared against each row's `repo` — and those
+   *  two strings agree only by luck, because `project_key` canonicalizes and `repo` keeps
+   *  whatever the picker handed over. When they disagreed the effect below never fired, so
+   *  the repo somebody had just chosen sat in the sidebar unselected until its scan finished
+   *  minutes later and the backend's own focus finally moved the window. */
   const [pendingAdd, setPendingAdd] = useState<string | null>(null)
   /** What is selected, as the NODE rather than its id.
    *
@@ -261,12 +275,30 @@ export default function App() {
   // today's code and cannot be replayed onto a 2019 body, so a frame is colored by
   // recency and the switcher is disabled rather than offered with one option that lies.
   const [historyOn, setHistoryOn] = useState(false)
-  const [history, setHistory] = useState<HistoryScan | null>(null)
+  /** The timeline's tables, and a handle on the deltas that stream in behind them.
+   *
+   *  Two halves because they arrive differently: the tables are one bounded fetch and the
+   *  deltas are the story — see `lib/timeline.ts`. Held as one object so a render cannot see
+   *  one without the other. */
+  const [history, setHistory] = useState<{ tables: Tables; deltas: Deltas } | null>(null)
+  /** How far the story has arrived. The scrub bar addresses the whole timeline; this is how
+   *  much of it can be drawn right now, and it only ever grows. */
+  const [loaded, setLoaded] = useState(0)
   /** Which project `history` describes. A repo's timeline is not transferable, and
    *  switching projects with a stale one loaded would replay one repo's commits over
    *  another's name. */
   const [historyKey, setHistoryKey] = useState<string | null>(null)
-  const [historyBusy, setHistoryBusy] = useState(false)
+  /** The project whose replay is running, or null.
+   *
+   *  A boolean once, which made a replay a property of the WINDOW rather than of a repo:
+   *  switching to another project left the strip counting ceph's 122,818 commits over
+   *  sanity's map, and the mode button reading "Reading…" about work belonging to a repo
+   *  that was no longer on screen. A replay takes long enough on a large repo that leaving
+   *  it running and going to look at something else is the normal thing to do. */
+  const [busyKey, setBusyKey] = useState<string | null>(null)
+  /** Is the project on screen the one being replayed? Everything the window says about a
+   *  replay is about the repo it is drawing, never about the app. */
+  const historyBusy = busyKey === activeKey
   const [historyProgress, setHistoryProgress] = useState<Progress | null>(null)
   /** The playhead. -1 is the opening state, before the first replayed commit lands. */
   const [histIndex, setHistIndex] = useState(-1)
@@ -424,6 +456,34 @@ export default function App() {
     }
   }, [])
 
+  /** The repo's shape as the scan discovers it, so a first open draws the map assembling
+   *  rather than a bar. See `lib/shape.ts`.
+   *
+   *  Batched on the same argument as the scores above, and it matters more here: a large
+   *  repo emits a directory every few milliseconds, and rebuilding the tree per batch is
+   *  cheap only because the batches are coarse. Cleared when a tree lands — the scan's own
+   *  tree is the real one, and two of them on screen would be two answers to one question.
+   */
+  const arriving = useRef<ShapeFile[]>([])
+  const [shape, setShape] = useState<ShapeFile[]>([])
+  useEffect(() => {
+    const un = onScanShape((files) => arriving.current.push(...files))
+    const timer = setInterval(() => {
+      if (arriving.current.length === 0) return
+      setShape((prev) => [...prev, ...arriving.current.splice(0)])
+    }, 300)
+    return () => {
+      un()
+      clearInterval(timer)
+    }
+  }, [])
+  useEffect(() => {
+    if (scan) {
+      arriving.current = []
+      setShape([])
+    }
+  }, [scan])
+
 
   // File → Open used to raise a folder picker. Opening by hand is gone — a project arrives
   // only when an agent calls `sanity_open` — so the menu item now opens the one thing that
@@ -449,9 +509,9 @@ export default function App() {
   // picker is dismissed or the directory is refused — and the gate is exactly where a
   // first-time user meets the refusal.
   /** Start scanning one folder. The tail of both paths in. */
-  const takeFolder = useCallback((path: string) => {
+  const takeFolder = useCallback((path: string, key: string) => {
     setBigFolder(null)
-    setPendingAdd(path)
+    setPendingAdd(key)
     void scanRepo(path).catch((e) => {
       setPendingAdd(null)
       setError(String(e))
@@ -472,12 +532,11 @@ export default function App() {
           setBigFolder(added)
           return
         }
-        const path = added.path
         // Remembered so the new project can be selected when it shows up. The scan
         // publishes it and the poll renders it, which are two different moments — without
         // this the repo you just added appears in the list and the map stays on whatever
         // you were looking at.
-        takeFolder(path)
+        takeFolder(added.path, added.key)
       })
       .catch((e) => {
         setPendingAdd(null)
@@ -659,22 +718,65 @@ export default function App() {
   // instant, and the commits behind you cannot have changed.
   useEffect(() => {
     if (!historyOn || !repoPath || !activeKey) return
-    if (historyKey === activeKey || historyBusy) return
-    setHistoryBusy(true)
+    // `busyKey`, not `historyBusy`: one walk at a time whatever is on screen. Two would
+    // interleave their progress events, which carry no repo, so the row would count two
+    // walks as one.
+    if (historyKey === activeKey || busyKey) return
     setHistoryProgress(null)
-    void scanHistory(repoPath)
-      .then((h) => {
-        setHistory(h)
-        setHistoryKey(activeKey)
-        // Opens at the END, not at the beginning. The map you were just looking at is the
-        // last frame, so starting there means turning history on changes nothing you can
-        // see until you ask it to — and pressing play then rewinds and replays, which is
-        // the gesture people expect from a transport they have just revealed.
-        setHistIndex(h.commits.length - 1)
+    // **Viewing only.** Turning History on used to bring the timeline up to date, which is
+    // how the top bar came to start an hour of parsing: the control that opens a view was
+    // also the control that commissioned the work behind it. Tracing is `onTrace`, from the
+    // project's own row, where the cost is stated next to the button.
+    const path = repoPath
+    const key = activeKey
+    void historyTables(path)
+      .then(async (tables) => {
+        if (!tables) return
+        const deltas = new Deltas(path)
+        // **Opens as far as the story has arrived, which on a small repo is the end.**
+        // Opening at the end was the rule and the reason still holds — the map you were
+        // looking at is the last frame, so turning History on should change nothing you can
+        // see. What changed is that "the end" of a hundred thousand commits is not a place
+        // the window can be in one fetch. The first block lands immediately, the rest keeps
+        // arriving, and the playhead sits at the newest frame that can be drawn.
+        await deltas.ensure(0, setLoaded)
+        setHistory({ tables, deltas })
+        setHistoryKey(key)
+        setLoaded(deltas.have())
+        setHistIndex(Math.min(tables.commits, deltas.have()) - 1)
       })
       .catch((e) => setError(String(e)))
-      .finally(() => setHistoryBusy(false))
-  }, [historyOn, repoPath, activeKey, historyKey, historyBusy])
+  }, [historyOn, repoPath, activeKey, historyKey, busyKey])
+
+  /** Walk this repo's commits, from the project row's `Trace`.
+   *
+   *  The expensive door. It selects the project first, because a walk with nothing on screen
+   *  to show for it is the state the progress strip used to leave people in — and the row
+   *  that started it is the row that reports it. */
+  const trace = useCallback(
+    (key: string) => {
+      const repo = projects.find((p) => p.key === key)?.repo
+      if (!repo || busyKey) return
+      setActiveKey(key)
+      setBusyKey(key)
+      setHistoryProgress(null)
+      // Every commit is a frame — the log lists them and a click addresses one, so the
+      // trace has no business coarsening what it stores. The slider governs how fast the
+      // story is PLAYED, and the transport already skips to hold the duration it promised.
+      void scanHistory(repo, true)
+        .then(() => {
+          // The walk returns a count, not a story. Dropping what is held makes the next
+          // History open fetch the tables of the timeline this trace just wrote.
+          setHistory(null)
+          setHistoryKey(null)
+          setLoaded(0)
+          setHistoryOn(true)
+        })
+        .catch((e) => setError(String(e)))
+        .finally(() => setBusyKey(null))
+    },
+    [projects, busyKey],
+  )
 
   // Follow a hand-added repo to the map once its scan has landed.
   //
@@ -683,7 +785,7 @@ export default function App() {
   // `focus` follows on the backend, arrived at from the frontend side.
   useEffect(() => {
     if (!pendingAdd) return
-    const arrived = projects.find((p) => p.repo === pendingAdd)
+    const arrived = projects.find((p) => p.key === pendingAdd)
     if (!arrived) return
     setPendingAdd(null)
     setActiveKey(arrived.key)
@@ -692,13 +794,39 @@ export default function App() {
   // A different project is a different timeline. Dropped rather than kept per project:
   // holding several megabytes of somebody else's commits against the chance they click
   // back is a cache with no eviction and no owner.
+  //
+  // **And the MODE goes with it, which the drop used to leave behind.** History is a view of
+  // one repo's story, so carrying it across a project switch left the window in a state that
+  // is neither thing: no timeline to draw, so the live map is on screen, but the lens still
+  // pinned to Age with a replay's key under it — a map explaining itself with `new here` and
+  // `touched` while showing nothing of the kind. Re-entering History is one click, and it is
+  // a click that says which repo it means.
   useEffect(() => {
     if (historyKey && historyKey !== activeKey) {
       setHistory(null)
       setHistoryKey(null)
       setPlaying(false)
+      setHistoryOn(false)
     }
   }, [activeKey, historyKey])
+
+  /** Where the playhead stood on the previous frame, so a frame can flash what has happened
+   *  since — see `inStep`. A ref rather than state: it is read while building the frame it
+   *  describes, and setting state there would render the same frame twice to learn a number
+   *  the render itself produced.
+   *
+   *  Keyed by the index it answered for, because the memo below re-runs on other
+   *  dependencies too — a project rename must not collapse the step to nothing and swallow
+   *  the frame's flashes. */
+  const step = useRef({ index: -1, since: -1 })
+  const stepFrom = (index: number): number => {
+    if (step.current.index !== index) {
+      // Backwards, a step has no meaning — you did not watch those commits go by. Show the
+      // one commit you landed on.
+      step.current = { index, since: index < step.current.index ? index - 1 : step.current.index }
+    }
+    return step.current.since
+  }
 
   /** The tree for the frame under the playhead, or nothing when history is off.
    *
@@ -708,12 +836,20 @@ export default function App() {
   const histRoot = useMemo(
     () =>
       historyOn && history && historyKey === activeKey
-        ? frameTree(history, histIndex, activeProject?.name ?? 'repo')
+        ? frameTree(
+            history.tables,
+            history.deltas,
+            histIndex,
+            activeProject?.name ?? 'repo',
+            stepFrom(histIndex),
+          )
         : null,
     // The NAME, not the project row. `listProjects` hands back fresh objects every poll,
     // so depending on the row rebuilt the whole frame tree on a timer — a hitch at a fixed
     // period, in the middle of a replay, for a string that had not changed.
-    [historyOn, history, historyKey, activeKey, histIndex, activeProject?.name],
+    // `loaded` is a dependency because the frame it builds depends on how much of the story
+    // has arrived: the same index folds to a fuller picture once the block holding it lands.
+    [historyOn, history, historyKey, activeKey, histIndex, loaded, activeProject?.name],
   )
 
   /** What the replay sorts its rings by: every path's size at HEAD — see `headSizes`.
@@ -722,27 +858,56 @@ export default function App() {
    *  sizes: today IS today there, and a second rule for the same picture is how two views
    *  that should agree come apart. */
   const headOrder = useMemo(
-    () => (historyOn && history && historyKey === activeKey ? headSizes(history) : undefined),
-    [historyOn, history, historyKey, activeKey],
+    () =>
+      historyOn && history && historyKey === activeKey && scan
+        ? headSizes(scan.root)
+        : undefined,
+    [historyOn, history, historyKey, activeKey, scan],
   )
 
   /** What the map is drawing: the frame when history is on, the scan otherwise. Every
    *  navigation below reads this rather than `scan`, so drilling, crumbs and selection
    *  work the same in both — they are the same rings. */
-  const tree = histRoot ?? scan?.root ?? null
+  /** What the map is drawing: the frame when history is on, the scan otherwise.
+   *
+   *  Pruned of everything `.sanityignore` set aside — see `pruneExcluded`. Done here rather
+   *  than in Rust so the counts, which walk the scan's own tree, go on counting what was set
+   *  aside: the exclusion is still reported, it is just not drawn.
+   *
+   *  Memoised on the scan rather than computed per render: it is a walk of every node, and
+   *  every navigation below reads this. */
+  const drawn = useMemo(() => (scan ? pruneExcluded(scan.root) : null), [scan])
+  const tree = histRoot ?? drawn
 
   /** Jump the playhead and stop. Stable across renders on purpose: `CommitLog` memoises
    *  its rows against this, and an inline arrow would rebuild every row on every frame —
-   *  the exact cost that component is written to avoid. */
-  const scrubTo = useCallback((i: number) => {
-    setPlaying(false)
-    setHistIndex(i)
-  }, [])
+   *  the exact cost that component is written to avoid.
+   *
+   *  **It waits for the story to reach the commit before going there.** The fold is a
+   *  sequence: drawing commit ninety thousand means having applied the eighty-nine thousand
+   *  before it. Clicking a row far ahead of what has arrived therefore fetches the blocks
+   *  between — which is the one place this design costs a wait, and the reason `loaded` is
+   *  reported: the bar can say the story is still coming rather than looking hung. */
+  const scrubTo = useCallback(
+    (i: number) => {
+      setPlaying(false)
+      const held = history
+      if (held && i >= held.deltas.have()) {
+        void held.deltas.ensure(i, setLoaded).then(() => {
+          setLoaded(held.deltas.have())
+          setHistIndex(Math.min(i, held.deltas.have() - 1))
+        })
+        return
+      }
+      setHistIndex(i)
+    },
+    [history],
+  )
 
   /** History was asked for and this repo has none. Stated rather than drawn as an empty
    *  circle: a map with no wedges and no sentence reads as a bug in the tool. */
   const historyEmpty =
-    historyOn && history !== null && historyKey === activeKey && history.commits.length === 0
+    historyOn && history !== null && historyKey === activeKey && history.tables.commits === 0
 
   /** Pinned while history is on. See `historyOn` — the encoding is not a preference here,
    *  it is the only thing the evidence supports. */
@@ -777,10 +942,25 @@ export default function App() {
    *  change what is inside it, so the narrowed list is complete for what is drawn — and
    *  keeping the real index is what makes drilling in and popping back out land you on the
    *  same commit rather than somewhere proportional. */
-  const frames = useMemo(
-    () => (history ? scopedCommits(history, scope) : []),
-    [history, scope],
-  )
+  const [frames, setFrames] = useState<number[]>([])
+  useEffect(() => {
+    if (!history || !repoPath) {
+      setFrames([])
+      return
+    }
+    // Asked of the backend, which holds the story — see `history::scoped`. It was computed
+    // here from every commit's file list, and that list is the one part of a frame the window
+    // no longer receives.
+    let live = true
+    void historyScoped(repoPath, scope)
+      .then((got) => {
+        if (live) setFrames(got)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [history, repoPath, scope])
 
   const codeNode = useMemo(
     () => (tree && codeFile ? findById(tree, codeFile) : null),
@@ -801,6 +981,9 @@ export default function App() {
    *  `Sunburst` renders every arc in the repo, so that is the difference between opening a
    *  dialog and rebuilding the map behind it. */
   const ranks = useMemo(() => (tree ? rankCategories(tree, viewMode) : undefined), [tree, viewMode])
+  /** The repo's own span for the age ramp. Never consulted during a replay: a frame's
+   *  colour is a flare measured in commits, not a position on this scale — see
+   *  `Score.recency`. */
   const ageSpan = useMemo(() => (tree ? ageSpanOf(tree) : undefined), [tree])
   /** Stable identities, because an inline lambda makes the memo below do nothing. */
   const pick = useCallback((n: Node) => setPicked(n), [])
@@ -861,6 +1044,16 @@ export default function App() {
   const awaiting = useMemo(
     () => loadingProject ?? (projects.length > 0 ? (activeProject ?? projects[0]) : null),
     [loadingProject, projects, activeProject],
+  )
+
+  /** The assembling map, or nothing until enough of it has arrived to be worth drawing.
+   *
+   *  The threshold is not politeness — a sunburst of one directory is a solid disc, and
+   *  watching the repo appear only works if what appears first is recognisably a repo.
+   *  Below it the pane keeps the wait it already had. */
+  const shapeRoot = useMemo(
+    () => (shape.length >= SHAPE_FLOOR ? shapeTree(shape, awaiting?.name ?? 'repo') : null),
+    [shape, awaiting?.name],
   )
 
   /** The repo's own distributions, so a selected function can be placed in them.
@@ -974,12 +1167,19 @@ export default function App() {
         <SideBar
           projects={projects}
           active={activeKey}
+          // The replay reports itself on its own project's row. It used to be a strip across
+          // the top of the map, which is a surface belonging to whatever project is on
+          // screen — so switching away left ceph's 122,818 commits counting over sanity.
+          replayKey={busyKey}
+          replay={historyProgress}
           // The picker reports its own refusals — a directory holding twelve repos is a
           // sentence worth reading, not a silent no-op. A dismissed dialog resolves null
           // and says nothing, because canceling is not an error.
           onRead={(key) => setReadFor(key)}
           onAdd={addProject}
           onForget={forget}
+          onError={setError}
+          onReplay={trace}
           onSelect={(key) => {
             // Selected immediately, before the tree is fetched. A project still being
             // rescanned has no tree to return, and gating the selection on one meant
@@ -1018,6 +1218,7 @@ export default function App() {
               <HistoryToggle
                 on={historyOn}
                 busy={historyBusy}
+                traced={(activeProject?.replayed ?? 0) > 0}
                 onToggle={() => {
                   setHistoryOn((v) => !v)
                   setPlaying(false)
@@ -1040,7 +1241,6 @@ export default function App() {
               them, so "Reading the repo…" rendered beneath the buttons. It also shoved
               the whole shell down by its own height every time a scan started. Below
               TopRow it can do neither. */}
-          {historyBusy && <ProgressStrip progress={historyProgress} label="Replaying the history…" />}
           {tree && focus && <Crumbs trail={trail} onGo={goTo} onUp={goUp} />}
 
           <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -1096,6 +1296,23 @@ export default function App() {
                 onDrill={drill}
                 onUp={goUp}
               />
+            ) : awaiting && shapeRoot ? (
+              // The scan is still running and the map is already worth looking at. See
+              // `lib/shape.ts` — this is the same picture, drawn from what the parse has
+              // found so far, with no reading on any wedge.
+              <Sunburst
+                root={shapeRoot}
+                selected={null}
+                mode={viewMode}
+                // Eased, not snapped. The rings are gaining wedges several times a second
+                // and a repo that jumps on every batch reads as a glitch; the same
+                // argument the replay makes, for the same reason — see `morph`.
+                morph
+                mascot={mascot}
+                onSelect={noop}
+                onClear={noop}
+                onDrill={noop}
+              />
             ) : awaiting ? (
               // There are projects, and none of them has a tree on screen yet. The empty
               // pane's copy tells you how to open a project — advice for someone with none,
@@ -1126,6 +1343,7 @@ export default function App() {
               <div className="absolute bottom-2 right-2 z-20">
                 <ColorLegend
                   mode={viewMode}
+                  history={historyOn}
                   categories={tree ? legendFor(tree, viewMode) : []}
                   // Counted from `focus`, not the whole scan: drilled into one
                   // directory, the legend has to describe the rings in front of you or
@@ -1139,11 +1357,23 @@ export default function App() {
           {/* Under the map, not floated over it. The legend is an annotation and can live
               in a corner; the transport is the control the whole view is about, and the
               scrub bar needs the full width or it cannot address the commits it draws. */}
-          {historyOn && history && historyKey === activeKey && history.commits.length > 0 && (
+          {historyOn && history && historyKey === activeKey && history.tables.commits > 0 && (
             <HistoryBar
               frames={frames}
               index={histIndex}
-              onIndex={setHistIndex}
+              // The transport addresses the whole timeline and can only DRAW what has
+              // arrived. Advancing past the run asks for the next block and holds the
+              // playhead where it is until it lands, which on a repo whose story fits in one
+              // block never happens at all.
+              onIndex={(i) => {
+                const held = history
+                if (held && i >= held.deltas.have()) {
+                  void held.deltas.ensure(i, setLoaded).then(() => setLoaded(held.deltas.have()))
+                  setHistIndex(Math.min(i, held.deltas.have() - 1))
+                  return
+                }
+                setHistIndex(i)
+              }}
               playing={playing}
               onPlaying={setPlaying}
               duration={duration}
@@ -1159,7 +1389,8 @@ export default function App() {
               commit, not whichever wedge the pointer last brushed. */}
           {historyOn && history && historyKey === activeKey ? (
           <CommitLog
-            hist={history}
+            repoPath={repoPath}
+            tables={history.tables}
             frames={frames}
             scope={scope}
             index={histIndex}
@@ -1223,7 +1454,7 @@ export default function App() {
                 Cancel
               </button>
               <button
-                onClick={() => takeFolder(bigFolder.path)}
+                onClick={() => takeFolder(bigFolder.path, bigFolder.key)}
                 className="rounded-md bg-[var(--secondary)] px-3 py-1.5 text-xs font-semibold hover:opacity-90"
               >
                 Scan it anyway
@@ -1393,44 +1624,6 @@ function ProgressPane({
   )
 }
 
-function ProgressStrip({
-  progress,
-  label,
-}: {
-  progress: Progress | null
-  /** What is being waited on, when it is not the scan. The bar is the same instrument
-   *  either way; only the sentence over it changes. */
-  label?: string
-}) {
-  const { pct, eta } = useProgress(progress)
-
-  return (
-    <div className="shrink-0 border-b border-[var(--border)] bg-[var(--secondary)] px-3 py-1.5">
-      <div className="mb-1 flex items-baseline justify-between text-[11px] text-[var(--muted-foreground)]">
-        <span>
-          {label ? (
-            progress ? (
-              <>
-                {label} {progress.done} / {progress.total} commits.
-              </>
-            ) : (
-              <>{label}</>
-            )
-          ) : progress ? (
-            <>
-              Scoring {progress.done} / {progress.total} functions.
-            </>
-          ) : (
-            <>Reading the repo…</>
-          )}
-        </span>
-        {eta !== null && <span className="mono shrink-0">~{eta === 0 ? '<1' : eta} min left</span>}
-      </div>
-      <ProgressTrack progress={progress} pct={pct} />
-    </div>
-  )
-}
-
 /**
  * The door into the replay.
  *
@@ -1442,31 +1635,49 @@ function ProgressStrip({
 function HistoryToggle({
   on,
   busy,
+  traced,
   onToggle,
 }: {
   on: boolean
   busy: boolean
+  /** Is there a trace to look at? Commits already walked and banked for this repo.
+   *
+   *  **This control opens a view and must never commission the work behind it.** It did
+   *  both: pressing History on an untraced repo started the walk, disabled the whole nav
+   *  bar and left somebody watching a button say `Reading…` for an hour. The work is asked
+   *  for on the project's own row, where the number of commits it will cost is written next
+   *  to the button. Here, a repo nobody has traced simply has nothing to show. */
+  traced: boolean
   onToggle: () => void
 }) {
   return (
     <button
       onClick={onToggle}
-      disabled={busy}
+      // **Leaving is always allowed.** Disabling this while a trace runs locked somebody
+      // into a view of a story that was still being written — the map empty, the transport
+      // pointed at frames that did not exist yet, and the way out greyed. Going back to the
+      // repo as it stands costs nothing and cannot fail; it is only ENTERING that needs
+      // something to show.
+      disabled={!on && (busy || !traced)}
       title={
         on
           ? 'Back to the repo as it stands now'
-          : 'Replay the repo commit by commit — colored by recency, not by surprise'
+          : busy
+            ? 'Tracing this repo — the project row has the progress and a way to stop'
+            : !traced
+              ? 'No trace yet. Press Trace on the project to walk its commits.'
+              : 'The repo commit by commit — colored by arrivals, not by surprise'
       }
       className="rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
       style={{
         background: on ? 'var(--accent)' : 'color-mix(in oklch, var(--foreground) 8%, transparent)',
         color: on ? 'var(--accent-foreground)' : 'var(--muted-foreground)',
         fontWeight: on ? 600 : 400,
-        opacity: busy ? 0.6 : 1,
+        opacity: !on && (busy || !traced) ? 0.6 : 1,
         boxShadow: on ? '0 1px 2px rgb(0 0 0 / 0.25)' : undefined,
       }}
     >
-      {busy ? 'Reading…' : 'History'}
+      {busy ? 'Tracing…' : 'History'}
     </button>
   )
 }

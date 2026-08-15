@@ -15,7 +15,7 @@ use std::path::PathBuf;
 fn main() {
     let mut args = std::env::args().skip(1);
     let mut path = PathBuf::from(".");
-    let mut limit = history::MAX_COMMITS;
+    let mut limit = history::ALL_COMMITS;
     let mut files = false;
     let mut json = false;
     let mut cached = false;

@@ -283,6 +283,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::scan_repo,
             commands::stop_scan,
+            commands::stop_history,
+            commands::history_tables,
+            commands::history_log,
+            commands::history_scoped,
+            commands::history_deltas,
             commands::sync_theme_menu,
             commands::read_source,
             commands::open_code_window,

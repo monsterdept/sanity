@@ -73,21 +73,36 @@ wedges — they just have no inner ring and no score, which is honest: we didn't
 ## Where the real reading comes from
 
 The app itself needs nothing installed: it scores with an offline proxy that is honest
-about being a proxy. The measurement worth having arrives from an **agent** over MCP —
-handed a function's name, signature and neighbours, it writes down what it expects, then
-opens the file and reports the gap. Those readings are committed to the repo at
-`.sanity/`, and they expire when the code moves out from under them.
+about being a proxy. The measurement worth having arrives from a **reading** — an agent
+handed a function's name, signature and neighbours writes down what it expects, then opens
+the file and reports the gap. Those readings are committed to the repo at `.sanity/`, and
+they expire when the code moves out from under them.
 
-Sanity runs the readers itself — one process per reader, started outside the repo with no
-access to it, so a reading is a prediction rather than a recollection:
+Sanity runs the readers itself — one process per reader, started outside the repo, without
+your project settings, and with no tools but the three it takes a reading with. That is
+what makes a reading a prediction rather than a recollection, and it is why a run is
+started by a person rather than by the agent you happen to be talking to: a session that
+has been working in the repo already knows the answers.
+
+You need a coding agent installed and signed in — `claude`, `codex`, `opencode` or `agy`.
+Then either add the repo in the app and press Read, or:
 
 ```
-sanity init --harness claude
-sanity check
+sanity init --harness claude --model sonnet   # whichever agent and model you want reading
+sanity check                                  # --readers N, --limit N, --detach
+sanity status
+sanity summary
 ```
 
-Or add the repo in the app and press Read. Connecting a chat client is optional, and buys
-the ability to ask for a run in conversation rather than to perform one.
+**Which model reads is part of the measurement.** A smaller model is surprised by more, so
+the reader is the scale; mixing two over one repo gives you one map on two scales with
+nothing on screen saying which wedge is which. Every reading records the model and harness
+that took it.
+
+Registering `sanity mcp` with a chat client is optional and does not change any of the
+above. It buys an agent the ability to open a project and read back the same status and
+summary you get from the CLI. What it never buys is a reading taken by that agent: its
+context is full of the repo, so anything it graded would be recall.
 
 `just scan . --local <weights>` scores with a local model instead, no server involved —
 built with `--features local-metal` (or `local-vulkan`). That path exists for working on

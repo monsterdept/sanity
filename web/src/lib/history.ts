@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type { Node, Progress, Score } from './api'
+import type { Deltas, Tables } from './timeline'
 
 /**
  * The repo replayed, commit by commit.
@@ -8,10 +9,21 @@ import type { Node, Progress, Score } from './api'
  * Mirrors `history.rs`, and carries the one rule that module exists to enforce:
  * **surprise is not replayed.** A temperature is a reading taken against the code as it
  * is today, and stamping it onto the same function's 2019 body would be the map claiming
- * a measurement nobody took. What colors a frame is recency — how long, as of *that
- * frame's own date*, since anyone touched this — which is a fact about the commit stream
- * and nothing else. That is why history mode pins the encoding and disables the lens
- * switcher rather than offering five readings of which one would be a lie.
+ * a measurement nobody took. That is why history mode pins the encoding and disables the
+ * lens switcher rather than offering five readings of which one would be a lie.
+ *
+ * **A replay is grey, and the only colour in it is a birth.** Three encodings were tried
+ * here and each one failed the same way. Recency in DAYS flickers, because commit streams
+ * are bursty: a quiet fortnight between two commits ages every function in the repo at
+ * once, so the whole picture changes colour on a frame where one file was edited. Rescaling
+ * the ramp per frame made it worse, the scale itself moving under the picture. Recency in
+ * COMMITS holds still and was still noise — a fading ramp over most of the map says
+ * "somewhat recently" about everything, which is not a thing anybody watching a replay is
+ * asking. What they are watching for is arrival: the commit where a file, a directory or a
+ * function exists that did not exist before. So that is the one event the replay paints,
+ * as a flash lasting exactly as long as the step the playhead just took — see `inStep`.
+ * Everything else is uncoloured, because the honest answer to "how surprising is this 2019
+ * body" is that nobody has read it.
  */
 export interface HistoryFunc {
   /** Index into `HistoryScan.paths`. */
@@ -41,22 +53,20 @@ export interface HistoryCommit {
   files: number[]
 }
 
-export interface HistoryScan {
-  paths: string[]
-  langs: string[]
-  funcs: HistoryFunc[]
-  base: [number, number][]
-  baseTs: number
-  commits: HistoryCommit[]
-  /** The commit the last frame is, for the cache's benefit. */
-  head: string
-  /** Commits before the window, folded into `base`. Shown, never swallowed: a timeline
-   *  that quietly starts in the middle reads as the whole life of the repo. */
-  truncated: number
-}
+/** What a trace produced, as a count of frames. The story itself stays in Rust — see
+ *  `lib/timeline.ts`. */
+export type TraceResult = number
 
-export function scanHistory(path: string, limit?: number): Promise<HistoryScan> {
-  return invoke<HistoryScan>('scan_history', { path, limit })
+/**
+ * The timeline for `path`.
+ *
+ * **Two doors, and the difference is an hour.** `trace: false` — the default — hands back
+ * whatever has already been walked and banked, which is a file read. `trace: true` walks
+ * the commits nobody has walked yet, which is the expensive thing and belongs to the button
+ * that says `Trace`, never to the one that opens the view.
+ */
+export function scanHistory(path: string, trace = false, limit?: number): Promise<TraceResult> {
+  return invoke<TraceResult>('scan_history', { path, limit, trace })
 }
 
 /**
@@ -80,6 +90,30 @@ export function onHistoryProgress(cb: (p: Progress) => void): () => void {
   }
 }
 
+/** Insert `f` into an ascending array, if it is not already there. */
+function insertSorted(order: number[], f: number): void {
+  let lo = 0
+  let hi = order.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (order[mid] < f) lo = mid + 1
+    else hi = mid
+  }
+  if (order[lo] !== f) order.splice(lo, 0, f)
+}
+
+/** Take `f` out of an ascending array. */
+function removeSorted(order: number[], f: number): void {
+  let lo = 0
+  let hi = order.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (order[mid] < f) lo = mid + 1
+    else hi = mid
+  }
+  if (order[lo] === f) order.splice(lo, 1)
+}
+
 /** Days between two epoch-second stamps, never negative. */
 function daysBetween(now: number, then: number): number {
   return Math.max(0, (now - then) / 86_400)
@@ -100,10 +134,41 @@ const CHURN_MEMORY = 16
 interface Frame {
   /** func index → lines. */
   loc: Map<number, number>
+  /** Lines live in this frame. Kept as commits land, because the alternative is a pass over
+   *  every function to decide the threshold that exists to avoid a pass over every
+   *  function. */
+  lines: number
+  /** The keys of `loc`, ascending — which is the order functions first appeared, and
+   *  therefore the order a file's wedges keep for the whole replay.
+   *
+   *  **Kept sorted as it changes, rather than sorted per frame.** The tree builder used to
+   *  copy the whole live map into an array and sort it every frame: on ceph that is ninety
+   *  four thousand entries allocated and sorted thirty times a second, to answer a question
+   *  whose answer changed by a handful of entries since the last frame. A commit adds and
+   *  removes a few functions; splicing them into place costs a memmove and nothing else. */
+  order: number[]
   /** func index → when it was last touched. */
   touched: Map<number, number>
+  /** func index → the INDEX of the commit it first appeared in, for the flash.
+   *
+   *  Beside `born` rather than derived from it, because they answer different questions:
+   *  one is a date, which is what the panel says out loud, and one is a position in the
+   *  story, which is the only thing the replay draws. A date cannot be converted into a
+   *  position — that is the whole reason this map exists, see `inStep`. */
+  bornAt: Map<number, number>
   /** func index → when it first appeared *within the replayed window*. */
   born: Map<number, number>
+  /** func index → the INDEX of the commit that last touched it, for the quieter of the two
+   *  flashes. Every arrival is also a touch; which one a wedge shows is decided where they
+   *  are drawn, and the brighter wins — see `colorFor`. */
+  editedAt: Map<number, number>
+  /** path index → how many of its functions are live, and which commit the file arrived
+   *  in. A file is on screen exactly while the count is above zero — see `enter`. */
+  pathLive: Map<number, number>
+  pathBornAt: Map<number, number>
+  /** The same pair for directories, keyed by directory path. */
+  dirLive: Map<string, number>
+  dirBornAt: Map<string, number>
   /** func index → when recent commits touched it, oldest first, capped.
    *
    *  Stamps rather than a running count, because a count cannot be advanced: churn is
@@ -121,11 +186,19 @@ interface Frame {
 }
 
 /** The opening state: everything the truncated commits built, before any frame lands. */
-function opening(hist: HistoryScan): Frame {
+function opening(hist: Tables): Frame {
   const frame: Frame = {
     loc: new Map(),
+    lines: 0,
+    order: [],
     touched: new Map(),
+    bornAt: new Map(),
     born: new Map(),
+    editedAt: new Map(),
+    pathLive: new Map(),
+    pathBornAt: new Map(),
+    dirLive: new Map(),
+    dirBornAt: new Map(),
     hits: new Map(),
     author: new Map(),
     ts: hist.baseTs,
@@ -133,6 +206,13 @@ function opening(hist: HistoryScan): Frame {
   }
   for (const [f, loc] of hist.base) {
     frame.loc.set(f, loc)
+    frame.lines += loc
+    frame.order.push(f)
+    // COUNTED, though — its file and directories are on screen from frame one, and a
+    // container that is not counted here is a container that would report itself as newly
+    // arrived the first time somebody adds a function to it. Counting without a birth is
+    // exactly the state that says "present, with no arrival to show".
+    census(frame, hist.funcs[f].path, hist)
     // Deliberately NOT marked as touched or born. Everything here predates the window, so
     // the only honest thing to say about when it was last written is that we do not know —
     // and an undated function draws uncolored rather than being dated to the start of the
@@ -142,14 +222,103 @@ function opening(hist: HistoryScan): Frame {
   return frame
 }
 
+/** Every directory a path sits in, innermost first. The repo root is not one of them: it
+ *  is on screen from the first frame to the last, so it has no arrival to show. */
+function dirsOf(path: string): string[] {
+  const out: string[] = []
+  for (let cut = path.lastIndexOf('/'); cut > 0; cut = path.lastIndexOf('/', cut - 1)) {
+    out.push(path.slice(0, cut))
+  }
+  return out
+}
+
+/**
+ * A function has arrived in `p`. Count it, and record a birth for anything that did not
+ * exist a moment ago.
+ *
+ * **A container's birth is its own, never its contents'.** A file exists in a frame exactly
+ * when something in it does, so its arrival is the 0→1 transition of that count — which is
+ * a different event from a function arriving inside a file that was already there, and the
+ * two used to be the same event because `appeared` rolled up. Rolled up, adding one
+ * function lit its file, its directory and every directory above it, so a one-line commit
+ * flashed a stripe from the middle of the map to the rim and the picture said "a lot
+ * happened here" about a commit that touched one function.
+ */
+function enter(frame: Frame, p: number, hist: Tables, at: number): void {
+  // Nothing above the function has arrived unless the FILE has: a function added to a file
+  // that was already on screen changes no container's presence, and the dir counts were not
+  // touched. Reading them anyway would re-birth a directory whose one file just gained a
+  // second function.
+  if (!census(frame, p, hist)) return
+  frame.pathBornAt.set(p, at)
+  // A count of exactly one, after counting this file in, means this file is the first thing
+  // in that directory — so the directory arrived with it.
+  for (const d of dirsOf(hist.paths[p])) {
+    if (frame.dirLive.get(d) === 1) frame.dirBornAt.set(d, at)
+  }
+}
+
+/** Count one function into its file and that file's directories. Returns whether the FILE
+ *  was empty before, which is the only thing that makes it an arrival.
+ *
+ *  Split out because the opening state has to count without recording a birth: see
+ *  `opening`. */
+function census(frame: Frame, p: number, hist: Tables): boolean {
+  const live = (frame.pathLive.get(p) ?? 0) + 1
+  frame.pathLive.set(p, live)
+  if (live > 1) return false
+  for (const d of dirsOf(hist.paths[p])) {
+    frame.dirLive.set(d, (frame.dirLive.get(d) ?? 0) + 1)
+  }
+  return true
+}
+
+/** A function has left `p`. The mirror of `enter`: a file that loses its last function has
+ *  left the picture, and if it comes back it is an arrival again — which is the honest
+ *  reading, because that is what the map shows. */
+function leave(frame: Frame, p: number, hist: Tables): void {
+  const live = (frame.pathLive.get(p) ?? 1) - 1
+  if (live > 0) {
+    frame.pathLive.set(p, live)
+    return
+  }
+  frame.pathLive.delete(p)
+  frame.pathBornAt.delete(p)
+  for (const d of dirsOf(hist.paths[p])) {
+    const n = (frame.dirLive.get(d) ?? 1) - 1
+    if (n > 0) {
+      frame.dirLive.set(d, n)
+      continue
+    }
+    frame.dirLive.delete(d)
+    frame.dirBornAt.delete(d)
+  }
+}
+
 /** Apply commits `(frame.at, to]` in place. */
-function advance(frame: Frame, hist: HistoryScan, to: number): void {
-  for (let i = frame.at + 1; i <= to && i < hist.commits.length; i++) {
-    const c = hist.commits[i]
+function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): void {
+  for (let i = frame.at + 1; i <= to && i < hist.commits; i++) {
+    const c = deltas.at(i)
+    // Past what has been fetched. The caller waits on `Deltas.ensure` before folding, so
+    // this is the end of the story rather than a gap — see `lib/timeline.ts`.
+    if (!c) break
     for (const [f, loc] of c.set) {
+      // Absent BEFORE this commit, which is not the same question as "has no birth on
+      // record". `c.set` carries rewrites as well as arrivals, and everything in the
+      // opening state arrives with no birth by design — keyed on `born` this lit up every
+      // base function the first time somebody edited it, which is an arrival the replay
+      // never saw and, under a flash, the loudest thing on screen.
+      const arrived = !frame.loc.has(f)
+      frame.lines += loc - (frame.loc.get(f) ?? 0)
       frame.loc.set(f, loc)
       frame.touched.set(f, c.ts)
-      if (!frame.born.has(f)) frame.born.set(f, c.ts)
+      frame.editedAt.set(f, i)
+      if (arrived) {
+        insertSorted(frame.order, f)
+        frame.born.set(f, c.ts)
+        frame.bornAt.set(f, i)
+        enter(frame, hist.funcs[f].path, hist, i)
+      }
       const seen = frame.hits.get(f)
       if (seen) {
         seen.push(c.ts)
@@ -159,15 +328,22 @@ function advance(frame: Frame, hist: HistoryScan, to: number): void {
       }
     }
     for (const f of c.del) {
+      if (frame.loc.has(f)) {
+        leave(frame, hist.funcs[f].path, hist)
+        removeSorted(frame.order, f)
+        frame.lines -= frame.loc.get(f) ?? 0
+      }
       frame.loc.delete(f)
       frame.touched.delete(f)
       frame.born.delete(f)
+      frame.bornAt.delete(f)
+      frame.editedAt.delete(f)
       frame.hits.delete(f)
     }
     for (const p of c.files) frame.author.set(p, c.author)
   }
-  frame.at = Math.min(to, hist.commits.length - 1)
-  frame.ts = hist.commits[Math.max(0, frame.at)]?.ts ?? hist.baseTs
+  frame.at = Math.min(to, hist.commits - 1)
+  frame.ts = deltas.at(Math.max(0, frame.at))?.ts ?? hist.baseTs
 }
 
 /** The last frame computed, kept so playing forward does not re-fold the whole timeline.
@@ -183,54 +359,55 @@ function advance(frame: Frame, hist: HistoryScan, to: number): void {
  *  state; undoing a commit would need the state it replaced, which is the whole timeline
  *  stored a second time and free to drift.
  */
-let memo: { hist: HistoryScan; frame: Frame } | null = null
+let memo: { hist: Tables; frame: Frame } | null = null
 
-function replay(hist: HistoryScan, index: number): Frame {
+function replay(hist: Tables, deltas: Deltas, index: number): Frame {
   if (memo && memo.hist === hist && memo.frame.at <= index) {
-    advance(memo.frame, hist, index)
+    advance(memo.frame, hist, deltas, index)
     return memo.frame
   }
   const frame = opening(hist)
-  advance(frame, hist, index)
+  advance(frame, hist, deltas, index)
   memo = { hist, frame }
   return frame
 }
 
-/** Every path's size at the END of the timeline, by node id, for ordering the rings.
+/** Every path's size at HEAD, by node id, for ordering the rings.
  *
- *  **The replay's sort order is today's, not each frame's.** Sorting a frame by its own sizes
- *  is right for a map somebody is reading and wrong for a story: a directory that grows past
- *  its neighbour swaps places with it mid-playback, and the whole ring reshuffles around a
- *  commit that did nothing of the kind. Pinned to HEAD, a wedge stays where it will end up
- *  and only its width moves, which is the thing that actually changed.
+ *  **Read off the live scan rather than folded out of the timeline.** The replay's sort order
+ *  is today's — a directory that grows past its neighbour must not swap places with it
+ *  mid-playback — and "today" is exactly what the map already on screen is. Folding the whole
+ *  story to learn it was affordable at a few thousand commits and is not at a hundred
+ *  thousand: it meant having every delta in hand before the first frame could be drawn.
  *
- *  Every ancestor gets the roll-up, because a directory is sorted among its siblings by the
- *  same rule as a file — and the ids here are paths, which is exactly what the frame tree
- *  uses for both. `collapse` folds a lone-child chain into the deepest of them and keeps that
- *  node's id, so the folded ring finds itself here too.
- *
- *  It folds the whole timeline once and keeps it. Deliberately NOT through `replay`: that
- *  memo exists to make playing forward cheap, and driving it to the last commit would leave
- *  every subsequent frame rebuilding from the opening state — 26ms a frame on a big repo, to
- *  answer a question that has one answer for the whole timeline.
- */
-let sizes: { hist: HistoryScan; at: Map<string, number> } | null = null
-
-export function headSizes(hist: HistoryScan): ReadonlyMap<string, number> {
-  if (sizes && sizes.hist === hist) return sizes.at
-  const frame = opening(hist)
-  advance(frame, hist, hist.commits.length - 1)
+ *  A path the timeline holds and HEAD does not sorts as 0, which is the honest answer: it is
+ *  not there at the end, so it has no size at the end to be ordered by. */
+export function headSizes(root: Node): ReadonlyMap<string, number> {
   const at = new Map<string, number>()
-  for (const [f, loc] of frame.loc) {
-    const path = hist.paths[hist.funcs[f].path]
-    at.set(path, (at.get(path) ?? 0) + loc)
-    for (let cut = path.lastIndexOf('/'); cut > 0; cut = path.lastIndexOf('/', cut - 1)) {
-      const dir = path.slice(0, cut)
-      at.set(dir, (at.get(dir) ?? 0) + loc)
-    }
+  const walk = (n: Node) => {
+    if (n.kind !== 'func') at.set(n.id, n.loc)
+    for (const c of n.children) walk(c)
   }
-  sizes = { hist, at }
+  walk(root)
   return at
+}
+
+/**
+ * Was this event inside the step the playhead just took?
+ *
+ * **A flash covers what happened SINCE THE LAST FRAME, and every earlier version of this was
+ * a guess at that.** The window used to be a share of the timeline — 3%, then 1.2% — reasoned
+ * from playback: past `MAX_FPS` the clock skips commits, so a fixed count meant something
+ * different at every speed and on every repo. What a share does not survive is somebody
+ * STEPPING: on a 5,000-commit repo 1.2% is sixty commits, so scrubbing one at a time lit
+ * everything sixty deep and the map read as though one commit had touched a third of the repo.
+ *
+ * The step is the honest window and it needs no calibration: during playback it is however
+ * many commits this frame advanced, and while stepping it is one commit — the one you are
+ * looking at.
+ */
+function inStep(at: number, since: number, index: number): boolean {
+  return at > since && at <= index
 }
 
 /** A function's score as of one frame, written into `into` when there is one to reuse.
@@ -238,8 +415,10 @@ export function headSizes(hist: HistoryScan): ReadonlyMap<string, number> {
  *  Every field it cannot honestly fill is left at the value that means "no claim":
  *  surprise stays 0 with `analyzedShare` 0, which is exactly what `isAnalyzed` refuses to
  *  color. */
-function scoreInto(into: Score | null, frame: Frame, f: number): Score {
+function scoreInto(into: Score | null, frame: Frame, f: number, since: number): Score {
   const touched = frame.touched.get(f)
+  const at = frame.bornAt.get(f)
+  const edit = frame.editedAt.get(f)
   const born = frame.born.get(f)
   // Counted at read time, not carried: the window moves with the playhead, so a touch
   // that counted last frame may have aged out of this one.
@@ -261,6 +440,10 @@ function scoreInto(into: Score | null, frame: Frame, f: number): Score {
   s.ageDays = born === undefined ? null : daysBetween(frame.ts, born)
   s.lastTouchedDays = touched === undefined ? null : daysBetween(frame.ts, touched)
   s.commits = commits
+  // Written every time, including to null: these Score objects are POOLED and reused frame
+  // to frame, so a field left alone keeps the last function's answer.
+  s.appeared = at !== undefined && inStep(at, since, frame.at) ? 1 : null
+  s.edited = edit !== undefined && inStep(edit, since, frame.at) ? 1 : null
   return s
 }
 
@@ -268,9 +451,9 @@ function scoreInto(into: Score | null, frame: Frame, f: number): Score {
  *  Rust: LOC-weighted, oldest child for age, newest for last-touched. Written here rather
  *  than reused because the Rust one runs inside the scan and this tree never goes near
  *  it. */
-function aggregate(node: Node): void {
+function aggregate(node: Node, appearedOf: (id: string) => number | null): void {
   if (node.children.length === 0) return
-  for (const c of node.children) aggregate(c)
+  for (const c of node.children) aggregate(c, appearedOf)
   node.loc = node.children.reduce((s, c) => s + c.loc, 0)
 
   let w = 0
@@ -301,6 +484,18 @@ function aggregate(node: Node): void {
     hotShare: 0,
     source: 'proxy',
     analyzedShare: 0,
+    // **Never rolled up.** A container flashes on its OWN arrival and on nothing else, so
+    // this is filled from the frame's own record of when this path first existed — see
+    // `enter`. Rolled up from the children it meant that adding one function lit its file,
+    // its directory and every directory out to the rim, which reads as a large commit and
+    // was a one-line one.
+    appeared: appearedOf(node.id),
+    // **Containers never show the quiet flash at all**, on the same argument one step
+    // further. An arrival is a fact a file has of its own — it did not exist and now it
+    // does. Being EDITED is not: the only way to give a directory one is to inherit it from
+    // whatever changed inside, which is the roll-up, and at the dim end it would light half
+    // the map on every commit for no information. A touch is drawn where it happened.
+    edited: null,
   }
 }
 
@@ -354,7 +549,20 @@ function dirNode(path: string, name: string): Node {
  *
  *  Keyed by the timeline it belongs to, so switching projects cannot hand one repo's nodes
  *  to another's tree. */
-let pool: { hist: HistoryScan; nodes: Map<number, Node> } | null = null
+let pool: { hist: Tables; nodes: Map<number, Node> } | null = null
+
+/** Path string → its index, so a container can look up its own arrival by node id. Built
+ *  once per timeline rather than per frame: it is a property of the scan, and a replay
+ *  rebuilds this tree thirty times a second. */
+let index: { hist: Tables; at: Map<string, number> } | null = null
+
+function pathIndexOf(hist: Tables): Map<string, number> {
+  if (index && index.hist === hist) return index.at
+  const at = new Map<string, number>()
+  hist.paths.forEach((p, i) => at.set(p, i))
+  index = { hist, at }
+  return at
+}
 
 /**
  * The tree for one frame, in exactly the shape the sunburst already draws.
@@ -364,8 +572,17 @@ let pool: { hist: HistoryScan; nodes: Map<number, Node> } | null = null
  * what to do with every function that does not exist yet. A separate tree has no such
  * question to get wrong.
  */
-export function frameTree(hist: HistoryScan, index: number, repoName: string): Node {
-  const frame = replay(hist, index)
+export function frameTree(
+  hist: Tables,
+  deltas: Deltas,
+  index: number,
+  repoName: string,
+  /** Where the playhead was on the frame BEFORE this one. Everything that happened in
+   *  `(since, index]` flashes — see `inStep`. Defaults to one commit back, which is what a
+   *  caller drawing a single frame means. */
+  since: number = index - 1,
+): Node {
+  const frame = replay(hist, deltas, index)
   const root = dirNode('', repoName)
   const dirs = new Map<string, Node>([['', root]])
 
@@ -400,11 +617,46 @@ export function frameTree(hist: HistoryScan, index: number, repoName: string): N
 
   if (!pool || pool.hist !== hist) pool = { hist, nodes: new Map() }
   const nodes = pool.nodes
+  const pathIndex = pathIndexOf(hist)
 
-  // In interned order, which is the order functions first appeared — so a file's wedges
-  // stay in one order for the whole replay instead of resorting themselves every frame.
-  for (const [f, loc] of [...frame.loc].sort((a, b) => a[0] - b[0])) {
+  /** Lines a function needs before it gets a node of its own.
+   *
+   *  **The band cannot draw ninety-four thousand wedges and the frame should not build
+   *  them.** Measured at ceph's size, folding one commit and building the tree cost 31.7ms
+   *  a frame — the fold was 0.1 of that and the rest was this loop, an aggregate walk and a
+   *  collapse walk over every live function, thirty times a second. What the layout then did
+   *  with them is the tell: it drops any wedge too thin to see and rolls the remainder into
+   *  a `126+` stand-in. So the cut moves here, where it saves the work instead of paying for
+   *  it first.
+   *
+   *  A share of the frame's own lines rather than a fixed count, because the question is
+   *  whether a wedge would be visible and the answer is relative to the whole circle.
+   *  `frame.lines / 4000` is roughly a wedge of a twentieth of a degree.
+   *
+   *  A repo small enough for its functions to be drawn keeps every one of them: on anything
+   *  under a few thousand functions the threshold lands below one line and nothing is
+   *  rolled up. */
+  const minLoc = frame.lines / 4000
+  /** Lines and count rolled up per file, for the stand-in wedges below. */
+  const restLoc = new Map<number, number>()
+  const restCount = new Map<number, number>()
+
+  // In interned order — see `Frame.order`, which is kept that way as commits land rather
+  // than rebuilt here.
+  for (const f of frame.order) {
+    const loc = frame.loc.get(f) ?? 0
     const def = hist.funcs[f]
+    // Ignored means ignored, in the replay as on the live map. The trace still holds them —
+    // pruning at the walk would mean re-tracing a large repo whenever the file changed — so
+    // they are dropped here, where the picture is built. See `Tables.excluded`.
+    if (hist.excluded[def.path]) continue
+    // Too thin to draw. Its lines still count — they reach the file wedge through the
+    // stand-in below, so a file is the size it is whatever its inside looks like.
+    if (loc < minLoc) {
+      restLoc.set(def.path, (restLoc.get(def.path) ?? 0) + loc)
+      restCount.set(def.path, (restCount.get(def.path) ?? 0) + 1)
+      continue
+    }
     const file = fileFor(def.path)
     let node = nodes.get(f)
     if (!node) {
@@ -432,37 +684,37 @@ export function frameTree(hist: HistoryScan, index: number, repoName: string): N
     // a fresh allocation wearing a cache's clothes.
     node.loc = loc
     node.lastAuthor = frame.author.get(def.path) ?? null
-    node.score = scoreInto(node.score, frame, f)
+    node.score = scoreInto(node.score, frame, f, since)
     file.children.push(node)
   }
 
-  aggregate(root)
+  // One stand-in per file for everything too thin to draw, in the shape the layout already
+  // makes for the same reason — see `rest` in `sunburst.ts`. It carries no children: those
+  // exist to be listed in the panel, and a frame's are a thousand objects a person cannot
+  // read while the story is running.
+  for (const [p, lines] of restLoc) {
+    const path = hist.paths[p]
+    const count = restCount.get(p) ?? 0
+    fileFor(p).children.push({
+      ...dirNode(`${path}#rest`, `${count}+`),
+      kind: 'func',
+      path,
+      lang: hist.langs[p] || null,
+      loc: lines,
+      rest: count,
+    })
+  }
+
+  // Containers are keyed by path, and a file's or directory's node id IS its path — which
+  // is what lets a container ask the frame directly when it arrived instead of inheriting an
+  // answer from the functions inside it.
+  aggregate(root, (id) => {
+    const at = frame.dirBornAt.get(id) ?? frame.pathBornAt.get(pathIndex.get(id) ?? -1)
+    return at !== undefined && inStep(at, since, frame.at) ? 1 : null
+  })
   return collapse(root)
 }
 
-/**
- * The commits that touched anything under `scope`, as indices into `hist.commits`.
- *
- * Drilling into a directory asks a narrower question — "how did THIS come to be" — and the
- * transport has to answer it, or the scrub bar spends most of its length on commits that
- * change nothing you can see. `''` is the whole repo and returns every commit.
- *
- * A view of the timeline, never a re-fold of it. The rings for a given commit are still
- * built from the full replay: a commit outside the scope cannot change what is inside it,
- * so filtering is safe for what is DRAWN — but folding only the scoped commits would give
- * the frame the wrong date, and the date is what the color means here. So the scoped list
- * addresses real commits, and the frame is always the real one.
- */
-export function scopedCommits(hist: HistoryScan, scope: string): number[] {
-  const all = hist.commits.map((_, i) => i)
-  if (!scope) return all
-  // Segment-boundary match, so `web/src` does not take in `web/src-old`.
-  const inScope = hist.paths.map((p) => p === scope || p.startsWith(`${scope}/`))
-  return all.filter((i) => hist.commits[i].files.some((f) => inScope[f]))
-}
-
-/** Where a real commit index sits in a scoped list: the last scoped commit at or before
- *  it, or -1 for "before this scope had happened yet". */
 export function posOf(frames: number[], index: number): number {
   let lo = 0
   let hi = frames.length - 1

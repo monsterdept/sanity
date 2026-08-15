@@ -1939,6 +1939,7 @@ async fn open_project(
             &crate::surprise::HeuristicModel,
             &|_| {},
             &|_, _: &crate::surprise::Reading| {},
+            &|_| {},
             &std::sync::atomic::AtomicBool::new(false),
             crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
             crate::scan::Fidelity::Ordering,
@@ -4503,6 +4504,15 @@ pub struct ProjectSummary {
     pub assessed: usize,
     /// Lines of code in the functions still outstanding — see [`unread_lines`].
     pub unread_lines: usize,
+    /// Commits reachable from HEAD, as the scan counted them. 0 for a repo with no history.
+    ///
+    /// Beside the reading numbers because the sidebar now says both: a project has a repo to
+    /// READ and a story to REPLAY, they are worked separately, and a row that reports only
+    /// the first leaves the second discoverable only by turning a mode on and waiting.
+    pub commits: usize,
+    /// Commits already replayed and stored — see [`crate::history::banked`]. The difference
+    /// is what a replay has left to do.
+    pub replayed: usize,
     pub stale: usize,
     pub touched: u64,
     /// An agent has called about this project recently. Per project, so two sessions
@@ -4595,6 +4605,10 @@ impl ProjectList {
                     // `reports.len() - stale` counts readings whose function was deleted.
                     assessed: assessed(p),
                     unread_lines: unread_lines(p),
+                    commits: p.scan.stats.commits as usize,
+                    // Read from a four-byte sidecar rather than from the timeline itself,
+                    // which on a large repo is hundreds of megabytes — see `history::banked`.
+                    replayed: crate::history::banked(&p.repo, crate::history::ALL_COMMITS),
                     reading: p
                         .leased
                         .iter()
@@ -4654,6 +4668,8 @@ impl ProjectList {
                         events: Vec::new(),
                         assessed: 0,
                         unread_lines: 0,
+                        commits: 0,
+                        replayed: 0,
                         reading: Vec::new(),
                         stale: 0,
                         touched: known.touched,
@@ -4973,6 +4989,7 @@ pub fn restore(state: Shared) {
                 &crate::surprise::HeuristicModel,
                 &on_progress,
                 &|_, _: &crate::surprise::Reading| {},
+                &|_| {},
                 &std::sync::atomic::AtomicBool::new(false),
                 crate::scan::Memos {
                     scores: &crate::cache::Cache::ephemeral(),
@@ -5088,6 +5105,7 @@ async fn watch_tick(state: &Shared) {
                 &crate::surprise::HeuristicModel,
                 &|_| {},
                 &|_, _: &crate::surprise::Reading| {},
+                &|_| {},
                 &std::sync::atomic::AtomicBool::new(false),
                 crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
                 crate::scan::Fidelity::Ordering,
@@ -5181,6 +5199,7 @@ pub(crate) mod tests {
             &crate::surprise::HeuristicModel,
             &|_| {},
             &|_, _: &crate::surprise::Reading| {},
+            &|_| {},
             &std::sync::atomic::AtomicBool::new(false),
             crate::scan::Memos {
                 scores: &crate::cache::Cache::ephemeral(),

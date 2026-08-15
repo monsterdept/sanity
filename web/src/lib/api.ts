@@ -23,6 +23,23 @@ export interface Score {
   source: 'proxy' | 'model' | 'agent'
   /** Share of this node's lines a model actually looked at. 0 means uncolored. */
   analyzedShare: number
+  /** 1 when the frame under the playhead is the commit this first appeared in, decaying to
+   *  0 across the flash window, and null the rest of the time.
+   *
+   *  **Replay only, and the only thing a replay colours** — the scan never sets it, and a
+   *  live map has no use for it. Everything else in a frame is drawn at the ground: a
+   *  replay has no reading to show, and every attempt to derive one from the commit stream
+   *  said less than grey did. See the note on `history.ts` for what was tried. */
+  appeared?: number | null
+  /** The same shape for a plain edit: 1 on the commit that touched this, decaying to 0.
+   *
+   *  Two events and two colours, because they are not the same news and a single ramp
+   *  covering both said "something happened around here" about everything. An arrival is
+   *  loud and rare; an edit is quiet and constant, and drawn far dimmer for exactly that
+   *  reason. Every arrival is also an edit — the brighter one wins where they are drawn.
+   *
+   *  Functions only. See the note beside the container roll-up in `history.ts`. */
+  edited?: number | null
 }
 
 export interface Hotspot {
@@ -95,6 +112,32 @@ export interface Node {
  * temperature is bounded by the coldest wedge beside it and says more about where the
  * truncation fell than about the code.
  */
+/**
+ * The tree with everything `.sanityignore` set aside taken out of it.
+ *
+ * **Ignored means ignored.** An excluded file used to be drawn and merely left out of the
+ * queue and the denominator, on the argument that an exclusion nobody can see is how a map
+ * claims completeness over a subset. The counting half of that argument survives — Rust walks
+ * its own tree, which still holds them, and every place either number appears still says
+ * `functions` and `excluded` together. What does not survive is the drawing: somebody who has
+ * written a file saying "this is not my code" is not asking for it to be the largest wedge on
+ * screen.
+ *
+ * Sizes are recomputed on the way out. A directory's `loc` came from Rust with its excluded
+ * children counted in, and a parent whose children no longer fill it lays out as a ring with a
+ * gap in it — the arcs are drawn from the sizes, not from the shape.
+ *
+ * Files, never functions: exclusion is a property of a path, and it is inherited. A function
+ * carries its file's flag, so testing it per node would be testing the same fact twice.
+ */
+export function pruneExcluded(node: Node): Node {
+  if (node.kind === 'func') return node
+  const children = node.children.filter((c) => !c.excluded).map(pruneExcluded)
+  const loc =
+    node.kind === 'file' ? node.loc : children.reduce((t, c) => t + c.loc, 0)
+  return { ...node, children, loc }
+}
+
 export function showsShare(node: Node): boolean {
   return node.kind !== 'func' || node.rest !== undefined
 }
@@ -268,6 +311,9 @@ export function agentActivity(): Promise<AgentActivity> {
 /** A chosen folder, and whether it is a pile of other people's repos. */
 export interface Added {
   path: string
+  /** The key the backend will file this repo under — see `add_project`. Matching on it
+   *  rather than on `path` is what makes "select the repo I just added" exact. */
+  key: string
   /** Git repos directly inside it. Zero for an ordinary project. */
   holds: number
   /** The first few, so a warning can name them. */
@@ -415,6 +461,10 @@ export interface ProjectSummary {
   /** Lines of code in the functions still outstanding. The size of the job in the unit the
    *  map is drawn in — a count says how many things, this says how much code. */
   unread_lines: number
+  /** Commits reachable from HEAD, as the scan counted them. 0 for a repo with no history. */
+  commits: number
+  /** Commits already replayed and stored. `commits - replayed` is the story left to read. */
+  replayed: number
   /** Which agent reads this repo. Machine-local — which CLI you have is a fact about this
    *  laptop, not about the repo. Null until somebody chooses. */
   harness: string | null
@@ -1133,6 +1183,12 @@ function reaggregate(node: Node, children: Node[]): Node {
             }
           : node.score,
     }
+}
+
+/** Stop the replay that is running. What it reached is kept and can be resumed — see
+ *  `history::cancel`. */
+export function stopHistory(): Promise<void> {
+  return invoke<void>('stop_history')
 }
 
 export function onScanProgress(cb: (p: Progress) => void): () => void {
