@@ -1,8 +1,15 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { clsx } from '../lib/cn'
 import { Overlay } from './Overlay'
 import { SideBarHeader } from './shell/SideBarHeader'
-import { readable, stopCheck, stopHistory, type Progress, type ProjectSummary } from '../lib/api'
+import {
+  readable,
+  reorderProjects,
+  stopCheck,
+  stopHistory,
+  type Progress,
+  type ProjectSummary,
+} from '../lib/api'
 
 /**
  * Full-height left column. Its right border is the one uninterrupted vertical gutter from
@@ -37,7 +44,7 @@ export function SideBar({
   /** Replay a project's history. Selects it and turns the mode on — a walk belongs to a
    *  repo, and watching one you are not looking at is what the strip above the map used to
    *  invite. */
-  onReplay: (key: string) => void
+  onReplay: (key: string, fresh?: boolean) => void
   onSelect: (key: string) => void
   /** Pick a repo and add it. The one way a project enters that does not involve a
    *  terminal — see the `+` below for why it exists again. */
@@ -50,6 +57,129 @@ export function SideBar({
    *  the window owns the one place failures are said out loud. */
   onError: (message: string) => void
 }) {
+  /**
+   * The list as it is being dragged: which row is moving, the arrangement so far, and the
+   * slots it is moving through.
+   *
+   * **Pointer events, not HTML5 drag-and-drop.** The obvious implementation is `draggable`
+   * with `dragover`, and in this window it does nothing at all: the webview claims drag
+   * gestures for its own file-drop handling on macOS, so `dragstart` fires, no `dragover`
+   * ever arrives, and the drop is swallowed — a row you can pick up, cannot aim, and cannot
+   * put down. Pointer events are not intercepted, and they also make the feedback possible:
+   * the list rearranges under the pointer as it crosses each row, so where it will land is
+   * visible before letting go rather than after.
+   *
+   * `slots` is measured once, at the start. The rows are not all the same height — a repo
+   * being traced grows a line — and re-measuring mid-gesture would mean the target moving
+   * because the arrangement moved, which is a list chasing its own tail.
+   *
+   * The poll is ignored while this is set: a list that reorders itself under a moving
+   * pointer is a list you cannot aim at.
+   */
+  const [drag, setDrag] = useState<{
+    key: string
+    order: string[]
+    slots: { top: number; bottom: number }[]
+    from: number
+    /** Where the row will land: the gap BEFORE this index, `order.length` for the end.
+     *
+     *  **A line in the gap, and the list holds still.** Rearranging the rows as the pointer
+     *  crossed them was the first attempt and it is worse than no feedback: every row moves,
+     *  so the one thing you are trying to judge — where this row goes — is the thing hardest
+     *  to see, and the list you are aiming at keeps changing shape underneath you. A line is
+     *  the whole answer and moves nothing. */
+    at: number
+    moved: boolean
+    /** Where the pointer is, and where inside the row it took hold.
+     *
+     *  **The gap is decided by where the ROW is, not by where the pointer is**, and the
+     *  difference is the whole top of the list. Grab a row halfway down and the pointer sits
+     *  thirty pixels below its top edge; asked about the pointer, the first gap only opens
+     *  when the pointer climbs above the first row's middle — which on a two-line row means
+     *  dragging up past the header, off the list, to reach a position that is visibly right
+     *  there. Asked about the row's own centre, it opens when the row overlaps it, which is
+     *  what the eye is already judging. */
+    offset: number
+    height: number
+    width: number
+  } | null>(null)
+  const nav = useRef<HTMLElement>(null)
+  /** The gesture as it actually is, mutated in place.
+   *
+   *  **A pointer moves faster than a sidebar can re-render.** Following it through state put
+   *  every project row, the ghost and the drop line through React a hundred times a second,
+   *  and the ghost arrived behind the pointer — the lag you can feel. The position is written
+   *  straight to the element instead, and React is told only when something it draws
+   *  differently has changed: the gap moved, or a click became a drag.
+   *
+   *  `drag` below is a snapshot of this for rendering. They are the same gesture; one is the
+   *  truth and the other is what has been painted. */
+  const live = useRef<{ y: number } | null>(null)
+  const ghost = useRef<HTMLDivElement>(null)
+  /** A drag just ended here. The pointer comes up over a row and the browser calls that a
+   *  click, so without this, letting go of a project selects whichever one it landed on —
+   *  the view jumping at the end of every arrangement. */
+  const dropped = useRef(false)
+  // The poll is ignored while a gesture is in progress: a list that reorders itself under a
+  // moving pointer is a list you cannot aim at.
+  const shown = drag
+    ? (drag.order
+        .map((k) => projects.find((p) => p.key === k))
+        .filter(Boolean) as ProjectSummary[])
+    : projects
+
+  /** Follow the pointer while a row is held, and commit when it is let go.
+   *
+   *  On the window rather than on the row: a pointer moving faster than React re-renders
+   *  leaves the row behind, and a gesture that ends outside the sidebar still ends. */
+  useEffect(() => {
+    if (!drag) return
+    const move = (e: PointerEvent) => {
+      setDrag((d) => {
+        if (!d) return d
+        // Five pixels before this is a drag at all. Below that a click on `Read` that
+        // wobbles would rearrange somebody's sidebar.
+        // Five pixels before this is a drag at all. Below that a click on `Read` that
+        // wobbles would rearrange somebody's sidebar.
+        const moved = d.moved || Math.abs(e.clientY - (d.slots[d.from].top + d.offset)) > 5
+        const centre = e.clientY - d.offset + d.height / 2
+        // How many rows the held one has passed the middle of. Slots are where the rows are
+        // and they do not move during the gesture, so this is a fact about the two of them
+        // and nothing else.
+        const at = d.slots.filter((s) => centre > (s.top + s.bottom) / 2).length
+        return { ...d, at, moved, y: e.clientY }
+      })
+    }
+    const up = () => {
+      setDrag((d) => {
+        dropped.current = d?.moved === true
+        // Told once, when the gesture is over — a drag crosses several rows and each
+        // crossing is a new arrangement; writing each one would be a write per frame of
+        // something nobody has finished saying. A gesture that never moved wrote nothing and
+        // was a click.
+        if (d?.moved) {
+          const order = d.order.filter((k) => k !== d.key)
+          // The gap was counted in the list as it stands, and the row leaves that list on
+          // its way to the gap: everything below it shifts up by one, including the gap.
+          order.splice(d.at > d.from ? d.at - 1 : d.at, 0, d.key)
+          void reorderProjects(order).catch(() => {})
+        }
+        return null
+      })
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+    }
+  }, [drag])
+
+  /** The project being dragged, for the ghost under the pointer. */
+  const dragged = drag ? (projects.find((p) => p.key === drag.key) ?? null) : null
+
   /** The right-click menu: which project, and where the pointer was. */
   const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null)
   /** Whose failure transcript is open. One at a time, held here rather than per row so a
@@ -89,7 +219,14 @@ export function SideBar({
           the only thing separating them. Each row now ends in a six-pixel progress rule, and
           at one pixel apart two of those read as one band belonging to neither project. Six
           is enough that a rule sits under the row it measures. */}
-      <nav className="mt-1 min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2 [overscroll-behavior:contain]">
+      <nav
+        ref={nav}
+        className="mt-1 min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2 [overscroll-behavior:contain]"
+        // A drag across text selects it, and a half-highlighted sidebar reads as the app
+        // having lost track of the gesture. Only while one is in progress: the names are
+        // still text somebody may want to copy.
+        style={drag?.moved ? { userSelect: 'none' } : undefined}
+      >
         {/* The `+` is back, and the reason it went is worth keeping here because it was a
             good reason. A project used to arrive exactly one way — an agent called
             `sanity_open` in the repo it was already working in — so opening by hand was a
@@ -125,17 +262,52 @@ export function SideBar({
             <code>sanity init</code> in one.
           </div>
         )}
-        {projects.map((p) => (
+        {shown.map((p, i) => (
+          <Fragment key={p.key}>
+            {drag?.moved && drag.at === i && <DropLine />}
           <ProjectItem
             key={p.key}
+            dragging={drag?.moved === true && drag.key === p.key}
+            onGrab={(e) => {
+              if (e.button !== 0 || !nav.current) return
+              const rows = [...nav.current.children].map((el) => {
+                const r = el.getBoundingClientRect()
+                return { top: r.top, bottom: r.bottom }
+              })
+              const mine = rows[i]
+              live.current = { y: e.clientY }
+              setDrag({
+                key: p.key,
+                order: shown.map((row) => row.key),
+                slots: rows,
+                from: i,
+                at: i,
+                offset: e.clientY - mine.top,
+                height: mine.bottom - mine.top,
+                width: nav.current.clientWidth - 16,
+                // Not a drag until it has moved — see the threshold in the effect. A click
+                // that jitters by a pixel is still a click, and this row's whole job is to be
+                // clicked.
+                moved: false,
+              })
+            }}
             project={p}
             active={p.key === active}
             replay={p.key === replayKey ? replay : null}
+            // Another repo is being walked, so this one cannot start. The control is not
+            // offered rather than offered and refused.
+            blocked={replayKey !== null && replayKey !== p.key}
             onError={onError}
-            onReplay={() => onReplay(p.key)}
+            onReplay={(fresh) => onReplay(p.key, fresh)}
             onRead={() => onRead(p.key)}
             onFailure={() => setFailureFor(p.key)}
-            onClick={() => onSelect(p.key)}
+            onClick={() => {
+              if (dropped.current) {
+                dropped.current = false
+                return
+              }
+              onSelect(p.key)
+            }}
             onContextMenu={(e) => {
               // Ours instead of WebKit's, which offers Reload and Inspect Element — a
               // developer menu shipped to everybody, on a row where the obvious gesture
@@ -144,8 +316,53 @@ export function SideBar({
               setMenu({ key: p.key, x: e.clientX, y: e.clientY })
             }}
           />
+          </Fragment>
         ))}
+        {/* The last gap has no row after it to hang off. */}
+        {drag?.moved && drag.at === shown.length && <DropLine />}
       </nav>
+
+      {/* **The row itself, under the pointer.** A line says where it will land and says
+          nothing about what is moving — with five projects that is obvious and with twenty it
+          is not, and a gesture whose subject is invisible is one you have to remember rather
+          than watch. The real row rather than a name in a box: it is the thing being moved,
+          and anything simpler would be a second, worse rendering of a row this file already
+          knows how to draw.
+
+          `pointer-events-none` or it takes the pointer from under itself and the gesture ends
+          on the first move. Fixed rather than absolute, because the coordinates come from
+          `getBoundingClientRect` and that is the frame they are in. */}
+      {drag?.moved && dragged && (
+        <div
+          ref={ghost}
+          className="pointer-events-none fixed left-0 top-0 z-50"
+          style={{
+            // Placed by `transform` from the pointer handler above, which is why this starts
+            // at the origin: a `top` written through React would be a render per pointer
+            // move, which is the lag this arrangement exists to remove.
+            transform: `translateY(${(live.current?.y ?? 0) - drag.offset}px) scale(1.02)`,
+            marginLeft: (nav.current?.getBoundingClientRect().left ?? 0) + 8,
+            width: drag.width,
+            opacity: 0.9,
+            filter: 'drop-shadow(0 6px 16px rgb(0 0 0 / 0.35))',
+          }}
+        >
+          <ProjectItem
+            project={dragged}
+            active={dragged.key === active}
+            replay={dragged.key === replayKey ? replay : null}
+            dragging={false}
+            blocked={false}
+            onGrab={() => {}}
+            onError={() => {}}
+            onReplay={() => {}}
+            onRead={() => {}}
+            onFailure={() => {}}
+            onClick={() => {}}
+            onContextMenu={() => {}}
+          />
+        </div>
+      )}
 
       {menu && (
         /* A backdrop, not a document listener. It closes on any click including a
@@ -164,6 +381,26 @@ export function SideBar({
             className="absolute min-w-40 rounded-md border border-[var(--border)] bg-[var(--card)] py-1 text-[12px] shadow-lg"
             style={{ left: menu.x, top: menu.y }}
           >
+            {/* Throws the stored timeline away and walks the repo again. Here because it is
+                the rare, expensive one: a trace is resumable and idempotent, so the ordinary
+                answer to "trace this" is already on the row, and this is for the case the
+                cache cannot notice — a parser that has moved, or a timeline written by a
+                build whose bugs are since fixed. Nothing in it is wrong enough to fail a
+                version check; it is just the wrong answer. */}
+            {/* Absent while another repo is being walked, for the same reason the row's own
+                Trace button is. */}
+            {replayKey === null && (
+              <button
+                type="button"
+                className="block w-full px-3 py-1 text-left hover:bg-[var(--secondary)]"
+                onClick={() => {
+                  onReplay(menu.key, true)
+                  setMenu(null)
+                }}
+              >
+                Re-trace history
+              </button>
+            )}
             <button
               type="button"
               className="block w-full px-3 py-1 text-left hover:bg-[var(--secondary)]"
@@ -232,6 +469,22 @@ export function SideBar({
 }
 
 
+/** Where the held row will land.
+ *
+ *  In the flow rather than floating over it, so the list opens by exactly the height of the
+ *  line and the gap is somewhere the eye can put a row. Absolute positioning would have
+ *  meant measuring the scroll container to place it, and re-measuring every time the pointer
+ *  moved — arithmetic to say a thing the layout can say by existing. */
+function DropLine() {
+  return (
+    <div
+      aria-hidden
+      className="h-0.5 rounded-full"
+      style={{ background: 'var(--accent)', margin: '2px 0' }}
+    />
+  )
+}
+
 /** A row's height, for a row that is now two rows.
  *
  *  It was 28 (the sibling apps' nav height), then 40 to hold a button and a progress rule.
@@ -273,6 +526,9 @@ function ProjectItem({
   onFailure,
   onError,
   onReplay,
+  dragging,
+  blocked,
+  onGrab,
 }: {
   project: ProjectSummary
   active: boolean
@@ -291,8 +547,17 @@ function ProjectItem({
   onFailure: () => void
   /** Say something went wrong, on the window's own error line. */
   onError: (message: string) => void
-  /** Replay this project's history — select it and start the walk. */
-  onReplay: () => void
+  /** Walk this project's history. `fresh` throws the stored timeline away first. */
+  onReplay: (fresh?: boolean) => void
+  /** A trace is running on another project. One walks at a time — see `trace` in `App` —
+   *  and a button that reports that when pressed is a worse way of saying it than not being
+   *  there. */
+  blocked: boolean
+  /** This row is the one being dragged. Marked rather than hidden: the row moves through the
+   *  list as the pointer crosses each slot, so what it needs to say is "this is the one you
+   *  are holding", not "something has left". */
+  dragging: boolean
+  onGrab: (e: React.PointerEvent) => void
 }) {
   const [hover, setHover] = useState(false)
   /** Cancel was pressed here. The walk stops at its next commit, which is a moment on a
@@ -380,7 +645,12 @@ function ProjectItem({
   const detail = project.loading
     ? project.read_total > 0
       ? `${compact(project.read_done)} / ${compact(project.read_total)} files`
-      : 'walking the repo'
+      : // The scan names its own phases now — a walk, a `git log`, a cache read — and this
+        // line said `walking the repo` through all of them. It said it before the scan had
+        // STARTED, too: projects are restored one at a time, so the rows below the running
+        // one were reporting a phase nothing had entered, which is a guess wearing the
+        // clothes of a measurement.
+        project.read_phase || 'queued'
     : left > 0
       ? `${compact(left)} unread functions`
       : ''
@@ -415,6 +685,15 @@ function ProjectItem({
         }
       }}
       onContextMenu={onContextMenu}
+      // **Drag to arrange.** The order is otherwise most-recently-touched, which is a good
+      // default and a bad rule: the repo somebody is actually working through is not always
+      // the one they opened last, and a list that rearranges itself as you use it is one you
+      // have to re-read every time.
+      //
+      // On the row and not on a handle: there is nothing else to grab a project row by, and a
+      // grip column would be four pixels of chrome in a 220px list to disambiguate a gesture
+      // nothing else here uses.
+      onPointerDown={onGrab}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       title={
@@ -433,7 +712,15 @@ function ProjectItem({
         'relative flex w-full cursor-pointer flex-col justify-center gap-1.5 overflow-hidden rounded-md px-2 py-2 text-left text-[13px] transition-colors',
         active ? 'shell-chrome--active' : 'shell-chrome--rest shell-chrome--hover',
       )}
-      style={{ minHeight: ROW_H, color: active ? 'var(--foreground)' : 'var(--muted-foreground)' }}
+      style={{
+        minHeight: ROW_H,
+        color: active ? 'var(--foreground)' : 'var(--muted-foreground)',
+        // Emptied where it was, because it is being drawn under the pointer instead — see
+        // the ghost in `SideBar`. Kept in the layout rather than removed: the list must not
+        // resize under a gesture that is about position.
+        opacity: dragging ? 0.25 : 1,
+        cursor: dragging ? 'grabbing' : 'pointer',
+      }}
     >
       {/* **A rule along the bottom edge, not a fill behind the row.**
           Every project's progress belongs in the list, because the list is the only surface
@@ -540,7 +827,13 @@ function ProjectItem({
               style={{ color: replay ? 'var(--accent)' : 'inherit', opacity: replay ? 0.9 : 0.55 }}
             >
               {replay
-                ? `${compact(replay.done)} / ${compact(replay.total)} traced`
+                ? // Before the first tick there is nothing to divide, so the walk says what
+                  // it is doing instead — reading the stored trace, reading the log. Both
+                  // are seconds on a large repo, and `starting…` for all of them reads as a
+                  // button that missed the press.
+                  replay.total === 0
+                  ? (replay.phase || 'starting…')
+                  : `${compact(replay.done)} / ${compact(replay.total)} traced`
                 : unreplayed > 0
                   ? `${compact(unreplayed)} commits to trace`
                   : 'history traced'}
@@ -573,7 +866,12 @@ function ProjectItem({
                 {cancelling ? 'Cancelling…' : 'Cancel'}
               </button>
             )}
-            {!replay && open && unreplayed > 0 && (
+            {/* **Only when there is something to walk.** Starting a finished timeline over
+                is a real thing to want — a parser change, or a timeline written by a build
+                since fixed — but it is rare, expensive and destructive of an hour's work, so
+                it lives in the right-click menu rather than under the pointer of somebody
+                reading the row. */}
+            {!replay && open && !blocked && unreplayed > 0 && (
               <button
                 onClick={(e) => {
                   e.stopPropagation()

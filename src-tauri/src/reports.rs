@@ -112,7 +112,19 @@ pub struct KnownProjects {
     pub projects: Vec<KnownProject>,
     #[serde(default)]
     pub active: Option<String>,
+    /// The sidebar's order, as project keys, when somebody has arranged it by hand.
+    ///
+    /// **Machine-local, like `harness` and `model`, and for the same reason**: which repo
+    /// you want at the top is a fact about the person sitting here, not about any repo.
+    ///
+    /// Empty means nobody has arranged anything and the list falls back to what it always
+    /// was — most recently touched first, so the sidebar reads as a history. A key here that
+    /// no longer names a project is ignored rather than cleaned up: forgetting a project and
+    /// adding it back should not cost the arrangement around it.
+    #[serde(default)]
+    pub order: Vec<String>,
 }
+
 
 /// Where sanity keeps its own files — the project index, the endpoint file, the score
 /// cache. One resolver because there is one directory, and because the tests need to be

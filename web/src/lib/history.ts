@@ -65,8 +65,13 @@ export type TraceResult = number
  * the commits nobody has walked yet, which is the expensive thing and belongs to the button
  * that says `Trace`, never to the one that opens the view.
  */
-export function scanHistory(path: string, trace = false, limit?: number): Promise<TraceResult> {
-  return invoke<TraceResult>('scan_history', { path, limit, trace })
+export function scanHistory(
+  path: string,
+  trace = false,
+  fresh = false,
+  limit?: number,
+): Promise<TraceResult> {
+  return invoke<TraceResult>('scan_history', { path, limit, trace, fresh })
 }
 
 /**
@@ -531,6 +536,7 @@ function dirNode(path: string, name: string): Node {
     body: null,
     hotspots: [],
     children: [],
+    funcs: 0,
   }
 }
 
@@ -676,6 +682,7 @@ export function frameTree(
         body: null,
         hotspots: [],
         children: [],
+        funcs: 0,
       }
       nodes.set(f, node)
     }

@@ -119,6 +119,7 @@ tree-sitter-jq = "1.0.2"
 clap = { version = "4.6.6", features = ["derive", "wrap_help"] }
 libc = "0.2.189"
 terminal_size = "0.4.4"
+bincode = { version = "2", features = ["serde"] }
 
 [dev-dependencies]
 tempfile = "3"

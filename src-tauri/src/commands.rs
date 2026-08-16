@@ -92,7 +92,7 @@ pub async fn scan_repo(
             // along the same scan is.
             if let Ok(mut s) = progress_state.lock() {
                 s.restoring_progress
-                    .insert(progress_key.clone(), (p.done, p.total));
+                    .insert(progress_key.clone(), (p.done, p.total, p.phase.clone()));
             }
             let _ = app.emit("scan-progress", p);
         };
@@ -192,7 +192,9 @@ pub async fn scan_repo(
         // done to a pane in use.
         shared.focus(&key, true);
     }
-    scanned
+    // Slim, like `project_scan` and for the same reason — the window asks for a file's
+    // functions when it has somewhere to draw them.
+    scanned.map(|s| Scan { root: s.root.slim(), stats: s.stats })
 }
 
 
@@ -223,6 +225,10 @@ pub async fn scan_history(
     // button that starts an hour of parsing, and there was no way to look at a trace
     // somebody had already taken without extending it first.
     trace: Option<bool>,
+    // `fresh`: throw the stored timeline away first, so the walk starts from nothing. A trace
+    // is otherwise idempotent — it appends what is new and returns — which is right for
+    // keeping one current and useless for "do it again with this build".
+    fresh: Option<bool>,
 ) -> Result<usize, String> {
     let root = PathBuf::from(&path);
     if !root.is_dir() {
@@ -230,6 +236,9 @@ pub async fn scan_history(
     }
     let limit = limit.unwrap_or(crate::history::ALL_COMMITS);
     tauri::async_runtime::spawn_blocking(move || {
+        if fresh == Some(true) {
+            crate::history::forget(&root, limit);
+        }
         // **The count, not the timeline.** Returning the story is what made a large repo
         // unopenable: 122,792 frames is over a hundred megabytes of JSON, and the window
         // parsed all of it to draw one frame. It asks for what it needs now — see
@@ -496,7 +505,35 @@ pub fn project_scan(
     state: tauri::State<'_, crate::agentapi::Shared>,
     key: String,
 ) -> Option<Scan> {
-    crate::agentapi::lock(&state).projects.get(&key).map(|p| p.scan.clone())
+    // **Without the functions.** See `Node::slim`: ceph's tree is 75MB of JSON, almost all
+    // of it functions the map cannot draw, and the window spent five seconds parsing it
+    // before anything appeared. A file's own ring arrives when something asks for it.
+    let s = crate::agentapi::lock(&state);
+    if let Some(p) = s.projects.get(&key) {
+        return Some(Scan { root: p.scan.root.slim(), stats: p.scan.stats.clone() });
+    }
+    // Still being scanned, but a previous run left a map — see `AppState::shallow`. Answering
+    // with it is what lets a launch draw before the whole tree has been decoded; the row goes
+    // on saying the project is loading, because it is.
+    s.shallow.get(&key).cloned()
+}
+
+/// One file's functions, for the ring inside its wedge.
+///
+/// Asked for as the map needs them — a file wide enough to draw an inside, or one somebody
+/// has drilled into or opened the code of. The whole repo's worth is what `project_scan`
+/// stopped sending.
+#[tauri::command]
+pub fn file_functions(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    key: String,
+    path: String,
+) -> Vec<crate::model::Node> {
+    crate::agentapi::lock(&state)
+        .projects
+        .get(&key)
+        .map(|p| p.scan.root.functions_of(&path))
+        .unwrap_or_default()
 }
 
 /// Tick the appearance item the webview is actually using.
@@ -759,6 +796,32 @@ pub fn cli_status() -> CliState {
         },
         resolved: resolved.map(|p| p.display().to_string()),
     }
+}
+
+/// Remember that somebody is looking at this project.
+///
+/// **A click in the sidebar is what a restore should land on.** `active` moves when a
+/// project is OPENED — by an agent, by `sanity init --show`, by the window's own Open — and
+/// a sidebar click deliberately did not move it, because that rule was written against
+/// agents retargeting a pane somebody else was using. It reads differently from this side:
+/// choosing a project in your own window is exactly the claim on the view that `focus`
+/// exists to record, so quitting with sanity selected and coming back to ceph was the app
+/// forgetting the last thing it was told.
+#[tauri::command]
+pub fn select_project(state: tauri::State<'_, crate::agentapi::Shared>, key: String) {
+    let mut s = crate::agentapi::lock(&state);
+    s.touch(&key);
+    s.focus(&key, true);
+}
+
+/// Put the sidebar in this order, and remember it.
+///
+/// Sent whole rather than as a move: the window has just laid the list out and the list it
+/// is showing is the answer. A "move A above B" would be the same fact with an argument
+/// about what the order was beforehand attached to it.
+#[tauri::command]
+pub fn reorder_projects(state: tauri::State<'_, crate::agentapi::Shared>, keys: Vec<String>) {
+    crate::agentapi::set_order(&state, keys);
 }
 
 /// Take a project out of the sidebar.

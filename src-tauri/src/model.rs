@@ -499,7 +499,18 @@ pub struct Node {
     /// only part of a reading a reader can act on directly.
     #[serde(default)]
     pub hotspots: Vec<crate::surprise::Hotspot>,
+    #[serde(default)]
     pub children: Vec<Node>,
+    /// How many functions a FILE holds, for a tree sent without them — see [`Node::slim`].
+    /// Zero everywhere else, and zero on a full tree, where the children are the answer.
+    ///
+    /// **Written even when zero, like every other field here.** The absent fields were
+    /// skipped on the wire for a while — a hundred thousand `"children":[]` is megabytes of
+    /// nothing — and that is incompatible with a format that is not self-describing: the
+    /// tree cache encodes fields positionally, so an omitted one makes the decoder read the
+    /// next field's bytes into the wrong slot. It cost 10% of a payload that is now 3.3MB.
+    #[serde(default)]
+    pub funcs: u32,
 }
 
 impl Node {
@@ -522,6 +533,7 @@ impl Node {
             score: None,
             hotspots: Vec::new(),
             children: Vec::new(),
+            funcs: 0,
         }
     }
 
@@ -622,6 +634,63 @@ impl Node {
         for c in &self.children {
             c.visit(f);
         }
+    }
+
+    /// The tree without its functions: directories and files, and how many functions each
+    /// file holds.
+    ///
+    /// **What a window is handed when a project comes on screen.** Measured on ceph, the
+    /// whole tree is 75MB of JSON for 113,322 functions — serialised in Rust, passed as a
+    /// string, parsed in the webview, five seconds before anything is drawn. Almost none of
+    /// it can be seen: the map is directories and files at that size, and the layout says so
+    /// itself, rolling 3,627 files up as too thin to draw before it reaches their insides.
+    ///
+    /// A file keeps everything it needs to be a wedge — its size, its score, its language —
+    /// because those are rolled up from its functions during the scan and do not need them
+    /// again. What it loses is the ring inside it, which arrives when somebody asks for it:
+    /// see `file_functions`.
+    pub fn slim(&self) -> Node {
+        // **Every field written out, and `..self.clone()` is why.** The struct-update form
+        // reads as "this node, with two fields changed" and means "clone this node ENTIRELY,
+        // then change two fields" — and a node owns its children, so cloning one at the root
+        // copies all 113,322 of ceph's, at every level of the recursion, to build a tree that
+        // holds none of them. It made switching projects cost more than the scan it was
+        // avoiding. Verbose beats quadratic.
+        Node {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            kind: self.kind,
+            path: self.path.clone(),
+            loc: self.loc,
+            line: self.line,
+            end_line: self.end_line,
+            lang: self.lang,
+            last_author: self.last_author.clone(),
+            doc: self.doc.clone(),
+            signature: self.signature.clone(),
+            owner: self.owner.clone(),
+            excluded: self.excluded,
+            body: self.body.clone(),
+            score: self.score,
+            hotspots: self.hotspots.clone(),
+            funcs: if self.kind == NodeKind::File { self.children.len() as u32 } else { 0 },
+            children: if self.kind == NodeKind::File {
+                Vec::new()
+            } else {
+                self.children.iter().map(|c| c.slim()).collect()
+            },
+        }
+    }
+
+    /// The functions of one file, by its path. Empty for a path this tree does not hold.
+    pub fn functions_of(&self, path: &str) -> Vec<Node> {
+        let mut out = Vec::new();
+        self.visit(&mut |n| {
+            if n.kind == NodeKind::File && n.path == path {
+                out = n.children.clone();
+            }
+        });
+        out
     }
 }
 

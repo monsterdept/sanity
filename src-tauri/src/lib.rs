@@ -34,6 +34,7 @@ pub mod reports;
 pub mod scan;
 pub mod screen;
 pub mod scancache;
+pub mod treecache;
 pub mod surprise;
 pub mod watch;
 
@@ -257,7 +258,13 @@ pub fn run() {
             }
             // Bring back whatever was open before. The window follows the active
             // project as soon as it reappears, so a restart lands you where you were.
-            agentapi::restore(api_state.clone());
+            // The window's own emitter, so a launch draws the map assembling exactly as
+            // adding a project does — see `scan-shape`.
+            let shape_app = _app.handle().clone();
+            agentapi::restore(api_state.clone(), move |files: &[crate::scan::ShapeFile]| {
+                use tauri::Emitter;
+                let _ = shape_app.emit("scan-shape", files);
+            });
             // Stamped here for the same reason `serve` stamps it: read lazily on the first
             // `/health`, it would describe whatever binary is at this path by then. The
             // window is never retired over it — a CLI on a newer build says so and carries
@@ -294,6 +301,7 @@ pub fn run() {
             commands::agent_reports,
             commands::projects,
             commands::project_scan,
+            commands::file_functions,
             commands::scan_history,
             commands::warm_history,
             commands::agent_activity,
@@ -301,6 +309,8 @@ pub fn run() {
             commands::harnesses,
             commands::read_curve,
             commands::forget_project,
+            commands::reorder_projects,
+            commands::select_project,
             commands::install_cli,
             commands::cli_status,
             commands::set_reader,

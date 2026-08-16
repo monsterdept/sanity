@@ -389,7 +389,9 @@ pub fn serve() -> i32 {
     let state: agentapi::Shared = Default::default();
     // Same as the window's startup: bring back what was open, on its own thread, so the
     // server answers before the slowest repo has finished rescanning.
-    agentapi::restore(state.clone());
+    // No window, nothing to draw: the backend scans and the sidebar it would feed does not
+    // exist here.
+    agentapi::restore(state.clone(), |_| {});
     let port = match rt.block_on(agentapi::serve(state.clone())) {
         Ok(p) => p,
         Err(e) => {

@@ -56,6 +56,7 @@
 //! thousand commits cannot have its blame changed by anything short of a rewritten history,
 //! and a rewritten history drops the blame half wholesale (see [`ScanCache::open`]).
 
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -172,7 +173,17 @@ pub struct Ident {
 
 pub struct ScanCache {
     path: Option<PathBuf>,
-    inner: Mutex<Stored>,
+    /// The parsed log, read on FIRST USE rather than on open.
+    ///
+    /// **A launch that needs nothing from here should not read it.** The store holds function
+    /// bodies, so on a large repo it is enormous — 300MB on ceph — and every project came on
+    /// screen by opening it, whether or not a single file had changed. With the finished tree
+    /// cached (see `treecache`) the common launch touches no entry at all, and the biggest
+    /// read in the app became the one nobody needed.
+    ///
+    /// `None` means unread, not empty: an ephemeral cache starts `Some(default)` and never
+    /// touches the disk.
+    inner: Mutex<Option<Stored>>,
     /// Keys changed since the last append, and how many lines the log holds.
     ///
     /// **This is what stopped the cache being quadratic.** `save` used to serialise the
@@ -184,6 +195,8 @@ pub struct ScanCache {
     /// Blame entries are dropped on load when history was rewritten. Recorded so the
     /// current HEAD can be written back on save.
     head: String,
+    /// Kept for the ancestry test the deferred load performs — see `store`.
+    repo: PathBuf,
 }
 
 #[derive(Default)]
@@ -207,13 +220,14 @@ impl ScanCache {
     pub fn ephemeral() -> ScanCache {
         ScanCache {
             path: None,
-            inner: Mutex::new(Stored {
+            inner: Mutex::new(Some(Stored {
                 version: FORMAT_VERSION,
                 parse: crate::parse::PARSE_VERSION,
                 ..Default::default()
-            }),
+            })),
             dirty: Mutex::new(Dirty::default()),
             head: String::new(),
+            repo: PathBuf::new(),
         }
     }
 
@@ -226,38 +240,58 @@ impl ScanCache {
     /// without changing a single byte in the working tree, while the parse of those
     /// unchanged bytes is still perfectly good.
     pub fn open(repo: &Path) -> ScanCache {
-        let path = Self::path_for(repo);
-        let head = git_head(repo);
-        let (mut stored, lines) = path
+        ScanCache {
+            path: Self::path_for(repo),
+            // Unread. The file is opened by `store` on the first entry anybody asks for,
+            // which on a launch whose tree came from `treecache` is never.
+            inner: Mutex::new(None),
+            dirty: Mutex::new(Dirty { keys: Default::default(), lines: 0, rewrite: false }),
+            head: git_head(repo),
+            repo: repo.to_path_buf(),
+        }
+    }
+
+    /// The store, read from disk if this is the first time anybody has asked.
+    ///
+    /// The invalidation that used to happen in `open` happens here, unchanged and for the
+    /// same reasons: a format or parser change drops everything, because entries written by
+    /// a different parser are internally consistent and describe a repo nobody is looking
+    /// at; a REWRITTEN history drops only the blame halves, because a rebase changes who
+    /// touched a line without changing a byte in the working tree, and the parse of those
+    /// unchanged bytes is still good.
+    fn store(&self) -> std::sync::MutexGuard<'_, Option<Stored>> {
+        let mut held = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if held.is_some() {
+            return held;
+        }
+        let (mut stored, lines) = self
+            .path
             .as_ref()
             .and_then(|p| std::fs::read_to_string(p).ok())
             .map(|s| read_log(&s))
-            // Both gates, and both drop everything. A cache written by a different parser
-            // is not stale in the way a changed file is stale — the entries are internally
-            // consistent and describe a repo nobody is looking at.
             .filter(|(s, _)| s.version == FORMAT_VERSION && s.parse == crate::parse::PARSE_VERSION)
             .unwrap_or_else(|| {
                 (
                     Stored {
                         version: FORMAT_VERSION,
                         parse: crate::parse::PARSE_VERSION,
-                        head: head.clone(),
+                        head: self.head.clone(),
                         entries: HashMap::new(),
                     },
                     0,
                 )
             });
-        if !stored.head.is_empty() && !stored.head.eq(&head) && !is_ancestor(repo, &stored.head) {
+        if !stored.head.is_empty()
+            && !stored.head.eq(&self.head)
+            && !is_ancestor(&self.repo, &stored.head)
+        {
             for e in stored.entries.values_mut() {
                 e.blame = None;
             }
         }
-        ScanCache {
-            path,
-            inner: Mutex::new(stored),
-            dirty: Mutex::new(Dirty { keys: Default::default(), lines, rewrite: false }),
-            head,
-        }
+        self.dirty.lock().unwrap_or_else(|e| e.into_inner()).lines = lines;
+        *held = Some(stored);
+        held
     }
 
     /// One file per repo. Hashed rather than escaped, because repo paths hold separators
@@ -286,7 +320,7 @@ impl ScanCache {
         });
 
         // The fast path: the gate matches, so the bytes are not read and not hashed.
-        if let (Some((mtime, len)), Ok(inner)) = (gate, self.inner.lock()) {
+        if let (Some((mtime, len)), Some(inner)) = (gate, self.store().as_ref()) {
             if let Some(e) = inner.entries.get(rel_path) {
                 if e.mtime == mtime && e.len == len {
                     return Look::Hit(Hit {
@@ -311,7 +345,7 @@ impl ScanCache {
         // The gate missed but the content is the same — a reformat that rewrote the file
         // byte-identically, a checkout, a `touch`. Reuse, and let the save restamp the gate
         // so the next open takes the fast path.
-        if let Ok(inner) = self.inner.lock() {
+        if let Some(inner) = self.store().as_ref() {
             if let Some(e) = inner.entries.get(rel_path) {
                 if e.hash == hash {
                     return Look::Hit(Hit {
@@ -335,7 +369,8 @@ impl ScanCache {
     /// alone misses an uncommitted edit, which is the state a repo is in precisely when
     /// somebody reopens it.
     pub fn cached_blame(&self, rel_path: &str, hash: u64, last_commit: Option<&str>) -> Option<FileBlame> {
-        let inner = self.inner.lock().ok()?;
+        let held = self.store();
+        let inner = held.as_ref()?;
         let e = inner.entries.get(rel_path)?;
         if e.hash != hash || e.blame_commit != last_commit.unwrap_or(ANCIENT) {
             return None;
@@ -354,7 +389,8 @@ impl ScanCache {
         file_doc: Option<&str>,
         head: &str,
     ) {
-        let Ok(mut inner) = self.inner.lock() else {
+        let mut held = self.store();
+        let Some(inner) = held.as_mut() else {
             return;
         };
         let prev = inner.entries.get(rel_path);
@@ -378,7 +414,7 @@ impl ScanCache {
                 blame_commit,
             },
         );
-        drop(inner);
+        drop(held);
         self.touched(rel_path);
     }
 
@@ -386,14 +422,15 @@ impl ScanCache {
     /// is dropped rather than stored alone: the gate lives on the parse entry, so an
     /// orphan could never be invalidated.
     pub fn put_blame(&self, rel_path: &str, blame: Option<&FileBlame>, last_commit: Option<&str>) {
-        let Ok(mut inner) = self.inner.lock() else {
+        let mut held = self.store();
+        let Some(inner) = held.as_mut() else {
             return;
         };
         if let Some(e) = inner.entries.get_mut(rel_path) {
             e.blame = blame.cloned();
             e.blame_commit = last_commit.unwrap_or(ANCIENT).to_string();
         }
-        drop(inner);
+        drop(held);
         self.touched(rel_path);
     }
 
@@ -401,7 +438,8 @@ impl ScanCache {
     /// describes — a deleted directory would otherwise be carried forever.
     pub fn retain(&self, live: &std::collections::HashSet<String>) {
         let dropped = {
-            let Ok(mut inner) = self.inner.lock() else { return };
+            let mut held = self.store();
+        let Some(inner) = held.as_mut() else { return };
             let before = inner.entries.len();
             inner.entries.retain(|k, _| live.contains(k));
             before != inner.entries.len()
@@ -434,7 +472,8 @@ impl ScanCache {
     /// size of the store, which is the whole point — see [`ScanCache::dirty`].
     pub fn save(&self) {
         let Some(path) = &self.path else { return };
-        let Ok(mut inner) = self.inner.lock() else { return };
+        let mut held = self.store();
+        let Some(inner) = held.as_mut() else { return };
         let Ok(mut d) = self.dirty.lock() else { return };
         inner.head = self.head.clone();
 
@@ -508,35 +547,51 @@ fn entry_line(key: &str, e: &Entry) -> String {
 /// exactly that, and everything before it is still perfectly good. This is the property the
 /// old format did not have — one truncated document parsed as garbage and cost the next
 /// open its entire cache.
+/// One cached file, as it sits on disk: a key and its entry.
+#[derive(Deserialize)]
+struct Row {
+    k: String,
+    e: Entry,
+}
+
+/// The first line, which describes the cache rather than a file.
+#[derive(Deserialize)]
+struct Header {
+    #[serde(default)]
+    version: u32,
+    /// Absent is 0, which matches no real parse version and therefore drops the cache — the
+    /// honest reading of a header written before the parser was versioned at all.
+    #[serde(default)]
+    parse: u32,
+    #[serde(default)]
+    head: String,
+}
+
+/// Read the log back.
+///
+/// **Once per line, and in parallel.** This is the first thing a scan does and on a large
+/// repo it is most of what "walking the repo" was covering: ceph's cache is 300MB, and every
+/// line of it was parsed into a `serde_json::Value`, cloned, and parsed a second time into an
+/// `Entry` — three passes over the same bytes, on one core, before the walk had started.
+///
+/// A line is independent of every other line, which is what the format was chosen for (see
+/// the note on appending above), so the work is `rayon`'s to spread. The header is read on
+/// its own because it is the one line that is not a file.
 fn read_log(text: &str) -> (Stored, usize) {
     let mut out = Stored { version: 0, parse: 0, head: String::new(), entries: HashMap::new() };
-    let mut lines = 0;
-    for (i, line) in text.lines().enumerate() {
-        if line.is_empty() {
-            continue;
-        }
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
-        if i == 0 {
-            out.version = v.get("version").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
-            // Absent is 0, which matches no real parse version and therefore drops the
-            // cache — the honest reading of a header written before the parser was
-            // versioned at all.
-            out.parse = v.get("parse").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
-            out.head = v.get("head").and_then(|x| x.as_str()).unwrap_or("").to_string();
-            lines += 1;
-            continue;
-        }
-        let (Some(k), Some(e)) = (v.get("k").and_then(|x| x.as_str()), v.get("e")) else {
-            continue;
-        };
-        if let Ok(entry) = serde_json::from_value::<Entry>(e.clone()) {
-            out.entries.insert(k.to_string(), entry);
-            lines += 1;
-        }
+    let mut lines = text.lines().filter(|l| !l.is_empty());
+    let Some(head) = lines.next() else { return (out, 0) };
+    if let Ok(h) = serde_json::from_str::<Header>(head) {
+        out.version = h.version;
+        out.parse = h.parse;
+        out.head = h.head;
     }
-    (out, lines)
+    let rest: Vec<&str> = lines.collect();
+    let rows: Vec<Row> =
+        rest.par_iter().filter_map(|l| serde_json::from_str::<Row>(l).ok()).collect();
+    let read = rows.len() + 1;
+    out.entries = rows.into_iter().map(|r| (r.k, r.e)).collect();
+    (out, read)
 }
 
 fn git_head(repo: &Path) -> String {
@@ -810,7 +865,7 @@ mod tests {
 
         let lines = fs::read_to_string(&path).unwrap().lines().count();
         assert_eq!(lines, 5, "expected a header and one line per file, got {lines}");
-        assert_eq!(ScanCache::open(repo.path()).inner.lock().unwrap().entries.len(), 4);
+        assert_eq!(ScanCache::open(repo.path()).store().as_ref().expect("a store is read on first use").entries.len(), 4);
     }
 
     /// A write killed halfway costs that one entry, not the whole cache.
@@ -830,7 +885,7 @@ mod tests {
         fs::write(&path, torn).unwrap();
 
         let back = ScanCache::open(repo.path());
-        let n = back.inner.lock().unwrap().entries.len();
+        let n = back.store().as_ref().expect("a store is read on first use").entries.len();
         assert_eq!(n, 2, "a torn trailing line took the good entries with it");
     }
 
@@ -849,7 +904,8 @@ mod tests {
         cache.save();
 
         let back = ScanCache::open(repo.path());
-        let entries = back.inner.lock().unwrap();
+        let held = back.store();
+        let entries = held.as_ref().expect("a store is read on first use");
         assert!(entries.entries.contains_key("a.rs"));
         assert!(!entries.entries.contains_key("b.rs"), "a dropped file came back from the log");
     }

@@ -391,11 +391,14 @@ struct RawCommit {
 }
 
 /// Which commits to read.
+///
+/// One variant, and it used to have two. `Since(sha)` was how a resumed walk asked for what
+/// it had not done — and "everything not reachable from that commit" is only "everything
+/// after it" on a history with no branches. See `log_shas`: a resumed walk carries a
+/// POSITION now, and asks for those commits by name.
 enum CommitRange {
     /// The most recent N, oldest first.
     Last(usize),
-    /// Everything after this sha — what a resumed replay needs.
-    Since(String),
 }
 
 /// The commit stream, oldest first, and how many were left off the front.
@@ -405,6 +408,35 @@ enum CommitRange {
 /// `churn` excludes them: a merge commit's diff attributes every line of the branch to
 /// the moment it landed, which would make a whole subtree flare at once for work done
 /// over weeks.
+/// The diffs of exactly these commits, in the order given.
+///
+/// `--no-walk` so git reports the named commits rather than their ancestry, which is the
+/// whole point: the caller has already decided what to apply and in what order — see
+/// `log_shas`. Chunked because a command line is not unbounded and a repo can gain thousands
+/// of commits between opens.
+fn commits_named(repo: &Path, shas: &[String]) -> Vec<RawCommit> {
+    let mut out: Vec<RawCommit> = Vec::new();
+    for chunk in shas.chunks(2000) {
+        let mut cmd = Command::new("git");
+        cmd.arg("-C").arg(repo).args([
+            "log",
+            "--no-walk",
+            "--raw",
+            "--find-renames",
+            "--format=%x01%H%x1f%ct%x1f%an%x1f%s",
+        ]);
+        cmd.args(chunk);
+        let Ok(o) = cmd.output() else { return Vec::new() };
+        let text = String::from_utf8_lossy(&o.stdout);
+        let mut got = parse_commits(&text);
+        // `--no-walk` reports them newest first whatever order they were named in, so the
+        // caller's order is restored here rather than trusted from git.
+        got.sort_by_key(|c| chunk.iter().position(|s| *s == c.sha).unwrap_or(usize::MAX));
+        out.append(&mut got);
+    }
+    out
+}
+
 fn commits(repo: &Path, range: CommitRange) -> (Vec<RawCommit>, usize) {
     let total = Command::new("git")
         .arg("-C")
@@ -422,7 +454,6 @@ fn commits(repo: &Path, range: CommitRange) -> (Vec<RawCommit>, usize) {
         // very large window, it is an error.
         CommitRange::Last(limit) if *limit == ALL_COMMITS => "HEAD".to_string(),
         CommitRange::Last(limit) => format!("--max-count={limit}"),
-        CommitRange::Since(sha) => format!("{sha}..HEAD"),
     };
     let out = Command::new("git")
         .arg("-C")
@@ -444,7 +475,14 @@ fn commits(repo: &Path, range: CommitRange) -> (Vec<RawCommit>, usize) {
         return (Vec::new(), 0);
     };
     let text = String::from_utf8_lossy(&out.stdout);
+    let list = parse_commits(&text);
+    let CommitRange::Last(limit) = range;
+    let dropped = total.saturating_sub(limit);
+    (list, dropped)
+}
 
+/// One `--raw` log into commits and their changes.
+fn parse_commits(text: &str) -> Vec<RawCommit> {
     let mut list: Vec<RawCommit> = Vec::new();
     for line in text.lines() {
         if let Some(head) = line.strip_prefix('\u{1}') {
@@ -467,11 +505,7 @@ fn commits(repo: &Path, range: CommitRange) -> (Vec<RawCommit>, usize) {
             }
         }
     }
-    let dropped = match range {
-        CommitRange::Last(limit) => total.saturating_sub(limit),
-        CommitRange::Since(_) => 0,
-    };
-    (list, dropped)
+    list
 }
 
 /// Every source blob in one commit's tree — the opening state, when history is longer
@@ -497,6 +531,51 @@ fn tree_of(repo: &Path, sha: &str) -> Vec<(String, String)> {
             let blob = f.next()?.to_string();
             lang_of(path).map(|_| (path.to_string(), blob))
         })
+        .collect()
+}
+
+/// Every file version a window of commits touches, by `(path, blob)`.
+type Parsed = std::collections::HashMap<(String, String), FileState>;
+
+/// How many commits are read ahead and parsed as one batch.
+///
+/// **A frame is a commit; a BATCH is not.** Conflating the two cost the walk most of the
+/// machine: a commit touches about three files, so parsing per commit handed `rayon` a
+/// three-element loop — which on ten cores is a serial loop with scheduling overhead — and
+/// the walk ran at roughly one core for its whole length. Bucketing frames fixed that by
+/// accident and broke addressability, which is a worse trade; this fixes it on purpose and
+/// changes nothing about what a frame is.
+///
+/// Five hundred commits is about fifteen hundred file versions in flight: enough to fill
+/// every core, small enough that the blobs are megabytes rather than gigabytes, and it keeps
+/// the progress line moving — a window is applied commit by commit after it is parsed.
+const WINDOW: usize = 500;
+
+/// Read and parse every file version a slice of commits touches, in one pass.
+///
+/// Deduplicated by `(path, blob)`: a file reverted inside the window, or two commits landing
+/// the same content, is read once. The blob text is dropped as soon as it is parsed, so what
+/// this holds is function lists rather than sources.
+fn prefetch(blobs: &mut Blobs, log: &[RawCommit]) -> Parsed {
+    let mut want: Vec<(String, String)> = Vec::new();
+    let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+    for c in log {
+        for ch in &c.changes {
+            let Some(sha) = ch.sha.clone() else { continue };
+            if lang_of(&ch.path).is_none() {
+                continue;
+            }
+            let key = (ch.path.clone(), sha);
+            if seen.insert(key.clone()) {
+                want.push(key);
+            }
+        }
+    }
+    let keys = want.clone();
+    parse_batch(blobs, want)
+        .into_iter()
+        .zip(keys)
+        .map(|((_, state), (path, sha))| ((path, sha), state))
         .collect()
 }
 
@@ -641,7 +720,7 @@ impl Replayer {
     }
 
     /// Apply one commit, appending its frame.
-    fn apply(&mut self, blobs: &mut Blobs, commit: &RawCommit) {
+    fn apply(&mut self, blobs: &mut Blobs, commit: &RawCommit, ready: &Parsed) {
         let mut frame = HistoryCommit {
             sha: commit.sha.clone(),
             short: commit.sha.chars().take(7).collect(),
@@ -675,16 +754,24 @@ impl Replayer {
             }
         }
 
-        let want: Vec<(String, String)> = commit
-            .changes
-            .iter()
-            .filter_map(|c| {
-                let sha = c.sha.clone()?;
-                lang_of(&c.path).map(|_| (c.path.clone(), sha))
-            })
-            .collect();
+        // Taken from the window's batch, and parsed here only if it is somehow missing —
+        // see `prefetch`. The fallback exists so a bug in the batching is a slow frame
+        // rather than a silently empty one.
+        let mut missing: Vec<(String, String)> = Vec::new();
+        let mut states: Vec<(String, FileState)> = Vec::new();
+        for c in &commit.changes {
+            let Some(sha) = c.sha.clone() else { continue };
+            if lang_of(&c.path).is_none() {
+                continue;
+            }
+            match ready.get(&(c.path.clone(), sha.clone())) {
+                Some(state) => states.push((c.path.clone(), state.clone())),
+                None => missing.push((c.path.clone(), sha)),
+            }
+        }
+        states.extend(parse_batch(blobs, missing));
 
-        for (path, next) in parse_batch(blobs, want) {
+        for (path, next) in states {
             let pi = self.path_idx(&path);
             frame.files.push(pi);
             let prev = self.state.get(&path).cloned().unwrap_or_default();
@@ -862,6 +949,9 @@ impl Checkpoint {
 /// Two minutes says that in the unit they would say it in, and it costs a repo whose whole
 /// replay is shorter than that exactly nothing.
 pub fn read(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> HistoryScan {
+    // A hundred thousand commits of `git log --raw` is several seconds, and until it lands
+    // there is no denominator to report.
+    progress(Progress::phase("reading the log"));
     let (log, truncated) = commits(repo, CommitRange::Last(limit));
     let mut r = Replayer::empty();
     r.out.base_ts = log.first().map(|c| c.ts).unwrap_or(0);
@@ -874,7 +964,7 @@ pub fn read(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> HistorySc
     };
 
     let total = log.len() + 1;
-    progress(Progress { done: 0, total });
+    progress(Progress::at(0, total));
 
     // The opening state: everything the truncated commits built, parsed once from the tree
     // of the commit *before* the window. Skipped entirely when the window covers the whole
@@ -883,16 +973,21 @@ pub fn read(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> HistorySc
         let tree = tree_of(repo, &format!("{}^", log[0].sha));
         r.seed(&mut blobs, tree);
     }
-    progress(Progress { done: 1, total });
+    progress(Progress::at(1, total));
 
     let mut checkpoint = Checkpoint::new();
-    for (n, commit) in log.iter().enumerate() {
-        if cancelled() {
-            break;
+    // A window's file versions are read and parsed together, then its commits are applied
+    // one at a time — see `WINDOW`. Frames stay per commit; only the parsing is batched.
+    'walk: for (w, window) in log.chunks(WINDOW).enumerate() {
+        let ready = prefetch(&mut blobs, window);
+        for (n, commit) in window.iter().enumerate() {
+            if cancelled() {
+                break 'walk;
+            }
+            r.apply(&mut blobs, commit, &ready);
+            progress(Progress::at(w * WINDOW + n + 2, total));
+            checkpoint.maybe(repo, limit, || r.snapshot());
         }
-        r.apply(&mut blobs, commit);
-        progress(Progress { done: n + 2, total });
-        checkpoint.maybe(repo, limit, || r.snapshot());
     }
     r.finish()
 }
@@ -916,18 +1011,33 @@ pub fn read(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> HistorySc
 /// a second home for readings was a bug where a second copy of a timeline is not — this
 /// one holds nothing that cannot be recomputed from git.
 pub fn read_cached(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> HistoryScan {
+    // Named before it is counted. Reading ceph's stored timeline is seconds of serde before
+    // a single frame is applied, and the row said `starting…` for all of it.
+    progress(Progress::phase("reading the stored trace"));
     // Cleared here rather than by whoever cancelled: a flag that outlives its walk truncates
     // the NEXT one, and `warm` calls this on every project that comes on screen.
     CANCELLED.store(false, std::sync::atomic::Ordering::Relaxed);
-    let head = head_of(repo);
+    // **One place decides, and "nothing to do" is not "cannot be carried".**
+    //
+    // This used to ask `git rev-parse HEAD` and return the cached timeline when the stored
+    // head matched. It almost never does: the walk skips merges, so its last commit is the
+    // newest NON-MERGE one, and on a merge-heavy repo that is not HEAD. Every open therefore
+    // decided the timeline was stale, asked `extend` to carry it forward, was told there was
+    // nothing ahead — and read that as "cannot be carried", falling through to a full replay
+    // of a hundred and twenty thousand commits. Every time the project was opened. It is why
+    // ceph's map was slow to load whatever had been traced, and why a finished trace still
+    // advertised ninety-four thousand commits to trace after a restart.
     if let Some(cached) = load_cache(repo, limit) {
-        if !head.is_empty() && cached.head == head {
-            progress(Progress { done: 1, total: 1 });
-            return cached;
-        }
-        if let Some(scan) = extend(repo, cached, limit, progress) {
-            save_cache(repo, limit, &scan);
-            return scan;
+        match extend(repo, cached, limit, progress) {
+            Carry::Same(scan) => {
+                progress(Progress::at(1, 1));
+                return scan;
+            }
+            Carry::Grew(scan) => {
+                save_cache(repo, limit, &scan);
+                return scan;
+            }
+            Carry::Refused => {}
         }
     }
     let scan = read(repo, limit, progress);
@@ -935,6 +1045,24 @@ pub fn read_cached(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> Hi
     // The held copy describes a story this walk has just replaced.
     unload();
     scan
+}
+
+/// Throw away this repo's timeline, so the next trace walks it from nothing.
+///
+/// **The only way to make a trace do work it thinks it has already done.** A walk is
+/// resumable and idempotent by design — it asks what has changed since the stored head and
+/// appends — which is what makes an hour-long trace survivable and also means "trace it
+/// again" is otherwise a no-op. What it cannot notice is that the PARSER moved, or that a
+/// timeline was written by a build whose bugs are now fixed: those change what the same
+/// commits mean, and nothing in the cache is wrong enough to fail a check.
+pub fn forget(repo: &Path, limit: usize) {
+    unload();
+    if let Some(p) = cache_path(repo, limit) {
+        let _ = std::fs::remove_file(&p);
+    }
+    if let Some(p) = meta_path(repo, limit) {
+        let _ = std::fs::remove_file(&p);
+    }
 }
 
 /// The timeline this repo already has, without walking a single commit.
@@ -948,49 +1076,97 @@ pub fn stored(repo: &Path, limit: usize) -> Option<HistoryScan> {
     load_cache(repo, limit)
 }
 
-/// Carry a cached scan forward to HEAD, or `None` if it cannot be carried.
+/// What became of a stored timeline when it was asked to catch up.
+enum Carry {
+    /// Already current — the walk has nothing left to apply. The commonest outcome by far,
+    /// and the one that used to be indistinguishable from failure.
+    Same(HistoryScan),
+    /// Carried forward. Worth writing back.
+    Grew(HistoryScan),
+    /// Cannot be carried: short, or describing a history that has been rewritten. The answer
+    /// is a full replay, which is the expensive thing this enum exists to stop happening by
+    /// accident.
+    Refused,
+}
+
+impl Carry {
+    /// The timeline this carried forward to, for a test that has just added a commit and
+    /// expects it to land. Panics on anything else, because "it refused" and "there was
+    /// nothing to do" are both failures of that expectation and should read as such.
+    #[cfg(test)]
+    fn grew(self) -> HistoryScan {
+        match self {
+            Carry::Grew(scan) => scan,
+            Carry::Same(_) => panic!("nothing to extend — the new commit was not seen"),
+            Carry::Refused => panic!("refused to extend"),
+        }
+    }
+}
+
+/// Carry a cached scan forward, or say why not.
 fn extend(
     repo: &Path,
     cached: HistoryScan,
     limit: usize,
     progress: &dyn Fn(Progress),
-) -> Option<HistoryScan> {
+) -> Carry {
     if cached.head.is_empty() || !is_ancestor(repo, &cached.head) {
         // A rebase, an amend, or a checkout of another branch. The stored frames describe
         // commits that are no longer on the path to HEAD, and appending to them would
         // produce a timeline that never happened.
-        return None;
+        return Carry::Refused;
     }
-    let (log, _) = commits(repo, CommitRange::Since(cached.head.clone()));
-    if log.is_empty() {
-        return None;
+    // **Where the stored timeline stops, as a POSITION in the walk's own order.**
+    //
+    // Verified rather than assumed: the frame count says where it should be and the sha at
+    // that position says whether it is. They disagree when the timeline is short — a build
+    // that dropped commits, a walk that resumed wrongly — and when history has been rewritten
+    // under it, and the answer to both is the same: walk it again rather than append to
+    // something that does not describe this repo.
+    progress(Progress::phase("reading the log"));
+    let shas = log_shas(repo);
+    let at = cached.commits.len() + cached.truncated;
+    if shas.len() < at || at == 0 || shas.get(at - 1) != Some(&cached.head) {
+        return Carry::Refused;
     }
-    let cached_len = cached.commits.len();
-    let mut checkpoint = Checkpoint::new();
+    let ahead: Vec<String> = shas[at..].to_vec();
+    // Already current. The commonest outcome: a repo nobody has committed to since the last
+    // look, which is every open of a repo you are not actively writing.
+    if ahead.is_empty() {
+        return Carry::Same(cached);
+    }
     // Past this the append is doing the whole window's work with none of its clarity.
-    if log.len() > limit {
-        return None;
+    if ahead.len() > limit {
+        return Carry::Refused;
     }
-    let mut blobs = Blobs::open(repo)?;
+    let log = commits_named(repo, &ahead);
+    if log.is_empty() {
+        return Carry::Refused;
+    }
+    let Some(mut blobs) = Blobs::open(repo) else { return Carry::Refused };
     // **Counted from the beginning of the story, not from where this run picked it up.**
     // Reporting `n / log.len()` describes the WORK, and what a person watching a resumed
     // walk needs is where the walk IS: a run that recovered 6,393 of ceph's commits and
     // reported `1 / 116,400` was indistinguishable on screen from one that had thrown them
     // away and started again — which is exactly the question checkpointing exists to
     // answer, made unanswerable by the progress line.
-    let banked = cached_len;
+    let banked = at;
+    let mut checkpoint = Checkpoint::new();
     let mut r = Replayer::resume(cached);
     let total = banked + log.len();
-    for (n, commit) in log.iter().enumerate() {
-        if cancelled() {
-            break;
+    'walk: for (w, window) in log.chunks(WINDOW).enumerate() {
+        let ready = prefetch(&mut blobs, window);
+        for (n, commit) in window.iter().enumerate() {
+            if cancelled() {
+                break 'walk;
+            }
+            r.apply(&mut blobs, commit, &ready);
+            progress(Progress::at(banked + w * WINDOW + n + 1, total));
+            checkpoint.maybe(repo, limit, || r.snapshot());
         }
-        r.apply(&mut blobs, commit);
-        progress(Progress { done: banked + n + 1, total });
-        checkpoint.maybe(repo, limit, || r.snapshot());
     }
     r.fold(limit);
-    Some(r.finish())
+    Carry::Grew(r.finish())
 }
 
 /// Bring an EXISTING timeline up to date, and never build a new one.
@@ -1006,21 +1182,52 @@ pub fn warm(repo: &Path, limit: usize) -> bool {
     if !path.exists() {
         return false;
     }
+    // **A day's commits, not an unfinished trace.** Warming exists so the repo you are
+    // working in opens History instantly — the commits since you last looked, which is a
+    // second or two. A timeline that stopped halfway is a different thing entirely: carrying
+    // it forward is the rest of an hour-long walk, started by nothing more deliberate than
+    // clicking a project, with no progress line and no way to stop it. The row says how much
+    // is left and offers `Trace`; that is where a decision that size belongs.
+    //
+    // Answered from the sidecar and a sha list, so deciding costs no timeline read: `banked`
+    // is four bytes and `log_shas` is 0.8s on a repo of 122,791 commits.
+    let behind = log_shas(repo).len().saturating_sub(banked(repo, limit));
+    if behind > WARM_MAX {
+        return false;
+    }
     read_cached(repo, limit, &|_| {});
     true
 }
 
-fn head_of(repo: &Path) -> String {
+/// How far behind a timeline may be and still be topped up on open. Past this it is
+/// unfinished work rather than yesterday's commits — see [`warm`].
+const WARM_MAX: usize = 2_000;
+
+/// Every commit the walk would apply, in the order it would apply them, shas only.
+///
+/// **The walk's order is not an ancestry**, and confusing the two cost this module its
+/// resume. `git log --reverse` lists commits oldest-first by DATE; on a branchy repo the
+/// commit at position N is not the commit with N ancestors, and the set applied before it is
+/// not the set reachable from it. Resuming with `<head>..HEAD` therefore asked for "commits
+/// not reachable from that one" and silently dropped every commit that had been applied
+/// after it but sits on a merged branch — fifteen thousand of them on ceph, a hole no later
+/// open could see or fill.
+///
+/// A position is the honest cursor: the order is deterministic for a given HEAD, `--reverse`
+/// appends new work at the END, so a stored prefix stays a prefix. 0.8s on 122,791 commits,
+/// against the several seconds a `--raw` log costs — which is why this exists separately.
+fn log_shas(repo: &Path) -> Vec<String> {
     Command::new("git")
         .arg("-C")
         .arg(repo)
-        .args(["rev-parse", "HEAD"])
+        .args(["log", "--no-merges", "--reverse", "--root", "--format=%H", "HEAD"])
         .output()
         .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).lines().map(|l| l.to_string()).collect())
         .unwrap_or_default()
 }
+
 
 /// Is `sha` still on the path to HEAD?
 fn is_ancestor(repo: &Path, sha: &str) -> bool {
@@ -1307,8 +1514,10 @@ mod tests {
         let mut blobs = Blobs::open(dir.path()).expect("a repo has blobs");
         let mut r = Replayer::empty();
         r.out.base_ts = log.first().map(|c| c.ts).unwrap_or(0);
+        // Empty prefetch: `apply` falls back to parsing what it was not handed, which is
+        // the path this exercises anyway.
         for commit in log.iter().take(2) {
-            r.apply(&mut blobs, commit);
+            r.apply(&mut blobs, commit, &Parsed::new());
         }
         let parked = r.snapshot();
 
@@ -1320,7 +1529,7 @@ mod tests {
         assert_eq!(shape(&parked).2, shape(&two).2);
 
         // And it carries forward to the same place a whole replay reaches.
-        let resumed = extend(dir.path(), parked, ALL_COMMITS, &|_| {}).expect("extends");
+        let resumed = extend(dir.path(), parked, ALL_COMMITS, &|_| {}).grew();
         assert_eq!(shape(&resumed), shape(&read(dir.path(), ALL_COMMITS, &|_| {})));
     }
 
@@ -1340,7 +1549,7 @@ mod tests {
             Command::new("git").arg("-C").arg(dir.path()).args(&args).output().expect("git runs");
         }
 
-        let extended = extend(dir.path(), cached, 10, &|_| {}).expect("extends");
+        let extended = extend(dir.path(), cached, 10, &|_| {}).grew();
         let fresh = read(dir.path(), 10, &|_| {});
         assert_eq!(shape(&extended), shape(&fresh));
     }
@@ -1359,10 +1568,25 @@ mod tests {
             Command::new("git").arg("-C").arg(dir.path()).args(&args).output().expect("git runs");
         }
 
-        let extended = extend(dir.path(), cached, 2, &|_| {}).expect("extends");
+        let extended = extend(dir.path(), cached, 2, &|_| {}).grew();
         let fresh = read(dir.path(), 2, &|_| {});
         assert_eq!(extended.commits.len(), 2);
         assert_eq!(shape(&extended), shape(&fresh));
+    }
+
+    /// A timeline with nothing left to apply is CURRENT, not broken.
+    ///
+    /// **Written because the distinction was missing and cost a repo its every open.** The
+    /// walk skips merges, so its last commit is the newest non-merge one and not HEAD; the
+    /// old check compared the stored head against `git rev-parse HEAD`, decided a finished
+    /// timeline was stale, asked for it to be carried forward, was told "nothing ahead", and
+    /// read that as "cannot carry" — replaying a hundred and twenty thousand commits on every
+    /// open of the project. `Same` and `Refused` are separate outcomes for that reason.
+    #[test]
+    fn a_timeline_with_nothing_ahead_of_it_is_current() {
+        let dir = repo_with(3);
+        let cached = read(dir.path(), 10, &|_| {});
+        assert!(matches!(extend(dir.path(), cached, 10, &|_| {}), Carry::Same(_)));
     }
 
     /// A rebase, an amend, a branch switch: the stored frames describe commits that are
@@ -1373,7 +1597,7 @@ mod tests {
         let dir = repo_with(2);
         let mut cached = read(dir.path(), 10, &|_| {});
         cached.head = "0".repeat(40);
-        assert!(extend(dir.path(), cached, 10, &|_| {}).is_none());
+        assert!(matches!(extend(dir.path(), cached, 10, &|_| {}), Carry::Refused));
     }
 
     /// Vendored trees are somebody else's story. They are excluded here rather than by

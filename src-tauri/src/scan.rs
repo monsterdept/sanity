@@ -9,7 +9,7 @@ use crate::model::{Lang, Node, NodeKind, Provenance, Score, Source};
 use crate::parse::{self, FuncDef};
 use crate::surprise::{Hotspot, Item, Reading, SurpriseModel};
 use rayon::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -135,7 +135,7 @@ pub fn not_a_repo(path: &Path) -> String {
     )
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanStats {
     pub files_scanned: usize,
     pub files_skipped: usize,
@@ -144,26 +144,36 @@ pub struct ScanStats {
     /// and every quadrant verdict is really only half a verdict. The UI must say so —
     /// silently downgrading the finding is how a map starts lying.
     pub without_history: bool,
-    /// Commits reachable from HEAD. Part of what a repo IS, alongside its lines and its
-    /// functions — and cheap: one `git rev-list --count`, milliseconds even on a large
-    /// history, where `churn` walks a capped window and could not answer this anyway.
+    /// Commits reachable from HEAD, **not counting merges**. Part of what a repo IS,
+    /// alongside its lines and its functions — and cheap: one `git rev-list --count`,
+    /// milliseconds even on a large history, where `churn` walks a capped window and could
+    /// not answer this anyway.
+    ///
+    /// **Merges are out because the replay does not walk them**, and the two numbers meet in
+    /// the sidebar: a row saying `57k commits to trace` under a trace that had just reported
+    /// itself finished was this count and `history`'s disagreeing about what a commit is.
+    /// ceph is 163,916 commits and 122,791 without merges, so forty-one thousand of them
+    /// could never be traced and sat in that line forever. A merge introduces no code of its
+    /// own — `git log --no-merges` is what the walk asks for, for that reason — so counting
+    /// them here was measuring one thing and reporting it against another.
     pub commits: usize,
     pub model: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Scan {
     pub root: Node,
     pub stats: ScanStats,
 }
 
-/// How many commits HEAD can reach. Zero when there is no history, which the UI reads as
-/// "do not print a commit count" rather than as a repo with none.
+/// How many commits HEAD can reach, merges excluded — see [`ScanStats::commits`]. Zero when
+/// there is no history, which the UI reads as "do not print a commit count" rather than as a
+/// repo with none.
 fn commit_count(repo: &Path) -> usize {
     std::process::Command::new("git")
         .arg("-C")
         .arg(repo)
-        .args(["rev-list", "--count", "HEAD"])
+        .args(["rev-list", "--no-merges", "--count", "HEAD"])
         .output()
         .ok()
         .filter(|o| o.status.success())
@@ -193,10 +203,32 @@ pub struct Scored {
 /// fifty long ones. With a model attached a scan can run for many minutes, so "3 / 37
 /// directories" sitting under a blank window is the difference between waiting and
 /// force-quitting.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Progress {
     pub done: usize,
     pub total: usize,
+    /// What is being done, when a count cannot say it.
+    ///
+    /// **A wait needs a noun before it can have a fraction.** Both long jobs here spend
+    /// their first seconds on work with no denominator — a scan reads a 300MB cache and
+    /// walks five thousand commits of `git log` before it knows how many files it has; a
+    /// trace reads a stored timeline and a hundred thousand commits of log before it knows
+    /// how many frames there are. Reported as `0 / 0`, that is a bar at zero and the word
+    /// "starting", for long enough to read as a button that missed the press.
+    #[serde(default)]
+    pub phase: String,
+}
+
+impl Progress {
+    /// A step of a countable job.
+    pub fn at(done: usize, total: usize) -> Self {
+        Progress { done, total, phase: String::new() }
+    }
+
+    /// A job that has begun and cannot yet be counted.
+    pub fn phase(what: &str) -> Self {
+        Progress { done: 0, total: 0, phase: what.to_string() }
+    }
 }
 
 /// One file's shape, streamed the moment it parses.
@@ -236,7 +268,7 @@ fn shape_of(files: &[ParsedFile]) -> Vec<ShapeFile> {
 /// uses. This is not a nicety: without it `node_modules` and `target` are the two
 /// biggest wedges in every JavaScript and Rust project on earth, and the picture says
 /// nothing about the code the user wrote.
-fn collect_files(root: &Path) -> Vec<(PathBuf, Lang)> {
+pub(crate) fn collect_files(root: &Path) -> Vec<(PathBuf, Lang)> {
     ignore::WalkBuilder::new(root)
         .hidden(true)
         .git_ignore(true)
@@ -664,6 +696,7 @@ fn score_dir(
                         }),
                         hotspots: Vec::new(),
                         children: Vec::new(),
+                        funcs: 0,
                     };
                     node
                 })
@@ -712,6 +745,7 @@ fn score_dir(
                     score: None,
                     hotspots: Vec::new(),
                     children,
+                    funcs: 0,
                 },
             )
         })
@@ -854,10 +888,50 @@ pub fn scan(
     fidelity: Fidelity,
 ) -> anyhow::Result<Scan> {
     let Memos { scores: cache, scans } = memos;
+    // **What each phase costs, when asked.** Every performance decision in this file — the
+    // ephemeral score cache, `Fidelity::Ordering`, the shape stream — rests on a measurement
+    // of one phase against the others, and those were taken on repos of a few hundred files.
+    // `SANITY_TIMING=1` prints the same numbers for whatever you point it at.
+    let timing = std::env::var_os("SANITY_TIMING").is_some();
+    let mut mark = std::time::Instant::now();
+    let mut lap = |what: &str| {
+        if timing {
+            eprintln!("  {what:>22}: {:>7.2}s", mark.elapsed().as_secs_f64());
+            mark = std::time::Instant::now();
+        }
+    };
+    // **Each phase says it has started, before it can say how far along it is.**
+    // `done: 0` with a total is the shape the window reads as "this phase, nothing done
+    // yet" — see `ProgressPane`. Without them a scan of a large repo spent its first
+    // seconds under one word, `walking`, while it did three unrelated things: a filesystem
+    // walk, a `git log` over five thousand commits, and a 300MB cache read.
+    on_progress(Progress::phase("walking the repo"));
     let files = collect_files(root);
     let total_found = files.len();
+    lap("walk");
+
+    // **The answer, if last time's is still the answer.** See `treecache`: the signature is
+    // what this scan depends on — every walked file's mtime and length, HEAD, the parse
+    // version and the fidelity — and computing it costs the walk that has just happened.
+    //
+    // Only for the proxy. A model pass writes different scores into the same shape, and it
+    // streams them as it goes; handing it a finished tree would skip the very work it was
+    // asked to do.
+    let signature = (!model.is_model()).then(|| crate::treecache::signature(root, &files, fidelity));
+    if let Some(sig) = signature {
+        if let Some(cached) = crate::treecache::load(root, sig) {
+            on_progress(Progress::phase("reading the cached map"));
+            lap("cached");
+            return Ok(cached);
+        }
+    }
+
     let scope = scope_of(root);
+    // Reported as its own phase because it is one: `git log --name-only` over the churn
+    // window, measured at 3.5s on ceph, with nothing else happening.
+    on_progress(Progress::phase("reading the history"));
     let history = churn::read(root);
+    lap("churn");
 
     // Group by parent directory so `score_dir` has peers to compare against. BTreeMap
     // rather than HashMap: iteration order decides sibling order in the sunburst, and a
@@ -873,6 +947,12 @@ pub fn scan(
     // parsing is CPU-bound and quick — and buys an honest denominator: until every file
     // is parsed there is no way to know how many functions the scan is about to score,
     // and a progress bar whose total moves is worse than none.
+    // **The phases that actually run report themselves.** Every `on_progress` call used to
+    // sit inside the model pass, which the app has not run since `OllamaModel` was removed —
+    // so a scan of a large repo showed a bar that could not move for minutes, sweeping to say
+    // "something is happening" because nothing could say what. Parsing and blaming are the
+    // two long phases and they are both countable.
+    let parsed = AtomicUsize::new(0);
     let parsed_dirs: Vec<Vec<ParsedFile>> = by_dir
         .par_iter()
         .map(|(_dir, entries)| {
@@ -888,10 +968,15 @@ pub fn scan(
             // long part. What follows it is the blame pass, which is minutes, and which the
             // map can sit fully drawn through instead of blank.
             on_shape(&shape_of(&files));
+            on_progress(Progress::at(
+                parsed.fetch_add(files.len(), Ordering::Relaxed) + files.len(),
+                total_found,
+            ));
             files
         })
         .collect();
 
+    lap("parse");
     let files_scanned: usize = parsed_dirs.iter().map(|d| d.len()).sum();
 
     // Per-line provenance, so churn, age and blame resolve to the FUNCTION rather than to
@@ -910,8 +995,18 @@ pub fn scan(
         .flatten()
         .map(|f| (f.rel_path.clone(), f.hash))
         .collect();
-    let blame = Blame::read(root, &for_blame, &history, scans);
+    // Counted from the top of the scan rather than from zero: the two phases are one wait as
+    // far as anybody watching is concerned, and a bar that fills, empties and fills again
+    // reads as a false start.
+    let blamed = AtomicUsize::new(0);
+    let blame = Blame::read(root, &for_blame, &history, scans, &|| {
+        on_progress(Progress::at(
+            total_found + blamed.fetch_add(1, Ordering::Relaxed) + 1,
+            total_found + for_blame.len(),
+        ));
+    });
 
+    lap("blame");
     // A repo shrinks as well as grows, and an entry nobody asks about again is never
     // invalidated by anything — without this a cache would carry every file of every
     // branch anyone had ever checked out.
@@ -926,6 +1021,7 @@ pub fn scan(
         .map(|parsed| score_dir(parsed, &history, &blame, fidelity))
         .collect();
 
+    lap("score");
     let root_name = root
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -942,6 +1038,7 @@ pub fn scan(
     }
     tree.aggregate();
     apply_dir_history(&mut tree, &history);
+    lap("tree");
 
     // ── The model pass, in priority order ────────────────────────────────────────
     //
@@ -1011,7 +1108,7 @@ pub fn scan(
         if total == 0 {
             // Everything was cached. Still emit one tick so the UI doesn't sit on a
             // stale "0 / 0" from a previous run.
-            on_progress(Progress { done: 0, total: 0 });
+            on_progress(Progress::at(0, 0));
         }
         let done = AtomicUsize::new(0);
         let scored: Vec<(String, Reading)> = work
@@ -1036,10 +1133,7 @@ pub fn scan(
                 // finished — which on a repo this size is hours of a gray map with a
                 // moving progress bar, the exact thing streaming exists to prevent.
                 on_scored(&w.id, &surprise);
-                on_progress(Progress {
-                    done: done.fetch_add(1, Ordering::Relaxed) + 1,
-                    total,
-                });
+                on_progress(Progress::at(done.fetch_add(1, Ordering::Relaxed) + 1, total));
                 (w.id.clone(), surprise)
             })
             .collect();
@@ -1067,7 +1161,7 @@ pub fn scan(
     // flush threshold — which is every small repo — still leaves something behind.
     scans.save();
 
-    Ok(Scan {
+    let scan = Scan {
         root: tree,
         stats: ScanStats {
             files_scanned,
@@ -1077,7 +1171,15 @@ pub fn scan(
             commits: commit_count(root),
             model: model.label(),
         },
-    })
+    };
+    // Kept under the signature computed before the work started, so the next launch of this
+    // repo — unchanged, which is the normal case — reads this instead of deriving it again.
+    // A cancelled model pass never gets here, which is right: half a pass is not an answer.
+    if let Some(sig) = signature {
+        crate::treecache::save(root, sig, &scan);
+    }
+    lap("save");
+    Ok(scan)
 }
 
 #[cfg(test)]
@@ -1145,6 +1247,75 @@ mod tests {
         want.sort();
         got.sort();
         assert_eq!(got, want);
+    }
+
+    /// What the window is handed when a project is selected, in bytes.
+    ///
+    /// Ignored: it is a measurement, not an assertion — `cargo test -- --ignored --nocapture
+    /// payload` on a real repo. The number decides whether the wait when a big project comes
+    /// on screen is the IPC or the drawing, and guessing that wrong costs a day.
+    #[test]
+    #[ignore]
+    fn payload() {
+        let repo = std::env::var("REPO").expect("REPO=/path/to/repo");
+        // The app's own memos: a persistent scan cache, so the second run of this measures
+        // what a LAUNCH costs rather than what a first look costs.
+        let scans = crate::scancache::ScanCache::open(std::path::Path::new(&repo));
+        let m = (crate::cache::Cache::ephemeral(), scans);
+        let scan = scan(
+            std::path::Path::new(&repo),
+            &HeuristicModel,
+            &|_| {},
+            &|_, _: &Reading| {},
+            &|_| {},
+            &AtomicBool::new(false),
+            Memos { scores: &m.0, scans: &m.1 },
+            Fidelity::Ordering,
+        )
+        .unwrap();
+        let json = serde_json::to_string(&scan).expect("serialises");
+        // What the window is actually handed, and what it costs to hand over — see
+        // `Node::slim`. Both halves are timed because both have been the wait at some point:
+        // the trimming was quadratic, and before that the payload was 75MB of JSON.
+        let t = std::time::Instant::now();
+        let root = scan.root.slim();
+        let trimmed = t.elapsed();
+        let t = std::time::Instant::now();
+        let slim = serde_json::to_string(&Scan { root, stats: scan.stats.clone() })
+            .expect("serialises");
+        println!(
+            "  slim {:.2}s · encode {:.2}s",
+            trimmed.as_secs_f64(),
+            t.elapsed().as_secs_f64()
+        );
+        let mut funcs = 0;
+        scan.root.visit(&mut |n| {
+            if n.kind == NodeKind::Func {
+                funcs += 1;
+            }
+        });
+        let (mut docs, mut ids, mut paths, mut names, mut bodies) = (0, 0, 0, 0, 0);
+        scan.root.visit(&mut |n| {
+            if n.kind == NodeKind::Func {
+                docs += n.doc.as_ref().map(|d| d.len()).unwrap_or(0);
+                ids += n.id.len();
+                paths += n.path.len();
+                names += n.name.len();
+                bodies += n.body.as_ref().map(|b| b.len()).unwrap_or(0);
+            }
+        });
+        println!("sent {:.1} MB (slim)", slim.len() as f64 / 1e6);
+        println!(
+            "whole {:.1} MB for {} functions ({} bytes each)",
+            json.len() as f64 / 1e6,
+            funcs,
+            json.len() / funcs.max(1),
+        );
+        for (what, bytes) in
+            [("docs", docs), ("ids", ids), ("paths", paths), ("names", names), ("bodies", bodies)]
+        {
+            println!("  {what:>7}: {:.1} MB", bytes as f64 / 1e6);
+        }
     }
 
     /// Ordering fidelity may drop the all-pairs term. It may not drop the tree.

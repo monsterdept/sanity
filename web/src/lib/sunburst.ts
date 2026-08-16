@@ -329,6 +329,7 @@ function aggregate(fns: Node[], filePath: string): Node {
     // and nothing else — a wedge cannot be colored correctly by a fact its own node does
     // not hold.
     rest: fns.length,
+    funcs: 0,
     // The members it stands for, kept rather than dropped. The detail panel lists a
     // node's children, so carrying them here is what turns "104+" from a dead end into
     // the way you actually reach the functions the band had no room to draw.

@@ -4,8 +4,10 @@ import {
   agentReports,
   listProjects,
   projectScan,
+  selectProject,
   applyAgentReports,
   applyScores,
+  fileFunctions,
   pruneExcluded,
   countPending,
   type Added,
@@ -53,6 +55,7 @@ import {
 } from './lib/colorMode'
 import { populationOf } from './lib/population'
 import { dismissSplash } from './lib/splash'
+import { mark, marked } from './lib/stopwatch'
 import { loadTheme, saveTheme, watchSystemTheme, type Theme } from './lib/theme'
 import { CodeView } from './components/CodeView'
 import { ColorLegend, ModeSwitcher } from './components/ColorKey'
@@ -354,8 +357,9 @@ export default function App() {
     // click does not move it, so comparing it against the screen made "the agent opened
     // something new" permanently true and dragged the window back on the very next tick.
     let followed: string | null = null
-    const timer = setInterval(() => {
+    const tick = () => {
       void listProjects().then(async (list) => {
+        mark('projects')
         // Replaced only when it differs. The poll returns fresh objects whether or not
         // anything moved, and setting them re-rendered the whole window — including a
         // sunburst of several thousand arcs — every 1.5 seconds. During a replay that is a
@@ -388,6 +392,7 @@ export default function App() {
             projectScan(list.active),
             agentReports(list.active),
           ])
+          mark('tree')
           if (!s) return
           setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
           return
@@ -401,14 +406,26 @@ export default function App() {
         // so the selection re-resolves against the fresh tree.
         const here = shown.current
         if (!here) return
+        // **A loading project is worth asking about.** `revOf` is 0 while a project is being
+        // scanned, and a poll that skipped those never fetched the early map the backend
+        // publishes from its cache — the pane waited for the whole tree to be decoded to draw
+        // a picture that was ready before it started. See `AppState::shallow`.
         const rev = revOf(here)
-        if (rev === shownRev.current) return
+        const loading = list.projects.find((p) => p.key === here)?.loading === true
+        if (rev === shownRev.current && !(loading && !scanRef.current)) return
         shownRev.current = rev
         const [s, reports] = await Promise.all([projectScan(here), agentReports(here)])
         if (!s) return
         setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
       })
-    }, 1500)
+    }
+    // **Once now, then every 1.5 seconds.** It was the interval alone, so a launch asked the
+    // backend nothing for a second and a half and then drew whatever was ready. Everything
+    // behind this — the cached map, read in 0.02s, published before the scan starts — was
+    // arriving into a window that had not got round to asking. A poll's period is how often
+    // it re-checks, never how long it waits to start.
+    tick()
+    const timer = setInterval(tick, 1500)
     return () => clearInterval(timer)
   }, [])
 
@@ -441,6 +458,9 @@ export default function App() {
   // Each application re-aggregates the tree and re-renders a few thousand arcs; at the
   // rate a fast model emits, doing that per function would spend more time in React
   // than in the model.
+  /** Whether a tree is on screen, for the poll — which cannot read state it is not
+   *  re-created with. */
+  const scanRef = useRef<Scan | null>(null)
   const pending = useRef<Map<string, Upgrade>>(new Map())
   useEffect(() => {
     const un = onScanScore((id, u) => pending.current.set(id, u))
@@ -750,32 +770,51 @@ export default function App() {
 
   /** Walk this repo's commits, from the project row's `Trace`.
    *
-   *  The expensive door. It selects the project first, because a walk with nothing on screen
-   *  to show for it is the state the progress strip used to leave people in — and the row
-   *  that started it is the row that reports it. */
+   *  **It does not take the view.** Tracing takes an hour on a large repo and it is work
+   *  asked of a project, not a place to go: pressing it used to select that project and then
+   *  drop the window into History when the walk finished, so a button on one row rearranged
+   *  what somebody was looking at on another. The row it was pressed on reports the progress
+   *  and offers the way out, which is where a background job belongs. */
   const trace = useCallback(
-    (key: string) => {
+    (key: string, fresh = false) => {
       const repo = projects.find((p) => p.key === key)?.repo
-      if (!repo || busyKey) return
-      setActiveKey(key)
+      if (!repo) return
+      // **One walk at a time.** A walk saturates every core it can get — the parse is
+      // `rayon` over each commit's changed files — so two do not run in half the time each,
+      // they run in twice the time each and neither finishes; and the progress events carry
+      // no repo, so two would count into one bar.
+      //
+      // Nothing is said here because nothing was offered: the sidebar hides Trace on the
+      // other rows while one is running. This is the guard behind that, not the message —
+      // an error screen is what you show somebody who did something, and pressing a button
+      // that should not have been there is something the app did.
+      if (busyKey) return
       setBusyKey(key)
-      setHistoryProgress(null)
+      // **Zero of nothing, immediately.** The row shows its trace line while `replay` is
+      // non-null, and that used to arrive with the first progress event — which on a large
+      // repo is after the stored timeline has been read and the log walked, several seconds
+      // of a button that looked like it had missed the press. A count of `0` is honest about
+      // what has been traced and honest that something has started.
+      setHistoryProgress({ done: 0, total: 0, phase: 'starting…' })
       // Every commit is a frame — the log lists them and a click addresses one, so the
       // trace has no business coarsening what it stores. The slider governs how fast the
       // story is PLAYED, and the transport already skips to hold the duration it promised.
-      void scanHistory(repo, true)
+      void scanHistory(repo, true, fresh)
         .then(() => {
           // The walk returns a count, not a story. Dropping what is held makes the next
-          // History open fetch the tables of the timeline this trace just wrote.
-          setHistory(null)
-          setHistoryKey(null)
-          setLoaded(0)
-          setHistoryOn(true)
+          // History open fetch the tables of the timeline this trace just wrote — and only
+          // when it is the timeline on screen, since a trace of another repo has nothing to
+          // do with what this window is drawing.
+          if (historyKey === key) {
+            setHistory(null)
+            setHistoryKey(null)
+            setLoaded(0)
+          }
         })
         .catch((e) => setError(String(e)))
         .finally(() => setBusyKey(null))
     },
-    [projects, busyKey],
+    [projects, busyKey, historyKey],
   )
 
   // Follow a hand-added repo to the map once its scan has landed.
@@ -876,8 +915,59 @@ export default function App() {
    *
    *  Memoised on the scan rather than computed per render: it is a walk of every node, and
    *  every navigation below reads this. */
+  scanRef.current = scan
+  if (scan) mark('scan')
   const drawn = useMemo(() => (scan ? pruneExcluded(scan.root) : null), [scan])
-  const tree = histRoot ?? drawn
+
+  /**
+   * The functions of the files the map is drawing, fetched as it needs them.
+   *
+   * **A repo's worth of functions is not a thing a window can be handed.** Ceph's tree is
+   * 75MB of JSON, 113,322 functions, five seconds of parsing — and the map at that size is
+   * directories and files, with the layout rolling three and a half thousand files up as too
+   * thin to draw before it ever reaches their insides. So the tree arrives without them (see
+   * `Node::slim`) and a file's ring is asked for when there is somewhere to put it.
+   *
+   * Which files: the ones wide enough to show an inside, judged the way the layout judges
+   * it — a share of the focused subtree — plus whatever is drilled into or open in the code
+   * view. On a small repo that is every file, one round trip each, and the map fills in
+   * within a frame or two of opening. On ceph it is a few dozen.
+   */
+  const [fns, setFns] = useState<Map<string, Node[]>>(new Map())
+  const asked = useRef(new Set<string>())
+  /** Which project the fetches above belong to, for answers that outlive the click that
+   *  asked for them. */
+  const activeRef = useRef<string | null>(null)
+  activeRef.current = activeKey
+  useEffect(() => {
+    // A different project is a different set of paths, and holding another repo's would
+    // graft its functions onto a file with the same name.
+    //
+    // A new TREE for the same project clears them too: the first map of a launch comes from
+    // the cache before the backend holds the functions to answer with (see
+    // `AppState::shallow`), so those fetches come back empty. Kept, they would be a file
+    // whose ring never arrives — the emptiness cached as if it were an answer.
+    asked.current.clear()
+    setFns(new Map())
+  }, [activeKey, scan])
+  /** The tree with whatever rings have arrived spliced in.
+   *
+   *  Rebuilt when a fetch lands rather than mutated: every consumer below memoises on the
+   *  tree's identity, and a mutation would leave the map, the panel and the percentiles each
+   *  believing a different version of the same repo. */
+  const filled = useMemo(() => {
+    if (!drawn || fns.size === 0) return drawn
+    const graft = (n: Node): Node => {
+      if (n.kind === 'file') {
+        const got = fns.get(n.path)
+        return got ? { ...n, children: got, funcs: 0 } : n
+      }
+      return { ...n, children: n.children.map(graft) }
+    }
+    return graft(drawn)
+  }, [drawn, fns])
+
+  const tree = histRoot ?? filled
 
   /** Jump the playhead and stop. Stable across renders on purpose: `CommitLog` memoises
    *  its rows against this, and an inline arrow would rebuild every row on every frame —
@@ -925,6 +1015,45 @@ export default function App() {
     }
     return node
   }, [tree, stack])
+
+  /** Ask for the rings the map is about to draw.
+   *
+   *  Runs on what is FOCUSED, not on the whole repo: drilling into a directory is exactly
+   *  the gesture that makes its files wide enough to have insides, and a policy written
+   *  against the root would fetch the same few dozen files whatever you were looking at.
+   *
+   *  `MIN_SHARE` is the layout's own threshold, one ring out: a wedge below about a
+   *  quarter of a degree is not drawn, so a file below that share of its parent has no
+   *  inside worth having. The code view's file is always asked for, because that one is not
+   *  a wedge at all. */
+  useEffect(() => {
+    if (!activeKey || !focus) return
+    const MIN_SHARE = 0.0025
+    const want: string[] = []
+    const walk = (n: Node) => {
+      if (n.kind === 'file') {
+        if (n.funcs > 0 && n.loc / Math.max(focus.loc, 1) >= MIN_SHARE) want.push(n.path)
+        return
+      }
+      for (const c of n.children) walk(c)
+    }
+    walk(focus)
+    if (codeFile) want.push(codeFile)
+
+    const key = activeKey
+    for (const path of want) {
+      if (asked.current.has(path)) continue
+      asked.current.add(path)
+      void fileFunctions(key, path)
+        .then((got) => {
+          // Ignore an answer for a project nobody is looking at any more: the fetch is slow
+          // enough to outlive a click on another row.
+          if (activeRef.current !== key) return
+          setFns((prev) => new Map(prev).set(path, got))
+        })
+        .catch(() => asked.current.delete(path))
+    }
+  }, [activeKey, focus, codeFile])
 
   /** What the timeline has been narrowed to: the path of whatever the rings are rooted
    *  at, and `''` at the top. Drilling into a directory asks a narrower question — "how
@@ -1056,6 +1185,34 @@ export default function App() {
     [shape, awaiting?.name],
   )
 
+  /** Where each directory and file sits while the map assembles, so it does not reshuffle.
+   *
+   *  **A ring sorted by size cannot be watched while the sizes are still arriving.** The
+   *  sunburst orders siblings by lines, which is right for a finished map and wrong for one
+   *  being built: every batch of files changes every directory's size, so every wedge
+   *  reorders and the map jumps rather than fills.
+   *
+   *  First seen, first placed. A directory keeps the slot it took when it appeared and new
+   *  work lands after it — the picture grows outward instead of rearranging. `sortBy` wants
+   *  bigger-is-earlier, so the rank is negated. The finished tree sorts by size as it always
+   *  has: one reshuffle, at the moment the real map arrives, instead of one per batch. */
+  const shapeOrder = useRef(new Map<string, number>())
+  useEffect(() => {
+    if (shape.length === 0) shapeOrder.current = new Map()
+  }, [shape.length])
+  const shapeSort = useMemo(() => {
+    const at = shapeOrder.current
+    for (const f of shape) {
+      // Every ancestor, so directories are ranked by when their first file showed up.
+      for (let cut = f.path.length; cut > 0; cut = f.path.lastIndexOf('/', cut - 1)) {
+        const id = f.path.slice(0, cut)
+        if (!at.has(id)) at.set(id, -at.size)
+        if (id.indexOf('/') === -1) break
+      }
+    }
+    return at
+  }, [shape])
+
   /** The repo's own distributions, so a selected function can be placed in them.
    *
    *  Off the whole TREE, never off `focus`: a percentile is only a fact about a fixed
@@ -1069,13 +1226,26 @@ export default function App() {
 
   /** The splash comes down here, not after the first paint. See `lib/splash.ts`.
    *
-   *  Ready means one of the two things the window has to say: a map, or — with the list
-   *  fetched and genuinely empty — the card telling you how to get one. Everything between
-   *  those is the app booting, which is what the wordmark is covering. */
-  const booted = focus !== null || (projectsLoaded && projects.length === 0)
+   *  Ready means the window has something true to say. That used to be a MAP — or, with the
+   *  list fetched and genuinely empty, the card telling you how to get one — and everything
+   *  else was the app booting, which the wordmark covered.
+   *
+   *  **The wait grew a picture, and the wordmark was sitting on it.** A first scan of a large
+   *  repo now names what it is reading, moves a real bar as files are parsed and blamed, and
+   *  draws the map assembling out of the parse. All of that happened under the splash: six
+   *  seconds of wordmark, then two of a bar, then the finished map — the two things built to
+   *  describe the wait, shown for the moment after it ended.
+   *
+   *  So the list arriving is enough. At that point the sidebar has its projects, the pane has
+   *  the project it is waiting on, and neither is a guess. */
+  const booted = focus !== null || shapeRoot !== null || projectsLoaded
   useEffect(() => {
     if (booted) dismissSplash()
   }, [booted])
+  // Where a launch's time actually went. See `lib/stopwatch.ts`.
+  useEffect(() => {
+    if (tree) marked()
+  }, [tree])
 
   /** The ancestry of what is on screen: root first, focus last.
    *
@@ -1187,6 +1357,12 @@ export default function App() {
             // that the click landed. Selection is a statement about what you are looking
             // at; it does not depend on the thing having finished loading.
             setActiveKey(key)
+            // Told to the backend as well, because a restart lands on what it has recorded
+            // and a click was the one way of choosing a project it never heard about — quit
+            // with this one selected and the next launch opened whatever an agent or an
+            // `init --show` had focused last. Fire and forget: the window is already showing
+            // it, and a failed write costs one launch landing where it used to.
+            void selectProject(key).catch(() => {})
             // The poll follows what is on screen, and this IS the screen changing. Both
             // halves, or the next tick sees a revision from the project you just left and
             // refetches a tree you are not looking at.
@@ -1304,6 +1480,7 @@ export default function App() {
                 root={shapeRoot}
                 selected={null}
                 mode={viewMode}
+                sortBy={shapeSort}
                 // Eased, not snapped. The rings are gaining wedges several times a second
                 // and a repo that jumps on every batch reads as a glitch; the same
                 // argument the replay makes, for the same reason — see `morph`.

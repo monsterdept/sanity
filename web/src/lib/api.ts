@@ -92,6 +92,10 @@ export interface Node {
    *  first, which hides it — but that is a coincidence of ordering, not a guarantee, and
    *  the failure it hides is a wedge keeping an expired color. */
   proxyScore?: Score
+  /** How many functions this FILE holds, when the tree arrived without them — see
+   *  `fileFunctions`. Zero on a file whose functions are present, where `children` is the
+   *  answer, and zero on everything that is not a file. */
+  funcs: number
   /** How many functions this node stands in for, on the synthetic wedge a band draws when
    *  it runs out of room. Undefined on everything else, which is what makes it the test
    *  for "this is a collection wearing a function's `kind`" — see `showsShare`. */
@@ -173,6 +177,9 @@ export interface Scan {
 export interface Progress {
   done: number
   total: number
+  /** What is being done, while there is nothing to count — see `Progress::phase` in Rust.
+   *  Empty once the job knows its own size. */
+  phase?: string
 }
 
 /** Serde renames these to snake_case on the wire; Tauri does not convert for us. */
@@ -194,16 +201,19 @@ interface WireNode {
   kind: NodeKind
   path: string
   loc: number
-  line: number | null
+  line?: number | null
   lang: string | null
-  end_line: number | null
+  end_line?: number | null
   excluded?: boolean
   last_author: string | null
   doc?: string | null
   body: string | null
   score: WireScore | null
   hotspots?: Hotspot[]
-  children: WireNode[]
+  /** Absent rather than empty for a function — see the `skip_serializing_if` on `Node` in
+   *  Rust. A hundred thousand `"children":[]` is megabytes of nothing. */
+  children?: WireNode[]
+  funcs?: number
 }
 interface WireScan {
   root: WireNode
@@ -224,7 +234,7 @@ function toNode(w: WireNode): Node {
     kind: w.kind,
     path: w.path,
     loc: w.loc,
-    line: w.line,
+    line: w.line ?? null,
     endLine: w.end_line ?? null,
     lang: w.lang ?? null,
     excluded: w.excluded ?? false,
@@ -246,7 +256,8 @@ function toNode(w: WireNode): Node {
         }
       : null,
     hotspots: w.hotspots ?? [],
-    children: w.children.map(toNode),
+    children: (w.children ?? []).map(toNode),
+    funcs: w.funcs ?? 0,
   }
 }
 
@@ -374,6 +385,16 @@ export function readCurve(key: string): Promise<number[]> {
 
 /** Take a project out of the sidebar. Not a delete: the repo and its committed readings
  *  are untouched, and re-adding it restores everything it knew. */
+/** Remember that this project is the one being looked at, so a restart comes back to it. */
+export function selectProject(key: string): Promise<void> {
+  return invoke<void>('select_project', { key })
+}
+
+/** Put the sidebar in this order and remember it — see `reorder_projects`. */
+export function reorderProjects(keys: string[]): Promise<void> {
+  return invoke<void>('reorder_projects', { keys })
+}
+
 export function forgetProject(key: string): Promise<void> {
   return invoke<void>('forget_project', { key })
 }
@@ -538,6 +559,8 @@ export interface ProjectSummary {
    *  has no denominator yet — a real state, not zero percent. */
   read_done: number
   read_total: number
+  /** What the scan is doing while it has nothing to count — see `Progress.phase`. */
+  read_phase?: string
 }
 
 export interface ProjectList {
@@ -560,6 +583,16 @@ export function readSource(repo: string, relPath: string): Promise<string> {
 /** Open one file's code view in a window of its own. */
 export function openCodeWindow(repo: string, relPath: string): Promise<void> {
   return invoke('open_code_window', { repo, relPath })
+}
+
+/** One file's functions — the ring inside its wedge. See `Node.funcs` and `file_functions`.
+ *
+ *  Asked for per file rather than sent with the tree: a repo's worth of them is 75MB on
+ *  ceph, almost none of it drawable, and it cost five seconds of parsing before anything
+ *  appeared. */
+export async function fileFunctions(key: string, path: string): Promise<Node[]> {
+  const wire = await invoke<WireNode[]>('file_functions', { key, path })
+  return wire.map(toNode)
 }
 
 export async function projectScan(key: string): Promise<Scan | null> {

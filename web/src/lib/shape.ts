@@ -52,6 +52,7 @@ function dirNode(path: string, name: string, kind: 'dir' | 'file'): Node {
     body: null,
     hotspots: [],
     children: [],
+    funcs: 0,
   }
 }
 

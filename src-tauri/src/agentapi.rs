@@ -143,6 +143,10 @@ pub struct AppState {
     pub projects: HashMap<String, Project>,
     /// Key of the project the window should be showing.
     pub active: Option<String>,
+    /// The sidebar's hand-made order, as keys. Loaded from the index and written back with
+    /// it — see `KnownProjects::order` for why it lives on this machine rather than in a
+    /// repo.
+    pub order: Vec<String>,
     pub clock: u64,
     /// When an agent last called anything, and what it called.
     ///
@@ -181,7 +185,22 @@ pub struct AppState {
     /// throwing it away, so the honest fraction was there for free — and a fraction the
     /// scorer actually counted beats any guess from repo size, which is what "how long will
     /// this take" would otherwise have to be built on.
-    pub restoring_progress: HashMap<String, (usize, usize)>,
+    /// How far a scan has got, and what it is doing while that cannot be counted — see
+    /// `scan::Progress`.
+    pub restoring_progress: HashMap<String, (usize, usize, String)>,
+    /// The drawable half of a project's map, published before the project itself.
+    ///
+    /// **A launch should not decode what nobody is looking at.** A project becomes a
+    /// `Project` only when its whole tree is in hand — which for ceph means rebuilding
+    /// 113,322 function nodes, 0.38s, before the window can draw the eight thousand shapes it
+    /// actually shows. The trimmed tree is cached beside the whole one (see
+    /// `treecache::slim`) and lands here first, so the map is on screen while the rest
+    /// arrives.
+    ///
+    /// Dropped the moment the real project is inserted. Nothing reads this except the window
+    /// asking for a tree — the counts, the queue and a file's functions all wait for the
+    /// project, and waiting is correct: they are answers about the whole repo.
+    pub shallow: HashMap<String, crate::scan::Scan>,
     /// The last few calls, newest last, each with the tick it happened on.
     ///
     /// A single `last_tool` is what the window polls, and the window polls every two
@@ -276,6 +295,11 @@ impl AppState {
         // which one that was.
         if self.active.is_some() {
             index.active = self.active.clone();
+        }
+        // The arrangement, when this session has one. Empty means nobody has dragged
+        // anything HERE, which must not wipe what another session arranged.
+        if !self.order.is_empty() {
+            index.order = self.order.clone();
         }
         index.projects.sort_by_key(|p| std::cmp::Reverse(p.touched));
         crate::reports::save_index(&index);
@@ -4531,6 +4555,10 @@ pub struct ProjectSummary {
     /// zero-percent one, and the UI shows it as such.
     pub read_done: usize,
     pub read_total: usize,
+    /// What the scan is doing while it has nothing to count — see `scan::Progress::phase`.
+    /// Empty once it does.
+    #[serde(default)]
+    pub read_phase: String,
 }
 
 impl ProjectList {
@@ -4605,7 +4633,7 @@ impl ProjectList {
                     // `reports.len() - stale` counts readings whose function was deleted.
                     assessed: assessed(p),
                     unread_lines: unread_lines(p),
-                    commits: p.scan.stats.commits as usize,
+                    commits: p.scan.stats.commits,
                     // Read from a four-byte sidecar rather than from the timeline itself,
                     // which on a large repo is hundreds of megabytes — see `history::banked`.
                     replayed: crate::history::banked(&p.repo, crate::history::ALL_COMMITS),
@@ -4622,6 +4650,7 @@ impl ProjectList {
                     loading: false,
                     read_done: 0,
                     read_total: 0,
+                    read_phase: String::new(),
                 }
             })
             .collect();
@@ -4635,11 +4664,11 @@ impl ProjectList {
                 .iter()
                 .filter(|known| !state.projects.contains_key(&known.key))
                 .map(|known| {
-                    let (done, total) = state
+                    let (done, total, phase) = state
                         .restoring_progress
                         .get(&known.key)
-                        .copied()
-                        .unwrap_or((0, 0));
+                        .cloned()
+                        .unwrap_or((0, 0, String::new()));
                     ProjectSummary {
                         key: known.key.clone(),
                         name: known.name.clone(),
@@ -4677,11 +4706,19 @@ impl ProjectList {
                         loading: true,
                         read_done: done,
                         read_total: total,
+                        read_phase: phase,
                     }
                 }),
         );
-        // Most recently touched first — the sidebar should read as a history.
-        projects.sort_by_key(|p| std::cmp::Reverse(p.touched));
+        // Most recently touched first, unless somebody has arranged the list — see
+        // `KnownProjects::order`. Arranged rows come first in the order they were put in;
+        // anything the arrangement has never heard of (a project added since) sorts above
+        // them by recency, because a repo you just opened belongs where you will look first.
+        let order = &state.order;
+        projects.sort_by_key(|p| {
+            let at = order.iter().position(|k| *k == p.key);
+            (at.is_some(), at.unwrap_or(0), std::cmp::Reverse(p.touched))
+        });
         ProjectList {
             active: state.active.clone(),
             projects,
@@ -4941,7 +4978,21 @@ pub fn release_endpoint(pid: u32) {
 /// far — so quitting mid-restore used to truncate `projects.json` to whatever had loaded,
 /// losing the rest permanently. A restore reads the index; it has no business editing it
 /// until it knows the whole answer.
-pub fn restore(state: Shared) {
+/// Put the sidebar in this order and remember it. Keys, oldest arrangement first.
+pub fn set_order(state: &Shared, keys: Vec<String>) {
+    let mut s = lock(state);
+    s.order = keys;
+    s.persist();
+}
+
+/// Rebuild the sidebar's projects, scanning each one.
+///
+/// `on_shape` streams each directory's files as they parse, so a window can draw the map
+/// assembling rather than a bar — see `Node::slim` and `lib/shape.ts`. A backend with no
+/// window passes a no-op: this module is the headless half and has never held an
+/// `AppHandle`, which is why the emitter arrives as an argument rather than being reached
+/// for.
+pub fn restore(state: Shared, on_shape: impl Fn(&[crate::scan::ShapeFile]) + Send + Sync + 'static) {
     let index = crate::reports::load_index();
     if index.projects.is_empty() {
         return;
@@ -4960,9 +5011,36 @@ pub fn restore(state: Shared) {
         // what the index already knows and each row firms up as its scan lands — rather
         // than staying empty for the length of the slowest repo and reading as loss.
         s.restoring = index.projects.clone();
+        // The arrangement comes back with the list it arranges, or the sidebar reads as
+        // recency again on every launch and a person has to drag it back every morning.
+        s.order = index.order.clone();
+        // **Where this launch is going, said before it gets there.** `active` used to be set
+        // only when the previously-active project's own scan landed — last, on a big repo —
+        // so for the length of that scan the window had nothing selected and waited on
+        // whatever sat at the top of the sidebar: a launch that said "Reading sanity…" for
+        // half a minute and then showed ceph.
+        //
+        // Naming it now is a claim about intent, not about what came back. If that repo has
+        // been moved or deleted it never arrives, and the fallback after the loop replaces it
+        // with the most recently touched thing that did — the same correction as before, one
+        // wrong project name earlier rather than one wrong project name throughout.
+        s.active = index.active.clone();
     }
     std::thread::spawn(move || {
-        for known in index.projects.iter().rev() {
+        let on_shape = &on_shape;
+        // **The one you are going to look at, first.** The list is restored oldest-touched
+        // first so the most recent ends up on top — which is right for the sidebar and wrong
+        // for the wait: scanning is sequential, so the project the window will open was
+        // behind every other one, and a launch with three repos made you wait for all three
+        // to see the first.
+        let mut order: Vec<&crate::reports::KnownProject> = index.projects.iter().rev().collect();
+        if let Some(active) = index.active.as_deref() {
+            if let Some(at) = order.iter().position(|k| k.key == active) {
+                let first = order.remove(at);
+                order.insert(0, first);
+            }
+        }
+        for known in order {
             let path = PathBuf::from(&known.repo);
             // Off the list whatever happens below — a row that cannot be scanned must stop
             // claiming to be moments away from appearing. It stays in the index, so it
@@ -4977,19 +5055,25 @@ pub fn restore(state: Shared) {
             }
             // The scan already counts what it is doing; the restore used to discard it and
             // leave the sidebar with nothing to say for the length of a large repo.
+            // The map first, and without asking whether it is still true — see
+            // `treecache::stale`. Proving it costs a walk of the whole repo, and the scan on
+            // the next line does that anyway and replaces this if the answer is no.
+            if let Some(drawn) = crate::treecache::stale(&path) {
+                lock(&state).shallow.insert(known.key.clone(), drawn);
+            }
             let progress_key = known.key.clone();
             let progress_state = state.clone();
             let on_progress = move |p: crate::scan::Progress| {
                 lock(&progress_state)
                     .restoring_progress
-                    .insert(progress_key.clone(), (p.done, p.total));
+                    .insert(progress_key.clone(), (p.done, p.total, p.phase.clone()));
             };
             let Ok(scan) = crate::scan::scan(
                 &path,
                 &crate::surprise::HeuristicModel,
                 &on_progress,
                 &|_, _: &crate::surprise::Reading| {},
-                &|_| {},
+                &|files: &[crate::scan::ShapeFile]| on_shape(files),
                 &std::sync::atomic::AtomicBool::new(false),
                 crate::scan::Memos {
                     scores: &crate::cache::Cache::ephemeral(),
@@ -5006,6 +5090,7 @@ pub fn restore(state: Shared) {
             settled(&mut s);
             let reports = load_reports(&path, &scan);
             let probe_path = path.clone();
+            s.shallow.remove(&known.key);
             s.projects.insert(
                 known.key.clone(),
                 Project {
@@ -5379,6 +5464,10 @@ fn second() { println!(\"2\"); }\n").unwrap();
 
         crate::reports::save_index(&crate::reports::KnownProjects {
             active: Some("/a".into()),
+            // `..Default::default()` for the rest: a test about restoring two projects has
+            // no opinion about the sidebar's arrangement, and spelling every field out makes
+            // adding one a change to every test that ever built this.
+            order: Vec::new(),
             projects: vec![
                 crate::reports::KnownProject {
                     key: "/a".into(),
@@ -6444,6 +6533,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
         let state: Shared = Default::default();
         crate::reports::save_index(&crate::reports::KnownProjects {
             active: None,
+            order: Vec::new(),
             projects: vec![crate::reports::KnownProject {
                 key: "/added".into(),
                 repo: "/added".into(),
