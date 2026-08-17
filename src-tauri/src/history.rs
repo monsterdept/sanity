@@ -1649,7 +1649,16 @@ pub struct Tables {
     /// walk would mean re-tracing an hour of a large repo every time this file changed.
     pub excluded: Vec<bool>,
     pub langs: Vec<String>,
-    pub funcs: Vec<HistoryFunc>,
+    /// How many functions the timeline has ever held — the extent `history_funcs` pages
+    /// through.
+    ///
+    /// **The functions themselves are NOT here, and that is the whole point of this field.**
+    /// They were: every function every version of every file ever had, in the one payload
+    /// that opens a replay. On ceph that is 19.8MB of a 20.1MB response, sent before a
+    /// single frame can be drawn, when the frame being drawn is the repo as it stood in
+    /// 2007 and refers to almost none of them. They page in beside the deltas that
+    /// reference them — see `funcs` below.
+    pub func_count: usize,
     pub base: Vec<(u32, u32)>,
     pub base_ts: i64,
     pub head: String,
@@ -1707,13 +1716,30 @@ pub fn tables(repo: &Path) -> Option<Tables> {
             .collect(),
         paths: s.paths.clone(),
         langs: s.langs.clone(),
-        funcs: s.funcs.clone(),
+        func_count: s.funcs.len(),
         base: s.base.clone(),
         base_ts: s.base_ts,
         head: s.head.clone(),
         truncated: s.truncated,
         commits: s.commits.len(),
     })
+}
+
+/// Functions `[from, from + count)`, for a caller folding frames that refer to them.
+///
+/// **A PREFIX is a complete answer, which is what makes this pageable at all.** `intern`
+/// appends a function the first time the walk meets it, and the walk runs oldest commit
+/// first — so the functions a fold of commits `0..=n` can possibly name are exactly the
+/// ones interned by commit `n`, and they sit at the front of this list. A caller that has
+/// the deltas for a prefix of the story can take the highest index they mention and ask
+/// for that much; nothing later can be referenced by anything it is holding.
+///
+/// Short reads at the end rather than an error, for the same reason `log` gives.
+pub fn funcs(repo: &Path, from: usize, count: usize) -> Vec<HistoryFunc> {
+    with_loaded(repo, |s| {
+        s.funcs.iter().skip(from).take(count).cloned().collect()
+    })
+    .unwrap_or_default()
 }
 
 /// `count` log rows from `offset`, of the commits in `scope`.

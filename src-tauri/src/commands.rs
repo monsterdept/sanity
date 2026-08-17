@@ -288,6 +288,16 @@ pub fn history_deltas(path: String, from: usize, count: usize) -> Vec<serde_json
     crate::history::deltas(&PathBuf::from(path), from, count)
 }
 
+/// Functions `[from, from + count)` — see `history::funcs` for why a prefix is enough.
+#[tauri::command]
+pub fn history_funcs(
+    path: String,
+    from: usize,
+    count: usize,
+) -> Vec<crate::history::HistoryFunc> {
+    crate::history::funcs(&PathBuf::from(path), from, count)
+}
+
 /// Top up this repo's timeline, if it already has one.
 ///
 /// Called when a project comes on screen. It is deliberately incapable of building a

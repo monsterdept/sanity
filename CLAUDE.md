@@ -723,6 +723,33 @@ second metric, and the line between those is the whole design.
   every open of every project a minute of parsing for a mode most opens never enter. Once
   a repo has one, keeping it current costs the commits since — so History opens in 0.2s on
   the repo you are actually working in. Ask for it once; never be charged for it unasked.
+- **The functions page in beside the deltas that name them.** `tables` used to carry every
+  function every version of every file ever had — on ceph 19.8MB of a 20.1MB response, sent
+  before a single frame could be drawn. A PREFIX is a complete answer, which is what makes
+  it pageable: `intern` appends a function the first time the walk meets it and the walk runs
+  oldest-first, so a fold of commits `0..=n` can only name functions from the front of the
+  list. `Deltas.ensure` takes the highest index a block mentions and tops `Funcs` up **before**
+  the block joins `have()`, because the fold is synchronous and a frame drawn against a hole
+  is worse than a frame that waits. The watermark is computed on the window's side: those
+  numbers are already being parsed there, and a round trip to be told the maximum of
+  something already in hand buys nothing. Measured on ceph: `tables` 20.9MB → 1.0MB, first
+  view 22.3MB → 6.9MB. It is not 20× because ceph's opening block is an SVN import that lands
+  62,804 functions in its first 2,000 commits — that 4.5MB is genuinely needed to draw the
+  frame, and the honest next win is a compact encoding, not a later fetch.
+- **Dressing the window for a replay waits for the FRAME, not for the request.** `historyOn`
+  is a request; on a large repo it is true for a few hundred milliseconds while the map is
+  still drawing today. The lens, the sort order, the legend and `morph` were keyed on it, so
+  pressing History repainted the live map in Age's greens and then repainted it again as the
+  replay's first frame. `replaying` (the request AND a frame to show) is the key for all of
+  them, so it happens once.
+- **Morphing starts from the picture on screen.** `geo` seeds a wedge the chase has never
+  heard of at zero angular width so it OPENS rather than appearing — right for a file that
+  shows up mid-replay, and catastrophic for the frame morphing is switched on, when the chase
+  has heard of nothing and every wedge on screen is therefore new. The whole map collapsed to
+  the hub for a frame and bloomed back out. `soft` is primed from `target` on the first
+  morphing render, and primed during RENDER rather than in an effect: `geo` runs first, so an
+  effect would prime a map that had already been seeded at zero and the blank frame would
+  paint anyway.
 - `just history <repo>` is the headless check, and it is UNCACHED by default: a run that
   answers from a file is not a run of the thing being checked. `--files` reconciles its
   totals against `just scan`, which is how the mascot bundle was found.

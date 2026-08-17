@@ -38,7 +38,7 @@ import {
   scanHistory,
   warmHistory,
 } from './lib/history'
-import { Deltas, historyScoped, historyTables, type Tables } from './lib/timeline'
+import { Deltas, Funcs, baseWatermark, historyScoped, historyTables, type Tables } from './lib/timeline'
 import { Sunburst } from './components/Sunburst'
 import { onScanShape, shapeTree, type ShapeFile } from './lib/shape'
 import type { MascotState } from './components/MascotFigure'
@@ -752,7 +752,15 @@ export default function App() {
     void historyTables(path)
       .then(async (tables) => {
         if (!tables) return
-        const deltas = new Deltas(path)
+        // The functions page in beside the deltas that name them — see `Funcs`. The list is
+        // handed straight to the fold as `tables.funcs`, one array appended to in place, so
+        // nothing downstream has to know the story arrives in pieces.
+        const funcs = new Funcs(path, tables.funcCount)
+        tables.funcs = funcs.list
+        // The opening state names functions too, and it is folded before any delta is. On a
+        // repo whose window covers everything this is empty and costs one comparison.
+        await funcs.ensure(baseWatermark(tables.base))
+        const deltas = new Deltas(path, funcs)
         // **Opens as far as the story has arrived, which on a small repo is the end.**
         // Opening at the end was the rule and the reason still holds — the map you were
         // looking at is the last frame, so turning History on should change nothing you can
@@ -999,9 +1007,20 @@ export default function App() {
   const historyEmpty =
     historyOn && history !== null && historyKey === activeKey && history.tables.commits === 0
 
-  /** Pinned while history is on. See `historyOn` — the encoding is not a preference here,
-   *  it is the only thing the evidence supports. */
-  const viewMode: ColorMode = historyOn ? 'age' : mode
+  /** Is the replay actually the thing on screen?
+   *
+   *  **Asked for is not arrived.** Opening a replay is a fetch, and on a large repo it is
+   *  a fetch you can watch happen: for those few hundred milliseconds `historyOn` is true
+   *  while the map is still drawing TODAY. Everything that dresses the window for a replay
+   *  — the lens, the sort order, the morphing — was keyed on the request rather than on the
+   *  arrival, so pressing History repainted the live map in Age's greens, and then repainted
+   *  it again as the replay's first frame. Two full redraws of a picture nobody asked to see.
+   *  Keyed on the frame existing, all of it happens once. */
+  const replaying = historyOn && histRoot !== null
+
+  /** Pinned while the replay is on screen. See `historyOn` — the encoding is not a
+   *  preference here, it is the only thing the evidence supports. */
+  const viewMode: ColorMode = replaying ? 'age' : mode
 
   // The wedge the sunburst is currently rooted at, resolved by id every render so a
   // rescan keeps the user where they were rather than throwing them back to the top.
@@ -1465,7 +1484,7 @@ export default function App() {
                 // so it should move; a rescan or a landed reading changes the live map under
                 // somebody who is reading it, and sliding the wedges there would animate a
                 // measurement arriving rather than a story advancing.
-                morph={historyOn}
+                morph={replaying}
                 sortBy={headOrder}
                 onSelect={pick}
                 onClear={clearPick}
@@ -1520,7 +1539,7 @@ export default function App() {
               <div className="absolute bottom-2 right-2 z-20">
                 <ColorLegend
                   mode={viewMode}
-                  history={historyOn}
+                  history={replaying}
                   categories={tree ? legendFor(tree, viewMode) : []}
                   // Counted from `focus`, not the whole scan: drilled into one
                   // directory, the legend has to describe the rings in front of you or

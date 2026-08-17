@@ -295,6 +295,7 @@ pub fn run() {
             commands::history_log,
             commands::history_scoped,
             commands::history_deltas,
+            commands::history_funcs,
             commands::sync_theme_menu,
             commands::read_source,
             commands::open_code_window,

@@ -766,6 +766,28 @@ function SunburstView({
     return () => cancelAnimationFrame(raf)
   }, [morph])
 
+  /** Whether the chase was on for the previous render, so its FIRST render can be told
+   *  from its later ones. */
+  const wasMorphing = useRef(false)
+  // **Morphing starts from the picture on screen, not from nothing.**
+  //
+  // `geo` seeds a wedge the chase has never heard of at zero angular width, so it opens
+  // rather than appearing — right for a file that shows up mid-replay, and catastrophic
+  // for the frame morphing is switched ON, when the chase has heard of nothing and every
+  // wedge on screen is therefore new. The whole map collapsed to the hub for a frame and
+  // then bloomed back out: pressing History on a large repo went blank, drew the live map
+  // again, and only then drew the replay — three pictures in a third of a second, none of
+  // which anybody asked for.
+  //
+  // Primed during RENDER and not in an effect, for the same reason the level change is
+  // detected here: `geo` runs before any effect, so an effect would prime a map that had
+  // already been seeded at zero and the blank frame would paint anyway.
+  if (morph && !wasMorphing.current) {
+    soft.current.clear()
+    for (const [id, g] of target) soft.current.set(id, { ...g })
+  }
+  wasMorphing.current = !!morph
+
   const moving = t < 1
   const e = ease(t)
   /** A wedge's geometry for this frame: where it belongs once nothing is moving, and on
