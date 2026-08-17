@@ -73,11 +73,17 @@ pub async fn scan_repo(
         s.restoring.push(crate::reports::KnownProject {
             key: pending_key.clone(),
             repo: root.to_string_lossy().to_string(),
-            name,
+            name: name.clone(),
             touched: 0,
+            files: None,
             harness: None,
             model: None,
         });
+        // On DISK before the work starts too, for the same reason it is in the sidebar
+        // before the work starts — see `reports::remember`. `restoring` is memory only, and
+        // the index was written by `touch` when the scan returned, so a repo whose first
+        // scan runs for hours was lost by any quit before it finished.
+        crate::reports::remember(&pending_key, &root.to_string_lossy(), &name);
     }
 
     // The scan is CPU-bound and rayon-parallel, so it must never run on the async
@@ -91,10 +97,13 @@ pub async fn scan_repo(
             // Fed to the sidebar row as well as the pane, so the two agree about how far
             // along the same scan is.
             if let Ok(mut s) = progress_state.lock() {
-                s.restoring_progress
-                    .insert(progress_key.clone(), (p.done, p.total, p.phase.clone()));
+                s.restoring_progress.insert(progress_key.clone(), p.clone());
             }
-            let _ = app.emit("scan-progress", p);
+            // Named, like the shape batches beside it — see `scan::Tick`.
+            let _ = app.emit(
+                "scan-progress",
+                crate::scan::Tick { project: &progress_key, progress: &p },
+            );
         };
         // Per-function scores go out as they land so the sunburst colors in live. The
         // full tree still returns at the end — the stream is an accelerant, not the
@@ -128,7 +137,10 @@ pub async fn scan_repo(
         // and stay grey: a scan in progress has no reading to show, and the tree the scan
         // returns replaces this one whole.
         let shape = |files: &[crate::scan::ShapeFile]| {
-            let _ = app.emit("scan-shape", files);
+            let _ = app.emit(
+                "scan-shape",
+                crate::scan::ShapeBatch { project: &progress_key, files },
+            );
         };
         scan::scan(
             &root,
@@ -518,14 +530,40 @@ pub fn project_scan(
     // **Without the functions.** See `Node::slim`: ceph's tree is 75MB of JSON, almost all
     // of it functions the map cannot draw, and the window spent five seconds parsing it
     // before anything appeared. A file's own ring arrives when something asks for it.
-    let s = crate::agentapi::lock(&state);
+    let mut s = crate::agentapi::lock(&state);
     if let Some(p) = s.projects.get(&key) {
         return Some(Scan { root: p.scan.root.slim(), stats: p.scan.stats.clone() });
     }
+    // Not loaded, and somebody is looking at it: scan this one next — see `AppState::wanted`.
+    // This command is what the window calls when it switches project, which makes it the one
+    // signal that means "this is the one I want" rather than "this is where I was last time".
+    s.wanted = Some(key.clone());
     // Still being scanned, but a previous run left a map — see `AppState::shallow`. Answering
     // with it is what lets a launch draw before the whole tree has been decoded; the row goes
     // on saying the project is loading, because it is.
-    s.shallow.get(&key).cloned()
+    if let Some(drawn) = s.shallow.get(&key) {
+        return Some(drawn.clone());
+    }
+    // **Not yet reached by the restore, which is not the same as having nothing to show.**
+    // The restore scans one repo at a time and publishes each cached map as it gets to that
+    // repo — so a small project queued behind a large one had no `shallow` entry and answered
+    // with nothing, for as long as the large one took. Clicking it showed an empty pane while
+    // a complete map of it sat on disk. That is the wait being charged to the wrong project:
+    // what is queued is its RESCAN, and the rescan is not what somebody clicking it wants.
+    //
+    // Decoded here rather than up front, because the rule this sits under is that a launch
+    // must not decode what nobody is looking at — and this runs precisely when somebody is.
+    // It is not stored in `shallow`: the lock is held for reading, the restore owns that map,
+    // and re-decoding on a second click costs a fraction of a second against the seconds this
+    // saves. Dropping the guard to take it for writing would also let the real project land
+    // in between, and answering with the cache after that is answering with the older thing.
+    drop(s);
+    let repo = crate::reports::load_index()
+        .projects
+        .into_iter()
+        .find(|p| p.key == key)?
+        .repo;
+    crate::treecache::stale(&PathBuf::from(repo))
 }
 
 /// One file's functions, for the ring inside its wedge.

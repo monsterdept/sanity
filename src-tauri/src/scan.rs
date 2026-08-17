@@ -196,13 +196,15 @@ pub struct Scored {
     pub hotspots: Vec<Hotspot>,
 }
 
-/// Progress is counted in **functions**, not directories.
+/// Progress counts the unit the running phase works in, and NAMES that phase.
 ///
 /// It used to be directories, which is a unit the user has no feel for and which is not
 /// even proportional to work: one directory may hold a single tiny helper and the next
 /// fifty long ones. With a model attached a scan can run for many minutes, so "3 / 37
 /// directories" sitting under a blank window is the difference between waiting and
-/// force-quitting.
+/// force-quitting. It then became functions, for the model pass — and outlived it: the two
+/// phases that actually run count FILES, so the window was announcing the wrong noun over
+/// the right number. The unit travels with [`Progress::counting`]'s phase for that reason.
 #[derive(Debug, Clone, Serialize)]
 pub struct Progress {
     pub done: usize,
@@ -217,17 +219,65 @@ pub struct Progress {
     /// "starting", for long enough to read as a button that missed the press.
     #[serde(default)]
     pub phase: String,
+    /// The repo-relative path this tick is about, so the map can show where the scan IS.
+    ///
+    /// **A fraction says how much; it cannot say where.** The two long phases sweep the repo
+    /// in a definite order — parse by directory, blame over the files the parse produced, so
+    /// both run alphabetically — and none of that reached the window, which had a bar and a
+    /// picture that stopped moving the moment the parse ended. The wedge lights up instead,
+    /// on the same channel a reader's lease already uses: the map is the thing this app
+    /// draws, so progress belongs on it rather than beside it.
+    ///
+    /// Empty when a phase has no single subject, which is most of them — a walk, a cache
+    /// read, a `git log` are all about the repo rather than about a file in it.
+    #[serde(default)]
+    pub at: String,
+    /// What `done` and `total` are counting, plural, for the window to print after them.
+    ///
+    /// **The unit is a property of the phase, so it cannot live in the window.** It was a
+    /// literal there — `Scoring N / M functions` — written when the only counted phase was
+    /// the model pass. That pass has not run since `OllamaModel` was removed; the two phases
+    /// that do run count FILES, and both of them arrived under that sentence. A scan of linux
+    /// therefore announced 111,029 *functions* over a number that was files, while the
+    /// sidebar — which had its own literal, and the right one — said files beside it. One
+    /// number, two nouns, in one window.
+    #[serde(default)]
+    pub unit: String,
 }
 
 impl Progress {
-    /// A step of a countable job.
+    /// A step of a countable job whose unit the caller has already established.
     pub fn at(done: usize, total: usize) -> Self {
-        Progress { done, total, phase: String::new() }
+        Progress { done, total, phase: String::new(), unit: String::new(), at: String::new() }
     }
 
     /// A job that has begun and cannot yet be counted.
     pub fn phase(what: &str) -> Self {
-        Progress { done: 0, total: 0, phase: what.to_string() }
+        Progress {
+            done: 0,
+            total: 0,
+            phase: what.to_string(),
+            unit: String::new(),
+            at: String::new(),
+        }
+    }
+
+    /// A countable job that says which one it is and what it is counting.
+    pub fn counting(what: &str, unit: &str, done: usize, total: usize) -> Self {
+        Progress {
+            done,
+            total,
+            phase: what.to_string(),
+            unit: unit.to_string(),
+            at: String::new(),
+        }
+    }
+
+    /// …and where it has got to. Separate from [`Progress::counting`] because most phases
+    /// have no single subject and would pass an empty string.
+    pub fn on(mut self, path: &str) -> Self {
+        self.at = path.to_string();
+        self
     }
 }
 
@@ -249,6 +299,29 @@ pub struct ShapeFile {
     pub lang: Lang,
     /// `(name, lines)` per function, in file order.
     pub funcs: Vec<(String, u32)>,
+}
+
+/// One batch of streamed shape, and the project it belongs to.
+///
+/// **The key is on the wire because the window cannot infer it.** It tried: the owner of the
+/// accumulated shape was taken to be the one project in the list that is `loading`. A restore
+/// publishes every known project as loading up front, deliberately, so the sidebar fills in
+/// at once — so that was whichever unfinished project happened to sort first, it changed
+/// hands whenever any of them settled, and the map of the repo actually being parsed was
+/// discarded halfway through drawing itself.
+#[derive(Clone, serde::Serialize)]
+pub struct ShapeBatch<'a> {
+    pub project: &'a str,
+    pub files: &'a [ShapeFile],
+}
+
+/// One progress tick, and the project it belongs to. Same argument as [`ShapeBatch`], and
+/// they travel together: the tick is what lights a wedge on the map the batches drew, so a
+/// tick that reached the wrong map would light nothing and say nothing about it.
+#[derive(Clone, serde::Serialize)]
+pub struct Tick<'a> {
+    pub project: &'a str,
+    pub progress: &'a Progress,
 }
 
 fn shape_of(files: &[ParsedFile]) -> Vec<ShapeFile> {
@@ -930,7 +1003,10 @@ pub fn scan(
     let scope = scope_of(root);
     // Reported as its own phase because it is one: `git log --name-only` over the churn
     // window, measured at 3.5s on ceph, with nothing else happening.
-    on_progress(Progress::phase("reading the history"));
+    // Named for the log it reads, not for "history", because the blame pass below is also
+    // history and is the one that takes the hours. Two phases with the same noun on the
+    // same bar is the ambiguity this whole run of naming exists to remove.
+    on_progress(Progress::phase("reading the commit log"));
     let history = churn::read(root);
     lap("churn");
 
@@ -953,10 +1029,17 @@ pub fn scan(
     // so a scan of a large repo showed a bar that could not move for minutes, sweeping to say
     // "something is happening" because nothing could say what. Parsing and blaming are the
     // two long phases and they are both countable.
+    // Under its own name, before the parse rather than inside it — see `ScanCache::warm`.
+    // The parse cannot report a fraction until it has this, and on a large repo reading it
+    // takes far longer than the phase whose label would otherwise be left on screen.
+    on_progress(Progress::phase("reading the cached scan"));
+    scans.warm();
+    lap("cache");
+
     let parsed = AtomicUsize::new(0);
     let parsed_dirs: Vec<Vec<ParsedFile>> = by_dir
         .par_iter()
-        .map(|(_dir, entries)| {
+        .map(|(dir, entries)| {
             let files: Vec<ParsedFile> = entries
                 .iter()
                 .filter_map(|(p, lang)| {
@@ -969,10 +1052,17 @@ pub fn scan(
             // long part. What follows it is the blame pass, which is minutes, and which the
             // map can sit fully drawn through instead of blank.
             on_shape(&shape_of(&files));
-            on_progress(Progress::at(
-                parsed.fetch_add(files.len(), Ordering::Relaxed) + files.len(),
-                total_found,
-            ));
+            on_progress(
+                Progress::counting(
+                    "parsing",
+                    "files",
+                    parsed.fetch_add(files.len(), Ordering::Relaxed) + files.len(),
+                    total_found,
+                )
+                // The directory, because that is the unit this phase works in — the files
+                // themselves are already arriving on `on_shape` and drawing themselves.
+                .on(dir),
+            );
             files
         })
         .collect();
@@ -996,15 +1086,28 @@ pub fn scan(
         .flatten()
         .map(|f| (f.rel_path.clone(), f.hash))
         .collect();
-    // Counted from the top of the scan rather than from zero: the two phases are one wait as
-    // far as anybody watching is concerned, and a bar that fills, empties and fills again
-    // reads as a false start.
+    // **Counted from zero, under its own name.** It used to continue the parse's numbering —
+    // one bar from the top of the scan, on the argument that the two phases are one wait as
+    // far as anybody watching is concerned, and that a bar which fills, empties and fills
+    // again reads as a false start. What that actually produced was a bar whose two halves
+    // run at wildly different speeds with nothing on screen saying so: parsing linux is
+    // 57k files in a couple of minutes, blaming them is one `git blame --line-porcelain`
+    // apiece against a history that deep, and the join is invisible. The window reported
+    // "~<1 min left" — an ETA averaged over a rate that had already stopped applying — while
+    // hours of work remained, and the honest reading of a bar that crawls after moving fast
+    // is that the scan has hung. A phase boundary the viewer can see is worth a bar that
+    // restarts; a false start is a smaller lie than a false estimate.
     let blamed = AtomicUsize::new(0);
-    let blame = Blame::read(root, &for_blame, &history, scans, &|| {
-        on_progress(Progress::at(
-            total_found + blamed.fetch_add(1, Ordering::Relaxed) + 1,
-            total_found + for_blame.len(),
-        ));
+    let blame = Blame::read(root, &for_blame, &history, scans, &|path: &str| {
+        on_progress(
+            Progress::counting(
+                "reading per-line history",
+                "files",
+                blamed.fetch_add(1, Ordering::Relaxed) + 1,
+                for_blame.len(),
+            )
+            .on(path),
+        );
     });
 
     lap("blame");
@@ -1134,7 +1237,12 @@ pub fn scan(
                 // finished — which on a repo this size is hours of a gray map with a
                 // moving progress bar, the exact thing streaming exists to prevent.
                 on_scored(&w.id, &surprise);
-                on_progress(Progress::at(done.fetch_add(1, Ordering::Relaxed) + 1, total));
+                on_progress(Progress::counting(
+                    "scoring",
+                    "functions",
+                    done.fetch_add(1, Ordering::Relaxed) + 1,
+                    total,
+                ));
                 (w.id.clone(), surprise)
             })
             .collect();

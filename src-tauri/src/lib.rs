@@ -261,10 +261,18 @@ pub fn run() {
             // The window's own emitter, so a launch draws the map assembling exactly as
             // adding a project does — see `scan-shape`.
             let shape_app = _app.handle().clone();
-            agentapi::restore(api_state.clone(), move |files: &[crate::scan::ShapeFile]| {
-                use tauri::Emitter;
-                let _ = shape_app.emit("scan-shape", files);
-            });
+            let tick_app = _app.handle().clone();
+            agentapi::restore(
+                api_state.clone(),
+                move |key: &str, files: &[crate::scan::ShapeFile]| {
+                    use tauri::Emitter;
+                    let _ = shape_app.emit("scan-shape", crate::scan::ShapeBatch { project: key, files });
+                },
+                move |key: &str, p: &crate::scan::Progress| {
+                    use tauri::Emitter;
+                    let _ = tick_app.emit("scan-progress", crate::scan::Tick { project: key, progress: p });
+                },
+            );
             // Stamped here for the same reason `serve` stamps it: read lazily on the first
             // `/health`, it would describe whatever binary is at this path by then. The
             // window is never retired over it — a CLI on a newer build says so and carries

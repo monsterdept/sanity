@@ -43,6 +43,21 @@ pub struct KnownProject {
     /// says so and stops.
     #[serde(default)]
     pub harness: Option<String>,
+    /// How many files the last scan found, so a restore can tell a big repo from a small one
+    /// before it opens either — see `BIG_REPO_FILES`.
+    ///
+    /// Last time's count, not this time's, and that is the point: the alternative is walking
+    /// every repo at launch to learn a number the previous scan already computed, which is a
+    /// full directory walk per project to decide an ordering question. A repo that has grown
+    /// or shrunk across the boundary is misfiled for exactly one launch and corrects itself
+    /// when that scan lands.
+    ///
+    /// `None` means "never scanned here", which is a real third answer rather than zero, and
+    /// it is treated as small: a repo somebody has just added is one they are watching, and
+    /// making them wait behind an hour of linux to find out they picked the wrong directory
+    /// is the failure this whole arrangement exists to avoid.
+    #[serde(default)]
+    pub files: Option<usize>,
     /// Which model reads this repo, when it has no readings yet to say so.
     ///
     /// A starting point, not the authority. Once a repo holds readings, what they were
@@ -79,6 +94,66 @@ pub fn model_for(key: &str) -> Option<String> {
         .filter(|m| !m.is_empty())
 }
 
+/// Put a project in the index the moment it is added, before its first scan lands.
+///
+/// **A project used to reach disk only through `touch`, which runs when the scan RETURNS.**
+/// That is fine for a repo scanned in a second and wrong for one that is not: linux takes
+/// hours on its first pass, so every quit before it finished lost the project outright —
+/// the row vanished, and it had to be added again, to scan again from the beginning. The
+/// index is a list of repos to reopen, and a repo somebody deliberately added is on that
+/// list from the moment they added it; whether its first scan has finished is a fact about
+/// this session, not about whether they meant to add it.
+///
+/// `touched: 0` because the ordering is recency of USE and this has not been used yet — it
+/// sorts last until `touch` gives it a real clock, which is the honest position for a row
+/// whose scan has not landed.
+///
+/// Idempotent: an entry that is already there is left exactly as it is, so re-adding a
+/// project cannot reset the harness and model somebody configured for it.
+pub fn remember(key: &str, repo: &str, name: &str) {
+    let mut index = load_index();
+    if index.projects.iter().any(|p| p.key == key) {
+        return;
+    }
+    index.projects.push(KnownProject {
+        key: key.to_string(),
+        repo: repo.to_string(),
+        name: name.to_string(),
+        touched: 0,
+        files: None,
+        harness: None,
+        model: None,
+    });
+    save_index(&index);
+}
+
+/// Record how big a repo is, as soon as the walk knows — see `KnownProject::files`.
+///
+/// **Written seconds in rather than when the scan lands, because the scan may never land.**
+/// The size was recorded by `persist`, which runs on a completed scan — so linux, at hours a
+/// pass and interrupted every time, never recorded one, and the lane split that exists for
+/// exactly that repo could never engage. The repo that most needs classifying was the one
+/// least likely to finish. The walk produces the count in the first seconds; a quit after
+/// that still leaves it behind, and the next launch knows what it is dealing with.
+///
+/// This is the WALKED count, an upper bound on the parsed one — 65,757 against 45,272 on
+/// linux — and `persist` replaces it with the real figure when a scan does complete. The gap
+/// between them is nowhere near the threshold it feeds, so neither answer changes a lane.
+///
+/// Silent when the project is not in the index: nothing is created here, because a size is a
+/// fact ABOUT a listing rather than a reason to make one.
+pub fn note_size(key: &str, files: usize) {
+    let mut index = load_index();
+    let Some(p) = index.projects.iter_mut().find(|p| p.key == key) else {
+        return;
+    };
+    if p.files == Some(files) {
+        return;
+    }
+    p.files = Some(files);
+    save_index(&index);
+}
+
 /// Record the agent and/or the model to read a project with.
 ///
 /// `None` leaves a field alone rather than clearing it, so setting one does not silently
@@ -91,6 +166,7 @@ pub fn set_reader(key: &str, repo: &str, name: &str, harness: Option<&str>, mode
             repo: repo.to_string(),
             name: name.to_string(),
             touched: 0,
+            files: None,
             harness: None,
             model: None,
         });

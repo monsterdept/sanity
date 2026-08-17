@@ -185,9 +185,35 @@ pub struct AppState {
     /// throwing it away, so the honest fraction was there for free — and a fraction the
     /// scorer actually counted beats any guess from repo size, which is what "how long will
     /// this take" would otherwise have to be built on.
-    /// How far a scan has got, and what it is doing while that cannot be counted — see
+    /// How far a scan has got, what it is doing, and what it is counting — see
     /// `scan::Progress`.
-    pub restoring_progress: HashMap<String, (usize, usize, String)>,
+    ///
+    /// The whole struct rather than the fields the sidebar happened to want. It was a
+    /// `(done, total, phase)` tuple, so `unit` — added because the window was printing the
+    /// wrong noun over the right number — would have had to be threaded through four
+    /// call sites to reach the row that prints it, which is how the phase came to be
+    /// carried here and the unit came not to be.
+    pub restoring_progress: HashMap<String, crate::scan::Progress>,
+    /// The project somebody is waiting on, so the restore scans it next.
+    ///
+    /// **A queue ordered before the window is up is a guess; a click is not.** The restore
+    /// takes the previously-active project first and the rest by recency, which is the best
+    /// anyone can do at launch — and it is wrong the moment somebody opens a small repo that
+    /// happens to sit behind a large one. linux is hours; sanity is seconds; and a person
+    /// looking at sanity was told `queued` for the length of linux.
+    ///
+    /// It is set by `project_scan`, which is what the window calls when it switches to a
+    /// project — the one signal that means "this is the one I want", as opposed to `active`,
+    /// which is a record of where the LAST session was. Consumed by the restore loop with
+    /// `take`: it is a request spent on the project it names, not a setting that keeps
+    /// applying, and a repo already scanned or in flight is simply not in the queue any more,
+    /// which falls through to the running order.
+    ///
+    /// It changes only WHICH repo is scanned next, never whether one is. Nothing is skipped
+    /// and nothing is cancelled; a scan in flight is left to finish, because abandoning it
+    /// would throw away work somebody may be about to want and would make the order the
+    /// window sees depend on how fast they clicked.
+    pub wanted: Option<String>,
     /// The drawable half of a project's map, published before the project itself.
     ///
     /// **A launch should not decode what nobody is looking at.** A project becomes a
@@ -267,6 +293,9 @@ impl AppState {
                 repo: p.repo.to_string_lossy().to_string(),
                 name: p.name.clone(),
                 touched: p.touched,
+                // The one field here the live project simply knows. It is what the restore
+                // sorts lanes by next launch — see `BIG_REPO_FILES`.
+                files: Some(p.scan.stats.files_scanned),
                 // Carried across from the entry being replaced, because it is not held in
                 // memory at all. `AppState` knows nothing about which agent reads this
                 // repo — `sanity init` writes it straight to the index — so building a
@@ -1945,6 +1974,7 @@ async fn open_project(
             repo: path.to_string_lossy().to_string(),
             name,
             touched: 0,
+            files: None,
             harness: None,
             model: None,
         });
@@ -4555,10 +4585,14 @@ pub struct ProjectSummary {
     /// zero-percent one, and the UI shows it as such.
     pub read_done: usize,
     pub read_total: usize,
-    /// What the scan is doing while it has nothing to count — see `scan::Progress::phase`.
-    /// Empty once it does.
+    /// What the scan is doing — see `scan::Progress::phase`. A scan names its phases whether
+    /// or not it can count them, because a bar that runs two phases end to end at very
+    /// different speeds reads as a hang at the join unless the join is on screen.
     #[serde(default)]
     pub read_phase: String,
+    /// What `read_done` and `read_total` are counting — see `scan::Progress::unit`.
+    #[serde(default)]
+    pub read_unit: String,
 }
 
 impl ProjectList {
@@ -4651,6 +4685,7 @@ impl ProjectList {
                     read_done: 0,
                     read_total: 0,
                     read_phase: String::new(),
+                    read_unit: String::new(),
                 }
             })
             .collect();
@@ -4664,11 +4699,11 @@ impl ProjectList {
                 .iter()
                 .filter(|known| !state.projects.contains_key(&known.key))
                 .map(|known| {
-                    let (done, total, phase) = state
+                    let progress = state
                         .restoring_progress
                         .get(&known.key)
                         .cloned()
-                        .unwrap_or((0, 0, String::new()));
+                        .unwrap_or_else(|| crate::scan::Progress::at(0, 0));
                     ProjectSummary {
                         key: known.key.clone(),
                         name: known.name.clone(),
@@ -4704,9 +4739,10 @@ impl ProjectList {
                         touched: known.touched,
                         working: false,
                         loading: true,
-                        read_done: done,
-                        read_total: total,
-                        read_phase: phase,
+                        read_done: progress.done,
+                        read_total: progress.total,
+                        read_phase: progress.phase,
+                        read_unit: progress.unit,
                     }
                 }),
         );
@@ -4992,7 +5028,175 @@ pub fn set_order(state: &Shared, keys: Vec<String>) {
 /// window passes a no-op: this module is the headless half and has never held an
 /// `AppHandle`, which is why the emitter arrives as an argument rather than being reached
 /// for.
-pub fn restore(state: Shared, on_shape: impl Fn(&[crate::scan::ShapeFile]) + Send + Sync + 'static) {
+///
+/// `on_tick` is the same arrangement for progress. The restore wrote its counts into
+/// `restoring_progress` and stopped there, which the sidebar polls at 1.5s — a rate that is
+/// fine for a fraction and useless for `Progress::at`, where the whole point is that the
+/// wedge lights up as the scan reaches it. Adding a project goes through `commands.rs` and
+/// already emitted; a RELAUNCH went through here and did not, so the same repo lit up or
+/// stayed dark depending on which way it had arrived.
+///
+/// **Both carry the project key, because the window cannot work it out.** They did not, and
+/// the receiving side inferred the owner from the projects list — the one row that is
+/// `loading`. There is no such row: a restore publishes EVERY known project as loading up
+/// front, on purpose, so the sidebar fills in immediately. So the inferred owner was
+/// whichever unfinished project sorted first, it changed hands every time any of them
+/// settled, and the accumulated shape of the repo actually being scanned was thrown away
+/// mid-parse. A stream that names its subject cannot be guessed wrong.
+/// The window's shape stream, shared by the restore's lanes rather than owned by one.
+///
+/// `Arc<dyn …>` and not a generic: two lanes run the same code over the same emitters, and a
+/// type parameter would only mean two copies of [`drain`] that cannot share them.
+type ShapeSink = std::sync::Arc<dyn Fn(&str, &[crate::scan::ShapeFile]) + Send + Sync>;
+/// The window's progress stream, on the same terms as [`ShapeSink`].
+type TickSink = std::sync::Arc<dyn Fn(&str, &crate::scan::Progress) + Send + Sync>;
+
+/// Work one lane of the restore: scan each project, publish it, move to the next.
+///
+/// Split out of [`restore`] so two lanes can run it — see `BIG_REPO_FILES`. Everything it
+/// touches is per project or behind the state lock, so two of these are independent: the
+/// scan caches are per repo, the progress is keyed by project, and the only shared thing is
+/// `wanted`, which `claim_next` consumes only when this lane can serve it.
+///
+/// `active` is the key the LAST session was looking at, passed in rather than read here so
+/// both lanes compare against the same value; which project the window actually lands on is
+/// decided once, by the caller, after both lanes have finished.
+fn drain(
+    mut queue: Vec<crate::reports::KnownProject>,
+    state: &Shared,
+    on_shape: &(dyn Fn(&str, &[crate::scan::ShapeFile]) + Send + Sync),
+    on_tick: &(dyn Fn(&str, &crate::scan::Progress) + Send + Sync),
+    active: Option<String>,
+) {
+    while !queue.is_empty() {
+        // Whoever the window is waiting on goes next, if this lane holds them.
+        let known = queue.remove(claim_next(&mut lock(state).wanted, &queue));
+        let path = PathBuf::from(&known.repo);
+        // Off the list whatever happens below — a row that cannot be scanned must stop
+        // claiming to be moments away from appearing. It stays in the index, so it
+        // comes back next launch if the volume does; it just isn't pending any more.
+        let settled = |s: &mut AppState| {
+            s.restoring.retain(|k| k.key != known.key);
+            s.restoring_progress.remove(&known.key);
+        };
+        if !path.is_dir() {
+            settled(&mut lock(state));
+            continue;
+        }
+        // The scan already counts what it is doing; the restore used to discard it and
+        // leave the sidebar with nothing to say for the length of a large repo.
+        // The map first, and without asking whether it is still true — see
+        // `treecache::stale`. Proving it costs a walk of the whole repo, and the scan on
+        // the next line does that anyway and replaces this if the answer is no.
+        if let Some(drawn) = crate::treecache::stale(&path) {
+            lock(state).shallow.insert(known.key.clone(), drawn);
+        }
+        let progress_key = known.key.clone();
+        let progress_state = state.clone();
+        // Once, on the first phase that can count itself — see `reports::note_size`.
+        let sized = std::sync::atomic::AtomicBool::new(false);
+        let on_progress = move |p: crate::scan::Progress| {
+            on_tick(&progress_key, &p);
+            let mut s = lock(&progress_state);
+            // Under the state lock, which is what serialises it against the other lane: this
+            // is a read-modify-write of one file and two of them interleaving is how an index
+            // loses an entry. `persist` is safe for the same reason — it runs holding this.
+            if p.total > 0 && !sized.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                crate::reports::note_size(&progress_key, p.total);
+            }
+            s.restoring_progress.insert(progress_key.clone(), p);
+        };
+        let Ok(scan) = crate::scan::scan(
+            &path,
+            &crate::surprise::HeuristicModel,
+            &on_progress,
+            &|_, _: &crate::surprise::Reading| {},
+            &|files: &[crate::scan::ShapeFile]| on_shape(&known.key, files),
+            &std::sync::atomic::AtomicBool::new(false),
+            crate::scan::Memos {
+                scores: &crate::cache::Cache::ephemeral(),
+                scans: &crate::scancache::ScanCache::open(&path),
+            },
+            // A queue sort key, not a number anyone sees — see `scan::Fidelity`.
+            crate::scan::Fidelity::Ordering,
+        ) else {
+            settled(&mut lock(state));
+            continue;
+        };
+        let marks = stamp_marks(&path, &scan);
+        let mut s = lock(state);
+        settled(&mut s);
+        let reports = load_reports(&path, &scan);
+        let probe_path = path.clone();
+        s.shallow.remove(&known.key);
+        s.projects.insert(
+            known.key.clone(),
+            Project {
+                repo: path,
+                name: known.name.clone(),
+                scan,
+                reports,
+                leased: HashMap::new(),
+                recent_files: HashMap::new(),
+                predictions: HashMap::new(),
+                run: None,
+                events: Default::default(),
+                file_marks: marks,
+                marks: crate::watch::probe(&probe_path),
+                scanned: 1,
+                touched: known.touched,
+                last_agent: None,
+            },
+        );
+        // Restored in reverse order so the last one touched is the last one in, and
+        // the window lands back where it was rather than on an arbitrary project.
+        //
+        // The window only switches when `active` is set, so choosing it is what makes
+        // a restore visible at all. Decided once, after the loop, against what
+        // actually came back: picking it per-iteration meant a recorded active whose
+        // repo had since been moved or deleted matched nothing, left `active` at None,
+        // and opened an empty window with a full sidebar behind it.
+        if active.as_deref() == Some(known.key.as_str()) {
+            s.active = Some(known.key.clone());
+        }
+    }
+}
+
+/// Above this many files a repo gets a lane to itself — see [`restore`].
+///
+/// The gap it sits in is enormous, which is what makes the exact value uninteresting: this
+/// repo is **77** files, tonepoet is 731, and linux is **65,757**. Nothing measured lands
+/// within an order of magnitude of the line. What would make it delicate is a repo that
+/// actually sits near it, and then the question to ask is not "what is the number" but "how
+/// long does this repo hold a lane", because that is the property being bought.
+const BIG_REPO_FILES: usize = 2_000;
+
+/// Which project this lane takes next: the one somebody is waiting on, else the running
+/// order — see [`AppState::wanted`].
+///
+/// **Consumed only if this lane can serve it**, which is what makes it safe with two lanes
+/// drawing from the same request. A plain `take` would let the small lane swallow a request
+/// for a big repo, and the click would do nothing at all.
+///
+/// Its own function so the choice can be tested without a thread, a temp repo and a scan. A
+/// `wanted` naming something not in this queue is the normal case rather than an error: it is
+/// in the other lane, already scanned, or the one in flight — and either way the queue is the
+/// list of what is LEFT here.
+fn claim_next(wanted: &mut Option<String>, queue: &[crate::reports::KnownProject]) -> usize {
+    match wanted.as_deref().and_then(|key| queue.iter().position(|p| p.key == key)) {
+        Some(at) => {
+            *wanted = None;
+            at
+        }
+        None => 0,
+    }
+}
+
+pub fn restore(
+    state: Shared,
+    on_shape: impl Fn(&str, &[crate::scan::ShapeFile]) + Send + Sync + 'static,
+    on_tick: impl Fn(&str, &crate::scan::Progress) + Send + Sync + 'static,
+) {
     let index = crate::reports::load_index();
     if index.projects.is_empty() {
         return;
@@ -5027,7 +5231,8 @@ pub fn restore(state: Shared, on_shape: impl Fn(&[crate::scan::ShapeFile]) + Sen
         s.active = index.active.clone();
     }
     std::thread::spawn(move || {
-        let on_shape = &on_shape;
+        let on_shape: ShapeSink = std::sync::Arc::new(on_shape);
+        let on_tick: TickSink = std::sync::Arc::new(on_tick);
         // **The one you are going to look at, first.** The list is restored oldest-touched
         // first so the most recent ends up on top — which is right for the sidebar and wrong
         // for the wait: scanning is sequential, so the project the window will open was
@@ -5040,88 +5245,45 @@ pub fn restore(state: Shared, on_shape: impl Fn(&[crate::scan::ShapeFile]) + Sen
                 order.insert(0, first);
             }
         }
-        for known in order {
-            let path = PathBuf::from(&known.repo);
-            // Off the list whatever happens below — a row that cannot be scanned must stop
-            // claiming to be moments away from appearing. It stays in the index, so it
-            // comes back next launch if the volume does; it just isn't pending any more.
-            let settled = |s: &mut AppState| {
-                s.restoring.retain(|k| k.key != known.key);
-                s.restoring_progress.remove(&known.key);
-            };
-            if !path.is_dir() {
-                settled(&mut lock(&state));
-                continue;
-            }
-            // The scan already counts what it is doing; the restore used to discard it and
-            // leave the sidebar with nothing to say for the length of a large repo.
-            // The map first, and without asking whether it is still true — see
-            // `treecache::stale`. Proving it costs a walk of the whole repo, and the scan on
-            // the next line does that anyway and replaces this if the answer is no.
-            if let Some(drawn) = crate::treecache::stale(&path) {
-                lock(&state).shallow.insert(known.key.clone(), drawn);
-            }
-            let progress_key = known.key.clone();
-            let progress_state = state.clone();
-            let on_progress = move |p: crate::scan::Progress| {
-                lock(&progress_state)
-                    .restoring_progress
-                    .insert(progress_key.clone(), (p.done, p.total, p.phase.clone()));
-            };
-            let Ok(scan) = crate::scan::scan(
-                &path,
-                &crate::surprise::HeuristicModel,
-                &on_progress,
-                &|_, _: &crate::surprise::Reading| {},
-                &|files: &[crate::scan::ShapeFile]| on_shape(files),
-                &std::sync::atomic::AtomicBool::new(false),
-                crate::scan::Memos {
-                    scores: &crate::cache::Cache::ephemeral(),
-                    scans: &crate::scancache::ScanCache::open(&path),
-                },
-                // A queue sort key, not a number anyone sees — see `scan::Fidelity`.
-                crate::scan::Fidelity::Ordering,
-            ) else {
-                settled(&mut lock(&state));
-                continue;
-            };
-            let marks = stamp_marks(&path, &scan);
-            let mut s = lock(&state);
-            settled(&mut s);
-            let reports = load_reports(&path, &scan);
-            let probe_path = path.clone();
-            s.shallow.remove(&known.key);
-            s.projects.insert(
-                known.key.clone(),
-                Project {
-                    repo: path,
-                    name: known.name.clone(),
-                    scan,
-                    reports,
-                    leased: HashMap::new(),
-                    recent_files: HashMap::new(),
-                    predictions: HashMap::new(),
-                    run: None,
-                    events: Default::default(),
-                    file_marks: marks,
-                    marks: crate::watch::probe(&probe_path),
-                    scanned: 1,
-                    touched: known.touched,
-                    last_agent: None,
-                },
-            );
-            // Restored in reverse order so the last one touched is the last one in, and
-            // the window lands back where it was rather than on an arbitrary project.
-            //
-            // The window only switches when `active` is set, so choosing it is what makes
-            // a restore visible at all. Decided once, after the loop, against what
-            // actually came back: picking it per-iteration meant a recorded active whose
-            // repo had since been moved or deleted matched nothing, left `active` at None,
-            // and opened an empty window with a full sidebar behind it.
-            if index.active.as_deref() == Some(known.key.as_str()) {
-                s.active = Some(known.key.clone());
-            }
+        // Owned, and drained by choice rather than iterated in order — see `AppState::wanted`.
+        // The arrangement above is the best guess anyone can make BEFORE the window is up;
+        // once it is, somebody clicking a row is better information than any guess, and a
+        // queue that cannot be reordered has no way to accept it.
+        let queue: Vec<crate::reports::KnownProject> = order.into_iter().cloned().collect();
+
+        // **Two lanes, so a small repo never waits on a large one.** A single queue meant
+        // 77 files sat behind 65,757 — sanity read `queued` for the length of linux, and the
+        // wait was being charged to the wrong project entirely.
+        //
+        // Two, and not one lane per project, because what the sequencing actually buys is
+        // disk: a scan is already rayon-parallel across every core, and during the blame pass
+        // its threads are blocked on `git blame` subprocesses rather than computing — so the
+        // constraint was never CPU, and it is not memory either (measured at 0.36 GB with
+        // linux a third of the way through). It is how many `git blame` processes are
+        // competing for one disk. One big lane keeps that bounded; one small lane empties in
+        // seconds and rejoins.
+        let (big, small): (Vec<_>, Vec<_>) = queue
+            .into_iter()
+            .partition(|k| k.files.is_some_and(|n| n > BIG_REPO_FILES));
+        let lanes: Vec<_> = [big, small]
+            .into_iter()
+            .filter(|lane| !lane.is_empty())
+            .map(|lane| {
+                let state = state.clone();
+                let on_shape = on_shape.clone();
+                let on_tick = on_tick.clone();
+                let active = index.active.clone();
+                std::thread::spawn(move || drain(lane, &state, &*on_shape, &*on_tick, active))
+            })
+            .collect();
+        // Both, before the tail below: it decides which project the window lands on and
+        // writes the index, and either answer is a truncation of itself if the other lane is
+        // still producing projects. A joined thread that panicked is not worth propagating —
+        // the other lane's work is still good, and the fallback picks from what did arrive.
+        for lane in lanes {
+            let _ = lane.join();
         }
+
         let mut s = lock(&state);
         // Fall back to the most recently touched thing that did come back. Landing on the
         // wrong project is recoverable with a click; landing on nothing looks like the
@@ -5450,6 +5612,101 @@ fn second() { println!(\"2\"); }\n").unwrap();
         assert_eq!(line, Some(5), "re-cut did not move `second` to its new line");
     }
 
+    /// Clicking a queued project moves it to the front of the restore.
+    ///
+    /// The launch order — last session's active repo, then by recency — is the best guess
+    /// available before the window exists, and it is wrong the moment somebody opens a small
+    /// repo sitting behind a large one. linux is hours and sanity is seconds, so a person
+    /// looking at sanity was told `queued` for the length of linux.
+    #[test]
+    fn the_project_somebody_asked_for_is_scanned_next() {
+        let q = queued(&[("/linux", None), ("/sanity", None), ("/tally", None)]);
+
+        let mut want = Some("/sanity".to_string());
+        assert_eq!(claim_next(&mut want, &q), 1, "the one asked for goes next");
+        assert_eq!(want, None, "and the request is spent");
+
+        let mut none = None;
+        assert_eq!(claim_next(&mut none, &q), 0, "nobody asked: the running order stands");
+
+        // In the other lane, already scanned, or the one in flight — either way it is not in
+        // what is LEFT here, and that is ordinary rather than an error.
+        let mut elsewhere = Some("/gone".to_string());
+        assert_eq!(claim_next(&mut elsewhere, &q), 0, "a stale request does not stall the lane");
+        assert_eq!(
+            elsewhere.as_deref(),
+            Some("/gone"),
+            "and it is NOT consumed — the other lane still has to see it, or a click on a big \
+             repo would be swallowed by the small lane and do nothing at all"
+        );
+    }
+
+    /// A small repo gets its own lane rather than queueing behind a large one.
+    ///
+    /// 77 files sat behind 65,757: sanity read `queued` for the length of linux, which is the
+    /// wait being charged to the wrong project. The size comes from the last scan, so a repo
+    /// nobody has scanned here yet is unknown — and unknown goes in the small lane, because a
+    /// repo somebody just added is one they are watching.
+    #[test]
+    fn a_big_repo_scans_in_its_own_lane() {
+        let all = queued(&[
+            ("/linux", Some(65_757)),
+            ("/sanity", Some(77)),
+            ("/fresh", None),
+            ("/ceph", Some(120_000)),
+        ]);
+        let (big, small): (Vec<_>, Vec<_>) = all
+            .into_iter()
+            .partition(|k| k.files.is_some_and(|n| n > BIG_REPO_FILES));
+
+        let keys = |v: &[crate::reports::KnownProject]| {
+            v.iter().map(|k| k.key.clone()).collect::<Vec<_>>()
+        };
+        assert_eq!(keys(&big), ["/linux", "/ceph"]);
+        assert_eq!(keys(&small), ["/sanity", "/fresh"], "never scanned counts as small");
+    }
+
+    fn queued(of: &[(&str, Option<usize>)]) -> Vec<crate::reports::KnownProject> {
+        of.iter()
+            .map(|(k, files)| crate::reports::KnownProject {
+                key: (*k).into(),
+                repo: (*k).into(),
+                name: (*k).into(),
+                touched: 0,
+                files: *files,
+                harness: None,
+                model: None,
+            })
+            .collect()
+    }
+
+    /// A project added but never scanned still survives a quit.
+    ///
+    /// It reached the index only through `touch`, which runs when the scan RETURNS — right
+    /// for a repo scanned in a second, and a loss for one that is not. linux takes hours on
+    /// its first pass, so every quit before it finished dropped the project outright: the row
+    /// vanished, and it had to be added again, to scan again from the beginning. The
+    /// leftovers name the shape of it — `active` and `order` still pointed at a repo that
+    /// `projects` no longer listed, because those two are written from the session while the
+    /// list was written from what had loaded.
+    #[test]
+    fn a_project_added_but_not_yet_scanned_is_in_the_index() {
+        let _data = data_home();
+        crate::reports::remember("/big", "/big", "big");
+        let saved = crate::reports::load_index();
+        assert_eq!(saved.projects.len(), 1, "an added project is on disk before its scan lands");
+        assert_eq!(saved.projects[0].key, "/big");
+
+        // Re-adding must not reset what somebody configured for it: `remember` runs on every
+        // add, and an add of a project that is already there is the normal case.
+        crate::reports::set_reader("/big", "/big", "big", Some("agy"), Some("sonnet"));
+        crate::reports::remember("/big", "/big", "big");
+        let again = crate::reports::load_index();
+        assert_eq!(again.projects.len(), 1, "the same project is not doubled");
+        assert_eq!(again.projects[0].harness.as_deref(), Some("agy"), "the harness survived");
+        assert_eq!(again.projects[0].model.as_deref(), Some("sonnet"), "the model survived");
+    }
+
     /// A save from a half-restored session must not erase the projects it has not got to.
     ///
     /// This is the bug that emptied a real index down to one entry. `restore` rescans on a
@@ -5474,6 +5731,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
                     repo: "/a".into(),
                     name: "a".into(),
                     touched: 7,
+                    files: None,
                     harness: None,
                     model: None,
                 },
@@ -5482,6 +5740,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
                     repo: "/b".into(),
                     name: "b".into(),
                     touched: 4,
+                    files: None,
                     harness: None,
                     model: None,
                 },
@@ -6499,6 +6758,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
             repo: "/a".into(),
             name: "a".into(),
             touched: 1,
+            files: None,
             harness: None,
             model: None,
         });
@@ -6510,6 +6770,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
             repo: "/b".into(),
             name: "b".into(),
             touched: 2,
+            files: None,
             harness: None,
             model: None,
         });
@@ -6539,6 +6800,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
                 repo: "/added".into(),
                 name: "added".into(),
                 touched: 1,
+                files: None,
                 harness: None,
                 model: None,
             }],

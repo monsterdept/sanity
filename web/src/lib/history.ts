@@ -769,7 +769,7 @@ export function frameTree(
     const path = hist.paths[p]
     const count = restCount.get(p) ?? 0
     fileFor(p).children.push({
-      // **`#folded`, and it must never be `#rest`.** `tileFunctions` mints `${path}#rest`
+      // **`#/folded`, and it must never be `#/rest`.** `tileFunctions` mints `${path}#/rest`
       // for the members IT cannot draw — and in a replay the members it is handed include
       // this stand-in, so both nodes arrived in one file's patch list under one id. React's
       // answer to a duplicate key is that children "may be duplicated and/or omitted": it
@@ -777,7 +777,13 @@ export function frameTree(
       // the ghost — a wedge frozen at the commit it was born on, sitting outside the rings
       // while the map moves under it, cleared only by a remount. Two roll-ups meeting in
       // one array is legitimate; sharing an id is not.
-      ...dirNode(`${path}#folded`, `${count}+`),
+      //
+      // The `/` is the third party to that argument: a real function's id is `key_of`'s
+      // `path#name`, so a file holding a function named `folded` mints this exact string
+      // and neither roll-up is safe from it. No identifier in any language here can contain
+      // a slash, which makes the two synthetic namespaces unreachable from the real one
+      // rather than merely unlikely to be reached.
+      ...dirNode(`${path}#/folded`, `${count}+`),
       kind: 'func',
       path,
       lang: hist.langs[p] || null,

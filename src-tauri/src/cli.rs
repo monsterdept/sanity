@@ -391,7 +391,7 @@ pub fn serve() -> i32 {
     // server answers before the slowest repo has finished rescanning.
     // No window, nothing to draw: the backend scans and the sidebar it would feed does not
     // exist here.
-    agentapi::restore(state.clone(), |_| {});
+    agentapi::restore(state.clone(), |_, _| {}, |_, _| {});
     let port = match rt.block_on(agentapi::serve(state.clone())) {
         Ok(p) => p,
         Err(e) => {

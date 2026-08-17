@@ -147,15 +147,22 @@ impl Blame {
     /// describes.
     /// Per-line provenance for every parsed file.
     ///
-    /// `done` is called as each file lands, because this is the long phase of a scan on a
-    /// large repo — one `git blame` per file, 29.4s across 2,518 C++ files — and a window
-    /// with nothing to say for the length of it is what the sweeping bar was standing in for.
+    /// `done` is called with each file as it is taken up, because this is the long phase of a
+    /// scan on a large repo — one `git blame` per file, 29.4s across 2,518 C++ files — and a
+    /// window with nothing to say for the length of it is what the sweeping bar was standing
+    /// in for. It takes the PATH as well as counting, so the map can light the wedge; a
+    /// fraction says how much is left and never where the work is.
+    ///
+    /// Called before the blame rather than after it, so the path names what is in flight.
+    /// The count is therefore files STARTED — which for a bar with `rayon`'s width of
+    /// concurrency is within a dozen of files finished, and is the honest reading of a live
+    /// indicator either way.
     pub fn read(
         repo: &Path,
         paths: &[(String, u64)],
         history: &History,
         cache: &ScanCache,
-        done: &(dyn Fn() + Sync),
+        done: &(dyn Fn(&str) + Sync),
     ) -> Blame {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -164,7 +171,7 @@ impl Blame {
         let files = paths
             .par_iter()
             .map(|entry| {
-                done();
+                done(&entry.0);
                 entry
             })
             .filter_map(|(p, hash)| {

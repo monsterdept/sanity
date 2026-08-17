@@ -251,6 +251,25 @@ impl ScanCache {
         }
     }
 
+    /// Read the file now, so the wait for it belongs to a phase that can name it.
+    ///
+    /// **Laziness is right; being lazy under somebody else's label is not.** `store` reads on
+    /// the first entry anybody asks for, which is the first `parse_file` — and it holds the
+    /// mutex while it does, so every rayon worker queues behind one thread reading the file.
+    /// On a repo the size of linux that file is **1.3 GB**, and the scan sat there with the
+    /// window still showing `reading the commit log`, the phase before it, which takes 1.8s.
+    /// A pause two orders of magnitude longer than its own label reads as a hang, and did.
+    ///
+    /// Costs nothing where there is nothing to read: a repo with no cache, or one whose tree
+    /// came from `treecache` and never reaches the parse, still never opens the file.
+    pub fn warm(&self) {
+        // `drop`, not `let _ =`: the latter drops a lock guard immediately too, but reads as
+        // "ignore this value" rather than "release the lock now", and the lint that rejects
+        // it is right to. Releasing is exactly what is wanted — the point of this call is
+        // the load it performs on the way, not the guard it hands back.
+        drop(self.store());
+    }
+
     /// The store, read from disk if this is the first time anybody has asked.
     ///
     /// The invalidation that used to happen in `open` happens here, unchanged and for the

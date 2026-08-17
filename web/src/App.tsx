@@ -23,6 +23,7 @@ import {
   onSetTheme,
   syncThemeMenu,
   onScanScore,
+  onScanProgress,
   openCodeWindow,
   type Node,
   type Progress,
@@ -66,6 +67,13 @@ import { ReadDialog } from './components/ReadDialog'
 
 /** Files that have to have arrived before the assembling map is drawn — see `shapeRoot`. */
 const SHAPE_FLOOR = 24
+
+/** How long a wedge stays lit after the scan touched it — see `live`.
+ *
+ *  One full cycle of `wedge-reading`, which is what draws it. Shorter and a wedge is
+ *  yanked off screen mid-pulse, which reads as flicker rather than as a sweep; much longer
+ *  and the outer ring is uniformly lit and says nothing about where the work is. */
+const LIVE_MS = 1400
 
 /** Handlers the assembling map has no use for: it is a picture of a scan in progress, and
  *  there is nothing under a wedge to select, drill into or clear yet. */
@@ -128,6 +136,11 @@ function sameProjects(a: ProjectSummary[], b: ProjectSummary[]): boolean {
       p.loading === q.loading &&
       p.read_done === q.read_done &&
       p.read_total === q.read_total &&
+      // The phase moves without the counts moving — a scan crossing from parsing into the
+      // blame pass restarts at 1 of a new total, and the pane's ETA clock keys on the
+      // phase. A comparator that cannot see it holds the old phase on screen.
+      p.read_phase === q.read_phase &&
+      p.read_unit === q.read_unit &&
       // The settings and the derived-from-corpus pair. They move rarely, which is exactly
       // why leaving them out is easy and wrong: choosing an agent in the Read dialog
       // changes `harness` and nothing else, so an omitted field means the dialog reopens
@@ -481,28 +494,133 @@ export default function App() {
    *
    *  Batched on the same argument as the scores above, and it matters more here: a large
    *  repo emits a directory every few milliseconds, and rebuilding the tree per batch is
-   *  cheap only because the batches are coarse. Cleared when a tree lands — the scan's own
-   *  tree is the real one, and two of them on screen would be two answers to one question.
+   *  cheap only because the batches are coarse.
+   *
+   *  **It belongs to the repo being scanned, not to the pane, and the STREAM says which.**
+   *  It used to be cleared the moment ANY tree landed — the scan's own tree is the real one,
+   *  and two of them on screen would be two answers to one question, which is true and was
+   *  implemented against the wrong subject: clicking another project puts that project's
+   *  finished tree in `scan`, so a glance at a second repo threw away the assembling map of
+   *  the first, permanently, because the shape only refills from NEW events and the parse
+   *  that emits them is long over by the blame phase.
+   *
+   *  Inferring the owner from the projects list was the next thing tried and was worse — it
+   *  looked right and failed on launch, which is the case that matters. There is no "the one
+   *  that is loading": a restore publishes EVERY known project as loading up front so the
+   *  sidebar fills in at once, so the guess was whichever unfinished project sorted first
+   *  and it changed hands each time any of them settled, discarding the map mid-draw. The
+   *  key rides on the batch now (`scan::ShapeBatch`) and nothing is inferred.
    */
   const arriving = useRef<ShapeFile[]>([])
   const [shape, setShape] = useState<ShapeFile[]>([])
+  /** Which repo the accumulated shape and the live wedges describe. A ref, because it is
+   *  read inside the listeners and must not re-subscribe them when it changes. */
+  const streaming = useRef<string | null>(null)
+  /** The same value where a memo can see it. The ref is what the listeners read; this is
+   *  what decides whether the assembling map belongs to the project on screen. */
+  const [streamingKey, setStreamingKey] = useState<string | null>(null)
+  /** Node ids the scan has touched, and when — see `live` below, which is fed from it.
+   *  Declared up here because the shape listener empties it when the subject changes: the
+   *  lit wedges and the map they are lit on have to change repo together. */
+  const liveAt = useRef(new Map<string, number>())
   useEffect(() => {
-    const un = onScanShape((files) => arriving.current.push(...files))
+    const un = onScanShape((project, files) => {
+      if (streaming.current !== project) {
+        // Another repo has started drawing itself. One map at a time: the accumulated one
+        // describes a scan that is over or superseded, and merging two would put one repo's
+        // directories inside another's.
+        streaming.current = project
+        setStreamingKey(project)
+        arriving.current = []
+        setShape([])
+        liveAt.current.clear()
+      }
+      arriving.current.push(...files)
+    })
     const timer = setInterval(() => {
-      if (arriving.current.length === 0) return
-      setShape((prev) => [...prev, ...arriving.current.splice(0)])
+      // **Drained BEFORE the updater, never inside it.** It used to read
+      // `setShape(prev => [...prev, ...arriving.current.splice(0)])`, which is an updater
+      // with a side effect — and React calls updaters TWICE under StrictMode to surface
+      // exactly that. The first call drained the buffer and built the right array; the
+      // second ran against the same `prev` with the buffer now empty, returned `prev`
+      // unchanged, and that is the one React kept. So every flush threw away its own batch:
+      // 45,272 files streamed, 24 flushes ran, and `shape` never left zero.
+      //
+      // It only bites in development, because the double invocation is a dev-only check —
+      // which is why the assembling map worked in the installed app and vanished the moment
+      // the same code ran under `just dev`, and why it read as a regression in whatever had
+      // been touched most recently. The score batcher above got this right; this one did
+      // not, and the two are now the same shape.
+      const batch = arriving.current
+      if (batch.length === 0) return
+      arriving.current = []
+      setShape((prev) => [...prev, ...batch])
     }, 300)
     return () => {
       un()
       clearInterval(timer)
     }
   }, [])
+
+  /** Where the scan is, right now, as node ids to light up.
+   *
+   *  **A bar says how much; the map can say where.** Both long phases sweep the repo in a
+   *  definite order — parse by directory, blame over the files the parse produced, so both
+   *  run alphabetically — and none of that was on screen: the rings stopped moving when the
+   *  parse ended and the blame pass ran for hours behind a picture that looked finished.
+   *
+   *  Drawn through `reading`, the channel a reader's lease already uses, because it is the
+   *  same claim — this wedge is being worked on right now — and a second visual language for
+   *  it would have to be told apart from the first for no gain. The two never overlap: a repo
+   *  is being scanned or it is being read.
+   *
+   *  **Every ancestor, not just the file.** That is what makes it a tree lighting up rather
+   *  than a dot moving: the file wedges twinkle as the sweep passes them while the directory
+   *  they sit in stays lit for as long as the scan is inside it, so the picture says both
+   *  "here" and "in here" at once.
+   *
+   *  Fed from the EVENT rather than the polled project row: the poll is 1.5s, which is fine
+   *  for a fraction and useless for this — at ~35 files a second it would show one in fifty.
+   */
+  const [live, setLive] = useState<Set<string>>(new Set())
   useEffect(() => {
-    if (scan) {
-      arriving.current = []
-      setShape([])
+    const un = onScanProgress((project, p) => {
+      // Only the repo whose map is on screen. Another project's scan running beside this
+      // one would light nothing (its paths are not in this tree) and would keep the trail
+      // alive after this scan ended, which is worse than lighting nothing.
+      if (!p.at || streaming.current !== project) return
+      const now = Date.now()
+      for (let cut = p.at.length; cut > 0; cut = p.at.lastIndexOf('/', cut - 1)) {
+        const id = p.at.slice(0, cut)
+        liveAt.current.set(id, now)
+        if (id.indexOf('/') === -1) break
+      }
+    })
+    const timer = setInterval(() => {
+      const cutoff = Date.now() - LIVE_MS
+      const next = new Set<string>()
+      for (const [id, at] of liveAt.current) {
+        if (at < cutoff) liveAt.current.delete(id)
+        else next.add(id)
+      }
+      // Same object back when the membership has not moved. The map is several thousand
+      // arcs and this ticks four times a second — a fresh Set every tick would re-render
+      // all of them for the entire life of the window, scan or no scan. The same trap the
+      // project poll fell into with `activeProject`.
+      setLive((prev) => {
+        if (prev.size === next.size) {
+          let same = true
+          for (const id of next) if (!prev.has(id)) { same = false; break }
+          if (same) return prev
+        }
+        return next
+      })
+    }, 250)
+    return () => {
+      un()
+      clearInterval(timer)
     }
-  }, [scan])
+  }, [])
 
 
   // File → Open used to raise a folder picker. Opening by hand is gone — a project arrives
@@ -1214,14 +1332,51 @@ export default function App() {
     [loadingProject, projects, activeProject],
   )
 
+  const awaitingKey = awaiting?.key ?? null
+
   /** The assembling map, or nothing until enough of it has arrived to be worth drawing.
    *
    *  The threshold is not politeness — a sunburst of one directory is a solid disc, and
    *  watching the repo appear only works if what appears first is recognisably a repo.
    *  Below it the pane keeps the wait it already had. */
   const shapeRoot = useMemo(
-    () => (shape.length >= SHAPE_FLOOR ? shapeTree(shape, awaiting?.name ?? 'repo') : null),
-    [shape, awaiting?.name],
+    () =>
+      // Only for the repo it is OF. The accumulated shape outlives the scan that produced
+      // it — nothing clears it until another repo starts streaming — so without this a
+      // project that arrives with no shape of its own would be handed the last one's, drawn
+      // under its own name: a map of the wrong repo, and nothing on screen saying so.
+      shape.length >= SHAPE_FLOOR && awaitingKey !== null && streamingKey === awaitingKey
+        ? shapeTree(shape, awaiting?.name ?? 'repo')
+        : null,
+    // The two FIELDS, never the object: `awaiting` is rebuilt by every poll, and this
+    // memo folds 45,000 files. Depending on the object would rebuild the whole tree
+    // 1.5 seconds apart for the length of a scan — the same trap the frame tree fell into.
+    [shape, awaitingKey, awaiting?.name, streamingKey],
+  )
+
+  /** The awaited scan's own progress, built once for both the things that show it.
+   *
+   *  **The map assembling is not the same news as how far along the scan is, and it stopped
+   *  being enough on its own.** The pane and the assembling map were alternatives — a bar
+   *  until there was a picture, then the picture and nothing else — which was right while
+   *  the parse was the whole wait. It is not: the parse of linux finishes at 45k files with
+   *  the rings fully drawn, and the blame pass then runs for hours behind a map that looks
+   *  finished and says nothing. So they are not alternatives; the strip rides over the map.
+   */
+  const awaitingProgress: Progress | null = useMemo(
+    () =>
+      awaiting?.loading && awaiting.read_total > 0
+        ? {
+            done: awaiting.read_done,
+            total: awaiting.read_total,
+            // Carried, not dropped. Rebuilding a `Progress` from the two numbers the row
+            // happened to need is how the pane came to print a count with no idea what
+            // phase produced it or what it counted.
+            phase: awaiting.read_phase,
+            unit: awaiting.read_unit,
+          }
+        : null,
+    [awaiting],
   )
 
   /** Where each directory and file sits while the map assembles, so it does not reshuffle.
@@ -1526,6 +1681,10 @@ export default function App() {
                 // and a repo that jumps on every batch reads as a glitch; the same
                 // argument the replay makes, for the same reason — see `morph`.
                 morph
+                // Where the scan has got to — see `live`. The same prop a run uses for its
+                // leases, because it is the same claim about a wedge, and the two phases
+                // never overlap.
+                reading={live}
                 mascot={mascot}
                 onSelect={noop}
                 onClear={noop}
@@ -1535,14 +1694,7 @@ export default function App() {
               // There are projects, and none of them has a tree on screen yet. The empty
               // pane's copy tells you how to open a project — advice for someone with none,
               // addressed to someone who has three and is waiting on one. Show the wait.
-              <ProgressPane
-                label={`Reading ${awaiting.name}…`}
-                progress={
-                  awaiting.read_total > 0
-                    ? { done: awaiting.read_done, total: awaiting.read_total }
-                    : null
-                }
-              />
+              <ProgressPane label={`Reading ${awaiting.name}…`} progress={awaitingProgress} />
             ) : !projectsLoaded ? (
               // Not "no projects" — "not asked yet". Blank on purpose: the splash is still
               // over this, and anything written here is a screen nobody asked for between
@@ -1552,6 +1704,24 @@ export default function App() {
               <Empty onAdd={addProject} />
             )}
             </div>
+
+            {/* The scan, over the map it is drawing, in the legend's corner.
+                It sat top centre, on the argument that a caption belongs over its picture —
+                which put it on the one edge the eye is drawn to and made a temporary thing
+                the most prominent element on screen. The corners are where this window
+                already keeps what it says ABOUT the map: the caveat chip bottom-left, the
+                legend bottom-right. A scan's progress is that kind of note, and it takes the
+                legend's place because the two can never appear together — the legend needs
+                `focus`, which is exactly what the assembling map does not have.
+                Shown with the assembling map only. `!focus` is the same test the branch above
+                makes, held here too because this element is a sibling of the branch rather
+                than inside it: a strip over a FINISHED map would be describing a scan of some
+                other repo, which is precisely the confusion the shape's ownership fixed. */}
+            {awaitingProgress && shapeRoot && !focus && (
+              <div className="absolute bottom-2 right-2 z-20">
+                <ProgressStrip progress={awaitingProgress} />
+              </div>
+            )}
 
             {/* Floated over the graph rather than stacked under it. The rings are a
                 circle in a rectangle, so the corners and the top strip are dead space
@@ -1777,8 +1947,9 @@ export default function App() {
  *
  * `pct` is always a number — 0 before there is anything to be a fraction of, which
  * `ProgressTrack` renders as its indeterminate sweep rather than as "0% done". Only `eta`
- * is withheld, and only until 20 items and 2% are in, because an estimate drawn from a
- * three-item sample swings between "a minute" and "an hour" while you watch it.
+ * is withheld, and only until enough has moved under this hook's own eye, because an
+ * estimate drawn from a three-item sample swings between "a minute" and "an hour" while
+ * you watch it.
  *
  * This function used to carry two doc comments — the one above it belonged to the
  * progress UI as a whole and had been stranded here — and the one that was its own
@@ -1791,17 +1962,37 @@ export default function App() {
  * is gone with the thing that was worth stopping.
  */
 function useProgress(progress: Progress | null) {
-  const started = useRef(Date.now())
-  useEffect(() => {
-    started.current = Date.now()
-  }, [])
+  /**
+   * **The estimate is drawn from work this hook WATCHED, never from the count it found.**
+   * It used to be `elapsed / pct` measured from mount, which quietly asserts two things
+   * that are not true. That the rate is constant across the whole job: parsing linux is
+   * 45k files in a couple of minutes and blaming them is one `git blame --line-porcelain`
+   * apiece against a history that deep, so the parse's rate was still setting the estimate
+   * hours into the blame pass. And that mount time is start time: switch away from a scan
+   * and back, and `elapsed` is a second against a bar already 20% along, which reports
+   * `~<1 min left` on a job with four hours to go. Both produce the same failure, and it
+   * is worse than showing nothing — an estimate that confident makes a bar which is
+   * genuinely crawling read as a scan that has hung.
+   *
+   * So the mark holds a position and a time, it is reset when the phase changes, and the
+   * rate is what has moved since. A remount then costs a few seconds of no estimate rather
+   * than a wrong one, and a phase boundary costs the same.
+   */
+  const phase = progress?.phase ?? ''
+  const mark = useRef({ phase, done: progress?.done ?? 0, at: Date.now() })
+  if (mark.current.phase !== phase) {
+    mark.current = { phase, done: progress?.done ?? 0, at: Date.now() }
+  }
 
   const pct = progress && progress.total > 0 ? progress.done / progress.total : 0
-  const elapsed = (Date.now() - started.current) / 1000
-  // Only once there is enough of a sample for the estimate not to swing wildly.
+  const moved = progress ? progress.done - mark.current.done : 0
+  const watched = (Date.now() - mark.current.at) / 1000
+  // Enough of a sample for the estimate not to swing wildly. Both conditions, because
+  // either alone is satisfiable by a burst: a thousand cached files can land in the first
+  // second, and five seconds can pass with nothing moving at all.
   const eta =
-    progress && progress.done > 20 && pct > 0.02
-      ? Math.round((elapsed / pct - elapsed) / 60)
+    progress && moved > 20 && watched > 5
+      ? Math.round(((progress.total - progress.done) * (watched / moved)) / 60)
       : null
   return { pct, eta }
 }
@@ -1824,6 +2015,52 @@ function ProgressTrack({ progress, pct }: { progress: Progress | null; pct: numb
   )
 }
 
+/**
+ * What a running job is doing, in the job's own words.
+ *
+ * **Every noun here comes off the wire.** This line was the literal `Scoring N / M
+ * functions`, written when the only counted phase was the model pass — which the app has
+ * not run since `OllamaModel` was removed. The two phases that do run count FILES, so a
+ * scan of linux announced `111029 functions` over a file count while the sidebar, holding
+ * its own literal and the right one, said `111k files` an inch away. A window cannot know
+ * the unit; the phase that is counting does.
+ *
+ * Separators because these numbers are six digits on a real repo, and `67511 / 111029` is
+ * two figures nobody can read at a glance and therefore cannot tell apart when one moves.
+ */
+function phaseLine(p: Progress): string {
+  const what = p.phase ? p.phase[0].toUpperCase() + p.phase.slice(1) : 'Working'
+  if (p.total === 0) return `${what}…`
+  const unit = p.unit ? ` ${p.unit}` : ''
+  return `${what} ${p.done.toLocaleString()} / ${p.total.toLocaleString()}${unit}`
+}
+
+/**
+ * The same wait, in one line, over a map that is already worth looking at.
+ *
+ * **A picture of the repo is not a report on the scan.** The assembling map replaced the
+ * bar, on the reasonable argument that a repo drawing itself says more than a fraction
+ * does — and it does, right up until the parse finishes. Then the rings stop moving, the
+ * blame pass runs for hours behind a map that looks complete, and the only thing on screen
+ * saying otherwise is a word in the sidebar. The two answer different questions and both
+ * are wanted at once: what is in this repo, and how far along is the thing reading it.
+ *
+ * Boxed like the caveat chip in the corner of the graph, for the same reason it is: it is
+ * about the picture rather than part of it.
+ */
+function ProgressStrip({ progress }: { progress: Progress }) {
+  const { pct, eta } = useProgress(progress)
+  return (
+    <div className="flex items-center gap-3 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-[11px] text-[var(--muted-foreground)]">
+      <span>{phaseLine(progress)}</span>
+      <div className="w-24">
+        <ProgressTrack progress={progress} pct={pct} />
+      </div>
+      {eta !== null && <span className="mono">~{eta === 0 ? '<1' : eta} min left</span>}
+    </div>
+  )
+}
+
 /** The same wait, on an empty pane rather than over a map you can already read. Centered
  *  and wider because there is nothing else on the screen to be beside. */
 function ProgressPane({
@@ -1837,9 +2074,7 @@ function ProgressPane({
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3">
       <p className="text-sm text-[var(--muted-foreground)]">
-        {progress
-          ? `Scoring ${progress.done} / ${progress.total} functions`
-          : (label ?? 'Walking the repo…')}
+        {progress ? phaseLine(progress) : (label ?? 'Walking the repo…')}
       </p>
       <div className="w-[min(320px,60%)]">
         <ProgressTrack progress={progress} pct={pct} />

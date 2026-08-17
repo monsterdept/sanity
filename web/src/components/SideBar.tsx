@@ -644,7 +644,11 @@ function ProjectItem({
    *  the walk is. */
   const detail = project.loading
     ? project.read_total > 0
-      ? `${compact(project.read_done)} / ${compact(project.read_total)} files`
+      ? // The unit comes off the wire, never from here. Two literals said `files` and
+        // `functions` about the same number, in the same window, an inch apart — see
+        // `phaseLine` in App.tsx. This one happened to be right, which is worse: nothing
+        // about a hard-coded noun stays right when the phase under it changes.
+        `${compact(project.read_done)} / ${compact(project.read_total)} ${project.read_unit || 'files'}`
       : // The scan names its own phases now — a walk, a `git log`, a cache read — and this
         // line said `walking the repo` through all of them. It said it before the scan had
         // STARTED, too: projects are restored one at a time, so the rows below the running

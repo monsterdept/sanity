@@ -177,9 +177,17 @@ export interface Scan {
 export interface Progress {
   done: number
   total: number
-  /** What is being done, while there is nothing to count — see `Progress::phase` in Rust.
-   *  Empty once the job knows its own size. */
+  /** What is being done — see `Progress::phase` in Rust. Present whether or not there is
+   *  a count, because a bar that runs several phases at very different speeds reads as a
+   *  hang at each join unless the join is named. */
   phase?: string
+  /** What `done` and `total` are counting, plural — see `Progress::unit` in Rust. The
+   *  window must not supply this itself: it printed `functions` over a file count for
+   *  every phase that has actually run since the model pass was removed. */
+  unit?: string
+  /** Repo-relative path this tick is about, so the map can light the wedge — see
+   *  `Progress::at` in Rust. Empty for phases with no single subject. */
+  at?: string
 }
 
 /** Serde renames these to snake_case on the wire; Tauri does not convert for us. */
@@ -581,8 +589,10 @@ export interface ProjectSummary {
    *  has no denominator yet — a real state, not zero percent. */
   read_done: number
   read_total: number
-  /** What the scan is doing while it has nothing to count — see `Progress.phase`. */
+  /** What the scan is doing — see `Progress.phase`. */
   read_phase?: string
+  /** What `read_done` and `read_total` are counting — see `Progress.unit`. */
+  read_unit?: string
 }
 
 export interface ProjectList {
@@ -1246,8 +1256,14 @@ export function stopHistory(): Promise<void> {
   return invoke<void>('stop_history')
 }
 
-export function onScanProgress(cb: (p: Progress) => void): () => void {
-  const un = listen<Progress>('scan-progress', (e) => cb(e.payload))
+/** A tick, and the project it is about — see `scan::Tick`. */
+interface Tick {
+  project: string
+  progress: Progress
+}
+
+export function onScanProgress(cb: (project: string, p: Progress) => void): () => void {
+  const un = listen<Tick>('scan-progress', (e) => cb(e.payload.project, e.payload.progress))
   return () => void un.then((f) => f())
 }
 

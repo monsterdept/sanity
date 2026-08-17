@@ -28,8 +28,14 @@ export interface ShapeFile {
   funcs: [string, number][]
 }
 
-export function onScanShape(cb: (files: ShapeFile[]) => void): () => void {
-  const un = listen<ShapeFile[]>('scan-shape', (e) => cb(e.payload))
+/** A batch, and the project it is about — see `scan::ShapeBatch`. */
+export interface ShapeBatch {
+  project: string
+  files: ShapeFile[]
+}
+
+export function onScanShape(cb: (project: string, files: ShapeFile[]) => void): () => void {
+  const un = listen<ShapeBatch>('scan-shape', (e) => cb(e.payload.project, e.payload.files))
   return () => {
     void un.then((f) => f())
   }
@@ -83,13 +89,38 @@ export function shapeTree(files: ShapeFile[], repoName: string): Node {
     return made
   }
 
-  for (const f of files) {
+  // **One entry per path, last wins.** The accumulator is cleared when a tree LANDS, so a
+  // scan that starts over before one does — switching projects away and back, a watcher
+  // rescan — appends a second copy of every file it has already streamed. That is a
+  // duplicate id for the file wedge and for every function under it, which is the ghost
+  // this whole function's ids are careful about one level down. Deduped rather than
+  // guarded against upstream because a re-emitted file is genuinely the same file, and the
+  // newer parse is the better one.
+  const latest = new Map<string, ShapeFile>()
+  for (const f of files) latest.set(f.path, f)
+
+  for (const f of latest.values()) {
     const cut = f.path.lastIndexOf('/')
     const file = dirNode(f.path, cut === -1 ? f.path : f.path.slice(cut + 1), 'file')
     file.lang = f.lang
+    // **A bare `path#name` is not unique, and here that is a ghost.** This is `key_of` in
+    // `assessment.rs`, which the scan's own tree has always used and this one did not: one
+    // file holds a dozen `init`s, a dozen `parse`s, and — the case that made it visible —
+    // any C file with two definitions of one function under `#ifdef`/`#else`, which linux
+    // has in almost every header. Two siblings with one id are two React children with one
+    // key, and React's documented answer is that they "may be duplicated and/or omitted":
+    // it loses track of the copy and never renders it again, leaving a wedge frozen where
+    // it was born while the assembling map moves under it. Exactly the ghost the replay's
+    // `#folded` roll-up produced, one namespace over — see `history.ts`.
+    //
+    // The ordinal is position within the file, so it matches what the real tree will mint
+    // when the scan lands and the map does not re-key everything at the swap.
+    const seen = new Map<string, number>()
     for (const [name, loc] of f.funcs) {
+      const ord = seen.get(name) ?? 0
+      seen.set(name, ord + 1)
       file.children.push({
-        ...dirNode(`${f.path}#${name}`, name, 'file'),
+        ...dirNode(ord === 0 ? `${f.path}#${name}` : `${f.path}#${name}#${ord + 1}`, name, 'file'),
         kind: 'func',
         path: f.path,
         lang: f.lang,
