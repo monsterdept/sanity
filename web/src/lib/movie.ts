@@ -245,6 +245,10 @@ export interface Recording {
   /** Checked between stages. An export of a long repo is minutes of work and has to be
    *  abandonable without waiting for it. */
   cancelled: () => boolean
+  /** Which codec the preflight settled on, as soon as it is known — see `CODECS`. The file
+   *  is an `.mp4` either way, but where it will play is not the same answer, and that is the
+   *  person's business rather than ours to absorb. */
+  onCodec?: (codec: Codec) => void
 }
 
 /** Thrown when the person pressed Cancel. Named so the dialog can tell it from a failure. */
@@ -265,9 +269,33 @@ export const CANCELLED = 'cancelled'
  * components, and it is what an export looks like when it stops dead seven frames in with
  * every stage reporting single-digit milliseconds. Realtime mode emits per frame.
  */
-function settings(quality: InstanceType<typeof import('mediabunny').Quality>) {
-  return { codec: 'avc' as const, quality, latencyMode: 'realtime' as const }
+function settings(
+  quality: InstanceType<typeof import('mediabunny').Quality>,
+  codec: Codec,
+) {
+  return { codec, quality, latencyMode: 'realtime' as const }
 }
+
+/**
+ * The codecs an export will try, in the order it tries them.
+ *
+ * **H.264 first because it plays everywhere, H.265 because H.264 cannot reach the top of
+ * the ladder.** The hardware limit is a count of SAMPLES, not a width: VideoToolbox's H.264
+ * encoder stops around 8.9 million luma samples, which is fine for the 16:9 shapes the
+ * number was written for — 4096 × 2304 is 9.4M and gets refused, 3840 × 2160 is 8.3M and
+ * does not — and brutal for a square, where it lands at about 2985 a side. So 2160² passes,
+ * 3072² would not, and 4000² is 16 million samples and never had a chance. No bitrate or
+ * profile negotiates that down.
+ *
+ * The fallback is stated rather than silent: where a file will play is the person's
+ * business, and an `.mp4` that turns out to be H.265 is a different thing to hand somebody
+ * than one that is not.
+ */
+const CODECS = ['avc', 'hevc'] as const
+export type Codec = (typeof CODECS)[number]
+
+/** What to call a codec where somebody reads it. */
+export const CODEC_NAME: Record<Codec, string> = { avc: 'H.264', hevc: 'H.265' }
 
 /**
  * Encode a few blank frames at the chosen size before recording anything.
@@ -284,16 +312,16 @@ function settings(quality: InstanceType<typeof import('mediabunny').Quality>) {
  * costs well under a second even at 2160², which is the difference between finding out now
  * and finding out a minute into a recording.
  */
-async function preflight(
-  size: number,
-  encoding: ReturnType<typeof settings>,
-  deps: {
-    BufferTarget: typeof import('mediabunny').BufferTarget
-    CanvasSource: typeof import('mediabunny').CanvasSource
-    Mp4OutputFormat: typeof import('mediabunny').Mp4OutputFormat
-    Output: typeof import('mediabunny').Output
-  },
-): Promise<void> {
+type Deps = {
+  BufferTarget: typeof import('mediabunny').BufferTarget
+  CanvasSource: typeof import('mediabunny').CanvasSource
+  Mp4OutputFormat: typeof import('mediabunny').Mp4OutputFormat
+  Output: typeof import('mediabunny').Output
+}
+
+/** Ten blank frames through one codec. Resolves if it will take them, throws if it will not
+ *  — and the reason is never shown, because the caller has another codec to try. */
+async function probe(size: number, encoding: ReturnType<typeof settings>, deps: Deps) {
   const canvas = document.createElement('canvas')
   canvas.width = size
   canvas.height = size
@@ -308,19 +336,48 @@ async function preflight(
   })
   const source = new deps.CanvasSource(canvas, encoding)
   output.addVideoTrack(source, { frameRate: FPS })
-  const refused = `This machine will not encode H.264 at ${size} × ${size}. Try a smaller resolution.`
+  const slow = `${CODEC_NAME[encoding.codec]} did not answer at ${size} × ${size}.`
   try {
-    await within(output.start(), PREFLIGHT_LIMIT, refused)
+    await within(output.start(), PREFLIGHT_LIMIT, slow)
     for (let f = 0; f < 10; f++) {
-      await within(source.add(f / FPS, 1 / FPS), PREFLIGHT_LIMIT, refused)
+      await within(source.add(f / FPS, 1 / FPS), PREFLIGHT_LIMIT, slow)
     }
-    await within(output.finalize(), PREFLIGHT_LIMIT, refused)
-  } catch (e) {
-    // Whatever it managed so far is thrown away; the point was the answer, not the file.
-    // Cancelling a finalized output is not an error worth reporting over the real one.
+    await within(output.finalize(), PREFLIGHT_LIMIT, slow)
+  } finally {
+    // Whatever it managed is thrown away; the point was the answer, not the file. Cancelling
+    // a finalized output is not an error worth reporting over anything.
     await output.cancel().catch(() => {})
-    throw e instanceof Error ? e : new Error(refused)
   }
+}
+
+/**
+ * The first codec that will actually encode at this size.
+ *
+ * The refusal it reports is the app's own sentence and never the encoder's. `canEncodeVideo`
+ * said yes to a 4000² H.264 configuration this machine then produced not one packet from,
+ * and what reached the person was WebCodecs' own words — a paragraph about "this browser"
+ * naming a profile string and a bitrate, in an app that is not a browser and had four
+ * choices it could have offered instead.
+ */
+async function preflight(
+  size: number,
+  quality: InstanceType<typeof import('mediabunny').Quality>,
+  deps: Deps,
+): Promise<ReturnType<typeof settings>> {
+  for (const codec of CODECS) {
+    const encoding = settings(quality, codec)
+    try {
+      await probe(size, encoding, deps)
+      return encoding
+    } catch {
+      // Its own answer is not news: the next codec exists precisely for the sizes this one
+      // refuses, and only the last failure is worth a person's attention.
+    }
+  }
+  const tried = CODECS.map((c) => CODEC_NAME[c]).join(' or ')
+  throw new Error(
+    `This machine will not encode ${tried} at ${size} × ${size}. Try a smaller resolution.`,
+  )
 }
 
 /** The whole probe is ten blank frames. Anything this side of it is a machine saying no. */
@@ -347,17 +404,16 @@ export async function record(o: Recording): Promise<Uint8Array> {
   // Imported here rather than at the top of the file: the muxer is a third of a megabyte
   // and every launch of the app would carry it for a thing most sessions never do. The
   // first export waits a moment for it; nothing else pays.
-  const { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, canEncodeVideo } =
+  const { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality } =
     await import('mediabunny')
 
-  if (!(await canEncodeVideo('avc'))) {
-    throw new Error('This machine has no H.264 encoder to write an MP4 with.')
-  }
-
-  const encoding = settings(new Quality({ quality: 'high', preferBitrate: true }))
-
-  // **Asked of the encoder, not about it.** See `preflight`.
-  await preflight(o.size, encoding, { BufferTarget, CanvasSource, Mp4OutputFormat, Output })
+  // **Asked of the encoder, not about it, and asked of each codec in turn.** See `preflight`.
+  const encoding = await preflight(
+    o.size,
+    new Quality({ quality: 'high', preferBitrate: true }),
+    { BufferTarget, CanvasSource, Mp4OutputFormat, Output },
+  )
+  o.onCodec?.(encoding.codec)
 
   const shot = new Shot(svg, o.size, background(), (await faceCss()) + varCss())
   const output = new Output({ format: new Mp4OutputFormat(), target: new BufferTarget() })

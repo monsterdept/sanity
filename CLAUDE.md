@@ -821,6 +821,17 @@ second metric, and the line between those is the whole design.
   the binding constraint: measured on a synthetic repo of 3,200 files, a 4000px frame drew
   every file and not one more function than a 1000px one. At `density²` the same frame draws
   all 25,600.
+  **The codec ladder is H.264 then H.265, and the size is why.** VideoToolbox's H.264
+  encoder stops around 8.9 million luma samples — fine for the 16:9 shapes that number was
+  written for, brutal for a square, where it lands at about 2985 a side. So 2160² passes,
+  3072² would not, and 4000² is sixteen million samples and never had a chance; no bitrate
+  or profile negotiates that down. `preflight` tries each codec in turn and returns the one
+  that actually encoded ten frames. The fallback is STATED in the dialog rather than silent:
+  an `.mp4` that turns out to be H.265 is a different thing to hand somebody.
+  **A refusal is the app's own sentence, never the encoder's.** What reached the person when
+  4000² failed was WebCodecs' own words — a paragraph about "this browser", naming a profile
+  string and a bitrate, in an app that is not a browser and that had another codec and four
+  smaller sizes it could have offered instead.
   **The ground is offered as light or dark and never as `system`.** On screen that means
   "follow the machine", which is a live relationship; a file cannot follow anything, so
   offering it would be a coin flip decided by whoever renders.

@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { Choice, Field } from './Fields'
 import { Overlay } from './Overlay'
 import { saveMovie } from '../lib/api'
-import { CANCELLED, FPS, record, type Tick } from '../lib/movie'
+import { CANCELLED, CODEC_NAME, FPS, record, type Codec, type Tick } from '../lib/movie'
 import { applyTheme, loadTheme } from '../lib/theme'
 
 /**
@@ -135,6 +135,9 @@ export function ExportDialog({
   const [at, setAt] = useState<Tick | null>(null)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState('')
+  /** What the preflight settled on, once it has — see `CODECS` in `movie.ts`. Null until
+   *  then, and stated only when it is not the one everybody expects. */
+  const [codec, setCodec] = useState<Codec | null>(null)
   /** A ref rather than state: `record` reads it every frame, and a closure over state would
    *  be reading the value the export started with. */
   const stop = useRef(false)
@@ -144,6 +147,7 @@ export function ExportDialog({
     stop.current = false
     setError('')
     setSaved('')
+    setCodec(null)
     setAt(null)
     try {
       setPhase('recording')
@@ -162,6 +166,7 @@ export function ExportDialog({
         setIndex: onIndex,
         ensure,
         onProgress: setAt,
+        onCodec: setCodec,
         cancelled: () => stop.current,
       })
       setPhase('saving')
@@ -287,6 +292,15 @@ export function ExportDialog({
           </div>
         )}
 
+        {/* Only when it is NOT H.264, because the interesting case is the one that changes
+            where the file plays. H.264 is what an `.mp4` is assumed to be, and saying so
+            every time is a sentence nobody reads teaching nobody anything. */}
+        {codec && codec !== 'avc' && (
+          <p className="text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+            Encoded as {CODEC_NAME[codec]} — H.264 does not reach {size} × {size} on this
+            machine. Plays in QuickTime, Safari and the editors; not everywhere H.264 does.
+          </p>
+        )}
         {saved && (
           <p className="mono break-all text-[11px] text-[var(--muted-foreground)]">{saved}</p>
         )}
