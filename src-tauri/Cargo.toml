@@ -20,6 +20,10 @@ tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The one thing that crosses the IPC as bytes: an exported replay, on its way to a file
+# the save dialog picked. Already in the tree several times over — reqwest and tauri both
+# pull it — so this is a name for a crate that is being compiled anyway.
+base64 = "0.22"
 anyhow = "1"
 # Repo walking that honours .gitignore/.ignore for free — the same matcher ripgrep
 # uses. Getting this wrong means node_modules dominates every sunburst.

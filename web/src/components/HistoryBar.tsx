@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { ExportDialog } from './ExportDialog'
 import { posOf, realOf } from '../lib/history'
 
 /**
@@ -55,6 +56,8 @@ export function HistoryBar({
   onPlaying,
   duration,
   onDuration,
+  name,
+  ensure,
 }: {
   /** The commits in scope, as indices into `hist.commits`. Everything the transport
    *  addresses is a position in HERE; the map is still drawn at the real commit, because
@@ -69,7 +72,12 @@ export function HistoryBar({
   /** Seconds the whole replay should take. */
   duration: number
   onDuration: (s: number) => void
+  /** The repo on screen, for the exported file's name. */
+  name: string
+  /** Fetch the timeline as far as a given commit — see `ExportDialog`. */
+  ensure: (index: number) => Promise<void>
 }) {
+  const [exporting, setExporting] = useState(false)
   const last = frames.length - 1
   /** Where the playhead sits in the SCOPED list. */
   const pos = posOf(frames, index)
@@ -155,6 +163,9 @@ export function HistoryBar({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
+      // The export dialog is over the map and drives the playhead itself. A space bar that
+      // still started the transport would have two things moving one playhead.
+      if (exporting) return
       // The scrub bar is a real range input with its own arrow-key handling. Without this
       // a press while it has focus moves the playhead twice — once natively, once here —
       // which reads as the keyboard being twitchy rather than as two handlers agreeing.
@@ -181,7 +192,7 @@ export function HistoryBar({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [playing, index, pos, last, frames, onIndex, onPlaying])
+  }, [playing, index, pos, last, frames, onIndex, onPlaying, exporting])
 
   return (
     <div className="shrink-0 border-t border-[var(--border)] bg-[var(--card)] px-3 py-2">
@@ -233,8 +244,39 @@ export function HistoryBar({
             </button>
           ))}
         </div>
+
+        {/* Beside the lengths rather than beside the play button, because that is what it
+            is a variant of: the transport plays the story for a chosen number of seconds
+            and this writes the same thing to a file. The button is an icon because the row
+            it joins is five two-character labels — a word here would be wider than all of
+            them together. */}
+        <button
+          onClick={() => {
+            onPlaying(false)
+            setExporting(true)
+          }}
+          title="Export the replay as a movie"
+          aria-label="Export the replay as a movie"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+        >
+          <svg viewBox="0 0 12 12" className="h-3.5 w-3.5" fill="none" stroke="currentColor">
+            <rect x="0.9" y="2.6" width="7" height="6.8" rx="1.2" strokeWidth="1.2" />
+            <path d="M8.4 6 L11.1 4.1 v3.8 z" fill="currentColor" stroke="none" />
+          </svg>
+        </button>
       </div>
 
+      {exporting && (
+        <ExportDialog
+          frames={frames}
+          index={index}
+          onIndex={onIndex}
+          name={name}
+          duration={duration}
+          ensure={ensure}
+          onClose={() => setExporting(false)}
+        />
+      )}
     </div>
   )
 }

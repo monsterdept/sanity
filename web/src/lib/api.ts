@@ -338,6 +338,28 @@ export async function pickProject(): Promise<Added | null> {
   return invoke<Added>('add_project', { path: picked })
 }
 
+/** Ask where an exported replay should go, and write it there.
+ *
+ *  Resolves to the path written, or `null` if the save dialog was dismissed — which is a
+ *  choice rather than a failure and must not read as one.
+ *
+ *  The bytes travel base64: a movie is tens of megabytes and the IPC's other shape for a
+ *  byte array is a JSON array of numbers, which is four characters a byte. The write itself
+ *  is Rust's because this is the only path on which the app writes anything at all, and it
+ *  is worth having that in one place that can check what it was handed. */
+export async function saveMovie(bytes: Uint8Array, suggested: string): Promise<string | null> {
+  const { save } = await import('@tauri-apps/plugin-dialog')
+  const path = await save({
+    defaultPath: suggested,
+    filters: [{ name: 'Movie', extensions: ['mp4'] }],
+    title: 'Save the replay',
+  })
+  if (typeof path !== 'string') return null
+  const { encoded } = await import('./movie')
+  await invoke('save_movie', { path, data: encoded(bytes) })
+  return path
+}
+
 /** Put `sanity` on the PATH — a symlink into /usr/local/bin or ~/.local/bin.
  *
  *  Only needed for a direct download; the Homebrew cask links it for you. Resolves to

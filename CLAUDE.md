@@ -726,6 +726,51 @@ second metric, and the line between those is the whole design.
 - `just history <repo>` is the headless check, and it is UNCACHED by default: a run that
   answers from a file is not a run of the thing being checked. `--files` reconciles its
   totals against `just scan`, which is how the mascot bundle was found.
+- **The export records the map on screen; it does not draw a second one.** `movie.ts` copies
+  the live `svg[data-sunburst]` per frame and rasterizes it — a Canvas2D renderer of the same
+  rings would be a picture nobody has checked against the one being replayed, and the two
+  would part company the first time a wedge changed. What the copy has to carry with it is
+  everything the document was supplying: the custom properties (resolved from computed style,
+  named from the stylesheets — one knows which theme is on, the other knows what to ask for)
+  and the label face, inlined as woff2, or the export is set in a typeface the map is not.
+  **It is not a realtime capture, and that is the same argument the transport's duration
+  rests on from the other side.** On screen a duration is held by SKIPPING commits, which is
+  right for something being watched; a file made that way would be as good as the machine
+  that happened to make it. The output's clock is the file's — frame `f` is at `f / FPS` —
+  so the movie is the length that was asked for and every commit lands. The map is
+  re-rasterized only when the commit under the playhead CHANGES: a minute of a forty-commit
+  repo is 1,800 frames of forty pictures.
+  **The timeline is fetched per frame and awaited, never in one go up front.** The first
+  version pulled every delta before drawing anything, on the argument that a block landing
+  mid-export would stall the playhead into the file. Awaiting the one commit about to be
+  drawn buys exactly that guarantee and never holds more of the story than the export has
+  reached — the version that pre-fetched materialised 123,000 ceph commits before the first
+  frame, and the export was then reported as hung.
+  **An export names its STAGE, because a frame counter cannot tell working from stopped.**
+  One frame of a long repo is hundreds of commits of folding, so `Frame 7 of 300` sits still
+  long enough to read as a hang, and did. `Tick` carries fetch/fold/raster/encode with a mean
+  cost apiece, which is also the only way to find out which of the four is worth attacking.
+  Both awaits in the frame loop carry a deadline, and one of them earned it: `decode()` on
+  an SVG image is not reliably a promise that settles, and neither is the encoder accepting
+  a frame. A wait nothing can interrupt is not one the Stop button can reach either.
+  **The encoder stalls at frame seven, and the wait it stalls in has no error path.**
+  `CanvasSource` blocks once four frames are outstanding and waits for a `dequeue` event, so
+  an encoder that stops dequeuing hangs a promise nothing can catch — there is no exception,
+  no rejected promise and no event, only a clock we hold ourselves. Two things are aimed at
+  it. `latencyMode: 'realtime'`, which is not about latency here: the default mode lets the
+  encoder reorder and look ahead, so it may swallow a run of frames before emitting any,
+  which is a deadlock between two components that are each behaving correctly. And a
+  **preflight that asks the encoder rather than about it** — ten blank frames at the chosen
+  size before the recording starts, because `canEncodeVideo` is `isConfigSupported`
+  underneath and it answered yes for a configuration this machine then produced not one
+  packet from. Same rule as probing a harness by asking it to LIST its tools.
+  Giving it an explicit bitrate (`preferBitrate`, rather than a bare quality level, which
+  prefers quantizer-based rate control) was tried first on the same evidence and did NOT fix
+  it. It is kept because the quantizer path is the newer and thinner one, but it is not the
+  cause. The stage display is what turned "it froze" into a line naming the encoder.
+  The MP4 is the one thing this app writes. `save_movie` takes a path from a native save
+  dialog, refuses anything that is not `.mp4`, and the bytes cross the IPC base64 because the
+  alternative shape for a byte array is a JSON array of numbers.
 
 ## Conventions
 

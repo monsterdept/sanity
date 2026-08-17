@@ -316,6 +316,7 @@ pub fn run() {
             commands::set_reader,
             commands::start_check,
             commands::stop_check,
+            commands::save_movie,
         ])
         .build(tauri::generate_context!())
         .expect("error while running sanity")

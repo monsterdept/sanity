@@ -834,6 +834,31 @@ pub fn forget_project(state: tauri::State<'_, crate::agentapi::Shared>, key: Str
     crate::agentapi::lock(&state).forget(&key);
 }
 
+/// Write an exported replay to the path the save dialog came back with.
+///
+/// **The one path on which this app writes anything.** Everything else here reads: a scan
+/// walks a repo, an assessment is written by the backend into `.sanity/`, and the window
+/// itself has never had a reason to put a byte anywhere. So the check is worth stating
+/// rather than assuming — a movie goes to a `.mp4`, and a request naming anything else is
+/// refused instead of overwriting whatever was there. The path is not otherwise constrained:
+/// it came from a native save dialog, which is the user saying where.
+///
+/// Base64 because the alternative shape for bytes across the IPC is a JSON array of numbers,
+/// and a minute of 1080p is tens of megabytes.
+#[tauri::command]
+pub fn save_movie(path: String, data: String) -> Result<(), String> {
+    use base64::Engine;
+    let out = PathBuf::from(&path);
+    let ext = out.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    if ext != "mp4" {
+        return Err(format!("{} is not a .mp4 path.", out.display()));
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|e| format!("The movie did not survive the trip from the window: {e}"))?;
+    std::fs::write(&out, bytes).map_err(|e| format!("{}: {e}", out.display()))
+}
+
 /// How many lines a partial run would cover, at each step it could stop at.
 ///
 /// Fetched once when the Read dialog opens rather than carried on the project poll: it is a

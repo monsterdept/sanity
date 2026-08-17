@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Sanity's windows: the main one and the per-file code views it spawns. Read-only against the filesystem by design — the app picks a directory and scans it, and there is no path on which it writes to the code you point it at.",
+  "description": "Sanity's windows: the main one and the per-file code views it spawns. The app picks a directory and scans it, and there is no path on which it writes to the code you point it at. The one thing it writes is an exported history replay, to a file the save dialog was pointed at.",
   "windows": [
     "main",
     "code-*"
@@ -10,6 +10,7 @@
     "core:default",
     "core:window:allow-start-dragging",
     "opener:default",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "dialog:allow-save"
   ]
 }

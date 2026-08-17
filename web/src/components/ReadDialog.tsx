@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Gauge } from './Dials'
+import { Choice, Field } from './Fields'
 import { Overlay } from './Overlay'
 import {
   harnesses,
@@ -623,46 +624,5 @@ export function ReadDialog({
         </div>
       </div>
     </Overlay>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-        {label}
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function Choice({
-  on,
-  onClick,
-  label,
-  note,
-  disabled,
-}: {
-  on: boolean
-  onClick: () => void
-  label: string
-  note?: string
-  disabled?: boolean
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="rounded-md border px-2.5 py-1 text-xs disabled:opacity-40"
-      style={{
-        borderColor: on ? 'var(--accent)' : 'var(--border)',
-        background: on ? 'var(--accent)' : 'transparent',
-        color: on ? 'var(--accent-foreground)' : 'inherit',
-      }}
-    >
-      {label}
-      {note && <span className="ml-1.5 opacity-70">({note})</span>}
-    </button>
   )
 }

@@ -1555,6 +1555,16 @@ export default function App() {
               onPlaying={setPlaying}
               duration={duration}
               onDuration={setDuration}
+              name={scope || (activeProject?.name ?? 'history')}
+              // The whole timeline, for an export — the transport's own `onIndex` fetches
+              // the block under the playhead and returns, which is right for watching and
+              // useless to a recorder that must not stall mid-file.
+              ensure={async (i) => {
+                const held = history
+                if (!held) return
+                await held.deltas.ensure(i, setLoaded)
+                setLoaded(held.deltas.have())
+              }}
             />
           )}
         </main>

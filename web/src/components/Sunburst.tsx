@@ -956,7 +956,16 @@ function SunburstView({
           the pane it was given for reasons the reader cannot see. Measured in USER units,
           which do not change when the viewBox does, so this settles in one pass rather
           than chasing itself. */}
-      <svg ref={svg} viewBox={fitted.current} className="absolute inset-0 h-full w-full">
+      {/* `data-sunburst` is how the movie export finds the picture to record. An attribute
+          rather than a ref handed up through the app: the exporter copies whatever is on
+          screen at each commit, and what it must never do is hold a second idea of what the
+          map is — see `movie.ts`. */}
+      <svg
+        ref={svg}
+        data-sunburst=""
+        viewBox={fitted.current}
+        className="absolute inset-0 h-full w-full"
+      >
         <StaleHatch />
         {/* NOT keyed on the root any more. A key here remounted the whole group on every
             level change, which is what forced the transition to be a keyframe played over
