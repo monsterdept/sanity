@@ -311,6 +311,8 @@ function SunburstView({
   mascot,
   morph,
   sortBy,
+  density,
+  onSide,
 }: {
   root: Node
   selected: Node | null
@@ -343,6 +345,20 @@ function SunburstView({
    *  reading changes wedges too, and sliding them under somebody who is reading the map is
    *  a different decision from smoothing a replay they asked to watch. */
   morph?: boolean
+  /** Lay the map out as though the pane were this many pixels across.
+   *
+   *  **What "more detail" means, in one number.** Every threshold that decides whether a
+   *  wedge is worth drawing is a PIXEL size converted through `unitsPerPx` — a wedge under
+   *  `MIN_ARC_PX` of arc, a patch under `MIN_PATCH_PX` of area — so the picture's density is
+   *  a property of how big it is being drawn, and nothing else. On screen that is the pane.
+   *  For an export it is the FILE: a 4000px movie asked to reason about a 1000px pane is the
+   *  same picture upscaled, four times the pixels and not one more wedge.
+   *
+   *  Null on screen, where the pane is the honest answer. */
+  density?: number | null
+  /** The pane's own measured side, for a caller that needs to know how much denser an export
+   *  is than the screen it was staged from — see `frameTree`'s `density`. */
+  onSide?: (px: number) => void
   /** Sort siblings by this rather than by their size in the frame being drawn — see
    *  `LayoutOpts.sortBy` and `headSizes`. The replay's answer to wedges trading places
    *  under the playhead. */
@@ -400,12 +416,14 @@ function SunburstView({
   /** User units per screen pixel, quantised. Everything below is stated in pixels and
    *  converted through this, so the two axes answer to the same rule. */
   const unitsPerPx = useMemo(() => {
-    const side = Math.min(box.w, box.h)
+    // See `density`: an export lays out for the file it is writing, not for the pane it was
+    // staged from, or a bigger movie is only a bigger picture of the same map.
+    const side = density ?? Math.min(box.w, box.h)
     if (side <= 0) return null
     const stepped = Math.max(SIZE_STEP, Math.round(side / SIZE_STEP) * SIZE_STEP)
     const extent = 2 * R_OUTER * (1 + 2 * MARGIN)
     return extent / stepped
-  }, [box.w, box.h])
+  }, [box.w, box.h, density])
 
   const minAngle = useMemo(
     () => (unitsPerPx === null ? undefined : (MIN_ARC_PX * unitsPerPx) / R_OUTER),
@@ -960,7 +978,10 @@ function SunburstView({
       // once the per-wedge leave handlers are gone.
       onMouseMove={(e) => {
         const r = e.currentTarget.getBoundingClientRect()
-        if (r.width !== box.w || r.height !== box.h) setBox({ w: r.width, h: r.height })
+        if (r.width !== box.w || r.height !== box.h) {
+          setBox({ w: r.width, h: r.height })
+          onSide?.(Math.min(r.width, r.height))
+        }
         setPos({ x: e.clientX - r.left, y: e.clientY - r.top })
       }}
       onMouseLeave={() => setHoverNode(null)}

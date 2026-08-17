@@ -3,6 +3,7 @@ import { Choice, Field } from './Fields'
 import { Overlay } from './Overlay'
 import { saveMovie } from '../lib/api'
 import { CANCELLED, FPS, record, type Tick } from '../lib/movie'
+import { applyTheme, loadTheme } from '../lib/theme'
 
 /**
  * How long the exported movie runs.
@@ -28,6 +29,7 @@ const SIZES = [
   { px: 720, label: '720', note: 'small' },
   { px: 1080, label: '1080', note: 'standard' },
   { px: 2160, label: '2160', note: 'large' },
+  { px: 4000, label: '4000', note: 'huge' },
 ]
 
 function pace(total: number): string {
@@ -63,6 +65,23 @@ function suggest(name: string): string {
 }
 
 /**
+ * The grounds a movie can be written on.
+ *
+ * The app's own two, and the choice exists for the same reason the app has a menu item for
+ * it: a recording is going into a slide, a README or a post, and which ground that wants has
+ * nothing to do with which one the person making it happens to be sitting in.
+ *
+ * There is no `system` here. On screen that means "follow the machine", which is a live
+ * relationship; a file cannot follow anything, so offering it would be offering a coin flip
+ * decided by whoever renders — the window is asked what it is showing and that answer is
+ * made explicit on the way in.
+ */
+const GROUNDS = [
+  { id: 'light' as const, label: 'Light' },
+  { id: 'dark' as const, label: 'Dark' },
+]
+
+/**
  * Export the replay as a movie.
  *
  * **It records the map, not the screen.** Each frame is the sunburst as the window is
@@ -80,6 +99,7 @@ export function ExportDialog({
   name,
   duration,
   ensure,
+  onStage,
   onClose,
 }: {
   /** The commits in scope, as the transport addresses them. A drilled-in directory exports
@@ -100,10 +120,17 @@ export function ExportDialog({
    *  though it were a commit. See `Recording.ensure` for why it is per frame and not once
    *  up front. */
   ensure: (index: number) => Promise<void>
+  /** Lay the map out for a file of this many pixels, or null to give the pane back. */
+  onStage: (px: number | null) => void
   onClose: () => void
 }) {
   const [seconds, setSeconds] = useState(duration)
   const [size, setSize] = useState(1080)
+  /** Opens on what the window is showing — a recording of the map you are looking at is the
+   *  answer that needs no thought, and the other one is one click away. */
+  const [ground, setGround] = useState<'light' | 'dark'>(() =>
+    document.documentElement.classList.contains('dark') ? 'dark' : 'light',
+  )
   const [phase, setPhase] = useState<'idle' | 'recording' | 'saving' | 'done'>('idle')
   const [at, setAt] = useState<Tick | null>(null)
   const [error, setError] = useState('')
@@ -120,6 +147,14 @@ export function ExportDialog({
     setAt(null)
     try {
       setPhase('recording')
+      // **Staged before a single frame is read, and the map is left to settle.**
+      // `record` resolves the custom properties and the background once, on its way in, so
+      // the ground has to be on the document by then or the file comes out in the other one
+      // with the right wedges. Two animation frames is the same wait every frame of the
+      // recording makes for the same reason — see `settle` there.
+      applyTheme(ground)
+      onStage(size)
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
       const bytes = await record({
         frames,
         seconds,
@@ -144,9 +179,14 @@ export function ExportDialog({
       setPhase('idle')
       if (why !== CANCELLED) setError(why)
     } finally {
-      // Where they were before pressing Export. The recording drove the playhead across the
-      // whole timeline; leaving it parked at the last commit would be the export having
-      // moved the view as a side effect.
+      // The window goes back to being a window: its own ground, its own density, and the
+      // commit it was on. The recording drove the playhead across the whole timeline, and
+      // leaving any of that behind would be the export having rearranged the view as a side
+      // effect. `loadTheme` rather than the ground we found on the way in, because `system`
+      // is a live relationship and reading the class back would have flattened it to
+      // whichever way the machine happened to be at the time.
+      applyTheme(loadTheme())
+      onStage(null)
       onIndex(index)
     }
   }
@@ -195,10 +235,26 @@ export function ExportDialog({
             ))}
           </div>
           {/* Stated rather than left to be discovered at the end: the frame is square
-              because the thing being recorded is a circle. */}
+              because the thing being recorded is a circle, and the size is the LAYOUT as
+              well as the file — see `Sunburst`'s `density`. */}
           <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
-            {size} × {size} at {FPS} fps — {Math.round(seconds * FPS).toLocaleString()} frames.
+            {size} × {size} at {FPS} fps — {Math.round(seconds * FPS).toLocaleString()} frames,
+            laid out for {size.toLocaleString()}px.
           </p>
+        </Field>
+
+        <Field label="Ground">
+          <div className="flex flex-wrap gap-2">
+            {GROUNDS.map((g) => (
+              <Choice
+                key={g.id}
+                on={ground === g.id}
+                disabled={busy}
+                onClick={() => setGround(g.id)}
+                label={g.label}
+              />
+            ))}
+          </div>
         </Field>
 
         {busy && (

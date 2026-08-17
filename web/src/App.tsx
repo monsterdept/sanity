@@ -875,6 +875,17 @@ export default function App() {
     return step.current.since
   }
 
+  /** The map staged for an export: how many pixels wide the file will be, or null while the
+   *  window is just a window.
+   *
+   *  **Staged rather than rendered aside.** The export copies what is on screen (see
+   *  `movie.ts`), which is the whole reason it cannot drift from the map — so asking it for
+   *  a denser picture means making the picture on screen denser for the duration. It is
+   *  behind the dialog while that happens, and it goes back when the export ends. */
+  const [staged, setStaged] = useState<number | null>(null)
+  /** The pane's measured side, so a staged export knows how much denser it is than this. */
+  const [paneSide, setPaneSide] = useState(0)
+
   /** Where the map is rooted, as a path, taken straight from the drill stack.
    *
    *  `focus` is the same answer resolved against the tree — and the tree is what this is
@@ -897,6 +908,7 @@ export default function App() {
             activeProject?.name ?? 'repo',
             stepFrom(histIndex),
             drilled,
+            staged && paneSide > 0 ? staged / paneSide : 1,
           )
         : null,
     // The NAME, not the project row. `listProjects` hands back fresh objects every poll,
@@ -904,7 +916,7 @@ export default function App() {
     // period, in the middle of a replay, for a string that had not changed.
     // `loaded` is a dependency because the frame it builds depends on how much of the story
     // has arrived: the same index folds to a fuller picture once the block holding it lands.
-    [historyOn, history, historyKey, activeKey, histIndex, loaded, activeProject?.name, drilled],
+    [historyOn, history, historyKey, activeKey, histIndex, loaded, activeProject?.name, drilled, staged, paneSide],
   )
 
   /** What the replay sorts its rings by: every path's size at HEAD — see `headSizes`.
@@ -1493,6 +1505,8 @@ export default function App() {
                 // somebody who is reading it, and sliding the wedges there would animate a
                 // measurement arriving rather than a story advancing.
                 morph={replaying}
+                density={staged}
+                onSide={setPaneSide}
                 sortBy={headOrder}
                 onSelect={pick}
                 onClear={clearPick}
@@ -1583,6 +1597,7 @@ export default function App() {
               duration={duration}
               onDuration={setDuration}
               name={scope || (activeProject?.name ?? 'history')}
+              onStage={setStaged}
               // The whole timeline, for an export — the transport's own `onIndex` fetches
               // the block under the playhead and returns, which is right for watching and
               // useless to a recorder that must not stall mid-file.

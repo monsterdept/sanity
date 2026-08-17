@@ -58,6 +58,7 @@ export function HistoryBar({
   onDuration,
   name,
   ensure,
+  onStage,
 }: {
   /** The commits in scope, as indices into `hist.commits`. Everything the transport
    *  addresses is a position in HERE; the map is still drawn at the real commit, because
@@ -76,6 +77,9 @@ export function HistoryBar({
   name: string
   /** Fetch the timeline as far as a given commit — see `ExportDialog`. */
   ensure: (index: number) => Promise<void>
+  /** Lay the map out for a file of this many pixels, or null to go back to the pane — see
+   *  `App`'s `staged`. */
+  onStage: (px: number | null) => void
 }) {
   const [exporting, setExporting] = useState(false)
   const last = frames.length - 1
@@ -274,6 +278,7 @@ export function HistoryBar({
           name={name}
           duration={duration}
           ensure={ensure}
+          onStage={onStage}
           onClose={() => setExporting(false)}
         />
       )}

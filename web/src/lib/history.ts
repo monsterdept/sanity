@@ -618,6 +618,22 @@ export function frameTree(
    *  Taken from the drill stack rather than from `focus`, which is resolved against the tree
    *  this builds and would be a cycle. */
   scope: string = '',
+  /** How much denser the picture is than the screen it was staged from — see `Sunburst`'s
+   *  own `density`, and `1` for the screen itself.
+   *
+   *  **The layout's thresholds are not the only ones that decide detail.** `minLoc` below
+   *  rolls a function up before a node is ever built, and it is stated in LINES rather than
+   *  pixels, so laying the map out for a 4000px file leaves it exactly where it was: a
+   *  bigger movie of the same `206+`.
+   *
+   *  **Squared, because a function is drawn as a TILE and a tile is an area.** The obvious
+   *  reading is that four times the width is four times the detail — true of the ring, where
+   *  a wedge's share is an angle and `minAngle` falls in proportion. Functions are not on the
+   *  ring: `tileFunctions` packs them inside their file's band against `MIN_PATCH_PX`, an
+   *  area, which `unitsPerPx²` already scales quadratically. A supply that grew linearly
+   *  would simply become the binding constraint — measured on a synthetic repo of 3,200
+   *  files, a 4000px frame drew every file and not one more function than a 1000px one. */
+  density: number = 1,
 ): Node {
   const frame = replay(hist, deltas, index)
   const root = dirNode('', repoName)
@@ -673,7 +689,7 @@ export function frameTree(
    *  A repo small enough for its functions to be drawn keeps every one of them: on anything
    *  under a few thousand functions the threshold lands below one line and nothing is
    *  rolled up. */
-  const minLoc = frame.lines / 4000
+  const minLoc = frame.lines / (4000 * density * density)
   /** The same rule asked about what is actually being drawn — see `scope`.
    *
    *  The pass this needs is the one the incremental `frame.lines` exists to avoid, so it is
@@ -691,7 +707,8 @@ export function frameTree(
   /** What a function inside the scope has to clear. Falls back to the repo-wide cut when the
    *  scope holds nothing in this frame — a directory drilled into at HEAD and replayed from
    *  before it existed, which is an ordinary thing to do. */
-  const scopeMin = inScope && scopeLines > 0 ? scopeLines / 4000 : minLoc
+  const scopeMin =
+    inScope && scopeLines > 0 ? scopeLines / (4000 * density * density) : minLoc
   /** Lines and count rolled up per file, for the stand-in wedges below. */
   const restLoc = new Map<number, number>()
   const restCount = new Map<number, number>()

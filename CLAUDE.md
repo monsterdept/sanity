@@ -805,6 +805,25 @@ second metric, and the line between those is the whole design.
   One frame of a long repo is hundreds of commits of folding, so `Frame 7 of 300` sits still
   long enough to read as a hang, and did. `Tick` carries fetch/fold/raster/encode with a mean
   cost apiece, which is also the only way to find out which of the four is worth attacking.
+  **A bigger file is a bigger CANVAS, not a bigger picture of the same map.** Every threshold
+  that decides whether something is worth drawing is a pixel size converted through
+  `unitsPerPx`, so density is a property of how large the map is being drawn and nothing
+  else — an export that reasons about the pane it was staged from is the same picture
+  upscaled. `Sunburst` takes a `density` and the export sets it to the file's own width, so a
+  4000px movie lays out for 4000px and shows the files a 1000px one culls. The map on screen
+  changes for the duration, which is the price of the export recording what is on screen
+  rather than drawing a second map; it is behind the dialog, and it goes back.
+  **The fold has a threshold too, and it is SQUARED where the ring's is linear.** `minLoc`
+  rolls a function up before a node is ever built, so the layout can only draw what the fold
+  supplied. A wedge's share of the ring is an angle and falls in proportion to the width;
+  a function is not on the ring — `tileFunctions` packs it inside its file's band against an
+  AREA, which `unitsPerPx²` already scales quadratically. Scaled linearly, the fold became
+  the binding constraint: measured on a synthetic repo of 3,200 files, a 4000px frame drew
+  every file and not one more function than a 1000px one. At `density²` the same frame draws
+  all 25,600.
+  **The ground is offered as light or dark and never as `system`.** On screen that means
+  "follow the machine", which is a live relationship; a file cannot follow anything, so
+  offering it would be a coin flip decided by whoever renders.
   Both awaits in the frame loop carry a deadline, and one of them earned it: `decode()` on
   an SVG image is not reliably a promise that settles, and neither is the encoder accepting
   a frame. A wait nothing can interrupt is not one the Stop button can reach either.
