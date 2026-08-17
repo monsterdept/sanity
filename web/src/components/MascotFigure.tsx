@@ -214,6 +214,21 @@ const SETTLE_MS = 500
 
 /** The backstop, from mount: measure anyway, ready or not. A bundle that never reports ready
  *  must not leave an invisible creature forever. */
+/** How often the gaze is re-pushed at the creature while there is something to watch.
+ *
+ *  Not an animation rate — the engine pursues the point smoothly on its own, so this only
+ *  has to be often enough to beat the bundle's `mousemove` handler, which writes the same
+ *  target and never checks whether a focus is set. It also covers the scene not existing
+ *  yet on the first direction. Cheap: two method calls, and only while a scan or a replay
+ *  is actually moving. */
+const AIM_MS = 100
+
+/** How long the creature looks at one flashing wedge before moving to the next.
+ *
+ *  Long enough to read as attention rather than a twitch, short enough that a lull with
+ *  three files in it still looks like something is happening. */
+const DWELL_MS = 900
+
 const MEASURE_AFTER_MS = 1200
 
 /** How often to look for the settle point. Short enough that the wait is the settle and not
@@ -234,12 +249,17 @@ export default function MascotFigure({
   size = 44,
   events = [],
   state = 'working',
+  gaze,
 }: {
   size?: number
   /** The last few agent calls, oldest first, as the backend saw them. */
   events?: AgentCall[]
   /** Sleeping, working, or being torn down — see [`MascotState`]. */
   state?: MascotState
+  /** Unit directions to watch, in the creature's own world — x right, **y up** — or null to
+   *  hand the eyes back to the bundle's own wandering. More than one is looked at in turn;
+   *  see `gaze` in `Sunburst`, which aims these at whatever is flashing. */
+  gaze?: Array<{ x: number; y: number }> | null
 }) {
   const [config, setConfig] = useState<MascotConfig>(() => loadOrMint())
   /** Clicks so far, and when the last one landed — see `REMINT_CLICKS`. A ref because a
@@ -303,6 +323,66 @@ export default function MascotFigure({
   const onReady = useCallback(() => {
     readyAt.current = performance.now()
   }, [])
+
+  /**
+   * Watch what the map is doing.
+   *
+   * **`renderer.shared.engine`, and getting that address wrong is silent.** The React handle
+   * forwards `play`, `wake` and `snapshot` and exposes the renderer as a getter; the gaze is
+   * three levels down, on the part animator. Written against `renderer` directly — which is
+   * where it looks like it should be, since `play` and `wake` are forwarded from there — it
+   * type-checks, the `typeof` guard finds nothing, and the eyes go on tracking the mouse
+   * with nothing on screen saying why. That is the `captureImage` trap above, repeated
+   * exactly, and the guards that make a missing method survivable are the same guards that
+   * make a wrong address invisible. Both calls stay guarded, because the committed
+   * placeholder bundle has none of this and must not throw — but the address was verified by
+   * reading the bundle rather than assumed.
+   *
+   * The bundle pursues the point smoothly, so nothing here animates: this fires when the lit
+   * set moves the direction enough to matter (`Sunburst` rounds it), and the eyes glide.
+   * Clearing hands the gaze back to mouse tracking and the random glance-aways.
+   */
+  useEffect(() => {
+    const at = gaze ?? []
+    const aim = () => {
+      const shared = handle.current?.renderer?.shared
+      const engine = shared?.engine
+      // The scene is built in an effect of the bundle's own, so on the first direction there
+      // is nothing here yet. Nothing to do but try again on the next tick.
+      if (!engine || !shared) return
+      if (at.length === 0) {
+        if (typeof engine.clearGazeFocus === 'function') engine.clearGazeFocus()
+        return
+      }
+      // **One at a time, on a dwell.** Several things are flashing at once and the work does
+      // not move at a constant rate — blame arrives in bursts and then labours over three or
+      // four files for seconds — so a single averaged bearing parks the eyes for the whole
+      // lull and reads as a creature staring at nothing. Looked at in turn it reads as one
+      // watching, which is what it is doing. Driven off the clock rather than a counter so
+      // the rhythm does not depend on how often this effect happens to be rebuilt.
+      const d = at[Math.floor(Date.now() / DWELL_MS) % at.length]
+      // **Both, and repeatedly.** `setGazeFocus` is what stops the creature wandering off
+      // and glancing around; `setMouseWorld` is what actually moves the pupils, because in
+      // focus mode the engine reads the target that function computes and focus itself never
+      // writes it. Pushed on a timer rather than set once for two reasons that both bite:
+      // the aim has to survive the bundle's own `mousemove` handler, which calls
+      // `setMouseWorld` and does not check whether focus is on; and a direction that holds
+      // still while the scan works one part of the ring would otherwise be applied once,
+      // before the scene existed, and never again.
+      if (typeof engine.setGazeFocus === 'function') engine.setGazeFocus(d.x, d.y)
+      // Far enough out that the engine's own falloff saturates and only the direction is
+      // left — it scales the pupil offset by `min(distance / 120, 1)`, so anything well past
+      // the creature aims the same and nothing depends on the size it was drawn at.
+      if (typeof shared.setMouseWorld === 'function') shared.setMouseWorld(d.x * 400, d.y * 400)
+    }
+    aim()
+    const id = window.setInterval(aim, AIM_MS)
+    return () => window.clearInterval(id)
+    // The directions themselves, flattened: a fresh array of the same bearings must not
+    // restart the dwell, or a lit set that is merely re-published every quarter second
+    // would keep resetting the glance to its first target.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [(gaze ?? []).map((d) => `${d.x},${d.y}`).join(';')])
 
   useEffect(() => {
     let live = true

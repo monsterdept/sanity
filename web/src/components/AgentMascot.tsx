@@ -14,16 +14,20 @@ export function AgentMascot({
   size = 44,
   events,
   state,
+  gaze,
 }: {
   size?: number
   events: AgentCall[]
   state: MascotState
+  /** Unit directions to look at in turn, or null to look around on its own — see
+   *  `MascotFigure`. */
+  gaze?: Array<{ x: number; y: number }> | null
 }) {
   return (
     <Suspense
       fallback={<span style={{ width: size, height: size }} className="shrink-0" aria-hidden />}
     >
-      <MascotFigure size={size} events={events} state={state} />
+      <MascotFigure size={size} events={events} state={state} gaze={gaze} />
     </Suspense>
   )
 }

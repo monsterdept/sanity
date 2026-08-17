@@ -51,6 +51,11 @@ const RINGS = 5
 const R_INNER = 62
 const R_OUTER = 340
 
+/** How many lit wedges the creature will look at one at a time before giving up and taking
+ *  them as a region — see `gaze`. Small, because this is the number of things a glance can
+ *  distinguish, not a display limit. */
+const GAZE_INDIVIDUALS = 6
+
 /** The mascot's box in the hub, in user units, and where its middle sits.
  *
  *  Centred, and large, because it is the only thing in the disc — the name and the line
@@ -478,6 +483,90 @@ function SunburstView({
     () => layout(root, RINGS, { collapsed, minAngle, sortBy }),
     [root, collapsed, minAngle, sortBy],
   )
+
+  /** Where the creature in the hub is looking: at whatever is happening right now.
+   *
+   *  **Two sources, one answer, because there are two ways this map moves on its own.** A
+   *  scan lights the wedge it is reading (`reading`); a replay flashes the wedge the commit
+   *  under the playhead touched (`appeared`/`edited`, see `inStep` in `history.ts`). They
+   *  never overlap — one is the repo being measured, the other the repo being remembered —
+   *  and both are "the action", so both aim the eyes. Anywhere else there is no action, the
+   *  answer is null, and the eyes go back to following the pointer, which is the right
+   *  behaviour for a map that is only moving because somebody is moving it.
+   *
+   *  **The mean direction, not one of them.** A scan touches a dozen wedges at once,
+   *  scattered around the ring, and a commit touches a directory's worth — so picking one
+   *  would twitch between neighbours several times a second. The mean points at the part of
+   *  the ring the work is in, and swings across when the work moves rather than jumping.
+   *
+   *  `a` is clockwise from 12 o'clock, and the creature's world has **y up** where the
+   *  screen has y down: the gaze target is placed in world units off the pupils (see
+   *  `setGazeFocus` in the bundle), so the vertical component is NOT negated the way it
+   *  would be for an SVG coordinate.
+   *
+   *  Rounded, so a set that gains and loses one thin wedge does not re-aim on every tick —
+   *  finely enough that the motion reads as a turn rather than a series of steps, which is
+   *  what the bundle's own smoothing is then free to make continuous. It recomputes as fast
+   *  as its inputs move: every replay frame, and every flush of the scan's lit set.
+   */
+  /** Of everything being worked on, the wedges actually worth lighting.
+   *
+   *  **The deepest DRAWN one on each path, and nothing above it.** What arrives is a file
+   *  and every directory over it, because a file too thin to draw — 37,934 of linux's are —
+   *  has no wedge of its own and its directory is the only thing that can stand in for it.
+   *  Lighting the whole chain instead made `drivers` and `net` blaze continuously for as
+   *  long as the sweep was anywhere inside them: the loudest thing on screen, saying only
+   *  "somewhere in here", while the work itself was invisible underneath. And the same
+   *  average aimed the creature's eyes, which is why they read as idle wandering — the big
+   *  inner rings dominate the sum and drag it to the middle.
+   *
+   *  So a path lights the narrowest wedge that can carry it: itself if it is drawn, its
+   *  nearest drawn ancestor if not. An ancestor with a lit descendant on screen has already
+   *  said what it had to say, through that descendant.
+   *
+   *  Function ids (`path#name`, which is what a reader's lease holds) have no descendants
+   *  under this test and always survive it — the rule only ever removes a directory that
+   *  something below it is already speaking for.
+   */
+  const pulsing = useMemo(() => {
+    if (!reading || reading.size === 0) return reading
+    const drawn = wedges.filter((w) => reading.has(w.node.id)).map((w) => w.node.id)
+    return new Set(drawn.filter((id) => !drawn.some((d) => d.startsWith(`${id}/`))))
+  }, [wedges, reading])
+
+  const gaze = useMemo(() => {
+    // Aimed at the same wedges that flash, so the eyes can be checked against the picture.
+    const at: Array<{ x: number; y: number }> = []
+    for (const w of wedges) {
+      const s = w.node.score
+      if (!pulsing?.has(w.node.id) && s?.appeared !== 1 && s?.edited !== 1) continue
+      const mid = (w.a0 + w.a1) / 2
+      const r = (n: number) => Math.round(n * 50) / 50
+      at.push({ x: r(Math.sin(mid)), y: r(Math.cos(mid)) })
+    }
+    if (at.length === 0) return null
+    // **A few things are looked at in turn; a crowd is looked at as a place.** Blame does
+    // not run at a constant rate — it comes in bursts and then labours over three or four
+    // files for seconds at a time — and through those lulls a single averaged bearing is a
+    // creature staring into the middle distance. Handing the figure the individual wedges
+    // lets it glance between them, which is what something watching actually does.
+    //
+    // Past a handful there is nothing to glance between: twenty wedges cycled one at a time
+    // is a twitch, and their mean is a real answer — the region the work is in. So the
+    // crowd collapses to one bearing and the eyes settle on it.
+    if (at.length <= GAZE_INDIVIDUALS) return at
+    let x = 0
+    let y = 0
+    for (const d of at) {
+      x += d.x
+      y += d.y
+    }
+    const len = Math.hypot(x, y)
+    // Wedges spread evenly around the ring cancel out, and a zero vector is a direction
+    // nobody can face. Looking straight ahead is the honest answer to "everywhere at once".
+    if (len < 1e-3) return null
+    return [{ x: Math.round((x / len) * 50) / 50, y: Math.round((y / len) * 50) / 50 }]
+  }, [wedges, pulsing])
 
   /** Files whose functions get stacked.
    *
@@ -1148,7 +1237,7 @@ function SunburstView({
           if (selTrail?.has(w.node.id) && (!selCoarse || w.depth > selCoarse.depth)) {
             selCoarse = { d: arcPath(a0, a1, r0, r1), depth: w.depth }
           }
-          const isReading = reading?.has(w.node.id) ?? false
+          const isReading = pulsing?.has(w.node.id) ?? false
           return (
             <g key={w.node.id}>
             {/* An invisible target, wider than the thing it selects.
@@ -1393,7 +1482,7 @@ function SunburstView({
                     function reading has to pulse the patch, because the patches are drawn
                     ON TOP of their file's wedge and would otherwise hide the very mark
                     that says where the work is. */}
-                {reading?.has(slot.node.id) && (
+                {pulsing?.has(slot.node.id) && (
                   <path className="wedge-reading" d={d} pointerEvents="none" fill="var(--foreground)" />
                 )}
                 {/* A roll-up is drawn like a function and is the largest patch in its
@@ -1706,7 +1795,12 @@ function SunburstView({
           }}
           onDoubleClick={onUp ? (ev) => { ev.stopPropagation(); onUp() } : undefined}
         >
-          <AgentMascot size={HUB_MASCOT} events={mascot.events} state={mascot.state} />
+          <AgentMascot
+            size={HUB_MASCOT}
+            events={mascot.events}
+            state={mascot.state}
+            gaze={gaze}
+          />
         </div>
       )}
 
