@@ -736,6 +736,19 @@ second metric, and the line between those is the whole design.
   view 22.3MB → 6.9MB. It is not 20× because ceph's opening block is an SVN import that lands
   62,804 functions in its first 2,000 commits — that 4.5MB is genuinely needed to draw the
   frame, and the honest next win is a compact encoding, not a later fetch.
+- **The roll-up cut is a share of the CIRCLE, and when you drill the circle is the subtree.**
+  `minLoc` is `frame.lines / 4000` — right at the root, and far too coarse anywhere else,
+  because the lines it divides were the whole repo's while the wedges being drawn belong to
+  one directory. Standing in ceph's `src/mon`, 44,160 lines of a repo hundreds of times
+  larger, that meant five functions drawn and everything else rolled into `206+`, on a ring
+  with room for hundreds — drilling is the gesture that asks for detail and it could not
+  deliver any. The live map never had this: its cull is per-wedge ANGLE, and an angle grows
+  when you drill. `frameTree` takes a `scope`, and inside it the cut is that subtree's own
+  lines; outside it stays coarse, so the fold is not paying to build nodes nobody will draw.
+  The extra pass is the one the incremental `frame.lines` exists to avoid, so it is paid only
+  when drilled — at the root there is no scope, no pass, and the arithmetic is what it was.
+  The scope comes from the drill STACK, never from `focus`: focus is resolved against the
+  tree this builds, so asking it there is a cycle.
 - **Two roll-ups, two id namespaces, and the ghosts came from forgetting that.** The replay
   folds a per-file stand-in for everything too thin to draw, and `tileFunctions` mints its
   own for the members a wedge cannot hold — both were `${path}#rest`, and in a replay the

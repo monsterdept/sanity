@@ -875,6 +875,13 @@ export default function App() {
     return step.current.since
   }
 
+  /** Where the map is rooted, as a path, taken straight from the drill stack.
+   *
+   *  `focus` is the same answer resolved against the tree — and the tree is what this is
+   *  handed to, so asking `focus` here would be a cycle. Container ids ARE their paths,
+   *  which is what makes the stack usable directly; `''` is the repo. */
+  const drilled = stack.length > 0 ? stack[stack.length - 1] : ''
+
   /** The tree for the frame under the playhead, or nothing when history is off.
    *
    *  Built fresh per frame rather than patched onto the live scan: the two hold different
@@ -889,6 +896,7 @@ export default function App() {
             histIndex,
             activeProject?.name ?? 'repo',
             stepFrom(histIndex),
+            drilled,
           )
         : null,
     // The NAME, not the project row. `listProjects` hands back fresh objects every poll,
@@ -896,7 +904,7 @@ export default function App() {
     // period, in the middle of a replay, for a string that had not changed.
     // `loaded` is a dependency because the frame it builds depends on how much of the story
     // has arrived: the same index folds to a fuller picture once the block holding it lands.
-    [historyOn, history, historyKey, activeKey, histIndex, loaded, activeProject?.name],
+    [historyOn, history, historyKey, activeKey, histIndex, loaded, activeProject?.name, drilled],
   )
 
   /** What the replay sorts its rings by: every path's size at HEAD — see `headSizes`.

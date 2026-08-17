@@ -562,6 +562,24 @@ let pool: { hist: Tables; nodes: Map<number, Node> } | null = null
  *  rebuilds this tree thirty times a second. */
 let index: { hist: Tables; at: Map<string, number> } | null = null
 
+/** The path indices under one scope — see `frameTree`'s `scope`.
+ *
+ *  Memoised per timeline and scope, because it is a property of the path table rather than
+ *  of the frame: a replay rebuilds its tree thirty times a second and this changes only when
+ *  somebody drills. A file scope matches itself; a directory matches everything beneath it,
+ *  segment-wise, or `web/src` takes in `web/src-old`. */
+let scoped: { hist: Tables; scope: string; at: Set<number> } | null = null
+function scopeOf(hist: Tables, scope: string): Set<number> {
+  if (scoped && scoped.hist === hist && scoped.scope === scope) return scoped.at
+  const at = new Set<number>()
+  const under = `${scope}/`
+  hist.paths.forEach((p, i) => {
+    if (p === scope || p.startsWith(under)) at.add(i)
+  })
+  scoped = { hist, scope, at }
+  return at
+}
+
 function pathIndexOf(hist: Tables): Map<string, number> {
   if (index && index.hist === hist) return index.at
   const at = new Map<string, number>()
@@ -587,6 +605,19 @@ export function frameTree(
    *  `(since, index]` flashes — see `inStep`. Defaults to one commit back, which is what a
    *  caller drawing a single frame means. */
   since: number = index - 1,
+  /** The directory or file the map is rooted at, repo-relative, or `''` for the whole repo.
+   *
+   *  **The roll-up threshold is a share of the circle, and when you drill the circle is the
+   *  SUBTREE.** See `minLoc`: the cut is `lines / 4000`, which is right at the root and far
+   *  too coarse anywhere else, because the lines it divides were the whole repo's while the
+   *  wedges being drawn belong to one directory. Standing in ceph's `src/mon` — 44,160
+   *  lines of a repo with hundreds of thousands — that meant five functions drawn and
+   *  everything else rolled into `206+`, on a ring with room for hundreds. Drilling is the
+   *  gesture that asks for detail and it could not deliver any.
+   *
+   *  Taken from the drill stack rather than from `focus`, which is resolved against the tree
+   *  this builds and would be a cycle. */
+  scope: string = '',
 ): Node {
   const frame = replay(hist, deltas, index)
   const root = dirNode('', repoName)
@@ -643,6 +674,24 @@ export function frameTree(
    *  under a few thousand functions the threshold lands below one line and nothing is
    *  rolled up. */
   const minLoc = frame.lines / 4000
+  /** The same rule asked about what is actually being drawn — see `scope`.
+   *
+   *  The pass this needs is the one the incremental `frame.lines` exists to avoid, so it is
+   *  paid only when drilled: at the root there is no scope, no pass, and the arithmetic
+   *  below is what it always was. Inside a scope it is one add per live function against a
+   *  set lookup, next to a loop that already visits every one of them and does far more. */
+  const inScope = scope ? scopeOf(hist, scope) : null
+  let scopeLines = 0
+  if (inScope) {
+    for (const [f, loc] of frame.loc) {
+      const def = hist.funcs[f]
+      if (def && inScope.has(def.path)) scopeLines += loc
+    }
+  }
+  /** What a function inside the scope has to clear. Falls back to the repo-wide cut when the
+   *  scope holds nothing in this frame — a directory drilled into at HEAD and replayed from
+   *  before it existed, which is an ordinary thing to do. */
+  const scopeMin = inScope && scopeLines > 0 ? scopeLines / 4000 : minLoc
   /** Lines and count rolled up per file, for the stand-in wedges below. */
   const restLoc = new Map<number, number>()
   const restCount = new Map<number, number>()
@@ -658,7 +707,7 @@ export function frameTree(
     if (hist.excluded[def.path]) continue
     // Too thin to draw. Its lines still count — they reach the file wedge through the
     // stand-in below, so a file is the size it is whatever its inside looks like.
-    if (loc < minLoc) {
+    if (loc < (inScope && inScope.has(def.path) ? scopeMin : minLoc)) {
       restLoc.set(def.path, (restLoc.get(def.path) ?? 0) + loc)
       restCount.set(def.path, (restCount.get(def.path) ?? 0) + 1)
       continue
