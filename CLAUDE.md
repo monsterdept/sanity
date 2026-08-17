@@ -736,6 +736,21 @@ second metric, and the line between those is the whole design.
   view 22.3MB → 6.9MB. It is not 20× because ceph's opening block is an SVN import that lands
   62,804 functions in its first 2,000 commits — that 4.5MB is genuinely needed to draw the
   frame, and the honest next win is a compact encoding, not a later fetch.
+- **Two roll-ups, two id namespaces, and the ghosts came from forgetting that.** The replay
+  folds a per-file stand-in for everything too thin to draw, and `tileFunctions` mints its
+  own for the members a wedge cannot hold — both were `${path}#rest`, and in a replay the
+  second rolls up the first, so the pair arrived as siblings in one file's patch array.
+  React's answer to a duplicate key is that children "may be duplicated and/or omitted": it
+  duplicated one, lost track of the copy, and never rendered it again. That orphan is the
+  ghost — a wedge frozen where it was born, sitting outside the rings while the map moves
+  under it, cleared only by a remount. The fold's is `#folded` now.
+  **What made this findable was the wrong theory dying on one observation**: "they stay in
+  place as I move the timeline". Legitimate wedges are rebuilt every frame, so anything that
+  holds still is stale by definition, and the deep-narrow-branch story — which is real, and
+  does explain the labelled islands like `src/tools/rbd` — cannot explain a mark that never
+  moves. Diffing two frames of an exported replay put it beyond argument: the region was
+  pixel-identical across 23 seconds while labels 100px away had moved. **A screenshot shows
+  what is on screen; a diff of two shows what is not being redrawn.**
 - **Dressing the window for a replay waits for the FRAME, not for the request.** `historyOn`
   is a request; on a large repo it is true for a few hundred milliseconds while the map is
   still drawing today. The lens, the sort order, the legend and `morph` were keyed on it, so
