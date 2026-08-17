@@ -1687,10 +1687,7 @@ pub struct LogRow {
 /// Load `repo`'s stored timeline, or keep the one already loaded.
 fn with_loaded<T>(repo: &Path, f: impl FnOnce(&HistoryScan) -> T) -> Option<T> {
     let mut held = LOADED.lock().unwrap_or_else(|e| e.into_inner());
-    let fresh = match held.as_ref() {
-        Some((at, _)) if at == repo => false,
-        _ => true,
-    };
+    let fresh = !matches!(held.as_ref(), Some((at, _)) if at == repo);
     if fresh {
         *held = Some((repo.to_path_buf(), stored(repo, ALL_COMMITS)?));
     }

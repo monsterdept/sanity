@@ -482,7 +482,7 @@ impl ScanCache {
             // Whole file, via a temporary and a rename: a kill partway through would
             // otherwise leave a truncated last line, and while the reader drops those, a
             // half-written REWRITE would lose everything before it too.
-            let mut s = header_line(&inner);
+            let mut s = header_line(inner);
             for (k, e) in &inner.entries {
                 s.push_str(&entry_line(k, e));
             }

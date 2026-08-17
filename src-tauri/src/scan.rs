@@ -871,6 +871,7 @@ fn collapse_chains(node: &mut Node) {
 
 /// The whole pipeline. `on_progress` fires per directory — the app drives the mascot off
 /// it, so a scan of a big repo shows something moving rather than a frozen window.
+#[allow(clippy::too_many_arguments)]
 pub fn scan(
     root: &Path,
     model: &dyn SurpriseModel,
