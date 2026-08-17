@@ -685,22 +685,69 @@ pub fn parse_functions(lang: Lang, src: &str) -> Vec<FuncDef> {
     out
 }
 
-fn collect(node: TsNode, lang: Lang, kinds: &[&str], src: &str, out: &mut Vec<FuncDef>) {
-    if accepts(node, lang, kinds, src) {
-        let is_decl = node.kind() == "variable_declarator";
-        if !is_decl || declarator_is_function(node) {
-            if let Some(f) = extract(node, lang, src) {
-                out.push(f);
-                // Don't descend: a closure defined inside a function is part of that
-                // function's body, not a sibling wedge. Counting both would double the
-                // enclosing function's lines and dilute its score with its own guts.
+/// Pre-order over the syntax tree, on a cursor rather than on the call stack.
+///
+/// **Syntax depth is an input, and this used to recurse on it.** It read as bounded — code
+/// people write does not nest deeply, and the deepest BRACKET nesting anywhere in linux is
+/// 103 — but a tree's depth is not its source's indentation. Grammars nest what the text
+/// lays out flat: tree-sitter-c builds a left-nested `binary_expression` per operator, so
+/// one generated table with 2,609 `|`s in a statement is a chain 2,609 deep, and `#elif`
+/// chains, `else if` chains and ERROR recovery all do the same thing. Deep enough, and one
+/// frame per node overruns a rayon worker's 2 MiB stack — a quarter of what the main thread
+/// gets, which is why this could not be found by scanning anything by hand.
+///
+/// It aborts the PROCESS rather than failing the file: a stack overflow is not a panic, so
+/// there is no unwinding, no `Result`, and nothing rayon can catch. One file in a hundred
+/// thousand took the whole app down mid-scan, and what reached the window was a progress
+/// bar stopped on the phase before. A cursor walk is O(1) stack, so the depth stops being
+/// something the repo gets to decide.
+/// Pre-order over the syntax tree, on a cursor rather than on the call stack.
+///
+/// **Syntax depth is an input, and this used to recurse on it.** It read as bounded — code
+/// people write does not nest deeply, and the deepest BRACKET nesting anywhere in linux is
+/// 103 — but a tree's depth is not its source's indentation. Grammars nest what the text
+/// lays out flat: tree-sitter-c builds a left-nested `binary_expression` per operator, so
+/// one generated table with 2,609 `|`s in a statement is a chain 2,609 deep, and `#elif`
+/// chains, `else if` chains and ERROR recovery all do the same thing. Deep enough, and one
+/// frame per node overruns a rayon worker's 2 MiB stack — a quarter of what the main thread
+/// gets, which is why this could not be found by scanning anything by hand.
+///
+/// It aborts the PROCESS rather than failing the file: a stack overflow is not a panic, so
+/// there is no unwinding, no `Result`, and nothing rayon can catch. One file in a hundred
+/// thousand took the whole app down mid-scan, and what reached the window was a progress
+/// bar stopped on the phase before. A cursor walk is O(1) stack, so the depth stops being
+/// something the repo gets to decide.
+fn collect(root: TsNode, lang: Lang, kinds: &[&str], src: &str, out: &mut Vec<FuncDef>) {
+    let mut cursor = root.walk();
+    loop {
+        let node = cursor.node();
+        // Descend unless this node WAS a function: a closure defined inside one is part of
+        // that function's body, not a sibling wedge. Counting both would double the
+        // enclosing function's lines and dilute its score with its own guts.
+        let mut descend = true;
+        if accepts(node, lang, kinds, src) {
+            let is_decl = node.kind() == "variable_declarator";
+            if !is_decl || declarator_is_function(node) {
+                if let Some(f) = extract(node, lang, src) {
+                    out.push(f);
+                    descend = false;
+                }
+            }
+        }
+        if descend && cursor.goto_first_child() {
+            continue;
+        }
+        // Climb until there is a sibling to move to. The cursor was made from `root`, so it
+        // cannot ascend past it — `goto_parent` returning false at the top is the walk
+        // finishing, and is the only exit.
+        loop {
+            if cursor.goto_next_sibling() {
+                break;
+            }
+            if !cursor.goto_parent() {
                 return;
             }
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect(child, lang, kinds, src, out);
     }
 }
 
@@ -1315,6 +1362,42 @@ fn free_standing() -> u8 { 0 }
     fn unparseable_input_yields_nothing_rather_than_panicking() {
         assert!(parse_functions(Lang::Rust, "fn (((").is_empty());
         assert!(parse_functions(Lang::Go, "").is_empty());
+    }
+
+    /// A file deep enough to overflow a worker's stack yields functions instead of killing
+    /// the process.
+    ///
+    /// `collect` recursed on syntax depth, which reads as bounded and is not: tree-sitter-c
+    /// left-nests a `binary_expression` per operator, so a generated table with a couple of
+    /// thousand `|`s in one statement is a chain that many deep, and `#elif` and `else if`
+    /// chains and ERROR recovery all nest the same way. Scanning linux aborted the whole app
+    /// from a rayon worker, whose 2 MiB stack is a quarter of the main thread's — a stack
+    /// overflow is not a panic, so nothing unwound, no file was blamed and the window was
+    /// left showing the phase before.
+    ///
+    /// **Run on a thread with a stack SMALLER than the workers', on purpose.** The condition
+    /// under test is depth against a fixed stack, and a test inheriting whatever
+    /// `RUST_MIN_STACK` happens to be would pass or fail by environment. 512 KiB holds a few
+    /// thousand of the old frames; 50,000 terms is an order of magnitude past that and
+    /// nothing at all to a cursor walk.
+    #[test]
+    fn a_deeply_nested_file_does_not_overflow_the_stack() {
+        let deep = std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(|| {
+                // OUTSIDE a function, which is the only place depth can bite: `collect`
+                // stops descending the moment it accepts one, so a chain in a body is
+                // never walked and a test that put it there passed against the recursion
+                // it was written to catch.
+                let chain = vec!["1"; 50_000].join(" | ");
+                let src = format!("static const int table[] = {{ {chain} }};\nint after(void) {{ return 0; }}\n");
+                parse_functions(Lang::C, &src)
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(deep.len(), 1, "the function past the deep node is still found");
+        assert_eq!(deep[0].name, "after");
     }
 
     /// Swift, added because a scan of an iOS/macOS project reported eight functions —
