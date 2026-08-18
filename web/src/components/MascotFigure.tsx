@@ -4,27 +4,20 @@ import {
   randomizeMascot,
   type MascotAnimation,
   type MascotConfig,
+  type MascotExtent,
   type MascotHandle,
 } from '../lib/mascot'
 import type { AgentCall } from '../lib/api'
+import { saveMonster, storedMonster } from '../lib/monster'
 
-/** One creature per machine, minted on first run and kept, so the thing working through
- *  your repo is recognizably the same thing each time you open the app. */
-const STORAGE_KEY = 'sanity.mascot'
-
-function loadOrMint(): MascotConfig {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved) return JSON.parse(saved) as MascotConfig
-  } catch {
-    /* unreadable or corrupt — fall through and mint a fresh one */
-  }
+function loadOrMint(project: string | null | undefined): MascotConfig {
+  const saved = storedMonster(project)
+  if (saved) return saved as MascotConfig
+  // The one place a creature is born — from the first look at a project, and from a
+  // `forgetMonster` in the sidebar's menu, which is the same path deliberately. Minting
+  // needs the bundle, which is why it happens here and not beside the storage.
   const fresh = randomizeMascot()
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh))
-  } catch {
-    /* storage unavailable; this machine's mascot just won't persist */
-  }
+  saveMonster(project, fresh)
   return fresh
 }
 
@@ -91,20 +84,6 @@ const CONFUSED_EVERY_MS = 1400
  *  enough that a full poll interval's backlog clears before the next one arrives. */
 const BEAT_MS = 520
 
-/** Clicks to mint a new creature, and how long a run of them may take.
- *
- *  **Six, and a window, because this must not be reachable by accident.** The mascot is a
- *  permanent fixture in the corner of a panel with a Read button in it, so a single click
- *  replacing the thing you have watched work through your repo for a week would be a small
- *  cruelty. Six deliberate ones is a gesture nobody performs by mistake, and the window
- *  means a stray click on Tuesday does not count toward one on Friday.
- *
- *  There is deliberately no confirmation and no undo: the blueprint is random, so the old
- *  one cannot be described to somebody in a dialog, and getting another is six more
- *  clicks. */
-const REMINT_CLICKS = 6
-const REMINT_WINDOW_MS = 2000
-
 /** Of a backlog, how much is worth watching. Beyond this the burst stops being legible as
  *  a sequence and becomes a twitch, and the oldest calls are the least interesting. */
 const MAX_REPLAY = 4
@@ -139,81 +118,7 @@ const STIR_AFTER_MS = 8000
  *  a reading earns: noticing you is not news about the repo. */
 const STIRRED: MascotAnimation[] = ['lookAround', 'headTilt', 'wiggle', 'stretch']
 
-/** The creature's own vertical offset inside the canvas, in fractions of the canvas height.
- *
- *  **A digital apple box.** The bundle renders every blueprint standing on the same ground
- *  plane, and blueprints are not the same height — a tall one fills the frame, a short one
- *  sits in the bottom third with a lot of sky above it. In a panel that is invisible; in the
- *  middle of a disc it is the whole impression, because the disc is a circle and the eye
- *  reads the creature against its center.
- *
- *  So the ink is measured rather than guessed: one snapshot after the scene settles, scanned
- *  for the topmost and bottommost pixel that is not transparent, and the creature is shifted
- *  by however far the middle of that band is from the middle of the frame. Measured per
- *  blueprint, because that is the thing that varies, and once, because it does not move.
- *
- *  It cannot be a constant. Every value a constant could take is right for one creature and
- *  wrong for the next, and the next one is a random mint away. */
-function inkOffset(url: string, box: number): Promise<number> {
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.onload = () => {
-      const w = img.naturalWidth
-      const h = img.naturalHeight
-      if (w === 0 || h === 0) return resolve(0)
-      const c = document.createElement('canvas')
-      c.width = w
-      c.height = h
-      const ctx = c.getContext('2d', { willReadFrequently: true })
-      if (!ctx) return resolve(0)
-      ctx.drawImage(img, 0, 0)
-      let top = -1
-      let bottom = -1
-      let data: Uint8ClampedArray
-      try {
-        data = ctx.getImageData(0, 0, w, h).data
-      } catch {
-        // A tainted canvas. Nothing to measure and nothing to be done about it; standing on
-        // the floor is the behaviour this replaces, not a broken state.
-        return resolve(0)
-      }
-      // Rows, not pixels: the answer is a vertical extent, and a row is decided by the first
-      // opaque pixel in it. `> 8` rather than `> 0` because the renderer leaves a whisper of
-      // antialiasing well outside the creature, and measuring to that measures the frame.
-      for (let y = 0; y < h && top < 0; y++) {
-        for (let x = 0; x < w; x++) {
-          if (data[(y * w + x) * 4 + 3] > 8) {
-            top = y
-            break
-          }
-        }
-      }
-      for (let y = h - 1; y >= 0 && bottom < 0; y--) {
-        for (let x = 0; x < w; x++) {
-          if (data[(y * w + x) * 4 + 3] > 8) {
-            bottom = y
-            break
-          }
-        }
-      }
-      if (top < 0 || bottom < top) return resolve(0)
-      // In CSS pixels of the box we are drawing into: the snapshot comes back at the
-      // renderer's own resolution, which is the device pixel ratio times the size we asked
-      // for, and a shift computed in those units would be twice as far on a retina display.
-      resolve(((h / 2 - (top + bottom) / 2) * box) / h)
-    }
-    img.onerror = () => resolve(0)
-    img.src = url
-  })
-}
 
-/** How long after the scene reports itself ready to let it settle before measuring, in ms.
- *  The creature arrives mid-build and mid-entry-pose, and measuring there measures a
- *  raised arm or a half-assembled body. */
-const SETTLE_MS = 500
-
-/** The backstop, from mount: measure anyway, ready or not. A bundle that never reports ready
- *  must not leave an invisible creature forever. */
 /** How often the gaze is re-pushed at the creature while there is something to watch.
  *
  *  Not an animation rate — the engine pursues the point smoothly on its own, so this only
@@ -228,12 +133,6 @@ const AIM_MS = 100
  *  Long enough to read as attention rather than a twitch, short enough that a lull with
  *  three files in it still looks like something is happening. */
 const DWELL_MS = 900
-
-const MEASURE_AFTER_MS = 1200
-
-/** How often to look for the settle point. Short enough that the wait is the settle and not
- *  the polling. */
-const POLL_MS = 100
 
 function pick(from: MascotAnimation[]): MascotAnimation {
   return from[Math.floor(Math.random() * from.length)]
@@ -250,6 +149,8 @@ export default function MascotFigure({
   events = [],
   state = 'working',
   gaze,
+  project,
+  remint,
 }: {
   size?: number
   /** The last few agent calls, oldest first, as the backend saw them. */
@@ -260,18 +161,32 @@ export default function MascotFigure({
    *  hand the eyes back to the bundle's own wandering. More than one is looked at in turn;
    *  see `gaze` in `Sunburst`, which aims these at whatever is flashing. */
   gaze?: Array<{ x: number; y: number }> | null
+  /** Which repo this creature belongs to. Its blueprint is stored per project — see
+   *  `loadOrMint`. */
+  project?: string | null
+  /** Bumped when the sidebar mints a new one for this project, which is the only thing that
+   *  can change a blueprint that is otherwise kept forever. A counter rather than the config
+   *  itself: the blueprint lives in storage, and passing it down would make two owners of
+   *  one fact. */
+  remint?: number
 }) {
-  const [config, setConfig] = useState<MascotConfig>(() => loadOrMint())
-  /** Clicks so far, and when the last one landed — see `REMINT_CLICKS`. A ref because a
-   *  half-finished gesture is not state anything renders. */
-  const clicks = useRef({ n: 0, at: 0 })
+  const [config, setConfig] = useState<MascotConfig>(() => loadOrMint(project))
+  // A different project is a different creature, and a remint is a new one for this project.
+  const shown = useRef<string>(`${project ?? ''}:${remint ?? 0}`)
+  const want = `${project ?? ''}:${remint ?? 0}`
+  if (shown.current !== want) {
+    shown.current = want
+    setConfig(loadOrMint(project))
+  }
   const handle = useRef<MascotHandle>(null)
-  /** How far this creature has to be lifted to look centred — see `inkOffset`.
+  /** How far this creature has to be lifted to look centred — see `onReady`.
    *
-   *  **Null means "not measured yet", and while it is null the creature is not shown.** It
-   *  used to be zero, which draws the creature standing on the floor of its box for the
-   *  second it takes to measure and then jumps it into place — and a jump is worse than a
-   *  wait, because the wait is invisible and the jump is the first thing you see it do. */
+   *  **Null means "the bundle has not said yet", and it lasts a frame rather than a second.**
+   *  It used to mean "not measured yet" and hid the creature for as long as the measurement
+   *  took, because the alternative was drawing it on the floor and then jumping it into
+   *  place — and a jump is worse than a wait. The extent now arrives with `ready`, before
+   *  anything is drawn, so there is no window to hide: what the hiding was costing was the
+   *  intro animation, which nobody had ever seen. */
   const [lift, setLift] = useState<number | null>(null)
   /** Highest call sequence already animated. Starts at zero rather than at the first
    *  batch's head on purpose — opening the window mid-run should replay the tail, which
@@ -288,41 +203,36 @@ export default function MascotFigure({
     }
   }, [])
 
-  // Measure the creature and build its box. Once per blueprint and per size: a remint is a
-  // different creature standing at a different height, and the offset is in pixels of the
-  // box it is drawn into.
-  //
-  // **Once. Measuring twice is the jump wearing the other shoe.** It measured on `onReady`
-  // and again on the timer, and the two disagreed — the ready frame is the scene's first,
-  // not its settled one, so the creature appeared high and then dropped into place. Which of
-  // the two was right does not matter: any pair of measurements a person can see between is
-  // a jump, and the second one is always the one worth keeping.
-  const measure = useCallback(() => {
-    // **`snapshot`, and not the bundle's `captureImage`.** The latter looks like the right
-    // tool — it renders with the background removed, which is what makes alpha mean
-    // "creature" — and it is unreachable: it is defined on the renderer underneath, and the
-    // wrapper the React handle hands back does not forward it. Called through `renderer` it
-    // is `undefined`, the effect throws, and nothing is ever measured, which is exactly how
-    // this broke once.
-    // `snapshot` works because the canvas is transparent as composited — that is why the
-    // creature sits on the map with no square around it. If a scene ever arrives with a
-    // background, every row carries alpha, the offset comes out zero, and the creature
-    // stands on the floor as it did before any of this existed.
-    const shot = handle.current?.snapshot()
-    if (!shot) return false
-    void inkOffset(shot, size).then((y) => {
-      if (mounted.current) setLift(y)
-    })
-    return true
-  }, [size])
-  /** When the scene reported itself ready, if it has. Read by the measuring effect, which is
-   *  what makes this a signal rather than a second place that measures. */
-  const readyAt = useRef(0)
-  /** Stable, because the bundle rebuilds the whole creature whenever this identity changes —
+  // The offset is in pixels of the box it is drawn into, so it is per blueprint AND per
+  // size: a remint is a different creature standing at a different height.
+  /** Where the creature rests in its canvas, once the bundle says.
+   *
+   *  **Handed over, not measured.** This used to snapshot the canvas and scan the alpha for
+   *  the topmost and bottommost opaque row — and its own doc said the reason it could be
+   *  done once was that the creature "does not move". It moves constantly: an idle bob and
+   *  breath run the whole time, the intro plays over the first frames, and any mood can
+   *  throw a limb past the resting outline. So it was one sample of an oscillating signal,
+   *  kept forever, and every so often it caught a hop and stood the creature too high for
+   *  the rest of the session.
+   *
+   *  The library reports its resting silhouette now (`restExtent`, added upstream), which is
+   *  a property of the blueprint rather than of the instant it was asked. Two things fall
+   *  out: the answer is right every time, and it is available before the first frame — so
+   *  there is nothing to hide while it is worked out, and the intro animation is finally
+   *  visible instead of being covered by the thing that was measuring it.
+   *
+   *  Stable, because the bundle rebuilds the whole creature whenever this identity changes —
    *  an inline arrow here is a scene disposed and built again on every render of the app. */
-  const onReady = useCallback(() => {
-    readyAt.current = performance.now()
-  }, [])
+  const onReady = useCallback(
+    (_renderer: unknown, extent: MascotExtent | null) => {
+      if (!mounted.current) return
+      // Absent is a real answer: a bundle that cannot say — the committed placeholder — gets
+      // the creature standing on the floor of its box, which is where it stood before any of
+      // this existed.
+      setLift(extent ? Math.round((0.5 - (extent.top + extent.bottom) / 2) * size) : 0)
+    },
+    [size],
+  )
 
   /**
    * Watch what the map is doing.
@@ -384,35 +294,6 @@ export default function MascotFigure({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [(gaze ?? []).map((d) => `${d.x},${d.y}`).join(';')])
 
-  useEffect(() => {
-    let live = true
-    let id = 0
-    setLift(null)
-    // Wait for the scene to say it is ready, then let it settle, and measure that. `onReady`
-    // fires on the FIRST frame — parts still arriving, the entry pose not finished — and a
-    // measurement taken there is of a creature that is not yet standing where it will stand.
-    //
-    // The poll is what keeps this honest against a bundle that never reports ready: the
-    // committed placeholder does not, so `MEASURE_AFTER_MS` from mount the creature is
-    // measured anyway, and if there is nothing to snapshot even then it is revealed where it
-    // stands rather than left as an empty disc in the middle of the map.
-    const began = performance.now()
-    const check = () => {
-      if (!live) return
-      const now = performance.now()
-      const settled = readyAt.current > 0 && now - readyAt.current >= SETTLE_MS
-      if (!settled && now - began < MEASURE_AFTER_MS) {
-        id = window.setTimeout(check, POLL_MS)
-        return
-      }
-      if (!measure()) setLift(0)
-    }
-    id = window.setTimeout(check, POLL_MS)
-    return () => {
-      live = false
-      window.clearTimeout(id)
-    }
-  }, [config, measure])
 
   // **Moving the mouse anywhere in the window wakes it.** The bundle sleeps on its own idle
   // clock, which is the right behaviour for a window nobody is at — and the wrong one for a
@@ -502,28 +383,12 @@ export default function MascotFigure({
     }
   }, [events, state])
 
-  /** Six clicks in quick succession mints a new creature. */
-  function onClick() {
-    const now = Date.now()
-    const run = clicks.current
-    run.n = now - run.at > REMINT_WINDOW_MS ? 1 : run.n + 1
-    run.at = now
-    if (run.n < REMINT_CLICKS) return
-    run.n = 0
-    const fresh = randomizeMascot()
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh))
-    } catch {
-      /* storage unavailable; the new one just won't outlive the window */
-    }
-    setConfig(fresh)
-  }
-
-  // A span rather than a button: this is an easter egg on a decoration, and a real button
-  // would put it in the tab order and announce itself to a screen reader as a control that
-  // does nothing describable.
+  // **A creature is not a control.** Getting another one is a named item in the project's
+  // own menu now, where it can say what it does — it used to be six clicks on the creature
+  // itself, a gesture with nothing on screen to discover it by and nothing to explain it,
+  // sitting on a decoration in a panel with a real button beside it.
   return (
-    <span onClick={onClick} className="contents">
+    <span className="contents">
       {/* Keyed on the blueprint, so a new one REMOUNTS rather than re-rendering. The scene
           builds its parts when it mounts and the handle is imperative — feeding a fresh
           config to the same instance leaves the old creature on screen, which reads as six

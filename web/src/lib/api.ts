@@ -617,14 +617,24 @@ export function openCodeWindow(repo: string, relPath: string): Promise<void> {
   return invoke('open_code_window', { repo, relPath })
 }
 
-/** One file's functions — the ring inside its wedge. See `Node.funcs` and `file_functions`.
+/** The rings inside a set of file wedges. See `Node.funcs` and `file_functions`.
  *
  *  Asked for per file rather than sent with the tree: a repo's worth of them is 75MB on
  *  ceph, almost none of it drawable, and it cost five seconds of parsing before anything
- *  appeared. */
-export async function fileFunctions(key: string, path: string): Promise<Node[]> {
-  const wire = await invoke<WireNode[]>('file_functions', { key, path })
-  return wire.map(toNode)
+ *  appeared.
+ *
+ *  **A set per call, not a file per call.** Rust finds them by walking the tree, so one
+ *  path per call was one walk of the whole repo per file — and drilling asks for every file
+ *  in a directory at once. On linux that was a flat two seconds on every change of level,
+ *  the same two seconds wherever you went, because it was paced by the size of the repo
+ *  rather than of the directory. A path the tree does not hold is simply absent from the
+ *  answer. */
+export async function fileFunctions(
+  key: string,
+  paths: string[],
+): Promise<Map<string, Node[]>> {
+  const wire = await invoke<Record<string, WireNode[]>>('file_functions', { key, paths })
+  return new Map(Object.entries(wire).map(([path, fns]) => [path, fns.map(toNode)]))
 }
 
 export async function projectScan(key: string): Promise<Scan | null> {
@@ -1065,6 +1075,22 @@ export function summarize(root: Node): RepoSummary {
   }
   const walk = (n: Node, out: boolean) => {
     const outOfScope = out || n.excluded
+    // **A file counts the functions it is holding but has not handed over.** `funcs` is the
+    // count a file carries INSTEAD of its children — rings are fetched only for files wide
+    // enough to draw an inside — so without this the total is not the subtree's, it is
+    // whatever happened to be fetched. At the root of a large repo that is nothing, and the
+    // panel came up blank; after drilling and coming back it was the subtree just visited,
+    // printed under the repo's name. The count is the scan's own and does not depend on
+    // where anybody has been looking.
+    //
+    // The reading counts below cannot be recovered this way — a grade belongs to a
+    // function, and an unfetched one has none here — so they stay what they are: what is
+    // known of what is loaded. `unread` is what closes the gap, and it is derived from this
+    // total rather than counted, so the three still add up.
+    if (n.kind === 'file' && n.funcs > 0) {
+      if (outOfScope) s.excluded += n.funcs
+      else s.functions += n.funcs
+    }
     if (n.kind === 'func') {
       if (outOfScope) {
         s.excluded++
@@ -1087,13 +1113,17 @@ export function summarize(root: Node): RepoSummary {
         }
         if (trapOf(n.agent)) s.traps++
         if (temperature(n.score) > HOT) s.hot.push(n)
-      } else {
-        s.unread++
       }
     }
     n.children.forEach((c) => walk(c, outOfScope))
   }
   walk(root, false)
+  // **Derived, so the three add up to the total.** It was counted per function, which made
+  // it a count of the unread among the LOADED — and beside a `functions` total that is now
+  // the subtree's real one, the arithmetic on screen would not close. Everything neither
+  // read nor stale is unread, including the functions no ring has been fetched for, which
+  // is exactly what they are.
+  s.unread = Math.max(0, s.functions - s.read - s.stale)
   const hottestFirst = (a: Node, b: Node) =>
     temperature(b.score) - temperature(a.score) || b.loc - a.loc
   s.hot.sort(hottestFirst)

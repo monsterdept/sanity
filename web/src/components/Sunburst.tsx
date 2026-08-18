@@ -342,7 +342,7 @@ function SunburstView({
    *
    *  Absent is a legitimate value — the history replay has no run to depict — and absence
    *  draws nothing rather than a sleeping creature over a story from 2019. */
-  mascot?: { events: AgentCall[]; state: MascotState }
+  mascot?: { events: AgentCall[]; state: MascotState; project?: string | null; remint?: number }
   /** Ease the rings toward the shape they are given, instead of taking it.
    *
    *  On for the history replay, which is where a tree arrives that is neither a new level
@@ -1800,6 +1800,8 @@ function SunburstView({
             events={mascot.events}
             state={mascot.state}
             gaze={gaze}
+            project={mascot.project}
+            remint={mascot.remint}
           />
         </div>
       )}

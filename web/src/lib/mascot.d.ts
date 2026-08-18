@@ -11,16 +11,29 @@ import type { CSSProperties, ForwardRefExoticComponent, RefAttributes } from 're
 // round-trip it unchanged.
 export type MascotConfig = unknown
 
+/** Where the creature sits inside its canvas AT REST, as fractions of the canvas height:
+ *  0 is the top edge and 1 the bottom.
+ *
+ *  **The resting silhouette, which is the only version of this worth having.** The creature
+ *  is never still — an idle bob and breath run continuously, the intro plays over the first
+ *  frames, and any animation can throw a limb past the resting outline — so a host that
+ *  measures a frame is sampling something that moves and gets a different answer depending
+ *  on when it looked. This is computed from the parts' base transforms, so it does not. */
+export interface MascotExtent {
+  top: number
+  bottom: number
+}
+
 export interface MascotProps {
   config: MascotConfig
   size?: number
   className?: string
   style?: CSSProperties
-  /** Called once the scene has built its parts and drawn a first frame — which is the
-   *  earliest moment a snapshot means anything. **It is a dependency of the effect that
-   *  builds the scene**, so it must be stable: a fresh arrow each render disposes and
+  /** Called once the scene has built its parts and drawn a first frame, with where the
+   *  creature rests in its canvas — see `MascotExtent`. **It is a dependency of the effect
+   *  that builds the scene**, so it must be stable: a fresh arrow each render disposes and
    *  rebuilds the creature on every render. */
-  onReady?: (renderer: unknown) => void
+  onReady?: (renderer: unknown, extent: MascotExtent | null) => void
 }
 
 export type MascotAnimation =
@@ -96,6 +109,9 @@ export interface MascotHandle {
   play(animation: MascotAnimation | string): void
   wake(): void
   snapshot(): string | null
+  /** Where the creature rests in its canvas. Also handed to `onReady`, which is the moment
+   *  a host that positions it actually needs it. */
+  restExtent(): MascotExtent | null
   /** The scene itself. The wrapper forwards a handful of methods and exposes this for the
    *  rest — see [`MascotRenderer`]. */
   readonly renderer: MascotRenderer | null

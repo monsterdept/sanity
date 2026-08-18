@@ -1,34 +1,34 @@
 import * as D from "three";
-import { GLTFLoader as u0 } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { jsx as T0 } from "react/jsx-runtime";
-import { forwardRef as N0, useRef as t0, useImperativeHandle as O0, useEffect as Y0 } from "react";
-const L0 = { scale: {}, scaleX: {}, scaleY: {}, rotation: {}, pivotX: {}, pivotY: {} };
-let DA = { ...L0 };
-function f0(a) {
-  Object.assign(DA.scale, a.scale ?? {}), Object.assign(DA.scaleX, a.scaleX ?? {}), Object.assign(DA.scaleY, a.scaleY ?? {}), Object.assign(DA.rotation, a.rotation ?? {}), Object.assign(DA.pivotX, a.pivotX ?? {}), Object.assign(DA.pivotY, a.pivotY ?? {});
+import { GLTFLoader as O0 } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { jsx as Y0 } from "react/jsx-runtime";
+import { forwardRef as L0, useRef as s0, useImperativeHandle as f0, useEffect as V0 } from "react";
+const U0 = { scale: {}, scaleX: {}, scaleY: {}, rotation: {}, pivotX: {}, pivotY: {} };
+let DA = { ...U0 };
+function X0(l) {
+  Object.assign(DA.scale, l.scale ?? {}), Object.assign(DA.scaleX, l.scaleX ?? {}), Object.assign(DA.scaleY, l.scaleY ?? {}), Object.assign(DA.rotation, l.rotation ?? {}), Object.assign(DA.pivotX, l.pivotX ?? {}), Object.assign(DA.pivotY, l.pivotY ?? {});
 }
 function nA() {
   return DA;
 }
-function xA(a, A) {
-  return nA().scale[a] ?? A;
+function EA(l, A) {
+  return nA().scale[l] ?? A;
 }
-function I0(a, A) {
-  return nA().scaleX[a] ?? A;
+function t0(l, A) {
+  return nA().scaleX[l] ?? A;
 }
-function a0(a, A) {
-  return nA().scaleY[a] ?? A;
+function I0(l, A) {
+  return nA().scaleY[l] ?? A;
 }
-function WA(a, A) {
-  return nA().rotation[a] ?? A;
+function xA(l, A) {
+  return nA().rotation[l] ?? A;
 }
-function SA(a, A) {
-  return nA().pivotX[a] ?? A;
+function WA(l, A) {
+  return nA().pivotX[l] ?? A;
 }
-function GA(a, A) {
-  return nA().pivotY[a] ?? A;
+function SA(l, A) {
+  return nA().pivotY[l] ?? A;
 }
-const V0 = {
+const E0 = {
   scale: {
     "body-bobycloud": 1.2,
     "body-body-ballgreenpeach": 3.2,
@@ -156,8 +156,8 @@ const V0 = {
     "body-exportball": 0
   }
 };
-f0(V0);
-const U0 = {
+X0(E0);
+const x0 = {
   light1On: !0,
   light2On: !0,
   light1Brightness: 1.5,
@@ -175,7 +175,7 @@ const U0 = {
   light2Bias: -7e-3,
   light2NormalBias: 2
 };
-class X0 {
+class W0 {
   renderer;
   scene;
   camera;
@@ -206,23 +206,23 @@ class X0 {
   _pixelCamera = null;
   _pixelMesh = null;
   constructor(A, i, s, e) {
-    const t = e?.frustum ?? 500, l = e?.cameraDist ?? 1e3, I = e?.cameraFar ?? 2e3, c = e?.shadowCameraSize ?? 600;
-    this._frustum = t, this._initialFrustum = t, this._cameraDist = l, this.renderer = new D.WebGLRenderer({
+    const t = e?.frustum ?? 500, a = e?.cameraDist ?? 1e3, I = e?.cameraFar ?? 2e3, c = e?.shadowCameraSize ?? 600;
+    this._frustum = t, this._initialFrustum = t, this._cameraDist = a, this.renderer = new D.WebGLRenderer({
       canvas: A,
       antialias: !0,
       alpha: !0,
       preserveDrawingBuffer: !0,
       stencil: !0
     }), this.renderer.setSize(i, s), this.renderer.setPixelRatio(window.devicePixelRatio), this._width = i, this._height = s, this.renderer.shadowMap.enabled = !0, this.renderer.shadowMap.type = D.PCFSoftShadowMap, this.renderer.autoClearStencil = !0, this.scene = new D.Scene();
-    const n = i / s;
+    const g = i / s;
     this.camera = new D.OrthographicCamera(
-      -t * n,
-      t * n,
+      -t * g,
+      t * g,
       t,
       -t,
       1,
       I
-    ), this.camera.position.set(0, 0, l), this.camera.lookAt(0, 0, 0), this.dirLight1 = new D.DirectionalLight(16777215, 1.5), this.dirLight1.position.set(300, 300, 500), this.dirLight1.target.position.set(0, 0, 0), this.dirLight1.castShadow = !0, this.dirLight1.shadow.mapSize.width = 2048, this.dirLight1.shadow.mapSize.height = 2048, this.dirLight1.shadow.radius = 8, this.dirLight1.shadow.bias = -7e-3, this.dirLight1.shadow.normalBias = 2, this.dirLight1.shadow.camera.near = 1, this.dirLight1.shadow.camera.far = I, this.dirLight1.shadow.camera.left = -c, this.dirLight1.shadow.camera.right = c, this.dirLight1.shadow.camera.top = c, this.dirLight1.shadow.camera.bottom = -c, this.scene.add(this.dirLight1), this.scene.add(this.dirLight1.target), this.dirLight2 = new D.DirectionalLight(16777215, 0.8), this.dirLight2.position.set(-200, -200, 400), this.dirLight2.target.position.set(0, 0, 0), this.dirLight2.castShadow = !0, this.dirLight2.shadow.mapSize.width = 2048, this.dirLight2.shadow.mapSize.height = 2048, this.dirLight2.shadow.radius = 8, this.dirLight2.shadow.bias = -7e-3, this.dirLight2.shadow.normalBias = 2, this.dirLight2.shadow.camera.near = 1, this.dirLight2.shadow.camera.far = I, this.dirLight2.shadow.camera.left = -c, this.dirLight2.shadow.camera.right = c, this.dirLight2.shadow.camera.top = c, this.dirLight2.shadow.camera.bottom = -c, this.scene.add(this.dirLight2), this.scene.add(this.dirLight2.target), this.fillLight = new D.DirectionalLight(16777215, 0.3), this.fillLight.position.copy(this.camera.position), this.fillLight.target.position.set(0, 0, 0), this.fillLight.castShadow = !1, this.scene.add(this.fillLight), this.scene.add(this.fillLight.target), this.shadowCatcher = new D.Mesh(
+    ), this.camera.position.set(0, 0, a), this.camera.lookAt(0, 0, 0), this.dirLight1 = new D.DirectionalLight(16777215, 1.5), this.dirLight1.position.set(300, 300, 500), this.dirLight1.target.position.set(0, 0, 0), this.dirLight1.castShadow = !0, this.dirLight1.shadow.mapSize.width = 2048, this.dirLight1.shadow.mapSize.height = 2048, this.dirLight1.shadow.radius = 8, this.dirLight1.shadow.bias = -7e-3, this.dirLight1.shadow.normalBias = 2, this.dirLight1.shadow.camera.near = 1, this.dirLight1.shadow.camera.far = I, this.dirLight1.shadow.camera.left = -c, this.dirLight1.shadow.camera.right = c, this.dirLight1.shadow.camera.top = c, this.dirLight1.shadow.camera.bottom = -c, this.scene.add(this.dirLight1), this.scene.add(this.dirLight1.target), this.dirLight2 = new D.DirectionalLight(16777215, 0.8), this.dirLight2.position.set(-200, -200, 400), this.dirLight2.target.position.set(0, 0, 0), this.dirLight2.castShadow = !0, this.dirLight2.shadow.mapSize.width = 2048, this.dirLight2.shadow.mapSize.height = 2048, this.dirLight2.shadow.radius = 8, this.dirLight2.shadow.bias = -7e-3, this.dirLight2.shadow.normalBias = 2, this.dirLight2.shadow.camera.near = 1, this.dirLight2.shadow.camera.far = I, this.dirLight2.shadow.camera.left = -c, this.dirLight2.shadow.camera.right = c, this.dirLight2.shadow.camera.top = c, this.dirLight2.shadow.camera.bottom = -c, this.scene.add(this.dirLight2), this.scene.add(this.dirLight2.target), this.fillLight = new D.DirectionalLight(16777215, 0.3), this.fillLight.position.copy(this.camera.position), this.fillLight.target.position.set(0, 0, 0), this.fillLight.castShadow = !1, this.scene.add(this.fillLight), this.scene.add(this.fillLight.target), this.shadowCatcher = new D.Mesh(
       new D.PlaneGeometry(3e3, 3e3),
       new D.ShadowMaterial({ opacity: 0.3, transparent: !0 })
     ), this.shadowCatcher.name = "_shadowCatcher", this.shadowCatcher.position.set(0, 0, -2), this.shadowCatcher.receiveShadow = !0, this.shadowCatcher.castShadow = !1, this.scene.add(this.shadowCatcher), this._boundsFrame = new D.LineLoop(
@@ -390,27 +390,27 @@ class X0 {
   // cssW/cssH are the canvas CSS dimensions; thumbPx is the thumbnail side length in CSS px.
   // Editor overlays (objects tagged userData.editorOverlay) are hidden during the render.
   renderThumbnail(A, i, s) {
-    const { left: t, right: l, top: I, bottom: c } = this.camera, n = this._frustum;
-    this.camera.left = -n, this.camera.right = n, this.camera.top = n, this.camera.bottom = -n, this.camera.updateProjectionMatrix();
+    const { left: t, right: a, top: I, bottom: c } = this.camera, g = this._frustum;
+    this.camera.left = -g, this.camera.right = g, this.camera.top = g, this.camera.bottom = -g, this.camera.updateProjectionMatrix();
     const r = [];
-    this.scene.traverse((M) => {
-      M.userData.editorOverlay && M.visible && (r.push(M), M.visible = !1);
+    this.scene.traverse((n) => {
+      n.userData.editorOverlay && n.visible && (r.push(n), n.visible = !1);
     });
     const o = A - s - 10;
     if (this._pixelate && this._pixelSize > 1 && this._pixelScene && this._pixelCamera && this._pixelMesh) {
-      const M = Math.max(1, Math.floor(s / this._pixelSize));
-      this._pixelThumbTarget ? this._pixelThumbTarget.setSize(M, M) : (this._pixelThumbTarget = new D.WebGLRenderTarget(M, M, {
+      const n = Math.max(1, Math.floor(s / this._pixelSize));
+      this._pixelThumbTarget ? this._pixelThumbTarget.setSize(n, n) : (this._pixelThumbTarget = new D.WebGLRenderTarget(n, n, {
         minFilter: D.NearestFilter,
         magFilter: D.NearestFilter,
         depthBuffer: !0,
         stencilBuffer: !0
       }), this._pixelThumbTarget.texture.generateMipmaps = !1), this.renderer.setRenderTarget(this._pixelThumbTarget), this.renderer.render(this.scene, this.camera), this.renderer.setRenderTarget(null);
-      const y = this._pixelMesh.material;
-      y.map = this._pixelThumbTarget.texture, this.renderer.setScissorTest(!0), this.renderer.setScissor(o, 10, s, s), this.renderer.setViewport(o, 10, s, s), this.renderer.render(this._pixelScene, this._pixelCamera), y.map = this._pixelTarget?.texture ?? null;
+      const m = this._pixelMesh.material;
+      m.map = this._pixelThumbTarget.texture, this.renderer.setScissorTest(!0), this.renderer.setScissor(o, 10, s, s), this.renderer.setViewport(o, 10, s, s), this.renderer.render(this._pixelScene, this._pixelCamera), m.map = this._pixelTarget?.texture ?? null;
     } else
       this.renderer.setScissorTest(!0), this.renderer.setScissor(o, 10, s, s), this.renderer.setViewport(o, 10, s, s), this.renderer.render(this.scene, this.camera);
-    for (const M of r) M.visible = !0;
-    this.camera.left = t, this.camera.right = l, this.camera.top = I, this.camera.bottom = c, this.camera.updateProjectionMatrix(), this.renderer.setScissorTest(!1), this.renderer.setViewport(0, 0, A, i);
+    for (const n of r) n.visible = !0;
+    this.camera.left = t, this.camera.right = a, this.camera.top = I, this.camera.bottom = c, this.camera.updateProjectionMatrix(), this.renderer.setScissorTest(!1), this.renderer.setViewport(0, 0, A, i);
   }
   dispose() {
     this._disposePixelTarget(), this._pixelMesh?.geometry.dispose(), this._pixelMesh && this._pixelMesh.material.dispose(), this.renderer.dispose(), this.scene.traverse((A) => {
@@ -418,11 +418,11 @@ class X0 {
     });
   }
 }
-class M0 {
+class P0 {
   loader;
   cache;
   constructor() {
-    this.loader = new u0(), this.cache = /* @__PURE__ */ new Map();
+    this.loader = new O0(), this.cache = /* @__PURE__ */ new Map();
   }
   cloneWithOwnMaterials(A) {
     const i = A.clone();
@@ -451,45 +451,45 @@ class M0 {
     }), this.cache.set(A.glbPath, s), this.cloneWithOwnMaterials(s);
   }
 }
-const JA = new M0(), l0 = /* @__PURE__ */ new Map(), bA = 256;
-function o0(a) {
-  const A = a.replace("#", "").padEnd(6, "0").slice(0, 6), i = parseInt(A.slice(0, 2), 16), s = parseInt(A.slice(2, 4), 16), e = parseInt(A.slice(4, 6), 16);
+const JA = new P0(), a0 = /* @__PURE__ */ new Map(), uA = 256;
+function l0(l) {
+  const A = l.replace("#", "").padEnd(6, "0").slice(0, 6), i = parseInt(A.slice(0, 2), 16), s = parseInt(A.slice(2, 4), 16), e = parseInt(A.slice(4, 6), 16);
   return [Number.isFinite(i) ? i : 0, Number.isFinite(s) ? s : 0, Number.isFinite(e) ? e : 0];
 }
-function E0(a) {
-  if (!a.startColor || !a.endColor) return null;
-  const A = a.centerX ?? 0.5, i = a.centerY ?? 0.5;
-  return `proc:${a.startColor}:${a.endColor}:${a.angle}:${A}:${i}`;
+function S0(l) {
+  if (!l.startColor || !l.endColor) return null;
+  const A = l.centerX ?? 0.5, i = l.centerY ?? 0.5;
+  return `proc:${l.startColor}:${l.endColor}:${l.angle}:${A}:${i}`;
 }
-function FA(a) {
-  const A = E0(a);
+function RA(l) {
+  const A = S0(l);
   if (!A) return null;
-  const i = l0.get(A);
+  const i = a0.get(A);
   if (i) return i;
-  const [s, e, t] = o0(a.startColor), [l, I, c] = o0(a.endColor), n = new Uint8Array(bA * 4);
-  for (let d = 0; d < bA; d++) {
-    const C = d / (bA - 1), P = d * 4;
-    n[P] = Math.round(s + (l - s) * C), n[P + 1] = Math.round(e + (I - e) * C), n[P + 2] = Math.round(t + (c - t) * C), n[P + 3] = 255;
+  const [s, e, t] = l0(l.startColor), [a, I, c] = l0(l.endColor), g = new Uint8Array(uA * 4);
+  for (let y = 0; y < uA; y++) {
+    const M = y / (uA - 1), d = y * 4;
+    g[d] = Math.round(s + (a - s) * M), g[d + 1] = Math.round(e + (I - e) * M), g[d + 2] = Math.round(t + (c - t) * M), g[d + 3] = 255;
   }
-  const r = new D.DataTexture(n, 1, bA, D.RGBAFormat, D.UnsignedByteType);
+  const r = new D.DataTexture(g, 1, uA, D.RGBAFormat, D.UnsignedByteType);
   r.wrapS = D.ClampToEdgeWrapping, r.wrapT = D.ClampToEdgeWrapping, r.minFilter = D.LinearFilter, r.magFilter = D.LinearFilter, r.generateMipmaps = !1;
-  const o = a.centerX ?? 0.5, M = a.centerY ?? 0.5, y = a.angle * Math.PI / 180;
-  return r.center.set(o, M), r.rotation = Math.PI / 2 - y, r.offset.set(0.5 - o, 0), r.needsUpdate = !0, l0.set(A, r), r;
+  const o = l.centerX ?? 0.5, n = l.centerY ?? 0.5, m = l.angle * Math.PI / 180;
+  return r.center.set(o, n), r.rotation = Math.PI / 2 - m, r.offset.set(0.5 - o, 0), r.needsUpdate = !0, a0.set(A, r), r;
 }
-function P0(a, A = "XY") {
-  const i = a.getAttribute("position");
+function d0(l, A = "XY") {
+  const i = l.getAttribute("position");
   if (!i) return;
-  a.computeBoundingBox();
-  const s = a.boundingBox, e = new D.Vector3();
+  l.computeBoundingBox();
+  const s = l.boundingBox, e = new D.Vector3();
   s.getSize(e);
-  const t = e.x || 1, l = e.y || 1, I = e.z || 1, c = new Float32Array(i.count * 2);
-  for (let n = 0; n < i.count; n++) {
+  const t = e.x || 1, a = e.y || 1, I = e.z || 1, c = new Float32Array(i.count * 2);
+  for (let g = 0; g < i.count; g++) {
     let r, o;
-    A === "XZ" ? (r = (i.getX(n) - s.min.x) / t, o = (i.getZ(n) - s.min.z) / I) : A === "YZ" ? (r = (i.getZ(n) - s.min.z) / I, o = (i.getY(n) - s.min.y) / l) : (r = (i.getX(n) - s.min.x) / t, o = (i.getY(n) - s.min.y) / l), c[n * 2] = r, c[n * 2 + 1] = o;
+    A === "XZ" ? (r = (i.getX(g) - s.min.x) / t, o = (i.getZ(g) - s.min.z) / I) : A === "YZ" ? (r = (i.getZ(g) - s.min.z) / I, o = (i.getY(g) - s.min.y) / a) : (r = (i.getX(g) - s.min.x) / t, o = (i.getY(g) - s.min.y) / a), c[g * 2] = r, c[g * 2 + 1] = o;
   }
-  a.setAttribute("uv", new D.BufferAttribute(c, 2));
+  l.setAttribute("uv", new D.BufferAttribute(c, 2));
 }
-const x0 = {
+const G0 = {
   foot: 15,
   legs: 15,
   ear: 10,
@@ -499,10 +499,10 @@ const x0 = {
   mouth: 10,
   accessory: 10
 };
-function W0(a) {
-  return x0[a] ?? 10;
+function v0(l) {
+  return G0[l] ?? 10;
 }
-const S0 = [
+const R0 = [
   { id: "accessory-dark-circ", category: "accessory", url: new URL("data:model/gltf-binary;base64,Z2xURgIAAAC0DQAAhAYAAEpTT057ImFzc2V0Ijp7InZlcnNpb24iOiIyLjAiLCJnZW5lcmF0b3IiOiJUSFJFRS5HTFRGRXhwb3J0ZXIgcjE4MyJ9LCJzY2VuZXMiOlt7Im5hbWUiOiJBdXhTY2VuZSIsIm5vZGVzIjpbMF19XSwic2NlbmUiOjAsIm5vZGVzIjpbeyJuYW1lIjoiYWNjZXNzb3J5LWRhcmstY2lyYyIsImNoaWxkcmVuIjpbMV19LHsibWF0cml4IjpbOSwwLDAsMCwwLDEuMjAwMDAwMDAwMDAwMDAwMiwwLDAsMCwwLDMsMCwwLDAsMCwxXSwibmFtZSI6IlNjZW5lIiwiY2hpbGRyZW4iOlsyXX0seyJtYXRyaXgiOls0MDAsMCwwLDAsMCwtMC4wMDAwNTM3NDM1NDI1OTQwMjAyNTUsNDAwLjAwMDA1Mzc0MzU0MjYsMCwwLC00MDAuMDAwMDUzNzQzNTQyNiwtMC4wMDAwNTM3NDM1NDI1OTQwMjAyNTUsMCwwLDAsMCwxXSwibmFtZSI6IkN1cnZlMDQ5IiwiZXh0cmFzIjp7Im5hbWUiOiJDdXJ2ZS4wNDkifSwibWVzaCI6MH1dLCJidWZmZXJWaWV3cyI6W3siYnVmZmVyIjowLCJieXRlT2Zmc2V0IjowLCJieXRlTGVuZ3RoIjo1NzYsInRhcmdldCI6MzQ5NjIsImJ5dGVTdHJpZGUiOjEyfSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6NTc2LCJieXRlTGVuZ3RoIjo1NzYsInRhcmdldCI6MzQ5NjIsImJ5dGVTdHJpZGUiOjEyfSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTE1MiwiYnl0ZUxlbmd0aCI6Mzg0LCJ0YXJnZXQiOjM0OTYyLCJieXRlU3RyaWRlIjo4fSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTUzNiwiYnl0ZUxlbmd0aCI6Mjc2LCJ0YXJnZXQiOjM0OTYzfV0sImJ1ZmZlcnMiOlt7ImJ5dGVMZW5ndGgiOjE4MTJ9XSwiYWNjZXNzb3JzIjpbeyJidWZmZXJWaWV3IjowLCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NDgsIm1heCI6WzAuMDc2MDYwNDczOTE4OTE0OCww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", import.meta.url).href },
   { id: "arms-dripr", category: "arms", url: new URL("data:model/gltf-binary;base64,Z2xURgIAAADQDwAASAcAAEpTT057ImFzc2V0Ijp7InZlcnNpb24iOiIyLjAiLCJnZW5lcmF0b3IiOiJUSFJFRS5HTFRGRXhwb3J0ZXIgcjE4MyJ9LCJzY2VuZXMiOlt7Im5hbWUiOiJBdXhTY2VuZSIsIm5vZGVzIjpbMF19XSwic2NlbmUiOjAsIm5vZGVzIjpbeyJuYW1lIjoiYXJtcy1kcmlwciIsImNoaWxkcmVuIjpbMV19LHsibWF0cml4IjpbMi40LDAsMCwwLDAsMi40LDAsMCwwLDAsMi40LDAsMCwwLDAsMV0sIm5hbWUiOiJTY2VuZSIsImNoaWxkcmVuIjpbMl19LHsibWF0cml4IjpbNDAwLDAsMCwwLDAsLTAuMDAwMDUzNzQzNTQyNTk0MDIwMjU1LDQwMC4wMDAwNTM3NDM1NDI2LDAsMCwtNDAwLjAwMDA1Mzc0MzU0MjYsLTAuMDAwMDUzNzQzNTQyNTk0MDIwMjU1LDAsMCwwLDAsMV0sIm5hbWUiOiJDdXJ2ZTAwOCIsImV4dHJhcyI6eyJuYW1lIjoiQ3VydmUuMDA4In0sIm1lc2giOjB9XSwiYnVmZmVyVmlld3MiOlt7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MCwiYnl0ZUxlbmd0aCI6NTc2LCJ0YXJnZXQiOjM0OTYyLCJieXRlU3RyaWRlIjoxMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjU3NiwiYnl0ZUxlbmd0aCI6NTc2LCJ0YXJnZXQiOjM0OTYyLCJieXRlU3RyaWRlIjoxMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjExNTIsImJ5dGVMZW5ndGgiOjM4NCwidGFyZ2V0IjozNDk2MiwiYnl0ZVN0cmlkZSI6OH0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjE1MzYsImJ5dGVMZW5ndGgiOjI3NiwidGFyZ2V0IjozNDk2M30seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjE4MTIsImJ5dGVMZW5ndGgiOjM0NH1dLCJidWZmZXJzIjpbeyJieXRlTGVuZ3RoIjoyMTU2fV0sImFjY2Vzc29ycyI6W3siYnVmZmVyVmlldyI6MCwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQ4LCJtYXgiOlswLjE4NTU4ODAwMjIwNDg5NTAyLDAsMC4wODc3NjA4NjU2ODgzMjM5N10sIm1pbiI6Wy0wLjE4NTU4Nzg4Mjk5NTYwNTQ3LDAsLTAuMDg3NzYwODY1Njg4MzIzOTddLCJ0eXBlIjoiVkVDMyJ9LHsiYnVmZmVyVmlldyI6MSwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQ4LCJtYXgiOlswLDEsMF0sIm1pbiI6WzAsMSwwXSwidHlwZSI6IlZFQzMifSx7ImJ1ZmZlclZpZXciOjIsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo0OCwibWF4IjpbMSwxXSwibWluIjpbMCwwXSwidHlwZSI6IlZFQzIifSx7ImJ1ZmZlclZpZXciOjMsImNvbXBvbmVudFR5cGUiOjUxMjMsImNvdW50IjoxMzgsIm1heCI6WzQ3XSwibWluIjpbMF0sInR5cGUiOiJTQ0FMQVIifV0sIm1hdGVyaWFscyI6W3sicGJyTWV0YWxsaWNSb3VnaG5lc3MiOnsibWV0YWxsaWNGYWN0b3IiOjEsInJvdWdobmVzc0ZhY3RvciI6MSwiYmFzZUNvbG9yVGV4dHVyZSI6eyJpbmRleCI6MCwidGV4Q29vcmQiOjAsImV4dGVuc2lvbnMiOnsiS0hSX3RleHR1cmVfdHJhbnNmb3JtIjp7InJvdGF0aW9uIjoxLjU3MDc5NjMyNjc5NDg5NjZ9fX19LCJkb3VibGVTaWRlZCI6dHJ1ZSwibmFtZSI6IlNWR01hdC4wMDMiLCJleHRyYXMiOnsic291cmNlSGFzR3JhZGllbnQiOnRydWV9fV0sInRleHR1cmVzIjpbeyJzYW1wbGVyIjowLCJzb3VyY2UiOjB9XSwic2FtcGxlcnMiOlt7Im1hZ0ZpbHRlciI6OTcyOSwibWluRmlsdGVyIjo5NzI5LCJ3cmFwUyI6MzMwNzEsIndyYXBUIjozMzA3MX1dLCJpbWFnZXMiOlt7Im1pbWVUeXBlIjoiaW1hZ2UvcG5nIiwiYnVmZmVyVmlldyI6NH1dLCJtZXNoZXMiOlt7InByaW1pdGl2ZXMiOlt7Im1vZGUiOjQsImF0dHJpYnV0ZXMiOnsiUE9TSVRJT04iOjAsIk5PUk1BTCI6MSwiVEVYQ09P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", import.meta.url).href },
   { id: "body-cloud", category: "body", url: new URL("data:model/gltf-binary;base64,Z2xURgIAAAAgNAAA2AcAAEpTT057ImFzc2V0Ijp7InZlcnNpb24iOiIyLjAiLCJnZW5lcmF0b3IiOiJUSFJFRS5HTFRGRXhwb3J0ZXIgcjE4MyJ9LCJzY2VuZXMiOlt7Im5hbWUiOiJBdXhTY2VuZSIsIm5vZGVzIjpbMF19XSwic2NlbmUiOjAsIm5vZGVzIjpbeyJuYW1lIjoiYm9keS1jbG91ZCIsImNoaWxkcmVuIjpbMV19LHsibWF0cml4IjpbNCwwLDAsMCwwLDQsMCwwLDAsMCw0LDAsMCwwLDAsMV0sIm5hbWUiOiJTY2VuZSIsImNoaWxkcmVuIjpbMl19LHsibWF0cml4IjpbNDAwLDAsMCwwLDAsLTAuMDAwMDUzNzQzNTQyNTk0MDIwMjU1LDQwMC4wMDAwNTM3NDM1NDI2LDAsMCwtNDAwLjAwMDA1Mzc0MzU0MjYsLTAuMDAwMDUzNzQzNTQyNTk0MDIwMjU1LDAsMCwwLDAsMV0sIm5hbWUiOiJDdXJ2ZTA0NSIsImV4dHJhcyI6eyJuYW1lIjoiQ3VydmUuMDQ1In0sIm1lc2giOjB9XSwiYnVmZmVyVmlld3MiOlt7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MCwiYnl0ZUxlbmd0aCI6MzQ1NiwidGFyZ2V0IjozNDk2MiwiYnl0ZVN0cmlkZSI6MTJ9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjozNDU2LCJieXRlTGVuZ3RoIjozNDU2LCJ0YXJnZXQiOjM0OTYyLCJieXRlU3RyaWRlIjoxMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjY5MTIsImJ5dGVMZW5ndGgiOjIzMDQsInRhcmdldCI6MzQ5NjIsImJ5dGVTdHJpZGUiOjh9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0Ijo5MjE2LCJieXRlTGVuZ3RoIjoxNzE2LCJ0YXJnZXQiOjM0OTYzfSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTA5MzIsImJ5dGVMZW5ndGgiOjM3Nn1dLCJidWZmZXJzIjpbeyJieXRlTGVuZ3RoIjoxMTMwOH1dLCJhY2Nlc3NvcnMiOlt7ImJ1ZmZlclZpZXciOjAsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50IjoyODgsIm1heCI6WzAuMjA3OTM0NzA3NDAzMTgyOTgsMCwwLjIwMDg3NTA0Mzg2OTAxODU1XSwibWluIjpbLTAuMjA3OTM0NjkyNTAyMDIxOCwwLC0wLjIwMDg3NTA0Mzg2OTAxODU1XSwidHlwZSI6IlZFQzMifSx7ImJ1ZmZlclZpZXciOjEsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50IjoyODgsIm1heCI6WzAsMSwwXSwibWluIjpbMCwxLDBdLCJ0eXBlIjoiVkVDMyJ9LHsiYnVmZmVyVmlldyI6MiwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjI4OCwibWF4IjpbMSwxXSwibWluIjpbMCwwXSwidHlwZSI6IlZFQzIifSx7ImJ1ZmZlclZpZXciOjMsImNvbXBvbmVudFR5cGUiOjUxMjMsImNvdW50Ijo4NTgsIm1heCI6WzI4N10sIm1pbiI6WzBdLCJ0eXBlIjoiU0NBTEFSIn1dLCJtYXRlcmlhbHMiOlt7InBick1ldGFsbGljUm91Z2huZXNzIjp7Im1ldGFsbGljRmFjdG9yIjoxLCJyb3VnaG5lc3NGYWN0b3IiOjEsImJhc2VDb2xvclRleHR1cmUiOnsiaW5kZXgiOjAsInRleENvb3JkIjowLCJleHRlbnNpb25zIjp7IktIUl90ZXh0dXJlX3RyYW5zZm9ybSI6eyJyb3RhdGlvbiI6LTAuMDE3NDUzMjkyNTE5OTQzMzJ9fX19LCJkb3VibGVTaWRlZCI6dHJ1ZSwibmFtZSI6IlNWR01hdC4wMTQiLCJleHRyYXMiOnsic291cmNlSGFzR3JhZGllbnQiOnRydWUsImxheWVyT3BhY2l0eSI6MSwic291cmNlR3JhZGllbnQiOnsic3RhcnRDb2xvciI6IiNjMWZkZmYiLCJlbmRDb2xvciI6IiM3YzQxYWQiLCJhbmdsZSI6OTEsImNlbnRlclgiOjAuNSwiY2VudGVyWSI6MC41LCJwcm9qZWN0aW9uQXhpcyI6IlhaIn19fV0sInRleHR1cmVzIjpbeyJzYW1wbGVyIjowLCJzb3VyY2UiOjB9XSwic2FtcGxlcnMiOlt7Im1hZ0ZpbHRlciI6OTcyOSwibWluRmlsdGVyIjo5NzI5LCJ3cmFwUyI6MzMwNzEs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AAAAAHCVOb48o6W9AAAAAIigOr4gFpy9AAAAAAhbO77copK9AAAAAIjGO770V4m9AAAAAKDkO77qQ4C9AAAAAOi2O76E6m69AAAAAPg+O74A9V29AAAAAGR+Or4AAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAADQJsI+IXBJPYW5xT4QGC09sqvJPto3Ej3H9s0+YgDyPDGU0j47Q8M8YH3XPqSZmDzDq9w+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MQAFATIABgEFATMAMgAEATMABQEEATQAMwADATQABAEDATUANAACATUAAwECATYANQABATYAAgEBATcANgAAATcAAQEAATgANwD/ADgAAAH/ADkAOAD+ADkA/wD+ADoAOQD9ADoA/gD9ADsAOgD8ADsA/QD8ADwAOwD7ADwA/AD7AD0APAD6AD0A+wD6AD4APQD5AD4A+gD5AD8APgD4AD8A+QD4AEAAPwD3AEAA+AD3AEEAQAD2AEEA9wD2AEIAQQD1AEIA9gD1AEMAQgD0AEMA9QD0AEQAQwDzAEQA9ADzAEUARADyAEUA8wDyAEYARQDxAEYA8gDxAEcARgDwAEcA8QDwAEgARwDvAEgA8ADvAEkASADuAEkA7wDuAEoASQDtAEoA7gDtAEsASgDsAEsA7QDsAEwASwDrAEwA7ADrAE0ATADqAE0A6wDqAE4ATQDpAE4A6gDpAE8ATgDoAE8A6QDoAFAATwDnAFAA6ADnAFEAUADmAFEA5wDmAFIAUQDlAFIA5gDlAFMAUgDkAFMA5QDkAFQAUwDjAFQA5ADjAFUAVADiAFUA4wDiAFYAVQDhAFYA4gDhAFcAVgDgAFcA4QDgAFgAVwDfAFgA4ADfAFkAWADeAFkA3wDeAFoAWQDdAFoA3gDdAFsAWgDcAFsA3QDcAFwAWwDbAFwA3ADbAF0AXADaAF0A2wDaAF4AXQDZAF4A2gDZAF8AXgDYAF8A2QDYAGAAXwDXAGAA2ADXAGEAYADWAGEA1wDWAGIAYQDVAGIA1gDVAGMAYgDUAGMA1QDUAGQAYwDTAGQA1ADTAGUAZADSAGUA0wDSAGYAZQDRAGYA0gDRAGcAZgDQAGcA0QDQAGgAZwDPAGgA0ADPAGkAaADOAGkAzwDOAGoAaQDNAGoAzgDNAGsAagDMAGsAzQDMAGwAawDLAGwAzADLAG0AbADKAG0AywDKAG4AbQDJAG4AygDJAG8AbgDIAG8AyQDIAHAAbwDHAHAAyADHAHEAcADGAHEAxwDGAHIAcQDFAHIAxgDFAHMAcgDEAHMAxQDEAHQAcwDDAHQAxADDAHUAdADCAHUAwwDCAHYAdQDBAHYAwgDBAHcAdgDAAHcAwQDAAHgAdwC/AHgAwAC/AHkAeAC+AHkAvwC+AHoAeQC9AHoAvgC9AHsAegC8AHsAvQC8AHwAewC7AHwAvAC7AH0AfAC6AH0AuwC6AH4AfQC5AH4AugC5AH8AfgC4AH8AuQC4AIAAfwC3AIAAuAC3AIEAgAC2AIEAtwC2AIIAgQC1AIIAtgC1AIMAggC0AIMAtQC0AIQAgwCzAIQAtACzAIUAhACzAIYAhQCyAIYAswCyAIcAhgCxAIcAsgCxAIgAhwCwAKgAsQCoAJAAsQCQAIgAsQCwAKkAqACnAJAAqACnAJEAkACPAIgAkACPAIkAiACvAKkAsACOAIkAjwCvAKoAqQCOAIoAiQCuAKoArwCNAIoAjgCuAKsAqgCNAIsAigCtAKsArgCMAIsAjQCtAKwAqwCmAJEApwCmAJIAkQClAJIApgClAJMAkgCkAJMApQCkAJQAkwCjAJQApACjAJUAlACiAJUAowCiAJYAlQChAJYAogChAJcAlgCgAJcAoQCgAJgAlwCfAJgAoACfAJkAmACeAJkAnwCeAJoAmQCdAJoAngCdAJsAmgCcAJsAnQCJUE5HDQoaCgAAAA1JSERSAAAAAQAAAQAIBgAAAHI+HJgAAAABc1JHQgCuzhzpAAAARGVYSWZNTQAqAAAACAABh2kABAAAAAEAAAAaAAAAAAADoAEAAwAAAAEAAQAAoAIABAAAAAEAAAABoAMABAAAAAEAAAEAAAAAAA8eZ+sAAADiSURBVDgRlZJRDsMwCENR73+pHaxiGAgF0mTZx6pC8cPWoM/NfBETXSxPe9OSWErpR2989V6U0FLVinTu1ZE3vMt05R6Pr2GN4fQpjWwOivuGt7I69V7hNbyVCS/D56jIBvdpW/AO8GmbvFryHyjg+/9rDgDQ5eaghlnhZRayop3wM8plRbvpDbxlq+fTt8FLQ7msbpOZ+VixyBLpsDwavp3AdGELp+YA1h78Acpl6lQNIZsar+7XeJtDDl0eZTK+RSVyaN97I7kGTNsC77KRw+eixJz8/r4mKHARDe+owtviv1UuV3f3k7naAAAAAElFTkSuQmCC", import.meta.url).href },
@@ -538,14 +538,14 @@ const S0 = [
   { id: "sclera-round", category: "sclera", url: new URL("data:model/gltf-binary;base64,Z2xURgIAAAAUDQAA5AUAAEpTT057ImFzc2V0Ijp7InZlcnNpb24iOiIyLjAiLCJnZW5lcmF0b3IiOiJUSFJFRS5HTFRGRXhwb3J0ZXIgcjE4MyJ9LCJzY2VuZXMiOlt7Im5hbWUiOiJBdXhTY2VuZSIsIm5vZGVzIjpbMF19XSwic2NlbmUiOjAsIm5vZGVzIjpbeyJuYW1lIjoic2NsZXJhLXJvdW5kIiwiY2hpbGRyZW4iOlsxXX0seyJtYXRyaXgiOlszLDAsMCwwLDAsMywwLDAsMCwwLDMsMCwwLDAsMCwxXSwibmFtZSI6IlNjZW5lIiwiY2hpbGRyZW4iOlsyXX0seyJtYXRyaXgiOls0MDAsMCwwLDAsMCwtMC4wMDAwNTM3NDM1NDI1OTQwMjAyNTUsNDAwLjAwMDA1Mzc0MzU0MjYsMCwwLC00MDAuMDAwMDUzNzQzNTQyNiwtMC4wMDAwNTM3NDM1NDI1OTQwMjAyNTUsMCwwLDAsMCwxXSwibmFtZSI6IkN1cnZlMDQ5IiwiZXh0cmFzIjp7Im5hbWUiOiJDdXJ2ZS4wNDkifSwibWVzaCI6MH1dLCJidWZmZXJWaWV3cyI6W3siYnVmZmVyIjowLCJieXRlT2Zmc2V0IjowLCJieXRlTGVuZ3RoIjo1NzYsInRhcmdldCI6MzQ5NjIsImJ5dGVTdHJpZGUiOjEyfSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6NTc2LCJieXRlTGVuZ3RoIjo1NzYsInRhcmdldCI6MzQ5NjIsImJ5dGVTdHJpZGUiOjEyfSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTE1MiwiYnl0ZUxlbmd0aCI6Mzg0LCJ0YXJnZXQiOjM0OTYyLCJieXRlU3RyaWRlIjo4fSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTUzNiwiYnl0ZUxlbmd0aCI6Mjc2LCJ0YXJnZXQiOjM0OTYzfV0sImJ1ZmZlcnMiOlt7ImJ5dGVMZW5ndGgiOjE4MTJ9XSwiYWNjZXNzb3JzIjpbeyJidWZmZXJWaWV3IjowLCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NDgsIm1heCI6WzAuMDc2MDYwNDczOTE4OTE0OCwwLDAuMDc2MDQ0MzgwNjY0ODI1NDRdLCJtaW4iOlstMC4wNzYwNjA0MTQzMTQyNzAwMiwwLC0wLjA3NjA0NDM4MDY2NDgyNTQ0XSwidHlwZSI6IlZFQzMifSx7ImJ1ZmZlclZpZXciOjEsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo0OCwibWF4IjpbMCwxLDBdLCJtaW4iOlswLDEsMF0sInR5cGUiOiJWRUMzIn0seyJidWZmZXJWaWV3IjoyLCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NDgsIm1heCI6WzAuOTk5NzkyNDU2NjI2ODkyMSwxXSwibWluIjpbLTQuNzYzNDcwMDYyODQwNzI0NWUtOSw1Ljk2MDQ2NDQ3NzUzOTA2M2UtOF0sInR5cGUiOiJWRUMyIn0seyJidWZmZXJWaWV3IjozLCJjb21wb25lbnRUeXBlIjo1MTIzLCJjb3VudCI6MTM4LCJtYXgiOls0N10sIm1pbiI6WzBdLCJ0eXBlIjoiU0NBTEFSIn1dLCJtYXRlcmlhbHMiOlt7InBick1ldGFsbGljUm91Z2huZXNzIjp7Im1ldGFsbGljRmFjdG9yIjoxLCJyb3VnaG5lc3NGYWN0b3IiOjF9LCJkb3VibGVTaWRlZCI6dHJ1ZSwibmFtZSI6IlNWR01hdC4wMTYifV0sIm1lc2hlcyI6W3sicHJpbWl0aXZlcyI6W3sibW9kZSI6NCwiYXR0cmlidXRlcyI6eyJQT1NJVElPTiI6MCwiTk9STUFMIjoxLCJURVhDT09SRF8wIjoyfSwiaW5kaWNlcyI6MywibWF0ZXJpYWwiOjB9XX1dfSAgIBQHAABCSU4AkMWbvQAAAAAAAACAUFmavQAAAAAA/Si8UDSWvQAAAACAi6W8MIaPvQAAAABgaPK8lH6GvQAAAABgKx29OJp2vQAAAAAQTD692EJcvQAAAAAAN1y9SFY+vQAAAADwjHa90DMdvQAAAABQd4a9YHXyvAAAAABwfo+9UJSlvAAAAAAwLJa9AAYpvAAAAAD4UJq9AAAAMwAAAAAovZu9QAYpPAAAAAD4UJq9cJSlPAAAAAAwLJa9gHXyPAAAAABwfo+94DMdPQAAAABQd4a9WFY+PQAAAADwjHa96EJcPQAAAAAAN1y9SJp2PQAAAAAQTD69nH6GPQAAAABgKx29OIaPPQAAAABgaPK8WDSWPQAAAACAi6W8WFmaPQAAAAAA/Si8mMWbPQAAAAAAAACAWFmaPQAAAAAA/Sg8WDSWPQAAAABwi6U8OIaPPQAAAABgaPI8nH6GPQAAAABgKx09SJp2PQAAAAAQTD496EJcPQAAAAAAN1w9WFY+PQAAAADwjHY94DMdPQAAAABUd4Y9gHXyPAAAAAB0fo89cJSlPAAAAAA4LJY9QAYpPAAAAAAAUZo9AAAAMwAAAAAovZs9AAYpvAAAAAD8UJo9UJSlvAAAAAA0LJY9YHXyvAAAAABwfo890DMdvQAAAABQd4Y9SFY+vQAAAADojHY92EJcvQAAAAD4Nlw9OJp2vQAAAAAITD49lH6GvQAAAABYKx09MIaPvQAAAABQaPI8UDSWvQAAAABgi6U8UFmavQAAAADg/Cg8AAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAALTuPgAAgDOwyQg/AACAM9qqGT/ALhI8tNMpPwC21jx+Gjk/4CVSPXJVRz8YUqs9zVpUP/BG+z3HAGA/wOYrPp0daj/Q4F8+kIdyP9h/jD7SFHk/sFirPqebfT/qMcw+SfJ/P4bC7j5m8n8/4tEIP+mpfT/ssxk/Uj15P5zdKT8Y0XI/LCU5P8KJaj/SYEc/yotgP85mVD+u+1Q/VA1gP+39Rz+hKmo/CLc5P+uUcj9+Syo/biJ5P8ffGT9iqX0/apgIPwAAgD9zUe4+AACAPyWPzD5Gt30/az2sPlFKeT/Yr40+o91yP9xzYj6+lWo/c14uPiKXYD8Qjf89UQZVP0emrj3NB0g/aq1WPRbAOT8Msts8qlMqP+GuFTwM5xk/rB4CNr6eCD/tq6OxPlzuPjcfEjwqmMw++qLWPMhErD4YFVI9rLWNPlNFqz24fGI+FzX7PcxkLj782is+aJX/Pf3RXz4Aq649yXaMPmCxVj3kTas+QLLbPEslzD7ApxU8CwANAAwACgANAAsACgAOAA0ACQAOAAoACQAPAA4ACAAPAAkACAAQAA8ABwAQAAgABwARABAABgARAAcABgASABEABQASAAYABQATABIABAATAAUABAAUABMAAwAUAAQAAwAVABQAAgAVAAMAAgAWABUAAQAWAAIAAQAXABYAAAAXAAEAAAAYABcALwAYAAAALwAZABgALgAZAC8ALgAaABkALQAaAC4ALQAbABoALAAbAC0ALAAcABsAKwAcACwAKwAdABwAKgAdACsAKgAeAB0AKQAeACoAKQAfAB4AKAAfACkAKAAgAB8AJwAgACgAJwAhACAAJgAhACcAJgAiACEAJQAiACYAJQAjACIAJAAjACUA", import.meta.url).href },
   { id: "shadow-ground", category: "shadow", url: new URL("data:model/gltf-binary;base64,Z2xURgIAAACkDQAAdAYAAEpTT057ImFzc2V0Ijp7InZlcnNpb24iOiIyLjAiLCJnZW5lcmF0b3IiOiJUSFJFRS5HTFRGRXhwb3J0ZXIgcjE4MyJ9LCJzY2VuZXMiOlt7Im5hbWUiOiJBdXhTY2VuZSIsIm5vZGVzIjpbMF19XSwic2NlbmUiOjAsIm5vZGVzIjpbeyJuYW1lIjoic2hhZG93LWdyb3VuZCIsImNoaWxkcmVuIjpbMV19LHsibWF0cml4IjpbOC4zOTk5OTk5OTk5OTk5OTksMCwwLDAsMCwxLjIwMDAwMDAwMDAwMDAwMDIsMCwwLDAsMCwxMiwwLDAsMCwwLDFdLCJuYW1lIjoiU2NlbmUiLCJjaGlsZHJlbiI6WzJdfSx7Im1hdHJpeCI6WzQwMCwwLDAsMCwwLC0wLjAwMDA1Mzc0MzU0MjU5NDAyMDI1NSw0MDAuMDAwMDUzNzQzNTQyNiwwLDAsLTQwMC4wMDAwNTM3NDM1NDI2LC0wLjAwMDA1Mzc0MzU0MjU5NDAyMDI1NSwwLDAsMCwwLDFdLCJuYW1lIjoiQ3VydmUwNDkiLCJleHRyYXMiOnsibmFtZSI6IkN1cnZlLjA0OSJ9LCJtZXNoIjowfV0sImJ1ZmZlclZpZXdzIjpbeyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjAsImJ5dGVMZW5ndGgiOjU3NiwidGFyZ2V0IjozNDk2MiwiYnl0ZVN0cmlkZSI6MTJ9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0Ijo1NzYsImJ5dGVMZW5ndGgiOjU3NiwidGFyZ2V0IjozNDk2MiwiYnl0ZVN0cmlkZSI6MTJ9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjoxMTUyLCJieXRlTGVuZ3RoIjozODQsInRhcmdldCI6MzQ5NjIsImJ5dGVTdHJpZGUiOjh9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0IjoxNTM2LCJieXRlTGVuZ3RoIjoyNzYsInRhcmdldCI6MzQ5NjN9XSwiYnVmZmVycyI6W3siYnl0ZUxlbmd0aCI6MTgxMn1dLCJhY2Nlc3NvcnMiOlt7ImJ1ZmZlclZpZXciOjAsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo0OCwibWF4IjpbMC4wNzYwNjA0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", import.meta.url).href },
   { id: "spec-one", category: "spec", url: new URL("data:model/gltf-binary;base64,Z2xURgIAAAAIDQAA2AUAAEpTT057ImFzc2V0Ijp7InZlcnNpb24iOiIyLjAiLCJnZW5lcmF0b3IiOiJUSFJFRS5HTFRGRXhwb3J0ZXIgcjE4MyJ9LCJzY2VuZXMiOlt7Im5hbWUiOiJBdXhTY2VuZSIsIm5vZGVzIjpbMF19XSwic2NlbmUiOjAsIm5vZGVzIjpbeyJuYW1lIjoic3BlYy1vbmUiLCJjaGlsZHJlbiI6WzFdfSx7Im5hbWUiOiJTY2VuZSIsImNoaWxkcmVuIjpbMl19LHsibWF0cml4IjpbNDAwLDAsMCwwLDAsLTAuMDAwMDUzNzQzNTQyNTk0MDIwMjU1LDQwMC4wMDAwNTM3NDM1NDI2LDAsMCwtNDAwLjAwMDA1Mzc0MzU0MjYsLTAuMDAwMDUzNzQzNTQyNTk0MDIwMjU1LDAsMCwwLDAsMV0sIm5hbWUiOiJDdXJ2ZTA0OSIsImV4dHJhcyI6eyJuYW1lIjoiQ3VydmUuMDQ5In0sIm1lc2giOjB9XSwiYnVmZmVyVmlld3MiOlt7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MCwiYnl0ZUxlbmd0aCI6NTc2LCJ0YXJnZXQiOjM0OTYyLCJieXRlU3RyaWRlIjoxMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjU3NiwiYnl0ZUxlbmd0aCI6NTc2LCJ0YXJnZXQiOjM0OTYyLCJieXRlU3RyaWRlIjoxMn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjExNTIsImJ5dGVMZW5ndGgiOjM4NCwidGFyZ2V0IjozNDk2MiwiYnl0ZVN0cmlkZSI6OH0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjE1MzYsImJ5dGVMZW5ndGgiOjI3NiwidGFyZ2V0IjozNDk2M31dLCJidWZmZXJzIjpbeyJieXRlTGVuZ3RoIjoxODEyfV0sImFjY2Vzc29ycyI6W3siYnVmZmVyVmlldyI6MCwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQ4LCJtYXgiOlswLjA3NjA2MDQ3MzkxODkxNDgsMCwwLjA3NjA0NDM4MDY2NDgyNTQ0XSwibWluIjpbLTAuMDc2MDYwNDE0MzE0MjcwMDIsMCwtMC4wNzYwNDQzODA2NjQ4MjU0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", import.meta.url).href }
-], hA = S0.map((a) => ({
-  id: a.id,
-  category: a.category,
-  label: a.id.charAt(0).toUpperCase() + a.id.slice(1),
-  glbPath: a.url,
-  defaultZDepth: W0(a.category),
+], hA = R0.map((l) => ({
+  id: l.id,
+  category: l.category,
+  label: l.id.charAt(0).toUpperCase() + l.id.slice(1),
+  glbPath: l.url,
+  defaultZDepth: v0(l.category),
   defaultScale: 2.5
-})), G0 = [
+})), F0 = [
   { id: "fs-shape-blobs_a", label: "blobs_a", url: new URL("data:model/gltf-binary;base64,Z2xURgIAAABUEgAABAQAAEpTT057ImFzc2V0Ijp7ImdlbmVyYXRvciI6Iktocm9ub3MgZ2xURiBCbGVuZGVyIEkvTyB2NS4xLjE4IiwidmVyc2lvbiI6IjIuMCJ9LCJzY2VuZSI6MCwic2NlbmVzIjpbeyJuYW1lIjoiU2NlbmUiLCJub2RlcyI6WzBdfV0sIm5vZGVzIjpbeyJtZXNoIjowLCJuYW1lIjoiQ3VydmUuMDM4Iiwicm90YXRpb24iOlswLjcwNzEwNjgyODY4OTU3NTIsMCwwLDAuNzA3MTA2ODI4Njg5NTc1Ml0sInNjYWxlIjpbNDAwLDQwMCw0MDBdfV0sIm1lc2hlcyI6W3sibmFtZSI6IkN1cnZlLjA5NiIsInByaW1pdGl2ZXMiOlt7ImF0dHJpYnV0ZXMiOnsiUE9TSVRJT04iOjAsIk5PUk1BTCI6MSwiVEVYQ09PUkRfMCI6Mn0sImluZGljZXMiOjN9XX1dLCJhY2Nlc3NvcnMiOlt7ImJ1ZmZlclZpZXciOjAsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo5NiwibWF4IjpbMC4wNzc3NDEzNzcwNTU2NDQ5OSwwLDAuMDkwNDMwMzE5MzA5MjM0NjJdLCJtaW4iOlstMC4wNzc3NDEzODQ1MDYyMjU1OSwwLC0wLjA5MDQzMDI1OTcwNDU4OTg0XSwidHlwZSI6IlZFQzMifSx7ImJ1ZmZlclZpZXciOjEsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo5NiwidHlwZSI6IlZFQzMifSx7ImJ1ZmZlclZpZXciOjIsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo5NiwidHlwZSI6IlZFQzIifSx7ImJ1ZmZlclZpZXciOjMsImNvbXBvbmVudFR5cGUiOjUxMjMsImNvdW50IjoyODIsInR5cGUiOiJTQ0FMQVIifV0sImJ1ZmZlclZpZXdzIjpbeyJidWZmZXIiOjAsImJ5dGVMZW5ndGgiOjExNTIsImJ5dGVPZmZzZXQiOjAsInRhcmdldCI6MzQ5NjJ9LHsiYnVmZmVyIjowLCJieXRlTGVuZ3RoIjoxMTUyLCJieXRlT2Zmc2V0IjoxMTUyLCJ0YXJnZXQiOjM0OTYyfSx7ImJ1ZmZlciI6MCwi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3C9QPHT3qD6eGWU74C6zPhqxbDJ0TL4+8+BkO+5Yyj5vynk8Cl3XPoSkFT2IYeU+q42MPUBv9D59DMA9fmv9PrLs8z0RQQI/vpITPipJBT8JVyw+oD0IP9W+Qz4Gjgs/vEVZPvSpDz9LZ2w+9wAVPyqffD6qAhw/crSEPp8eJT8TIIk+bcQwPzxQiz6mYz8/ugKLPt9rUT9YlY8+9ilkP+A8nz7L7XE/g563PgL7ej9oX9Y+NZV/P7Ik+T4AAIA/xckOPwN/fD+PqCA/31V1P0sBMT8yyGo/i6Y+P5kZXT/makg/s41MP+wgTT8baDk/NJtLP3HsIz+igUg/4LYaP8L7Qz9U0hI/AIo+P6b3Cz/KrDg/qt8FP43kMj83QwA/urEtP0i29T68lCk/jMDqPgAOJz/oFt8+9J0mPwIr0j4JxSg/km7DPqcDLj86U7I+P9o2P7JKnj47tjs/SEWUPoscQD98gIo+JPxDPzTqgD79Q0c/pOBuPgrjST+EAVw+PchLP7QSST6L4kw/DPA1PuwgTT9QdSI+UnJMP1B+Dj60xUo/oM3zPQQKSD8gFck9Py5EP/iKnD1+2j4/0AZjPeYoOT+gki89AyUzP+BqGT1c2iw/0EAbPX1UJj/wxS898J4fP+CrUT1AxRg/IKR7PfbSET8AMJQ9ntMKP6BIqT2+0gM/gHS6Pca3+T5wDMU9DQALAAwADgALAA0ADgAKAAsADwAKAA4ADwAJAAoAEAAJAA8AEAAIAAkAEQAIABAAEQAHAAgAEgAHABEAEgAGAAcAEwAGABIAFAAGABMAFAAFAAYAFQAFABQAFQAEAAUAFgAEABUAFwAEABYAHAAaABsAHQAaABwAHQAZABoAHgAZAB0AHgAYABkAGAAEABcAHgAEABgAHgADAAQAHwADAB4AIAADAB8AIQADACAAIQACAAMAIgACACEAIgABAAIAIwABACIAIwAAAAEAIwBfAAAAJABfACMAJABeAF8AJABdAF4AJABcAF0AJABbAFwAJQBbACQAJQBaAFsAJQBZAFoAJQBYAFkAJgBYACUAJgBXAFgAJgBWAFcAJwBWACYAJwBVAFYAKABVACcAKABUAFUAKQBUACgAKQBTAFQAKgBTACkAKgBSAFMAKwBSACoAKwBRAFIALABRACsALABQAFEALABPAFAALQBPACwALQBOAE8ALQBNAE4ALQBMAE0ALgBMAC0ALgBLAEwALgBKAEsALgBJAEoALgBIAEkALgBHAEgALgBGAEcALwBGAC4ALwBFAEYALwBEAEUALwBDAEQAMABDAC8AMABCAEMAMABBAEIAMQBBADAAMQBAAEEAMQA/AEAAMgA/ADEAMgA+AD8AMgA9AD4AMwA9ADIAMwA8AD0ANAA8ADMANAA7ADwANQA7ADQANQA6ADsANgA6ADUANgA5ADoANwA5ADYANwA4ADkA", import.meta.url).href },
   { id: "fs-shape-blobs_b", label: "blobs_b", url: new URL("data:model/gltf-binary;base64,Z2xURgIAAAAgFAAACAQAAEpTT057ImFzc2V0Ijp7ImdlbmVyYXRvciI6Iktocm9ub3MgZ2xURiBCbGVuZGVyIEkvTyB2NS4xLjE4IiwidmVyc2lvbiI6IjIuMCJ9LCJzY2VuZSI6MCwic2NlbmVzIjpbeyJuYW1lIjoiU2NlbmUiLCJub2RlcyI6WzBdfV0sIm5vZGVzIjpbeyJtZXNoIjowLCJuYW1lIjoiQ3VydmUuMDM5Iiwicm90YXRpb24iOlswLjcwNzEwNjgyODY4OTU3NTIsMCwwLDAuNzA3MTA2ODI4Njg5NTc1Ml0sInNjYWxlIjpbNDAwLDQwMCw0MDBdfV0sIm1lc2hlcyI6W3sibmFtZSI6IkN1cnZlLjEwMiIsInByaW1pdGl2ZXMiOlt7ImF0dHJpYnV0ZXMiOnsiUE9TSVRJT04iOjAsIk5PUk1BTCI6MSwiVEVYQ09PUkRfMCI6Mn0sImluZGljZXMiOjN9XX1dLCJhY2Nlc3NvcnMiOlt7ImJ1ZmZlclZpZXciOjAsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50IjoxMDgsIm1heCI6WzAuMDcxMDU2OTMyMjEwOTIyMjQsMCwwLjA4MTE5NTc3MTY5NDE4MzM1XSwibWluIjpbLTAuMDcxMDU2OTYyMDEzMjQ0NjMsMCwtMC4wODExOTU4MzEyOTg4MjgxMl0sInR5cGUiOiJWRUMzIn0seyJidWZmZXJWaWV3IjoxLCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6MTA4LCJ0eXBlIjoiVkVDMyJ9LHsiYnVmZmVyVmlldyI6MiwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjEwOCwidHlwZSI6IlZFQzIifSx7ImJ1ZmZlclZpZXciOjMsImNvbXBvbmVudFR5cGUiOjUxMjMsImNvdW50IjozMTgsInR5cGUiOiJTQ0FMQVIifV0sImJ1ZmZlclZpZXdzIjpbeyJidWZmZXIiOjAsImJ5dGVMZW5ndGgiOjEyOTYsImJ5dGVPZmZzZXQiOjAsInRhcmdldCI6MzQ5NjJ9LHsiYnVmZmVyIjowLCJieXRlTGVuZ3RoIjoxMjk2LCJieXRlT2Zmc2V0IjoxMjk2LCJ0YXJnZXQiOjM0OTYyfSx7ImJ1ZmZlciI6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AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAALA2uT7Ie8Q98h8pPuheSj4Goa4+WHrDPZUeKT7YEVY+LMfCPkAuwT3Ilss+WFG3PeIyKj4s+2A+WMzTPogmqD22jts+AO+UPWhdEz8A4E45WFXqPgC+Tj0q0w0/AAAAAMUE4z5A2H09GC0YPwBAgjurxCs+8GVrPr9UHD+AXjI83jstPmSddT7Z5h8/4NKnPEsALj6g7H8+0nktPmJPhT7m9SI/YGkEPU0QKz6C/4o+lismPjgskT5olCU/0EM8PY4zHj4k+5c+GZASPtiRnz7d1Cc/UKR5PZb0BT60cqY+NAvxPZ73rD44FNU9hkWzPsXJKT9wW509UpK4PWiBuT5xE5w9ONC/PpolgD3iVsY+ja1KPVw6zT6ihSs/6NO+PSBqGD2gn9Q+mTnVPJ6r3D71Gi0/WFHgPTbDhDxKg+U+pFIDPJxL7z46nC4/4HQAPr814jqAKfo+9hswP6TZDz7qF6Myh2ECPyrlMD9EASE+95ihO9qlBj/TXjA/BFw2PvzSezysPQo/aMUuP1gdTz5THfc864QNP1lVLD+seGo+ekpFPYrXED8cSyk/ytCDPua4iz13kRQ/I+MlP8jlkj4xp7Y9pw4ZP+NZIj8MFaI+7RThPQerHj/R6x4/YviwPlzVGz98Kb8+g1MEPo3CJT/7Uhk/JELMPiKhFz8a3Nc+JYEVPiaxLj9D/BY/HJHhPgOfFz8IIu4+wuUiPsLSOT/YdBk/mOL5PlA0HD/+jQI/yFMrPk+DRz/5kx8/vAsIP2RKIz8ojw0/vzE5PvLMVz8cDic/4DwTP7KVKj+HORk/yldUPlyMZT+yly0/wKkfP6zKLz8psiY/4G16PlqZcD8q5TA/YHcuP76dMD8LHjc/A46UPsDLeD/yqi4/xcpAP4PnJj/uE1U/FgWvPl37fT8ncMs+AACAPxSaHD8AQWU/OKPoPnqxfj+dWBA/KnpxPx+5Aj+X53k/U6fxPuARHz04Awk/AAVOO3V1AD/AG5A8IZUEP8DsFjyPIfk+wKziPBXPKj4Ulz0+I02kPmDrwT0pxC4+SG8vPkpJmj4wu8A9oSs4PpycGT6wo5A+sNXAPY5qhz44J8M9ETNDPrAfCD42WH0+4JvIPRq+Tz5IBfU9H+1sPqgf0j1GsF0+yJ7gPQMAAAABAAEAAAACAAMABAAAAAMABQAEAAYABQADAAYABwAFAAcACQAIAAYACQAHAAwACQAKAAoACQALAAgACQAMAAYADQAJAA4ADQAGAA4ADwANABAADwAOABAAEQAPABIAEQAQABMAEQASABMAFAARABUAFAATABYAFAAVABYAFwAUABgAFwAWABkAFwAYABkAGgAXABsAGgAZABwAGgAbAB0AGgAcAB0AHgAaAB8AHgAdACAAHgAfACEAHgAgACIAHgAhACIAIwAeACQAIwAiACUAIwAkACUAJgAjACcAJgAlACgAJgAnACgAKQAmACoAKQAoACoAKwApACwAKwAqACwALQArAC4ALQAsAC4ALwAtADAALwAuADAAMQAvADIAMQAwADIAMwAxADQAMwAyADQANQAzADYANQA0ADYANwA1ADgANwA2ADgAOQA3ADoAOQA4ADoAOwA5ADoAPAA7AD0APAA6AD0APgA8AD0APwA+AEAAPwA9AEAAQQA/AEAAQgBBAEMAQgBAAEMARABCAEMARQBEAEYARQBDAEYARwBFAEYASABHAEkASABGAEkASgBIAEkASwBKAEwASwBJAEwATQBLAEwATgBNAE8ATgBMAE8AUABOAE8AUQBQAFIAUQBPAFIAUwBRAFIAVABTAFUAVABSAFYAVABVAFYAVwBUAFgAVwBWAFgAWQBXAFoAWQBYAAoACwBbAFsACwBcAF8AXABdAF0AXABeAFsAXABfAAEAAgBgAGAAAgBhAGAAYQBiAGIAYQBjAGIAYwBkAGQAYwBlAGQAZQBmAGQAZgBnAGcAZgBoAGcAaABpAGkAaABqAGkAagBrAA==", import.meta.url).href },
   { id: "fs-shape-blobs_c", label: "blobs_c", url: new URL("data:model/gltf-binary;base64,Z2xURgIAAABUEgAABAQAAEpTT057ImFzc2V0Ijp7ImdlbmVyYXRvciI6Iktocm9ub3MgZ2xURiBCbGVuZGVyIEkvTyB2NS4xLjE4IiwidmVyc2lvbiI6IjIuMCJ9LCJzY2VuZSI6MCwic2NlbmVzIjpbeyJuYW1lIjoiU2NlbmUiLCJub2RlcyI6WzBdfV0sIm5vZGVzIjpbeyJtZXNoIjowLCJuYW1lIjoiQ3VydmUuMDQwIiwicm90YXRpb24iOlswLjcwNzEwNjgyODY4OTU3NTIsMCwwLDAuNzA3MTA2ODI4Njg5NTc1Ml0sInNjYWxlIjpbNDAwLDQwMCw0MDBdfV0sIm1lc2hlcyI6W3sibmFtZSI6IkN1cnZlLjEwMyIsInByaW1pdGl2ZXMiOlt7ImF0dHJpYnV0ZXMiOnsiUE9TSVRJT04iOjAsIk5PUk1BTCI6MSwiVEVYQ09PUkRfMCI6Mn0sImluZGljZXMiOjN9XX1dLCJhY2Nlc3NvcnMiOlt7ImJ1ZmZlclZpZXciOjAsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo5NiwibWF4IjpbMC4xNDgyODE4NzIyNzI0OTE0NiwwLDAuMTM2NjQ2MTgxMzQ0OTg1OTZdLCJtaW4iOlstMC4xNDgyODE3Njc5NjQzNjMxLDAsLTAuMTM2NjQ2MTUxNTQyNjYzNTddLCJ0eXBlIjoiVkVDMyJ9LHsiYnVmZmVyVmlldyI6MSwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjk2LCJ0eXBlIjoiVkVDMyJ9LHsiYnVmZmVyVmlldyI6MiwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjk2LCJ0eXBlIjoiVkVDMiJ9LHsiYnVmZmVyVmlldyI6MywiY29tcG9uZW50VHlwZSI6NTEyMywiY291bnQiOjI4MiwidHlwZSI6IlNDQUxBUiJ9XSwiYnVmZmVyVmlld3MiOlt7ImJ1ZmZlciI6MCwiYnl0ZUxlbmd0aCI6MTE1MiwiYnl0ZU9mZnNldCI6MCwidGFyZ2V0IjozNDk2Mn0seyJidWZmZXIiOjAsImJ5dGVMZW5ndGgiOjExNTIsImJ5dGVPZmZzZXQiOjExNTIsInRhcmdldCI6MzQ5NjJ9LHsiYnVmZmVyIjowLCJi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DxU/PxjdrD0Izpc+CltnP+VbQD8wluc9wRhAPzAKFD6Hbx0/xl7EPr+eIT9q77U+Wkk+P2iqNj7AYyc/YGynPuR6Lz9u4ZM+bOs6PzwqWz6w/DU/GoSAPlPKoj64C3A/CrQaP4qu0j45Shk/utLgPgMQGT9qv+4+HN6yPgY8dz9X4xk/mmj8PiSiGz8u4QQ/WioeP1tgCz97BMk+Q418P+ZZIT/aqxE/ug4lP7C9Fz+JOOY+vqB/P8MmKT/ijx0/8n8tP3YcIz8jC/w+//9/PyEpOD9HdDI/x44JPzPSfj+CMxU/nR18P1FGPj+sfUA/XW8gP4Podz/mW0A/YjJNP/a9Kj8mOXI/Q+4+PyaMWD/nmjM/zBVrP82BOj+1hGI/GAOsPgBwZD0NP6s9NhD4PuCsnj5Q+0g9MmAqPnypez44hpA+kOUmPbJyLT4K/IM+qwIuPtiwiT5WPSs+HCKPPshPJD7GfpQ+LGcYPsr1mT4+JEY9XMruPq2wBj4atp8+oLLcPabupT74pqc8jFDlPrJpSD0I+rU+24dTO/5D2z5tW2c8hvfDPhjq1zLsRdA+Pf8fPtTlXj7LJoI+EIQGPRmeJT4MGG4+tHYVPpQnOj6NTGg+wFfgPHlWGj74tE0+vDISPsjfIz6sOE4+YGTYPAvfED6gUd09P0E3PiDsAj0XZRc+uOeQPZ+VJD7grjw9AQADAAAAAQAAAAIABAADAAEABAAFAAMABAAGAAUABAAHAAYACAAHAAQACAAJAAcACAAKAAkACwAKAAgACwAMAAoACwANAAwACwAOAA0ADwAOAAsADwAQAA4AEQAQAA8AEQASABAAEQATABIAFAATABEAFAAVABMAFgAVABQAFgAXABUAGAAXABYAGQAXABgAGQAaABcAGwAaABkAGwAcABoAHQAcABsAHQAeABwAHwAeAB0AHwAgAB4AHwAhACAAIgAhAB8AIgAjACEAIwAkACEAJQAkACMAJgAkACUAJgAnACQAKAAnACYAKQAqACIAKQAiAB8AKQArACoAKQAsACsALQAsACkALQAuACwALQAvAC4ALQAwAC8AMQAwAC0AMQAyADAAMQAzADIANAAzADEANAA1ADMANAA2ADUANwA2ADQANwA4ADYAOQA4ADcAOgA4ADkAOgA7ADgAPAA7ADoAPAA9ADsAPgA9ADwAPgA/AD0AQAA/AD4AQQA/AEAAAQACAEIAAQBCAEMAQwBCAEQARwBEAEUARQBEAEYASABEAEcASQBEAEgAQwBEAEkAQwBJAEoAQwBKAEsAQwBLAEwATABLAE0ATABNAE4ATABOAE8ATwBOAFAATwBQAFEAUQBQAFIAUQBSAFMAVgBGAFQAVABGAFUARQBGAFYAWQBVAFcAVwBVAFgAVABVAFkAVwBYAFoAWgBYAFsAWgBbAFwAXABbAF0AXABdAF4AXgBdAF8A", import.meta.url).href },
@@ -567,72 +567,72 @@ const S0 = [
   { id: "fs-shape-shapes_b", label: "shapes_b", url: new URL("data:model/gltf-binary;base64,Z2xURgIAAAC4BAAANAQAAEpTT057ImFzc2V0Ijp7ImdlbmVyYXRvciI6Iktocm9ub3MgZ2xURiBCbGVuZGVyIEkvTyB2NS4xLjE4IiwidmVyc2lvbiI6IjIuMCJ9LCJzY2VuZSI6MCwic2NlbmVzIjpbeyJuYW1lIjoiU2NlbmUiLCJub2RlcyI6WzBdfV0sIm5vZGVzIjpbeyJtZXNoIjowLCJuYW1lIjoiQ3VydmUuMDUwIiwicm90YXRpb24iOlswLjcwNzEwNjgyODY4OTU3NTIsMCwwLDAuNzA3MTA2ODI4Njg5NTc1Ml0sInNjYWxlIjpbNDAwLDQwMCw0MDBdfV0sIm1hdGVyaWFscyI6W3siZG91YmxlU2lkZWQiOnRydWUsIm5hbWUiOiJTVkdNYXQuMDE2In1dLCJtZXNoZXMiOlt7Im5hbWUiOiJDdXJ2ZS4xMjMiLCJwcmltaXRpdmVzIjpbeyJhdHRyaWJ1dGVzIjp7IlBPU0lUSU9OIjowLCJOT1JNQUwiOjEsIlRFWENPT1JEXzAiOjJ9LCJpbmRpY2VzIjozLCJtYXRlcmlhbCI6MH1dfV0sImFjY2Vzc29ycyI6W3siYnVmZmVyVmlldyI6MCwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjMsIm1heCI6WzAuMDczNTIwNDIxOTgxODExNTIsMCwwLjA3MzUwNDgwNTU2NDg4MDM3XSwibWluIjpbLTAuMDczNTIwMzYyMzc3MTY2NzUsMCwtMC4wNzM1MDQ5MjQ3NzQxNjk5Ml0sInR5cGUiOiJWRUMzIn0seyJidWZmZXJWaWV3IjoxLCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6MywidHlwZSI6IlZFQzMifSx7ImJ1ZmZlclZpZXciOjIsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50IjozLCJ0eXBlIjoiVkVDMiJ9LHsiYnVmZmVyVmlldyI6MywiY29tcG9uZW50VHlwZSI6NTEyMywiY291bnQiOjMsInR5cGUiOiJTQ0FMQVIifV0sImJ1ZmZlclZpZXdzIjpbeyJidWZmZXIiOjAsImJ5dGVMZW5ndGgiOjM2LCJieXRlT2Zmc2V0IjowLCJ0YXJnZXQiOjM0OTYyfSx7ImJ1ZmZlciI6MCwiYnl0ZUxlbmd0aCI6MzYsImJ5dGVPZmZzZXQiOjM2LCJ0YXJnZXQiOjM0OTYyfSx7ImJ1ZmZlciI6MCwiYnl0ZUxlbmd0aCI6MjQsImJ5dGVPZmZzZXQiOjcyLCJ0YXJnZXQiOjM0OTYyfSx7ImJ1ZmZlciI6MCwiYnl0ZUxlbmd0aCI6NiwiYnl0ZU9mZnNldCI6OTYsInRhcmdldCI6MzQ5NjN9XSwiYnVmZmVycyI6W3siYnl0ZUxlbmd0aCI6MTA0fV19IGgAAABCSU4AAAAAMwAAAADAiZa92JGWvQAAAACwiZY94JGWPQAAAACwiZY9AAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAActNMPwAAAAD1QJyyvZAZP3LTTD8AAIA/AQACAAAAAAA=", import.meta.url).href },
   { id: "fs-shape-shapes_g", label: "shapes_g", url: new URL("data:model/gltf-binary;base64,Z2xURgIAAADgBAAAOAQAAEpTT057ImFzc2V0Ijp7ImdlbmVyYXRvciI6Iktocm9ub3MgZ2xURiBCbGVuZGVyIEkvTyB2NS4xLjE4IiwidmVyc2lvbiI6IjIuMCJ9LCJzY2VuZSI6MCwic2NlbmVzIjpbeyJuYW1lIjoiU2NlbmUiLCJub2RlcyI6WzBdfV0sIm5vZGVzIjpbeyJtZXNoIjowLCJuYW1lIjoiQ3VydmUuMDU1Iiwicm90YXRpb24iOlswLjcwNzEwNjgyODY4OTU3NTIsMCwwLDAuNzA3MTA2ODI4Njg5NTc1Ml0sInNjYWxlIjpbNDAwLDQwMCw0MDBdfV0sIm1hdGVyaWFscyI6W3siZG91YmxlU2lkZWQiOnRydWUsIm5hbWUiOiJTVkdNYXQuMDE2In1dLCJtZXNoZXMiOlt7Im5hbWUiOiJDdXJ2ZS4xMjgiLCJwcmltaXRpdmVzIjpbeyJhdHRyaWJ1dGVzIjp7IlBPU0lUSU9OIjowLCJOT1JNQUwiOjEsIlRFWENPT1JEXzAiOjJ9LCJpbmRpY2VzIjozLCJtYXRlcmlhbCI6MH1dfV0sImFjY2Vzc29ycyI6W3siYnVmZmVyVmlldyI6MCwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjQsIm1heCI6WzAuMDQ0MDI3NTY2OTA5NzkwMDQsMCwwLjA0NDAxODI2ODU4NTIwNTA4XSwibWluIjpbLTAuMDQ0MDI3NTY2OTA5NzkwMDQsMCwtMC4wNDQwMTgyNjg1ODUyMDUwOF0sInR5cGUiOiJWRUMzIn0seyJidWZmZXJWaWV3IjoxLCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6NCwidHlwZSI6IlZFQzMifSx7ImJ1ZmZlclZpZXciOjIsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo0LCJ0eXBlIjoiVkVDMiJ9LHsiYnVmZmVyVmlldyI6MywiY29tcG9uZW50VHlwZSI6NTEyMywiY291bnQiOjYsInR5cGUiOiJTQ0FMQVIifV0sImJ1ZmZlclZpZXdzIjpbeyJidWZmZXIiOjAsImJ5dGVMZW5ndGgiOjQ4LCJieXRlT2Zmc2V0IjowLCJ0YXJnZXQiOjM0OTYyfSx7ImJ1ZmZlciI6MCwiYnl0ZUxlbmd0aCI6NDgsImJ5dGVPZmZzZXQiOjQ4LCJ0YXJnZXQiOjM0OTYyfSx7ImJ1ZmZlciI6MCwiYnl0ZUxlbmd0aCI6MzIsImJ5dGVPZmZzZXQiOjk2LCJ0YXJnZXQiOjM0OTYyfSx7ImJ1ZmZlciI6MCwiYnl0ZUxlbmd0aCI6MTIsImJ5dGVPZmZzZXQiOjEyOCwidGFyZ2V0IjozNDk2M31dLCJidWZmZXJzIjpbeyJieXRlTGVuZ3RoIjoxNDB9XX0gICCMAAAAQklOAEBWNL0AAAAAgEw0vUBWNL0AAAAAgEw0PUBWND0AAAAAgEw0vUBWND0AAAAAgEw0PQAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAACjyfz8AAAAAOJccMgAAgDMp8n8///9/P0+0tTMAAIA/AQACAAAAAQADAAIA", import.meta.url).href },
   { id: "fs-shape-stars_e", label: "stars_e", url: new URL("data:model/gltf-binary;base64,Z2xURgIAAAAUIgAATAQAAEpTT057ImFzc2V0Ijp7ImdlbmVyYXRvciI6Iktocm9ub3MgZ2xURiBCbGVuZGVyIEkvTyB2NS4xLjE4IiwidmVyc2lvbiI6IjIuMCJ9LCJzY2VuZSI6MCwic2NlbmVzIjpbeyJuYW1lIjoiU2NlbmUiLCJub2RlcyI6WzBdfV0sIm5vZGVzIjpbeyJtZXNoIjowLCJuYW1lIjoiQ3VydmUuMDM3Iiwicm90YXRpb24iOlswLjcwNzEwNjgyODY4OTU3NTIsMCwwLDAuNzA3MTA2ODI4Njg5NTc1Ml0sInNjYWxlIjpbNDAwLDQwMCw0MDBdfV0sIm1hdGVyaWFscyI6W3siZG91YmxlU2lkZWQiOnRydWUsIm5hbWUiOiJTVkdNYXQuMDExIn1dLCJtZXNoZXMiOlt7Im5hbWUiOiJDdXJ2ZS4wOTUiLCJwcmltaXRpdmVzIjpbeyJhdHRyaWJ1dGVzIjp7IlBPU0lUSU9OIjowLCJOT1JNQUwiOjEsIlRFWENPT1JEXzAiOjJ9LCJpbmRpY2VzIjozLCJtYXRlcmlhbCI6MH1dfV0sImFjY2Vzc29ycyI6W3siYnVmZmVyVmlldyI6MCwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjIwMSwibWF4IjpbMC4xMDQxMDA4MjM0MDI0MDQ3OSwwLDAuMTAwOTUzNzg3NTY1MjMxMzJdLCJtaW4iOlstMC4xMDQxMDA4ODMwMDcwNDk1NiwwLC0wLjEwMDk1Mzc4MDExNDY1MDczXSwidHlwZSI6IlZFQzMifSx7ImJ1ZmZlclZpZXciOjEsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50IjoyMDEsInR5cGUiOiJWRUMzIn0seyJidWZmZXJWaWV3IjoyLCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6MjAxLCJ0eXBlIjoiVkVDMiJ9LHsiYnVmZmVyVmlldyI6MywiY29tcG9uZW50VHlwZSI6NTEyMywiY291bnQiOjU4MiwidHlwZSI6IlNDQUxBUiJ9XSwiYnVmZmVyVmlld3MiOlt7ImJ1ZmZlciI6MCwiYnl0ZUxlbmd0aCI6MjQxMiwiYnl0ZU9mZnNldCI6MCwidGFyZ2V0IjozNDk2Mn0seyJidWZm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AAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAA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WQBcAFsAWQBdAFwAWQBeAF0AWQBfAF4AWQBgAF8AWQBhAGAAWQBiAGEAWQBjAGIAWQBkAGMAWQBlAGQAZgBlAFkAZgBnAGUAaABnAGYAaQBnAGgAagBnAGkAawBnAGoAbABnAGsAbQBnAGwAbgBnAG0AbwBnAG4AcABnAG8AcQBnAHAAcgBnAHEAcwBnAHIAcwB0AGcAcwB1AHQAdgB1AHMAdgB3AHUAeAB3AHYAeAB5AHcAegB5AHgAegB7AHkAfAB7AHoAfAB9AHsAfgB9AHwAfgB/AH0AgAB/AH4AgACBAH8AggCBAIAAggCDAIEAhACDAIIAhACFAIMAhgCFAIQAhgCHAIUAiACHAIYAiACJAIcAjACJAIgAkACKAI0AjwCRAI4AjwCSAJEAkwCLAJEAkwCUAIsAlQCUAJMAlgCUAJUAlwCUAJYAlwCYAJQAmQCYAJcAmgCYAJkAmgCbAJgAnACbAJoAnACdAJsAngCdAJwAnwCdAJ4AnwCgAJ0AoQCgAJ8AoQCiAKAAowCiAKEApACiAKMApQCiAKQApQCmAKIApwCmAKUApwCoAKYApwCpAKgAqgCSAI8AqwCSAKoArACSAKsArQCSAKwArgCSAK0ArgCvAJIAsACvAK4AsACxAK8AsgCxALAAswCxALIAAQACALQAAQC0ALUAtQC0ALYAtQC2ALcAtwC2ALgAtwC4ALkAuQC4ALoAuQC6ALsAuwC6ALwAuwC8AL0AvQC8AL4AvQC+AL8AvwC+AMAAvwDAAMEAwQDAAMIAwQDCAMMAwwDCAMQAwwDEAMUAxQDEAMYAxQDGAMcAxwDGAMgA", import.meta.url).href }
-], v0 = G0.map((a) => ({
-  id: a.id,
+], k0 = F0.map((l) => ({
+  id: l.id,
   category: "__palette__",
-  label: a.label,
-  glbPath: a.url,
+  label: l.label,
+  glbPath: l.url,
   defaultZDepth: 62,
   defaultScale: 2.5
-})), R0 = new M0();
-let d0 = [];
-function F0(a) {
-  d0 = a;
+})), H0 = new P0();
+let m0 = [];
+function K0(l) {
+  m0 = l;
 }
-async function jA(a) {
+async function jA(l) {
   const A = new D.Group();
-  A.name = a.id;
-  const i = a.layers.length, s = i > 0 ? a.layers.reduce((I, c) => I + c.position.x, 0) / i : 0, e = i > 0 ? a.layers.reduce((I, c) => I + c.position.y, 0) / i : 0, t = /* @__PURE__ */ new Map();
-  let l = 10;
-  for (const I of a.layers)
-    I.isClipper && t.set(I.instanceId, l++);
-  for (const I of a.layers)
+  A.name = l.id;
+  const i = l.layers.length, s = i > 0 ? l.layers.reduce((I, c) => I + c.position.x, 0) / i : 0, e = i > 0 ? l.layers.reduce((I, c) => I + c.position.y, 0) / i : 0, t = /* @__PURE__ */ new Map();
+  let a = 10;
+  for (const I of l.layers)
+    I.isClipper && t.set(I.instanceId, a++);
+  for (const I of l.layers)
     if (I.glbPartId) {
-      const c = hA.find((n) => n.id === I.glbPartId) ?? d0.find((n) => n.id === I.glbPartId);
+      const c = hA.find((g) => g.id === I.glbPartId) ?? m0.find((g) => g.id === I.glbPartId);
       if (c) {
-        let n;
+        let g;
         try {
-          n = await R0.loadPart(c);
+          g = await H0.loadPart(c);
         } catch {
           continue;
         }
-        const o = new D.Box3().setFromObject(n).getSize(new D.Vector3()), M = Math.max(o.x, o.y, 1), y = I.radius * 2 / M, d = I.scaleX ?? 1, C = I.scaleY ?? 1;
-        n.scale.set(y * I.scale * d, y * I.scale * C, y * I.scale), n.position.set(I.position.x - s, I.position.y - e, I.zDepth), n.rotation.z = (I.rotation ?? 0) * Math.PI / 180;
-        const P = I.opacity ?? 1, B = I.castShadow !== !1, u = I.receiveShadow !== !1;
-        n.traverse((p) => {
-          if (p instanceof D.Mesh && (p.castShadow = B, p.receiveShadow = u), p instanceof D.Mesh && p.material instanceof D.MeshStandardMaterial) {
-            const b = !!I.gradient, Y = !!(I.gradient?.startColor && I.gradient?.endColor);
-            if (p.material.userData = { ...p.material.userData ?? {}, sourceHasGradient: b, layerOpacity: P }, Y) {
-              p.material.userData.sourceGradient = I.gradient, P0(p.geometry, I.gradient.projectionAxis ?? "XY");
-              const L = FA(I.gradient);
-              L && (p.material.map = L, p.material.color.set(16777215), p.material.needsUpdate = !0);
+        const o = new D.Box3().setFromObject(g).getSize(new D.Vector3()), n = Math.max(o.x, o.y, 1), m = I.radius * 2 / n, y = I.scaleX ?? 1, M = I.scaleY ?? 1;
+        g.scale.set(m * I.scale * y, m * I.scale * M, m * I.scale), g.position.set(I.position.x - s, I.position.y - e, I.zDepth), g.rotation.z = (I.rotation ?? 0) * Math.PI / 180;
+        const d = I.opacity ?? 1, z = I.castShadow !== !1, J = I.receiveShadow !== !1;
+        g.traverse((p) => {
+          if (p instanceof D.Mesh && (p.castShadow = z, p.receiveShadow = J), p instanceof D.Mesh && p.material instanceof D.MeshStandardMaterial) {
+            const u = !!I.gradient, T = !!(I.gradient?.startColor && I.gradient?.endColor);
+            if (p.material.userData = { ...p.material.userData ?? {}, sourceHasGradient: u, layerOpacity: d }, T) {
+              p.material.userData.sourceGradient = I.gradient, d0(p.geometry, I.gradient.projectionAxis ?? "XY");
+              const Y = RA(I.gradient);
+              Y && (p.material.map = Y, p.material.color.set(16777215), p.material.needsUpdate = !0);
             } else
               p.material.color.set(I.color);
-            p.material.transparent = P < 1, p.material.opacity = P, p.material.depthWrite = P >= 1;
-            const Q = p.material;
+            p.material.transparent = d < 1, p.material.opacity = d, p.material.depthWrite = d >= 1;
+            const h = p.material;
             if (I.isClipper) {
-              const L = t.get(I.instanceId) ?? 10;
-              p.renderOrder = -1, Q.depthWrite = !1, Q.stencilWrite = !0, Q.stencilRef = L, Q.stencilFunc = D.AlwaysStencilFunc, Q.stencilFail = D.KeepStencilOp, Q.stencilZFail = D.KeepStencilOp, Q.stencilZPass = D.ReplaceStencilOp;
+              const Y = t.get(I.instanceId) ?? 10;
+              p.renderOrder = -1, h.depthWrite = !1, h.stencilWrite = !0, h.stencilRef = Y, h.stencilFunc = D.AlwaysStencilFunc, h.stencilFail = D.KeepStencilOp, h.stencilZFail = D.KeepStencilOp, h.stencilZPass = D.ReplaceStencilOp;
             } else if (I.clipToLayer) {
-              const L = t.get(I.clipToLayer);
-              L !== void 0 && (p.renderOrder = 1, Q.depthFunc = D.LessEqualDepth, Q.stencilWrite = !0, Q.stencilWriteMask = 0, Q.stencilRef = L, Q.stencilFunc = D.EqualStencilFunc, Q.stencilFail = D.KeepStencilOp, Q.stencilZFail = D.KeepStencilOp, Q.stencilZPass = D.KeepStencilOp);
+              const Y = t.get(I.clipToLayer);
+              Y !== void 0 && (p.renderOrder = 1, h.depthFunc = D.LessEqualDepth, h.stencilWrite = !0, h.stencilWriteMask = 0, h.stencilRef = Y, h.stencilFunc = D.EqualStencilFunc, h.stencilFail = D.KeepStencilOp, h.stencilZFail = D.KeepStencilOp, h.stencilZPass = D.KeepStencilOp);
             }
             p.material.needsUpdate = !0;
           }
-        }), A.add(n);
+        }), A.add(g);
       }
       continue;
     }
   return A;
 }
-const m0 = 4, k0 = 0.6, H0 = 0.35;
-let OA = 0, RA = 1, y0 = 1;
+const y0 = 4, q0 = 0.6, _0 = 0.35;
+let OA = 0, vA = 1, j0 = 1;
 const cA = /* @__PURE__ */ new Set();
-function K0() {
-  return RA;
+function $0() {
+  return vA;
 }
-function q0(a) {
-  RA = Math.max(0, Math.min(1, a));
+function Ae(l) {
+  vA = Math.max(0, Math.min(1, l));
   for (const A of [...cA]) {
     if (!A.parent) {
       cA.delete(A);
@@ -641,34 +641,34 @@ function q0(a) {
     A.traverse((i) => {
       if (!(i instanceof D.Mesh) || i.userData?.shadowBlurLayer !== 0) return;
       const s = i.userData?.shadowAuthoredOpacity ?? 1, e = (t) => {
-        t.opacity = s * RA, t.transparent = t.opacity < 1, t.depthWrite = t.opacity >= 1, t.needsUpdate = !0;
+        t.opacity = s * vA, t.transparent = t.opacity < 1, t.depthWrite = t.opacity >= 1, t.needsUpdate = !0;
       };
       Array.isArray(i.material) ? i.material.forEach(e) : i.material && e(i.material);
     });
   }
 }
-function _0(a) {
-  y0 = Math.max(0, Math.min(1, a));
+function ee(l) {
+  j0 = Math.max(0, Math.min(1, l));
   for (const A of [...cA]) {
     if (!A.parent) {
       cA.delete(A);
       continue;
     }
-    kA(A, OA);
+    FA(A, OA);
   }
 }
-function $0(a) {
+function ie(l) {
   const A = [];
-  a.traverse((i) => {
+  l.traverse((i) => {
     i instanceof D.Mesh && i.userData?.shadowBlurLayer === void 0 && A.push(i);
   });
   for (const i of A) {
     i.userData = { ...i.userData ?? {}, shadowBlurLayer: 0 };
-    for (let s = 1; s <= m0; s++) {
+    for (let s = 1; s <= y0; s++) {
       const e = i.clone();
-      e.name = "_shadowBlur", Array.isArray(i.material) ? e.material = i.material.map((l) => l.clone()) : i.material && (e.material = i.material.clone());
-      const t = (l) => {
-        l.transparent = !0, l.depthWrite = !1, l.opacity = 0;
+      e.name = "_shadowBlur", Array.isArray(i.material) ? e.material = i.material.map((a) => a.clone()) : i.material && (e.material = i.material.clone());
+      const t = (a) => {
+        a.transparent = !0, a.depthWrite = !1, a.opacity = 0;
       };
       Array.isArray(e.material) ? e.material.forEach(t) : e.material && t(e.material), e.userData = {
         ...e.userData ?? {},
@@ -682,179 +682,179 @@ function $0(a) {
       }, i.parent?.add(e);
     }
   }
-  cA.add(a), kA(a, OA);
+  cA.add(l), FA(l, OA);
 }
-function Ae(a) {
-  OA = Math.max(0, Math.min(1, a));
+function se(l) {
+  OA = Math.max(0, Math.min(1, l));
   for (const A of [...cA]) {
     if (!A.parent) {
       cA.delete(A);
       continue;
     }
-    kA(A, OA);
+    FA(A, OA);
   }
 }
-function kA(a, A) {
-  a.traverse((i) => {
+function FA(l, A) {
+  l.traverse((i) => {
     if (!(i instanceof D.Mesh)) return;
     const s = i.userData?.shadowBlurLayer;
     if (s === void 0 || s === 0) return;
-    const e = s / m0, t = 1 + k0 * A * e, l = i.userData?.shadowBlurBaseSX ?? 1, I = i.userData?.shadowBlurBaseSY ?? 1, c = i.userData?.shadowBlurBaseSZ ?? 1;
-    i.scale.set(l * t, I * t, c);
-    const n = A * H0 * (1 - e * 0.6) * y0, r = (o) => {
-      o.opacity = n, o.transparent = !0, o.needsUpdate = !0;
+    const e = s / y0, t = 1 + q0 * A * e, a = i.userData?.shadowBlurBaseSX ?? 1, I = i.userData?.shadowBlurBaseSY ?? 1, c = i.userData?.shadowBlurBaseSZ ?? 1;
+    i.scale.set(a * t, I * t, c);
+    const g = A * _0 * (1 - e * 0.6) * j0, r = (o) => {
+      o.opacity = g, o.transparent = !0, o.needsUpdate = !0;
     };
-    Array.isArray(i.material) ? i.material.forEach(r) : i.material && r(i.material), i.visible = n > 0;
+    Array.isArray(i.material) ? i.material.forEach(r) : i.material && r(i.material), i.visible = g > 0;
   });
 }
-function ee(a, A) {
+function te(l, A) {
   const i = A.gradient?.startColor ?? A.color, s = A.gradient?.endColor ?? A.color;
-  !i || !s || a.traverse((e) => {
+  !i || !s || l.traverse((e) => {
     if (!(e instanceof D.Mesh) || e.name.startsWith("_") || !(e.material instanceof D.MeshStandardMaterial)) return;
     const t = e.material.userData?.sourceGradient;
     if (!t) return;
-    const l = FA({ ...t, startColor: i, endColor: s });
-    l && (e.material.map = l, e.material.color.set(16777215), e.material.userData = { ...e.material.userData ?? {}, gradientApplied: !0 }, e.material.needsUpdate = !0);
+    const a = RA({ ...t, startColor: i, endColor: s });
+    a && (e.material.map = a, e.material.color.set(16777215), e.material.userData = { ...e.material.userData ?? {}, gradientApplied: !0 }, e.material.needsUpdate = !0);
   });
 }
-function uA(a, A, i = !1) {
+function bA(l, A, i = !1) {
   let s = !1;
   if (!i) {
     const e = /* @__PURE__ */ new Set();
-    a.traverse((t) => {
+    l.traverse((t) => {
       !(t instanceof D.Mesh) || t.name === "_selectionOutline" || t.name === "_layerOutline" || t.name === "_shadowBlur" || t.material instanceof D.MeshStandardMaterial && e.add(t.material.color.getHex());
     }), e.size > 1 && (s = !0);
   }
-  a.traverse((e) => {
+  l.traverse((e) => {
     if (!(!(e instanceof D.Mesh) || e.name === "_selectionOutline" || e.name === "_layerOutline" || e.name === "_shadowBlur") && (A.castShadow !== void 0 && (e.castShadow = A.castShadow), A.receiveShadow !== void 0 && (e.receiveShadow = A.receiveShadow), e.material instanceof D.MeshStandardMaterial)) {
-      const l = e.material.userData?.sourceHasGradient === !1;
-      if (A.gradient?.startColor && A.gradient?.endColor && !l) {
-        P0(e.geometry, A.gradient.projectionAxis ?? "XY");
-        const M = FA(A.gradient);
-        M && (e.material.map = M, e.material.color.set(16777215), e.material.userData = { ...e.material.userData ?? {}, gradientApplied: !0 }, e.material.needsUpdate = !0);
+      const a = e.material.userData?.sourceHasGradient === !1;
+      if (A.gradient?.startColor && A.gradient?.endColor && !a) {
+        d0(e.geometry, A.gradient.projectionAxis ?? "XY");
+        const n = RA(A.gradient);
+        n && (e.material.map = n, e.material.color.set(16777215), e.material.userData = { ...e.material.userData ?? {}, gradientApplied: !0 }, e.material.needsUpdate = !0);
       } else
         !i && e.material.map && e.material.userData?.gradientApplied && (e.material.map = null, e.material.userData.gradientApplied = !1, e.material.needsUpdate = !0), !i && !s && !e.material.map && A.color && e.material.color.set(A.color);
-      const I = e.material.userData?.layerOpacity ?? 1, c = A.opacity ?? 1, n = I * c, r = e.userData?.shadowBlurLayer === 0;
-      r && (e.userData.shadowAuthoredOpacity = n);
-      const o = n * (r ? K0() : 1);
+      const I = e.material.userData?.layerOpacity ?? 1, c = A.opacity ?? 1, g = I * c, r = e.userData?.shadowBlurLayer === 0;
+      r && (e.userData.shadowAuthoredOpacity = g);
+      const o = g * (r ? $0() : 1);
       e.material.transparent = o < 1, e.material.opacity = o, e.material.depthWrite = o >= 1, e.material.needsUpdate = !0;
     }
   });
 }
-function TA(a, A, i) {
-  const s = i.pivotOffsetX ?? 0, e = i.pivotOffsetY ?? 0, t = i.scale * (i.scaleX ?? 1), l = i.scale * (i.scaleY ?? 1);
-  a.position.set(i.position.x + s * t, i.position.y + e * l, i.zDepth), a.rotation.z = i.rotation * Math.PI / 180, A && (A.position.set(-s * t, -e * l, 0), A.scale.set(t, l, i.scale));
+function TA(l, A, i) {
+  const s = i.pivotOffsetX ?? 0, e = i.pivotOffsetY ?? 0, t = i.scale * (i.scaleX ?? 1), a = i.scale * (i.scaleY ?? 1);
+  l.position.set(i.position.x + s * t, i.position.y + e * a, i.zDepth), l.rotation.z = i.rotation * Math.PI / 180, A && (A.position.set(-s * t, -e * a, 0), A.scale.set(t, a, i.scale));
 }
-function w0(a) {
-  if (a.category === "spec") return !0;
-  const A = a.id?.toLowerCase().startsWith("spec-"), i = a.label?.toLowerCase().startsWith("spec-");
+function o0(l) {
+  if (l.category === "spec") return !0;
+  const A = l.id?.toLowerCase().startsWith("spec-"), i = l.label?.toLowerCase().startsWith("spec-");
   return !!A || !!i;
 }
-const HA = 1, LA = 2, YA = 128;
-function aA(a, A) {
-  const i = a.material;
+const kA = 1, p0 = 2, w0 = 100, D0 = 200, h0 = 14, YA = 128;
+function aA(l, A) {
+  const i = l.material;
   Array.isArray(i) ? i.forEach(A) : i && A(i);
 }
-function ie(a) {
+function Ie(l) {
   const A = [];
-  a.traverse((i) => {
+  l.traverse((i) => {
     i instanceof D.Mesh && A.push(i);
   });
   for (const i of A) {
     const s = i.clone();
-    Array.isArray(i.material) ? s.material = i.material.map((e) => e.clone()) : i.material && (s.material = i.material.clone()), i.parent?.add(s), D0(i, HA, "pupil"), D0(s, LA, "sclera");
+    Array.isArray(i.material) ? s.material = i.material.map((e) => e.clone()) : i.material && (s.material = i.material.clone()), i.parent?.add(s), c0(i, kA, "pupil"), c0(s, p0, "sclera");
   }
-  a.renderOrder = 1e3;
+  l.renderOrder = 1e3;
 }
-function D0(a, A, i) {
-  a.renderOrder = 1e3, a.castShadow = !1, a.receiveShadow = !1, aA(a, (s) => {
+function c0(l, A, i) {
+  l.renderOrder = 1e3, l.castShadow = !1, l.receiveShadow = !1, aA(l, (s) => {
     const e = s;
     e.blending = D.AdditiveBlending, e.transparent = !0, e.depthWrite = !1, e.depthTest = !1, e.stencilWrite = !0, e.stencilRef = A, e.stencilFunc = D.EqualStencilFunc, e.stencilFail = D.KeepStencilOp, e.stencilZFail = D.KeepStencilOp, e.stencilZPass = D.KeepStencilOp, e.userData = { ...e.userData ?? {}, specMask: i }, e.needsUpdate = !0;
   });
 }
-function se(a, A, i) {
-  a.traverse((s) => {
+function ae(l, A, i) {
+  l.traverse((s) => {
     s instanceof D.Mesh && aA(s, (e) => {
-      const t = e, l = t.userData?.specMask;
-      l === "pupil" ? t.opacity = A : l === "sclera" && (t.opacity = i);
+      const t = e, a = t.userData?.specMask;
+      a === "pupil" ? t.opacity = A : a === "sclera" && (t.opacity = i);
     });
   });
 }
-function c0(a, A = !1) {
-  a.traverse((i) => {
-    i instanceof D.Mesh && aA(i, (s) => {
+function g0(l, A = !1) {
+  l.renderOrder = D0, l.traverse((i) => {
+    i instanceof D.Mesh && (i.renderOrder = D0, aA(i, (s) => {
       const e = s;
-      e.stencilWrite = !0, A ? (e.stencilRef = LA, e.stencilFunc = D.EqualStencilFunc, e.stencilFail = D.KeepStencilOp, e.stencilZFail = D.KeepStencilOp, e.stencilZPass = D.DecrementStencilOp) : (e.stencilRef = HA, e.stencilFunc = D.AlwaysStencilFunc, e.stencilFail = D.KeepStencilOp, e.stencilZFail = D.KeepStencilOp, e.stencilZPass = D.ReplaceStencilOp), e.userData = { ...e.userData ?? {}, pupilStencil: !0 }, e.needsUpdate = !0;
+      e.stencilWrite = !0, e.depthTest = !1, A ? (e.stencilRef = 0, e.stencilFuncMask = h0, e.stencilFunc = D.NotEqualStencilFunc, e.stencilFail = D.KeepStencilOp, e.stencilZFail = D.KeepStencilOp, e.stencilZPass = D.DecrementStencilOp) : (e.stencilFuncMask = 255, e.stencilRef = kA, e.stencilFunc = D.AlwaysStencilFunc, e.stencilFail = D.KeepStencilOp, e.stencilZFail = D.KeepStencilOp, e.stencilZPass = D.ReplaceStencilOp), e.userData = { ...e.userData ?? {}, pupilStencil: !0 }, e.needsUpdate = !0;
+    }));
+  });
+}
+function le(l, A) {
+  const i = l.userData?.pairedScleraStencil, s = i ? i - 1 : kA;
+  l.traverse((e) => {
+    e instanceof D.Mesh && aA(e, (t) => {
+      const a = t;
+      a.userData?.pupilStencil && (A ? (a.stencilRef = 0, a.stencilFuncMask = h0, a.stencilFunc = D.NotEqualStencilFunc, a.stencilZPass = D.DecrementStencilOp) : (a.stencilFuncMask = 255, a.stencilRef = s, a.stencilFunc = D.AlwaysStencilFunc, a.stencilZPass = D.ReplaceStencilOp), a.needsUpdate = !0);
     });
   });
 }
-function te(a, A) {
-  const i = a.userData?.pairedScleraStencil, s = i ?? LA, e = i ? i - 1 : HA;
-  a.traverse((t) => {
-    t instanceof D.Mesh && aA(t, (l) => {
-      const I = l;
-      I.userData?.pupilStencil && (A ? (I.stencilRef = s, I.stencilFunc = D.EqualStencilFunc, I.stencilZPass = D.DecrementStencilOp) : (I.stencilRef = e, I.stencilFunc = D.AlwaysStencilFunc, I.stencilZPass = D.ReplaceStencilOp), I.needsUpdate = !0);
-    });
-  });
-}
-function Ie(a, A) {
+function oe(l, A) {
   const i = A - 1;
-  a.traverse((s) => {
+  l.traverse((s) => {
     s instanceof D.Mesh && aA(s, (e) => {
-      const t = e, l = t.userData?.specMask;
-      l === "sclera" ? t.stencilRef = A : l === "pupil" && (t.stencilRef = i), t.needsUpdate = !0;
+      const t = e, a = t.userData?.specMask;
+      a === "sclera" ? t.stencilRef = A : a === "pupil" && (t.stencilRef = i), t.needsUpdate = !0;
     });
   });
 }
-function ae(a, A) {
-  a.userData = { ...a.userData ?? {}, scleraStencilValue: A }, a.traverse((i) => {
+function we(l, A) {
+  l.userData = { ...l.userData ?? {}, scleraStencilValue: A }, l.traverse((i) => {
     i instanceof D.Mesh && aA(i, (s) => {
       const e = s;
       e.stencilWrite = !0, e.stencilRef = A, e.stencilFunc = D.AlwaysStencilFunc, e.stencilFail = D.KeepStencilOp, e.stencilZFail = D.KeepStencilOp, e.stencilZPass = D.ReplaceStencilOp, e.needsUpdate = !0;
     });
   });
 }
-function le(a) {
-  a.traverse((A) => {
+function De(l) {
+  l.traverse((A) => {
     A instanceof D.Mesh && aA(A, (i) => {
       const s = i;
       s.stencilWrite = !0, s.stencilWriteMask = YA, s.stencilRef = YA, s.stencilFunc = D.AlwaysStencilFunc, s.stencilFail = D.KeepStencilOp, s.stencilZFail = D.KeepStencilOp, s.stencilZPass = D.ReplaceStencilOp, s.needsUpdate = !0;
     });
   });
 }
-function oe(a) {
-  a.traverse((A) => {
+function ce(l) {
+  l.traverse((A) => {
     A instanceof D.Mesh && aA(A, (i) => {
       const s = i;
       s.stencilWrite = !0, s.stencilWriteMask = 0, s.stencilRef = YA, s.stencilFuncMask = YA, s.stencilFunc = D.EqualStencilFunc, s.stencilFail = D.KeepStencilOp, s.stencilZFail = D.KeepStencilOp, s.stencilZPass = D.KeepStencilOp, s.depthFunc = D.LessEqualDepth, s.needsUpdate = !0;
     });
   });
 }
-function g0(a) {
-  a.traverse((A) => {
-    A instanceof D.Mesh && aA(A, (i) => {
+function C0(l) {
+  l.renderOrder = w0, l.traverse((A) => {
+    A instanceof D.Mesh && (A.renderOrder = w0, aA(A, (i) => {
       const s = i;
-      s.stencilWrite = !0, s.stencilRef = LA, s.stencilFunc = D.AlwaysStencilFunc, s.stencilFail = D.KeepStencilOp, s.stencilZFail = D.KeepStencilOp, s.stencilZPass = D.ReplaceStencilOp, s.userData = { ...s.userData ?? {}, isSclera: !0 }, s.needsUpdate = !0;
-    });
+      s.stencilWrite = !0, s.stencilRef = p0, s.stencilFunc = D.AlwaysStencilFunc, s.stencilFail = D.KeepStencilOp, s.stencilZFail = D.KeepStencilOp, s.stencilZPass = D.ReplaceStencilOp, s.userData = { ...s.userData ?? {}, isSclera: !0 }, s.needsUpdate = !0;
+    }));
   });
 }
-function C0(a) {
-  a.traverse((A) => {
+function r0(l) {
+  l.traverse((A) => {
     A instanceof D.Mesh && aA(A, (i) => {
       const s = i.color;
       !s || !(s.r > 0.6 && s.g > 0.6 && s.b > 0.6) || (i.userData = { ...i.userData ?? {}, isTeeth: !0 }, i.needsUpdate = !0);
     });
   });
 }
-function r0(a) {
-  a.renderOrder = 500, a.traverse((A) => {
+function n0(l) {
+  l.renderOrder = 500, l.traverse((A) => {
     A instanceof D.Mesh && (A.renderOrder = 500, aA(A, (i) => {
       const s = i;
       s.stencilWrite = !0, s.stencilRef = 0, s.stencilFunc = D.AlwaysStencilFunc, s.stencilFail = D.KeepStencilOp, s.stencilZFail = D.KeepStencilOp, s.stencilZPass = D.ReplaceStencilOp, s.needsUpdate = !0;
     }));
   });
 }
-const KA = {
+const HA = {
   blinkIntervalMin: 2e3,
   blinkIntervalMax: 6e3,
   boredAfter: 27e3,
@@ -1128,12 +1128,12 @@ const KA = {
   celebrateHeight: 61,
   armTransitionMs: 225
 };
-function we(a) {
-  for (const A of a.children)
+function ge(l) {
+  for (const A of l.children)
     if (A instanceof D.Group && A.name !== "_pivotIndicator") return A;
   return null;
 }
-const G = Math.PI / 180, De = /* @__PURE__ */ new Set(["wave", "footTap", "headTilt", "lookAround"]), gA = {
+const G = Math.PI / 180, Ce = /* @__PURE__ */ new Set(["wave", "footTap", "headTilt", "lookAround"]), gA = {
   hop: "mouth-mouth-happy",
   wiggle: "mouth-mouth-wavy",
   headTilt: "mouth-mouth-smirk",
@@ -1152,40 +1152,40 @@ const G = Math.PI / 180, De = /* @__PURE__ */ new Set(["wave", "footTap", "headT
   explode: "mouth-mouth-help",
   puffedUp: "mouth-mouth-happy",
   build: "mouth-mouth-happy"
-}, ce = /* @__PURE__ */ new Set(), vA = {
+}, re = /* @__PURE__ */ new Set(), GA = {
   surprise: "pupil-pac",
   brainless: "pupil-pac",
   celebrate: "pupil-heart",
   explode: "pupil-pac"
 };
-function ge(a, A, i, s, e) {
-  const l = a.baseX - i >= 0 ? 1 : -1, I = 60 + Math.abs(a.bFloatAmpX * 6), c = l * I, n = 250 + a.bFloatAmpY * 2;
+function ne(l, A, i, s, e) {
+  const a = l.baseX - i >= 0 ? 1 : -1, I = 60 + Math.abs(l.bFloatAmpX * 6), c = a * I, g = 250 + l.bFloatAmpY * 2;
   let r = 1 / 0;
   if (s > 0) {
-    const o = 0.5 * s, M = -n, y = e - a.baseY, d = M * M - 4 * o * y;
-    if (d >= 0) {
-      const C = Math.sqrt(d);
-      r = Math.max((-M + C) / (2 * o), (-M - C) / (2 * o)), r < 0 && (r = 1 / 0);
+    const o = 0.5 * s, n = -g, m = e - l.baseY, y = n * n - 4 * o * m;
+    if (y >= 0) {
+      const M = Math.sqrt(y);
+      r = Math.max((-n + M) / (2 * o), (-n - M) / (2 * o)), r < 0 && (r = 1 / 0);
     }
   }
-  return A < r ? { dX: c * A, dY: n * A - 0.5 * s * A * A, landed: !1 } : { dX: c * r, dY: e - a.baseY, landed: !0 };
+  return A < r ? { dX: c * A, dY: g * A - 0.5 * s * A * A, landed: !1 } : { dX: c * r, dY: e - l.baseY, landed: !0 };
 }
-function Ce(a, A) {
-  if (a < 0.35) {
-    const e = a / 0.35;
+function Me(l, A) {
+  if (l < 0.35) {
+    const e = l / 0.35;
     return 1 + A * (1 - (1 - e) * (1 - e));
   }
-  const s = (a - 0.35) / (1 - 0.35);
+  const s = (l - 0.35) / (1 - 0.35);
   return (1 + A) * (1 - s * s);
 }
-function re(a, A, i) {
-  if (a <= 0) return 0;
-  if (a >= 1) return 1;
-  if (a < 0.5) {
-    const e = a * 2;
+function Pe(l, A, i) {
+  if (l <= 0) return 0;
+  if (l >= 1) return 1;
+  if (l < 0.5) {
+    const e = l * 2;
     return e * e * ((A + 1) * e - A) / 2;
   }
-  const s = a * 2 - 2;
+  const s = l * 2 - 2;
   return (s * s * ((i + 1) * s + i) + 2) / 2;
 }
 const rA = {
@@ -1211,46 +1211,46 @@ const rA = {
   explode: 2400,
   puffedUp: 1500,
   build: 1500
-}, ne = Object.keys(rA), Me = ["yawn", "stretch", "lookAround", "wiggle", "headTilt"], Pe = ["footTap", "lookAround", "shrug", "sway"];
-function n0(a, A) {
-  const { all: i, nonFeet: s, heads: e, arms: t, ears: l, tails: I, waveTarget: c } = a, n = e.length > 0 ? [...e, ...a.eyes, ...a.mouths] : s, r = Math.max(0, A.explodeSettle), o = Math.max(1e-4, r / 1e3), M = A.explodeVanishSpeed > 0, y = Math.max(0, A.explodeOvershoot), d = Math.max(0, A.explodeStagger), C = Math.max(1, A.explodePop), P = Math.max(0.05, A.explodeStaggerCurve), B = i.filter((g) => !g.part.instanceId.startsWith("anim-synth-") && g.category !== "shadow").slice().sort((g, m) => m.baseZ - g.baseZ), u = /* @__PURE__ */ new Map();
-  B.forEach((g, m) => u.set(g, m));
-  const p = B.length, b = d * Math.max(0, p - 1), Y = M ? b + C : 0, Q = r + Y, L = Math.max(1, A.buildPop), U = Math.max(0, A.buildStagger), J = Math.max(0.05, A.buildStaggerCurve), N = i.filter((g) => !g.part.instanceId.startsWith("anim-synth-") && g.category !== "shadow"), v = i.filter((g) => g.category === "shadow"), $ = U * Math.max(0, N.length - 1), sA = 0.1, eA = $ + L, q = Math.max(0.5, A.wiggleCount), tA = Math.max(0.1, A.wiggleSpeed), IA = q * 200 / tA;
+}, de = Object.keys(rA), me = ["yawn", "stretch", "lookAround", "wiggle", "headTilt"], ye = ["footTap", "lookAround", "shrug", "sway"];
+function M0(l, A) {
+  const { all: i, nonFeet: s, heads: e, arms: t, ears: a, tails: I, waveTarget: c } = l, g = e.length > 0 ? [...e, ...l.eyes, ...l.mouths] : s, r = Math.max(0, A.explodeSettle), o = Math.max(1e-4, r / 1e3), n = A.explodeVanishSpeed > 0, m = Math.max(0, A.explodeOvershoot), y = Math.max(0, A.explodeStagger), M = Math.max(1, A.explodePop), d = Math.max(0.05, A.explodeStaggerCurve), z = i.filter((C) => !C.part.instanceId.startsWith("anim-synth-") && C.category !== "shadow").slice().sort((C, P) => P.baseZ - C.baseZ), J = /* @__PURE__ */ new Map();
+  z.forEach((C, P) => J.set(C, P));
+  const p = z.length, u = y * Math.max(0, p - 1), T = n ? u + M : 0, h = r + T, Y = Math.max(1, A.buildPop), U = Math.max(0, A.buildStagger), b = Math.max(0.05, A.buildStaggerCurve), O = i.filter((C) => !C.part.instanceId.startsWith("anim-synth-") && C.category !== "shadow"), v = i.filter((C) => C.category === "shadow"), $ = U * Math.max(0, O.length - 1), sA = 0.1, eA = $ + Y, q = Math.max(0.5, A.wiggleCount), tA = Math.max(0.1, A.wiggleSpeed), IA = q * 200 / tA;
   return {
     hop: {
       duration: 1400,
-      fn(g) {
-        const m = A.animAmounts.hop ?? 1, j = A.hopCrouch, z = A.hopHeight, Z = A.hopLegSplay * (A.hopHeightRatio ?? 1), V = 0.143, h = 0.214, X = 0.714;
-        if (g < V) {
-          const O = g / V, E = -Math.sin(O * Math.PI * 0.5) * j * m;
+      fn(C) {
+        const P = A.animAmounts.hop ?? 1, j = A.hopCrouch, Z = A.hopHeight, B = A.hopLegSplay * (A.hopHeightRatio ?? 1), V = 0.143, Q = 0.214, X = 0.714;
+        if (C < V) {
+          const L = C / V, E = -Math.sin(L * Math.PI * 0.5) * j * P;
           for (const x of s) x.dY = E;
-        } else if (g < h) {
-          const O = -j * m;
-          for (const E of s) E.dY = O;
-        } else if (g < X) {
-          const O = (g - h) / (X - h), E = Math.sin(O * Math.PI) * z * m, x = Math.min(O / 0.15, 1), H = -j * m * (1 - x);
+        } else if (C < Q) {
+          const L = -j * P;
+          for (const E of s) E.dY = L;
+        } else if (C < X) {
+          const L = (C - Q) / (X - Q), E = Math.sin(L * Math.PI) * Z * P, x = Math.min(L / 0.15, 1), H = -j * P * (1 - x);
           for (const K of s) K.dY = H + E;
           for (const K of i)
             if (!s.includes(K)) {
               K.dY = E;
               const _ = K.baseX >= 0 ? 1 : -1;
-              K.dRotZ = Math.sin(O * Math.PI) * Z * G * _ * m;
+              K.dRotZ = Math.sin(L * Math.PI) * B * G * _ * P;
             }
         } else {
-          const O = (g - X) / (1 - X), E = -Math.sin(O * Math.PI * 2.5) * (j * 0.5) * Math.exp(-O * 4) * m;
+          const L = (C - X) / (1 - X), E = -Math.sin(L * Math.PI * 2.5) * (j * 0.5) * Math.exp(-L * 4) * P;
           for (const x of s) x.dY = E;
           for (const x of i)
             s.includes(x) || (x.dY = 0, x.dRotZ = 0);
         }
         if (t.length > 0) {
-          const O = Math.min(g / 0.18, 1), E = g < h ? -Math.sin(O * Math.PI * 0.5) * 22 * G * m : 0;
+          const L = Math.min(C / 0.18, 1), E = C < Q ? -Math.sin(L * Math.PI * 0.5) * 22 * G * P : 0;
           let x = 0;
-          if (g >= h && g < X) {
-            const H = (g - h) / (X - h);
-            x = Math.sin(H * Math.PI) * 38 * G * Math.max(0, 1 - H * 0.5) * m;
-          } else if (g >= X) {
-            const H = (g - X) / (1 - X);
-            x = -Math.sin(H * Math.PI * 2.5) * 28 * G * Math.exp(-H * 4) * m;
+          if (C >= Q && C < X) {
+            const H = (C - Q) / (X - Q);
+            x = Math.sin(H * Math.PI) * 38 * G * Math.max(0, 1 - H * 0.5) * P;
+          } else if (C >= X) {
+            const H = (C - X) / (1 - X);
+            x = -Math.sin(H * Math.PI * 2.5) * 28 * G * Math.exp(-H * 4) * P;
           }
           for (const H of t) {
             const K = H.baseX >= 0 ? 1 : -1;
@@ -1261,34 +1261,34 @@ function n0(a, A) {
     },
     wiggle: {
       duration: IA,
-      fn(g) {
-        const m = A.animAmounts.wiggle ?? 1, j = A.wiggleAngle, z = Math.max(0.5, A.wiggleCount), Z = A.wiggleDir, V = Math.PI * 2 * z, h = Math.sin(g * V) * j * G * (1 - g) * m * Z;
-        for (const O of s) O.dRotZ = h;
-        const X = (O, E) => {
-          const x = Math.max(0, g - O / z);
-          return Math.sin(x * V) * j * G * E * (1 - x) * m * Z;
+      fn(C) {
+        const P = A.animAmounts.wiggle ?? 1, j = A.wiggleAngle, Z = Math.max(0.5, A.wiggleCount), B = A.wiggleDir, V = Math.PI * 2 * Z, Q = Math.sin(C * V) * j * G * (1 - C) * P * B;
+        for (const L of s) L.dRotZ = Q;
+        const X = (L, E) => {
+          const x = Math.max(0, C - L / Z);
+          return Math.sin(x * V) * j * G * E * (1 - x) * P * B;
         };
-        for (const O of l) O.dRotZ = X(0.16, 1.25);
-        for (const O of I) O.dRotZ = X(0.2, 1.4);
-        for (const O of t) O.dRotZ = X(0.22, 1.6);
-        a.gazeOverride = { x: 0, y: 0 };
+        for (const L of a) L.dRotZ = X(0.16, 1.25);
+        for (const L of I) L.dRotZ = X(0.2, 1.4);
+        for (const L of t) L.dRotZ = X(0.22, 1.6);
+        l.gazeOverride = { x: 0, y: 0 };
       }
     },
     headTilt: {
       duration: 1800,
-      fn(g) {
-        const m = A.animAmounts.headTilt ?? 1, j = A.headTiltAngle * (a.mirror ? -1 : 1), z = A.headTiltArmDroop, Z = A.headTiltBounce, V = 0.15, h = 0.7, X = (g < V ? g / V * j * G : g < h ? j * G : (1 - g) / (1 - h) * j * G) * m, O = i.length > 0 ? i.reduce((E, x) => E + x.baseY, 0) / i.length : 0;
-        for (const E of n)
-          E.category === "legs" || E.category === "foot" || E.category !== "body" && E.baseY < O || (E.dRotZ = X);
+      fn(C) {
+        const P = A.animAmounts.headTilt ?? 1, j = A.headTiltAngle * (l.mirror ? -1 : 1), Z = A.headTiltArmDroop, B = A.headTiltBounce, V = 0.15, Q = 0.7, X = (C < V ? C / V * j * G : C < Q ? j * G : (1 - C) / (1 - Q) * j * G) * P, L = i.length > 0 ? i.reduce((E, x) => E + x.baseY, 0) / i.length : 0;
+        for (const E of g)
+          E.category === "legs" || E.category === "foot" || E.category !== "body" && E.baseY < L || (E.dRotZ = X);
         if (t.length > 0) {
           let K;
-          if (g < 0.12)
-            K = g / 0.12;
-          else if (g < 0.45) {
-            const _ = (g - 0.12) / 0.33;
-            K = 1 + Math.sin(_ * Math.PI * 2) * Z * (1 - _);
-          } else g < 0.7 ? K = 1 : K = 1 - (g - 0.7) / (1 - 0.7);
-          K *= m * z;
+          if (C < 0.12)
+            K = C / 0.12;
+          else if (C < 0.45) {
+            const _ = (C - 0.12) / 0.33;
+            K = 1 + Math.sin(_ * Math.PI * 2) * B * (1 - _);
+          } else C < 0.7 ? K = 1 : K = 1 - (C - 0.7) / (1 - 0.7);
+          K *= P * Z;
           for (const _ of t) {
             if (Math.sqrt(_.baseMGX * _.baseMGX + _.baseMGY * _.baseMGY) < 2) continue;
             const QA = ((-Math.PI / 2 - Math.atan2(_.baseMGY, _.baseMGX) - _.baseRotZ) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
@@ -1299,211 +1299,211 @@ function n0(a, A) {
     },
     nod: {
       duration: 700,
-      fn(g) {
-        const m = A.animAmounts.nod ?? 1, j = A.nodDepth, z = Math.sin(g * Math.PI * 4) * j * m * (1 - g * 0.4);
-        for (const Z of s) Z.dY = z;
+      fn(C) {
+        const P = A.animAmounts.nod ?? 1, j = A.nodDepth, Z = Math.sin(C * Math.PI * 4) * j * P * (1 - C * 0.4);
+        for (const B of s) B.dY = Z;
       }
     },
     celebrate: {
       duration: 1400,
-      fn(g) {
-        const m = A.animAmounts.celebrate ?? 1, j = A.celebrateHeight, z = Math.sin(Math.PI * Math.min(g * 2, 1)) * j * m, Z = Math.sin(g * Math.PI * 5) * 15 * G * (1 - g) * m;
-        for (const h of i) h.dY = z;
-        for (const h of s) h.dRotZ = Z;
-        const V = Math.sin(Math.PI * Math.min(g * 2, 1)) * 40 * G * m;
-        for (const h of t) h.dRotZ += V;
+      fn(C) {
+        const P = A.animAmounts.celebrate ?? 1, j = A.celebrateHeight, Z = Math.sin(Math.PI * Math.min(C * 2, 1)) * j * P, B = Math.sin(C * Math.PI * 5) * 15 * G * (1 - C) * P;
+        for (const Q of i) Q.dY = Z;
+        for (const Q of s) Q.dRotZ = B;
+        const V = Math.sin(Math.PI * Math.min(C * 2, 1)) * 40 * G * P;
+        for (const Q of t) Q.dRotZ += V;
       }
     },
     surprise: {
       duration: 500,
-      fn(g) {
-        const m = A.animAmounts.surprise ?? 1, j = A.surpriseScale, z = (g < 0.3 ? g / 0.3 * j : (1 - g) / 0.7 * j) * m, Z = Math.sin(g * Math.PI * 3) * 8 * G * (1 - g) * m;
+      fn(C) {
+        const P = A.animAmounts.surprise ?? 1, j = A.surpriseScale, Z = (C < 0.3 ? C / 0.3 * j : (1 - C) / 0.7 * j) * P, B = Math.sin(C * Math.PI * 3) * 8 * G * (1 - C) * P;
         for (const V of s)
-          V.scaleMult = 1 + z, V.dRotZ = Z;
+          V.scaleMult = 1 + Z, V.dRotZ = B;
       }
     },
     earFlap: {
       duration: 900,
-      fn(g) {
-        if (l.length === 0) return;
-        const m = A.animAmounts.earFlap ?? 1, j = Math.sin(g * Math.PI * 6) * 20 * G * (1 - g) * m;
-        for (const Z of l) Z.dRotZ = j;
-        const z = g < 0.15 ? g / 0.15 : g > 0.85 ? (1 - g) / 0.15 : 1;
-        a.gazeOverride = { x: 0, y: 8 * m * z };
+      fn(C) {
+        if (a.length === 0) return;
+        const P = A.animAmounts.earFlap ?? 1, j = Math.sin(C * Math.PI * 6) * 20 * G * (1 - C) * P;
+        for (const B of a) B.dRotZ = j;
+        const Z = C < 0.15 ? C / 0.15 : C > 0.85 ? (1 - C) / 0.15 : 1;
+        l.gazeOverride = { x: 0, y: 8 * P * Z };
       }
     },
     tailWag: {
       duration: 1e3,
-      fn(g) {
-        const m = A.animAmounts.tailWag ?? 1;
+      fn(C) {
+        const P = A.animAmounts.tailWag ?? 1;
         if (I.length > 0) {
-          const z = Math.sin(g * Math.PI * 7) * 30 * G * (1 - g * 0.5) * m;
-          for (const Z of I) Z.dRotZ = z;
+          const Z = Math.sin(C * Math.PI * 7) * 30 * G * (1 - C * 0.5) * P;
+          for (const B of I) B.dRotZ = Z;
         }
         const j = A.tailWagDip;
         if (j > 0) {
-          const Z = (1 - Math.min(0.95, Math.max(0, A.tailWagDipHold))) / 2;
+          const B = (1 - Math.min(0.95, Math.max(0, A.tailWagDipHold))) / 2;
           let V;
-          if (g < Z && Z > 0)
-            V = -j * Math.sin(g / Z * Math.PI * 0.5);
-          else if (g < 1 - Z)
+          if (C < B && B > 0)
+            V = -j * Math.sin(C / B * Math.PI * 0.5);
+          else if (C < 1 - B)
             V = -j;
-          else if (Z > 0) {
-            const h = (g - (1 - Z)) / Z;
-            V = -j * Math.cos(h * Math.PI * 0.5);
+          else if (B > 0) {
+            const Q = (C - (1 - B)) / B;
+            V = -j * Math.cos(Q * Math.PI * 0.5);
           } else
             V = -j;
-          for (const h of s) h.dY += V * m;
+          for (const Q of s) Q.dY += V * P;
         }
       }
     },
     wave: {
       duration: 1200,
-      fn(g) {
-        let m = c;
-        if (a.mirror && t.length > 0 && (m = t.reduce((V, h) => V.baseX < h.baseX ? V : h)), !m) return;
-        const j = A.animAmounts.wave ?? 1, z = A.waveAngle;
-        m.dRotZ = Math.sin(g * Math.PI * 5) * z * G * (1 - g * 0.3) * j;
-        const Z = Math.sin(Math.PI * g) * 12 * G * j * (a.mirror ? -1 : 1);
+      fn(C) {
+        let P = c;
+        if (l.mirror && t.length > 0 && (P = t.reduce((V, Q) => V.baseX < Q.baseX ? V : Q)), !P) return;
+        const j = A.animAmounts.wave ?? 1, Z = A.waveAngle;
+        P.dRotZ = Math.sin(C * Math.PI * 5) * Z * G * (1 - C * 0.3) * j;
+        const B = Math.sin(Math.PI * C) * 12 * G * j * (l.mirror ? -1 : 1);
         for (const V of s)
-          V !== m && (V.dRotZ += Z);
+          V !== P && (V.dRotZ += B);
       }
     },
     blink: {
       duration: 200,
-      fn(g) {
+      fn(C) {
       }
     },
     yawn: {
       duration: 1800,
-      fn(g) {
-        const m = Math.sin(g * Math.PI), j = m * 0.1;
-        for (const Z of s) Z.scaleMult = 1 + j;
-        const z = -m * 8 * G;
-        for (const Z of n)
-          Z.category === "legs" || Z.category === "foot" || (Z.dRotZ = z);
+      fn(C) {
+        const P = Math.sin(C * Math.PI), j = P * 0.1;
+        for (const B of s) B.scaleMult = 1 + j;
+        const Z = -P * 8 * G;
+        for (const B of g)
+          B.category === "legs" || B.category === "foot" || (B.dRotZ = Z);
       }
     },
     stretch: {
       duration: 2e3,
-      fn(g) {
-        const m = Math.sin(g * Math.PI), j = m * 8;
-        for (const z of s)
-          z.dY = j, z.scaleMult = 1 + m * 0.06;
+      fn(C) {
+        const P = Math.sin(C * Math.PI), j = P * 8;
+        for (const Z of s)
+          Z.dY = j, Z.scaleMult = 1 + P * 0.06;
         if (t.length > 0)
-          for (const z of t) {
-            const Z = z.baseX >= 0 ? 1 : -1;
-            z.dRotZ = -m * 110 * G * Z;
+          for (const Z of t) {
+            const B = Z.baseX >= 0 ? 1 : -1;
+            Z.dRotZ = -P * 110 * G * B;
           }
       }
     },
     lookAround: {
       duration: 2400,
-      fn(g) {
-        const m = A.animAmounts.lookAround ?? 1, j = A.lookAroundDistance * m;
-        let z = 0, Z = 0;
-        if (g < 0.08)
-          z = -j * (g / 0.08), Z = 8 * m * (g / 0.08);
-        else if (g < 0.3)
-          z = -j, Z = 8 * m;
-        else if (g < 0.38) {
-          const h = (g - 0.3) / 0.08;
-          z = -j + j * 2 * h, Z = 8 * m - 16 * m * h;
-        } else if (g < 0.6)
-          z = j, Z = -8 * m;
-        else if (g < 0.68) {
-          const h = (g - 0.6) / 0.08;
-          z = j - j * 1.5 * h, Z = -8 * m + 12 * m * h;
-        } else if (g < 0.85)
-          z = -j * 0.5, Z = 4 * m;
+      fn(C) {
+        const P = A.animAmounts.lookAround ?? 1, j = A.lookAroundDistance * P;
+        let Z = 0, B = 0;
+        if (C < 0.08)
+          Z = -j * (C / 0.08), B = 8 * P * (C / 0.08);
+        else if (C < 0.3)
+          Z = -j, B = 8 * P;
+        else if (C < 0.38) {
+          const Q = (C - 0.3) / 0.08;
+          Z = -j + j * 2 * Q, B = 8 * P - 16 * P * Q;
+        } else if (C < 0.6)
+          Z = j, B = -8 * P;
+        else if (C < 0.68) {
+          const Q = (C - 0.6) / 0.08;
+          Z = j - j * 1.5 * Q, B = -8 * P + 12 * P * Q;
+        } else if (C < 0.85)
+          Z = -j * 0.5, B = 4 * P;
         else {
-          const h = (g - 0.85) / 0.15;
-          z = -j * 0.5 * (1 - h), Z = 4 * m * (1 - h);
+          const Q = (C - 0.85) / 0.15;
+          Z = -j * 0.5 * (1 - Q), B = 4 * P * (1 - Q);
         }
-        a.mirror && (z = -z), a.gazeOverride = { x: z, y: Z };
-        const V = z / j * 6 * G * m;
-        for (const h of n)
-          h.category === "legs" || h.category === "foot" || (h.dRotZ = V);
+        l.mirror && (Z = -Z), l.gazeOverride = { x: Z, y: B };
+        const V = Z / j * 6 * G * P;
+        for (const Q of g)
+          Q.category === "legs" || Q.category === "foot" || (Q.dRotZ = V);
       }
     },
     footTap: {
       duration: 800,
-      fn(g) {
-        const m = A.animAmounts.footTap ?? 1, j = a.mirror, z = i.filter((h) => h.category === "legs");
-        if (z.length > 0) {
-          const h = z.reduce(
+      fn(C) {
+        const P = A.animAmounts.footTap ?? 1, j = l.mirror, Z = i.filter((Q) => Q.category === "legs");
+        if (Z.length > 0) {
+          const Q = Z.reduce(
             (E, x) => j ? E.baseX < x.baseX ? E : x : E.baseX > x.baseX ? E : x
-          ), X = Math.max(1, A.footTapCount) * 2, O = Math.max(0, Math.sin(g * Math.PI * X)) * A.footTapHeight * m;
-          h.dY = O;
+          ), X = Math.max(1, A.footTapCount) * 2, L = Math.max(0, Math.sin(C * Math.PI * X)) * A.footTapHeight * P;
+          Q.dY = L;
         }
-        const Z = g < 0.2 ? g / 0.2 : 1;
+        const B = C < 0.2 ? C / 0.2 : 1;
         if (t.length > 0) {
-          const h = A.footTapArmAngle * G * Z * m;
+          const Q = A.footTapArmAngle * G * B * P;
           for (const X of t) {
-            const O = X.baseX >= 0, E = j ? !O : O;
-            X.dRotZ = E ? O ? h : -h : 0;
+            const L = X.baseX >= 0, E = j ? !L : L;
+            X.dRotZ = E ? L ? Q : -Q : 0;
           }
         }
         const V = A.footTapGazeDistance;
-        a.gazeOverride = { x: (j ? -V : V) * m, y: V * (-3 / 9) * m };
+        l.gazeOverride = { x: (j ? -V : V) * P, y: V * (-3 / 9) * P };
       }
     },
     shrug: {
       duration: 1e3,
-      fn(g) {
-        const m = Math.sin(g * Math.PI);
+      fn(C) {
+        const P = Math.sin(C * Math.PI);
         if (t.length > 0)
           for (const j of t) {
-            const z = j.baseX >= 0 ? 1 : -1;
-            j.dRotZ = -m * 25 * G * z, j.dY = m * 4;
+            const Z = j.baseX >= 0 ? 1 : -1;
+            j.dRotZ = -P * 25 * G * Z, j.dY = P * 4;
           }
         for (const j of s)
-          t.includes(j) || (j.dY = m * 2);
+          t.includes(j) || (j.dY = P * 2);
       }
     },
     sway: {
       duration: 3e3,
-      fn(g) {
+      fn(C) {
         const j = 6 * (A.animAmounts.sway ?? 1);
-        let z = 0;
-        if (g < 0.15)
-          z = -j * (g / 0.15);
-        else if (g < 0.4)
-          z = -j;
-        else if (g < 0.55) {
-          const Z = (g - 0.4) / 0.15;
-          z = -j + j * 2 * Z;
-        } else g < 0.85 ? z = j : z = j * (1 - (g - 0.85) / 0.15);
-        for (const Z of s) Z.dX = z;
+        let Z = 0;
+        if (C < 0.15)
+          Z = -j * (C / 0.15);
+        else if (C < 0.4)
+          Z = -j;
+        else if (C < 0.55) {
+          const B = (C - 0.4) / 0.15;
+          Z = -j + j * 2 * B;
+        } else C < 0.85 ? Z = j : Z = j * (1 - (C - 0.85) / 0.15);
+        for (const B of s) B.dX = Z;
       }
     },
     puffedUp: {
       duration: 1400,
-      fn(g) {
-        const m = A.animAmounts.puffedUp ?? 1, z = 1 + (g < 0.25 ? g / 0.25 : g < 0.75 ? 1 : 1 - (g - 0.75) / 0.25) * 0.18 * m;
-        for (const Z of s)
-          Z.scaleMult = z;
-        if (g >= 0.3 && g < 0.65) {
-          const Z = (g - 0.3) / 0.35, V = Math.sin(Z * Math.PI * 5) * 4 * G * (1 - Z) * m;
-          for (const h of s) h.dRotZ = V;
+      fn(C) {
+        const P = A.animAmounts.puffedUp ?? 1, Z = 1 + (C < 0.25 ? C / 0.25 : C < 0.75 ? 1 : 1 - (C - 0.75) / 0.25) * 0.18 * P;
+        for (const B of s)
+          B.scaleMult = Z;
+        if (C >= 0.3 && C < 0.65) {
+          const B = (C - 0.3) / 0.35, V = Math.sin(B * Math.PI * 5) * 4 * G * (1 - B) * P;
+          for (const Q of s) Q.dRotZ = V;
         }
       }
     },
     explode: {
-      duration: Q,
-      fn(g) {
-        const m = A.explodeGravity, j = A.explodeFloor, z = g * Q, Z = Math.min(z / 1e3, o), V = i.length > 0 ? i.reduce((h, X) => h + X.baseX, 0) / i.length : 0;
-        for (const h of i) {
-          if (h.category === "shadow") {
-            h.dX = 0, h.dY = 0, h.dModelRotZ = 0, h.dRotZ = 0, h.scaleMult = 1, h.vanish = M && Y > 0 ? Math.max(0, Math.min(1, (z - r) / Y)) : 0;
+      duration: h,
+      fn(C) {
+        const P = A.explodeGravity, j = A.explodeFloor, Z = C * h, B = Math.min(Z / 1e3, o), V = i.length > 0 ? i.reduce((Q, X) => Q + X.baseX, 0) / i.length : 0;
+        for (const Q of i) {
+          if (Q.category === "shadow") {
+            Q.dX = 0, Q.dY = 0, Q.dModelRotZ = 0, Q.dRotZ = 0, Q.scaleMult = 1, Q.vanish = n && T > 0 ? Math.max(0, Math.min(1, (Z - r) / T)) : 0;
             continue;
           }
-          const { dX: X, dY: O, landed: E } = ge(h, Z, V, m, j);
-          if (h.dX = X, h.dY = O, h.dModelRotZ = E ? 0 : Z / o * h.bSpinSpeed * Math.PI * 6, h.dRotZ = 0, h.scaleMult = 1, !M || Y <= 0) continue;
-          const x = u.get(h);
+          const { dX: X, dY: L, landed: E } = ne(Q, B, V, P, j);
+          if (Q.dX = X, Q.dY = L, Q.dModelRotZ = E ? 0 : B / o * Q.bSpinSpeed * Math.PI * 6, Q.dRotZ = 0, Q.scaleMult = 1, !n || T <= 0) continue;
+          const x = J.get(Q);
           if (x === void 0) continue;
-          const K = (p > 1 ? Math.pow(x / (p - 1), P) : 0) * b, _ = Math.max(0, Math.min(1, (z - r - K) / C));
-          h.vanish = 1 - Ce(_, y);
+          const K = (p > 1 ? Math.pow(x / (p - 1), d) : 0) * u, _ = Math.max(0, Math.min(1, (Z - r - K) / M));
+          Q.vanish = 1 - Me(_, m);
         }
       }
     },
@@ -1514,25 +1514,25 @@ function n0(a, A) {
       // mascot is generated. Total length grows with the part count so the
       // stagger stays the same per part regardless of how many parts there are.
       duration: eA,
-      fn(g) {
-        const m = g * eA, j = A.buildOvershoot, z = j + 1, Z = N.slice().sort((h, X) => {
-          const O = h.category === "body" ? 1 : 0, E = X.category === "body" ? 1 : 0;
-          return O !== E ? E - O : X.baseZ - h.baseZ;
-        }), V = Z.length;
-        for (let h = 0; h < V; h++) {
-          const X = Z[h], E = (V > 1 ? Math.pow(h / (V - 1), J) : 0) * $, H = Math.max(0, Math.min(1, (m - E) / L)) - 1, K = 1 + z * H * H * H + j * H * H;
+      fn(C) {
+        const P = C * eA, j = A.buildOvershoot, Z = j + 1, B = O.slice().sort((Q, X) => {
+          const L = Q.category === "body" ? 1 : 0, E = X.category === "body" ? 1 : 0;
+          return L !== E ? E - L : X.baseZ - Q.baseZ;
+        }), V = B.length;
+        for (let Q = 0; Q < V; Q++) {
+          const X = B[Q], E = (V > 1 ? Math.pow(Q / (V - 1), b) : 0) * $, H = Math.max(0, Math.min(1, (P - E) / Y)) - 1, K = 1 + Z * H * H * H + j * H * H;
           X.vanish = 1 - K, X.dX = 0, X.dY = 0, X.dModelRotZ = 0, X.dRotZ = 0;
         }
         if (v.length > 0) {
-          const h = 1 - (1 - g) * (1 - g), X = sA + (1 - sA) * h;
-          for (const O of v)
-            O.vanish = 1 - X, O.dX = 0, O.dY = 0, O.dModelRotZ = 0, O.dRotZ = 0;
+          const Q = 1 - (1 - C) * (1 - C), X = sA + (1 - sA) * Q;
+          for (const L of v)
+            L.vanish = 1 - X, L.dX = 0, L.dY = 0, L.dModelRotZ = 0, L.dRotZ = 0;
         }
       }
     }
   };
 }
-class de {
+class je {
   states = [];
   eyes = [];
   pupils = [];
@@ -1705,6 +1705,12 @@ class de {
   // true when currently looking away from the mouse
   _gazeDistractRemaining = 0;
   // ms remaining for the current distraction
+  // Keyboard-driven "eye focus" mode (studio). When active the eyes lock onto
+  // an invisible point placed `_gazeFocusDir` away from the eye-pair center and
+  // smoothly pursue it, with mouse tracking and random glance-aways suppressed.
+  _gazeFocusActive = !1;
+  _gazeFocusDirX = 0;
+  _gazeFocusDirY = 0;
   // Auto-trigger timers
   _boredCountdown = 0;
   // ms until next bored auto-anim
@@ -1746,55 +1752,55 @@ class de {
   _frameHalfHeight = 0;
   // world-space half-height of the visible frame
   _config;
-  constructor(A, i, s, e = KA) {
+  constructor(A, i, s, e = HA) {
     this._config = e, this._blinkCountdown = this._randBlink();
     for (const o of i) {
-      const M = A.get(o.instanceId);
-      if (!M) continue;
-      const y = we(M), d = s.find((eA) => eA.id === o.partId)?.category ?? "body", C = o.pivotOffsetX ?? 0, P = o.pivotOffsetY ?? 0, B = o.scale * (o.scaleX ?? 1), u = o.scale * (o.scaleY ?? 1), p = o.position.x + C * B, b = o.position.y + P * u;
-      let Y = 0, Q = 0, L = 0, U = 0, J = 0;
+      const n = A.get(o.instanceId);
+      if (!n) continue;
+      const m = ge(n), y = s.find((eA) => eA.id === o.partId)?.category ?? "body", M = o.pivotOffsetX ?? 0, d = o.pivotOffsetY ?? 0, z = o.scale * (o.scaleX ?? 1), J = o.scale * (o.scaleY ?? 1), p = o.position.x + M * z, u = o.position.y + d * J;
+      let T = 0, h = 0, Y = 0, U = 0, b = 0;
       try {
-        M.updateMatrixWorld(!0);
+        n.updateMatrixWorld(!0);
         const eA = new D.Vector3();
-        M.traverse((q) => {
+        n.traverse((q) => {
           if (!(q instanceof D.Mesh) || !q.visible || q.name === "_selectionOutline" || q.name === "_layerOutline") return;
           const tA = Array.isArray(q.material) ? q.material : [q.material];
           let IA = !1;
-          for (const m of tA) {
-            const j = m;
+          for (const P of tA) {
+            const j = P;
             if (j && (j.opacity == null || j.opacity > 0.01) && j.visible !== !1) {
               IA = !0;
               break;
             }
           }
           if (!IA) return;
-          const g = q.geometry?.getAttribute?.("position");
-          if (g)
-            for (let m = 0; m < g.count; m++) {
-              eA.set(g.getX(m), g.getY(m), g.getZ(m)), eA.applyMatrix4(q.matrixWorld);
-              const j = eA.x - p, z = eA.y - b;
-              j < 0 && -j > Y && (Y = -j), j > 0 && j > Q && (Q = j), z > 0 && z > L && (L = z), z < 0 && -z > U && (U = -z);
-              const Z = j * j + z * z;
-              Z > J && (J = Z);
+          const C = q.geometry?.getAttribute?.("position");
+          if (C)
+            for (let P = 0; P < C.count; P++) {
+              eA.set(C.getX(P), C.getY(P), C.getZ(P)), eA.applyMatrix4(q.matrixWorld);
+              const j = eA.x - p, Z = eA.y - u;
+              j < 0 && -j > T && (T = -j), j > 0 && j > h && (h = j), Z > 0 && Z > Y && (Y = Z), Z < 0 && -Z > U && (U = -Z);
+              const B = j * j + Z * Z;
+              B > b && (b = B);
             }
         });
       } catch {
       }
-      const N = Math.max(Y, Q), v = Math.max(L, U), $ = Math.sqrt(N * N + v * v), sA = Math.sqrt(J);
+      const O = Math.max(T, h), v = Math.max(Y, U), $ = Math.sqrt(O * O + v * v), sA = Math.sqrt(b);
       this.states.push({
-        wrapper: M,
-        modelGroup: y,
+        wrapper: n,
+        modelGroup: m,
         part: o,
-        category: d,
+        category: y,
         baseX: p,
-        baseY: b,
+        baseY: u,
         baseZ: o.zDepth,
         baseRotZ: o.rotation * G,
-        baseSX: B,
-        baseSY: u,
+        baseSX: z,
+        baseSY: J,
         baseSZ: o.scale,
-        baseMGX: -C * B,
-        baseMGY: -P * u,
+        baseMGX: -M * z,
+        baseMGY: -d * J,
         dX: 0,
         dY: 0,
         dRotZ: 0,
@@ -1813,9 +1819,9 @@ class de {
         bFloatSpeedY: Math.random() * 0.2 + 0.15,
         bFloatAmpX: Math.random() * 10 + 8,
         bFloatAmpY: Math.random() * 16 + 14,
-        extLeft: Y,
-        extRight: Q,
-        extUp: L,
+        extLeft: T,
+        extRight: h,
+        extUp: Y,
         extDown: U,
         extRadius: $,
         extBoundingRadius: sA
@@ -1824,22 +1830,22 @@ class de {
     this.eyes = this.states.filter((o) => o.category === "eye" || o.category === "sclera");
     const t = this.states.filter((o) => o.category === "pupil");
     this.pupils = t.length > 0 ? t : this.eyes;
-    const l = (o) => o.category === "foot" || o.category === "legs";
-    if (this.nonFeet = this.states.filter((o) => !l(o)), this.heads = this.states.filter((o) => o.category === "head"), this.arms = this.states.filter((o) => o.category === "arms"), this.ears = this.states.filter((o) => o.category === "ear"), this.tails = this.states.filter((o) => o.category === "tail"), this.brows = this.states.filter((o) => o.category === "brows"), this.bodyState = this.states.find((o) => o.category === "body") ?? null, this.paintParts = this.states.filter((o) => o.category === "paint"), this.shadowParts = this.states.filter((o) => o.category === "shadow"), this.mouths = this.states.filter((o) => o.category === "mouth"), this.mouths.length > 0) {
-      const o = this.mouths.filter((C) => !C.part.instanceId.startsWith("anim-synth-")), M = o.length > 0 ? o : this.mouths, y = new Set(Object.values(gA).filter(
-        (C) => ["brainless"].some((P) => gA[P] === C)
-      )), d = M.filter((C) => !y.has(C.part.partId));
-      this._defaultMouth = d[0] ?? M[0] ?? null, this._setMouth(null);
+    const a = (o) => o.category === "foot" || o.category === "legs";
+    if (this.nonFeet = this.states.filter((o) => !a(o)), this.heads = this.states.filter((o) => o.category === "head"), this.arms = this.states.filter((o) => o.category === "arms"), this.ears = this.states.filter((o) => o.category === "ear"), this.tails = this.states.filter((o) => o.category === "tail"), this.brows = this.states.filter((o) => o.category === "brows"), this.bodyState = this.states.find((o) => o.category === "body") ?? null, this.paintParts = this.states.filter((o) => o.category === "paint"), this.shadowParts = this.states.filter((o) => o.category === "shadow"), this.mouths = this.states.filter((o) => o.category === "mouth"), this.mouths.length > 0) {
+      const o = this.mouths.filter((M) => !M.part.instanceId.startsWith("anim-synth-")), n = o.length > 0 ? o : this.mouths, m = new Set(Object.values(gA).filter(
+        (M) => ["brainless"].some((d) => gA[d] === M)
+      )), y = n.filter((M) => !m.has(M.part.partId));
+      this._defaultMouth = y[0] ?? n[0] ?? null, this._setMouth(null);
     }
     const I = this.states.filter((o) => o.category === "pupil");
     if (this.allPupilParts = I, this._pupilSet = new Set(I), I.length > 1) {
-      const o = I.filter((d) => !d.part.instanceId.startsWith("anim-synth-")), M = o.length > 0 ? o : I, y = M.find((d) => this._pupilKeyword(d) === "default") ?? M.find((d) => {
-        const C = this._pupilKeyword(d);
-        return !C.includes("dilated") && !C.includes("pinhole") && !C.includes("heart");
-      }) ?? M[0];
-      this._defaultPupilKeyword = this._pupilKeyword(y);
-      for (const d of this.allPupilParts)
-        d.wrapper.visible = this._pupilKeyword(d) === this._defaultPupilKeyword;
+      const o = I.filter((y) => !y.part.instanceId.startsWith("anim-synth-")), n = o.length > 0 ? o : I, m = n.find((y) => this._pupilKeyword(y) === "default") ?? n.find((y) => {
+        const M = this._pupilKeyword(y);
+        return !M.includes("dilated") && !M.includes("pinhole") && !M.includes("heart");
+      }) ?? n[0];
+      this._defaultPupilKeyword = this._pupilKeyword(m);
+      for (const y of this.allPupilParts)
+        y.wrapper.visible = this._pupilKeyword(y) === this._defaultPupilKeyword;
     }
     this.scleraParts = this.states.filter((o) => o.category === "sclera");
     const c = this.states.filter((o) => o.category === "eyelid");
@@ -1848,31 +1854,31 @@ class de {
     this._scleraSet = new Set(this.scleraParts), this._eyelidClosedSet = new Set(this.eyelidClosedParts), this._useSwapBlink = this.scleraParts.length > 0 || this.eyelidClosedParts.length > 0 || this.allPupilParts.length > 0;
     for (const o of this.eyelidClosedParts) o.wrapper.visible = !1;
     if (this.allPupilParts.length > 0 && this.scleraParts.length > 0) {
-      const o = Math.max(...this.scleraParts.map((M) => M.baseZ));
-      for (const M of this.allPupilParts)
-        M.baseZ = o + 2, M.wrapper.position.z = M.baseZ;
+      const o = Math.max(...this.scleraParts.map((n) => n.baseZ));
+      for (const n of this.allPupilParts)
+        n.baseZ = o + 2, n.wrapper.position.z = n.baseZ;
     }
     for (const o of c) {
-      const M = this._nearestPupil(o);
-      M && (o.baseZ = M.baseZ + 1, o.wrapper.position.z = o.baseZ);
+      const n = this._nearestPupil(o);
+      n && (o.baseZ = n.baseZ + 1, o.wrapper.position.z = o.baseZ);
     }
     if (this.specParts = this.states.filter(
       (o) => o.category === "spec" || o.part.partId.toLowerCase().startsWith("spec-") || (o.part.label ?? "").toLowerCase().startsWith("spec-")
     ), this._specSet = new Set(this.specParts), this.specParts.length > 0 && this.allPupilParts.length > 0)
       for (const o of this.specParts) {
-        let M = null, y = 1 / 0;
-        for (const P of this.allPupilParts) {
-          const B = P.baseX - o.baseX, u = P.baseY - o.baseY, p = B * B + u * u;
-          p < y && (y = p, M = P);
+        let n = null, m = 1 / 0;
+        for (const d of this.allPupilParts) {
+          const z = d.baseX - o.baseX, J = d.baseY - o.baseY, p = z * z + J * J;
+          p < m && (m = p, n = d);
         }
-        if (!M) continue;
-        const d = (M.extLeft + M.extRight) / 2;
-        if (!(d > 0)) continue;
-        const C = d / 2;
-        o.baseX = M.baseX - C, o.baseY = M.baseY + C, o.baseZ = M.baseZ + 1, o.wrapper.position.set(o.baseX, o.baseY, o.baseZ);
+        if (!n) continue;
+        const y = (n.extLeft + n.extRight) / 2;
+        if (!(y > 0)) continue;
+        const M = y / 2;
+        o.baseX = n.baseX - M, o.baseY = n.baseY + M, o.baseZ = n.baseZ + 1, o.wrapper.position.set(o.baseX, o.baseY, o.baseZ);
       }
-    const n = this.states.filter((o) => o.category !== "body"), r = this.arms.length > 0 ? this.arms : n.length > 0 ? n : this.states;
-    this.waveTarget = r.length > 0 ? r.reduce((o, M) => o.baseX > M.baseX ? o : M) : null, this.ctx = { all: this.states, nonFeet: this.nonFeet, heads: this.heads, arms: this.arms, ears: this.ears, tails: this.tails, eyes: this.eyes, mouths: this.mouths, pupils: this.pupils, brows: this.brows, waveTarget: this.waveTarget, gazeOverride: null, mirror: !1 }, this.animDefs = n0(this.ctx, this._animParams), this._pairPupilsToScleras(), this._applyFaceStacking(), this.configure(e);
+    const g = this.states.filter((o) => o.category !== "body"), r = this.arms.length > 0 ? this.arms : g.length > 0 ? g : this.states;
+    this.waveTarget = r.length > 0 ? r.reduce((o, n) => o.baseX > n.baseX ? o : n) : null, this.ctx = { all: this.states, nonFeet: this.nonFeet, heads: this.heads, arms: this.arms, ears: this.ears, tails: this.tails, eyes: this.eyes, mouths: this.mouths, pupils: this.pupils, brows: this.brows, waveTarget: this.waveTarget, gazeOverride: null, mirror: !1 }, this.animDefs = M0(this.ctx, this._animParams), this._pairPupilsToScleras(), this._applyFaceStacking(), this.configure(e);
   }
   // Per-pupil reference to its associated sclera, used at apply-time to
   // clamp the pupil's pivot inside the sclera's bounding circle.
@@ -1891,9 +1897,9 @@ class de {
         if (!i) continue;
         const s = A.baseX + A.dX + A.eyeOffsetX - (i.baseX + i.dX), e = A.baseY + A.dY + A.eyeOffsetY - (i.baseY + i.dY), t = Math.sqrt(s * s + e * e);
         if (t === 0) continue;
-        const l = Math.min(i.extLeft, i.extRight, i.extUp, i.extDown);
-        if (l <= 0) continue;
-        const I = Math.max(0, l - this._pupilScleraPadding);
+        const a = Math.min(i.extLeft, i.extRight, i.extUp, i.extDown);
+        if (a <= 0) continue;
+        const I = Math.max(0, a - this._pupilScleraPadding);
         if (t <= I) continue;
         const c = I / t;
         A.eyeOffsetX -= s * (1 - c), A.eyeOffsetY -= e * (1 - c);
@@ -1911,7 +1917,7 @@ class de {
   _applyFaceStacking() {
     const A = this.scleraParts, i = this.states.filter((e) => e.category === "nose"), s = this.mouths;
     if (A.length > 0 && i.length > 0) {
-      const e = A.reduce((t, l) => t + l.baseY, 0) / A.length;
+      const e = A.reduce((t, a) => t + a.baseY, 0) / A.length;
       for (const t of i)
         t.baseY > e && (t.baseY = e);
     }
@@ -1921,8 +1927,8 @@ class de {
       for (const t of A) e = Math.min(e, t.baseY - t.extDown);
       if (Number.isFinite(e))
         for (const t of s) {
-          const l = t.baseY + t.extUp;
-          l > e && (t.baseY -= l - e);
+          const a = t.baseY + t.extUp;
+          a > e && (t.baseY -= a - e);
         }
     }
   }
@@ -1933,28 +1939,28 @@ class de {
     A.sort((e, t) => e.baseX - t.baseX);
     const i = /* @__PURE__ */ new Map();
     A.forEach((e, t) => {
-      const l = 2 + t * 2;
-      i.set(e, l), ae(e.wrapper, l);
+      const a = 2 + t * 2;
+      i.set(e, a), we(e.wrapper, a);
     });
     const s = (e, t) => {
-      let l = null, I = 1 / 0;
+      let a = null, I = 1 / 0;
       for (const c of A) {
-        const n = e - c.baseX, r = t - c.baseY, o = n * n + r * r;
-        o < I && (I = o, l = c);
+        const g = e - c.baseX, r = t - c.baseY, o = g * g + r * r;
+        o < I && (I = o, a = c);
       }
-      return l;
+      return a;
     };
     for (const e of this.allPupilParts) {
       const t = s(e.baseX, e.baseY);
       if (t) {
         this._pupilSclera.set(e, t);
-        const l = i.get(t);
-        l !== void 0 && (e.wrapper.userData = { ...e.wrapper.userData ?? {}, pairedScleraStencil: l });
+        const a = i.get(t);
+        a !== void 0 && (e.wrapper.userData = { ...e.wrapper.userData ?? {}, pairedScleraStencil: a });
       }
     }
     for (const e of this.specParts) {
-      const t = s(e.baseX, e.baseY), l = t ? i.get(t) : void 0;
-      l !== void 0 && (e.wrapper.userData = { ...e.wrapper.userData ?? {}, pairedScleraStencil: l }, Ie(e.wrapper, l));
+      const t = s(e.baseX, e.baseY), a = t ? i.get(t) : void 0;
+      a !== void 0 && (e.wrapper.userData = { ...e.wrapper.userData ?? {}, pairedScleraStencil: a }, oe(e.wrapper, a));
     }
     this._eyelidSclera.clear();
     for (const e of this.states) {
@@ -1972,30 +1978,48 @@ class de {
   configure(A) {
     this._config = A, this._animParams.animAmounts = A.animAmounts ?? {}, this._bodyTilt = A.bodyTilt ?? 0, this._armTilt = A.armTilt ?? 0, this._pupilLookSmall = A.pupilLookSmall ?? A.pupilLookDistance ?? 1.5, this._pupilLookLarge = A.pupilLookLarge ?? A.pupilLookDistance ?? 0.5, this._pupilCursorDepth = A.pupilCursorDepth ?? 30, this._pupilScleraPadding = A.pupilScleraPadding ?? 0, this._pupilScleraClamp = A.pupilScleraClamp ?? !0, this._specParallax = A.specParallax ?? 0.5, this._specPupilOpacity = A.specPupilOpacity ?? 1, this._specScleraOpacity = A.specScleraOpacity ?? 1;
     for (const e of this.specParts)
-      se(e.wrapper, this._specPupilOpacity, this._specScleraOpacity);
+      ae(e.wrapper, this._specPupilOpacity, this._specScleraOpacity);
     const i = this.scleraParts.length > 0 && (A.pupilClipToSclera ?? !1);
     for (const e of this.allPupilParts)
-      te(e.wrapper, i);
+      le(e.wrapper, i);
     this._animParams.hopCrouch = A.hopCrouch ?? 18, this._animParams.hopHeight = A.hopHeight ?? 55, this._animParams.hopLegSplay = A.hopLegSplay ?? 20, this._animParams.headTiltAngle = A.headTiltAngle ?? 18, this._animParams.headTiltArmDroop = A.headTiltArmDroop ?? 1, this._animParams.headTiltBounce = A.headTiltBounce ?? 0.08, this._animParams.wiggleSpeed = A.wiggleSpeed ?? 1, this._animParams.wiggleAngle = A.wiggleAngle ?? 15, this._animParams.wiggleCount = A.wiggleCount ?? 4, this._animParams.nodDepth = A.nodDepth ?? 14, this._animParams.celebrateHeight = A.celebrateHeight ?? 50, this._animParams.surpriseScale = A.surpriseScale ?? 0.25, this._animParams.waveAngle = A.waveAngle ?? 30, this._animParams.explodeGravity = A.explodeGravity ?? 600, this._animParams.explodeVanishSpeed = A.explodeVanishSpeed ?? 0, this._animParams.explodeSettle = A.explodeSettle ?? 2200, this._animParams.explodeOvershoot = A.explodeOvershoot ?? 0.3, this._animParams.explodePop = A.explodePop ?? 380, this._animParams.explodeStagger = A.explodeStagger ?? 70, this._animParams.explodeStaggerCurve = A.explodeStaggerCurve ?? 1, this._animParams.explodeFloor = A.explodeFloor ?? -460, this._animParams.tailWagDip = A.tailWagDip ?? 0, this._shadowYSensitivity = A.shadowYSensitivity ?? 5e-3, this._shadowScaleFloor = A.shadowScaleFloor ?? 0.4, this._animParams.tailWagDipHold = A.tailWagDipHold ?? 0.5, this._animParams.footTapHeight = A.footTapHeight ?? 8, this._animParams.footTapCount = A.footTapCount ?? 2, this._animParams.footTapArmAngle = A.footTapArmAngle ?? 90, this._animParams.footTapGazeDistance = A.footTapGazeDistance ?? 9, this._animParams.lookAroundDistance = A.lookAroundDistance ?? 45, this._animParams.buildOvershoot = A.buildOvershoot ?? 1.7, this._animParams.buildPop = A.buildPop ?? 380, this._animParams.buildStagger = A.buildStagger ?? 70, this._animParams.buildStaggerCurve = A.buildStaggerCurve ?? 1;
     const s = A.animStepFrames ?? 0;
     if (this._stepMs = s > 0 ? s / 24 * 1e3 : 0, this._jitterTrans = A.cutoutJitterTranslate ?? 0, this._jitterRot = A.cutoutJitterRotate ?? 0, this._jitterTrans === 0 && this._jitterRot === 0)
       for (const e of this.states)
         e.jX = 0, e.jY = 0, e.jRotZ = 0;
-    this._excludeFromAnim = A.excludeFromAnim ?? {}, this._blinkCountdown = Math.min(this._blinkCountdown, this._randBlink()), this.animDefs = n0(this.ctx, this._animParams);
+    this._excludeFromAnim = A.excludeFromAnim ?? {}, this._blinkCountdown = Math.min(this._blinkCountdown, this._randBlink()), this.animDefs = M0(this.ctx, this._animParams);
   }
   setMouseWorld(A, i) {
     if (this.states.length === 0) return;
-    const s = this.states.reduce((r, o) => r + o.part.position.x, 0) / this.states.length, e = this.states.reduce((r, o) => r + o.part.position.y, 0) / this.states.length, t = A - s, l = i - e, I = Math.sqrt(t * t + l * l) || 1, c = 10, n = Math.min(I / 120, 1);
-    if (this._gazeMouseX = t / I * n * c, this._gazeMouseY = l / I * n * c, this._mouseWorldX = A, this._mouseWorldY = i, this._gazeMouseStaleTimer = 0, !this._gazeHasMouseTarget) {
+    const s = this.states.reduce((r, o) => r + o.part.position.x, 0) / this.states.length, e = this.states.reduce((r, o) => r + o.part.position.y, 0) / this.states.length, t = A - s, a = i - e, I = Math.sqrt(t * t + a * a) || 1, c = 10, g = Math.min(I / 120, 1);
+    if (this._gazeMouseX = t / I * g * c, this._gazeMouseY = a / I * g * c, this._mouseWorldX = A, this._mouseWorldY = i, this._gazeMouseStaleTimer = 0, !this._gazeHasMouseTarget) {
       const r = this._config.gazeMousePauseMinMs ?? 200, o = this._config.gazeMousePauseMaxMs ?? 800;
       this._gazeHoldTimer = r + Math.random() * (o - r), this._gazeHasMouseTarget = !0;
-      const M = this._config.gazeMouseDistractIntervalMinMs ?? 5e3, y = this._config.gazeMouseDistractIntervalMaxMs ?? 12e3;
-      this._gazeDistractIntervalTimer = M + Math.random() * Math.max(0, y - M), this._gazeDistractActive = !1;
+      const n = this._config.gazeMouseDistractIntervalMinMs ?? 5e3, m = this._config.gazeMouseDistractIntervalMaxMs ?? 12e3;
+      this._gazeDistractIntervalTimer = n + Math.random() * Math.max(0, m - n), this._gazeDistractActive = !1;
     }
     this.wake();
   }
   clearMouseTarget() {
     this._gazeHasMouseTarget = !1, this._gazeDistractActive = !1, this._gazeAutoTimer = 500 + Math.random() * 1e3;
+  }
+  /**
+   * Keyboard "eye focus" mode. The eyes track an invisible point in the given
+   * direction (relative to the eye-pair center); a zero vector looks straight
+   * ahead. The vector is normalized, so only direction matters. Suppresses
+   * mouse tracking and the random glance-aways until cleared. Idempotent —
+   * call again with a new direction to move the focus point.
+   */
+  setGazeFocus(A, i) {
+    const s = Math.sqrt(A * A + i * i);
+    s > 0 ? (this._gazeFocusDirX = A / s, this._gazeFocusDirY = i / s) : (this._gazeFocusDirX = 0, this._gazeFocusDirY = 0), this._gazeFocusActive = !0, this._gazeHasMouseTarget = !0, this._gazeDistractActive = !1, this._gazeMouseStaleTimer = 0, this.wake();
+  }
+  /** Exit keyboard eye-focus mode and resume mouse / autonomous gaze. */
+  clearGazeFocus() {
+    this._gazeFocusActive && (this._gazeFocusActive = !1, this.clearMouseTarget());
+  }
+  get gazeFocusActive() {
+    return this._gazeFocusActive;
   }
   /**
    * World-space half-width and half-height of the visible frame. Used to
@@ -2012,19 +2036,19 @@ class de {
       return;
     }
     if (A === "wake") {
-      this._setMouth(this._config.mouthForAnim?.wake ?? gA.wake), this._setPupil(this._config.pupilForAnim?.wake ?? vA.wake ?? null);
-      const b = this._config.pupilScaleForAnim?.wake;
-      b !== void 0 && (this._pupilScaleTarget = b);
-      const Y = this._config.mouthScaleForAnim?.wake;
-      Y !== void 0 && (this._mouthScaleTarget = Y), this._armAngleTarget = this._config.armAngleForAnim?.wake ?? 0, this._browRaiseTarget = this._config.browRaiseForAnim?.wake ?? 0, this._browAngleTarget = this._config.browAngleForAnim?.wake ?? 0;
-      const Q = this._eyeClose, L = this._armDroopT;
+      this._setMouth(this._config.mouthForAnim?.wake ?? gA.wake), this._setPupil(this._config.pupilForAnim?.wake ?? GA.wake ?? null);
+      const u = this._config.pupilScaleForAnim?.wake;
+      u !== void 0 && (this._pupilScaleTarget = u);
+      const T = this._config.mouthScaleForAnim?.wake;
+      T !== void 0 && (this._mouthScaleTarget = T), this._armAngleTarget = this._config.armAngleForAnim?.wake ?? 0, this._browRaiseTarget = this._config.browRaiseForAnim?.wake ?? 0, this._browAngleTarget = this._config.browAngleForAnim?.wake ?? 0;
+      const h = this._eyeClose, Y = this._armDroopT;
       this._sleeping = !1, this._sleepBlinking = !1, this._armDroopActive = !1, this.anim = {
         startTime: i,
         duration: 400,
         fn: (U) => {
-          this._eyeClose = Q * (1 - U), this._armDroopT = L * (1 - U);
-          const J = U < 0.3 ? 1 + U / 0.3 * 0.12 : 1 + (1 - U) / 0.7 * 0.12;
-          for (const N of this.states) N.scaleMult = J;
+          this._eyeClose = h * (1 - U), this._armDroopT = Y * (1 - U);
+          const b = U < 0.3 ? 1 + U / 0.3 * 0.12 : 1 + (1 - U) / 0.7 * 0.12;
+          for (const O of this.states) O.scaleMult = b;
         },
         onDone: () => {
           this._armDroopT = 0, this._idleState = "active", this._idleMs = 0, this._setMouth(null), this._setPupil(null), this._mouthScaleTarget = 1, this._armAngleTarget = 0, this._browRaiseTarget = 0, this._browAngleTarget = 0;
@@ -2038,45 +2062,45 @@ class de {
     if (!s) return;
     let e = this._config.mouthForAnim?.[A] ?? gA[A] ?? null;
     if (A === "build" && this.mouths.length > 0) {
-      const b = [...new Set(this.mouths.map((Q) => Q.part.partId))], Y = b.length > 1 && this._lastBuildMouth ? b.filter((Q) => Q !== this._lastBuildMouth) : b;
-      e = Y[Math.floor(Math.random() * Y.length)], this._lastBuildMouth = e;
+      const u = [...new Set(this.mouths.map((h) => h.part.partId))], T = u.length > 1 && this._lastBuildMouth ? u.filter((h) => h !== this._lastBuildMouth) : u;
+      e = T[Math.floor(Math.random() * T.length)], this._lastBuildMouth = e;
     }
-    const t = this._config.pupilForAnim?.[A] ?? vA[A] ?? null, l = this._config.eyelidForAnim?.[A] ?? "open";
-    this._setMouth(e), this._setPupil(t), this._setEyelid(l);
+    const t = this._config.pupilForAnim?.[A] ?? GA[A] ?? null, a = this._config.eyelidForAnim?.[A] ?? "open";
+    this._setMouth(e), this._setPupil(t), this._setEyelid(a);
     const I = this._config.pupilScaleForAnim?.[A];
     I !== void 0 && (this._pupilScaleTarget = I);
     const c = this._config.mouthScaleForAnim?.[A];
-    c !== void 0 && (this._mouthScaleTarget = c), ce.has(A) && (this._animEyeClose = 1);
-    const n = 0.3;
+    c !== void 0 && (this._mouthScaleTarget = c), re.has(A) && (this._animEyeClose = 1);
+    const g = 0.3;
     let r = !1;
-    if (A === "hop" && (this._setEyelid("closed"), r = !0), De.has(A)) {
-      const b = this._config.animMirror?.[A] ?? !0;
-      this.ctx.mirror = b ? Math.random() < 0.5 : !1;
+    if (A === "hop" && (this._setEyelid("closed"), r = !0), Ce.has(A)) {
+      const u = this._config.animMirror?.[A] ?? !0;
+      this.ctx.mirror = u ? Math.random() < 0.5 : !1;
     } else
       this.ctx.mirror = !1;
-    const o = this._config.animAmounts?.[A] ?? 1, M = this._config.animAmountRange?.[A], y = M ? M[0] + Math.random() * (M[1] - M[0]) : o;
-    this._animParams.animAmounts[A] = y;
-    const d = this._config.animSpeed?.[A] ?? 1, C = this._config.animSpeedRange?.[A], P = C ? C[0] + Math.random() * (C[1] - C[0]) : d, B = Math.max(0.05, P);
-    let u = Math.max(0.1, this._config.animLength?.[A] ?? 1);
+    const o = this._config.animAmounts?.[A] ?? 1, n = this._config.animAmountRange?.[A], m = n ? n[0] + Math.random() * (n[1] - n[0]) : o;
+    this._animParams.animAmounts[A] = m;
+    const y = this._config.animSpeed?.[A] ?? 1, M = this._config.animSpeedRange?.[A], d = M ? M[0] + Math.random() * (M[1] - M[0]) : y, z = Math.max(0.05, d);
+    let J = Math.max(0.1, this._config.animLength?.[A] ?? 1);
     if (A === "wiggle") {
-      const b = Math.max(0.5, this._config.wiggleCount ?? 4), Y = this._config.wiggleCountVar ?? 0, Q = Y > 0 ? Math.max(1, Math.round(b - Math.random() * Y)) : b;
-      this._animParams.wiggleCount = Q, u *= Q / b, this._animParams.wiggleDir = Math.random() < 0.5 ? 1 : -1;
+      const u = Math.max(0.5, this._config.wiggleCount ?? 4), T = this._config.wiggleCountVar ?? 0, h = T > 0 ? Math.max(1, Math.round(u - Math.random() * T)) : u;
+      this._animParams.wiggleCount = h, J *= h / u, this._animParams.wiggleDir = Math.random() < 0.5 ? 1 : -1;
     }
-    const p = s.duration * u / B;
+    const p = s.duration * J / z;
     if (this._currentAnimName = A, A === "hop") {
-      const b = this._config.hopHeight ?? 55, Y = this._config.hopHeightVar ?? 0, Q = Y > 0 ? Math.max(0, b - Math.random() * Y) : b;
-      this._animParams.hopHeight = Q, this._animParams.hopHeightRatio = b > 0 ? Q / b : 1;
+      const u = this._config.hopHeight ?? 55, T = this._config.hopHeightVar ?? 0, h = T > 0 ? Math.max(0, u - Math.random() * T) : u;
+      this._animParams.hopHeight = h, this._animParams.hopHeightRatio = u > 0 ? h / u : 1;
     }
     this._armAngleTarget = this._config.armAngleForAnim?.[A] ?? 0, this._browRaiseTarget = this._config.browRaiseForAnim?.[A] ?? 0, this._browAngleTarget = this._config.browAngleForAnim?.[A] ?? 0, this.anim = {
       startTime: i,
       duration: p,
-      fn: (b) => {
-        s.fn(b), A === "hop" && (b < n && !r ? (this._setEyelid("closed"), r = !0) : b >= n && r && (this._setEyelid(l), r = !1));
+      fn: (u) => {
+        s.fn(u), A === "hop" && (u < g && !r ? (this._setEyelid("closed"), r = !0) : u >= g && r && (this._setEyelid(a), r = !1));
       },
       onDone: () => {
         this._animEyeClose = 0, this._setMouth(null), this._setPupil(null), this._setEyelid("open"), this._mouthScaleTarget = 1, this._armAngleTarget = 0, this._browRaiseTarget = 0, this._browAngleTarget = 0;
       }
-    }, this.cooldowns.set(A, i + (rA[A] ?? 500) / B);
+    }, this.cooldowns.set(A, i + (rA[A] ?? 500) / z);
   }
   _exitBrainlessWithHop(A) {
     this._brainlessActive = !1;
@@ -2114,7 +2138,7 @@ class de {
    */
   getAnimationLabels() {
     const A = this._config.animLabels ?? {};
-    return ne.map((i) => ({
+    return de.map((i) => ({
       canonical: i,
       name: A[i] ?? i
     }));
@@ -2132,7 +2156,7 @@ class de {
     }
     if (this._idleLocked = !1, !((this.cooldowns.get(A) ?? 0) > i)) {
       if (A === "brainless") {
-        this.cooldowns.set(A, i + rA.brainless), this._brainlessActive ? this._brainlessAmplitude > 0.05 ? this._exitBrainlessWithHop(null) : (this._brainlessActive = !1, this._brainlessAmplitude = 0, this._setMouth(null), this._setPupil(null)) : (this._brainlessActive = !0, this._setMouth(this._config.mouthForAnim?.brainless ?? gA.brainless), this._setPupil(this._config.pupilForAnim?.brainless ?? vA.brainless));
+        this.cooldowns.set(A, i + rA.brainless), this._brainlessActive ? this._brainlessAmplitude > 0.05 ? this._exitBrainlessWithHop(null) : (this._brainlessActive = !1, this._brainlessAmplitude = 0, this._setMouth(null), this._setPupil(null)) : (this._brainlessActive = !0, this._setMouth(this._config.mouthForAnim?.brainless ?? gA.brainless), this._setPupil(this._config.pupilForAnim?.brainless ?? GA.brainless));
         return;
       }
       if (this._brainlessAmplitude > 0.05) {
@@ -2168,7 +2192,7 @@ class de {
       this._jitterAccum += A, this._jitterAccum >= e && (this._jitterAccum -= e, this._rollJitter());
     }
     if (this._idleMs += A, this._idleLocked || (this._idleState === "active" && this._idleMs >= this._config.boredAfter ? this._idleState = "bored" : this._idleState === "bored" && this._idleMs >= this._config.sleepyAfter ? this._idleState = "sleepy" : this._idleState === "sleepy" && this._idleMs >= this._config.sleepAfter && (this._idleState = "asleep", this._sleeping || this.play("sleep"))), this._idleState === "bored" && !this.anim && !this._sleeping && !this._brainlessActive && (this._boredCountdown -= A, this._boredCountdown <= 0)) {
-      const e = this._config.boredAnimations ?? Me;
+      const e = this._config.boredAnimations ?? me;
       if (e.length > 0) {
         const t = e[Math.floor(Math.random() * e.length)];
         this._startAnim(t);
@@ -2176,7 +2200,7 @@ class de {
       this._boredCountdown = 2500 + Math.random() * 4e3;
     }
     if (!this._idleLocked && this._idleState === "active" && !this.anim && !this._sleeping && !this._brainlessActive && (this._fidgetCountdown -= A, this._fidgetCountdown <= 0)) {
-      const e = this._config.idleAnimations ?? Pe;
+      const e = this._config.idleAnimations ?? ye;
       if (e.length > 0) {
         const t = e[Math.floor(Math.random() * e.length)];
         this._startAnim(t);
@@ -2187,8 +2211,8 @@ class de {
       const e = [150, 200, 300], t = [320, 500, 800];
       if (this._blinking || (this._sleepBlinkTimer -= A, this._sleepBlinkTimer <= 0 && this._sleepBlinkStep < e.length && (this._blinking = !0, this._blinkT = 0, this._sleepBlinkSpeed = t[this._sleepBlinkStep], this._sleepBlinkStep++)), this._blinking) {
         this._blinkT += A / this._sleepBlinkSpeed;
-        const l = this._sleepBlinkStep >= e.length;
-        l && this._blinkT >= 0.5 ? (this._blinking = !1, this._blinkT = 0, this._sleepBlinking = !1, this._eyeClose = 1, this._sleeping = !0, this._armDroopActive = !0) : !l && this._blinkT >= 1 && (this._blinking = !1, this._blinkT = 0, this._sleepBlinkTimer = e[this._sleepBlinkStep] ?? 0);
+        const a = this._sleepBlinkStep >= e.length;
+        a && this._blinkT >= 0.5 ? (this._blinking = !1, this._blinkT = 0, this._sleepBlinking = !1, this._eyeClose = 1, this._sleeping = !0, this._armDroopActive = !0) : !a && this._blinkT >= 1 && (this._blinking = !1, this._blinkT = 0, this._sleepBlinkTimer = e[this._sleepBlinkStep] ?? 0);
       }
     } else
       !this._sleeping && !this._brainlessActive && this._eyeClose < 0.5 && (this._blinkCountdown -= A, this._blinkCountdown <= 0 && (this._blinking = !0, this._blinkT = 0, this._blinkCountdown = this._randBlink())), this._blinking && (this._blinkT += A / 180, this._blinkT >= 1 && (this._blinking = !1, this._blinkT = 0));
@@ -2202,83 +2226,86 @@ class de {
     if (this.arms.length > 0) {
       const e = Math.max(1, this._config.armTransitionMs ?? 250);
       this._armAngleTarget !== this._armAnglePrevTarget && (this._armAngleFrom = this._armAngleSmoothed, this._armAngleTweenMs = 0, this._armAnglePrevTarget = this._armAngleTarget), this._armAngleTweenMs = Math.min(e, this._armAngleTweenMs + A);
-      const t = Math.max(0, this._config.armAnticipation ?? 0), l = Math.max(0, this._config.armOvershoot ?? 0), I = re(this._armAngleTweenMs / e, t, l);
+      const t = Math.max(0, this._config.armAnticipation ?? 0), a = Math.max(0, this._config.armOvershoot ?? 0), I = Pe(this._armAngleTweenMs / e, t, a);
       if (this._armAngleSmoothed = this._armAngleFrom + (this._armAngleTarget - this._armAngleFrom) * I, Math.abs(this._armAngleSmoothed) > 1e-3) {
         const c = this._armAngleSmoothed * G;
-        for (const n of this.arms) {
-          const r = n.baseX >= 0 ? 1 : -1;
-          n.dRotZ += c * r;
+        for (const g of this.arms) {
+          const r = g.baseX >= 0 ? 1 : -1;
+          g.dRotZ += c * r;
         }
       }
     }
     if (this.brows.length > 0) {
       const e = Math.max(1, this._config.armTransitionMs ?? 250), t = 1 - Math.exp(-A / e);
       this._browRaiseSmoothed += (this._browRaiseTarget - this._browRaiseSmoothed) * t, this._browAngleSmoothed += (this._browAngleTarget - this._browAngleSmoothed) * t;
-      const l = this._browRaiseSmoothed, I = this._browAngleSmoothed * G;
-      if (Math.abs(l) > 1e-3 || Math.abs(I) > 1e-4)
+      const a = this._browRaiseSmoothed, I = this._browAngleSmoothed * G;
+      if (Math.abs(a) > 1e-3 || Math.abs(I) > 1e-4)
         for (const c of this.brows) {
-          const n = c.baseX >= 0 ? 1 : -1;
-          c.dY += l, c.dRotZ += I * n;
+          const g = c.baseX >= 0 ? 1 : -1;
+          c.dY += a, c.dRotZ += I * g;
         }
     }
     if (!this.anim && !this._sleeping && !this._brainlessActive && this._idleState === "active") {
-      const e = this._config.idleSwayAngle ?? 2, t = this._config.idleBodyBob ?? 2.5, l = this._config.idleBreathDepth ?? 0.02, I = this._config.idleStepAmount ?? 4, c = this._config.idleSwaySpeed ?? 1, n = this._config.idleBobSpeed ?? 1, r = this._config.idleBreathSpeed ?? 1, o = this._config.idleStepSpeed ?? 1, M = this._config.idleSwayNoise ?? 0.4, y = this._config.idleBobNoise ?? 0.4, d = this._config.idleBreathNoise ?? 0.4, C = this._config.idleStepNoise ?? 0.4, P = A / 1e3;
-      this._idleSwayPhase += P * c, this._idleBobPhase += P * n, this._idleBreathPhase += P * r, this._stepPhase += P * o;
-      const B = (Q, L, U) => {
-        const J = Math.max(0, Math.min(1, U)), N = 1 / (1 + J * 0.7), v = Math.sin(Q * Math.PI * L) * (1 - J * 0.4), $ = Math.sin(Q * Math.PI * L * 1.7320508 + 1.3) * J * 0.7;
-        return (v + $) * N;
-      }, u = B(this._idleSwayPhase, 0.5, M) * e * G, p = B(this._idleBobPhase, 0.4, y) * t, b = B(this._idleBreathPhase, 0.4, d) * l;
-      for (const Q of this.nonFeet)
-        Q.dRotZ += u, Q.dY += p, Q.scaleMult *= 1 + b;
-      const Y = this.states.filter((Q) => Q.category === "legs" || Q.category === "foot");
-      if (Y.length >= 2) {
-        const Q = [...Y].sort(($, sA) => $.baseX - sA.baseX), L = Math.ceil(Q.length / 2), U = Q.slice(0, L), J = Q.slice(L), N = Math.max(0, B(this._stepPhase, 0.8, C)) * I, v = Math.max(0, B(this._stepPhase + 1.25, 0.8, C)) * I;
-        for (const $ of U) $.dY += N;
-        for (const $ of J) $.dY += v;
+      const e = this._config.idleSwayAngle ?? 2, t = this._config.idleBodyBob ?? 2.5, a = this._config.idleBreathDepth ?? 0.02, I = this._config.idleStepAmount ?? 4, c = this._config.idleSwaySpeed ?? 1, g = this._config.idleBobSpeed ?? 1, r = this._config.idleBreathSpeed ?? 1, o = this._config.idleStepSpeed ?? 1, n = this._config.idleSwayNoise ?? 0.4, m = this._config.idleBobNoise ?? 0.4, y = this._config.idleBreathNoise ?? 0.4, M = this._config.idleStepNoise ?? 0.4, d = A / 1e3;
+      this._idleSwayPhase += d * c, this._idleBobPhase += d * g, this._idleBreathPhase += d * r, this._stepPhase += d * o;
+      const z = (h, Y, U) => {
+        const b = Math.max(0, Math.min(1, U)), O = 1 / (1 + b * 0.7), v = Math.sin(h * Math.PI * Y) * (1 - b * 0.4), $ = Math.sin(h * Math.PI * Y * 1.7320508 + 1.3) * b * 0.7;
+        return (v + $) * O;
+      }, J = z(this._idleSwayPhase, 0.5, n) * e * G, p = z(this._idleBobPhase, 0.4, m) * t, u = z(this._idleBreathPhase, 0.4, y) * a;
+      for (const h of this.nonFeet)
+        h.dRotZ += J, h.dY += p, h.scaleMult *= 1 + u;
+      const T = this.states.filter((h) => h.category === "legs" || h.category === "foot");
+      if (T.length >= 2) {
+        const h = [...T].sort(($, sA) => $.baseX - sA.baseX), Y = Math.ceil(h.length / 2), U = h.slice(0, Y), b = h.slice(Y), O = Math.max(0, z(this._stepPhase, 0.8, M)) * I, v = Math.max(0, z(this._stepPhase + 1.25, 0.8, M)) * I;
+        for (const $ of U) $.dY += O;
+        for (const $ of b) $.dY += v;
       }
     }
     if (!this._sleeping && !this._brainlessActive) {
-      const t = this._config.gazeMouseStaleMs ?? 2e3, l = this._config.gazeAutoMinMs ?? 1200, I = this._config.gazeAutoMaxMs ?? 4200, c = this._config.gazeHoldMinMs ?? 400, n = this._config.gazeHoldMaxMs ?? 1900, r = this._config.gazePursuitSpeed ?? 0.15, o = this._config.gazeJitterAmount ?? 0.08, M = this._config.gazeMouseDistractIntervalMinMs ?? 5e3, y = this._config.gazeMouseDistractIntervalMaxMs ?? 12e3, d = this._config.gazeMouseDistractDurationMinMs ?? 500, C = this._config.gazeMouseDistractDurationMaxMs ?? 1200;
-      this._gazeHasMouseTarget && (this._gazeMouseStaleTimer += A, this._gazeMouseStaleTimer > t && (this._gazeHasMouseTarget = !1, this._gazeAutoTimer = 300 + Math.random() * 700, this._gazeDistractActive = !1));
-      const P = this.ctx.gazeOverride;
-      if (P)
-        this._gazeTargetX = P.x, this._gazeTargetY = P.y, this._gazeHoldTimer = 0, this._gazeOverrideWasActive || (this._gazeCurrentX = P.x, this._gazeCurrentY = P.y), this._gazeOverrideWasActive = !0;
-      else if (this._gazeHasMouseTarget)
-        if (this._gazeOverrideWasActive = !1, this._gazeDistractActive)
-          this._gazeDistractRemaining -= A, this._gazeDistractRemaining <= 0 && (this._gazeDistractActive = !1, this._gazeDistractIntervalTimer = M + Math.random() * Math.max(0, y - M));
-        else if (this._gazeDistractIntervalTimer -= A, y > 0 && this._gazeDistractIntervalTimer <= 0) {
-          this._gazeDistractActive = !0, this._gazeDistractRemaining = d + Math.random() * Math.max(0, C - d);
-          const J = Math.random() * Math.PI * 2, N = (0.4 + Math.random() * 0.6) * 10;
-          this._gazeTargetX = Math.cos(J) * N, this._gazeTargetY = Math.sin(J) * N, this._gazeHoldTimer = c + Math.random() * (n - c);
-        } else
-          this._gazeTargetX = this._gazeMouseX, this._gazeTargetY = this._gazeMouseY, this._gazeAutoTimer = l * 0.5 + Math.random() * I * 0.3;
-      else if (this._gazeOverrideWasActive = !1, this._gazeAutoTimer -= A, this._gazeAutoTimer <= 0) {
-        const J = Math.random() * Math.PI * 2, N = (0.3 + Math.random() * 0.7) * 10;
-        this._gazeTargetX = Math.cos(J) * N, this._gazeTargetY = Math.sin(J) * N, this._gazeHoldTimer = c + Math.random() * (n - c), this._gazeAutoTimer = l + Math.random() * (I - l);
+      let t = 0, a = 0;
+      if (this.pupils.length > 0) {
+        let b = 0, O = 0;
+        for (const v of this.pupils)
+          b += v.baseX, O += v.baseY;
+        t = b / this.pupils.length, a = O / this.pupils.length;
       }
-      if (this._gazeJitterTimer -= A, this._gazeJitterTimer <= 0 && (this._gazeJitterX = (Math.random() - 0.5) * 10 * o, this._gazeJitterY = (Math.random() - 0.5) * 10 * o, this._gazeJitterTimer = 40 + Math.random() * 120), this._gazeHoldTimer > 0)
+      this._gazeFocusActive && (this._mouseWorldX = t + this._gazeFocusDirX * 150, this._mouseWorldY = a + this._gazeFocusDirY * 150, this._gazeHasMouseTarget = !0, this._gazeMouseStaleTimer = 0, this._gazeDistractActive = !1);
+      const I = this._config.gazeMouseStaleMs ?? 2e3, c = this._config.gazeAutoMinMs ?? 1200, g = this._config.gazeAutoMaxMs ?? 4200, r = this._config.gazeHoldMinMs ?? 400, o = this._config.gazeHoldMaxMs ?? 1900, n = this._config.gazePursuitSpeed ?? 0.15, m = this._config.gazeJitterAmount ?? 0.08, y = this._config.gazeMouseDistractIntervalMinMs ?? 5e3, M = this._config.gazeMouseDistractIntervalMaxMs ?? 12e3, d = this._config.gazeMouseDistractDurationMinMs ?? 500, z = this._config.gazeMouseDistractDurationMaxMs ?? 1200;
+      this._gazeHasMouseTarget && (this._gazeMouseStaleTimer += A, this._gazeMouseStaleTimer > I && (this._gazeHasMouseTarget = !1, this._gazeAutoTimer = 300 + Math.random() * 700, this._gazeDistractActive = !1));
+      const J = this.ctx.gazeOverride;
+      if (J)
+        this._gazeTargetX = J.x, this._gazeTargetY = J.y, this._gazeHoldTimer = 0, this._gazeOverrideWasActive || (this._gazeCurrentX = J.x, this._gazeCurrentY = J.y), this._gazeOverrideWasActive = !0;
+      else if (this._gazeHasMouseTarget)
+        if (this._gazeOverrideWasActive = !1, this._gazeFocusActive)
+          this._gazeTargetX = this._gazeMouseX, this._gazeTargetY = this._gazeMouseY;
+        else if (this._gazeDistractActive)
+          this._gazeDistractRemaining -= A, this._gazeDistractRemaining <= 0 && (this._gazeDistractActive = !1, this._gazeDistractIntervalTimer = y + Math.random() * Math.max(0, M - y));
+        else if (this._gazeDistractIntervalTimer -= A, M > 0 && this._gazeDistractIntervalTimer <= 0) {
+          this._gazeDistractActive = !0, this._gazeDistractRemaining = d + Math.random() * Math.max(0, z - d);
+          const b = Math.random() * Math.PI * 2, O = (0.4 + Math.random() * 0.6) * 10;
+          this._gazeTargetX = Math.cos(b) * O, this._gazeTargetY = Math.sin(b) * O, this._gazeHoldTimer = r + Math.random() * (o - r);
+        } else
+          this._gazeTargetX = this._gazeMouseX, this._gazeTargetY = this._gazeMouseY, this._gazeAutoTimer = c * 0.5 + Math.random() * g * 0.3;
+      else if (this._gazeOverrideWasActive = !1, this._gazeAutoTimer -= A, this._gazeAutoTimer <= 0) {
+        const b = Math.random() * Math.PI * 2, O = (0.3 + Math.random() * 0.7) * 10;
+        this._gazeTargetX = Math.cos(b) * O, this._gazeTargetY = Math.sin(b) * O, this._gazeHoldTimer = r + Math.random() * (o - r), this._gazeAutoTimer = c + Math.random() * (g - c);
+      }
+      if (this._gazeJitterTimer -= A, this._gazeJitterTimer <= 0 && (this._gazeJitterX = (Math.random() - 0.5) * 10 * m, this._gazeJitterY = (Math.random() - 0.5) * 10 * m, this._gazeJitterTimer = 40 + Math.random() * 120), this._gazeHoldTimer > 0)
         this._gazeHoldTimer -= A;
       else {
-        const J = this.ctx.gazeOverride || this._gazeHasMouseTarget ? r * 1.2 : r * 0.8, N = 1 - Math.pow(1 - J, A / 16);
-        this._gazeCurrentX += (this._gazeTargetX - this._gazeCurrentX) * N, this._gazeCurrentY += (this._gazeTargetY - this._gazeCurrentY) * N, this._mouseWorldCurrentX += (this._mouseWorldX - this._mouseWorldCurrentX) * N, this._mouseWorldCurrentY += (this._mouseWorldY - this._mouseWorldCurrentY) * N;
+        const b = this.ctx.gazeOverride || this._gazeHasMouseTarget ? n * 1.2 : n * 0.8, O = 1 - Math.pow(1 - b, A / 16);
+        this._gazeCurrentX += (this._gazeTargetX - this._gazeCurrentX) * O, this._gazeCurrentY += (this._gazeTargetY - this._gazeCurrentY) * O, this._mouseWorldCurrentX += (this._mouseWorldX - this._mouseWorldCurrentX) * O, this._mouseWorldCurrentY += (this._mouseWorldY - this._mouseWorldCurrentY) * O;
       }
-      const u = (J, N, v) => J + (N - J) * v, p = this._gazeHasMouseTarget && !this._gazeDistractActive && !this.ctx.gazeOverride, b = Math.max(1, this._pupilCursorDepth);
-      let Y = 0, Q = 0;
-      if (this.pupils.length > 0) {
-        let J = 0, N = 0;
-        for (const v of this.pupils)
-          J += v.baseX, N += v.baseY;
-        Y = J / this.pupils.length, Q = N / this.pupils.length;
+      const u = (b, O, v) => b + (O - b) * v, T = this._gazeHasMouseTarget && !this._gazeDistractActive && !this.ctx.gazeOverride, h = Math.max(1, this._pupilCursorDepth);
+      let Y = 0, U = 0;
+      if (T && this.pupils.length > 0) {
+        const b = this._mouseWorldCurrentX - t, O = this._mouseWorldCurrentY - a, v = Math.sqrt(b * b + O * O + h * h);
+        Y = b / v * 10, U = O / v * 10;
       }
-      let L = 0, U = 0;
-      if (p && this.pupils.length > 0) {
-        const J = this._mouseWorldCurrentX - Y, N = this._mouseWorldCurrentY - Q, v = Math.sqrt(J * J + N * N + b * b);
-        L = J / v * 10, U = N / v * 10;
-      }
-      for (const J of this.pupils) {
-        const N = this._pupilSclera.get(J), v = N ? Math.min(N.extLeft, N.extRight, N.extUp, N.extDown) : 0, $ = Math.min(J.extLeft, J.extRight, J.extUp, J.extDown), sA = v > 0 ? $ / v : 0.5, eA = Math.max(0, Math.min(1, (sA - 0.2) / 0.5)), q = u(this._pupilLookSmall, this._pupilLookLarge, eA);
+      for (const b of this.pupils) {
+        const O = this._pupilSclera.get(b), v = O ? Math.min(O.extLeft, O.extRight, O.extUp, O.extDown) : 0, $ = Math.min(b.extLeft, b.extRight, b.extUp, b.extDown), sA = v > 0 ? $ / v : 0.5, eA = Math.max(0, Math.min(1, (sA - 0.2) / 0.5)), q = u(this._pupilLookSmall, this._pupilLookLarge, eA);
         let tA, IA;
-        p ? (tA = (L + this._gazeJitterX) * q, IA = (U + this._gazeJitterY) * q) : (tA = (this._gazeCurrentX + this._gazeJitterX) * q, IA = (this._gazeCurrentY + this._gazeJitterY) * q), J.eyeOffsetX = tA, J.eyeOffsetY = IA;
+        T ? (tA = (Y + this._gazeJitterX) * q, IA = (U + this._gazeJitterY) * q) : (tA = (this._gazeCurrentX + this._gazeJitterX) * q, IA = (this._gazeCurrentY + this._gazeJitterY) * q), b.eyeOffsetX = tA, b.eyeOffsetY = IA;
       }
     }
     if (this._sleeping) {
@@ -2294,21 +2321,21 @@ class de {
     if (this.bodyState) {
       const e = this.bodyState, t = e.dRotZ;
       if (t !== 0) {
-        const l = Math.cos(t) - 1, I = Math.sin(t);
+        const a = Math.cos(t) - 1, I = Math.sin(t);
         for (const c of this.states) {
           if (c.category === "body" || c.category === "foot" || c.category === "legs" || this._specSet.has(c)) continue;
-          const n = c.baseX - e.baseX, r = c.baseY - e.baseY;
-          c.dX += l * n - I * r, c.dY += I * n + l * r;
+          const g = c.baseX - e.baseX, r = c.baseY - e.baseY;
+          c.dX += a * g - I * r, c.dY += I * g + a * r;
         }
       }
     }
     if (this._brainlessActive ? this._brainlessAmplitude = Math.min(this._brainlessAmplitude + A / 1200, 1) : this._brainlessAmplitude = Math.max(this._brainlessAmplitude - A / 700, 0), this._brainlessAmplitude > 0) {
       this._brainlessMs += A;
       const e = this._brainlessMs / 1e3, t = this._brainlessAmplitude * (this._animParams.animAmounts.brainless ?? 1);
-      for (const l of this.states) {
-        l.dX += Math.sin(e * l.bFloatSpeedX * Math.PI * 2 + l.bFloatPhaseX) * l.bFloatAmpX * t, l.dY += Math.sin(e * l.bFloatSpeedY * Math.PI * 2 + l.bFloatPhaseY) * l.bFloatAmpY * t;
-        const I = Math.abs(l.bSpinSpeed) * 0.25, c = 0.6 + Math.abs(l.bSpinSpeed) * 0.5;
-        l.dRotZ += Math.sin(e * I * Math.PI * 2 + l.bFloatPhaseX + Math.PI) * c * t;
+      for (const a of this.states) {
+        a.dX += Math.sin(e * a.bFloatSpeedX * Math.PI * 2 + a.bFloatPhaseX) * a.bFloatAmpX * t, a.dY += Math.sin(e * a.bFloatSpeedY * Math.PI * 2 + a.bFloatPhaseY) * a.bFloatAmpY * t;
+        const I = Math.abs(a.bSpinSpeed) * 0.25, c = 0.6 + Math.abs(a.bSpinSpeed) * 0.5;
+        a.dRotZ += Math.sin(e * I * Math.PI * 2 + a.bFloatPhaseX + Math.PI) * c * t;
       }
     }
     this._pupilScaleMult += (this._pupilScaleTarget - this._pupilScaleMult) * Math.min(A / 100, 1), this._mouthScaleMult += (this._mouthScaleTarget - this._mouthScaleMult) * Math.min(A / 100, 1);
@@ -2332,45 +2359,45 @@ class de {
     if (this._currentAnimName && this._excludeFromAnim) {
       const e = this._excludeFromAnim[this._currentAnimName];
       if (e) {
-        const t = e.split(",").map((l) => l.trim().toLowerCase()).filter(Boolean);
+        const t = e.split(",").map((a) => a.trim().toLowerCase()).filter(Boolean);
         if (t.length > 0)
-          for (const l of this.states) {
-            const I = (l.part.label ?? l.part.partId).toLowerCase();
-            t.some((c) => I.includes(c)) && (l.dX = 0, l.dY = 0, l.dRotZ = 0, l.dModelRotZ = 0, l.scaleMult = 1);
+          for (const a of this.states) {
+            const I = (a.part.label ?? a.part.partId).toLowerCase();
+            t.some((c) => I.includes(c)) && (a.dX = 0, a.dY = 0, a.dRotZ = 0, a.dModelRotZ = 0, a.scaleMult = 1);
           }
       }
     }
     if (this._frameHalfWidth > 0 || this._frameHalfHeight > 0) {
-      const e = this._config.framePadding ?? 30, t = Math.max(0, this._frameHalfWidth - e), l = Math.max(0, this._frameHalfHeight - e);
+      const e = this._config.framePadding ?? 30, t = Math.max(0, this._frameHalfWidth - e), a = Math.max(0, this._frameHalfHeight - e);
       for (const I of this.states) {
         if (I.category === "paint" || I.dX === 0 && I.dY === 0) continue;
-        const c = I.dRotZ, n = Math.cos(c), r = Math.sin(c), o = [
+        const c = I.dRotZ, g = Math.cos(c), r = Math.sin(c), o = [
           [-I.extLeft, -I.extDown],
           [-I.extLeft, I.extUp],
           [I.extRight, -I.extDown],
           [I.extRight, I.extUp]
         ];
-        let M = -1 / 0, y = 1 / 0, d = -1 / 0, C = 1 / 0;
-        for (const [P, B] of o) {
-          const u = P * n - B * r, p = P * r + B * n;
-          u > M && (M = u), u < y && (y = u), p > d && (d = p), p < C && (C = p);
+        let n = -1 / 0, m = 1 / 0, y = -1 / 0, M = 1 / 0;
+        for (const [d, z] of o) {
+          const J = d * g - z * r, p = d * r + z * g;
+          J > n && (n = J), J < m && (m = J), p > y && (y = p), p < M && (M = p);
         }
         if (t > 0 && I.dX !== 0) {
-          const P = I.dX > 0 ? t - (I.baseX + M) : t + (I.baseX + y);
-          if (P <= 0)
+          const d = I.dX > 0 ? t - (I.baseX + n) : t + (I.baseX + m);
+          if (d <= 0)
             I.dX = 0;
           else {
-            const B = I.dX > 0 ? 1 : -1;
-            I.dX = B * P * Math.tanh(Math.abs(I.dX) / P);
+            const z = I.dX > 0 ? 1 : -1;
+            I.dX = z * d * Math.tanh(Math.abs(I.dX) / d);
           }
         }
-        if (l > 0 && I.dY !== 0) {
-          const P = I.dY > 0 ? l - (I.baseY + d) : l + (I.baseY + C);
-          if (P <= 0)
+        if (a > 0 && I.dY !== 0) {
+          const d = I.dY > 0 ? a - (I.baseY + y) : a + (I.baseY + M);
+          if (d <= 0)
             I.dY = 0;
           else {
-            const B = I.dY > 0 ? 1 : -1;
-            I.dY = B * P * Math.tanh(Math.abs(I.dY) / P);
+            const z = I.dY > 0 ? 1 : -1;
+            I.dY = z * d * Math.tanh(Math.abs(I.dY) / d);
           }
         }
       }
@@ -2381,26 +2408,26 @@ class de {
         t.dX = e.dX, t.dY = e.dY, t.dRotZ = e.dRotZ, t.scaleMult = e.scaleMult;
     }
     if (this.bodyState && this.shadowParts.length > 0 && this._currentAnimName !== "explode") {
-      const e = this.bodyState, t = 1 - this._shadowYSensitivity * e.dY, l = Math.max(this._shadowScaleFloor, t);
+      const e = this.bodyState, t = 1 - this._shadowYSensitivity * e.dY, a = Math.max(this._shadowScaleFloor, t);
       for (const I of this.shadowParts)
-        I.dX = e.dX, I.dY = 0, I.dRotZ = 0, I.scaleMult = l;
+        I.dX = e.dX, I.dY = 0, I.dRotZ = 0, I.scaleMult = a;
     }
     if (this._breathPhase += A / 1e3, !this._sleeping && !this._brainlessActive) {
-      const t = this._breathPhase / 3.5 * Math.PI * 2, l = Math.sin(t) * 1.5, I = 1 + Math.sin(t) * 6e-3;
+      const t = this._breathPhase / 3.5 * Math.PI * 2, a = Math.sin(t) * 1.5, I = 1 + Math.sin(t) * 6e-3;
       for (const c of this.nonFeet)
-        c.dY += l, c.scaleMult *= I;
+        c.dY += a, c.scaleMult *= I;
     }
     this._clampPupilsInSclera();
     for (const e of this.states) {
-      const t = e.category === "eye", l = this._pupilSet.has(e), I = e.category === "mouth", c = this._specSet.has(e), r = (c ? 1 : e.scaleMult) * (l ? this._pupilScaleMult : I ? this._mouthScaleMult : 1) * (1 - e.vanish), o = c ? e.dX * this._specParallax : e.dX, M = c ? e.dY * this._specParallax : e.dY;
-      e.wrapper.position.x = e.baseX + o + e.eyeOffsetX + e.jX, e.wrapper.position.y = e.baseY + M + e.eyeOffsetY + e.jY, e.wrapper.position.z = e.baseZ;
-      const y = e.category === "arms" && this._armTilt !== 0 ? this._armTilt * G * (e.baseX >= 0 ? 1 : -1) : 0;
-      if (e.wrapper.rotation.z = (c ? e.baseRotZ : e.baseRotZ + e.dRotZ + this._bodyTilt * G + y) + e.jRotZ, e.modelGroup) {
+      const t = e.category === "eye", a = this._pupilSet.has(e), I = e.category === "mouth", c = this._specSet.has(e), r = (c ? 1 : e.scaleMult) * (a ? this._pupilScaleMult : I ? this._mouthScaleMult : 1) * (1 - e.vanish), o = c ? e.dX * this._specParallax : e.dX, n = c ? e.dY * this._specParallax : e.dY;
+      e.wrapper.position.x = e.baseX + o + e.eyeOffsetX + e.jX, e.wrapper.position.y = e.baseY + n + e.eyeOffsetY + e.jY, e.wrapper.position.z = e.baseZ;
+      const m = e.category === "arms" && this._armTilt !== 0 ? this._armTilt * G * (e.baseX >= 0 ? 1 : -1) : 0;
+      if (e.wrapper.rotation.z = (c ? e.baseRotZ : e.baseRotZ + e.dRotZ + this._bodyTilt * G + m) + e.jRotZ, e.modelGroup) {
         e.modelGroup.position.set(e.baseMGX, e.baseMGY, 0), e.modelGroup.rotation.z = e.dModelRotZ;
-        const d = t ? this._useSwapBlink && (this._scleraSet.has(e) || this._eyelidClosedSet.has(e)) ? 1 : s : 1;
+        const y = t ? this._useSwapBlink && (this._scleraSet.has(e) || this._eyelidClosedSet.has(e)) ? 1 : s : 1;
         e.modelGroup.scale.set(
           e.baseSX * r,
-          e.baseSY * r * d,
+          e.baseSY * r * y,
           e.baseSZ
         );
       }
@@ -2421,11 +2448,11 @@ class de {
     this._currentPupilTarget = A;
     const i = A ? this._partIdToKeyword(A) : this._defaultPupilKeyword;
     if (i === "pinhole" || i === "dilated" ? this._pupilScaleTarget = 0.25 : i === "heart" ? this._pupilScaleTarget = 1.3 : this._pupilScaleTarget = 1, this.allPupilParts.length <= 1 || new Set(this.allPupilParts.map((I) => this._pupilKeyword(I))).size <= 1) return;
-    const e = i ?? this._defaultPupilKeyword, t = e ? this.allPupilParts.some((I) => this._pupilKeyword(I) === e) : !1, l = A ? t ? e : null : this._defaultPupilKeyword;
+    const e = i ?? this._defaultPupilKeyword, t = e ? this.allPupilParts.some((I) => this._pupilKeyword(I) === e) : !1, a = A ? t ? e : null : this._defaultPupilKeyword;
     for (const I of this.allPupilParts)
-      I.wrapper.visible = l !== null && this._pupilKeyword(I) === l;
+      I.wrapper.visible = a !== null && this._pupilKeyword(I) === a;
     if (this._useSwapBlink) {
-      const I = l === "closed";
+      const I = a === "closed";
       for (const c of this.scleraParts) c.wrapper.visible = !I;
       for (const c of this.eyelidClosedParts) c.wrapper.visible = I;
       this._swapBlinkClosed = I;
@@ -2450,8 +2477,8 @@ class de {
         i.wrapper.visible = !0;
         const s = this._nearestSclera(i);
         if (s) {
-          const e = this._modelBBoxSize(s), t = this._modelBBoxSize(i), l = e.x > 0 && t.x > 0 ? e.x / t.x : 1, I = e.y > 0 && t.y > 0 ? e.y / t.y : 1;
-          i.baseSX = s.baseSX * l, i.baseSY = s.baseSY * I, i.baseSZ = s.baseSZ;
+          const e = this._modelBBoxSize(s), t = this._modelBBoxSize(i), a = e.x > 0 && t.x > 0 ? e.x / t.x : 1, I = e.y > 0 && t.y > 0 ? e.y / t.y : 1;
+          i.baseSX = s.baseSX * a, i.baseSY = s.baseSY * I, i.baseSZ = s.baseSZ;
         }
       }
       for (const i of this.specParts) i.wrapper.visible = !0;
@@ -2463,6 +2490,47 @@ class de {
       for (const i of this.specParts) i.wrapper.visible = !0;
       this._setPupil(this._currentPupilTarget);
     }
+  }
+  /**
+   * The creature's bounding box at REST — every part at its base transform, with
+   * animation offsets ignored.
+   *
+   * A blueprint's height is a property of the blueprint, but the thing on screen is never
+   * at rest: the idle bob and breath move it continuously, the intro `build` plays over the
+   * first frames, and any animation can extend a limb well past the resting silhouette. So
+   * a host that wants to place the creature — centring it in a circle, say, rather than
+   * standing it on the frame's floor — cannot get the answer by measuring a frame. Sampling
+   * a moving thing once gives an answer that is wrong however carefully it is taken, and
+   * wrong differently each run.
+   *
+   * Measured from `baseX/baseY/baseS*` rather than from the live wrappers for the same
+   * reason, so the answer does not depend on when it is asked. The scene is posed at base,
+   * measured, and put back inside one synchronous call — the next frame overwrites these
+   * transforms anyway, which is what makes borrowing them safe.
+   *
+   * Synthesised and shadow parts are left out: they are not the creature.
+   */
+  restBounds() {
+    const A = this.states.filter(
+      (e) => !e.part.instanceId.startsWith("anim-synth-") && e.category !== "shadow"
+    );
+    if (A.length === 0) return null;
+    const i = A.map((e) => ({
+      s: e,
+      pos: e.wrapper.position.clone(),
+      rot: e.wrapper.rotation.z,
+      scale: e.wrapper.scale.clone(),
+      mg: e.modelGroup?.position.clone() ?? null,
+      mgRot: e.modelGroup?.rotation.z ?? 0
+    }));
+    for (const e of A)
+      e.wrapper.position.set(e.baseX, e.baseY, e.baseZ), e.wrapper.rotation.z = e.baseRotZ, e.wrapper.scale.set(e.baseSX, e.baseSY, e.baseSZ), e.modelGroup && (e.modelGroup.position.set(e.baseMGX, e.baseMGY, e.modelGroup.position.z), e.modelGroup.rotation.z = 0);
+    const s = new D.Box3();
+    for (const e of A)
+      e.wrapper.updateMatrixWorld(!0), s.expandByObject(e.wrapper);
+    for (const e of i)
+      e.s.wrapper.position.copy(e.pos), e.s.wrapper.rotation.z = e.rot, e.s.wrapper.scale.copy(e.scale), e.s.modelGroup && e.mg && (e.s.modelGroup.position.copy(e.mg), e.s.modelGroup.rotation.z = e.mgRot), e.s.wrapper.updateMatrixWorld(!0);
+    return s.isEmpty() ? null : s;
   }
   // Measure the unscaled bounding box of a part's model geometry,
   // accounting for child mesh transforms within the model group.
@@ -2476,7 +2544,7 @@ class de {
   _nearestSclera(A) {
     let i = null, s = 1 / 0;
     for (const e of this.scleraParts) {
-      const t = e.baseX - A.baseX, l = e.baseY - A.baseY, I = t * t + l * l;
+      const t = e.baseX - A.baseX, a = e.baseY - A.baseY, I = t * t + a * a;
       I < s && (s = I, i = e);
     }
     return i;
@@ -2485,7 +2553,7 @@ class de {
   _nearestPupil(A) {
     let i = null, s = 1 / 0;
     for (const e of this.allPupilParts) {
-      const t = e.baseX - A.baseX, l = e.baseY - A.baseY, I = t * t + l * l;
+      const t = e.baseX - A.baseX, a = e.baseY - A.baseY, I = t * t + a * a;
       I < s && (s = I, i = e);
     }
     return i;
@@ -2494,7 +2562,7 @@ class de {
     return this._config.blinkIntervalMin + Math.random() * (this._config.blinkIntervalMax - this._config.blinkIntervalMin);
   }
 }
-let me = class {
+let pe = class {
   canvas;
   opts;
   sm = null;
@@ -2559,6 +2627,39 @@ let me = class {
     );
     this.engine.setMouseWorld(e.x, e.y);
   }
+  /**
+   * Where the creature sits inside its canvas at REST, as fractions of the canvas height:
+   * 0 is the top edge, 1 the bottom.
+   *
+   * **For hosts that place the creature rather than just show it.** Every blueprint is
+   * rendered standing on the same ground plane and blueprints are not the same height, so a
+   * short one sits low with a lot of sky above it. That is invisible in a panel and is the
+   * whole impression in the middle of a circle, where the eye reads the creature against the
+   * centre. Given this, a host can shift it by however far the middle of the band is from
+   * the middle of the frame.
+   *
+   * It reports the RESTING silhouette (see `restBounds`), not the current frame, which is
+   * the only version of this answer worth having: the creature is never still, so a host
+   * measuring a snapshot is sampling a moving thing and gets a different answer depending on
+   * when it looked. It is also available before the first frame is drawn, so nothing has to
+   * be hidden while it is worked out — which is what makes the intro animation watchable.
+   *
+   * Projected through the camera rather than divided out of the frustum, so it stays correct
+   * under pan, dolly and orbit.
+   */
+  restExtent() {
+    const A = this.engine?.restBounds();
+    if (!A || !this.sm) return null;
+    const i = this.sm.camera;
+    let s = 1 / 0, e = -1 / 0;
+    for (const t of [A.min.x, A.max.x])
+      for (const a of [A.min.y, A.max.y])
+        for (const I of [A.min.z, A.max.z]) {
+          const g = (1 - new D.Vector3(t, a, I).project(i).y) / 2;
+          s = Math.min(s, g), e = Math.max(e, g);
+        }
+    return Number.isFinite(s) && Number.isFinite(e) ? { top: s, bottom: e } : null;
+  }
   /** Capture the current frame as a PNG data URL (forces one render first). */
   snapshot() {
     if (!this.sm) return null;
@@ -2581,16 +2682,16 @@ let me = class {
   captureImage(A = {}) {
     const i = this.sm;
     if (!i) return null;
-    const s = Math.max(1, Math.round(A.maxEdge ?? 2048)), e = A.transparent ?? !1, t = (A.crop ?? !1) && e, l = Math.max(0, Math.round(A.padding ?? 0)), I = i.renderer, c = this.canvas.width, n = this.canvas.height, r = I.getPixelRatio(), o = i.scene.background, M = i.camera, y = (M.right - M.left) / (M.top - M.bottom) || 1, d = y >= 1 ? s : Math.round(s * y), C = y >= 1 ? Math.round(s / y) : s, P = [];
+    const s = Math.max(1, Math.round(A.maxEdge ?? 2048)), e = A.transparent ?? !1, t = (A.crop ?? !1) && e, a = Math.max(0, Math.round(A.padding ?? 0)), I = i.renderer, c = this.canvas.width, g = this.canvas.height, r = I.getPixelRatio(), o = i.scene.background, n = i.camera, m = (n.right - n.left) / (n.top - n.bottom) || 1, y = m >= 1 ? s : Math.round(s * m), M = m >= 1 ? Math.round(s / m) : s, d = [];
     try {
-      return e && (i.scene.background = null), i.scene.traverse((B) => {
-        B.userData.editorOverlay && B.visible && (P.push(B), B.visible = !1);
-      }), I.setPixelRatio(1), I.setSize(d, C, !1), i.render(), t ? this._cropToContent(d, C, l) ?? this.canvas.toDataURL("image/png") : this.canvas.toDataURL("image/png");
+      return e && (i.scene.background = null), i.scene.traverse((z) => {
+        z.userData.editorOverlay && z.visible && (d.push(z), z.visible = !1);
+      }), I.setPixelRatio(1), I.setSize(y, M, !1), i.render(), t ? this._cropToContent(y, M, a) ?? this.canvas.toDataURL("image/png") : this.canvas.toDataURL("image/png");
     } catch {
       return null;
     } finally {
-      for (const B of P) B.visible = !0;
-      i.scene.background = o, I.setPixelRatio(r), I.setSize(c / r, n / r, !1), this._renderFrame();
+      for (const z of d) z.visible = !0;
+      i.scene.background = o, I.setPixelRatio(r), I.setSize(c / r, g / r, !1), this._renderFrame();
     }
   }
   /**
@@ -2605,17 +2706,49 @@ let me = class {
     const t = e.getContext("2d");
     if (!t) return null;
     t.drawImage(this.canvas, 0, 0);
-    const { data: l } = t.getImageData(0, 0, A, i), I = 128;
-    let c = A, n = i, r = -1, o = -1;
-    for (let P = 0; P < i; P++)
-      for (let B = 0; B < A; B++)
-        l[(P * A + B) * 4 + 3] >= I && (B < c && (c = B), B > r && (r = B), P < n && (n = P), P > o && (o = P));
-    if (r < c || o < n) return null;
-    c = Math.max(0, c - s), n = Math.max(0, n - s), r = Math.min(A - 1, r + s), o = Math.min(i - 1, o + s);
-    const M = r - c + 1, y = o - n + 1, d = document.createElement("canvas");
-    d.width = M, d.height = y;
-    const C = d.getContext("2d");
-    return C ? (C.drawImage(e, c, n, M, y, 0, 0, M, y), d.toDataURL("image/png")) : null;
+    const { data: a } = t.getImageData(0, 0, A, i), I = 128;
+    let c = A, g = i, r = -1, o = -1;
+    for (let d = 0; d < i; d++)
+      for (let z = 0; z < A; z++)
+        a[(d * A + z) * 4 + 3] >= I && (z < c && (c = z), z > r && (r = z), d < g && (g = d), d > o && (o = d));
+    if (r < c || o < g) return null;
+    c = Math.max(0, c - s), g = Math.max(0, g - s), r = Math.min(A - 1, r + s), o = Math.min(i - 1, o + s);
+    const n = r - c + 1, m = o - g + 1, y = document.createElement("canvas");
+    y.width = n, y.height = m;
+    const M = y.getContext("2d");
+    return M ? (M.drawImage(e, c, g, n, m, 0, 0, n, m), y.toDataURL("image/png")) : null;
+  }
+  /**
+   * Read a built body part's actual color/gradient from its meshes. Saved
+   * mascots often leave the body PlacedPart's color/gradient null and rely on
+   * the color baked into the GLB / composition, so the blink eyelid — which
+   * tints itself to the body — needs the model's real appearance, not the
+   * (empty) PlacedPart field. Returns the dominant gradient (stashed as
+   * userData.sourceGradient by buildPartGroup) and/or a flat color, weighting
+   * meshes by vertex count so the main shell wins over small trim.
+   */
+  _sampleBodyAppearance(A) {
+    if (!A) return {};
+    const i = this.partGroups.get(A.instanceId);
+    if (!i) return {};
+    let s, e = -1;
+    const t = /* @__PURE__ */ new Map();
+    i.traverse((c) => {
+      if (!(c instanceof D.Mesh) || c.name.startsWith("_")) return;
+      const g = c.material;
+      if (!(g instanceof D.MeshStandardMaterial)) return;
+      const r = c.geometry?.attributes?.position?.count ?? 1, o = g.userData?.sourceGradient;
+      if (o?.startColor && o?.endColor)
+        r > e && (e = r, s = o);
+      else if (!(g.map && g.userData?.gradientApplied)) {
+        const n = g.color.getHex();
+        t.set(n, (t.get(n) ?? 0) + r);
+      }
+    });
+    let a, I = -1;
+    for (const [c, g] of t)
+      g > I && (I = g, a = "#" + c.toString(16).padStart(6, "0"));
+    return { color: a ?? s?.startColor, gradient: s };
   }
   /** Resize scene + renderer to new pixel dimensions. */
   resize(A, i) {
@@ -2623,6 +2756,44 @@ let me = class {
   }
   setThumbnailMode(A) {
     this.thumbMode = A;
+  }
+  // Recording: while capturing a video we hide the corner thumbnail and every
+  // editor overlay (pink bounds frame, slot rects, selection rings) and force
+  // a transparent background so canvas.captureStream() yields clean alpha
+  // frames. The prior on-screen state is stashed and restored on stop.
+  _recordRestore = null;
+  setRecordingMode(A) {
+    const i = this.sm;
+    if (i) {
+      if (A) {
+        if (this._recordRestore) return;
+        const s = [];
+        i.scene.traverse((e) => {
+          e.userData.editorOverlay && e.visible && (s.push(e), e.visible = !1);
+        }), this._recordRestore = { thumb: this.thumbMode, bg: i.scene.background, overlays: s }, this.thumbMode = "hidden", i.scene.background = null;
+      } else {
+        const s = this._recordRestore;
+        if (!s) return;
+        for (const e of s.overlays) e.visible = !0;
+        this.thumbMode = s.thumb, i.scene.background = s.bg, this._recordRestore = null;
+      }
+      this._renderFrame();
+    }
+  }
+  /**
+   * Grab the current canvas frame as a PNG blob with its alpha channel intact.
+   * Used by the video recorder: reading the drawing buffer back (as Export PNG
+   * does) preserves transparency, unlike MediaRecorder which flattens alpha to
+   * opaque black. Resolves null if the canvas can't be read.
+   */
+  captureFramePng() {
+    return new Promise((A) => {
+      try {
+        this.canvas.toBlob((i) => A(i), "image/png");
+      } catch {
+        A(null);
+      }
+    });
   }
   /** Replace the lighting config live. */
   setLighting(A) {
@@ -2659,24 +2830,24 @@ let me = class {
   _ensurePupilHelpers() {
     const A = this.sm;
     if (!A) return;
-    const i = /* @__PURE__ */ new Set(["pupil"]), s = (l) => {
-      const I = this.opts.placedParts.find((o) => o.instanceId === l);
+    const i = /* @__PURE__ */ new Set(["pupil"]), s = (a) => {
+      const I = this.opts.placedParts.find((o) => o.instanceId === a);
       if (!I) return !1;
-      const c = this.opts.allPartDefs.find((o) => o.id === I.partId), n = (this.opts.savedParts ?? []).find((o) => o.id === I.partId), r = c?.category ?? n?.category;
+      const c = this.opts.allPartDefs.find((o) => o.id === I.partId), g = (this.opts.savedParts ?? []).find((o) => o.id === I.partId), r = c?.category ?? g?.category;
       return !!r && i.has(r);
-    }, e = (l) => {
+    }, e = (a) => {
       const c = [];
-      for (let M = 0; M < 48; M++) {
-        const y = M / 48 * Math.PI * 2;
-        c.push(new D.Vector3(Math.cos(y), Math.sin(y), 0));
+      for (let n = 0; n < 48; n++) {
+        const m = n / 48 * Math.PI * 2;
+        c.push(new D.Vector3(Math.cos(m), Math.sin(m), 0));
       }
-      const n = new D.BufferGeometry().setFromPoints(c), r = new D.LineBasicMaterial({ color: l, depthTest: !1, transparent: !0, opacity: 0.85 }), o = new D.LineLoop(n, r);
+      const g = new D.BufferGeometry().setFromPoints(c), r = new D.LineBasicMaterial({ color: a, depthTest: !1, transparent: !0, opacity: 0.85 }), o = new D.LineLoop(g, r);
       return o.renderOrder = 1500, o.userData.editorOverlay = !0, o;
-    }, t = new Set(this._pupilHelperRings.map((l) => l.instanceId));
-    for (const [l] of this.partGroups) {
-      if (t.has(l) || !s(l)) continue;
+    }, t = new Set(this._pupilHelperRings.map((a) => a.instanceId));
+    for (const [a] of this.partGroups) {
+      if (t.has(a) || !s(a)) continue;
       const I = e(2278750), c = e(16347926);
-      A.scene.add(I), A.scene.add(c), this._pupilHelperRings.push({ instanceId: l, small: I, large: c });
+      A.scene.add(I), A.scene.add(c), this._pupilHelperRings.push({ instanceId: a, small: I, large: c });
     }
   }
   _updatePupilHelpers() {
@@ -2684,8 +2855,8 @@ let me = class {
     for (const e of this._pupilHelperRings) {
       const t = this.opts.placedParts.find((o) => o.instanceId === e.instanceId);
       if (!t) continue;
-      const l = t.scale * (t.scaleX ?? 1), I = t.scale * (t.scaleY ?? 1), c = t.position.x + (t.pivotOffsetX ?? 0) * l, n = t.position.y + (t.pivotOffsetY ?? 0) * I, r = (this.partGroups.get(e.instanceId)?.position.z ?? 0) + 0.5;
-      e.small.position.set(c, n, r), e.large.position.set(c, n, r), e.small.scale.setScalar(Math.max(1e-3, i)), e.large.scale.setScalar(Math.max(1e-3, s));
+      const a = t.scale * (t.scaleX ?? 1), I = t.scale * (t.scaleY ?? 1), c = t.position.x + (t.pivotOffsetX ?? 0) * a, g = t.position.y + (t.pivotOffsetY ?? 0) * I, r = (this.partGroups.get(e.instanceId)?.position.z ?? 0) + 0.5;
+      e.small.position.set(c, g, r), e.large.position.set(c, g, r), e.small.scale.setScalar(Math.max(1e-3, i)), e.large.scale.setScalar(Math.max(1e-3, s));
     }
   }
   dispose() {
@@ -2703,22 +2874,22 @@ let me = class {
   }
   // ── private ────────────────────────────────────────────────────────────
   async _init() {
-    const A = this.opts.width ?? this.canvas.clientWidth ?? this.canvas.width, i = this.opts.height ?? this.canvas.clientHeight ?? this.canvas.height, s = new X0(this.canvas, A, i, {
+    const A = this.opts.width ?? this.canvas.clientWidth ?? this.canvas.width, i = this.opts.height ?? this.canvas.clientHeight ?? this.canvas.height, s = new W0(this.canvas, A, i, {
       showBounds: this.opts.showBounds ?? !1
     });
-    this.opts.transparentBg === !1 && this.opts.backgroundColor ? s.scene.background = new D.Color(this.opts.backgroundColor) : this.opts.transparentBg !== !1 && (s.scene.background = null), s.applyLighting(this.opts.lighting ?? U0), this.opts.cameraAngle !== void 0 && s.setCameraAngle(this.opts.cameraAngle), this.opts.cameraDolly !== void 0 && s.setCameraDolly(this.opts.cameraDolly), s.shadowCatcher && (s.shadowCatcher.visible = this.opts.shadowPlane !== !1);
+    this.opts.transparentBg === !1 && this.opts.backgroundColor ? s.scene.background = new D.Color(this.opts.backgroundColor) : this.opts.transparentBg !== !1 && (s.scene.background = null), s.applyLighting(this.opts.lighting ?? x0), this.opts.cameraAngle !== void 0 && s.setCameraAngle(this.opts.cameraAngle), this.opts.cameraDolly !== void 0 && s.setCameraDolly(this.opts.cameraDolly), s.shadowCatcher && (s.shadowCatcher.visible = this.opts.shadowPlane !== !1);
     const e = this.opts.animationConfig;
     if (e?.pixelate && s.setPixelation(!0, e.pixelSize ?? 1), this.sm = s, await this._loadParts(s), this.disposed) return;
     if (this.engine && this.opts.introAnimation && !this.opts.staticFrame && !this.reducedMotion) {
-      const l = s.camera;
-      this.engine.setFrameBounds(Math.abs(l.right - l.left) / 2, Math.abs(l.top - l.bottom) / 2), this.engine.play(this.opts.introAnimation), this.engine.update(0);
+      const a = s.camera;
+      this.engine.setFrameBounds(Math.abs(a.right - a.left) / 2, Math.abs(a.top - a.bottom) / 2), this.engine.play(this.opts.introAnimation), this.engine.update(0);
     }
     if (s.render(), this.resolveReady(), this.opts.staticFrame || this.reducedMotion) return;
-    this.opts.autoMouseTracking && (this.onDocMouseMove = (l) => this.pushClientMouse(l.clientX, l.clientY), document.addEventListener("mousemove", this.onDocMouseMove));
-    const t = (l) => {
+    this.opts.autoMouseTracking && (this.onDocMouseMove = (a) => this.pushClientMouse(a.clientX, a.clientY), document.addEventListener("mousemove", this.onDocMouseMove));
+    const t = (a) => {
       if (this.disposed) return;
-      const I = this.lastT ? l - this.lastT : 16;
-      if (this.lastT = l, this.engine && this.sm) {
+      const I = this.lastT ? a - this.lastT : 16;
+      if (this.lastT = a, this.engine && this.sm) {
         const c = this.sm.camera;
         this.engine.setFrameBounds(Math.abs(c.right - c.left) / 2, Math.abs(c.top - c.bottom) / 2);
       }
@@ -2746,161 +2917,161 @@ let me = class {
   async _loadParts(A) {
     const { placedParts: i, allPartDefs: s } = this.opts, e = this.opts.savedParts ?? [], t = [
       ...s,
-      ...e.filter((y) => !s.some((d) => d.id === y.id)).map((y) => ({
-        id: y.id,
-        category: y.category,
-        label: y.name,
+      ...e.filter((m) => !s.some((y) => y.id === m.id)).map((m) => ({
+        id: m.id,
+        category: m.category,
+        label: m.name,
         glbPath: "",
         defaultZDepth: 0,
         defaultScale: 1
       }))
-    ], l = async (y) => {
-      const d = e.find((P) => P.id === y);
-      if (d)
+    ], a = async (m) => {
+      const y = e.find((d) => d.id === m);
+      if (y)
         return {
-          model: await jA(d),
-          cat: d.category,
+          model: await jA(y),
+          cat: y.category,
           isComp: !0,
-          isSpecPart: w0({ category: d.category, id: d.id, label: d.name })
+          isSpecPart: o0({ category: y.category, id: y.id, label: y.name })
         };
-      const C = s.find((P) => P.id === y);
-      if (!C) return null;
+      const M = s.find((d) => d.id === m);
+      if (!M) return null;
       try {
         return {
-          model: await JA.loadPart(C),
-          cat: C.category,
+          model: await JA.loadPart(M),
+          cat: M.category,
           isComp: !1,
-          isSpecPart: w0({ category: C.category, id: C.id, label: C.label })
+          isSpecPart: o0({ category: M.category, id: M.id, label: M.label })
         };
       } catch {
         return null;
       }
     };
-    for (const y of i) {
-      const d = await l(y.partId);
-      if (!d || this.disposed) continue;
-      const { model: C, cat: P, isComp: B, isSpecPart: u } = d;
-      uA(C, y, B), u ? ie(C) : P === "pupil" ? c0(C) : P === "sclera" ? g0(C) : P === "mouth" ? C0(C) : P === "eyelid" || P === "brows" ? r0(C) : P === "body" ? le(C) : P === "paint" ? oe(C) : P === "shadow" && $0(C);
+    for (const m of i) {
+      const y = await a(m.partId);
+      if (!y || this.disposed) continue;
+      const { model: M, cat: d, isComp: z, isSpecPart: J } = y;
+      bA(M, m, z), J ? Ie(M) : d === "pupil" ? g0(M) : d === "sclera" ? C0(M) : d === "mouth" ? r0(M) : d === "eyelid" || d === "brows" ? n0(M) : d === "body" ? De(M) : d === "paint" ? ce(M) : d === "shadow" && ie(M);
       const p = new D.Group();
-      TA(p, C, y), p.add(C), A.scene.add(p), this.partGroups.set(y.instanceId, p);
+      TA(p, M, m), p.add(M), A.scene.add(p), this.partGroups.set(m.instanceId, p);
     }
     if (this.disposed) return;
-    const I = i.map((y) => {
-      const d = e.find((C) => C.id === y.partId);
-      return d ? { ...y, label: d.name } : y;
-    }), c = async (y) => {
-      const d = I.filter((p) => t.find((b) => b.id === p.partId)?.category === y);
-      if (d.length === 0) return;
-      const C = d[0].partId, P = d.filter((p) => p.partId === C), B = I.filter((p) => t.find((b) => b.id === p.partId)?.category === "sclera"), u = async (p, b, Y) => {
+    const I = i.map((m) => {
+      const y = e.find((M) => M.id === m.partId);
+      return y ? { ...m, label: y.name } : m;
+    }), c = async (m) => {
+      const y = I.filter((p) => t.find((u) => u.id === p.partId)?.category === m);
+      if (y.length === 0) return;
+      const M = y[0].partId, d = y.filter((p) => p.partId === M), z = I.filter((p) => t.find((u) => u.id === p.partId)?.category === "sclera"), J = async (p, u, T) => {
         if (I.some((U) => U.partId === p)) return;
-        const L = p.toLowerCase().includes("closed") && B.length > 0 ? B : P;
-        for (let U = 0; U < L.length; U++) {
+        const Y = p.toLowerCase().includes("closed") && z.length > 0 ? z : d;
+        for (let U = 0; U < Y.length; U++) {
           if (this.disposed) return;
           try {
-            const J = await Y();
-            uA(J, L[U], !0), y === "pupil" ? c0(J) : y === "mouth" && C0(J);
-            const N = new D.Group();
-            N.visible = !1, TA(N, J, L[U]), N.add(J);
-            const v = `anim-synth-${y}-${p}-${U}`;
-            this.partGroups.set(v, N), A.scene.add(N), I.push({ ...L[U], instanceId: v, partId: p, label: b });
+            const b = await T();
+            bA(b, Y[U], !0), m === "pupil" ? g0(b) : m === "mouth" && r0(b);
+            const O = new D.Group();
+            O.visible = !1, TA(O, b, Y[U]), O.add(b);
+            const v = `anim-synth-${m}-${p}-${U}`;
+            this.partGroups.set(v, O), A.scene.add(O), I.push({ ...Y[U], instanceId: v, partId: p, label: u });
           } catch {
           }
         }
       };
-      for (const p of e.filter((b) => b.category === y))
-        await u(p.id, p.name, () => jA(p));
-      for (const p of s.filter((b) => b.category === y)) {
-        const b = e.find((Y) => Y.id === p.id);
-        await u(p.id, p.label, b ? () => jA(b) : () => JA.loadPart(p));
+      for (const p of e.filter((u) => u.category === m))
+        await J(p.id, p.name, () => jA(p));
+      for (const p of s.filter((u) => u.category === m)) {
+        const u = e.find((T) => T.id === p.id);
+        await J(p.id, p.label, u ? () => jA(u) : () => JA.loadPart(p));
       }
     };
     await c("mouth"), await c("pupil");
-    const n = I.filter((y) => t.find((d) => d.id === y.partId)?.category === "sclera"), r = n.length > 0 ? n : I.filter((y) => t.find((d) => d.id === y.partId)?.category === "eye");
+    const g = I.filter((m) => t.find((y) => y.id === m.partId)?.category === "sclera"), r = g.length > 0 ? g : I.filter((m) => t.find((y) => y.id === m.partId)?.category === "eye");
     if (r.length > 0 && !this.disposed) {
-      for (const d of s.filter((C) => C.category === "sclera"))
-        if (!I.some((C) => C.partId === d.id))
-          for (let C = 0; C < r.length; C++) {
+      for (const z of s.filter((J) => J.category === "sclera"))
+        if (!I.some((J) => J.partId === z.id))
+          for (let J = 0; J < r.length; J++) {
             if (this.disposed) return;
             try {
-              const P = e.find((b) => b.id === d.id), B = P ? await jA(P) : await JA.loadPart(d);
-              uA(B, r[C], !!P), g0(B);
-              const u = new D.Group();
-              u.visible = !1, TA(u, B, r[C]), u.add(B);
-              const p = `anim-synth-sclera-${d.id}-${C}`;
-              this.partGroups.set(p, u), A.scene.add(u), I.push({ ...r[C], instanceId: p, partId: d.id, label: d.label });
+              const p = e.find((Y) => Y.id === z.id), u = p ? await jA(p) : await JA.loadPart(z);
+              bA(u, r[J], !!p), C0(u);
+              const T = new D.Group();
+              T.visible = !1, TA(T, u, r[J]), T.add(u);
+              const h = `anim-synth-sclera-${z.id}-${J}`;
+              this.partGroups.set(h, T), A.scene.add(T), I.push({ ...r[J], instanceId: h, partId: z.id, label: z.label });
             } catch {
             }
           }
-      const y = I.find((d) => t.find((P) => P.id === d.partId)?.category === "body");
-      for (const d of s.filter((C) => C.category === "eyelid"))
-        if (!I.some((C) => C.partId === d.id))
-          for (let C = 0; C < r.length; C++) {
+      const m = I.find((z) => t.find((p) => p.id === z.partId)?.category === "body"), y = this._sampleBodyAppearance(m), M = m?.gradient ?? y.gradient, d = m?.color ?? y.color;
+      for (const z of s.filter((J) => J.category === "eyelid"))
+        if (!I.some((J) => J.partId === z.id))
+          for (let J = 0; J < r.length; J++) {
             if (this.disposed) return;
             try {
-              const P = e.find((b) => b.id === d.id), B = P ? await jA(P) : await JA.loadPart(d);
-              uA(
-                B,
-                { ...r[C], gradient: void 0, color: y?.color, castShadow: !1 },
-                !!P
-              ), ee(B, { gradient: y?.gradient, color: y?.color }), r0(B);
-              const u = new D.Group();
-              u.visible = !1, TA(u, B, r[C]), u.add(B);
-              const p = `anim-synth-eyelid-${d.id}-${C}`;
-              this.partGroups.set(p, u), A.scene.add(u), I.push({ ...r[C], instanceId: p, partId: d.id, label: d.label });
+              const p = e.find((Y) => Y.id === z.id), u = p ? await jA(p) : await JA.loadPart(z);
+              bA(
+                u,
+                { ...r[J], gradient: void 0, color: d, castShadow: !1 },
+                !!p
+              ), te(u, { gradient: M, color: d }), n0(u);
+              const T = new D.Group();
+              T.visible = !1, TA(T, u, r[J]), T.add(u);
+              const h = `anim-synth-eyelid-${z.id}-${J}`;
+              this.partGroups.set(h, T), A.scene.add(T), I.push({ ...r[J], instanceId: h, partId: z.id, label: z.label });
             } catch {
             }
           }
     }
     let o = I;
     if (!this.disposed) {
-      const y = (Y) => {
-        const Q = i.find((J) => J.instanceId === Y);
-        if (!Q) return;
-        const L = t.find((J) => J.id === Q.partId), U = e.find((J) => J.id === Q.partId);
-        return L?.category ?? U?.category;
-      }, d = /* @__PURE__ */ new Map();
-      for (const Y of i) {
-        const Q = this.partGroups.get(Y.instanceId);
-        if (!Q) continue;
-        Q.updateMatrixWorld(!0);
-        const L = new D.Box3().setFromObject(Q);
-        L.isEmpty() || d.set(Y.instanceId, { minY: L.min.y, maxY: L.max.y, cat: y(Y.instanceId) });
+      const m = (T) => {
+        const h = i.find((b) => b.instanceId === T);
+        if (!h) return;
+        const Y = t.find((b) => b.id === h.partId), U = e.find((b) => b.id === h.partId);
+        return Y?.category ?? U?.category;
+      }, y = /* @__PURE__ */ new Map();
+      for (const T of i) {
+        const h = this.partGroups.get(T.instanceId);
+        if (!h) continue;
+        h.updateMatrixWorld(!0);
+        const Y = new D.Box3().setFromObject(h);
+        Y.isEmpty() || y.set(T.instanceId, { minY: Y.min.y, maxY: Y.max.y, cat: m(T.instanceId) });
       }
-      let C = 1 / 0, P = 1 / 0, B = null, u = 0, p = 0;
-      for (const [Y, Q] of d) {
-        if (Q.cat === "shadow") {
-          B = Y, u = Q.maxY - Q.minY, p = (Q.minY + Q.maxY) / 2;
+      let M = 1 / 0, d = 1 / 0, z = null, J = 0, p = 0;
+      for (const [T, h] of y) {
+        if (h.cat === "shadow") {
+          z = T, J = h.maxY - h.minY, p = (h.minY + h.maxY) / 2;
           continue;
         }
-        Q.minY < P && (P = Q.minY), (Q.cat === "legs" || Q.cat === "foot") && Q.minY < C && (C = Q.minY);
+        h.minY < d && (d = h.minY), (h.cat === "legs" || h.cat === "foot") && h.minY < M && (M = h.minY);
       }
-      const b = C !== 1 / 0 ? C : P;
-      if (b !== 1 / 0) {
-        const Y = A.camera.bottom, L = (B ? Y + u / 2 : Y) - b, U = B ? b - p : 0;
-        if (B && U !== 0) {
-          const J = this.partGroups.get(B);
-          J && (J.position.y += U);
+      const u = M !== 1 / 0 ? M : d;
+      if (u !== 1 / 0) {
+        const T = A.camera.bottom, Y = (z ? T + J / 2 : T) - u, U = z ? u - p : 0;
+        if (z && U !== 0) {
+          const b = this.partGroups.get(z);
+          b && (b.position.y += U);
         }
-        if (Math.abs(L) > 0.01)
-          for (const J of this.partGroups.values())
-            J.position.y += L;
-        (Math.abs(L) > 0.01 || U !== 0) && (o = I.map((J) => {
-          const N = (J.instanceId === B ? U : 0) + L;
-          return N === 0 ? J : { ...J, position: { ...J.position, y: J.position.y + N } };
+        if (Math.abs(Y) > 0.01)
+          for (const b of this.partGroups.values())
+            b.position.y += Y;
+        (Math.abs(Y) > 0.01 || U !== 0) && (o = I.map((b) => {
+          const O = (b.instanceId === z ? U : 0) + Y;
+          return O === 0 ? b : { ...b, position: { ...b.position, y: b.position.y + O } };
         }));
       }
     }
-    const M = this.opts.animationConfig ?? KA;
-    Ae(M.shadowBlur ?? 0), typeof M.shadowOpacity == "number" && q0(M.shadowOpacity), typeof M.shadowBlurOpacity == "number" && _0(M.shadowBlurOpacity), this.engine = new de(
+    const n = this.opts.animationConfig ?? HA;
+    se(n.shadowBlur ?? 0), typeof n.shadowOpacity == "number" && Ae(n.shadowOpacity), typeof n.shadowBlurOpacity == "number" && ee(n.shadowBlurOpacity), this.engine = new je(
       this.partGroups,
       o,
       t,
-      M
+      n
     ), A.applyScleraBrightness(), A.applyTeethBrightness(), A.applySpecBrightness();
   }
 };
-F0(v0);
-const qA = [
+K0(k0);
+const KA = [
   {
     id: "accessory-dark-circ",
     name: "dark circ",
@@ -4436,7 +4607,7 @@ const qA = [
     pivotScale: 1,
     _key: "spec-one"
   }
-], ye = {
+], he = {
   light1On: !0,
   light2On: !0,
   light1Brightness: 0.1,
@@ -4453,7 +4624,7 @@ const qA = [
   light1NormalBias: 2,
   light2Bias: -7e-3,
   light2NormalBias: 2
-}, je = {
+}, Qe = {
   light1On: !0,
   light2On: !0,
   light1Brightness: 1,
@@ -4470,25 +4641,25 @@ const qA = [
   light1NormalBias: 2,
   light2Bias: -7e-3,
   light2NormalBias: 2
-}, Ge = ye;
-class pe {
+}, Fe = he;
+class ze {
   shared;
   constructor(A, i, s = {}) {
-    const e = s.size ?? 200, t = s.introOnLoad ?? !0, l = t && !s.staticFrame ? typeof t == "string" ? t : "build" : void 0;
-    this.shared = new me(A, {
+    const e = s.size ?? 200, t = s.introOnLoad ?? !0, a = t && !s.staticFrame ? typeof t == "string" ? t : "build" : void 0;
+    this.shared = new pe(A, {
       placedParts: i.parts,
-      savedParts: s.savedParts ?? qA,
+      savedParts: s.savedParts ?? KA,
       allPartDefs: s.partManifest ?? hA,
       width: e,
       height: e,
-      animationConfig: s.animationConfig ?? KA,
-      lighting: je,
+      animationConfig: s.animationConfig ?? HA,
+      lighting: Qe,
       transparentBg: !0,
       showBounds: !1,
       thumbnail: "hidden",
       autoMouseTracking: s.autoMouseTracking ?? !s.staticFrame,
       staticFrame: s.staticFrame,
-      introAnimation: l
+      introAnimation: a
     });
   }
   ready() {
@@ -4514,6 +4685,11 @@ class pe {
   snapshot() {
     return this.shared.snapshot();
   }
+  /** Where the creature sits in its canvas at rest, as fractions of the canvas height —
+   *  see `restExtent` on the shared renderer. Null before the parts have loaded. */
+  restExtent() {
+    return this.shared.restExtent();
+  }
   /** No-op. Theme is locked to light. */
   setTheme(A) {
   }
@@ -4530,40 +4706,41 @@ class pe {
     return this.shared.idleState;
   }
 }
-const ve = N0(function({ config: A, size: i = 200, className: s, style: e, options: t, onReady: l }, I) {
-  const c = t0(null), n = t0(null);
-  return O0(
+const ke = L0(function({ config: A, size: i = 200, className: s, style: e, options: t, onReady: a }, I) {
+  const c = s0(null), g = s0(null);
+  return f0(
     I,
     () => ({
-      play: (r) => n.current?.play(r),
-      wake: () => n.current?.wake(),
-      setRendering: (r) => n.current?.setRendering(r),
-      snapshot: () => n.current?.snapshot() ?? null,
-      setTheme: (r) => n.current?.setTheme(r),
+      play: (r) => g.current?.play(r),
+      wake: () => g.current?.wake(),
+      setRendering: (r) => g.current?.setRendering(r),
+      snapshot: () => g.current?.snapshot() ?? null,
+      restExtent: () => g.current?.restExtent() ?? null,
+      setTheme: (r) => g.current?.setTheme(r),
       get animations() {
-        return n.current?.animations ?? [];
+        return g.current?.animations ?? [];
       },
       get animationLabels() {
-        return n.current?.animationPlayer?.getAnimationLabels() ?? [];
+        return g.current?.animationPlayer?.getAnimationLabels() ?? [];
       },
       get renderer() {
-        return n.current;
+        return g.current;
       }
     }),
     []
-  ), Y0(() => {
+  ), V0(() => {
     const r = c.current;
     if (!r) return;
-    const o = new pe(r, A, { ...t ?? {}, size: i });
-    n.current = o;
-    let M = !1;
+    const o = new ze(r, A, { ...t ?? {}, size: i });
+    g.current = o;
+    let n = !1;
     return o.ready().then(() => {
-      M || l?.(o);
+      n || a?.(o, o.restExtent());
     }).catch(() => {
     }), () => {
-      M = !0, o.dispose(), n.current === o && (n.current = null);
+      n = !0, o.dispose(), g.current === o && (g.current = null);
     };
-  }, [A, i, t, l]), /* @__PURE__ */ T0(
+  }, [A, i, t, a]), /* @__PURE__ */ Y0(
     "canvas",
     {
       ref: c,
@@ -4573,7 +4750,7 @@ const ve = N0(function({ config: A, size: i = 200, className: s, style: e, optio
       style: { width: `${i}px`, height: `${i}px`, display: "block", ...e }
     }
   );
-}), he = [
+}), Ze = [
   {
     id: "grad-e8d5b5-68412b",
     startHex: "#E8D5B5",
@@ -4714,7 +4891,7 @@ const ve = N0(function({ config: A, size: i = 200, className: s, style: e, optio
     startHex: "#c1fdff",
     endHex: "#538328"
   }
-], Qe = he.slice(), ze = {
+], Be = Ze.slice(), Je = {
   "body-ball": { slots: [{ category: "sclera", x: [-151.7021746817539, -121.70217468175389], y: [41.206904172560115, 71.20690417256012], zDepth: 18 }, { category: "sclera", x: [129.5146746817539, 159.5146746817539], y: [38.64325495049505, 68.64325495049505], zDepth: 18 }, { category: "mouth", x: [-20.287526520509168, 9.712473479490832], y: [-125.70655056577083, -95.70655056577083], zDepth: 26 }, { category: "ear", x: [-148.8177599009901, -118.8177599009901], y: [182.64228253182455, 212.64228253182455], zDepth: 0 }, { category: "ear", x: [118.8177599009901, 148.8177599009901], y: [182.64228253182455, 212.64228253182455], zDepth: 0 }, { category: "arms", x: [-265.83590876944834, -235.83590876944837], y: [-78.14091230551627, -48.14091230551627], zDepth: 0, scale: [0.5, 1] }, { category: "arms", x: [235.83590876944837, 265.83590876944834], y: [-78.14091230551627, -48.14091230551627], zDepth: 0, scale: [0.45, 1] }, { category: "legs", x: [-119.04327263083451, -89.04327263083451], y: [-221.09237977369168, -191.09237977369168], zDepth: 0, scale: [0.3, 1] }, { category: "legs", x: [89.04327263083451, 119.04327263083451], y: [-221.09237977369168, -191.09237977369168], zDepth: 0, scale: [0.3, 1] }] },
   "body-round": { slots: [{ category: "spec", x: [-6.000000000000003, 6.000000000000003], y: [-6.000000000000003, 6.000000000000003], zDepth: 29 }, { category: "sclera", x: [-59.575848656294234, -47.57584865629423], y: [30.72869519094768, 42.72869519094768], zDepth: 37 }, { category: "sclera", x: [46.28960396039605, 58.28960396039606], y: [31.444748939179636, 43.44474893917965], zDepth: 37 }, { category: "mouth", x: [-6.413277934936366, 5.58672206506364], y: [-41.85130834512021, -29.851308345120206], zDepth: 30 }, { category: "arms", x: [72.6715954622048, 84.67159546220479], y: [-14.850200994538893, -2.8502009945388895], zDepth: 0, scale: [0.65, 1.1] }, { category: "ear", x: [-44.65505691536483, -32.65505691536483], y: [64.23694747485641, 76.23694747485641], zDepth: 0, scale: [0.6, 1] }, { category: "ear", x: [49.8319824074016, 61.831982407401576], y: [59.4536360239163, 71.45363602391629], zDepth: 0, flip: !0, scale: [0.65, 1] }, { category: "legs", x: [-47.55922668009355, -35.55922668009354], y: [-73.00718819969163, -61.00718819969163], zDepth: 0, scale: [0.65, 1.1] }, { category: "legs", x: [10.69882535513995, 22.698825355139956], y: [-80.50548230514178, -68.50548230514178], zDepth: 0, scale: [0.7, 1.1] }, { category: "arms", x: [-85.10753635510471, -74.59047482752342], y: [-15.538092457597783, -2.923700661275298], zDepth: 0, scale: [0.7, 1.05], mirror: !1, flip: !0 }, { category: "spec", x: [-79.1157620887009, -67.1157620887009], y: [62.274715946189595, 74.27471594618959], zDepth: 47 }, { category: "spec", x: [24.721304034198294, 36.7213040341983], y: [62.21253297575135, 74.21253297575134], zDepth: 47 }] },
   "body-circ": { slots: [{ category: "sclera", x: [-107.52031483557548, -83.29531483557547], y: [46.75639247010463, 70.98139247010464], zDepth: 34, scale: [0.5, 1.7] }, { category: "sclera", x: [96.40738742526162, 120.63238742526157], y: [44.88539798206276, 69.11039798206278], zDepth: 32, scale: [0.5, 1.7] }, { category: "mouth", x: [-9.152251494768272, 15.072748505231726], y: [-72.99728606128548, -48.77228606128548], zDepth: 36.699999999999974, scale: [0.95, 1.0924999999999998] }, { category: "ear", x: [-115.86405773542613, -91.63905773542614], y: [158.800754671151, 183.02575467115096], zDepth: 0, scale: [0.475, 0.95] }, { category: "ear", x: [100.35659323617341, 124.5815932361734], y: [159.31458127802685, 183.53958127802682], zDepth: 0, scale: [0.4275, 0.8074999999999999], flip: !0 }, { category: "legs", x: [-88.22138983557545, -63.99638983557546], y: [-122.63195304559028, -98.40695304559029], zDepth: 0, scale: [0.475, 0.8074999999999999] }, { category: "legs", x: [55.19127025411069, 79.41627025411069], y: [-127.01699602017935, -102.79199602017935], zDepth: 0, scale: [0.48449999999999976, 0.8074999999999999] }, { category: "arms", x: [126.42469854260096, 150.649698542601], y: [-60.23284928998501, -36.00784928998503], zDepth: 0, scale: [0.45, 0.8], mirror: !1, flip: !1 }, { category: "arms", x: [-150.649698542601, -126.42469854260096], y: [-60.23284928998501, -36.00784928998503], zDepth: 0, scale: [0.45, 0.8], mirror: !1, flip: !0 }, { category: "spec", x: [-155.7274009715994, -129.60474588938715], y: [82.77031483557548, 119.65997290732432], zDepth: 124.77999999999999 }, { category: "spec", x: [44.10697169282509, 68.33197169282509], y: [92.83609631913296, 117.06109631913299], zDepth: 124.77999999999999, scale: [0.8074999999999999, 0.8074999999999999] }, { category: "pupil", x: [76.3603984285127, 104.8603984285127], y: [-39.11336505398174, -10.613365053981731], zDepth: 73.39999999999995, scale: [0.25, 0.9024999999999997] }, { category: "pupil", x: [-98.74730490231886, -70.24730490231886], y: [46.693107727246854, 75.19310772724685], zDepth: 73.39999999999995, scale: [0.25, 0.9024999999999997] }] },
@@ -4739,12 +4916,12 @@ const ve = N0(function({ config: A, size: i = 200, className: s, style: e, optio
   "body-proof": { slots: [{ category: "sclera", x: [-119.67008659638556, -119.67008659638556], y: [38.0859375, 38.0859375], zDepth: 29, scale: [1.4, 2.166666666666667] }, { category: "arms", x: [233.7230045180723, 233.7230045180723], y: [-35.47765436746985, -35.47765436746985], zDepth: 0, scale: [0.7142857142857143, 0.7142857142857143] }, { category: "legs", x: [160.10650602409638, 160.10650602409638], y: [-120.64384224397591, -120.64384224397591], zDepth: 0, scale: [0.5714285714285715, 0.5714285714285715] }, { category: "sclera", x: [127.78849774096388, 127.78849774096388], y: [38.0859375, 38.0859375], zDepth: 29, scale: [1.4, 2.166666666666667], flip: !0 }, { category: "pupil", x: [-115.8108998493976, -115.8108998493976], y: [38.04475715361447, 38.04475715361447], zDepth: 37, scale: [1, 1] }, { category: "pupil", x: [123.92931099397592, 123.92931099397592], y: [38.04475715361447, 38.04475715361447], zDepth: 37, scale: [1, 1], flip: !0 }, { category: "spec", x: [-139.01308358433738, -139.01308358433738], y: [49.516425075301214, 49.516425075301214], zDepth: 45, scale: [1, 1] }, { category: "spec", x: [108.44550075301206, 108.44550075301206], y: [49.516425075301214, 49.516425075301214], zDepth: 45, scale: [1, 1] }, { category: "mouth", x: [1.229527484939759, 1.229527484939759], y: [-110.5751129518072, -110.5751129518072], zDepth: 37, scale: [1, 1] }, { category: "arms", x: [-225.60459337349397, -225.60459337349397], y: [-35.47765436746985, -35.47765436746985], zDepth: 0, scale: [0.7142857142857143, 0.7142857142857143], flip: !0 }, { category: "legs", x: [-151.98809487951806, -151.98809487951806], y: [-120.64384224397591, -120.64384224397591], zDepth: 0, scale: [0.5714285714285715, 0.5714285714285715], flip: !0 }, { category: "shadow", x: [-17763568394002505e-31, -17763568394002505e-31], y: [-268.9887864276151, -268.9887864276151], zDepth: -1, scale: [1, 1] }, { category: "brows", x: [-112.79296875000001, -112.79296875000001], y: [197.20091302710844, 197.20091302710844], zDepth: 45, scale: [0.65, 1], rotation: [-5, 7] }, { category: "brows", x: [120.91137989457833, 120.91137989457833], y: [197.20091302710844, 197.20091302710844], zDepth: 45, scale: [0.65, 1], flip: !0, rotation: [-7, 5] }, { category: "ear", x: [175.7871329066265, 175.7871329066265], y: [73.14967055722893, 73.14967055722893], zDepth: -1, scale: [0.55, 1], rotation: [-36, -36] }, { category: "ear", x: [-167.6687217620482, -167.6687217620482], y: [73.14967055722893, 73.14967055722893], zDepth: -1, scale: [0.55, 1], flip: !0, rotation: [-36, -36] }, { category: "nose", x: [1.294239457831325, 1.294239457831325], y: [-29.996940888554207, -29.996940888554207], zDepth: 45, scale: [0.4, 0.4] }], compatibleGradients: ["grad-e8d5b5-68412b", "grad-ecf8c6-68412b", "grad-fffbb9-68412b"], bodyZDepth: 0 },
   "body-derp-copy": { slots: [{ category: "sclera", x: [-92.54400414156626, -92.54400414156626], y: [-5, 30.755835843373493], zDepth: 18, scale: [0.95, 1.6666666666666667], linked: !1 }, { category: "sclera", x: [129.61219879518075, 129.61219879518075], y: [68.0652296686747, 68.0652296686747], zDepth: 18, scale: [1.6666666666666667, 1.6666666666666667], flip: !0, linked: !1 }, { category: "mouth", x: [-68, 81], y: [-92.06944967369482, -92.06944967369482], zDepth: 26, scale: [0.6, 1] }, { category: "pupil", x: [-89.85551581325302, -89.85551581325302], y: [28.090879141566266, 28.090879141566266], zDepth: 34, scale: [0.5, 1.75], linked: !1 }, { category: "pupil", x: [130.41227409638557, 130.41227409638557], y: [66.00621234939759, 66.00621234939759], zDepth: 34, scale: [1, 2.05], flip: !0, linked: !1 }, { category: "arms", x: [177.8993298192771, 177.8993298192771], y: [-32.12118222891567, -32.12118222891567], zDepth: 0, scale: [0.45, 1], linked: !1 }, { category: "legs", x: [-89.85298381024097, -89.85298381024097], y: [-146.29702560240966, -146.29702560240966], zDepth: 0, scale: [0.4, 0.7142857142857143], linked: !0 }, { category: "legs", x: [174.06090926204823, 174.06090926204823], y: [-134.14294051204823, -134.14294051204823], zDepth: 0, scale: [0.4, 0.7142857142857143], flip: !0, linked: !0 }, { category: "arms", x: [-164.13921121987954, -164.13921121987954], y: [-59.447283509036154, -59.447283509036154], zDepth: 0, scale: [0.4, 1], flip: !0, linked: !1 }, { category: "ear", x: [131.1241057981928, 131.1241057981928], y: [128.56665097891565, 128.56665097891565], zDepth: 0, scale: [0.75, 1], rotation: [-47, -47], linked: !1 }, { category: "ear", x: [-95.85608057228917, -95.85608057228917], y: [114.82418109939758, 114.82418109939758], zDepth: 0, scale: [0.75, 1], flip: !0, rotation: [-47, -47], linked: !1 }, { category: "brows", x: [-115.40497929216868, -115.40497929216868], y: [151.04951054216866, 151.04951054216866], zDepth: 42, scale: [0.7, 0.7], rotation: [11, 11], linked: !0 }, { category: "brows", x: [145.1901355421687, 145.1901355421687], y: [191.85923381024094, 191.85923381024094], zDepth: 42, scale: [0.7, 0.7], flip: !0, rotation: [8, 8], linked: !0 }, { category: "shadow", x: [-0.17648719879518487, -0.17648719879518487], y: [-331.7282058319586, -331.7282058319586], zDepth: -1, scale: [1, 1] }, { category: "horns", x: [9.400884789156628, 9.400884789156628], y: [175.59916615599323, 175.59916615599323], zDepth: 23, scale: [1, 1], linked: !1 }, { category: "horns", x: [148.79941641566265, 148.79941641566265], y: [-61.87330184099474, -61.87330184099474], zDepth: 6, scale: [0.4, 1], rotation: [-126, -126], linked: !1 }, { category: "horns", x: [-151.7644013554217, -151.7644013554217], y: [-120.3348511632839, -120.3348511632839], zDepth: 23, scale: [0.15, 0.65], flip: !0, rotation: [-137, -137], linked: !1 }, { category: "spec", x: [-123.82341867469887, -123.82341867469887], y: [51.29301969514982, 51.29301969514982], zDepth: 35, scale: [1, 1] }, { category: "spec", x: [98.33278426204814, 98.33278426204814], y: [88.60241352045104, 88.60241352045104], zDepth: 35, scale: [1, 1] }], bodyZDepth: 10 },
   "body-cloud": { slots: [{ category: "mouth", x: [8.912603539156626, 8.912603539156626], y: [-195.53605045180723, -195.53605045180723], zDepth: 18, scale: [1, 1] }, { category: "sclera", x: [-179.39923757530124, -179.39923757530124], y: [-33.77376694277108, -33.77376694277108], zDepth: 26, scale: [1.75, 3] }, { category: "sclera", x: [179.7639777861446, 179.7639777861446], y: [-33.77376694277108, -33.77376694277108], zDepth: 26, scale: [1.75, 3], flip: !0 }, { category: "pupil", x: [-179.39923757530124, -179.39923757530124], y: [-33.77376694277108, -33.77376694277108], zDepth: 34, scale: [1, 1] }, { category: "pupil", x: [179.7639777861446, 179.7639777861446], y: [-33.77376694277108, -33.77376694277108], zDepth: 34, scale: [1, 1], flip: !0 }, { category: "arms", x: [186.03538968373493, 186.03538968373493], y: [-192.27154932228913, -192.27154932228913], zDepth: 0, scale: [0.5, 1] }, { category: "arms", x: [-185.67064947289157, -185.67064947289157], y: [-192.27154932228913, -192.27154932228913], zDepth: 0, scale: [0.5, 1], flip: !0 }, { category: "legs", x: [-98.57867469879518, -98.57867469879518], y: [-228.6945538403615, -228.6945538403615], zDepth: 0, scale: [0.5, 0.75] }, { category: "legs", x: [98.94341490963855, 98.94341490963855], y: [-228.6945538403615, -228.6945538403615], zDepth: 0, scale: [0.5, 0.75], flip: !0 }, { category: "shadow", x: [-0.18824109111923767, -0.18824109111923767], y: [-476.4029689629348, -476.4029689629348], zDepth: -1, scale: [1, 1] }, { category: "ear", x: [231.16881588855424, 231.16881588855424], y: [17.444427710843396, 17.444427710843396], zDepth: -1, scale: [0.45, 1], rotation: [-53, -53] }, { category: "ear", x: [-230.80407567771087, -230.80407567771087], y: [17.444427710843396, 17.444427710843396], zDepth: -1, scale: [0.45, 1], flip: !0, rotation: [-53, -53] }, { category: "brows", x: [-175.8518448795181, -175.8518448795181], y: [163.9507247740964, 163.9507247740964], zDepth: 34, scale: [0.6, 1] }, { category: "brows", x: [176.21658509036146, 176.21658509036146], y: [163.9507247740964, 163.9507247740964], zDepth: 34, scale: [0.6, 1], flip: !0 }, { category: "nose", x: [-4.323936370481928, -4.323936370481928], y: [-96.03256777108433, -96.03256777108433], zDepth: 44, scale: [0.4, 0.4] }, { category: "spec", x: [-196.50084713855426, -196.50084713855426], y: [-9.912697665662694, -9.912697665662694], zDepth: 35, scale: [1, 1] }, { category: "spec", x: [162.6623682228916, 162.6623682228916], y: [-9.912697665662694, -9.912697665662694], zDepth: 35, scale: [1, 1] }, { category: "horns", x: [18.478209713855428, 18.478209713855428], y: [173.33349294327604, 173.33349294327604], zDepth: 26, scale: [1.4, 1.4], flip: !0 }], bodyZDepth: 10 }
-}, Ze = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+}, ue = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  default: ze
-}, Symbol.toStringTag, { value: "Module" })), Be = /* @__PURE__ */ Object.assign({ "/public/body-configs.json": Ze }), Je = Object.values(Be)[0]?.default ?? {}, be = Object.fromEntries(
-  Object.entries(Je).filter(([a]) => !a.startsWith("_"))
-), ue = [
+  default: Je
+}, Symbol.toStringTag, { value: "Module" })), be = /* @__PURE__ */ Object.assign({ "/public/body-configs.json": ue }), Te = Object.values(be)[0]?.default ?? {}, Ne = Object.fromEntries(
+  Object.entries(Te).filter(([l]) => !l.startsWith("_"))
+), Oe = [
   "#F7E7CE",
   // champagne cream
   "#E8D2A0",
@@ -4762,35 +4939,35 @@ const ve = N0(function({ config: A, size: i = 200, className: s, style: e, optio
   "#FFFFFF"
   // accent
 ];
-let Te = 1;
+let Ye = 1;
 function NA() {
-  return `rand-${Te++}-${Date.now()}`;
+  return `rand-${Ye++}-${Date.now()}`;
 }
-function CA(a, A) {
-  return a + Math.random() * (A - a);
+function CA(l, A) {
+  return l + Math.random() * (A - l);
 }
-function pA(a) {
-  return a.length === 0 ? null : a[Math.floor(Math.random() * a.length)];
+function pA(l) {
+  return l.length === 0 ? null : l[Math.floor(Math.random() * l.length)];
 }
-let Ne = 4;
-function Oe(a, A, i, s, e) {
-  const t = e?.matchPairs ?? !0, l = e?.bodyConfigs ?? be, I = e?.partManifest ?? hA, c = e?.gradientManifest ?? Qe, n = s?.filter((w) => w.category === "body"), r = /* @__PURE__ */ new Map();
+let Le = 4;
+function fe(l, A, i, s, e) {
+  const t = e?.matchPairs ?? !0, a = e?.bodyConfigs ?? Ne, I = e?.partManifest ?? hA, c = e?.gradientManifest ?? Be, g = s?.filter((w) => w.category === "body"), r = /* @__PURE__ */ new Map();
   for (const w of s ?? []) r.set(w.id, w);
-  const o = 0, M = 0, y = (w) => !!I.find((T) => T.id === w) || !!n?.find((T) => T.id === w);
-  let d = null;
-  if (a && l[a] && y(a))
-    d = a;
+  const o = 0, n = 0, m = (w) => !!I.find((N) => N.id === w) || !!g?.find((N) => N.id === w);
+  let y = null;
+  if (l && a[l] && m(l))
+    y = l;
   else {
-    const w = Object.keys(l).filter(y);
+    const w = Object.keys(a).filter(m);
     if (w.length === 0)
       return console.warn("[randomize] No bodies configured in body-configs.json"), [];
-    d = pA(w);
+    y = pA(w);
   }
-  const C = l[d];
-  let P = I.find((w) => w.id === d) ?? null;
-  if (!P) {
-    const w = n?.find((T) => T.id === d);
-    w && (P = {
+  const M = a[y];
+  let d = I.find((w) => w.id === y) ?? null;
+  if (!d) {
+    const w = g?.find((N) => N.id === y);
+    w && (d = {
       id: w.id,
       category: w.category || "body",
       label: w.name,
@@ -4799,47 +4976,47 @@ function Oe(a, A, i, s, e) {
       defaultScale: 1
     });
   }
-  if (!P)
-    return console.warn(`[randomize] Body "${d}" not found in PART_MANIFEST or custom bodies`), [];
-  const B = C.colorPalette && C.colorPalette.length > 0 ? C.colorPalette : ue, u = [], p = pA(B) ?? void 0;
-  let b = null;
-  if (!b && c.length > 0) {
+  if (!d)
+    return console.warn(`[randomize] Body "${y}" not found in PART_MANIFEST or custom bodies`), [];
+  const z = M.colorPalette && M.colorPalette.length > 0 ? M.colorPalette : Oe, J = [], p = pA(z) ?? void 0;
+  let u = null;
+  if (!u && c.length > 0) {
     let w = c;
-    if (C.compatibleGradients && C.compatibleGradients.length > 0) {
-      const F = new Set(C.compatibleGradients), R = c.filter((iA) => F.has(iA.id));
+    if (M.compatibleGradients && M.compatibleGradients.length > 0) {
+      const F = new Set(M.compatibleGradients), R = c.filter((iA) => F.has(iA.id));
       R.length > 0 && (w = R);
     }
-    const T = pA(w), W = r.get(d)?.layers.find((F) => !!F.gradient)?.gradient;
-    b = {
-      startColor: T.startHex,
-      endColor: T.endHex,
+    const N = pA(w), W = r.get(y)?.layers.find((F) => !!F.gradient)?.gradient;
+    u = {
+      startColor: N.startHex,
+      endColor: N.endHex,
       angle: W?.angle ?? 0,
       centerX: W?.centerX ?? 0.5,
       centerY: W?.centerY ?? 0.5,
       projectionAxis: W?.projectionAxis ?? "XZ"
     };
   }
-  const Y = I0(P.id, 1), Q = a0(P.id, 1), L = SA(P.id, 0), U = GA(P.id, 0);
-  u.push({
+  const T = t0(d.id, 1), h = I0(d.id, 1), Y = WA(d.id, 0), U = SA(d.id, 0);
+  J.push({
     instanceId: NA(),
-    partId: P.id,
-    label: P.label,
-    position: { x: o, y: M },
-    zDepth: C.bodyZDepth ?? P.defaultZDepth,
-    scale: xA(P.id, 1),
-    ...Y !== 1 ? { scaleX: Y } : {},
-    ...Q !== 1 ? { scaleY: Q } : {},
-    rotation: WA(P.id, 0),
-    pivotOffsetX: L,
+    partId: d.id,
+    label: d.label,
+    position: { x: o, y: n },
+    zDepth: M.bodyZDepth ?? d.defaultZDepth,
+    scale: EA(d.id, 1),
+    ...T !== 1 ? { scaleX: T } : {},
+    ...h !== 1 ? { scaleY: h } : {},
+    rotation: xA(d.id, 0),
+    pivotOffsetX: Y,
     pivotOffsetY: U,
     color: p,
-    ...b ? { gradient: b } : {}
+    ...u ? { gradient: u } : {}
   });
-  const J = (w) => {
-    const T = (n ?? []).filter((R) => (R.category || "eye") === w.category).map((R) => ({ id: R.id, category: R.category || "eye", label: R.name, glbPath: "", defaultZDepth: 10, defaultScale: 1 }));
-    let F = [...I.filter((R) => R.category === w.category), ...T];
-    if (C.compatibleParts && C.compatibleParts.length > 0) {
-      const R = new Set(C.compatibleParts);
+  const b = (w) => {
+    const N = (g ?? []).filter((R) => (R.category || "eye") === w.category).map((R) => ({ id: R.id, category: R.category || "eye", label: R.name, glbPath: "", defaultZDepth: 10, defaultScale: 1 }));
+    let F = [...I.filter((R) => R.category === w.category), ...N];
+    if (M.compatibleParts && M.compatibleParts.length > 0) {
+      const R = new Set(M.compatibleParts);
       F = F.filter((iA) => R.has(iA.id));
     }
     if (w.parts && w.parts.length > 0) {
@@ -4847,168 +5024,168 @@ function Oe(a, A, i, s, e) {
       F = F.filter((iA) => R.has(iA.id));
     }
     return F;
-  }, N = /* @__PURE__ */ new Map(), v = /* @__PURE__ */ new Map(), $ = /* @__PURE__ */ new Map(), sA = /* @__PURE__ */ new Map(), eA = /* @__PURE__ */ new Map(), q = (w, T) => w[0] === T[0] && w[1] === T[1], tA = (w, T) => w[0] === -T[1] && w[1] === -T[0];
+  }, O = /* @__PURE__ */ new Map(), v = /* @__PURE__ */ new Map(), $ = /* @__PURE__ */ new Map(), sA = /* @__PURE__ */ new Map(), eA = /* @__PURE__ */ new Map(), q = (w, N) => w[0] === N[0] && w[1] === N[1], tA = (w, N) => w[0] === -N[1] && w[1] === -N[0];
   p && (v.set("arms", p), v.set("legs", p));
-  const IA = (w) => w.parts && w.parts.length > 0 ? `${w.category}:${[...w.parts].sort().join(",")}` : w.category, g = (() => {
-    let w = I.filter((T) => T.category === "pupil");
-    if (C.compatibleParts && C.compatibleParts.length > 0) {
-      const T = new Set(C.compatibleParts);
-      w = w.filter((W) => T.has(W.id));
+  const IA = (w) => w.parts && w.parts.length > 0 ? `${w.category}:${[...w.parts].sort().join(",")}` : w.category, C = (() => {
+    let w = I.filter((N) => N.category === "pupil");
+    if (M.compatibleParts && M.compatibleParts.length > 0) {
+      const N = new Set(M.compatibleParts);
+      w = w.filter((W) => N.has(W.id));
     }
     return w;
-  })(), m = g.find((w) => /(^|-)pupil-round(-|$|\.)/i.test(w.id)) ?? g.find((w) => /round/i.test(w.id)) ?? g[0] ?? null, j = (w, T, W, F) => {
-    if (!m) return;
-    const R = SA(m.id, 0), iA = GA(m.id, 0), AA = xA(m.id, 1), oA = F ? -AA : AA, PA = w - R * oA, wA = T - iA * AA;
-    u.push({
+  })(), P = C.find((w) => /(^|-)pupil-round(-|$|\.)/i.test(w.id)) ?? C.find((w) => /round/i.test(w.id)) ?? C[0] ?? null, j = (w, N, W, F) => {
+    if (!P) return;
+    const R = WA(P.id, 0), iA = SA(P.id, 0), AA = EA(P.id, 1), oA = F ? -AA : AA, PA = w - R * oA, wA = N - iA * AA;
+    J.push({
       instanceId: NA(),
-      partId: m.id,
-      label: m.label,
+      partId: P.id,
+      label: P.label,
       position: { x: PA, y: wA },
       zDepth: W + 2,
       scale: AA,
       ...F ? { scaleX: -1 } : {},
-      rotation: WA(m.id, 0),
+      rotation: xA(P.id, 0),
       pivotOffsetX: R,
       pivotOffsetY: iA
     });
-  }, z = C.slots.some((w) => w.category === "pupil"), Z = [], V = /* @__PURE__ */ new Set(["body", "arms", "legs", "sclera", "pupil", "eyelid", "spec", "mouth", "shadow"]), h = /* @__PURE__ */ new Map();
-  for (const w of C.slots)
-    V.has(w.category) || h.has(w.category) || h.set(w.category, Math.random() <= 0.5);
-  for (const w of C.slots) {
-    if (w.category === "pupil" && !z || !V.has(w.category) && h.get(w.category) === !1) continue;
-    let T = N.get(IA(w));
-    if (!T) {
-      const f = J(w);
+  }, Z = M.slots.some((w) => w.category === "pupil"), B = [], V = /* @__PURE__ */ new Set(["body", "arms", "legs", "sclera", "pupil", "eyelid", "spec", "mouth", "shadow"]), Q = /* @__PURE__ */ new Map();
+  for (const w of M.slots)
+    V.has(w.category) || Q.has(w.category) || Q.set(w.category, Math.random() <= 0.5);
+  for (const w of M.slots) {
+    if (w.category === "pupil" && !Z || !V.has(w.category) && Q.get(w.category) === !1) continue;
+    let N = O.get(IA(w));
+    if (!N) {
+      const f = b(w);
       let k = null;
       if (w.category === "mouth" ? k = f.find((S) => /(^|-)mouth-flat(-|$|\.)/i.test(S.id)) ?? f.find((S) => /flat/i.test(S.id)) ?? f[0] ?? null : w.category === "pupil" ? k = f.find((S) => /(^|-)pupil-round(-|$|\.)/i.test(S.id)) ?? f.find((S) => /round/i.test(S.id)) ?? f[0] ?? null : k = pA(f), !k) continue;
-      T = k, N.set(IA(w), T);
+      N = k, O.set(IA(w), N);
     }
     const W = t && w.linked !== !1;
     let F, R;
-    if (w.category === "pupil" && Z.length > 0) {
-      const f = (w.x[0] + w.x[1]) / 2 + o, k = (w.y[0] + w.y[1]) / 2 + M;
-      let S = Z[0], i0 = 1 / 0;
-      for (const EA of Z) {
-        const s0 = (EA.x - f) ** 2 + (EA.y - k) ** 2;
-        s0 < i0 && (i0 = s0, S = EA);
+    if (w.category === "pupil" && B.length > 0) {
+      const f = (w.x[0] + w.x[1]) / 2 + o, k = (w.y[0] + w.y[1]) / 2 + n;
+      let S = B[0], e0 = 1 / 0;
+      for (const XA of B) {
+        const i0 = (XA.x - f) ** 2 + (XA.y - k) ** 2;
+        i0 < e0 && (e0 = i0, S = XA);
       }
       F = S.x, R = S.y;
     } else {
       const f = W ? eA.get(w.category) : void 0;
       let k, S;
-      f ? (k = q(w.x, f.xRange) ? f.xVal : tA(w.x, f.xRange) ? -f.xVal : CA(w.x[0], w.x[1]), S = q(w.y, f.yRange) ? f.yVal : tA(w.y, f.yRange) ? -f.yVal : CA(w.y[0], w.y[1])) : (k = CA(w.x[0], w.x[1]), S = CA(w.y[0], w.y[1]), W && eA.set(w.category, { xRange: w.x, xVal: k, yRange: w.y, yVal: S })), F = k + o, R = S + M;
+      f ? (k = q(w.x, f.xRange) ? f.xVal : tA(w.x, f.xRange) ? -f.xVal : CA(w.x[0], w.x[1]), S = q(w.y, f.yRange) ? f.yVal : tA(w.y, f.yRange) ? -f.yVal : CA(w.y[0], w.y[1])) : (k = CA(w.x[0], w.x[1]), S = CA(w.y[0], w.y[1]), W && eA.set(w.category, { xRange: w.x, xVal: k, yRange: w.y, yVal: S })), F = k + o, R = S + n;
     }
     const iA = ["arms", "ear"];
-    let AA = w.zDepth ?? (iA.includes(w.category) ? 0 : T.defaultZDepth);
-    const oA = C.bodyZDepth ?? P.defaultZDepth;
-    (/feet|foot/i.test(T.id) || /feet|foot/i.test(T.label)) && AA <= oA && (AA = oA + 5), w.category === "paint" && (AA = oA + 1);
-    const wA = xA(T.id, 1), dA = WA(T.id, 0), _A = W;
+    let AA = w.zDepth ?? (iA.includes(w.category) ? 0 : N.defaultZDepth);
+    const oA = M.bodyZDepth ?? d.defaultZDepth;
+    (/feet|foot/i.test(N.id) || /feet|foot/i.test(N.label)) && AA <= oA && (AA = oA + 5), w.category === "paint" && (AA = oA + 1);
+    const wA = EA(N.id, 1), dA = xA(N.id, 0), qA = W;
     let lA;
     if (w.scale) {
-      let f = _A ? $.get(w.category) : void 0;
-      f === void 0 && (f = Math.random(), _A && $.set(w.category, f)), lA = wA * (w.scale[0] + (w.scale[1] - w.scale[0]) * f);
+      let f = qA ? $.get(w.category) : void 0;
+      f === void 0 && (f = Math.random(), qA && $.set(w.category, f)), lA = wA * (w.scale[0] + (w.scale[1] - w.scale[0]) * f);
     } else
       lA = wA;
-    const h0 = (w.x[0] + w.x[1]) / 2, $A = w.flip !== void 0 ? !!w.flip : w.category === "arms" && h0 < 0;
+    const Z0 = (w.x[0] + w.x[1]) / 2, _A = w.flip !== void 0 ? !!w.flip : w.category === "arms" && Z0 < 0;
     let mA;
     if (w.rotation) {
       const f = W ? sA.get(w.category) : void 0, k = !!f && (q(w.rotation, f.range) || tA(w.rotation, f.range));
       let S;
-      f && k ? S = $A === f.flip ? -f.value : f.value : (S = CA(w.rotation[0], w.rotation[1]), t && !f && sA.set(w.category, { range: w.rotation, value: S, flip: $A })), mA = dA + S;
+      f && k ? S = _A === f.flip ? -f.value : f.value : (S = CA(w.rotation[0], w.rotation[1]), t && !f && sA.set(w.category, { range: w.rotation, value: S, flip: _A })), mA = dA + S;
     } else
       mA = dA;
-    const Q0 = ["sclera", "pupil", "eyelid", "spec", "mouth", "shadow"].includes(w.category), z0 = ["sclera", "pupil", "spec", "mouth", "brows", "shadow"].includes(w.category);
-    let VA, yA;
-    if (!Q0) {
+    const B0 = ["sclera", "pupil", "eyelid", "spec", "mouth", "shadow"].includes(w.category), J0 = ["sclera", "pupil", "spec", "mouth", "brows", "shadow"].includes(w.category);
+    let fA, yA;
+    if (!B0) {
       const f = w.category;
       let k = v.get(f);
-      k || (k = pA(B) ?? void 0, k && v.set(f, k)), VA = k;
+      k || (k = pA(z) ?? void 0, k && v.set(f, k)), fA = k;
     }
-    if (b && !z0) {
-      const f = r.get(T.id)?.layers.find((k) => !!k.gradient)?.gradient?.angle;
+    if (u && !J0) {
+      const f = r.get(N.id)?.layers.find((k) => !!k.gradient)?.gradient?.angle;
       yA = {
-        ...b,
-        angle: f ?? b.angle
+        ...u,
+        angle: f ?? u.angle
       };
     }
-    const zA = SA(T.id, 0), UA = GA(T.id, 0), XA = I0(T.id, 1), ZA = a0(T.id, 1), Z0 = (w.x[0] + w.x[1]) / 2, BA = w.flip !== void 0 ? !!w.flip : w.category === "arms" && Z0 < 0, A0 = BA ? -XA : XA, B0 = BA ? -lA : lA, J0 = BA ? -mA : mA, b0 = F - zA * B0, e0 = R - UA * lA;
-    if (u.push({
+    const zA = WA(N.id, 0), VA = SA(N.id, 0), UA = t0(N.id, 1), ZA = I0(N.id, 1), u0 = (w.x[0] + w.x[1]) / 2, BA = w.flip !== void 0 ? !!w.flip : w.category === "arms" && u0 < 0, $A = BA ? -UA : UA, b0 = BA ? -lA : lA, T0 = BA ? -mA : mA, N0 = F - zA * b0, A0 = R - VA * lA;
+    if (J.push({
       instanceId: NA(),
-      partId: T.id,
-      label: T.label,
-      position: { x: b0, y: e0 },
+      partId: N.id,
+      label: N.label,
+      position: { x: N0, y: A0 },
       zDepth: AA,
       scale: lA,
-      ...A0 !== 1 ? { scaleX: A0 } : BA ? { scaleX: -1 } : {},
+      ...$A !== 1 ? { scaleX: $A } : BA ? { scaleX: -1 } : {},
       ...ZA !== 1 ? { scaleY: ZA } : {},
-      rotation: J0,
+      rotation: T0,
       pivotOffsetX: zA,
-      pivotOffsetY: UA,
-      color: VA,
+      pivotOffsetY: VA,
+      color: fA,
       ...yA ? { gradient: yA } : {},
       ...w.category === "mouth" || w.category === "paint" ? { castShadow: !1 } : {},
       ...w.opacity ? { opacity: CA(w.opacity[0], w.opacity[1]) } : {}
-    }), w.category === "sclera" && Z.push({ x: F, y: R, z: AA }), w.category === "sclera" && !z && j(F, R, AA, !1), w.mirror) {
+    }), w.category === "sclera" && B.push({ x: F, y: R, z: AA }), w.category === "sclera" && !Z && j(F, R, AA, !1), w.mirror) {
       const f = -((w.x[0] + w.x[1]) / 2);
-      if (C.slots.some(
+      if (M.slots.some(
         (S) => S !== w && S.category === w.category && Math.min(S.x[0], S.x[1]) <= f && Math.max(S.x[0], S.x[1]) >= f
       )) continue;
     }
     if (w.mirror) {
       const f = F - o, k = o - f, S = k - zA * -lA;
-      u.push({
+      J.push({
         instanceId: NA(),
-        partId: T.id,
-        label: T.label,
-        position: { x: S, y: e0 },
+        partId: N.id,
+        label: N.label,
+        position: { x: S, y: A0 },
         zDepth: AA,
         scale: lA,
-        scaleX: -XA,
+        scaleX: -UA,
         ...ZA !== 1 ? { scaleY: ZA } : {},
         rotation: -mA,
         pivotOffsetX: zA,
-        pivotOffsetY: UA,
-        color: VA,
+        pivotOffsetY: VA,
+        color: fA,
         ...yA ? { gradient: yA } : {}
-      }), w.category === "sclera" && Z.push({ x: k, y: R, z: AA }), w.category === "sclera" && !z && j(k, R, AA, !0);
+      }), w.category === "sclera" && B.push({ x: k, y: R, z: AA }), w.category === "sclera" && !Z && j(k, R, AA, !0);
     }
   }
-  const X = (w) => I.find((T) => T.id === w.partId)?.category ?? r.get(w.partId)?.category, O = (w) => ({
+  const X = (w) => I.find((N) => N.id === w.partId)?.category ?? r.get(w.partId)?.category, L = (w) => ({
     x: w.position.x + (w.pivotOffsetX ?? 0) * w.scale * (w.scaleX ?? 1),
     y: w.position.y + (w.pivotOffsetY ?? 0) * w.scale * (w.scaleY ?? 1)
-  }), E = u.filter((w) => X(w) === "spec"), x = u.filter((w) => X(w) === "pupil");
+  }), E = J.filter((w) => X(w) === "spec"), x = J.filter((w) => X(w) === "pupil");
   if (E.length > 0 && x.length > 0)
     for (const w of E) {
-      const T = O(w);
+      const N = L(w);
       let W = x[0], F = 1 / 0;
       for (const PA of x) {
-        const wA = O(PA), dA = (wA.x - T.x) ** 2 + (wA.y - T.y) ** 2;
+        const wA = L(PA), dA = (wA.x - N.x) ** 2 + (wA.y - N.y) ** 2;
         dA < F && (F = dA, W = PA);
       }
-      const R = O(W), iA = W.scale * Ne, AA = R.x - iA, oA = R.y + iA;
+      const R = L(W), iA = W.scale * Le, AA = R.x - iA, oA = R.y + iA;
       w.position.x = AA - (w.pivotOffsetX ?? 0) * w.scale * (w.scaleX ?? 1), w.position.y = oA - (w.pivotOffsetY ?? 0) * w.scale * (w.scaleY ?? 1), w.zDepth = W.zDepth + 1;
     }
-  const H = Z.length > 0 ? Z.reduce((w, T) => w + T.y, 0) / Z.length : null, K = (w, T) => {
-    for (const W of u) {
+  const H = B.length > 0 ? B.reduce((w, N) => w + N.y, 0) / B.length : null, K = (w, N) => {
+    for (const W of J) {
       if (X(W) !== w) continue;
-      const F = O(W).y;
-      F > T && (W.position.y -= F - T);
+      const F = L(W).y;
+      F > N && (W.position.y -= F - N);
     }
   };
   H !== null && K("nose", H);
-  const _ = u.filter((w) => X(w) === "nose").map((w) => O(w).y), MA = [];
+  const _ = J.filter((w) => X(w) === "nose").map((w) => L(w).y), MA = [];
   H !== null && MA.push(H), _.length > 0 && MA.push(Math.min(..._)), MA.length > 0 && K("mouth", Math.min(...MA));
-  const fA = (w) => {
-    const T = I.find((F) => F.id === w.partId);
-    return T ? T.category === "shadow" : r.get(w.partId)?.category === "shadow";
-  }, QA = u.filter(fA);
+  const LA = (w) => {
+    const N = I.find((F) => F.id === w.partId);
+    return N ? N.category === "shadow" : r.get(w.partId)?.category === "shadow";
+  }, QA = J.filter(LA);
   if (QA.length > 0) {
-    const w = u.filter((W) => !fA(W)).map((W) => W.zDepth), T = w.length > 0 ? Math.min(...w) : 0;
-    for (const W of QA) W.zDepth = T - 1;
+    const w = J.filter((W) => !LA(W)).map((W) => W.zDepth), N = w.length > 0 ? Math.min(...w) : 0;
+    for (const W of QA) W.zDepth = N - 1;
   }
-  return u;
+  return J;
 }
-class Ye {
+class Ve {
   queue = [];
   builtFrom = "";
   // signature of the pool the current queue was shuffled from
@@ -5045,15 +5222,15 @@ class Ye {
       const I = Math.floor(Math.random() * t);
       [this.queue[t], this.queue[I]] = [this.queue[I], this.queue[t]];
     }
-    const l = this.queue.pop();
-    return this.last = l, l;
+    const a = this.queue.pop();
+    return this.last = a, a;
   }
   /** Forget the current deck so the next call reshuffles from scratch. */
   reset() {
     this.queue = [], this.last = null, this.builtFrom = "";
   }
 }
-const Le = {
+const Ue = {
   "body-ball": { slots: [{ category: "sclera", x: [-151.7021746817539, -121.70217468175389], y: [41.206904172560115, 71.20690417256012], zDepth: 18 }, { category: "sclera", x: [129.5146746817539, 159.5146746817539], y: [38.64325495049505, 68.64325495049505], zDepth: 18 }, { category: "mouth", x: [-20.287526520509168, 9.712473479490832], y: [-125.70655056577083, -95.70655056577083], zDepth: 26 }, { category: "ear", x: [-148.8177599009901, -118.8177599009901], y: [182.64228253182455, 212.64228253182455], zDepth: 0 }, { category: "ear", x: [118.8177599009901, 148.8177599009901], y: [182.64228253182455, 212.64228253182455], zDepth: 0 }, { category: "arms", x: [-265.83590876944834, -235.83590876944837], y: [-78.14091230551627, -48.14091230551627], zDepth: 0, scale: [0.5, 1] }, { category: "arms", x: [235.83590876944837, 265.83590876944834], y: [-78.14091230551627, -48.14091230551627], zDepth: 0, scale: [0.45, 1] }, { category: "legs", x: [-119.04327263083451, -89.04327263083451], y: [-221.09237977369168, -191.09237977369168], zDepth: 0, scale: [0.3, 1] }, { category: "legs", x: [89.04327263083451, 119.04327263083451], y: [-221.09237977369168, -191.09237977369168], zDepth: 0, scale: [0.3, 1] }] },
   "body-round": { slots: [{ category: "spec", x: [-6.000000000000003, 6.000000000000003], y: [-6.000000000000003, 6.000000000000003], zDepth: 29 }, { category: "sclera", x: [-59.575848656294234, -47.57584865629423], y: [30.72869519094768, 42.72869519094768], zDepth: 37 }, { category: "sclera", x: [46.28960396039605, 58.28960396039606], y: [31.444748939179636, 43.44474893917965], zDepth: 37 }, { category: "mouth", x: [-6.413277934936366, 5.58672206506364], y: [-41.85130834512021, -29.851308345120206], zDepth: 30 }, { category: "arms", x: [72.6715954622048, 84.67159546220479], y: [-14.850200994538893, -2.8502009945388895], zDepth: 0, scale: [0.65, 1.1] }, { category: "ear", x: [-44.65505691536483, -32.65505691536483], y: [64.23694747485641, 76.23694747485641], zDepth: 0, scale: [0.6, 1] }, { category: "ear", x: [49.8319824074016, 61.831982407401576], y: [59.4536360239163, 71.45363602391629], zDepth: 0, flip: !0, scale: [0.65, 1] }, { category: "legs", x: [-47.55922668009355, -35.55922668009354], y: [-73.00718819969163, -61.00718819969163], zDepth: 0, scale: [0.65, 1.1] }, { category: "legs", x: [10.69882535513995, 22.698825355139956], y: [-80.50548230514178, -68.50548230514178], zDepth: 0, scale: [0.7, 1.1] }, { category: "arms", x: [-85.10753635510471, -74.59047482752342], y: [-15.538092457597783, -2.923700661275298], zDepth: 0, scale: [0.7, 1.05], mirror: !1, flip: !0 }, { category: "spec", x: [-79.1157620887009, -67.1157620887009], y: [62.274715946189595, 74.27471594618959], zDepth: 47 }, { category: "spec", x: [24.721304034198294, 36.7213040341983], y: [62.21253297575135, 74.21253297575134], zDepth: 47 }] },
   "body-circ": { slots: [{ category: "sclera", x: [-107.52031483557548, -83.29531483557547], y: [46.75639247010463, 70.98139247010464], zDepth: 34, scale: [0.5, 1.7] }, { category: "sclera", x: [96.40738742526162, 120.63238742526157], y: [44.88539798206276, 69.11039798206278], zDepth: 32, scale: [0.5, 1.7] }, { category: "mouth", x: [-9.152251494768272, 15.072748505231726], y: [-72.99728606128548, -48.77228606128548], zDepth: 36.699999999999974, scale: [0.95, 1.0924999999999998] }, { category: "ear", x: [-115.86405773542613, -91.63905773542614], y: [158.800754671151, 183.02575467115096], zDepth: 0, scale: [0.475, 0.95] }, { category: "ear", x: [100.35659323617341, 124.5815932361734], y: [159.31458127802685, 183.53958127802682], zDepth: 0, scale: [0.4275, 0.8074999999999999], flip: !0 }, { category: "legs", x: [-88.22138983557545, -63.99638983557546], y: [-122.63195304559028, -98.40695304559029], zDepth: 0, scale: [0.475, 0.8074999999999999] }, { category: "legs", x: [55.19127025411069, 79.41627025411069], y: [-127.01699602017935, -102.79199602017935], zDepth: 0, scale: [0.48449999999999976, 0.8074999999999999] }, { category: "arms", x: [126.42469854260096, 150.649698542601], y: [-60.23284928998501, -36.00784928998503], zDepth: 0, scale: [0.45, 0.8], mirror: !1, flip: !1 }, { category: "arms", x: [-150.649698542601, -126.42469854260096], y: [-60.23284928998501, -36.00784928998503], zDepth: 0, scale: [0.45, 0.8], mirror: !1, flip: !0 }, { category: "spec", x: [-155.7274009715994, -129.60474588938715], y: [82.77031483557548, 119.65997290732432], zDepth: 124.77999999999999 }, { category: "spec", x: [44.10697169282509, 68.33197169282509], y: [92.83609631913296, 117.06109631913299], zDepth: 124.77999999999999, scale: [0.8074999999999999, 0.8074999999999999] }, { category: "pupil", x: [76.3603984285127, 104.8603984285127], y: [-39.11336505398174, -10.613365053981731], zDepth: 73.39999999999995, scale: [0.25, 0.9024999999999997] }, { category: "pupil", x: [-98.74730490231886, -70.24730490231886], y: [46.693107727246854, 75.19310772724685], zDepth: 73.39999999999995, scale: [0.25, 0.9024999999999997] }] },
@@ -5078,9 +5255,9 @@ const Le = {
   "body-proof": { slots: [{ category: "sclera", x: [-119.67008659638556, -119.67008659638556], y: [38.0859375, 38.0859375], zDepth: 29, scale: [1.4, 2.166666666666667] }, { category: "arms", x: [233.7230045180723, 233.7230045180723], y: [-35.47765436746985, -35.47765436746985], zDepth: 0, scale: [0.7142857142857143, 0.7142857142857143] }, { category: "legs", x: [160.10650602409638, 160.10650602409638], y: [-120.64384224397591, -120.64384224397591], zDepth: 0, scale: [0.5714285714285715, 0.5714285714285715] }, { category: "sclera", x: [127.78849774096388, 127.78849774096388], y: [38.0859375, 38.0859375], zDepth: 29, scale: [1.4, 2.166666666666667], flip: !0 }, { category: "pupil", x: [-115.8108998493976, -115.8108998493976], y: [38.04475715361447, 38.04475715361447], zDepth: 37, scale: [1, 1] }, { category: "pupil", x: [123.92931099397592, 123.92931099397592], y: [38.04475715361447, 38.04475715361447], zDepth: 37, scale: [1, 1], flip: !0 }, { category: "spec", x: [-139.01308358433738, -139.01308358433738], y: [49.516425075301214, 49.516425075301214], zDepth: 45, scale: [1, 1] }, { category: "spec", x: [108.44550075301206, 108.44550075301206], y: [49.516425075301214, 49.516425075301214], zDepth: 45, scale: [1, 1] }, { category: "mouth", x: [1.229527484939759, 1.229527484939759], y: [-110.5751129518072, -110.5751129518072], zDepth: 37, scale: [1, 1] }, { category: "arms", x: [-225.60459337349397, -225.60459337349397], y: [-35.47765436746985, -35.47765436746985], zDepth: 0, scale: [0.7142857142857143, 0.7142857142857143], flip: !0 }, { category: "legs", x: [-151.98809487951806, -151.98809487951806], y: [-120.64384224397591, -120.64384224397591], zDepth: 0, scale: [0.5714285714285715, 0.5714285714285715], flip: !0 }, { category: "shadow", x: [-17763568394002505e-31, -17763568394002505e-31], y: [-268.9887864276151, -268.9887864276151], zDepth: -1, scale: [1, 1] }, { category: "brows", x: [-112.79296875000001, -112.79296875000001], y: [197.20091302710844, 197.20091302710844], zDepth: 45, scale: [0.65, 1], rotation: [-5, 7] }, { category: "brows", x: [120.91137989457833, 120.91137989457833], y: [197.20091302710844, 197.20091302710844], zDepth: 45, scale: [0.65, 1], flip: !0, rotation: [-7, 5] }, { category: "ear", x: [175.7871329066265, 175.7871329066265], y: [73.14967055722893, 73.14967055722893], zDepth: -1, scale: [0.55, 1], rotation: [-36, -36] }, { category: "ear", x: [-167.6687217620482, -167.6687217620482], y: [73.14967055722893, 73.14967055722893], zDepth: -1, scale: [0.55, 1], flip: !0, rotation: [-36, -36] }, { category: "nose", x: [1.294239457831325, 1.294239457831325], y: [-29.996940888554207, -29.996940888554207], zDepth: 45, scale: [0.4, 0.4] }], compatibleGradients: ["grad-e8d5b5-68412b", "grad-ecf8c6-68412b", "grad-fffbb9-68412b"], bodyZDepth: 0 },
   "body-derp-copy": { slots: [{ category: "sclera", x: [-92.54400414156626, -92.54400414156626], y: [-5, 30.755835843373493], zDepth: 18, scale: [0.95, 1.6666666666666667], linked: !1 }, { category: "sclera", x: [129.61219879518075, 129.61219879518075], y: [68.0652296686747, 68.0652296686747], zDepth: 18, scale: [1.6666666666666667, 1.6666666666666667], flip: !0, linked: !1 }, { category: "mouth", x: [-68, 81], y: [-92.06944967369482, -92.06944967369482], zDepth: 26, scale: [0.6, 1] }, { category: "pupil", x: [-89.85551581325302, -89.85551581325302], y: [28.090879141566266, 28.090879141566266], zDepth: 34, scale: [0.5, 1.75], linked: !1 }, { category: "pupil", x: [130.41227409638557, 130.41227409638557], y: [66.00621234939759, 66.00621234939759], zDepth: 34, scale: [1, 2.05], flip: !0, linked: !1 }, { category: "arms", x: [177.8993298192771, 177.8993298192771], y: [-32.12118222891567, -32.12118222891567], zDepth: 0, scale: [0.45, 1], linked: !1 }, { category: "legs", x: [-89.85298381024097, -89.85298381024097], y: [-146.29702560240966, -146.29702560240966], zDepth: 0, scale: [0.4, 0.7142857142857143], linked: !0 }, { category: "legs", x: [174.06090926204823, 174.06090926204823], y: [-134.14294051204823, -134.14294051204823], zDepth: 0, scale: [0.4, 0.7142857142857143], flip: !0, linked: !0 }, { category: "arms", x: [-164.13921121987954, -164.13921121987954], y: [-59.447283509036154, -59.447283509036154], zDepth: 0, scale: [0.4, 1], flip: !0, linked: !1 }, { category: "ear", x: [131.1241057981928, 131.1241057981928], y: [128.56665097891565, 128.56665097891565], zDepth: 0, scale: [0.75, 1], rotation: [-47, -47], linked: !1 }, { category: "ear", x: [-95.85608057228917, -95.85608057228917], y: [114.82418109939758, 114.82418109939758], zDepth: 0, scale: [0.75, 1], flip: !0, rotation: [-47, -47], linked: !1 }, { category: "brows", x: [-115.40497929216868, -115.40497929216868], y: [151.04951054216866, 151.04951054216866], zDepth: 42, scale: [0.7, 0.7], rotation: [11, 11], linked: !0 }, { category: "brows", x: [145.1901355421687, 145.1901355421687], y: [191.85923381024094, 191.85923381024094], zDepth: 42, scale: [0.7, 0.7], flip: !0, rotation: [8, 8], linked: !0 }, { category: "shadow", x: [-0.17648719879518487, -0.17648719879518487], y: [-331.7282058319586, -331.7282058319586], zDepth: -1, scale: [1, 1] }, { category: "horns", x: [9.400884789156628, 9.400884789156628], y: [175.59916615599323, 175.59916615599323], zDepth: 23, scale: [1, 1], linked: !1 }, { category: "horns", x: [148.79941641566265, 148.79941641566265], y: [-61.87330184099474, -61.87330184099474], zDepth: 6, scale: [0.4, 1], rotation: [-126, -126], linked: !1 }, { category: "horns", x: [-151.7644013554217, -151.7644013554217], y: [-120.3348511632839, -120.3348511632839], zDepth: 23, scale: [0.15, 0.65], flip: !0, rotation: [-137, -137], linked: !1 }, { category: "spec", x: [-123.82341867469887, -123.82341867469887], y: [51.29301969514982, 51.29301969514982], zDepth: 35, scale: [1, 1] }, { category: "spec", x: [98.33278426204814, 98.33278426204814], y: [88.60241352045104, 88.60241352045104], zDepth: 35, scale: [1, 1] }], bodyZDepth: 10 },
   "body-cloud": { slots: [{ category: "mouth", x: [8.912603539156626, 8.912603539156626], y: [-195.53605045180723, -195.53605045180723], zDepth: 18, scale: [1, 1] }, { category: "sclera", x: [-179.39923757530124, -179.39923757530124], y: [-33.77376694277108, -33.77376694277108], zDepth: 26, scale: [1.75, 3] }, { category: "sclera", x: [179.7639777861446, 179.7639777861446], y: [-33.77376694277108, -33.77376694277108], zDepth: 26, scale: [1.75, 3], flip: !0 }, { category: "pupil", x: [-179.39923757530124, -179.39923757530124], y: [-33.77376694277108, -33.77376694277108], zDepth: 34, scale: [1, 1] }, { category: "pupil", x: [179.7639777861446, 179.7639777861446], y: [-33.77376694277108, -33.77376694277108], zDepth: 34, scale: [1, 1], flip: !0 }, { category: "arms", x: [186.03538968373493, 186.03538968373493], y: [-192.27154932228913, -192.27154932228913], zDepth: 0, scale: [0.5, 1] }, { category: "arms", x: [-185.67064947289157, -185.67064947289157], y: [-192.27154932228913, -192.27154932228913], zDepth: 0, scale: [0.5, 1], flip: !0 }, { category: "legs", x: [-98.57867469879518, -98.57867469879518], y: [-228.6945538403615, -228.6945538403615], zDepth: 0, scale: [0.5, 0.75] }, { category: "legs", x: [98.94341490963855, 98.94341490963855], y: [-228.6945538403615, -228.6945538403615], zDepth: 0, scale: [0.5, 0.75], flip: !0 }, { category: "shadow", x: [-0.18824109111923767, -0.18824109111923767], y: [-476.4029689629348, -476.4029689629348], zDepth: -1, scale: [1, 1] }, { category: "ear", x: [231.16881588855424, 231.16881588855424], y: [17.444427710843396, 17.444427710843396], zDepth: -1, scale: [0.45, 1], rotation: [-53, -53] }, { category: "ear", x: [-230.80407567771087, -230.80407567771087], y: [17.444427710843396, 17.444427710843396], zDepth: -1, scale: [0.45, 1], flip: !0, rotation: [-53, -53] }, { category: "brows", x: [-175.8518448795181, -175.8518448795181], y: [163.9507247740964, 163.9507247740964], zDepth: 34, scale: [0.6, 1] }, { category: "brows", x: [176.21658509036146, 176.21658509036146], y: [163.9507247740964, 163.9507247740964], zDepth: 34, scale: [0.6, 1], flip: !0 }, { category: "nose", x: [-4.323936370481928, -4.323936370481928], y: [-96.03256777108433, -96.03256777108433], zDepth: 44, scale: [0.4, 0.4] }, { category: "spec", x: [-196.50084713855426, -196.50084713855426], y: [-9.912697665662694, -9.912697665662694], zDepth: 35, scale: [1, 1] }, { category: "spec", x: [162.6623682228916, 162.6623682228916], y: [-9.912697665662694, -9.912697665662694], zDepth: 35, scale: [1, 1] }, { category: "horns", x: [18.478209713855428, 18.478209713855428], y: [173.33349294327604, 173.33349294327604], zDepth: 26, scale: [1.4, 1.4], flip: !0 }], bodyZDepth: 10 }
-}, fe = Le, j0 = Object.fromEntries(
-  Object.entries(fe).filter(([a]) => !a.startsWith("_"))
-), Ve = [
+}, Xe = Ue, Q0 = Object.fromEntries(
+  Object.entries(Xe).filter(([l]) => !l.startsWith("_"))
+), Ee = [
   { id: "grad-e8d5b5-68412b", startHex: "#E8D5B5", endHex: "#68412b" },
   { id: "grad-fffbb9-68412b", startHex: "#fffbb9", endHex: "#68412b" },
   { id: "grad-ecf8c6-68412b", startHex: "#ecf8c6", endHex: "#68412b" },
@@ -5110,52 +5287,52 @@ const Le = {
   { id: "grad-fffbb9-9c9500", startHex: "#fffbb9", endHex: "#9c9500" },
   { id: "grad-c1fdff-538328", startHex: "#c1fdff", endHex: "#538328" }
 ];
-function p0() {
-  return Object.keys(j0).filter(
-    (a) => hA.some((A) => A.id === a) || qA.some((A) => A.id === a)
+function z0() {
+  return Object.keys(Q0).filter(
+    (l) => hA.some((A) => A.id === l) || KA.some((A) => A.id === l)
   );
 }
-const Ue = new Ye();
-function Xe(a = {}) {
-  const A = a.preferredBodyId ?? Ue.next(p0());
-  return { parts: Oe(
+const xe = new Ve();
+function We(l = {}) {
+  const A = l.preferredBodyId ?? xe.next(z0());
+  return { parts: fe(
     A,
     null,
     null,
-    qA,
+    KA,
     {
-      matchPairs: a.matchPairs,
-      bodyConfigs: j0,
+      matchPairs: l.matchPairs,
+      bodyConfigs: Q0,
       partManifest: hA,
-      gradientManifest: Ve
+      gradientManifest: Ee
     }
   ) };
 }
-function Re(a, A = {}) {
-  if (a <= 0) return [];
-  const i = p0();
+function He(l, A = {}) {
+  if (l <= 0) return [];
+  const i = z0();
   for (let t = i.length - 1; t > 0; t--) {
-    const l = Math.floor(Math.random() * (t + 1));
-    [i[t], i[l]] = [i[l], i[t]];
+    const a = Math.floor(Math.random() * (t + 1));
+    [i[t], i[a]] = [i[a], i[t]];
   }
-  const s = Math.min(a, i.length), e = [];
+  const s = Math.min(l, i.length), e = [];
   for (let t = 0; t < s; t++)
-    e.push(Xe({ preferredBodyId: i[t], matchPairs: A.matchPairs }));
+    e.push(We({ preferredBodyId: i[t], matchPairs: A.matchPairs }));
   return e;
 }
 export {
-  ne as ANIMATION_NAMES,
-  KA as DEFAULT_ANIMATION_CONFIG,
-  U0 as DEFAULT_LIGHTING,
-  ve as Mascot,
-  pe as MascotRenderer,
-  KA as RUNTIME_ANIMATION_CONFIG,
-  Ve as RUNTIME_GRADIENT_MANIFEST,
-  Ge as RUNTIME_LIGHTING_CONFIG,
-  ye as RUNTIME_LIGHTING_CONFIG_DARK,
-  je as RUNTIME_LIGHTING_CONFIG_LIGHT,
+  de as ANIMATION_NAMES,
+  HA as DEFAULT_ANIMATION_CONFIG,
+  x0 as DEFAULT_LIGHTING,
+  ke as Mascot,
+  ze as MascotRenderer,
+  HA as RUNTIME_ANIMATION_CONFIG,
+  Ee as RUNTIME_GRADIENT_MANIFEST,
+  Fe as RUNTIME_LIGHTING_CONFIG,
+  he as RUNTIME_LIGHTING_CONFIG_DARK,
+  Qe as RUNTIME_LIGHTING_CONFIG_LIGHT,
   hA as RUNTIME_PART_MANIFEST,
-  Xe as randomizeMascot,
-  Re as randomizeMascots
+  We as randomizeMascot,
+  He as randomizeMascots
 };
 //# sourceMappingURL=index.js.map

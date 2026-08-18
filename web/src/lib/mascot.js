@@ -214,10 +214,10 @@ class W0 {
       preserveDrawingBuffer: !0,
       stencil: !0
     }), this.renderer.setSize(i, s), this.renderer.setPixelRatio(window.devicePixelRatio), this._width = i, this._height = s, this.renderer.shadowMap.enabled = !0, this.renderer.shadowMap.type = D.PCFSoftShadowMap, this.renderer.autoClearStencil = !0, this.scene = new D.Scene();
-    const C = i / s;
+    const g = i / s;
     this.camera = new D.OrthographicCamera(
-      -t * C,
-      t * C,
+      -t * g,
+      t * g,
       t,
       -t,
       1,
@@ -390,8 +390,8 @@ class W0 {
   // cssW/cssH are the canvas CSS dimensions; thumbPx is the thumbnail side length in CSS px.
   // Editor overlays (objects tagged userData.editorOverlay) are hidden during the render.
   renderThumbnail(A, i, s) {
-    const { left: t, right: a, top: I, bottom: c } = this.camera, C = this._frustum;
-    this.camera.left = -C, this.camera.right = C, this.camera.top = C, this.camera.bottom = -C, this.camera.updateProjectionMatrix();
+    const { left: t, right: a, top: I, bottom: c } = this.camera, g = this._frustum;
+    this.camera.left = -g, this.camera.right = g, this.camera.top = g, this.camera.bottom = -g, this.camera.updateProjectionMatrix();
     const r = [];
     this.scene.traverse((n) => {
       n.userData.editorOverlay && n.visible && (r.push(n), n.visible = !1);
@@ -451,7 +451,7 @@ class P0 {
     }), this.cache.set(A.glbPath, s), this.cloneWithOwnMaterials(s);
   }
 }
-const JA = new P0(), a0 = /* @__PURE__ */ new Map(), bA = 256;
+const JA = new P0(), a0 = /* @__PURE__ */ new Map(), uA = 256;
 function l0(l) {
   const A = l.replace("#", "").padEnd(6, "0").slice(0, 6), i = parseInt(A.slice(0, 2), 16), s = parseInt(A.slice(2, 4), 16), e = parseInt(A.slice(4, 6), 16);
   return [Number.isFinite(i) ? i : 0, Number.isFinite(s) ? s : 0, Number.isFinite(e) ? e : 0];
@@ -466,12 +466,12 @@ function RA(l) {
   if (!A) return null;
   const i = a0.get(A);
   if (i) return i;
-  const [s, e, t] = l0(l.startColor), [a, I, c] = l0(l.endColor), C = new Uint8Array(bA * 4);
-  for (let y = 0; y < bA; y++) {
-    const M = y / (bA - 1), d = y * 4;
-    C[d] = Math.round(s + (a - s) * M), C[d + 1] = Math.round(e + (I - e) * M), C[d + 2] = Math.round(t + (c - t) * M), C[d + 3] = 255;
+  const [s, e, t] = l0(l.startColor), [a, I, c] = l0(l.endColor), g = new Uint8Array(uA * 4);
+  for (let y = 0; y < uA; y++) {
+    const M = y / (uA - 1), d = y * 4;
+    g[d] = Math.round(s + (a - s) * M), g[d + 1] = Math.round(e + (I - e) * M), g[d + 2] = Math.round(t + (c - t) * M), g[d + 3] = 255;
   }
-  const r = new D.DataTexture(C, 1, bA, D.RGBAFormat, D.UnsignedByteType);
+  const r = new D.DataTexture(g, 1, uA, D.RGBAFormat, D.UnsignedByteType);
   r.wrapS = D.ClampToEdgeWrapping, r.wrapT = D.ClampToEdgeWrapping, r.minFilter = D.LinearFilter, r.magFilter = D.LinearFilter, r.generateMipmaps = !1;
   const o = l.centerX ?? 0.5, n = l.centerY ?? 0.5, m = l.angle * Math.PI / 180;
   return r.center.set(o, n), r.rotation = Math.PI / 2 - m, r.offset.set(0.5 - o, 0), r.needsUpdate = !0, a0.set(A, r), r;
@@ -483,9 +483,9 @@ function d0(l, A = "XY") {
   const s = l.boundingBox, e = new D.Vector3();
   s.getSize(e);
   const t = e.x || 1, a = e.y || 1, I = e.z || 1, c = new Float32Array(i.count * 2);
-  for (let C = 0; C < i.count; C++) {
+  for (let g = 0; g < i.count; g++) {
     let r, o;
-    A === "XZ" ? (r = (i.getX(C) - s.min.x) / t, o = (i.getZ(C) - s.min.z) / I) : A === "YZ" ? (r = (i.getZ(C) - s.min.z) / I, o = (i.getY(C) - s.min.y) / a) : (r = (i.getX(C) - s.min.x) / t, o = (i.getY(C) - s.min.y) / a), c[C * 2] = r, c[C * 2 + 1] = o;
+    A === "XZ" ? (r = (i.getX(g) - s.min.x) / t, o = (i.getZ(g) - s.min.z) / I) : A === "YZ" ? (r = (i.getZ(g) - s.min.z) / I, o = (i.getY(g) - s.min.y) / a) : (r = (i.getX(g) - s.min.x) / t, o = (i.getY(g) - s.min.y) / a), c[g * 2] = r, c[g * 2 + 1] = o;
   }
   l.setAttribute("uv", new D.BufferAttribute(c, 2));
 }
@@ -588,21 +588,21 @@ async function jA(l) {
     I.isClipper && t.set(I.instanceId, a++);
   for (const I of l.layers)
     if (I.glbPartId) {
-      const c = hA.find((C) => C.id === I.glbPartId) ?? m0.find((C) => C.id === I.glbPartId);
+      const c = hA.find((g) => g.id === I.glbPartId) ?? m0.find((g) => g.id === I.glbPartId);
       if (c) {
-        let C;
+        let g;
         try {
-          C = await H0.loadPart(c);
+          g = await H0.loadPart(c);
         } catch {
           continue;
         }
-        const o = new D.Box3().setFromObject(C).getSize(new D.Vector3()), n = Math.max(o.x, o.y, 1), m = I.radius * 2 / n, y = I.scaleX ?? 1, M = I.scaleY ?? 1;
-        C.scale.set(m * I.scale * y, m * I.scale * M, m * I.scale), C.position.set(I.position.x - s, I.position.y - e, I.zDepth), C.rotation.z = (I.rotation ?? 0) * Math.PI / 180;
+        const o = new D.Box3().setFromObject(g).getSize(new D.Vector3()), n = Math.max(o.x, o.y, 1), m = I.radius * 2 / n, y = I.scaleX ?? 1, M = I.scaleY ?? 1;
+        g.scale.set(m * I.scale * y, m * I.scale * M, m * I.scale), g.position.set(I.position.x - s, I.position.y - e, I.zDepth), g.rotation.z = (I.rotation ?? 0) * Math.PI / 180;
         const d = I.opacity ?? 1, z = I.castShadow !== !1, J = I.receiveShadow !== !1;
-        C.traverse((p) => {
+        g.traverse((p) => {
           if (p instanceof D.Mesh && (p.castShadow = z, p.receiveShadow = J), p instanceof D.Mesh && p.material instanceof D.MeshStandardMaterial) {
-            const b = !!I.gradient, T = !!(I.gradient?.startColor && I.gradient?.endColor);
-            if (p.material.userData = { ...p.material.userData ?? {}, sourceHasGradient: b, layerOpacity: d }, T) {
+            const u = !!I.gradient, T = !!(I.gradient?.startColor && I.gradient?.endColor);
+            if (p.material.userData = { ...p.material.userData ?? {}, sourceHasGradient: u, layerOpacity: d }, T) {
               p.material.userData.sourceGradient = I.gradient, d0(p.geometry, I.gradient.projectionAxis ?? "XY");
               const Y = RA(I.gradient);
               Y && (p.material.map = Y, p.material.color.set(16777215), p.material.needsUpdate = !0);
@@ -619,7 +619,7 @@ async function jA(l) {
             }
             p.material.needsUpdate = !0;
           }
-        }), A.add(C);
+        }), A.add(g);
       }
       continue;
     }
@@ -701,10 +701,10 @@ function FA(l, A) {
     if (s === void 0 || s === 0) return;
     const e = s / y0, t = 1 + q0 * A * e, a = i.userData?.shadowBlurBaseSX ?? 1, I = i.userData?.shadowBlurBaseSY ?? 1, c = i.userData?.shadowBlurBaseSZ ?? 1;
     i.scale.set(a * t, I * t, c);
-    const C = A * _0 * (1 - e * 0.6) * j0, r = (o) => {
-      o.opacity = C, o.transparent = !0, o.needsUpdate = !0;
+    const g = A * _0 * (1 - e * 0.6) * j0, r = (o) => {
+      o.opacity = g, o.transparent = !0, o.needsUpdate = !0;
     };
-    Array.isArray(i.material) ? i.material.forEach(r) : i.material && r(i.material), i.visible = C > 0;
+    Array.isArray(i.material) ? i.material.forEach(r) : i.material && r(i.material), i.visible = g > 0;
   });
 }
 function te(l, A) {
@@ -717,7 +717,7 @@ function te(l, A) {
     a && (e.material.map = a, e.material.color.set(16777215), e.material.userData = { ...e.material.userData ?? {}, gradientApplied: !0 }, e.material.needsUpdate = !0);
   });
 }
-function uA(l, A, i = !1) {
+function bA(l, A, i = !1) {
   let s = !1;
   if (!i) {
     const e = /* @__PURE__ */ new Set();
@@ -734,9 +734,9 @@ function uA(l, A, i = !1) {
         n && (e.material.map = n, e.material.color.set(16777215), e.material.userData = { ...e.material.userData ?? {}, gradientApplied: !0 }, e.material.needsUpdate = !0);
       } else
         !i && e.material.map && e.material.userData?.gradientApplied && (e.material.map = null, e.material.userData.gradientApplied = !1, e.material.needsUpdate = !0), !i && !s && !e.material.map && A.color && e.material.color.set(A.color);
-      const I = e.material.userData?.layerOpacity ?? 1, c = A.opacity ?? 1, C = I * c, r = e.userData?.shadowBlurLayer === 0;
-      r && (e.userData.shadowAuthoredOpacity = C);
-      const o = C * (r ? $0() : 1);
+      const I = e.material.userData?.layerOpacity ?? 1, c = A.opacity ?? 1, g = I * c, r = e.userData?.shadowBlurLayer === 0;
+      r && (e.userData.shadowAuthoredOpacity = g);
+      const o = g * (r ? $0() : 1);
       e.material.transparent = o < 1, e.material.opacity = o, e.material.depthWrite = o >= 1, e.material.needsUpdate = !0;
     }
   });
@@ -1159,16 +1159,16 @@ const G = Math.PI / 180, Ce = /* @__PURE__ */ new Set(["wave", "footTap", "headT
   explode: "pupil-pac"
 };
 function ne(l, A, i, s, e) {
-  const a = l.baseX - i >= 0 ? 1 : -1, I = 60 + Math.abs(l.bFloatAmpX * 6), c = a * I, C = 250 + l.bFloatAmpY * 2;
+  const a = l.baseX - i >= 0 ? 1 : -1, I = 60 + Math.abs(l.bFloatAmpX * 6), c = a * I, g = 250 + l.bFloatAmpY * 2;
   let r = 1 / 0;
   if (s > 0) {
-    const o = 0.5 * s, n = -C, m = e - l.baseY, y = n * n - 4 * o * m;
+    const o = 0.5 * s, n = -g, m = e - l.baseY, y = n * n - 4 * o * m;
     if (y >= 0) {
       const M = Math.sqrt(y);
       r = Math.max((-n + M) / (2 * o), (-n - M) / (2 * o)), r < 0 && (r = 1 / 0);
     }
   }
-  return A < r ? { dX: c * A, dY: C * A - 0.5 * s * A * A, landed: !1 } : { dX: c * r, dY: e - l.baseY, landed: !0 };
+  return A < r ? { dX: c * A, dY: g * A - 0.5 * s * A * A, landed: !1 } : { dX: c * r, dY: e - l.baseY, landed: !0 };
 }
 function Me(l, A) {
   if (l < 0.35) {
@@ -1213,22 +1213,22 @@ const rA = {
   build: 1500
 }, de = Object.keys(rA), me = ["yawn", "stretch", "lookAround", "wiggle", "headTilt"], ye = ["footTap", "lookAround", "shrug", "sway"];
 function M0(l, A) {
-  const { all: i, nonFeet: s, heads: e, arms: t, ears: a, tails: I, waveTarget: c } = l, C = e.length > 0 ? [...e, ...l.eyes, ...l.mouths] : s, r = Math.max(0, A.explodeSettle), o = Math.max(1e-4, r / 1e3), n = A.explodeVanishSpeed > 0, m = Math.max(0, A.explodeOvershoot), y = Math.max(0, A.explodeStagger), M = Math.max(1, A.explodePop), d = Math.max(0.05, A.explodeStaggerCurve), z = i.filter((g) => !g.part.instanceId.startsWith("anim-synth-") && g.category !== "shadow").slice().sort((g, P) => P.baseZ - g.baseZ), J = /* @__PURE__ */ new Map();
-  z.forEach((g, P) => J.set(g, P));
-  const p = z.length, b = y * Math.max(0, p - 1), T = n ? b + M : 0, h = r + T, Y = Math.max(1, A.buildPop), U = Math.max(0, A.buildStagger), u = Math.max(0.05, A.buildStaggerCurve), O = i.filter((g) => !g.part.instanceId.startsWith("anim-synth-") && g.category !== "shadow"), v = i.filter((g) => g.category === "shadow"), $ = U * Math.max(0, O.length - 1), sA = 0.1, eA = $ + Y, q = Math.max(0.5, A.wiggleCount), tA = Math.max(0.1, A.wiggleSpeed), IA = q * 200 / tA;
+  const { all: i, nonFeet: s, heads: e, arms: t, ears: a, tails: I, waveTarget: c } = l, g = e.length > 0 ? [...e, ...l.eyes, ...l.mouths] : s, r = Math.max(0, A.explodeSettle), o = Math.max(1e-4, r / 1e3), n = A.explodeVanishSpeed > 0, m = Math.max(0, A.explodeOvershoot), y = Math.max(0, A.explodeStagger), M = Math.max(1, A.explodePop), d = Math.max(0.05, A.explodeStaggerCurve), z = i.filter((C) => !C.part.instanceId.startsWith("anim-synth-") && C.category !== "shadow").slice().sort((C, P) => P.baseZ - C.baseZ), J = /* @__PURE__ */ new Map();
+  z.forEach((C, P) => J.set(C, P));
+  const p = z.length, u = y * Math.max(0, p - 1), T = n ? u + M : 0, h = r + T, Y = Math.max(1, A.buildPop), U = Math.max(0, A.buildStagger), b = Math.max(0.05, A.buildStaggerCurve), O = i.filter((C) => !C.part.instanceId.startsWith("anim-synth-") && C.category !== "shadow"), v = i.filter((C) => C.category === "shadow"), $ = U * Math.max(0, O.length - 1), sA = 0.1, eA = $ + Y, q = Math.max(0.5, A.wiggleCount), tA = Math.max(0.1, A.wiggleSpeed), IA = q * 200 / tA;
   return {
     hop: {
       duration: 1400,
-      fn(g) {
+      fn(C) {
         const P = A.animAmounts.hop ?? 1, j = A.hopCrouch, Z = A.hopHeight, B = A.hopLegSplay * (A.hopHeightRatio ?? 1), V = 0.143, Q = 0.214, X = 0.714;
-        if (g < V) {
-          const L = g / V, E = -Math.sin(L * Math.PI * 0.5) * j * P;
+        if (C < V) {
+          const L = C / V, E = -Math.sin(L * Math.PI * 0.5) * j * P;
           for (const x of s) x.dY = E;
-        } else if (g < Q) {
+        } else if (C < Q) {
           const L = -j * P;
           for (const E of s) E.dY = L;
-        } else if (g < X) {
-          const L = (g - Q) / (X - Q), E = Math.sin(L * Math.PI) * Z * P, x = Math.min(L / 0.15, 1), H = -j * P * (1 - x);
+        } else if (C < X) {
+          const L = (C - Q) / (X - Q), E = Math.sin(L * Math.PI) * Z * P, x = Math.min(L / 0.15, 1), H = -j * P * (1 - x);
           for (const K of s) K.dY = H + E;
           for (const K of i)
             if (!s.includes(K)) {
@@ -1237,19 +1237,19 @@ function M0(l, A) {
               K.dRotZ = Math.sin(L * Math.PI) * B * G * _ * P;
             }
         } else {
-          const L = (g - X) / (1 - X), E = -Math.sin(L * Math.PI * 2.5) * (j * 0.5) * Math.exp(-L * 4) * P;
+          const L = (C - X) / (1 - X), E = -Math.sin(L * Math.PI * 2.5) * (j * 0.5) * Math.exp(-L * 4) * P;
           for (const x of s) x.dY = E;
           for (const x of i)
             s.includes(x) || (x.dY = 0, x.dRotZ = 0);
         }
         if (t.length > 0) {
-          const L = Math.min(g / 0.18, 1), E = g < Q ? -Math.sin(L * Math.PI * 0.5) * 22 * G * P : 0;
+          const L = Math.min(C / 0.18, 1), E = C < Q ? -Math.sin(L * Math.PI * 0.5) * 22 * G * P : 0;
           let x = 0;
-          if (g >= Q && g < X) {
-            const H = (g - Q) / (X - Q);
+          if (C >= Q && C < X) {
+            const H = (C - Q) / (X - Q);
             x = Math.sin(H * Math.PI) * 38 * G * Math.max(0, 1 - H * 0.5) * P;
-          } else if (g >= X) {
-            const H = (g - X) / (1 - X);
+          } else if (C >= X) {
+            const H = (C - X) / (1 - X);
             x = -Math.sin(H * Math.PI * 2.5) * 28 * G * Math.exp(-H * 4) * P;
           }
           for (const H of t) {
@@ -1261,11 +1261,11 @@ function M0(l, A) {
     },
     wiggle: {
       duration: IA,
-      fn(g) {
-        const P = A.animAmounts.wiggle ?? 1, j = A.wiggleAngle, Z = Math.max(0.5, A.wiggleCount), B = A.wiggleDir, V = Math.PI * 2 * Z, Q = Math.sin(g * V) * j * G * (1 - g) * P * B;
+      fn(C) {
+        const P = A.animAmounts.wiggle ?? 1, j = A.wiggleAngle, Z = Math.max(0.5, A.wiggleCount), B = A.wiggleDir, V = Math.PI * 2 * Z, Q = Math.sin(C * V) * j * G * (1 - C) * P * B;
         for (const L of s) L.dRotZ = Q;
         const X = (L, E) => {
-          const x = Math.max(0, g - L / Z);
+          const x = Math.max(0, C - L / Z);
           return Math.sin(x * V) * j * G * E * (1 - x) * P * B;
         };
         for (const L of a) L.dRotZ = X(0.16, 1.25);
@@ -1276,18 +1276,18 @@ function M0(l, A) {
     },
     headTilt: {
       duration: 1800,
-      fn(g) {
-        const P = A.animAmounts.headTilt ?? 1, j = A.headTiltAngle * (l.mirror ? -1 : 1), Z = A.headTiltArmDroop, B = A.headTiltBounce, V = 0.15, Q = 0.7, X = (g < V ? g / V * j * G : g < Q ? j * G : (1 - g) / (1 - Q) * j * G) * P, L = i.length > 0 ? i.reduce((E, x) => E + x.baseY, 0) / i.length : 0;
-        for (const E of C)
+      fn(C) {
+        const P = A.animAmounts.headTilt ?? 1, j = A.headTiltAngle * (l.mirror ? -1 : 1), Z = A.headTiltArmDroop, B = A.headTiltBounce, V = 0.15, Q = 0.7, X = (C < V ? C / V * j * G : C < Q ? j * G : (1 - C) / (1 - Q) * j * G) * P, L = i.length > 0 ? i.reduce((E, x) => E + x.baseY, 0) / i.length : 0;
+        for (const E of g)
           E.category === "legs" || E.category === "foot" || E.category !== "body" && E.baseY < L || (E.dRotZ = X);
         if (t.length > 0) {
           let K;
-          if (g < 0.12)
-            K = g / 0.12;
-          else if (g < 0.45) {
-            const _ = (g - 0.12) / 0.33;
+          if (C < 0.12)
+            K = C / 0.12;
+          else if (C < 0.45) {
+            const _ = (C - 0.12) / 0.33;
             K = 1 + Math.sin(_ * Math.PI * 2) * B * (1 - _);
-          } else g < 0.7 ? K = 1 : K = 1 - (g - 0.7) / (1 - 0.7);
+          } else C < 0.7 ? K = 1 : K = 1 - (C - 0.7) / (1 - 0.7);
           K *= P * Z;
           for (const _ of t) {
             if (Math.sqrt(_.baseMGX * _.baseMGX + _.baseMGY * _.baseMGY) < 2) continue;
@@ -1299,57 +1299,57 @@ function M0(l, A) {
     },
     nod: {
       duration: 700,
-      fn(g) {
-        const P = A.animAmounts.nod ?? 1, j = A.nodDepth, Z = Math.sin(g * Math.PI * 4) * j * P * (1 - g * 0.4);
+      fn(C) {
+        const P = A.animAmounts.nod ?? 1, j = A.nodDepth, Z = Math.sin(C * Math.PI * 4) * j * P * (1 - C * 0.4);
         for (const B of s) B.dY = Z;
       }
     },
     celebrate: {
       duration: 1400,
-      fn(g) {
-        const P = A.animAmounts.celebrate ?? 1, j = A.celebrateHeight, Z = Math.sin(Math.PI * Math.min(g * 2, 1)) * j * P, B = Math.sin(g * Math.PI * 5) * 15 * G * (1 - g) * P;
+      fn(C) {
+        const P = A.animAmounts.celebrate ?? 1, j = A.celebrateHeight, Z = Math.sin(Math.PI * Math.min(C * 2, 1)) * j * P, B = Math.sin(C * Math.PI * 5) * 15 * G * (1 - C) * P;
         for (const Q of i) Q.dY = Z;
         for (const Q of s) Q.dRotZ = B;
-        const V = Math.sin(Math.PI * Math.min(g * 2, 1)) * 40 * G * P;
+        const V = Math.sin(Math.PI * Math.min(C * 2, 1)) * 40 * G * P;
         for (const Q of t) Q.dRotZ += V;
       }
     },
     surprise: {
       duration: 500,
-      fn(g) {
-        const P = A.animAmounts.surprise ?? 1, j = A.surpriseScale, Z = (g < 0.3 ? g / 0.3 * j : (1 - g) / 0.7 * j) * P, B = Math.sin(g * Math.PI * 3) * 8 * G * (1 - g) * P;
+      fn(C) {
+        const P = A.animAmounts.surprise ?? 1, j = A.surpriseScale, Z = (C < 0.3 ? C / 0.3 * j : (1 - C) / 0.7 * j) * P, B = Math.sin(C * Math.PI * 3) * 8 * G * (1 - C) * P;
         for (const V of s)
           V.scaleMult = 1 + Z, V.dRotZ = B;
       }
     },
     earFlap: {
       duration: 900,
-      fn(g) {
+      fn(C) {
         if (a.length === 0) return;
-        const P = A.animAmounts.earFlap ?? 1, j = Math.sin(g * Math.PI * 6) * 20 * G * (1 - g) * P;
+        const P = A.animAmounts.earFlap ?? 1, j = Math.sin(C * Math.PI * 6) * 20 * G * (1 - C) * P;
         for (const B of a) B.dRotZ = j;
-        const Z = g < 0.15 ? g / 0.15 : g > 0.85 ? (1 - g) / 0.15 : 1;
+        const Z = C < 0.15 ? C / 0.15 : C > 0.85 ? (1 - C) / 0.15 : 1;
         l.gazeOverride = { x: 0, y: 8 * P * Z };
       }
     },
     tailWag: {
       duration: 1e3,
-      fn(g) {
+      fn(C) {
         const P = A.animAmounts.tailWag ?? 1;
         if (I.length > 0) {
-          const Z = Math.sin(g * Math.PI * 7) * 30 * G * (1 - g * 0.5) * P;
+          const Z = Math.sin(C * Math.PI * 7) * 30 * G * (1 - C * 0.5) * P;
           for (const B of I) B.dRotZ = Z;
         }
         const j = A.tailWagDip;
         if (j > 0) {
           const B = (1 - Math.min(0.95, Math.max(0, A.tailWagDipHold))) / 2;
           let V;
-          if (g < B && B > 0)
-            V = -j * Math.sin(g / B * Math.PI * 0.5);
-          else if (g < 1 - B)
+          if (C < B && B > 0)
+            V = -j * Math.sin(C / B * Math.PI * 0.5);
+          else if (C < 1 - B)
             V = -j;
           else if (B > 0) {
-            const Q = (g - (1 - B)) / B;
+            const Q = (C - (1 - B)) / B;
             V = -j * Math.cos(Q * Math.PI * 0.5);
           } else
             V = -j;
@@ -1359,35 +1359,35 @@ function M0(l, A) {
     },
     wave: {
       duration: 1200,
-      fn(g) {
+      fn(C) {
         let P = c;
         if (l.mirror && t.length > 0 && (P = t.reduce((V, Q) => V.baseX < Q.baseX ? V : Q)), !P) return;
         const j = A.animAmounts.wave ?? 1, Z = A.waveAngle;
-        P.dRotZ = Math.sin(g * Math.PI * 5) * Z * G * (1 - g * 0.3) * j;
-        const B = Math.sin(Math.PI * g) * 12 * G * j * (l.mirror ? -1 : 1);
+        P.dRotZ = Math.sin(C * Math.PI * 5) * Z * G * (1 - C * 0.3) * j;
+        const B = Math.sin(Math.PI * C) * 12 * G * j * (l.mirror ? -1 : 1);
         for (const V of s)
           V !== P && (V.dRotZ += B);
       }
     },
     blink: {
       duration: 200,
-      fn(g) {
+      fn(C) {
       }
     },
     yawn: {
       duration: 1800,
-      fn(g) {
-        const P = Math.sin(g * Math.PI), j = P * 0.1;
+      fn(C) {
+        const P = Math.sin(C * Math.PI), j = P * 0.1;
         for (const B of s) B.scaleMult = 1 + j;
         const Z = -P * 8 * G;
-        for (const B of C)
+        for (const B of g)
           B.category === "legs" || B.category === "foot" || (B.dRotZ = Z);
       }
     },
     stretch: {
       duration: 2e3,
-      fn(g) {
-        const P = Math.sin(g * Math.PI), j = P * 8;
+      fn(C) {
+        const P = Math.sin(C * Math.PI), j = P * 8;
         for (const Z of s)
           Z.dY = j, Z.scaleMult = 1 + P * 0.06;
         if (t.length > 0)
@@ -1399,44 +1399,44 @@ function M0(l, A) {
     },
     lookAround: {
       duration: 2400,
-      fn(g) {
+      fn(C) {
         const P = A.animAmounts.lookAround ?? 1, j = A.lookAroundDistance * P;
         let Z = 0, B = 0;
-        if (g < 0.08)
-          Z = -j * (g / 0.08), B = 8 * P * (g / 0.08);
-        else if (g < 0.3)
+        if (C < 0.08)
+          Z = -j * (C / 0.08), B = 8 * P * (C / 0.08);
+        else if (C < 0.3)
           Z = -j, B = 8 * P;
-        else if (g < 0.38) {
-          const Q = (g - 0.3) / 0.08;
+        else if (C < 0.38) {
+          const Q = (C - 0.3) / 0.08;
           Z = -j + j * 2 * Q, B = 8 * P - 16 * P * Q;
-        } else if (g < 0.6)
+        } else if (C < 0.6)
           Z = j, B = -8 * P;
-        else if (g < 0.68) {
-          const Q = (g - 0.6) / 0.08;
+        else if (C < 0.68) {
+          const Q = (C - 0.6) / 0.08;
           Z = j - j * 1.5 * Q, B = -8 * P + 12 * P * Q;
-        } else if (g < 0.85)
+        } else if (C < 0.85)
           Z = -j * 0.5, B = 4 * P;
         else {
-          const Q = (g - 0.85) / 0.15;
+          const Q = (C - 0.85) / 0.15;
           Z = -j * 0.5 * (1 - Q), B = 4 * P * (1 - Q);
         }
         l.mirror && (Z = -Z), l.gazeOverride = { x: Z, y: B };
         const V = Z / j * 6 * G * P;
-        for (const Q of C)
+        for (const Q of g)
           Q.category === "legs" || Q.category === "foot" || (Q.dRotZ = V);
       }
     },
     footTap: {
       duration: 800,
-      fn(g) {
+      fn(C) {
         const P = A.animAmounts.footTap ?? 1, j = l.mirror, Z = i.filter((Q) => Q.category === "legs");
         if (Z.length > 0) {
           const Q = Z.reduce(
             (E, x) => j ? E.baseX < x.baseX ? E : x : E.baseX > x.baseX ? E : x
-          ), X = Math.max(1, A.footTapCount) * 2, L = Math.max(0, Math.sin(g * Math.PI * X)) * A.footTapHeight * P;
+          ), X = Math.max(1, A.footTapCount) * 2, L = Math.max(0, Math.sin(C * Math.PI * X)) * A.footTapHeight * P;
           Q.dY = L;
         }
-        const B = g < 0.2 ? g / 0.2 : 1;
+        const B = C < 0.2 ? C / 0.2 : 1;
         if (t.length > 0) {
           const Q = A.footTapArmAngle * G * B * P;
           for (const X of t) {
@@ -1450,8 +1450,8 @@ function M0(l, A) {
     },
     shrug: {
       duration: 1e3,
-      fn(g) {
-        const P = Math.sin(g * Math.PI);
+      fn(C) {
+        const P = Math.sin(C * Math.PI);
         if (t.length > 0)
           for (const j of t) {
             const Z = j.baseX >= 0 ? 1 : -1;
@@ -1463,36 +1463,36 @@ function M0(l, A) {
     },
     sway: {
       duration: 3e3,
-      fn(g) {
+      fn(C) {
         const j = 6 * (A.animAmounts.sway ?? 1);
         let Z = 0;
-        if (g < 0.15)
-          Z = -j * (g / 0.15);
-        else if (g < 0.4)
+        if (C < 0.15)
+          Z = -j * (C / 0.15);
+        else if (C < 0.4)
           Z = -j;
-        else if (g < 0.55) {
-          const B = (g - 0.4) / 0.15;
+        else if (C < 0.55) {
+          const B = (C - 0.4) / 0.15;
           Z = -j + j * 2 * B;
-        } else g < 0.85 ? Z = j : Z = j * (1 - (g - 0.85) / 0.15);
+        } else C < 0.85 ? Z = j : Z = j * (1 - (C - 0.85) / 0.15);
         for (const B of s) B.dX = Z;
       }
     },
     puffedUp: {
       duration: 1400,
-      fn(g) {
-        const P = A.animAmounts.puffedUp ?? 1, Z = 1 + (g < 0.25 ? g / 0.25 : g < 0.75 ? 1 : 1 - (g - 0.75) / 0.25) * 0.18 * P;
+      fn(C) {
+        const P = A.animAmounts.puffedUp ?? 1, Z = 1 + (C < 0.25 ? C / 0.25 : C < 0.75 ? 1 : 1 - (C - 0.75) / 0.25) * 0.18 * P;
         for (const B of s)
           B.scaleMult = Z;
-        if (g >= 0.3 && g < 0.65) {
-          const B = (g - 0.3) / 0.35, V = Math.sin(B * Math.PI * 5) * 4 * G * (1 - B) * P;
+        if (C >= 0.3 && C < 0.65) {
+          const B = (C - 0.3) / 0.35, V = Math.sin(B * Math.PI * 5) * 4 * G * (1 - B) * P;
           for (const Q of s) Q.dRotZ = V;
         }
       }
     },
     explode: {
       duration: h,
-      fn(g) {
-        const P = A.explodeGravity, j = A.explodeFloor, Z = g * h, B = Math.min(Z / 1e3, o), V = i.length > 0 ? i.reduce((Q, X) => Q + X.baseX, 0) / i.length : 0;
+      fn(C) {
+        const P = A.explodeGravity, j = A.explodeFloor, Z = C * h, B = Math.min(Z / 1e3, o), V = i.length > 0 ? i.reduce((Q, X) => Q + X.baseX, 0) / i.length : 0;
         for (const Q of i) {
           if (Q.category === "shadow") {
             Q.dX = 0, Q.dY = 0, Q.dModelRotZ = 0, Q.dRotZ = 0, Q.scaleMult = 1, Q.vanish = n && T > 0 ? Math.max(0, Math.min(1, (Z - r) / T)) : 0;
@@ -1502,7 +1502,7 @@ function M0(l, A) {
           if (Q.dX = X, Q.dY = L, Q.dModelRotZ = E ? 0 : B / o * Q.bSpinSpeed * Math.PI * 6, Q.dRotZ = 0, Q.scaleMult = 1, !n || T <= 0) continue;
           const x = J.get(Q);
           if (x === void 0) continue;
-          const K = (p > 1 ? Math.pow(x / (p - 1), d) : 0) * b, _ = Math.max(0, Math.min(1, (Z - r - K) / M));
+          const K = (p > 1 ? Math.pow(x / (p - 1), d) : 0) * u, _ = Math.max(0, Math.min(1, (Z - r - K) / M));
           Q.vanish = 1 - Me(_, m);
         }
       }
@@ -1514,17 +1514,17 @@ function M0(l, A) {
       // mascot is generated. Total length grows with the part count so the
       // stagger stays the same per part regardless of how many parts there are.
       duration: eA,
-      fn(g) {
-        const P = g * eA, j = A.buildOvershoot, Z = j + 1, B = O.slice().sort((Q, X) => {
+      fn(C) {
+        const P = C * eA, j = A.buildOvershoot, Z = j + 1, B = O.slice().sort((Q, X) => {
           const L = Q.category === "body" ? 1 : 0, E = X.category === "body" ? 1 : 0;
           return L !== E ? E - L : X.baseZ - Q.baseZ;
         }), V = B.length;
         for (let Q = 0; Q < V; Q++) {
-          const X = B[Q], E = (V > 1 ? Math.pow(Q / (V - 1), u) : 0) * $, H = Math.max(0, Math.min(1, (P - E) / Y)) - 1, K = 1 + Z * H * H * H + j * H * H;
+          const X = B[Q], E = (V > 1 ? Math.pow(Q / (V - 1), b) : 0) * $, H = Math.max(0, Math.min(1, (P - E) / Y)) - 1, K = 1 + Z * H * H * H + j * H * H;
           X.vanish = 1 - K, X.dX = 0, X.dY = 0, X.dModelRotZ = 0, X.dRotZ = 0;
         }
         if (v.length > 0) {
-          const Q = 1 - (1 - g) * (1 - g), X = sA + (1 - sA) * Q;
+          const Q = 1 - (1 - C) * (1 - C), X = sA + (1 - sA) * Q;
           for (const L of v)
             L.vanish = 1 - X, L.dX = 0, L.dY = 0, L.dModelRotZ = 0, L.dRotZ = 0;
         }
@@ -1757,8 +1757,8 @@ class je {
     for (const o of i) {
       const n = A.get(o.instanceId);
       if (!n) continue;
-      const m = ge(n), y = s.find((eA) => eA.id === o.partId)?.category ?? "body", M = o.pivotOffsetX ?? 0, d = o.pivotOffsetY ?? 0, z = o.scale * (o.scaleX ?? 1), J = o.scale * (o.scaleY ?? 1), p = o.position.x + M * z, b = o.position.y + d * J;
-      let T = 0, h = 0, Y = 0, U = 0, u = 0;
+      const m = ge(n), y = s.find((eA) => eA.id === o.partId)?.category ?? "body", M = o.pivotOffsetX ?? 0, d = o.pivotOffsetY ?? 0, z = o.scale * (o.scaleX ?? 1), J = o.scale * (o.scaleY ?? 1), p = o.position.x + M * z, u = o.position.y + d * J;
+      let T = 0, h = 0, Y = 0, U = 0, b = 0;
       try {
         n.updateMatrixWorld(!0);
         const eA = new D.Vector3();
@@ -1774,26 +1774,26 @@ class je {
             }
           }
           if (!IA) return;
-          const g = q.geometry?.getAttribute?.("position");
-          if (g)
-            for (let P = 0; P < g.count; P++) {
-              eA.set(g.getX(P), g.getY(P), g.getZ(P)), eA.applyMatrix4(q.matrixWorld);
-              const j = eA.x - p, Z = eA.y - b;
+          const C = q.geometry?.getAttribute?.("position");
+          if (C)
+            for (let P = 0; P < C.count; P++) {
+              eA.set(C.getX(P), C.getY(P), C.getZ(P)), eA.applyMatrix4(q.matrixWorld);
+              const j = eA.x - p, Z = eA.y - u;
               j < 0 && -j > T && (T = -j), j > 0 && j > h && (h = j), Z > 0 && Z > Y && (Y = Z), Z < 0 && -Z > U && (U = -Z);
               const B = j * j + Z * Z;
-              B > u && (u = B);
+              B > b && (b = B);
             }
         });
       } catch {
       }
-      const O = Math.max(T, h), v = Math.max(Y, U), $ = Math.sqrt(O * O + v * v), sA = Math.sqrt(u);
+      const O = Math.max(T, h), v = Math.max(Y, U), $ = Math.sqrt(O * O + v * v), sA = Math.sqrt(b);
       this.states.push({
         wrapper: n,
         modelGroup: m,
         part: o,
         category: y,
         baseX: p,
-        baseY: b,
+        baseY: u,
         baseZ: o.zDepth,
         baseRotZ: o.rotation * G,
         baseSX: z,
@@ -1877,7 +1877,7 @@ class je {
         const M = y / 2;
         o.baseX = n.baseX - M, o.baseY = n.baseY + M, o.baseZ = n.baseZ + 1, o.wrapper.position.set(o.baseX, o.baseY, o.baseZ);
       }
-    const C = this.states.filter((o) => o.category !== "body"), r = this.arms.length > 0 ? this.arms : C.length > 0 ? C : this.states;
+    const g = this.states.filter((o) => o.category !== "body"), r = this.arms.length > 0 ? this.arms : g.length > 0 ? g : this.states;
     this.waveTarget = r.length > 0 ? r.reduce((o, n) => o.baseX > n.baseX ? o : n) : null, this.ctx = { all: this.states, nonFeet: this.nonFeet, heads: this.heads, arms: this.arms, ears: this.ears, tails: this.tails, eyes: this.eyes, mouths: this.mouths, pupils: this.pupils, brows: this.brows, waveTarget: this.waveTarget, gazeOverride: null, mirror: !1 }, this.animDefs = M0(this.ctx, this._animParams), this._pairPupilsToScleras(), this._applyFaceStacking(), this.configure(e);
   }
   // Per-pupil reference to its associated sclera, used at apply-time to
@@ -1945,7 +1945,7 @@ class je {
     const s = (e, t) => {
       let a = null, I = 1 / 0;
       for (const c of A) {
-        const C = e - c.baseX, r = t - c.baseY, o = C * C + r * r;
+        const g = e - c.baseX, r = t - c.baseY, o = g * g + r * r;
         o < I && (I = o, a = c);
       }
       return a;
@@ -1991,8 +1991,8 @@ class je {
   }
   setMouseWorld(A, i) {
     if (this.states.length === 0) return;
-    const s = this.states.reduce((r, o) => r + o.part.position.x, 0) / this.states.length, e = this.states.reduce((r, o) => r + o.part.position.y, 0) / this.states.length, t = A - s, a = i - e, I = Math.sqrt(t * t + a * a) || 1, c = 10, C = Math.min(I / 120, 1);
-    if (this._gazeMouseX = t / I * C * c, this._gazeMouseY = a / I * C * c, this._mouseWorldX = A, this._mouseWorldY = i, this._gazeMouseStaleTimer = 0, !this._gazeHasMouseTarget) {
+    const s = this.states.reduce((r, o) => r + o.part.position.x, 0) / this.states.length, e = this.states.reduce((r, o) => r + o.part.position.y, 0) / this.states.length, t = A - s, a = i - e, I = Math.sqrt(t * t + a * a) || 1, c = 10, g = Math.min(I / 120, 1);
+    if (this._gazeMouseX = t / I * g * c, this._gazeMouseY = a / I * g * c, this._mouseWorldX = A, this._mouseWorldY = i, this._gazeMouseStaleTimer = 0, !this._gazeHasMouseTarget) {
       const r = this._config.gazeMousePauseMinMs ?? 200, o = this._config.gazeMousePauseMaxMs ?? 800;
       this._gazeHoldTimer = r + Math.random() * (o - r), this._gazeHasMouseTarget = !0;
       const n = this._config.gazeMouseDistractIntervalMinMs ?? 5e3, m = this._config.gazeMouseDistractIntervalMaxMs ?? 12e3;
@@ -2037,8 +2037,8 @@ class je {
     }
     if (A === "wake") {
       this._setMouth(this._config.mouthForAnim?.wake ?? gA.wake), this._setPupil(this._config.pupilForAnim?.wake ?? GA.wake ?? null);
-      const b = this._config.pupilScaleForAnim?.wake;
-      b !== void 0 && (this._pupilScaleTarget = b);
+      const u = this._config.pupilScaleForAnim?.wake;
+      u !== void 0 && (this._pupilScaleTarget = u);
       const T = this._config.mouthScaleForAnim?.wake;
       T !== void 0 && (this._mouthScaleTarget = T), this._armAngleTarget = this._config.armAngleForAnim?.wake ?? 0, this._browRaiseTarget = this._config.browRaiseForAnim?.wake ?? 0, this._browAngleTarget = this._config.browAngleForAnim?.wake ?? 0;
       const h = this._eyeClose, Y = this._armDroopT;
@@ -2047,8 +2047,8 @@ class je {
         duration: 400,
         fn: (U) => {
           this._eyeClose = h * (1 - U), this._armDroopT = Y * (1 - U);
-          const u = U < 0.3 ? 1 + U / 0.3 * 0.12 : 1 + (1 - U) / 0.7 * 0.12;
-          for (const O of this.states) O.scaleMult = u;
+          const b = U < 0.3 ? 1 + U / 0.3 * 0.12 : 1 + (1 - U) / 0.7 * 0.12;
+          for (const O of this.states) O.scaleMult = b;
         },
         onDone: () => {
           this._armDroopT = 0, this._idleState = "active", this._idleMs = 0, this._setMouth(null), this._setPupil(null), this._mouthScaleTarget = 1, this._armAngleTarget = 0, this._browRaiseTarget = 0, this._browAngleTarget = 0;
@@ -2062,7 +2062,7 @@ class je {
     if (!s) return;
     let e = this._config.mouthForAnim?.[A] ?? gA[A] ?? null;
     if (A === "build" && this.mouths.length > 0) {
-      const b = [...new Set(this.mouths.map((h) => h.part.partId))], T = b.length > 1 && this._lastBuildMouth ? b.filter((h) => h !== this._lastBuildMouth) : b;
+      const u = [...new Set(this.mouths.map((h) => h.part.partId))], T = u.length > 1 && this._lastBuildMouth ? u.filter((h) => h !== this._lastBuildMouth) : u;
       e = T[Math.floor(Math.random() * T.length)], this._lastBuildMouth = e;
     }
     const t = this._config.pupilForAnim?.[A] ?? GA[A] ?? null, a = this._config.eyelidForAnim?.[A] ?? "open";
@@ -2071,11 +2071,11 @@ class je {
     I !== void 0 && (this._pupilScaleTarget = I);
     const c = this._config.mouthScaleForAnim?.[A];
     c !== void 0 && (this._mouthScaleTarget = c), re.has(A) && (this._animEyeClose = 1);
-    const C = 0.3;
+    const g = 0.3;
     let r = !1;
     if (A === "hop" && (this._setEyelid("closed"), r = !0), Ce.has(A)) {
-      const b = this._config.animMirror?.[A] ?? !0;
-      this.ctx.mirror = b ? Math.random() < 0.5 : !1;
+      const u = this._config.animMirror?.[A] ?? !0;
+      this.ctx.mirror = u ? Math.random() < 0.5 : !1;
     } else
       this.ctx.mirror = !1;
     const o = this._config.animAmounts?.[A] ?? 1, n = this._config.animAmountRange?.[A], m = n ? n[0] + Math.random() * (n[1] - n[0]) : o;
@@ -2083,19 +2083,19 @@ class je {
     const y = this._config.animSpeed?.[A] ?? 1, M = this._config.animSpeedRange?.[A], d = M ? M[0] + Math.random() * (M[1] - M[0]) : y, z = Math.max(0.05, d);
     let J = Math.max(0.1, this._config.animLength?.[A] ?? 1);
     if (A === "wiggle") {
-      const b = Math.max(0.5, this._config.wiggleCount ?? 4), T = this._config.wiggleCountVar ?? 0, h = T > 0 ? Math.max(1, Math.round(b - Math.random() * T)) : b;
-      this._animParams.wiggleCount = h, J *= h / b, this._animParams.wiggleDir = Math.random() < 0.5 ? 1 : -1;
+      const u = Math.max(0.5, this._config.wiggleCount ?? 4), T = this._config.wiggleCountVar ?? 0, h = T > 0 ? Math.max(1, Math.round(u - Math.random() * T)) : u;
+      this._animParams.wiggleCount = h, J *= h / u, this._animParams.wiggleDir = Math.random() < 0.5 ? 1 : -1;
     }
     const p = s.duration * J / z;
     if (this._currentAnimName = A, A === "hop") {
-      const b = this._config.hopHeight ?? 55, T = this._config.hopHeightVar ?? 0, h = T > 0 ? Math.max(0, b - Math.random() * T) : b;
-      this._animParams.hopHeight = h, this._animParams.hopHeightRatio = b > 0 ? h / b : 1;
+      const u = this._config.hopHeight ?? 55, T = this._config.hopHeightVar ?? 0, h = T > 0 ? Math.max(0, u - Math.random() * T) : u;
+      this._animParams.hopHeight = h, this._animParams.hopHeightRatio = u > 0 ? h / u : 1;
     }
     this._armAngleTarget = this._config.armAngleForAnim?.[A] ?? 0, this._browRaiseTarget = this._config.browRaiseForAnim?.[A] ?? 0, this._browAngleTarget = this._config.browAngleForAnim?.[A] ?? 0, this.anim = {
       startTime: i,
       duration: p,
-      fn: (b) => {
-        s.fn(b), A === "hop" && (b < C && !r ? (this._setEyelid("closed"), r = !0) : b >= C && r && (this._setEyelid(a), r = !1));
+      fn: (u) => {
+        s.fn(u), A === "hop" && (u < g && !r ? (this._setEyelid("closed"), r = !0) : u >= g && r && (this._setEyelid(a), r = !1));
       },
       onDone: () => {
         this._animEyeClose = 0, this._setMouth(null), this._setPupil(null), this._setEyelid("open"), this._mouthScaleTarget = 1, this._armAngleTarget = 0, this._browRaiseTarget = 0, this._browAngleTarget = 0;
@@ -2229,9 +2229,9 @@ class je {
       const t = Math.max(0, this._config.armAnticipation ?? 0), a = Math.max(0, this._config.armOvershoot ?? 0), I = Pe(this._armAngleTweenMs / e, t, a);
       if (this._armAngleSmoothed = this._armAngleFrom + (this._armAngleTarget - this._armAngleFrom) * I, Math.abs(this._armAngleSmoothed) > 1e-3) {
         const c = this._armAngleSmoothed * G;
-        for (const C of this.arms) {
-          const r = C.baseX >= 0 ? 1 : -1;
-          C.dRotZ += c * r;
+        for (const g of this.arms) {
+          const r = g.baseX >= 0 ? 1 : -1;
+          g.dRotZ += c * r;
         }
       }
     }
@@ -2241,36 +2241,36 @@ class je {
       const a = this._browRaiseSmoothed, I = this._browAngleSmoothed * G;
       if (Math.abs(a) > 1e-3 || Math.abs(I) > 1e-4)
         for (const c of this.brows) {
-          const C = c.baseX >= 0 ? 1 : -1;
-          c.dY += a, c.dRotZ += I * C;
+          const g = c.baseX >= 0 ? 1 : -1;
+          c.dY += a, c.dRotZ += I * g;
         }
     }
     if (!this.anim && !this._sleeping && !this._brainlessActive && this._idleState === "active") {
-      const e = this._config.idleSwayAngle ?? 2, t = this._config.idleBodyBob ?? 2.5, a = this._config.idleBreathDepth ?? 0.02, I = this._config.idleStepAmount ?? 4, c = this._config.idleSwaySpeed ?? 1, C = this._config.idleBobSpeed ?? 1, r = this._config.idleBreathSpeed ?? 1, o = this._config.idleStepSpeed ?? 1, n = this._config.idleSwayNoise ?? 0.4, m = this._config.idleBobNoise ?? 0.4, y = this._config.idleBreathNoise ?? 0.4, M = this._config.idleStepNoise ?? 0.4, d = A / 1e3;
-      this._idleSwayPhase += d * c, this._idleBobPhase += d * C, this._idleBreathPhase += d * r, this._stepPhase += d * o;
+      const e = this._config.idleSwayAngle ?? 2, t = this._config.idleBodyBob ?? 2.5, a = this._config.idleBreathDepth ?? 0.02, I = this._config.idleStepAmount ?? 4, c = this._config.idleSwaySpeed ?? 1, g = this._config.idleBobSpeed ?? 1, r = this._config.idleBreathSpeed ?? 1, o = this._config.idleStepSpeed ?? 1, n = this._config.idleSwayNoise ?? 0.4, m = this._config.idleBobNoise ?? 0.4, y = this._config.idleBreathNoise ?? 0.4, M = this._config.idleStepNoise ?? 0.4, d = A / 1e3;
+      this._idleSwayPhase += d * c, this._idleBobPhase += d * g, this._idleBreathPhase += d * r, this._stepPhase += d * o;
       const z = (h, Y, U) => {
-        const u = Math.max(0, Math.min(1, U)), O = 1 / (1 + u * 0.7), v = Math.sin(h * Math.PI * Y) * (1 - u * 0.4), $ = Math.sin(h * Math.PI * Y * 1.7320508 + 1.3) * u * 0.7;
+        const b = Math.max(0, Math.min(1, U)), O = 1 / (1 + b * 0.7), v = Math.sin(h * Math.PI * Y) * (1 - b * 0.4), $ = Math.sin(h * Math.PI * Y * 1.7320508 + 1.3) * b * 0.7;
         return (v + $) * O;
-      }, J = z(this._idleSwayPhase, 0.5, n) * e * G, p = z(this._idleBobPhase, 0.4, m) * t, b = z(this._idleBreathPhase, 0.4, y) * a;
+      }, J = z(this._idleSwayPhase, 0.5, n) * e * G, p = z(this._idleBobPhase, 0.4, m) * t, u = z(this._idleBreathPhase, 0.4, y) * a;
       for (const h of this.nonFeet)
-        h.dRotZ += J, h.dY += p, h.scaleMult *= 1 + b;
+        h.dRotZ += J, h.dY += p, h.scaleMult *= 1 + u;
       const T = this.states.filter((h) => h.category === "legs" || h.category === "foot");
       if (T.length >= 2) {
-        const h = [...T].sort(($, sA) => $.baseX - sA.baseX), Y = Math.ceil(h.length / 2), U = h.slice(0, Y), u = h.slice(Y), O = Math.max(0, z(this._stepPhase, 0.8, M)) * I, v = Math.max(0, z(this._stepPhase + 1.25, 0.8, M)) * I;
+        const h = [...T].sort(($, sA) => $.baseX - sA.baseX), Y = Math.ceil(h.length / 2), U = h.slice(0, Y), b = h.slice(Y), O = Math.max(0, z(this._stepPhase, 0.8, M)) * I, v = Math.max(0, z(this._stepPhase + 1.25, 0.8, M)) * I;
         for (const $ of U) $.dY += O;
-        for (const $ of u) $.dY += v;
+        for (const $ of b) $.dY += v;
       }
     }
     if (!this._sleeping && !this._brainlessActive) {
       let t = 0, a = 0;
       if (this.pupils.length > 0) {
-        let u = 0, O = 0;
+        let b = 0, O = 0;
         for (const v of this.pupils)
-          u += v.baseX, O += v.baseY;
-        t = u / this.pupils.length, a = O / this.pupils.length;
+          b += v.baseX, O += v.baseY;
+        t = b / this.pupils.length, a = O / this.pupils.length;
       }
       this._gazeFocusActive && (this._mouseWorldX = t + this._gazeFocusDirX * 150, this._mouseWorldY = a + this._gazeFocusDirY * 150, this._gazeHasMouseTarget = !0, this._gazeMouseStaleTimer = 0, this._gazeDistractActive = !1);
-      const I = this._config.gazeMouseStaleMs ?? 2e3, c = this._config.gazeAutoMinMs ?? 1200, C = this._config.gazeAutoMaxMs ?? 4200, r = this._config.gazeHoldMinMs ?? 400, o = this._config.gazeHoldMaxMs ?? 1900, n = this._config.gazePursuitSpeed ?? 0.15, m = this._config.gazeJitterAmount ?? 0.08, y = this._config.gazeMouseDistractIntervalMinMs ?? 5e3, M = this._config.gazeMouseDistractIntervalMaxMs ?? 12e3, d = this._config.gazeMouseDistractDurationMinMs ?? 500, z = this._config.gazeMouseDistractDurationMaxMs ?? 1200;
+      const I = this._config.gazeMouseStaleMs ?? 2e3, c = this._config.gazeAutoMinMs ?? 1200, g = this._config.gazeAutoMaxMs ?? 4200, r = this._config.gazeHoldMinMs ?? 400, o = this._config.gazeHoldMaxMs ?? 1900, n = this._config.gazePursuitSpeed ?? 0.15, m = this._config.gazeJitterAmount ?? 0.08, y = this._config.gazeMouseDistractIntervalMinMs ?? 5e3, M = this._config.gazeMouseDistractIntervalMaxMs ?? 12e3, d = this._config.gazeMouseDistractDurationMinMs ?? 500, z = this._config.gazeMouseDistractDurationMaxMs ?? 1200;
       this._gazeHasMouseTarget && (this._gazeMouseStaleTimer += A, this._gazeMouseStaleTimer > I && (this._gazeHasMouseTarget = !1, this._gazeAutoTimer = 300 + Math.random() * 700, this._gazeDistractActive = !1));
       const J = this.ctx.gazeOverride;
       if (J)
@@ -2282,30 +2282,30 @@ class je {
           this._gazeDistractRemaining -= A, this._gazeDistractRemaining <= 0 && (this._gazeDistractActive = !1, this._gazeDistractIntervalTimer = y + Math.random() * Math.max(0, M - y));
         else if (this._gazeDistractIntervalTimer -= A, M > 0 && this._gazeDistractIntervalTimer <= 0) {
           this._gazeDistractActive = !0, this._gazeDistractRemaining = d + Math.random() * Math.max(0, z - d);
-          const u = Math.random() * Math.PI * 2, O = (0.4 + Math.random() * 0.6) * 10;
-          this._gazeTargetX = Math.cos(u) * O, this._gazeTargetY = Math.sin(u) * O, this._gazeHoldTimer = r + Math.random() * (o - r);
+          const b = Math.random() * Math.PI * 2, O = (0.4 + Math.random() * 0.6) * 10;
+          this._gazeTargetX = Math.cos(b) * O, this._gazeTargetY = Math.sin(b) * O, this._gazeHoldTimer = r + Math.random() * (o - r);
         } else
-          this._gazeTargetX = this._gazeMouseX, this._gazeTargetY = this._gazeMouseY, this._gazeAutoTimer = c * 0.5 + Math.random() * C * 0.3;
+          this._gazeTargetX = this._gazeMouseX, this._gazeTargetY = this._gazeMouseY, this._gazeAutoTimer = c * 0.5 + Math.random() * g * 0.3;
       else if (this._gazeOverrideWasActive = !1, this._gazeAutoTimer -= A, this._gazeAutoTimer <= 0) {
-        const u = Math.random() * Math.PI * 2, O = (0.3 + Math.random() * 0.7) * 10;
-        this._gazeTargetX = Math.cos(u) * O, this._gazeTargetY = Math.sin(u) * O, this._gazeHoldTimer = r + Math.random() * (o - r), this._gazeAutoTimer = c + Math.random() * (C - c);
+        const b = Math.random() * Math.PI * 2, O = (0.3 + Math.random() * 0.7) * 10;
+        this._gazeTargetX = Math.cos(b) * O, this._gazeTargetY = Math.sin(b) * O, this._gazeHoldTimer = r + Math.random() * (o - r), this._gazeAutoTimer = c + Math.random() * (g - c);
       }
       if (this._gazeJitterTimer -= A, this._gazeJitterTimer <= 0 && (this._gazeJitterX = (Math.random() - 0.5) * 10 * m, this._gazeJitterY = (Math.random() - 0.5) * 10 * m, this._gazeJitterTimer = 40 + Math.random() * 120), this._gazeHoldTimer > 0)
         this._gazeHoldTimer -= A;
       else {
-        const u = this.ctx.gazeOverride || this._gazeHasMouseTarget ? n * 1.2 : n * 0.8, O = 1 - Math.pow(1 - u, A / 16);
+        const b = this.ctx.gazeOverride || this._gazeHasMouseTarget ? n * 1.2 : n * 0.8, O = 1 - Math.pow(1 - b, A / 16);
         this._gazeCurrentX += (this._gazeTargetX - this._gazeCurrentX) * O, this._gazeCurrentY += (this._gazeTargetY - this._gazeCurrentY) * O, this._mouseWorldCurrentX += (this._mouseWorldX - this._mouseWorldCurrentX) * O, this._mouseWorldCurrentY += (this._mouseWorldY - this._mouseWorldCurrentY) * O;
       }
-      const b = (u, O, v) => u + (O - u) * v, T = this._gazeHasMouseTarget && !this._gazeDistractActive && !this.ctx.gazeOverride, h = Math.max(1, this._pupilCursorDepth);
+      const u = (b, O, v) => b + (O - b) * v, T = this._gazeHasMouseTarget && !this._gazeDistractActive && !this.ctx.gazeOverride, h = Math.max(1, this._pupilCursorDepth);
       let Y = 0, U = 0;
       if (T && this.pupils.length > 0) {
-        const u = this._mouseWorldCurrentX - t, O = this._mouseWorldCurrentY - a, v = Math.sqrt(u * u + O * O + h * h);
-        Y = u / v * 10, U = O / v * 10;
+        const b = this._mouseWorldCurrentX - t, O = this._mouseWorldCurrentY - a, v = Math.sqrt(b * b + O * O + h * h);
+        Y = b / v * 10, U = O / v * 10;
       }
-      for (const u of this.pupils) {
-        const O = this._pupilSclera.get(u), v = O ? Math.min(O.extLeft, O.extRight, O.extUp, O.extDown) : 0, $ = Math.min(u.extLeft, u.extRight, u.extUp, u.extDown), sA = v > 0 ? $ / v : 0.5, eA = Math.max(0, Math.min(1, (sA - 0.2) / 0.5)), q = b(this._pupilLookSmall, this._pupilLookLarge, eA);
+      for (const b of this.pupils) {
+        const O = this._pupilSclera.get(b), v = O ? Math.min(O.extLeft, O.extRight, O.extUp, O.extDown) : 0, $ = Math.min(b.extLeft, b.extRight, b.extUp, b.extDown), sA = v > 0 ? $ / v : 0.5, eA = Math.max(0, Math.min(1, (sA - 0.2) / 0.5)), q = u(this._pupilLookSmall, this._pupilLookLarge, eA);
         let tA, IA;
-        T ? (tA = (Y + this._gazeJitterX) * q, IA = (U + this._gazeJitterY) * q) : (tA = (this._gazeCurrentX + this._gazeJitterX) * q, IA = (this._gazeCurrentY + this._gazeJitterY) * q), u.eyeOffsetX = tA, u.eyeOffsetY = IA;
+        T ? (tA = (Y + this._gazeJitterX) * q, IA = (U + this._gazeJitterY) * q) : (tA = (this._gazeCurrentX + this._gazeJitterX) * q, IA = (this._gazeCurrentY + this._gazeJitterY) * q), b.eyeOffsetX = tA, b.eyeOffsetY = IA;
       }
     }
     if (this._sleeping) {
@@ -2324,8 +2324,8 @@ class je {
         const a = Math.cos(t) - 1, I = Math.sin(t);
         for (const c of this.states) {
           if (c.category === "body" || c.category === "foot" || c.category === "legs" || this._specSet.has(c)) continue;
-          const C = c.baseX - e.baseX, r = c.baseY - e.baseY;
-          c.dX += a * C - I * r, c.dY += I * C + a * r;
+          const g = c.baseX - e.baseX, r = c.baseY - e.baseY;
+          c.dX += a * g - I * r, c.dY += I * g + a * r;
         }
       }
     }
@@ -2371,7 +2371,7 @@ class je {
       const e = this._config.framePadding ?? 30, t = Math.max(0, this._frameHalfWidth - e), a = Math.max(0, this._frameHalfHeight - e);
       for (const I of this.states) {
         if (I.category === "paint" || I.dX === 0 && I.dY === 0) continue;
-        const c = I.dRotZ, C = Math.cos(c), r = Math.sin(c), o = [
+        const c = I.dRotZ, g = Math.cos(c), r = Math.sin(c), o = [
           [-I.extLeft, -I.extDown],
           [-I.extLeft, I.extUp],
           [I.extRight, -I.extDown],
@@ -2379,7 +2379,7 @@ class je {
         ];
         let n = -1 / 0, m = 1 / 0, y = -1 / 0, M = 1 / 0;
         for (const [d, z] of o) {
-          const J = d * C - z * r, p = d * r + z * C;
+          const J = d * g - z * r, p = d * r + z * g;
           J > n && (n = J), J < m && (m = J), p > y && (y = p), p < M && (M = p);
         }
         if (t > 0 && I.dX !== 0) {
@@ -2491,6 +2491,47 @@ class je {
       this._setPupil(this._currentPupilTarget);
     }
   }
+  /**
+   * The creature's bounding box at REST — every part at its base transform, with
+   * animation offsets ignored.
+   *
+   * A blueprint's height is a property of the blueprint, but the thing on screen is never
+   * at rest: the idle bob and breath move it continuously, the intro `build` plays over the
+   * first frames, and any animation can extend a limb well past the resting silhouette. So
+   * a host that wants to place the creature — centring it in a circle, say, rather than
+   * standing it on the frame's floor — cannot get the answer by measuring a frame. Sampling
+   * a moving thing once gives an answer that is wrong however carefully it is taken, and
+   * wrong differently each run.
+   *
+   * Measured from `baseX/baseY/baseS*` rather than from the live wrappers for the same
+   * reason, so the answer does not depend on when it is asked. The scene is posed at base,
+   * measured, and put back inside one synchronous call — the next frame overwrites these
+   * transforms anyway, which is what makes borrowing them safe.
+   *
+   * Synthesised and shadow parts are left out: they are not the creature.
+   */
+  restBounds() {
+    const A = this.states.filter(
+      (e) => !e.part.instanceId.startsWith("anim-synth-") && e.category !== "shadow"
+    );
+    if (A.length === 0) return null;
+    const i = A.map((e) => ({
+      s: e,
+      pos: e.wrapper.position.clone(),
+      rot: e.wrapper.rotation.z,
+      scale: e.wrapper.scale.clone(),
+      mg: e.modelGroup?.position.clone() ?? null,
+      mgRot: e.modelGroup?.rotation.z ?? 0
+    }));
+    for (const e of A)
+      e.wrapper.position.set(e.baseX, e.baseY, e.baseZ), e.wrapper.rotation.z = e.baseRotZ, e.wrapper.scale.set(e.baseSX, e.baseSY, e.baseSZ), e.modelGroup && (e.modelGroup.position.set(e.baseMGX, e.baseMGY, e.modelGroup.position.z), e.modelGroup.rotation.z = 0);
+    const s = new D.Box3();
+    for (const e of A)
+      e.wrapper.updateMatrixWorld(!0), s.expandByObject(e.wrapper);
+    for (const e of i)
+      e.s.wrapper.position.copy(e.pos), e.s.wrapper.rotation.z = e.rot, e.s.wrapper.scale.copy(e.scale), e.s.modelGroup && e.mg && (e.s.modelGroup.position.copy(e.mg), e.s.modelGroup.rotation.z = e.mgRot), e.s.wrapper.updateMatrixWorld(!0);
+    return s.isEmpty() ? null : s;
+  }
   // Measure the unscaled bounding box of a part's model geometry,
   // accounting for child mesh transforms within the model group.
   _modelBBoxSize(A) {
@@ -2586,6 +2627,39 @@ let pe = class {
     );
     this.engine.setMouseWorld(e.x, e.y);
   }
+  /**
+   * Where the creature sits inside its canvas at REST, as fractions of the canvas height:
+   * 0 is the top edge, 1 the bottom.
+   *
+   * **For hosts that place the creature rather than just show it.** Every blueprint is
+   * rendered standing on the same ground plane and blueprints are not the same height, so a
+   * short one sits low with a lot of sky above it. That is invisible in a panel and is the
+   * whole impression in the middle of a circle, where the eye reads the creature against the
+   * centre. Given this, a host can shift it by however far the middle of the band is from
+   * the middle of the frame.
+   *
+   * It reports the RESTING silhouette (see `restBounds`), not the current frame, which is
+   * the only version of this answer worth having: the creature is never still, so a host
+   * measuring a snapshot is sampling a moving thing and gets a different answer depending on
+   * when it looked. It is also available before the first frame is drawn, so nothing has to
+   * be hidden while it is worked out — which is what makes the intro animation watchable.
+   *
+   * Projected through the camera rather than divided out of the frustum, so it stays correct
+   * under pan, dolly and orbit.
+   */
+  restExtent() {
+    const A = this.engine?.restBounds();
+    if (!A || !this.sm) return null;
+    const i = this.sm.camera;
+    let s = 1 / 0, e = -1 / 0;
+    for (const t of [A.min.x, A.max.x])
+      for (const a of [A.min.y, A.max.y])
+        for (const I of [A.min.z, A.max.z]) {
+          const g = (1 - new D.Vector3(t, a, I).project(i).y) / 2;
+          s = Math.min(s, g), e = Math.max(e, g);
+        }
+    return Number.isFinite(s) && Number.isFinite(e) ? { top: s, bottom: e } : null;
+  }
   /** Capture the current frame as a PNG data URL (forces one render first). */
   snapshot() {
     if (!this.sm) return null;
@@ -2608,7 +2682,7 @@ let pe = class {
   captureImage(A = {}) {
     const i = this.sm;
     if (!i) return null;
-    const s = Math.max(1, Math.round(A.maxEdge ?? 2048)), e = A.transparent ?? !1, t = (A.crop ?? !1) && e, a = Math.max(0, Math.round(A.padding ?? 0)), I = i.renderer, c = this.canvas.width, C = this.canvas.height, r = I.getPixelRatio(), o = i.scene.background, n = i.camera, m = (n.right - n.left) / (n.top - n.bottom) || 1, y = m >= 1 ? s : Math.round(s * m), M = m >= 1 ? Math.round(s / m) : s, d = [];
+    const s = Math.max(1, Math.round(A.maxEdge ?? 2048)), e = A.transparent ?? !1, t = (A.crop ?? !1) && e, a = Math.max(0, Math.round(A.padding ?? 0)), I = i.renderer, c = this.canvas.width, g = this.canvas.height, r = I.getPixelRatio(), o = i.scene.background, n = i.camera, m = (n.right - n.left) / (n.top - n.bottom) || 1, y = m >= 1 ? s : Math.round(s * m), M = m >= 1 ? Math.round(s / m) : s, d = [];
     try {
       return e && (i.scene.background = null), i.scene.traverse((z) => {
         z.userData.editorOverlay && z.visible && (d.push(z), z.visible = !1);
@@ -2617,7 +2691,7 @@ let pe = class {
       return null;
     } finally {
       for (const z of d) z.visible = !0;
-      i.scene.background = o, I.setPixelRatio(r), I.setSize(c / r, C / r, !1), this._renderFrame();
+      i.scene.background = o, I.setPixelRatio(r), I.setSize(c / r, g / r, !1), this._renderFrame();
     }
   }
   /**
@@ -2633,16 +2707,16 @@ let pe = class {
     if (!t) return null;
     t.drawImage(this.canvas, 0, 0);
     const { data: a } = t.getImageData(0, 0, A, i), I = 128;
-    let c = A, C = i, r = -1, o = -1;
+    let c = A, g = i, r = -1, o = -1;
     for (let d = 0; d < i; d++)
       for (let z = 0; z < A; z++)
-        a[(d * A + z) * 4 + 3] >= I && (z < c && (c = z), z > r && (r = z), d < C && (C = d), d > o && (o = d));
-    if (r < c || o < C) return null;
-    c = Math.max(0, c - s), C = Math.max(0, C - s), r = Math.min(A - 1, r + s), o = Math.min(i - 1, o + s);
-    const n = r - c + 1, m = o - C + 1, y = document.createElement("canvas");
+        a[(d * A + z) * 4 + 3] >= I && (z < c && (c = z), z > r && (r = z), d < g && (g = d), d > o && (o = d));
+    if (r < c || o < g) return null;
+    c = Math.max(0, c - s), g = Math.max(0, g - s), r = Math.min(A - 1, r + s), o = Math.min(i - 1, o + s);
+    const n = r - c + 1, m = o - g + 1, y = document.createElement("canvas");
     y.width = n, y.height = m;
     const M = y.getContext("2d");
-    return M ? (M.drawImage(e, c, C, n, m, 0, 0, n, m), y.toDataURL("image/png")) : null;
+    return M ? (M.drawImage(e, c, g, n, m, 0, 0, n, m), y.toDataURL("image/png")) : null;
   }
   /**
    * Read a built body part's actual color/gradient from its meshes. Saved
@@ -2661,19 +2735,19 @@ let pe = class {
     const t = /* @__PURE__ */ new Map();
     i.traverse((c) => {
       if (!(c instanceof D.Mesh) || c.name.startsWith("_")) return;
-      const C = c.material;
-      if (!(C instanceof D.MeshStandardMaterial)) return;
-      const r = c.geometry?.attributes?.position?.count ?? 1, o = C.userData?.sourceGradient;
+      const g = c.material;
+      if (!(g instanceof D.MeshStandardMaterial)) return;
+      const r = c.geometry?.attributes?.position?.count ?? 1, o = g.userData?.sourceGradient;
       if (o?.startColor && o?.endColor)
         r > e && (e = r, s = o);
-      else if (!(C.map && C.userData?.gradientApplied)) {
-        const n = C.color.getHex();
+      else if (!(g.map && g.userData?.gradientApplied)) {
+        const n = g.color.getHex();
         t.set(n, (t.get(n) ?? 0) + r);
       }
     });
     let a, I = -1;
-    for (const [c, C] of t)
-      C > I && (I = C, a = "#" + c.toString(16).padStart(6, "0"));
+    for (const [c, g] of t)
+      g > I && (I = g, a = "#" + c.toString(16).padStart(6, "0"));
     return { color: a ?? s?.startColor, gradient: s };
   }
   /** Resize scene + renderer to new pixel dimensions. */
@@ -2759,7 +2833,7 @@ let pe = class {
     const i = /* @__PURE__ */ new Set(["pupil"]), s = (a) => {
       const I = this.opts.placedParts.find((o) => o.instanceId === a);
       if (!I) return !1;
-      const c = this.opts.allPartDefs.find((o) => o.id === I.partId), C = (this.opts.savedParts ?? []).find((o) => o.id === I.partId), r = c?.category ?? C?.category;
+      const c = this.opts.allPartDefs.find((o) => o.id === I.partId), g = (this.opts.savedParts ?? []).find((o) => o.id === I.partId), r = c?.category ?? g?.category;
       return !!r && i.has(r);
     }, e = (a) => {
       const c = [];
@@ -2767,7 +2841,7 @@ let pe = class {
         const m = n / 48 * Math.PI * 2;
         c.push(new D.Vector3(Math.cos(m), Math.sin(m), 0));
       }
-      const C = new D.BufferGeometry().setFromPoints(c), r = new D.LineBasicMaterial({ color: a, depthTest: !1, transparent: !0, opacity: 0.85 }), o = new D.LineLoop(C, r);
+      const g = new D.BufferGeometry().setFromPoints(c), r = new D.LineBasicMaterial({ color: a, depthTest: !1, transparent: !0, opacity: 0.85 }), o = new D.LineLoop(g, r);
       return o.renderOrder = 1500, o.userData.editorOverlay = !0, o;
     }, t = new Set(this._pupilHelperRings.map((a) => a.instanceId));
     for (const [a] of this.partGroups) {
@@ -2781,8 +2855,8 @@ let pe = class {
     for (const e of this._pupilHelperRings) {
       const t = this.opts.placedParts.find((o) => o.instanceId === e.instanceId);
       if (!t) continue;
-      const a = t.scale * (t.scaleX ?? 1), I = t.scale * (t.scaleY ?? 1), c = t.position.x + (t.pivotOffsetX ?? 0) * a, C = t.position.y + (t.pivotOffsetY ?? 0) * I, r = (this.partGroups.get(e.instanceId)?.position.z ?? 0) + 0.5;
-      e.small.position.set(c, C, r), e.large.position.set(c, C, r), e.small.scale.setScalar(Math.max(1e-3, i)), e.large.scale.setScalar(Math.max(1e-3, s));
+      const a = t.scale * (t.scaleX ?? 1), I = t.scale * (t.scaleY ?? 1), c = t.position.x + (t.pivotOffsetX ?? 0) * a, g = t.position.y + (t.pivotOffsetY ?? 0) * I, r = (this.partGroups.get(e.instanceId)?.position.z ?? 0) + 0.5;
+      e.small.position.set(c, g, r), e.large.position.set(c, g, r), e.small.scale.setScalar(Math.max(1e-3, i)), e.large.scale.setScalar(Math.max(1e-3, s));
     }
   }
   dispose() {
@@ -2877,7 +2951,7 @@ let pe = class {
       const y = await a(m.partId);
       if (!y || this.disposed) continue;
       const { model: M, cat: d, isComp: z, isSpecPart: J } = y;
-      uA(M, m, z), J ? Ie(M) : d === "pupil" ? g0(M) : d === "sclera" ? C0(M) : d === "mouth" ? r0(M) : d === "eyelid" || d === "brows" ? n0(M) : d === "body" ? De(M) : d === "paint" ? ce(M) : d === "shadow" && ie(M);
+      bA(M, m, z), J ? Ie(M) : d === "pupil" ? g0(M) : d === "sclera" ? C0(M) : d === "mouth" ? r0(M) : d === "eyelid" || d === "brows" ? n0(M) : d === "body" ? De(M) : d === "paint" ? ce(M) : d === "shadow" && ie(M);
       const p = new D.Group();
       TA(p, M, m), p.add(M), A.scene.add(p), this.partGroups.set(m.instanceId, p);
     }
@@ -2886,43 +2960,43 @@ let pe = class {
       const y = e.find((M) => M.id === m.partId);
       return y ? { ...m, label: y.name } : m;
     }), c = async (m) => {
-      const y = I.filter((p) => t.find((b) => b.id === p.partId)?.category === m);
+      const y = I.filter((p) => t.find((u) => u.id === p.partId)?.category === m);
       if (y.length === 0) return;
-      const M = y[0].partId, d = y.filter((p) => p.partId === M), z = I.filter((p) => t.find((b) => b.id === p.partId)?.category === "sclera"), J = async (p, b, T) => {
+      const M = y[0].partId, d = y.filter((p) => p.partId === M), z = I.filter((p) => t.find((u) => u.id === p.partId)?.category === "sclera"), J = async (p, u, T) => {
         if (I.some((U) => U.partId === p)) return;
         const Y = p.toLowerCase().includes("closed") && z.length > 0 ? z : d;
         for (let U = 0; U < Y.length; U++) {
           if (this.disposed) return;
           try {
-            const u = await T();
-            uA(u, Y[U], !0), m === "pupil" ? g0(u) : m === "mouth" && r0(u);
+            const b = await T();
+            bA(b, Y[U], !0), m === "pupil" ? g0(b) : m === "mouth" && r0(b);
             const O = new D.Group();
-            O.visible = !1, TA(O, u, Y[U]), O.add(u);
+            O.visible = !1, TA(O, b, Y[U]), O.add(b);
             const v = `anim-synth-${m}-${p}-${U}`;
-            this.partGroups.set(v, O), A.scene.add(O), I.push({ ...Y[U], instanceId: v, partId: p, label: b });
+            this.partGroups.set(v, O), A.scene.add(O), I.push({ ...Y[U], instanceId: v, partId: p, label: u });
           } catch {
           }
         }
       };
-      for (const p of e.filter((b) => b.category === m))
+      for (const p of e.filter((u) => u.category === m))
         await J(p.id, p.name, () => jA(p));
-      for (const p of s.filter((b) => b.category === m)) {
-        const b = e.find((T) => T.id === p.id);
-        await J(p.id, p.label, b ? () => jA(b) : () => JA.loadPart(p));
+      for (const p of s.filter((u) => u.category === m)) {
+        const u = e.find((T) => T.id === p.id);
+        await J(p.id, p.label, u ? () => jA(u) : () => JA.loadPart(p));
       }
     };
     await c("mouth"), await c("pupil");
-    const C = I.filter((m) => t.find((y) => y.id === m.partId)?.category === "sclera"), r = C.length > 0 ? C : I.filter((m) => t.find((y) => y.id === m.partId)?.category === "eye");
+    const g = I.filter((m) => t.find((y) => y.id === m.partId)?.category === "sclera"), r = g.length > 0 ? g : I.filter((m) => t.find((y) => y.id === m.partId)?.category === "eye");
     if (r.length > 0 && !this.disposed) {
       for (const z of s.filter((J) => J.category === "sclera"))
         if (!I.some((J) => J.partId === z.id))
           for (let J = 0; J < r.length; J++) {
             if (this.disposed) return;
             try {
-              const p = e.find((Y) => Y.id === z.id), b = p ? await jA(p) : await JA.loadPart(z);
-              uA(b, r[J], !!p), C0(b);
+              const p = e.find((Y) => Y.id === z.id), u = p ? await jA(p) : await JA.loadPart(z);
+              bA(u, r[J], !!p), C0(u);
               const T = new D.Group();
-              T.visible = !1, TA(T, b, r[J]), T.add(b);
+              T.visible = !1, TA(T, u, r[J]), T.add(u);
               const h = `anim-synth-sclera-${z.id}-${J}`;
               this.partGroups.set(h, T), A.scene.add(T), I.push({ ...r[J], instanceId: h, partId: z.id, label: z.label });
             } catch {
@@ -2934,14 +3008,14 @@ let pe = class {
           for (let J = 0; J < r.length; J++) {
             if (this.disposed) return;
             try {
-              const p = e.find((Y) => Y.id === z.id), b = p ? await jA(p) : await JA.loadPart(z);
-              uA(
-                b,
+              const p = e.find((Y) => Y.id === z.id), u = p ? await jA(p) : await JA.loadPart(z);
+              bA(
+                u,
                 { ...r[J], gradient: void 0, color: d, castShadow: !1 },
                 !!p
-              ), te(b, { gradient: M, color: d }), n0(b);
+              ), te(u, { gradient: M, color: d }), n0(u);
               const T = new D.Group();
-              T.visible = !1, TA(T, b, r[J]), T.add(b);
+              T.visible = !1, TA(T, u, r[J]), T.add(u);
               const h = `anim-synth-eyelid-${z.id}-${J}`;
               this.partGroups.set(h, T), A.scene.add(T), I.push({ ...r[J], instanceId: h, partId: z.id, label: z.label });
             } catch {
@@ -2951,9 +3025,9 @@ let pe = class {
     let o = I;
     if (!this.disposed) {
       const m = (T) => {
-        const h = i.find((u) => u.instanceId === T);
+        const h = i.find((b) => b.instanceId === T);
         if (!h) return;
-        const Y = t.find((u) => u.id === h.partId), U = e.find((u) => u.id === h.partId);
+        const Y = t.find((b) => b.id === h.partId), U = e.find((b) => b.id === h.partId);
         return Y?.category ?? U?.category;
       }, y = /* @__PURE__ */ new Map();
       for (const T of i) {
@@ -2971,19 +3045,19 @@ let pe = class {
         }
         h.minY < d && (d = h.minY), (h.cat === "legs" || h.cat === "foot") && h.minY < M && (M = h.minY);
       }
-      const b = M !== 1 / 0 ? M : d;
-      if (b !== 1 / 0) {
-        const T = A.camera.bottom, Y = (z ? T + J / 2 : T) - b, U = z ? b - p : 0;
+      const u = M !== 1 / 0 ? M : d;
+      if (u !== 1 / 0) {
+        const T = A.camera.bottom, Y = (z ? T + J / 2 : T) - u, U = z ? u - p : 0;
         if (z && U !== 0) {
-          const u = this.partGroups.get(z);
-          u && (u.position.y += U);
+          const b = this.partGroups.get(z);
+          b && (b.position.y += U);
         }
         if (Math.abs(Y) > 0.01)
-          for (const u of this.partGroups.values())
-            u.position.y += Y;
-        (Math.abs(Y) > 0.01 || U !== 0) && (o = I.map((u) => {
-          const O = (u.instanceId === z ? U : 0) + Y;
-          return O === 0 ? u : { ...u, position: { ...u.position, y: u.position.y + O } };
+          for (const b of this.partGroups.values())
+            b.position.y += Y;
+        (Math.abs(Y) > 0.01 || U !== 0) && (o = I.map((b) => {
+          const O = (b.instanceId === z ? U : 0) + Y;
+          return O === 0 ? b : { ...b, position: { ...b.position, y: b.position.y + O } };
         }));
       }
     }
@@ -4611,6 +4685,11 @@ class ze {
   snapshot() {
     return this.shared.snapshot();
   }
+  /** Where the creature sits in its canvas at rest, as fractions of the canvas height —
+   *  see `restExtent` on the shared renderer. Null before the parts have loaded. */
+  restExtent() {
+    return this.shared.restExtent();
+  }
   /** No-op. Theme is locked to light. */
   setTheme(A) {
   }
@@ -4628,23 +4707,24 @@ class ze {
   }
 }
 const ke = L0(function({ config: A, size: i = 200, className: s, style: e, options: t, onReady: a }, I) {
-  const c = s0(null), C = s0(null);
+  const c = s0(null), g = s0(null);
   return f0(
     I,
     () => ({
-      play: (r) => C.current?.play(r),
-      wake: () => C.current?.wake(),
-      setRendering: (r) => C.current?.setRendering(r),
-      snapshot: () => C.current?.snapshot() ?? null,
-      setTheme: (r) => C.current?.setTheme(r),
+      play: (r) => g.current?.play(r),
+      wake: () => g.current?.wake(),
+      setRendering: (r) => g.current?.setRendering(r),
+      snapshot: () => g.current?.snapshot() ?? null,
+      restExtent: () => g.current?.restExtent() ?? null,
+      setTheme: (r) => g.current?.setTheme(r),
       get animations() {
-        return C.current?.animations ?? [];
+        return g.current?.animations ?? [];
       },
       get animationLabels() {
-        return C.current?.animationPlayer?.getAnimationLabels() ?? [];
+        return g.current?.animationPlayer?.getAnimationLabels() ?? [];
       },
       get renderer() {
-        return C.current;
+        return g.current;
       }
     }),
     []
@@ -4652,13 +4732,13 @@ const ke = L0(function({ config: A, size: i = 200, className: s, style: e, optio
     const r = c.current;
     if (!r) return;
     const o = new ze(r, A, { ...t ?? {}, size: i });
-    C.current = o;
+    g.current = o;
     let n = !1;
     return o.ready().then(() => {
-      n || a?.(o);
+      n || a?.(o, o.restExtent());
     }).catch(() => {
     }), () => {
-      n = !0, o.dispose(), C.current === o && (C.current = null);
+      n = !0, o.dispose(), g.current === o && (g.current = null);
     };
   }, [A, i, t, a]), /* @__PURE__ */ Y0(
     "canvas",
@@ -4836,10 +4916,10 @@ const ke = L0(function({ config: A, size: i = 200, className: s, style: e, optio
   "body-proof": { slots: [{ category: "sclera", x: [-119.67008659638556, -119.67008659638556], y: [38.0859375, 38.0859375], zDepth: 29, scale: [1.4, 2.166666666666667] }, { category: "arms", x: [233.7230045180723, 233.7230045180723], y: [-35.47765436746985, -35.47765436746985], zDepth: 0, scale: [0.7142857142857143, 0.7142857142857143] }, { category: "legs", x: [160.10650602409638, 160.10650602409638], y: [-120.64384224397591, -120.64384224397591], zDepth: 0, scale: [0.5714285714285715, 0.5714285714285715] }, { category: "sclera", x: [127.78849774096388, 127.78849774096388], y: [38.0859375, 38.0859375], zDepth: 29, scale: [1.4, 2.166666666666667], flip: !0 }, { category: "pupil", x: [-115.8108998493976, -115.8108998493976], y: [38.04475715361447, 38.04475715361447], zDepth: 37, scale: [1, 1] }, { category: "pupil", x: [123.92931099397592, 123.92931099397592], y: [38.04475715361447, 38.04475715361447], zDepth: 37, scale: [1, 1], flip: !0 }, { category: "spec", x: [-139.01308358433738, -139.01308358433738], y: [49.516425075301214, 49.516425075301214], zDepth: 45, scale: [1, 1] }, { category: "spec", x: [108.44550075301206, 108.44550075301206], y: [49.516425075301214, 49.516425075301214], zDepth: 45, scale: [1, 1] }, { category: "mouth", x: [1.229527484939759, 1.229527484939759], y: [-110.5751129518072, -110.5751129518072], zDepth: 37, scale: [1, 1] }, { category: "arms", x: [-225.60459337349397, -225.60459337349397], y: [-35.47765436746985, -35.47765436746985], zDepth: 0, scale: [0.7142857142857143, 0.7142857142857143], flip: !0 }, { category: "legs", x: [-151.98809487951806, -151.98809487951806], y: [-120.64384224397591, -120.64384224397591], zDepth: 0, scale: [0.5714285714285715, 0.5714285714285715], flip: !0 }, { category: "shadow", x: [-17763568394002505e-31, -17763568394002505e-31], y: [-268.9887864276151, -268.9887864276151], zDepth: -1, scale: [1, 1] }, { category: "brows", x: [-112.79296875000001, -112.79296875000001], y: [197.20091302710844, 197.20091302710844], zDepth: 45, scale: [0.65, 1], rotation: [-5, 7] }, { category: "brows", x: [120.91137989457833, 120.91137989457833], y: [197.20091302710844, 197.20091302710844], zDepth: 45, scale: [0.65, 1], flip: !0, rotation: [-7, 5] }, { category: "ear", x: [175.7871329066265, 175.7871329066265], y: [73.14967055722893, 73.14967055722893], zDepth: -1, scale: [0.55, 1], rotation: [-36, -36] }, { category: "ear", x: [-167.6687217620482, -167.6687217620482], y: [73.14967055722893, 73.14967055722893], zDepth: -1, scale: [0.55, 1], flip: !0, rotation: [-36, -36] }, { category: "nose", x: [1.294239457831325, 1.294239457831325], y: [-29.996940888554207, -29.996940888554207], zDepth: 45, scale: [0.4, 0.4] }], compatibleGradients: ["grad-e8d5b5-68412b", "grad-ecf8c6-68412b", "grad-fffbb9-68412b"], bodyZDepth: 0 },
   "body-derp-copy": { slots: [{ category: "sclera", x: [-92.54400414156626, -92.54400414156626], y: [-5, 30.755835843373493], zDepth: 18, scale: [0.95, 1.6666666666666667], linked: !1 }, { category: "sclera", x: [129.61219879518075, 129.61219879518075], y: [68.0652296686747, 68.0652296686747], zDepth: 18, scale: [1.6666666666666667, 1.6666666666666667], flip: !0, linked: !1 }, { category: "mouth", x: [-68, 81], y: [-92.06944967369482, -92.06944967369482], zDepth: 26, scale: [0.6, 1] }, { category: "pupil", x: [-89.85551581325302, -89.85551581325302], y: [28.090879141566266, 28.090879141566266], zDepth: 34, scale: [0.5, 1.75], linked: !1 }, { category: "pupil", x: [130.41227409638557, 130.41227409638557], y: [66.00621234939759, 66.00621234939759], zDepth: 34, scale: [1, 2.05], flip: !0, linked: !1 }, { category: "arms", x: [177.8993298192771, 177.8993298192771], y: [-32.12118222891567, -32.12118222891567], zDepth: 0, scale: [0.45, 1], linked: !1 }, { category: "legs", x: [-89.85298381024097, -89.85298381024097], y: [-146.29702560240966, -146.29702560240966], zDepth: 0, scale: [0.4, 0.7142857142857143], linked: !0 }, { category: "legs", x: [174.06090926204823, 174.06090926204823], y: [-134.14294051204823, -134.14294051204823], zDepth: 0, scale: [0.4, 0.7142857142857143], flip: !0, linked: !0 }, { category: "arms", x: [-164.13921121987954, -164.13921121987954], y: [-59.447283509036154, -59.447283509036154], zDepth: 0, scale: [0.4, 1], flip: !0, linked: !1 }, { category: "ear", x: [131.1241057981928, 131.1241057981928], y: [128.56665097891565, 128.56665097891565], zDepth: 0, scale: [0.75, 1], rotation: [-47, -47], linked: !1 }, { category: "ear", x: [-95.85608057228917, -95.85608057228917], y: [114.82418109939758, 114.82418109939758], zDepth: 0, scale: [0.75, 1], flip: !0, rotation: [-47, -47], linked: !1 }, { category: "brows", x: [-115.40497929216868, -115.40497929216868], y: [151.04951054216866, 151.04951054216866], zDepth: 42, scale: [0.7, 0.7], rotation: [11, 11], linked: !0 }, { category: "brows", x: [145.1901355421687, 145.1901355421687], y: [191.85923381024094, 191.85923381024094], zDepth: 42, scale: [0.7, 0.7], flip: !0, rotation: [8, 8], linked: !0 }, { category: "shadow", x: [-0.17648719879518487, -0.17648719879518487], y: [-331.7282058319586, -331.7282058319586], zDepth: -1, scale: [1, 1] }, { category: "horns", x: [9.400884789156628, 9.400884789156628], y: [175.59916615599323, 175.59916615599323], zDepth: 23, scale: [1, 1], linked: !1 }, { category: "horns", x: [148.79941641566265, 148.79941641566265], y: [-61.87330184099474, -61.87330184099474], zDepth: 6, scale: [0.4, 1], rotation: [-126, -126], linked: !1 }, { category: "horns", x: [-151.7644013554217, -151.7644013554217], y: [-120.3348511632839, -120.3348511632839], zDepth: 23, scale: [0.15, 0.65], flip: !0, rotation: [-137, -137], linked: !1 }, { category: "spec", x: [-123.82341867469887, -123.82341867469887], y: [51.29301969514982, 51.29301969514982], zDepth: 35, scale: [1, 1] }, { category: "spec", x: [98.33278426204814, 98.33278426204814], y: [88.60241352045104, 88.60241352045104], zDepth: 35, scale: [1, 1] }], bodyZDepth: 10 },
   "body-cloud": { slots: [{ category: "mouth", x: [8.912603539156626, 8.912603539156626], y: [-195.53605045180723, -195.53605045180723], zDepth: 18, scale: [1, 1] }, { category: "sclera", x: [-179.39923757530124, -179.39923757530124], y: [-33.77376694277108, -33.77376694277108], zDepth: 26, scale: [1.75, 3] }, { category: "sclera", x: [179.7639777861446, 179.7639777861446], y: [-33.77376694277108, -33.77376694277108], zDepth: 26, scale: [1.75, 3], flip: !0 }, { category: "pupil", x: [-179.39923757530124, -179.39923757530124], y: [-33.77376694277108, -33.77376694277108], zDepth: 34, scale: [1, 1] }, { category: "pupil", x: [179.7639777861446, 179.7639777861446], y: [-33.77376694277108, -33.77376694277108], zDepth: 34, scale: [1, 1], flip: !0 }, { category: "arms", x: [186.03538968373493, 186.03538968373493], y: [-192.27154932228913, -192.27154932228913], zDepth: 0, scale: [0.5, 1] }, { category: "arms", x: [-185.67064947289157, -185.67064947289157], y: [-192.27154932228913, -192.27154932228913], zDepth: 0, scale: [0.5, 1], flip: !0 }, { category: "legs", x: [-98.57867469879518, -98.57867469879518], y: [-228.6945538403615, -228.6945538403615], zDepth: 0, scale: [0.5, 0.75] }, { category: "legs", x: [98.94341490963855, 98.94341490963855], y: [-228.6945538403615, -228.6945538403615], zDepth: 0, scale: [0.5, 0.75], flip: !0 }, { category: "shadow", x: [-0.18824109111923767, -0.18824109111923767], y: [-476.4029689629348, -476.4029689629348], zDepth: -1, scale: [1, 1] }, { category: "ear", x: [231.16881588855424, 231.16881588855424], y: [17.444427710843396, 17.444427710843396], zDepth: -1, scale: [0.45, 1], rotation: [-53, -53] }, { category: "ear", x: [-230.80407567771087, -230.80407567771087], y: [17.444427710843396, 17.444427710843396], zDepth: -1, scale: [0.45, 1], flip: !0, rotation: [-53, -53] }, { category: "brows", x: [-175.8518448795181, -175.8518448795181], y: [163.9507247740964, 163.9507247740964], zDepth: 34, scale: [0.6, 1] }, { category: "brows", x: [176.21658509036146, 176.21658509036146], y: [163.9507247740964, 163.9507247740964], zDepth: 34, scale: [0.6, 1], flip: !0 }, { category: "nose", x: [-4.323936370481928, -4.323936370481928], y: [-96.03256777108433, -96.03256777108433], zDepth: 44, scale: [0.4, 0.4] }, { category: "spec", x: [-196.50084713855426, -196.50084713855426], y: [-9.912697665662694, -9.912697665662694], zDepth: 35, scale: [1, 1] }, { category: "spec", x: [162.6623682228916, 162.6623682228916], y: [-9.912697665662694, -9.912697665662694], zDepth: 35, scale: [1, 1] }, { category: "horns", x: [18.478209713855428, 18.478209713855428], y: [173.33349294327604, 173.33349294327604], zDepth: 26, scale: [1.4, 1.4], flip: !0 }], bodyZDepth: 10 }
-}, be = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+}, ue = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: Je
-}, Symbol.toStringTag, { value: "Module" })), ue = /* @__PURE__ */ Object.assign({ "/public/body-configs.json": be }), Te = Object.values(ue)[0]?.default ?? {}, Ne = Object.fromEntries(
+}, Symbol.toStringTag, { value: "Module" })), be = /* @__PURE__ */ Object.assign({ "/public/body-configs.json": ue }), Te = Object.values(be)[0]?.default ?? {}, Ne = Object.fromEntries(
   Object.entries(Te).filter(([l]) => !l.startsWith("_"))
 ), Oe = [
   "#F7E7CE",
@@ -4871,9 +4951,9 @@ function pA(l) {
 }
 let Le = 4;
 function fe(l, A, i, s, e) {
-  const t = e?.matchPairs ?? !0, a = e?.bodyConfigs ?? Ne, I = e?.partManifest ?? hA, c = e?.gradientManifest ?? Be, C = s?.filter((w) => w.category === "body"), r = /* @__PURE__ */ new Map();
+  const t = e?.matchPairs ?? !0, a = e?.bodyConfigs ?? Ne, I = e?.partManifest ?? hA, c = e?.gradientManifest ?? Be, g = s?.filter((w) => w.category === "body"), r = /* @__PURE__ */ new Map();
   for (const w of s ?? []) r.set(w.id, w);
-  const o = 0, n = 0, m = (w) => !!I.find((N) => N.id === w) || !!C?.find((N) => N.id === w);
+  const o = 0, n = 0, m = (w) => !!I.find((N) => N.id === w) || !!g?.find((N) => N.id === w);
   let y = null;
   if (l && a[l] && m(l))
     y = l;
@@ -4886,7 +4966,7 @@ function fe(l, A, i, s, e) {
   const M = a[y];
   let d = I.find((w) => w.id === y) ?? null;
   if (!d) {
-    const w = C?.find((N) => N.id === y);
+    const w = g?.find((N) => N.id === y);
     w && (d = {
       id: w.id,
       category: w.category || "body",
@@ -4899,15 +4979,15 @@ function fe(l, A, i, s, e) {
   if (!d)
     return console.warn(`[randomize] Body "${y}" not found in PART_MANIFEST or custom bodies`), [];
   const z = M.colorPalette && M.colorPalette.length > 0 ? M.colorPalette : Oe, J = [], p = pA(z) ?? void 0;
-  let b = null;
-  if (!b && c.length > 0) {
+  let u = null;
+  if (!u && c.length > 0) {
     let w = c;
     if (M.compatibleGradients && M.compatibleGradients.length > 0) {
       const F = new Set(M.compatibleGradients), R = c.filter((iA) => F.has(iA.id));
       R.length > 0 && (w = R);
     }
     const N = pA(w), W = r.get(y)?.layers.find((F) => !!F.gradient)?.gradient;
-    b = {
+    u = {
       startColor: N.startHex,
       endColor: N.endHex,
       angle: W?.angle ?? 0,
@@ -4930,10 +5010,10 @@ function fe(l, A, i, s, e) {
     pivotOffsetX: Y,
     pivotOffsetY: U,
     color: p,
-    ...b ? { gradient: b } : {}
+    ...u ? { gradient: u } : {}
   });
-  const u = (w) => {
-    const N = (C ?? []).filter((R) => (R.category || "eye") === w.category).map((R) => ({ id: R.id, category: R.category || "eye", label: R.name, glbPath: "", defaultZDepth: 10, defaultScale: 1 }));
+  const b = (w) => {
+    const N = (g ?? []).filter((R) => (R.category || "eye") === w.category).map((R) => ({ id: R.id, category: R.category || "eye", label: R.name, glbPath: "", defaultZDepth: 10, defaultScale: 1 }));
     let F = [...I.filter((R) => R.category === w.category), ...N];
     if (M.compatibleParts && M.compatibleParts.length > 0) {
       const R = new Set(M.compatibleParts);
@@ -4946,14 +5026,14 @@ function fe(l, A, i, s, e) {
     return F;
   }, O = /* @__PURE__ */ new Map(), v = /* @__PURE__ */ new Map(), $ = /* @__PURE__ */ new Map(), sA = /* @__PURE__ */ new Map(), eA = /* @__PURE__ */ new Map(), q = (w, N) => w[0] === N[0] && w[1] === N[1], tA = (w, N) => w[0] === -N[1] && w[1] === -N[0];
   p && (v.set("arms", p), v.set("legs", p));
-  const IA = (w) => w.parts && w.parts.length > 0 ? `${w.category}:${[...w.parts].sort().join(",")}` : w.category, g = (() => {
+  const IA = (w) => w.parts && w.parts.length > 0 ? `${w.category}:${[...w.parts].sort().join(",")}` : w.category, C = (() => {
     let w = I.filter((N) => N.category === "pupil");
     if (M.compatibleParts && M.compatibleParts.length > 0) {
       const N = new Set(M.compatibleParts);
       w = w.filter((W) => N.has(W.id));
     }
     return w;
-  })(), P = g.find((w) => /(^|-)pupil-round(-|$|\.)/i.test(w.id)) ?? g.find((w) => /round/i.test(w.id)) ?? g[0] ?? null, j = (w, N, W, F) => {
+  })(), P = C.find((w) => /(^|-)pupil-round(-|$|\.)/i.test(w.id)) ?? C.find((w) => /round/i.test(w.id)) ?? C[0] ?? null, j = (w, N, W, F) => {
     if (!P) return;
     const R = WA(P.id, 0), iA = SA(P.id, 0), AA = EA(P.id, 1), oA = F ? -AA : AA, PA = w - R * oA, wA = N - iA * AA;
     J.push({
@@ -4975,7 +5055,7 @@ function fe(l, A, i, s, e) {
     if (w.category === "pupil" && !Z || !V.has(w.category) && Q.get(w.category) === !1) continue;
     let N = O.get(IA(w));
     if (!N) {
-      const f = u(w);
+      const f = b(w);
       let k = null;
       if (w.category === "mouth" ? k = f.find((S) => /(^|-)mouth-flat(-|$|\.)/i.test(S.id)) ?? f.find((S) => /flat/i.test(S.id)) ?? f[0] ?? null : w.category === "pupil" ? k = f.find((S) => /(^|-)pupil-round(-|$|\.)/i.test(S.id)) ?? f.find((S) => /round/i.test(S.id)) ?? f[0] ?? null : k = pA(f), !k) continue;
       N = k, O.set(IA(w), N);
@@ -5021,14 +5101,14 @@ function fe(l, A, i, s, e) {
       let k = v.get(f);
       k || (k = pA(z) ?? void 0, k && v.set(f, k)), fA = k;
     }
-    if (b && !J0) {
+    if (u && !J0) {
       const f = r.get(N.id)?.layers.find((k) => !!k.gradient)?.gradient?.angle;
       yA = {
-        ...b,
-        angle: f ?? b.angle
+        ...u,
+        angle: f ?? u.angle
       };
     }
-    const zA = WA(N.id, 0), VA = SA(N.id, 0), UA = t0(N.id, 1), ZA = I0(N.id, 1), b0 = (w.x[0] + w.x[1]) / 2, BA = w.flip !== void 0 ? !!w.flip : w.category === "arms" && b0 < 0, $A = BA ? -UA : UA, u0 = BA ? -lA : lA, T0 = BA ? -mA : mA, N0 = F - zA * u0, A0 = R - VA * lA;
+    const zA = WA(N.id, 0), VA = SA(N.id, 0), UA = t0(N.id, 1), ZA = I0(N.id, 1), u0 = (w.x[0] + w.x[1]) / 2, BA = w.flip !== void 0 ? !!w.flip : w.category === "arms" && u0 < 0, $A = BA ? -UA : UA, b0 = BA ? -lA : lA, T0 = BA ? -mA : mA, N0 = F - zA * b0, A0 = R - VA * lA;
     if (J.push({
       instanceId: NA(),
       partId: N.id,

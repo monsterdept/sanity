@@ -15,6 +15,8 @@ export function AgentMascot({
   events,
   state,
   gaze,
+  project,
+  remint,
 }: {
   size?: number
   events: AgentCall[]
@@ -22,12 +24,23 @@ export function AgentMascot({
   /** Unit directions to look at in turn, or null to look around on its own — see
    *  `MascotFigure`. */
   gaze?: Array<{ x: number; y: number }> | null
+  /** Which repo this creature belongs to, and a counter the sidebar bumps to mint a new
+   *  one — see `MascotFigure`. */
+  project?: string | null
+  remint?: number
 }) {
   return (
     <Suspense
       fallback={<span style={{ width: size, height: size }} className="shrink-0" aria-hidden />}
     >
-      <MascotFigure size={size} events={events} state={state} gaze={gaze} />
+      <MascotFigure
+        size={size}
+        events={events}
+        state={state}
+        gaze={gaze}
+        project={project}
+        remint={remint}
+      />
     </Suspense>
   )
 }

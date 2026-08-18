@@ -27,6 +27,7 @@ export function SideBar({
   onAdd,
   onRead,
   onForget,
+  onRemintMascot,
   onError,
   onReplay,
   replayKey = null,
@@ -53,6 +54,8 @@ export function SideBar({
   onRead: (key: string) => void
   /** Take a project out of the list. Not a delete — see `forgetProject`. */
   onForget: (key: string) => void
+  /** Throw this project's creature away; the next look at the map mints another. */
+  onRemintMascot: (key: string) => void
   /** Report a refused action. The rows can fail — stopping a run, cancelling a replay — and
    *  the window owns the one place failures are said out loud. */
   onError: (message: string) => void
@@ -401,6 +404,22 @@ export function SideBar({
                 Re-trace history
               </button>
             )}
+            {/* **Named, in the project's own menu.** It used to be six clicks on the
+                creature itself — a gesture with nothing to discover it by and nothing to
+                say what it did, on a decoration sitting next to a real button. A creature
+                belongs to its repo, so the place to ask for another one is the repo's row.
+                No confirmation: the blueprint is random, so the old one cannot be described
+                in a dialog, and another is one more click. */}
+            <button
+              type="button"
+              className="block w-full px-3 py-1 text-left hover:bg-[var(--secondary)]"
+              onClick={() => {
+                onRemintMascot(menu.key)
+                setMenu(null)
+              }}
+            >
+              New monster
+            </button>
             <button
               type="button"
               className="block w-full px-3 py-1 text-left hover:bg-[var(--secondary)]"

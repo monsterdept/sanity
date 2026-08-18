@@ -575,12 +575,13 @@ pub fn project_scan(
 pub fn file_functions(
     state: tauri::State<'_, crate::agentapi::Shared>,
     key: String,
-    path: String,
-) -> Vec<crate::model::Node> {
+    paths: Vec<String>,
+) -> std::collections::HashMap<String, Vec<crate::model::Node>> {
+    let want: std::collections::HashSet<String> = paths.into_iter().collect();
     crate::agentapi::lock(&state)
         .projects
         .get(&key)
-        .map(|p| p.scan.root.functions_of(&path))
+        .map(|p| p.scan.root.functions_of(&want))
         .unwrap_or_default()
 }
 

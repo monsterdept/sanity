@@ -13,6 +13,7 @@
 //! — see the field docs.
 
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 /// Languages we can actually parse into functions. A file in any other language still
 /// appears in the sunburst as a file-sized wedge — it just has no inner ring and no
@@ -682,12 +683,26 @@ impl Node {
         }
     }
 
-    /// The functions of one file, by its path. Empty for a path this tree does not hold.
-    pub fn functions_of(&self, path: &str) -> Vec<Node> {
-        let mut out = Vec::new();
+    /// The functions of several files, by path. A path this tree does not hold is absent.
+    ///
+    /// **One walk for the whole request, and that is the entire point of taking a set.** It
+    /// took a single path and walked the tree to find it — the whole tree, with no early
+    /// exit, comparing a string at every node. Drilling into a directory asks for every file
+    /// wide enough to show an inside, so one click on `drivers/net/ethernet/mellanox/mlx5`
+    /// walked all of linux once per file: a fixed two seconds, dominated by the size of the
+    /// repo rather than of the directory, which is why it was the same two seconds wherever
+    /// you went. Sixty walks became one.
+    ///
+    /// The lock is held for the duration by the caller, so the cost is not only the caller's
+    /// — a walk per file is also a walk per file that nothing else can take the state during.
+    pub fn functions_of(&self, paths: &HashSet<String>) -> HashMap<String, Vec<Node>> {
+        let mut out = HashMap::new();
+        if paths.is_empty() {
+            return out;
+        }
         self.visit(&mut |n| {
-            if n.kind == NodeKind::File && n.path == path {
-                out = n.children.clone();
+            if n.kind == NodeKind::File && paths.contains(&n.path) {
+                out.insert(n.path.clone(), n.children.clone());
             }
         });
         out

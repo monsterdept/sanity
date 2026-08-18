@@ -41,6 +41,7 @@ import {
 } from './lib/history'
 import { Deltas, Funcs, baseWatermark, historyScoped, historyTables, type Tables } from './lib/timeline'
 import { Sunburst } from './components/Sunburst'
+import { forgetMonster } from './lib/monster'
 import { onScanShape, shapeTree, type ShapeFile } from './lib/shape'
 import type { MascotState } from './components/MascotFigure'
 import { CommitLog } from './components/CommitLog'
@@ -197,6 +198,14 @@ function parentOf(node: Node, id: string): Node | null {
 
 export default function App() {
   const [scan, setScan] = useState<Scan | null>(null)
+  /** Ticks when a tree ARRIVES from the backend — a different project, a rescan, or none.
+   *
+   *  **Not the same event as `scan` changing.** Readings and streamed scores are folded INTO
+   *  the tree on screen, which produces a new object for the same repo several times a
+   *  minute; a tree arriving is a different repo, or the same one rebuilt. The two are
+   *  indistinguishable by identity and have opposite consequences for anything cached
+   *  against the tree — see the effect that drops the function rings. */
+  const [treeRev, setTreeRev] = useState(0)
   const [error, setError] = useState<string | null>(null)
   /** A repo just added by hand, waiting for its scan to reach the project list.
    *
@@ -407,6 +416,7 @@ export default function App() {
           ])
           mark('tree')
           if (!s) return
+          setTreeRev((n) => n + 1)
           setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
           return
         }
@@ -429,6 +439,7 @@ export default function App() {
         shownRev.current = rev
         const [s, reports] = await Promise.all([projectScan(here), agentReports(here)])
         if (!s) return
+        setTreeRev((n) => n + 1)
         setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
       })
     }
@@ -697,6 +708,7 @@ export default function App() {
       // longer holds — with nothing left to select to get rid of it.
       if (activeKey === key) {
         setActiveKey(null)
+        setTreeRev((n) => n + 1)
         setScan(null)
         setStack([])
         setPicked(null)
@@ -833,10 +845,13 @@ export default function App() {
    *  identity per poll is a re-render of the whole map twice a minute to carry a list that
    *  did not change. The last call's `seq` is the one thing that moves when it does. */
   const lastCall = agent.events.length > 0 ? agent.events[agent.events.length - 1].seq : 0
+  /** Bumped when somebody asks the sidebar for a new creature — see `remintMascot`. The
+   *  blueprint itself lives in storage, per project, so this only has to say "look again". */
+  const [remint, setRemint] = useState(0)
   const mascot = useMemo(
-    () => ({ events: agent.events, state: mascotState }),
+    () => ({ events: agent.events, state: mascotState, project: activeKey, remint }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lastCall, mascotState],
+    [lastCall, mascotState, activeKey, remint],
   )
 
   useEffect(() => onHistoryProgress(setHistoryProgress), [])
@@ -1093,9 +1108,18 @@ export default function App() {
     // the cache before the backend holds the functions to answer with (see
     // `AppState::shallow`), so those fetches come back empty. Kept, they would be a file
     // whose ring never arrives — the emptiness cached as if it were an answer.
+    //
+    // **`treeRev`, and emphatically not `scan`.** A tree ARRIVING is what invalidates these;
+    // `scan` also changes every time readings or streamed scores are folded into the tree
+    // already on screen, which is a new object describing the same files. Keyed on `scan`,
+    // this fired on the 2s reading poll: a repo with any readings at all threw away every
+    // function ring twice a minute, redrew without them, and re-fetched — a map at rest
+    // flickering on a two-second period, which is the timer's signature and not the
+    // renderer's. Measured off a screen recording: 891 functions, then 0, then 891.
     asked.current.clear()
+    landed.current = new Map()
     setFns(new Map())
-  }, [activeKey, scan])
+  }, [activeKey, treeRev])
   /** The tree with whatever rings have arrived spliced in.
    *
    *  Rebuilt when a fetch lands rather than mutated: every consumer below memoises on the
@@ -1103,12 +1127,26 @@ export default function App() {
    *  believing a different version of the same repo. */
   const filled = useMemo(() => {
     if (!drawn || fns.size === 0) return drawn
+    // **Only the branches that changed are rebuilt.** It cloned every node it walked, so a
+    // ring arriving for one file in `drivers/net/ethernet/mellanox` produced a fresh copy of
+    // all of linux — tens of thousands of objects — and handed every consumer below a tree
+    // whose every node was new, defeating each of their memos in turn. Returning `n` itself
+    // when nothing underneath it moved keeps the untouched 99% shared by reference, which is
+    // what those memos are for; identity still changes all the way up from a real graft, so
+    // the rule this rests on holds — a node is a new object exactly when it means something
+    // new.
     const graft = (n: Node): Node => {
       if (n.kind === 'file') {
         const got = fns.get(n.path)
         return got ? { ...n, children: got, funcs: 0 } : n
       }
-      return { ...n, children: n.children.map(graft) }
+      let moved = false
+      const kids = n.children.map((c) => {
+        const next = graft(c)
+        if (next !== c) moved = true
+        return next
+      })
+      return moved ? { ...n, children: kids } : n
     }
     return graft(drawn)
   }, [drawn, fns])
@@ -1198,19 +1236,63 @@ export default function App() {
     if (codeFile) want.push(codeFile)
 
     const key = activeKey
-    for (const path of want) {
-      if (asked.current.has(path)) continue
-      asked.current.add(path)
-      void fileFunctions(key, path)
-        .then((got) => {
-          // Ignore an answer for a project nobody is looking at any more: the fetch is slow
-          // enough to outlive a click on another row.
-          if (activeRef.current !== key) return
-          setFns((prev) => new Map(prev).set(path, got))
-        })
-        .catch(() => asked.current.delete(path))
-    }
-  }, [activeKey, focus, codeFile])
+    // **`asked` means IN FLIGHT, and `fns` is the record of what arrived.** It used to mean
+    // "asked for at some point", which is the same thing only while nothing is ever dropped
+    // — and rings are dropped, every time a tree arrives and the clear below empties `fns`.
+    // A path caught between landing and being flushed was then in neither: not in `fns`, so
+    // nothing drew it, and still in `asked`, so nothing asked again. The panel sat empty
+    // until something unrelated moved. Split, the same accident is self-correcting: a ring
+    // that goes missing is a path that is neither held nor in flight, which is exactly the
+    // condition for asking.
+    //
+    // **One call for the whole drill.** Rust finds these by walking the tree, so asking file
+    // by file walked all of linux once per file — see `fileFunctions`.
+    const fresh = want.filter((path) => !fns.has(path) && !asked.current.has(path))
+    if (fresh.length === 0) return
+    for (const path of fresh) asked.current.add(path)
+    void fileFunctions(key, fresh)
+      .then((got) => {
+        for (const path of fresh) asked.current.delete(path)
+        // Ignore an answer for a project nobody is looking at any more: the fetch is slow
+        // enough to outlive a click on another row.
+        if (activeRef.current !== key) return
+        // **Parked, not applied.** Applying them as they arrive meant one rebuild of the
+        // tree apiece — see `landed`.
+        for (const [path, ring] of got) landed.current.set(path, ring)
+      })
+      .catch(() => {
+        for (const path of fresh) asked.current.delete(path)
+      })
+    // `fns` is a dependency because it is now half the question: what has arrived decides
+    // what is still worth asking for, so a flush has to re-open it.
+  }, [activeKey, focus, codeFile, fns])
+
+  /** Rings that have arrived and are waiting to be spliced in together.
+   *
+   *  **Drilling asks for every file in a directory at once, and each answer used to cost a
+   *  rebuild of the whole repo.** `filled` walks the tree to graft, so applying sixty
+   *  answers one at a time walked linux's tree sixty times, re-laid the sunburst out sixty
+   *  times, and re-rendered every arc sixty times — for one drill. That is the delay, and it
+   *  scales with how interesting the directory is.
+   *
+   *  Batched on the same argument as the streamed scores and the shape above, and drained
+   *  BEFORE the updater rather than inside it: an updater with a side effect is called twice
+   *  under StrictMode and the second call keeps the result — which is how the assembling map
+   *  came to stay empty for a whole afternoon. */
+  const landed = useRef<Map<string, Node[]>>(new Map())
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const batch = landed.current
+      if (batch.size === 0) return
+      landed.current = new Map()
+      setFns((prev) => {
+        const next = new Map(prev)
+        for (const [path, got] of batch) next.set(path, got)
+        return next
+      })
+    }, 120)
+    return () => clearInterval(timer)
+  }, [])
 
   /** What the timeline has been narrowed to: the path of whatever the rings are rooted
    *  at, and `''` at the top. Drilling into a directory asks a narrower question — "how
@@ -1266,7 +1348,22 @@ export default function App() {
    *  twice — and, being fresh objects, they defeated any memo on the components below.
    *  `Sunburst` renders every arc in the repo, so that is the difference between opening a
    *  dialog and rebuilding the map behind it. */
-  const ranks = useMemo(() => (tree ? rankCategories(tree, viewMode) : undefined), [tree, viewMode])
+  /** **Ranked over what is on screen, not over the repo.** The eight slots go to the eight
+   *  biggest categories, and which eight that is depends entirely on where you are standing:
+   *  in `drivers/net/ethernet/broadcom` the repo's top eight authors are Alex Deucher and
+   *  Jani Nikula and six others who have never touched it, so three colours were spent and
+   *  the people who actually wrote the directory — 250 lines, 178 lines — were grey. A map
+   *  that answers "who wrote this" with `other` for its own authors is not answering.
+   *
+   *  The cost is that an author is not promised one colour for the whole repo: drill in and
+   *  the same person may take a different slot, or arrive from `other`. That is the right
+   *  trade — the palette is eight slots deep against repos with thousands of authors, so a
+   *  stable colour was never on offer past the top eight anyway, and what it bought was a
+   *  drilled view coloured for somewhere else. */
+  const ranks = useMemo(() => {
+    const at = focus ?? tree
+    return at ? rankCategories(at, viewMode) : undefined
+  }, [focus, tree, viewMode])
   /** The repo's own span for the age ramp. Never consulted during a replay: a frame's
    *  colour is a flare measured in commits, not a position on this scale — see
    *  `Score.recency`. */
@@ -1542,6 +1639,10 @@ export default function App() {
           onRead={(key) => setReadFor(key)}
           onAdd={addProject}
           onForget={forget}
+          onRemintMascot={(key) => {
+            forgetMonster(key)
+            setRemint((n) => n + 1)
+          }}
           onError={setError}
           onReplay={trace}
           onSelect={(key) => {
@@ -1569,9 +1670,11 @@ export default function App() {
             void Promise.all([projectScan(key), agentReports(key)]).then(([s, reports]) => {
               if (!s) {
                 // Nothing to draw yet; the poll picks it up when the rescan lands.
+                setTreeRev((n) => n + 1)
                 setScan(null)
                 return
               }
+              setTreeRev((n) => n + 1)
               setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
             })
           }}
@@ -1732,7 +1835,12 @@ export default function App() {
                 <ColorLegend
                   mode={viewMode}
                   history={replaying}
-                  categories={tree ? legendFor(tree, viewMode) : []}
+                  // From `focus`, like the ranks it has to agree with — a legend naming
+                  // eight authors the rings in front of you do not contain is annotating a
+                  // picture nobody is looking at. The comment below said this before the
+                  // code did: it was true of the counts and not of the categories, which
+                  // came from the whole scan.
+                  categories={focus ? legendFor(focus, viewMode) : []}
                   // Counted from `focus`, not the whole scan: drilled into one
                   // directory, the legend has to describe the rings in front of you or
                   // it is annotating a picture nobody is looking at.

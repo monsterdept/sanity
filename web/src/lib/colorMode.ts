@@ -651,6 +651,27 @@ export function bucketsFor(
     // the functions, and the list counts what the dial above it counts. Only Docs: `legible`
     // and `trap` are never sent on a file reading (see `FILE_ASK`), and the other lenses ask
     // questions a file has no answer to.
+    // A file stands in for its own functions when they have not arrived — see `legendFor`,
+    // which ranks the colours this fills in. Only where a file has an answer of its own:
+    // its author and its language are its own, while a grade is its functions'.
+    if (
+      n.kind === 'file' &&
+      !outOfScope &&
+      n.funcs > 0 &&
+      (mode === 'blame' || mode === 'language')
+    ) {
+      // The same three cases the function branch below spells out, and deliberately the
+      // same words: a row must not depend on whether the ring happened to be fetched.
+      const key = mode === 'blame' ? n.lastAuthor : n.lang
+      if (key && (mode !== 'blame' || isAuthor(key))) {
+        const rank = ranks?.get(key)
+        put(key, key, rank === undefined ? OTHER : slotColor(rank), n)
+      } else if (mode === 'blame' && key) {
+        put('\u0000uncommitted', 'uncommitted lines', 'var(--unanalyzed)', n)
+      } else {
+        put(UNKNOWN, mode === 'blame' ? 'no blame' : 'no language', 'var(--unanalyzed)', n)
+      }
+    }
     if (n.kind === 'file' && !outOfScope && mode === 'docs') {
       const g = docGrade(n)
       if (g) put(g, DOC_WORDS[g], heatColor(DOC_GAP[g], 'docs'), n)
@@ -770,8 +791,21 @@ export function legendFor(root: Node, mode: ColorMode): string[] {
   const seen = new Map<string, number>()
   const walk = (n: Node) => {
     const key = mode === 'blame' ? n.lastAuthor : n.lang
+    // **A file counts for itself when its ring has not arrived.** `funcs > 0` is exactly
+    // that test — it is the count a file carries INSTEAD of its children (see `Node.funcs`)
+    // — and it is the difference between a legend and an empty box. Rings are fetched only
+    // for files wide enough to draw an inside, so at the root of a large repo there are no
+    // function nodes at all: linux's ranking came out empty, every author fell to `other`,
+    // and the map went grey. Worse, after drilling and coming back it ranked whatever
+    // subtree had been visited, under the root's name.
+    //
+    // It is not an approximation. A file's `lastAuthor` is its own, and the map already
+    // paints a file's band with it rather than with a mixture of its functions — so this
+    // makes the legend agree with what is drawn. Deepest available unit, the same rule the
+    // flash and the gaze follow.
+    const speaks = n.kind === 'func' || (n.kind === 'file' && n.funcs > 0)
     // Uncommitted lines never enter the ranking, so they cannot hold a color slot.
-    if (key && n.kind === 'func' && (mode !== 'blame' || isAuthor(key))) {
+    if (key && speaks && (mode !== 'blame' || isAuthor(key))) {
       seen.set(key, (seen.get(key) ?? 0) + n.loc)
     }
     n.children.forEach(walk)
