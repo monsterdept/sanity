@@ -29,8 +29,8 @@ function Legend({
             it is the loud one and the order on the key should match the order the eye
             picks them out in. */}
         {[
-          ['--birth', 'new here'],
-          ['--touch', 'touched'],
+          ['--birth', 'new'],
+          ['--touch', 'changed'],
         ].map(([token, word]) => (
           <span key={token} className="flex items-center gap-1">
             <span

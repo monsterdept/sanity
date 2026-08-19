@@ -21,6 +21,7 @@ import {
   onInstallCli,
   onOpenProject,
   pickProject,
+  repoRemote,
   scanRepo,
   onSetTheme,
   syncThemeMenu,
@@ -43,6 +44,7 @@ import {
 } from './lib/history'
 import { Deltas, Funcs, baseWatermark, historyScoped, historyTables, type Tables } from './lib/timeline'
 import { Sunburst } from './components/Sunburst'
+import type { Staged } from './lib/movie'
 import { forgetMonster } from './lib/monster'
 import { onScanShape, shapeTree, type ShapeFile } from './lib/shape'
 import type { MascotState } from './components/MascotFigure'
@@ -1144,7 +1146,7 @@ export default function App() {
    *  `movie.ts`), which is the whole reason it cannot drift from the map — so asking it for
    *  a denser picture means making the picture on screen denser for the duration. It is
    *  behind the dialog while that happens, and it goes back when the export ends. */
-  const [staged, setStaged] = useState<number | null>(null)
+  const [staged, setStaged] = useState<Staged | null>(null)
   /** The pane's measured side, so a staged export knows how much denser it is than this. */
   const [paneSide, setPaneSide] = useState(0)
 
@@ -1170,7 +1172,7 @@ export default function App() {
             activeProject?.name ?? 'repo',
             stepFrom(histIndex),
             drilled,
-            staged && paneSide > 0 ? staged / paneSide : 1,
+            staged && paneSide > 0 ? staged.px / paneSide : 1,
           )
         : null,
     // The NAME, not the project row. `listProjects` hands back fresh objects every poll,
@@ -1439,6 +1441,25 @@ export default function App() {
    *  Read off `focus`, so the scope follows the picture rather than being a second place
    *  the user has to say where they are. */
   const scope = historyOn && focus && tree && focus.id !== tree.id ? focus.path : ''
+
+  /** The repo's remote as `owner/name`, for the caption on an exported movie — or null
+   *  where there is no remote to name.
+   *
+   *  Asked once per repo rather than carried on the project row: it is one `git` call, the
+   *  only thing that reads it is an export, and a field on a row that is re-fetched on a
+   *  poll is a value re-fetched on a poll. */
+  const [remote, setRemote] = useState<string | null>(null)
+  useEffect(() => {
+    setRemote(null)
+    if (!repoPath) return
+    let live = true
+    void repoRemote(repoPath).then((r) => {
+      if (live) setRemote(r)
+    })
+    return () => {
+      live = false
+    }
+  }, [repoPath])
 
   /** The commits in scope, as indices into the full timeline.
    *
@@ -1855,7 +1876,15 @@ export default function App() {
           {tree && focus && <Crumbs trail={trail} onGo={goTo} onUp={goUp} />}
 
           <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-            <div className="relative z-10 h-full">
+            {/* **The export's ground goes here, not on the document.** A recording is a copy
+                of the map on screen, so a light file wants a light map — and putting that on
+                `<html>` turned the whole app light in front of somebody who had asked for a
+                file. The palettes are custom properties and custom properties inherit, so
+                one class on the pane dresses everything the map paints with and nothing
+                else. See `Staged`, and the `.light` selector in `index.css`. */}
+            <div
+              className={`relative z-10 h-full bg-[var(--background)]${staged ? ` ${staged.ground}` : ''}`}
+            >
             {error ? (
               <div className="flex h-full items-center justify-center p-6">
                 <p className="max-w-[40ch] text-center text-sm text-[var(--destructive)]">
@@ -1886,7 +1915,21 @@ export default function App() {
                 // to `focus` would make a wedge change color on the way in, which is the
                 // one thing drilling must not do.
                 ageSpan={ageSpan}
-                reading={readingNow}
+                // **Never into a replay**, and this is the creature's argument running the
+                // other way. A lease says a reader is opening THIS function right now, and
+                // the marker is keyed by path — `path` for the file, `path#name` for the
+                // function — so on a frame from 2019 it lights whatever happens to sit at
+                // that path in 2019, which is frequently a different function and sometimes
+                // one that has nothing to do with the work. That is a measurement stamped
+                // onto code nobody measured, the same sin as a stale reading keeping its
+                // colour, and it reached a person as black wedges flashing through an
+                // exported movie of a repo's first year.
+                //
+                // Keyed on `replaying` rather than `historyOn` for the reason the lens and
+                // the legend are: the request comes a few hundred milliseconds before the
+                // first frame, and until that frame exists the live map is still on screen,
+                // where the marks are about exactly the wedges they are sitting on.
+                reading={replaying ? undefined : readingNow}
                 // **Through the replay too.** It was held back on the grounds that a run is a
                 // fact about the repo as it is NOW, and a creature working away over a frame
                 // from 2019 would be the claim a replayed temperature would be. That reads
@@ -1901,7 +1944,7 @@ export default function App() {
                 // somebody who is reading it, and sliding the wedges there would animate a
                 // measurement arriving rather than a story advancing.
                 morph={replaying}
-                density={staged}
+                density={staged?.px ?? null}
                 onSide={setPaneSide}
                 sortBy={headOrder}
                 onSelect={pick}
@@ -2013,6 +2056,11 @@ export default function App() {
               duration={duration}
               onDuration={setDuration}
               name={scope || (activeProject?.name ?? 'history')}
+              // What an exported movie is captioned with: the repo, as the world knows it,
+              // and where in it the replay is standing. Both go to the caption; `name`
+              // above is the FILENAME, which wants the drilled path and not the owner.
+              slug={remote ?? activeProject?.name ?? 'repo'}
+              scope={scope}
               onStage={setStaged}
               // The whole timeline, for an export — the transport's own `onIndex` fetches
               // the block under the playhead and returns, which is right for watching and
@@ -2023,6 +2071,12 @@ export default function App() {
                 await held.deltas.ensure(i, setLoaded)
                 setLoaded(held.deltas.have())
               }}
+              // The commit's own date, for the timeline in an exported movie. Null before
+              // the window: the opening state is everything the truncated commits built and
+              // has no date it can honestly carry — the same reason those functions draw
+              // uncoloured. `ensure` has already been awaited by then, so the block holding
+              // it is here.
+              dateOf={(i) => (i < 0 ? null : (history?.deltas.at(i)?.ts ?? null))}
             />
           )}
         </main>

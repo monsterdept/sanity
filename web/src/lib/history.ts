@@ -461,6 +461,20 @@ function aggregate(node: Node, appearedOf: (id: string) => number | null): void 
   for (const c of node.children) aggregate(c, appearedOf)
   node.loc = node.children.reduce((s, c) => s + c.loc, 0)
 
+  // Is there an event anywhere under here — see `Node.birthBelow`. Rolled up in the same
+  // walk because it is the same walk: a second pass over a repo the size of ceph, thirty
+  // times a second, to answer two booleans is the kind of timer this module already has a
+  // rule about. Descendant-or-self on the children, so a file that was BORN is carried by
+  // the directory above it even though a container's own flash never rolls up as colour.
+  let birthBelow = false
+  let touchBelow = false
+  for (const c of node.children) {
+    birthBelow = birthBelow || c.birthBelow === true || c.score?.appeared != null
+    touchBelow = touchBelow || c.touchBelow === true || c.score?.edited != null
+  }
+  node.birthBelow = birthBelow
+  node.touchBelow = touchBelow
+
   let w = 0
   let churn = 0
   let age: number | null = null
@@ -469,6 +483,11 @@ function aggregate(node: Node, appearedOf: (id: string) => number | null): void 
   for (const c of node.children) {
     const s = c.score
     if (!s) continue
+    // The fold's stand-in carries a flash and nothing else — see where it is built. Its
+    // zeroes are not measurements and must not be averaged in; its LINES already reach
+    // this file through `node.loc` above, which is what keeps a file the size it is
+    // whatever its inside looks like.
+    if (c.rest !== undefined) continue
     const cw = Math.max(c.loc, 1)
     w += cw
     churn += s.churn * cw
@@ -718,6 +737,15 @@ export function frameTree(
   /** Lines and count rolled up per file, for the stand-in wedges below. */
   const restLoc = new Map<number, number>()
   const restCount = new Map<number, number>()
+  /** ...and whether anything folded into that stand-in flashed on this frame.
+   *
+   *  Without this a replay of a large repo shows nothing at all. `minLoc` drops a function
+   *  before it is ever a node, and on a repo the size of home-assistant it drops every one
+   *  of them — so the commit under the playhead had nowhere to land and the map sat grey
+   *  while the log scrolled past. The stand-in is what the fold left standing in for that
+   *  function, so it is what carries the event. */
+  const restBirth = new Set<number>()
+  const restEdit = new Set<number>()
 
   // In interned order — see `Frame.order`, which is kept that way as commits land rather
   // than rebuilt here.
@@ -733,6 +761,10 @@ export function frameTree(
     if (loc < (inScope && inScope.has(def.path) ? scopeMin : minLoc)) {
       restLoc.set(def.path, (restLoc.get(def.path) ?? 0) + loc)
       restCount.set(def.path, (restCount.get(def.path) ?? 0) + 1)
+      const bornAt = frame.bornAt.get(f)
+      const editAt = frame.editedAt.get(f)
+      if (bornAt !== undefined && inStep(bornAt, since, frame.at)) restBirth.add(def.path)
+      if (editAt !== undefined && inStep(editAt, since, frame.at)) restEdit.add(def.path)
       continue
     }
     const file = fileFor(def.path)
@@ -787,6 +819,8 @@ export function frameTree(
   for (const [p, lines] of restLoc) {
     const path = hist.paths[p]
     const count = restCount.get(p) ?? 0
+    const birth = restBirth.has(p)
+    const edit = restEdit.has(p)
     fileFor(p).children.push({
       // **`#/folded`, and it must never be `#/rest`.** `tileFunctions` mints `${path}#/rest`
       // for the members IT cannot draw — and in a replay the members it is handed include
@@ -808,6 +842,28 @@ export function frameTree(
       lang: hist.langs[p] || null,
       loc: lines,
       rest: count,
+      // Only ever the flash. Every other field a `Score` has is a measurement, and this
+      // node is a count of things the picture has no room for — it has no age, no churn
+      // and no reading of its own, so they stay at the values that mean "no claim". A
+      // score with nothing in it but the event is why `aggregate` has to skip this node:
+      // rolled into its file it would dilute the file's real numbers with zeroes.
+      score:
+        birth || edit
+          ? {
+              surprise: 0,
+              documented: 0,
+              churn: 0,
+              ageDays: null,
+              lastTouchedDays: null,
+              commits: 0,
+              provenance: 'history',
+              hotShare: 0,
+              source: 'proxy',
+              analyzedShare: 0,
+              appeared: birth ? 1 : null,
+              edited: edit ? 1 : null,
+            }
+          : null,
     })
   }
 

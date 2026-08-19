@@ -1,4 +1,6 @@
 import { realOf } from './history'
+import { FAMILY } from './labelStyle'
+import { mascotClock } from './mascotClock'
 
 /**
  * Frames a second in the exported file.
@@ -23,6 +25,76 @@ const FACES = [
   { weight: 400, url: '/fonts/line-seed-jp-400-latin.woff2' },
   { weight: 700, url: '/fonts/line-seed-jp-700-latin.woff2' },
 ]
+
+/**
+ * The frame's shape, as width over height.
+ *
+ * **16:9, and the map is a circle, so this is a deliberate purchase rather than a default.**
+ * A square frame was the honest answer while the file was only ever the map: a 16:9 picture
+ * of a sunburst is two empty margins totalling nearly half of every frame, paid for in
+ * encode time and file size. What changed is what the file is FOR — a replay is something
+ * people post, and a post wants to say which repo it is of and where it came from. So the
+ * margins are not waste any more, they are where the caption lives, and the shape that
+ * created them is also the one every player, timeline and social embed expects.
+ */
+export const ASPECT = 16 / 9
+
+/** The signature in the corner of every exported movie.
+ *
+ *  **"Charted", because that is what the app did.** It did not create the repo, the history
+ *  or the commits — it drew them, and a movie that says "created by" over somebody else's
+ *  code claims the wrong thing in the one line that is about authorship.
+ *
+ *  Fixed rather than offered. It is a signature, and a signature somebody can edit is a text
+ *  field in a dialog that already has three controls, answering a question nobody arrived
+ *  with. */
+const SIGNATURE = 'charted by sanity.monster'
+
+/** The breathing room round the map and the caption, as a fraction of the frame's height. */
+const PAD = 0.055
+
+/**
+ * Where the map is drawn inside a frame of this size, in pixels.
+ *
+ * **Right-aligned, not centred, and the caption gets what is left.** Centring the circle
+ * would split the spare width into two margins too narrow to set a repo name in and leave
+ * the composition with nothing in either. Against the right edge, the whole of the surplus
+ * is one column — 0.72 of the frame's height at 16:9, which is room for a name at a size
+ * that reads in a timeline thumbnail.
+ */
+export function mapRect(width: number, height: number) {
+  const side = Math.round(height * (1 - 2 * PAD))
+  return { x: Math.round(width - height * PAD - side), y: Math.round((height - side) / 2), side }
+}
+
+/**
+ * How the map is dressed while a recording is being made.
+ *
+ * The export copies what is on screen, so anything the FILE needs that the pane is not
+ * currently doing has to be done to the pane for the duration — and then undone. Both of
+ * these are: `px` is the side the map lays itself out for, and `ground` is which palette it
+ * paints in. It is scoped to the map rather than applied to the document, so exporting a
+ * light movie from a dark window changes the map and nothing else.
+ */
+export interface Staged {
+  px: number
+  ground: 'light' | 'dark'
+}
+
+/** The side the map is drawn at inside a frame of this height — what the sunburst lays
+ *  itself out for, so a bigger file draws more of the repo rather than the same picture
+ *  upscaled. See `Sunburst`'s `density`. */
+export function mapSide(height: number): number {
+  return mapRect(Math.round(height * ASPECT), height).side
+}
+
+/** A custom property, resolved against the element that has one. The caption is drawn in
+ *  Canvas2D rather than in the SVG, so it cannot say `var(--foreground)` and have anything
+ *  answer — and it must read the same ground the map is being recorded in, which during an
+ *  export is staged on the pane rather than on the document. */
+function ink(from: Element, name: string): string {
+  return getComputedStyle(from).getPropertyValue(name).trim()
+}
 
 /** Base64 without blowing the argument limit — `apply` on a megabyte of bytes throws. */
 function base64(bytes: Uint8Array): string {
@@ -59,7 +131,7 @@ async function faceCss(): Promise<string> {
  * which is on screen; computed style knows exactly that but cannot be asked what it has
  * without a list of names to ask about.
  */
-function varCss(): string {
+function varCss(from: Element): string {
   const names = new Set<string>()
   for (const sheet of Array.from(document.styleSheets)) {
     let rules: CSSRuleList
@@ -74,7 +146,11 @@ function varCss(): string {
       for (const m of rule.cssText.matchAll(/(--[\w-]+)\s*:/g)) names.add(m[1])
     }
   }
-  const root = getComputedStyle(document.documentElement)
+  // Resolved from the map itself rather than from `<html>`. Custom properties inherit, so
+  // the map's computed style is the answer wherever the ground was actually put — and an
+  // export stages its ground on the pane, so the window it is recording from does not have
+  // to change colour. See the `.light` selector in `index.css`.
+  const root = getComputedStyle(from)
   const decls: string[] = []
   for (const name of names) {
     const value = root.getPropertyValue(name).trim()
@@ -83,10 +159,11 @@ function varCss(): string {
   return `svg{${decls.join(';')}}`
 }
 
-/** The document's own background, so the letterboxing round a circle is the colour the map
- *  sits on rather than black or transparent. */
-export function background(): string {
-  return getComputedStyle(document.documentElement).getPropertyValue('--background').trim() || '#fff'
+/** The ground the map is sitting on, so the frame round a circle is that colour rather than
+ *  black or transparent. Asked of an element — the map, during a recording — because the
+ *  ground may be staged on the pane rather than on the document. */
+export function background(from: Element = document.documentElement): string {
+  return getComputedStyle(from).getPropertyValue('--background').trim() || '#fff'
 }
 
 /** A frame of the map, rasterized.
@@ -96,38 +173,73 @@ export function background(): string {
  *  two would drift the first time a wedge changed. What the encoder sees is what the window
  *  is showing, at another size. */
 class Shot {
+  /** What the encoder is handed: the base with the creature drawn on top of it. */
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
+  /** Everything that only changes when the playhead does — the map, the caption, the
+   *  timeline. Rendered once per commit and blitted under every frame that stands at it.
+   *
+   *  **Two canvases because the two things move at different rates.** The map is
+   *  re-rasterized only when the commit under the playhead changes (a minute of a forty
+   *  commit repo is 1,800 frames of forty pictures), and the creature moves every frame. One
+   *  canvas would mean choosing: re-raster the map thirty times a second for a picture that
+   *  did not change, or step the creature forty times in a minute. */
+  private base: HTMLCanvasElement
+  private baseCtx: CanvasRenderingContext2D
   private style: string
+  /** Where the map goes in the frame, and how big — see `mapRect`. */
+  private map: { x: number; y: number; side: number }
+  /** Where the playhead stands in the frame being drawn — set by `draw`. */
+  private at: Playhead = { at: 0, of: 1, ts: null }
 
   constructor(
     private svg: SVGSVGElement,
-    private size: number,
+    private w: number,
+    private h: number,
     private bg: string,
     style: string,
+    /** The repo as the world knows it, set in the margin the 16:9 shape opens up. */
+    private title: string,
+    /** The directory the replay is scoped to, or `''`. */
+    private scope: string,
   ) {
     this.style = style
+    this.map = mapRect(w, h)
     this.canvas = document.createElement('canvas')
-    this.canvas.width = size
-    this.canvas.height = size
+    this.canvas.width = w
+    this.canvas.height = h
+    this.base = document.createElement('canvas')
+    this.base.width = w
+    this.base.height = h
     const ctx = this.canvas.getContext('2d')
-    if (!ctx) throw new Error('This machine gave no 2D canvas to draw the frames on.')
+    const baseCtx = this.base.getContext('2d')
+    if (!ctx || !baseCtx) {
+      throw new Error('This machine gave no 2D canvas to draw the frames on.')
+    }
     this.ctx = ctx
+    this.baseCtx = baseCtx
   }
 
   get target(): HTMLCanvasElement {
     return this.canvas
   }
 
-  async draw(): Promise<void> {
+  /**
+   * Rebuild the base: the map, the caption and where the playhead stands.
+   *
+   * `at` is the position in the commits being exported — the scoped list when the map is
+   * drilled, which is the same list the transport addresses and the same story on screen.
+   */
+  async draw(at: Playhead): Promise<void> {
+    this.at = at
     const clone = this.svg.cloneNode(true) as SVGSVGElement
     // The live element is sized by the layout it sits in; the copy is sized by the export.
     // `viewBox` travels with it, so the circle is fitted into the square the same way the
     // pane fits it — letterboxed against the background rather than stretched.
     clone.removeAttribute('class')
     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
-    clone.setAttribute('width', String(this.size))
-    clone.setAttribute('height', String(this.size))
+    clone.setAttribute('width', String(this.map.side))
+    clone.setAttribute('height', String(this.map.side))
     const style = document.createElementNS('http://www.w3.org/2000/svg', 'style')
     style.textContent = this.style
     clone.insertBefore(style, clone.firstChild)
@@ -150,13 +262,324 @@ class Shot {
         DECODE_LIMIT,
         `A frame took longer than ${DECODE_LIMIT / 1000}s to draw. Try a smaller resolution.`,
       )
-      this.ctx.fillStyle = this.bg
-      this.ctx.fillRect(0, 0, this.size, this.size)
-      this.ctx.drawImage(img, 0, 0, this.size, this.size)
+      this.baseCtx.fillStyle = this.bg
+      this.baseCtx.fillRect(0, 0, this.w, this.h)
+      this.baseCtx.drawImage(img, this.map.x, this.map.y, this.map.side, this.map.side)
+      this.caption()
+      this.timeline()
     } finally {
       URL.revokeObjectURL(url)
     }
   }
+
+  /**
+   * The creature in the hub, composited on top of the map.
+   *
+   * **It is not in the SVG, so a copy of the SVG does not carry it.** The mascot is a WebGL
+   * canvas laid over the pane rather than a `foreignObject` inside the picture — see the hub
+   * in `Sunburst` — which is right on screen, where a canvas scaled by an SVG transform
+   * would be a bitmap stretched instead of a scene redrawn, and it is exactly why the middle
+   * of every exported frame was an empty disc.
+   *
+   * Where it goes is arithmetic rather than measurement: the live element's transform is in
+   * PANE pixels and the frame is another size entirely, so the position is recomputed from
+   * the map's own coordinates — the viewBox the fit effect just wrote, and the hub box the
+   * layer states in `data-hub-mascot`. Nothing here duplicates a number that lives there.
+   *
+   * Silent when there is no creature. The committed placeholder bundle draws nothing, a
+   * replay of a project can be exported before the scene has built its first frame, and an
+   * export that refused over a missing mascot would be an export that refused.
+   */
+  /**
+   * One frame for the encoder: the base as it stands, with the creature on top.
+   *
+   * Called for every frame of the file, including the many that stand at the same commit —
+   * which is the point. The creature has just been stepped by one frame of the movie's own
+   * clock (see `mascotClock`), so this is where that lands.
+   */
+  frame(): void {
+    this.ctx.drawImage(this.base, 0, 0)
+    this.creature()
+  }
+
+  private creature(): void {
+    const layer = document.querySelector<HTMLElement>('[data-hub-mascot]')
+    const canvas = layer?.querySelector('canvas')
+    if (!layer || !canvas || canvas.width === 0 || canvas.height === 0) return
+    const [hubY, box] = layer.dataset.hubMascot!.split(' ').map(Number)
+    const view = (this.svg.getAttribute('viewBox') ?? '').split(/\s+/).map(Number)
+    if (view.length !== 4 || !view.every(Number.isFinite) || view[2] <= 0) return
+    // The viewBox is square and the copy is drawn into a square, so one scale serves both
+    // axes — the same arithmetic the fit effect does against the pane.
+    const s = this.map.side / view[2]
+    const cx = this.map.x + (0 - view[0]) * s
+    const cy = this.map.y + (hubY - view[1]) * s
+
+    // **Where the canvas sits inside its layer, asked rather than assumed.** The layer is
+    // the hub's box; the creature is lifted inside it by `MascotFigure`'s `lift`, a
+    // per-blueprint offset that stands a creature shorter than its frame off the floor — so
+    // the box's middle is not the creature's, and centring on the box alone drew it low and
+    // is what the first exports came out with. The lift is a transform on the canvas, in the
+    // layer's own pixels, and reading it back as a ratio of the two boxes is the one form of
+    // it that survives both the pane's scale and the frame's: whatever placement the window
+    // arrived at, the frame reproduces it.
+    const boxRect = layer.getBoundingClientRect()
+    const onGlass = canvas.getBoundingClientRect()
+    if (boxRect.width <= 0 || boxRect.height <= 0) return
+    const drawn = box * s * (onGlass.width / boxRect.width)
+    const dx = ((onGlass.x + onGlass.width / 2 - (boxRect.x + boxRect.width / 2)) /
+      boxRect.width) * box * s
+    const dy = ((onGlass.y + onGlass.height / 2 - (boxRect.y + boxRect.height / 2)) /
+      boxRect.height) * box * s
+
+    // `preserveDrawingBuffer` is on in the bundle, which is what makes reading the canvas
+    // back outside its own animation frame give the picture rather than a cleared buffer.
+    this.ctx.drawImage(canvas, cx + dx - drawn / 2, cy + dy - drawn / 2, drawn, drawn)
+  }
+
+  /**
+   * The repo's name and where the movie came from, in the margin the 16:9 shape opens up.
+   *
+   * **The one thing in the file that is not a recording of the window**, and it is furniture
+   * rather than a second renderer: it says what is being shown and who made it, and it makes
+   * no claim the map does not. The rule it must not break is the one the whole export rests
+   * on — nothing here draws a wedge, a label or a reading, because a picture of the map that
+   * this file composed itself would be a picture nobody has checked against the one on
+   * screen.
+   *
+   * Shrunk to fit and only then elided, the same order the hub sizes its own name in: a
+   * size computed from a string that is about to be cut is a size for a string nobody sees.
+   */
+  /** The column the caption lives in: everything left of the map, inset by the frame's own
+   *  margin. One definition, because the name, the timeline and the signature all line up
+   *  with it and a second copy is how three things stop agreeing. */
+  private column(): { left: number; room: number } {
+    const pad = Math.round(this.h * PAD)
+    const left = pad * 2
+    return { left, room: this.map.x - pad - left }
+  }
+
+  private caption(): void {
+    const { left, room } = this.column()
+    if (room < this.h * 0.2) return
+    const c = this.baseCtx
+    c.textBaseline = 'alphabetic'
+    c.textAlign = 'left'
+
+    // **The owner is set back, so the name still reads as the name.** `owner/name` is what
+    // the repo is called in public and a movie of it should say so, but the whole slug at
+    // one weight makes a stranger's username as loud as the project — and it is the project
+    // the picture is of. Muted and at the same size: present, addressable, not shouting.
+    const cut = this.title.lastIndexOf('/')
+    const owner = cut > 0 ? this.title.slice(0, cut + 1) : ''
+    const name = cut > 0 ? this.title.slice(cut + 1) : this.title
+
+    const small = Math.max(11, Math.round(this.h * 0.026))
+    const big = Math.round(this.h * 0.085)
+    const widthOf = (text: string, px: number, weight: number) => {
+      c.font = `${weight} ${px}px ${FAMILY}`
+      return c.measureText(text).width
+    }
+    const inline = (px: number) => widthOf(owner, px, 400) + widthOf(name, px, 700)
+
+    // **Nothing here is ever elided, and that is a rule rather than a preference.** A cut
+    // repo name is a caption that names a repo which does not exist — `barstoolbluz/tonepo…`
+    // is not findable, not searchable and not the project — so the type gives way instead,
+    // every time. The first version cut, and it cut for a reason worth remembering: it
+    // shrank until the slug fitted EXACTLY, then measured `name + '…'`, which is wider by an
+    // ellipsis, and trimmed a name that had just been made to fit.
+    //
+    // Two layouts rather than one long shrink. Inline while the pair still reads at a size
+    // worth having; past that the owner moves to a small line of its own and the name takes
+    // the whole column, which buys back the width the owner was spending and keeps the
+    // project — the thing the picture is of — the biggest word on the frame.
+    let size = big
+    const inlineFloor = Math.round(this.h * 0.05)
+    while (size > inlineFloor && inline(size) > room) size -= 1
+    const stacked = inline(size) > room
+    if (stacked) {
+      size = big
+      // The floor here is the tagline's own size: past that the name is no longer a title,
+      // and a repo whose name cannot be set at 26 thousandths of the frame is a repo nobody
+      // was going to read at a glance anyway. It is still whole.
+      while (size > small && widthOf(name, size, 700) > room) size -= 1
+    }
+
+    // **The drilled path is its own line, under the name.** It rode on the signature for a
+    // while — `src/mon · created by sanity.monster` — which put the one fact about WHAT the
+    // movie shows in the same breath as who made it, at the size of a credit. A replay of a
+    // subtree is a different film from a replay of the repo, and the caption should say so
+    // where somebody is already reading: directly beneath the thing it qualifies.
+    //
+    // Not elided either, and shrunk on its own — a path is only useful whole, and a deep one
+    // is exactly the case where the reader needs every segment.
+    let scopeSize = this.scope ? Math.max(small, Math.round(this.h * 0.036)) : 0
+    if (this.scope) {
+      while (scopeSize > Math.round(small * 0.8) && widthOf(this.scope, scopeSize, 400) > room) {
+        scopeSize -= 1
+      }
+    }
+
+    const eyebrow = stacked ? Math.round(small * 1.6) : 0
+    const toScope = this.scope ? Math.round(size * 0.42) + scopeSize : 0
+    // The whole assembly is centred, timeline included — measured here rather than in
+    // `timeline`, because a block that centres three of its four parts sits high by the
+    // height of the fourth, and the empty half of the frame is the part people notice. The
+    // signature is not in it: it is furniture at the foot of the frame, not part of what the
+    // block is saying.
+    const top = Math.round((this.h - (eyebrow + size + toScope + this.ruleDrop())) / 2)
+    const base = top + eyebrow + size
+    const fore = ink(this.svg, '--foreground') || '#111'
+    const muted = ink(this.svg, '--muted-foreground') || fore
+
+    if (stacked) {
+      c.font = `400 ${small}px ${FAMILY}`
+      c.fillStyle = muted
+      c.fillText(owner, left, top + small)
+    } else {
+      c.font = `400 ${size}px ${FAMILY}`
+      c.fillStyle = muted
+      c.fillText(owner, left, base)
+    }
+    c.font = `700 ${size}px ${FAMILY}`
+    c.fillStyle = fore
+    c.fillText(name, left + (stacked ? 0 : widthOf(owner, size, 400)), base)
+
+    if (this.scope) {
+      c.font = `400 ${scopeSize}px ${FAMILY}`
+      c.fillStyle = muted
+      c.fillText(this.scope, left, base + toScope)
+    }
+
+    this.rule = { left, right: left + room, base: base + toScope }
+  }
+
+  /**
+   * Whose instrument drew this, under the timeline.
+   *
+   * **Under the block rather than inside it.** It sat directly beneath the repo for a
+   * while — third line of four, in the same visual group as the name and the drilled path —
+   * which put an attribution in the middle of the sentence the caption is making. What the
+   * block says is *this repo, this directory, this far through its history*; who charted it
+   * is true, worth stating, and not part of that. Below the dates it is plainly a sign-off,
+   * and it stays close enough to the rest to read as one composition — a frame-foot version
+   * was tried and floated free of everything it belongs to.
+   */
+  private signature(left: number, base: number): void {
+    const c = this.baseCtx
+    const small = Math.max(11, Math.round(this.h * 0.026))
+    c.textAlign = 'left'
+    c.textBaseline = 'alphabetic'
+    c.font = `400 ${small}px ${FAMILY}`
+    c.fillStyle = ink(this.svg, '--muted-foreground') || ink(this.svg, '--foreground') || '#111'
+    c.fillText(SIGNATURE, left, base)
+  }
+
+  /** Where the caption ended, so the timeline can line up with it rather than recompute it. */
+  private rule: { left: number; right: number; base: number } | null = null
+
+  /** How far the timeline and the signature under it reach below the caption's last
+   *  baseline. One definition, because the caption centres the block by it and `timeline`
+   *  draws inside it. */
+  private ruleDrop(): number {
+    const small = Math.max(11, Math.round(this.h * 0.026))
+    return (
+      Math.round(small * 2.6) +
+      Math.max(2, Math.round(this.h * 0.004)) +
+      Math.round(small * 1.7) +
+      Math.round(small * 3.2)
+    )
+  }
+
+  /**
+   * Where in the story this frame stands: a rule with the passed part filled, the commit's
+   * own date under one end and its number under the other.
+   *
+   * **A movie of a repo's history is unreadable without it.** The map says what changed and
+   * says nothing about when — the same wedges bloom whether the frame is 2019 or last
+   * Tuesday, and a viewer watching a minute of a decade has no way to tell a slow year from
+   * a busy afternoon. It is the one thing a replay on screen has that the file did not: the
+   * window has a scrub bar under it.
+   *
+   * It steps per COMMIT rather than per frame, because that is what it is measuring. The map
+   * is re-rasterized only when the playhead moves (see `record`), so a bar that crept every
+   * frame would be claiming a resolution the picture above it does not have.
+   *
+   * Dated from the commit, never interpolated. A frame before the window — the opening
+   * state, everything the truncated commits built — has no date it can honestly carry, on
+   * the same rule the replay colours it by: nothing before the window makes a claim about
+   * its own age.
+   */
+  private timeline(): void {
+    const r = this.rule
+    if (!r) return
+    const c = this.baseCtx
+    const small = Math.max(11, Math.round(this.h * 0.026))
+    const y = r.base + Math.round(small * 2.6)
+    const thick = Math.max(2, Math.round(this.h * 0.004))
+    const width = r.right - r.left
+    const done = this.at.of > 1 ? Math.min(1, Math.max(0, this.at.at / (this.at.of - 1))) : 1
+    const fore = ink(this.svg, '--foreground') || '#111'
+    const muted = ink(this.svg, '--muted-foreground') || fore
+
+    c.globalAlpha = 0.25
+    c.fillStyle = muted
+    round(c, r.left, y, width, thick)
+    c.globalAlpha = 1
+    c.fillStyle = ink(this.svg, '--accent') || fore
+    round(c, r.left, y, Math.max(thick, width * done), thick)
+
+    c.font = `400 ${small}px ${FAMILY}`
+    c.fillStyle = muted
+    c.textAlign = 'left'
+    c.fillText(stamp(this.at.ts), r.left, y + thick + Math.round(small * 1.7))
+    c.textAlign = 'right'
+    c.fillText(
+      `${(this.at.at + 1).toLocaleString()} / ${this.at.of.toLocaleString()}`,
+      r.right,
+      y + thick + Math.round(small * 1.7),
+    )
+    c.textAlign = 'left'
+    // Set apart from the dates above it: the timeline row and this are two different kinds
+    // of statement — where the playhead is, and who drew the thing — and at one line's
+    // leading they read as a three-line list where the last item is the odd one out.
+    this.signature(r.left, y + thick + Math.round(small * 1.7) + Math.round(small * 3.2))
+  }
+}
+
+/** Where the playhead stands in the commits being exported. */
+interface Playhead {
+  /** Position in the list, `-1` for the opening state that precedes it. */
+  at: number
+  /** How many commits the export covers. */
+  of: number
+  /** The commit's own date, seconds since the epoch, or null before the window. */
+  ts: number | null
+}
+
+/** A rounded bar. The caps matter at this thickness: a square-ended two-pixel rule reads as
+ *  a hairline crack in the ground rather than as a measure of anything. */
+function round(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+  const r = h / 2
+  c.beginPath()
+  c.moveTo(x + r, y)
+  c.arcTo(x + w, y, x + w, y + h, r)
+  c.arcTo(x + w, y + h, x, y + h, r)
+  c.arcTo(x, y + h, x, y, r)
+  c.arcTo(x, y, x + w, y, r)
+  c.closePath()
+  c.fill()
+}
+
+/** A commit's date, or what to say instead. The machine's own format, the way the log beside
+ *  the map does it — with the year, because a replay routinely spans several. */
+function stamp(ts: number | null): string {
+  if (ts === null) return 'before this history'
+  return new Date(ts * 1000).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
 /** How long one frame is given to rasterize before the export gives up on it. Generous:
@@ -212,12 +635,13 @@ export interface Tick {
   total: number
   /** `fetch` is the timeline arriving from the backend, a block at a time. `fold` is the
    *  app rebuilding the map at the next commit — the same work the transport does when you
-   *  scrub. `raster` is copying that picture out at export size. `encode` is the frame
-   *  going to H.264. */
-  stage: 'fetch' | 'fold' | 'raster' | 'encode'
-  /** Mean milliseconds per stage over the frames that did work — a frame the playhead did
-   *  not move for skips all but the encode, which is the point of them. */
-  cost: { fetch: number; fold: number; raster: number; encode: number }
+   *  scrub. `raster` is copying that picture out at export size. `draw` is the creature
+   *  moved on one frame and laid over it. `encode` is the frame going to H.264. */
+  stage: 'fetch' | 'fold' | 'raster' | 'draw' | 'encode'
+  /** Mean milliseconds per stage. `fetch`, `fold` and `raster` are over the frames the
+   *  playhead moved for — every other frame skips them, which is the point of them; `draw`
+   *  and `encode` are over every frame, because every frame pays both. */
+  cost: { fetch: number; fold: number; raster: number; draw: number; encode: number }
   /** Seconds left at the rate so far, or null before there is a rate. */
   left: number | null
 }
@@ -227,8 +651,20 @@ export interface Recording {
   frames: number[]
   /** Seconds the finished movie should run for. */
   seconds: number
-  /** Edge of the square frame, in pixels. */
-  size: number
+  /** The frame, in pixels. 16:9 — see `ASPECT`; the map is drawn into the square part of
+   *  it and the caption into what is left. */
+  width: number
+  height: number
+  /** The repo as the world knows it — `owner/name` where there is a remote. */
+  title: string
+  /** The directory the replay is scoped to, or `''` for the whole repo. Set on its own line
+   *  under the repo, because a movie of one subtree is a different film from a movie of the
+   *  repo and the caption is where that gets said. */
+  scope: string
+  /** When a commit landed, in seconds since the epoch, or null where the story cannot say —
+   *  the opening state stands before the window and has no date of its own. Drives the
+   *  timeline under the caption. */
+  dateOf: (real: number) => number | null
   /** Put a commit on screen. The caller is expected to render it synchronously enough that
    *  two animation frames later it is on the glass — see `settle`. */
   setIndex: (real: number) => void
@@ -283,9 +719,11 @@ function settings(
  * the ladder.** The hardware limit is a count of SAMPLES, not a width: VideoToolbox's H.264
  * encoder stops around 8.9 million luma samples, which is fine for the 16:9 shapes the
  * number was written for — 4096 × 2304 is 9.4M and gets refused, 3840 × 2160 is 8.3M and
- * does not — and brutal for a square, where it lands at about 2985 a side. So 2160² passes,
- * 3072² would not, and 4000² is 16 million samples and never had a chance. No bitrate or
- * profile negotiates that down.
+ * does not — and was brutal for the square frames this used to write, where it landed at
+ * about 2985 a side: 2160² passed, 3072² would not have, and 4000² was 16 million samples
+ * and never had a chance. Going 16:9 bought the top of the ladder back — every size on
+ * offer now encodes as H.264 on this machine — and the fallback stays, because the limit is
+ * the encoder's and not ours to assume about somebody else's.
  *
  * The fallback is stated rather than silent: where a file will play is the person's
  * business, and an `.mp4` that turns out to be H.265 is a different thing to hand somebody
@@ -321,14 +759,19 @@ type Deps = {
 
 /** Ten blank frames through one codec. Resolves if it will take them, throws if it will not
  *  — and the reason is never shown, because the caller has another codec to try. */
-async function probe(size: number, encoding: ReturnType<typeof settings>, deps: Deps) {
+async function probe(
+  width: number,
+  height: number,
+  encoding: ReturnType<typeof settings>,
+  deps: Deps,
+) {
   const canvas = document.createElement('canvas')
-  canvas.width = size
-  canvas.height = size
+  canvas.width = width
+  canvas.height = height
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('This machine gave no 2D canvas to draw the frames on.')
   ctx.fillStyle = background()
-  ctx.fillRect(0, 0, size, size)
+  ctx.fillRect(0, 0, width, height)
 
   const output = new deps.Output({
     format: new deps.Mp4OutputFormat(),
@@ -336,7 +779,7 @@ async function probe(size: number, encoding: ReturnType<typeof settings>, deps: 
   })
   const source = new deps.CanvasSource(canvas, encoding)
   output.addVideoTrack(source, { frameRate: FPS })
-  const slow = `${CODEC_NAME[encoding.codec]} did not answer at ${size} × ${size}.`
+  const slow = `${CODEC_NAME[encoding.codec]} did not answer at ${width} × ${height}.`
   try {
     await within(output.start(), PREFLIGHT_LIMIT, slow)
     for (let f = 0; f < 10; f++) {
@@ -360,14 +803,15 @@ async function probe(size: number, encoding: ReturnType<typeof settings>, deps: 
  * choices it could have offered instead.
  */
 async function preflight(
-  size: number,
+  width: number,
+  height: number,
   quality: InstanceType<typeof import('mediabunny').Quality>,
   deps: Deps,
 ): Promise<ReturnType<typeof settings>> {
   for (const codec of CODECS) {
     const encoding = settings(quality, codec)
     try {
-      await probe(size, encoding, deps)
+      await probe(width, height, encoding, deps)
       return encoding
     } catch {
       // Its own answer is not news: the next codec exists precisely for the sizes this one
@@ -376,7 +820,7 @@ async function preflight(
   }
   const tried = CODECS.map((c) => CODEC_NAME[c]).join(' or ')
   throw new Error(
-    `This machine will not encode ${tried} at ${size} × ${size}. Try a smaller resolution.`,
+    `This machine will not encode ${tried} at ${width} × ${height}. Try a smaller resolution.`,
   )
 }
 
@@ -409,17 +853,42 @@ export async function record(o: Recording): Promise<Uint8Array> {
 
   // **Asked of the encoder, not about it, and asked of each codec in turn.** See `preflight`.
   const encoding = await preflight(
-    o.size,
+    o.width,
+    o.height,
     new Quality({ quality: 'high', preferBitrate: true }),
     { BufferTarget, CanvasSource, Mp4OutputFormat, Output },
   )
   o.onCodec?.(encoding.codec)
 
-  const shot = new Shot(svg, o.size, background(), (await faceCss()) + varCss())
+  // **Asked for before the caption is measured, not just before it is drawn.** The face is
+  // inlined into the SVG for the map's own labels, but the caption is Canvas2D, which reads
+  // the document's fonts — and a face the document has not loaded yet measures and draws in
+  // the fallback stack. Loading it is idempotent and the app is already using it; this is
+  // the guarantee, not the fetch.
+  await Promise.all([
+    document.fonts.load(`700 100px ${FAMILY}`),
+    document.fonts.load(`400 100px ${FAMILY}`),
+  ]).catch(() => {})
+
+  const shot = new Shot(
+    svg,
+    o.width,
+    o.height,
+    background(svg),
+    (await faceCss()) + varCss(svg),
+    o.title,
+    o.scope,
+  )
   const output = new Output({ format: new Mp4OutputFormat(), target: new BufferTarget() })
   const source = new CanvasSource(shot.target, encoding)
   output.addVideoTrack(source, { frameRate: FPS })
   await output.start()
+
+  // **The creature comes off wall-clock time for the duration.** An export is not a realtime
+  // capture, so a creature left on its own loop plays as fast as the machine renders — see
+  // `mascotClock`. Held here and released in the `finally` below, whatever happens.
+  const clock = mascotClock()
+  const driving = clock?.hold() ?? false
 
   const last = o.frames.length - 1
   const total = Math.max(1, Math.round(o.seconds * FPS))
@@ -429,13 +898,14 @@ export async function record(o: Recording): Promise<Uint8Array> {
   let shown = Number.NaN
   // Summed rather than sampled: a mean over every frame so far is steadier than the last
   // one, and the thing being estimated — how long the rest takes — is an average anyway.
-  const spent = { fetch: 0, fold: 0, raster: 0, encode: 0 }
+  const spent = { fetch: 0, fold: 0, raster: 0, draw: 0, encode: 0 }
   let drawn = 0
   const report = (done: number, stage: Tick['stage']) => {
     const cost = {
       fetch: drawn > 0 ? spent.fetch / drawn : 0,
       fold: drawn > 0 ? spent.fold / drawn : 0,
       raster: drawn > 0 ? spent.raster / drawn : 0,
+      draw: done > 0 ? spent.draw / done : 0,
       encode: done > 0 ? spent.encode / done : 0,
     }
     o.onProgress({
@@ -449,48 +919,63 @@ export async function record(o: Recording): Promise<Uint8Array> {
         done > 0
           ? ((total - done) *
               (cost.encode +
+                cost.draw +
                 (drawn / done) * (cost.fetch + cost.fold + cost.raster))) /
             1000
           : null,
     })
   }
 
-  for (let f = 0; f < total; f++) {
-    if (o.cancelled()) throw new Error(CANCELLED)
-    const pos = Math.max(
-      -1,
-      Math.min(last, Math.round(-1 + (f / Math.max(1, total - 1)) * (last + 1))),
-    )
-    const real = realOf(o.frames, pos, -1)
-    if (real !== shown) {
-      report(f, 'fetch')
-      const t0 = performance.now()
-      await o.ensure(real)
-      const tf = performance.now()
+  try {
+    for (let f = 0; f < total; f++) {
       if (o.cancelled()) throw new Error(CANCELLED)
-      report(f, 'fold')
-      o.setIndex(real)
-      await settle()
-      const t1 = performance.now()
+      const pos = Math.max(
+        -1,
+        Math.min(last, Math.round(-1 + (f / Math.max(1, total - 1)) * (last + 1))),
+      )
+      const real = realOf(o.frames, pos, -1)
+      if (real !== shown) {
+        report(f, 'fetch')
+        const t0 = performance.now()
+        await o.ensure(real)
+        const tf = performance.now()
+        if (o.cancelled()) throw new Error(CANCELLED)
+        report(f, 'fold')
+        o.setIndex(real)
+        await settle()
+        const t1 = performance.now()
+        if (o.cancelled()) throw new Error(CANCELLED)
+        report(f, 'raster')
+        await shot.draw({ at: pos, of: o.frames.length, ts: o.dateOf(real) })
+        spent.fetch += tf - t0
+        spent.fold += t1 - tf
+        spent.raster += performance.now() - t1
+        drawn += 1
+        shown = real
+      }
       if (o.cancelled()) throw new Error(CANCELLED)
-      report(f, 'raster')
-      await shot.draw()
-      spent.fetch += tf - t0
-      spent.fold += t1 - tf
-      spent.raster += performance.now() - t1
-      drawn += 1
-      shown = real
+      // One frame of the FILE, not one frame of this machine. Stepped even on the frames the
+      // map did not change for — those are most of them, and they are what the creature is
+      // moving through.
+      report(f, 'draw')
+      const t3 = performance.now()
+      if (driving) clock?.step(1000 / FPS)
+      shot.frame()
+      spent.draw += performance.now() - t3
+      report(f, 'encode')
+      const t2 = performance.now()
+      await within(
+        source.add(f / FPS, 1 / FPS),
+        ENCODE_LIMIT,
+        `The encoder stopped accepting frames at ${o.width} × ${o.height}, ${f} frames in. Try a smaller resolution.`,
+      )
+      spent.encode += performance.now() - t2
+      report(f + 1, 'encode')
     }
-    if (o.cancelled()) throw new Error(CANCELLED)
-    report(f, 'encode')
-    const t2 = performance.now()
-    await within(
-      source.add(f / FPS, 1 / FPS),
-      ENCODE_LIMIT,
-      `The encoder stopped accepting frames at ${o.size} × ${o.size}, ${f} frames in. Try a smaller resolution.`,
-    )
-    spent.encode += performance.now() - t2
-    report(f + 1, 'encode')
+  } finally {
+    // Its own loop back, on every path out of here — a cancelled export must not leave a
+    // frozen creature in the hub.
+    if (driving) clock?.release()
   }
 
   await output.finalize()

@@ -125,6 +125,17 @@ export interface Node {
    *  it runs out of room. Undefined on everything else, which is what makes it the test
    *  for "this is a collection wearing a function's `kind`" — see `showsShare`. */
   rest?: number
+  /** Does anything in this subtree flash on this frame of a replay — see `history.ts`'s
+   *  `aggregate`, which rolls it up, and `Sunburst`, which spends it.
+   *
+   *  A container's own `appeared`/`edited` is deliberately NOT a roll-up: a directory
+   *  flashes on its own arrival and never on its contents', or one function lights every
+   *  ring out to the rim. This is the different question the renderer has to ask — is
+   *  there an event down there that nothing DRAWN is going to show — and it is answered
+   *  here because `aggregate` already walks every node, where the renderer would be
+   *  walking a second time thirty times a second. Undefined outside a replay. */
+  birthBelow?: boolean
+  touchBelow?: boolean
   children: Node[]
 }
 
@@ -673,6 +684,12 @@ export interface ProjectList {
  *  agent can open a project at any moment and the window is meant to just follow. */
 export function listProjects(): Promise<ProjectList> {
   return invoke<ProjectList>('projects')
+}
+
+/** The repo's remote as `owner/name`, or null — the name a repo answers to in public,
+ *  for the caption on an exported movie. See `repo_remote`. */
+export function repoRemote(path: string): Promise<string | null> {
+  return invoke<string | null>('repo_remote', { path }).catch(() => null)
 }
 
 /** The text of one file in the open repo. Rust checks the path stays inside the repo —

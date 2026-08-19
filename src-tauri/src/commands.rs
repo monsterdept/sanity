@@ -288,6 +288,63 @@ pub fn history_log(
     crate::history::log(&PathBuf::from(path), offset, count, scope.as_deref().unwrap_or(""))
 }
 
+/// The repo's remote, as `owner/name`, or nothing.
+///
+/// **For the caption on an exported movie, which is the only caller and the reason the
+/// answer is a slug rather than a URL.** A directory's basename is what the app calls a
+/// project, and it is the wrong name to publish: half the interesting repos on a machine are
+/// called `src`, `main` or the same word as somebody else's. The remote is the name the repo
+/// answers to in public.
+///
+/// Both URL shapes, because both are what `origin` actually holds — scp-form
+/// (`git@host:owner/name.git`) and a URL (`https://host/owner/name`). The last two segments
+/// rather than a host-aware parse: a GitLab subgroup is deeper and still reads correctly as
+/// the two names nearest the end, and nothing here needs to know which forge it is looking
+/// at. `origin` first, then whatever remote there is, then nothing — a repo with no remote,
+/// or no git at all, captions with its own name and the export never mentions it.
+#[tauri::command]
+pub fn repo_remote(path: String) -> Option<String> {
+    let repo = PathBuf::from(path);
+    let git = |args: &[&str]| -> Option<String> {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(args)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        (!s.is_empty()).then_some(s)
+    };
+    let url = git(&["remote", "get-url", "origin"]).or_else(|| {
+        let first = git(&["remote"])?;
+        let first = first.lines().next()?.trim().to_string();
+        git(&["remote", "get-url", &first])
+    })?;
+    slug_of(&url)
+}
+
+/// `owner/name` out of a remote URL. Separate from its caller so it can be tested without a
+/// repo to point at.
+fn slug_of(url: &str) -> Option<String> {
+    let url = url.trim().trim_end_matches('/');
+    let url = url.strip_suffix(".git").unwrap_or(url);
+    // scp-form has no scheme and puts the path after a colon; a URL puts it after the host.
+    // Replacing the colon covers the first and leaves the second alone, since a port would
+    // have to be numeric and no segment below is.
+    let tail = url.rsplit(['/', ':']).take(2).collect::<Vec<_>>();
+    if tail.len() < 2 {
+        return None;
+    }
+    let (name, owner) = (tail[0], tail[1]);
+    if name.is_empty() || owner.is_empty() || owner.contains("://") {
+        return None;
+    }
+    Some(format!("{owner}/{name}"))
+}
+
 /// The frame indices in `scope` — what the transport addresses when the map is drilled.
 #[tauri::command]
 pub fn history_scoped(path: String, scope: Option<String>) -> Vec<u32> {
@@ -1012,10 +1069,26 @@ pub fn stop_check(
     Ok(())
 }
 
+#[cfg(test)]
+mod remote_tests {
+    use super::slug_of;
 
-
-
-
-
-
-
+    /// Every shape `origin` is actually found holding, and the two that must come back
+    /// empty rather than as a half-answer — a caption is published, so an invented owner is
+    /// worse than no owner.
+    #[test]
+    fn a_remote_url_reduces_to_owner_and_name() {
+        for (url, want) in [
+            ("git@github.com:barstoolbluz/tonepoet.git", Some("barstoolbluz/tonepoet")),
+            ("https://github.com/barstoolbluz/tonepoet.git", Some("barstoolbluz/tonepoet")),
+            ("https://github.com/barstoolbluz/tonepoet", Some("barstoolbluz/tonepoet")),
+            ("ssh://git@github.com/monsterdept/sanity.git", Some("monsterdept/sanity")),
+            ("https://gitlab.com/group/sub/thing.git", Some("sub/thing")),
+            ("/Users/rturk/projects/sanity", Some("projects/sanity")),
+            ("https://github.com/", None),
+            ("sanity", None),
+        ] {
+            assert_eq!(slug_of(url).as_deref(), want, "{url}");
+        }
+    }
+}

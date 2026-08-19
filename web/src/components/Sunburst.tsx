@@ -1,8 +1,8 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { trapOf, type AgentCall, type Node } from '../lib/api'
 import { clsx } from '../lib/cn'
-import { colorFor, type ColorMode, paintsFromReadings } from '../lib/colorMode'
-import { CHROME_INK, inkOn } from '../lib/ink'
+import { colorFor, flashPaint, type ColorMode, paintsFromReadings } from '../lib/colorMode'
+import { CHROME_INK } from '../lib/ink'
 import { arcPath, layout, tileFunctions, type Wedge } from '../lib/sunburst'
 import { FileZoom, fanOf } from './FileZoom'
 import { arcOf, sectorOf, type Sector } from '../lib/fan'
@@ -301,6 +301,37 @@ function heatShare(kind: string, mode: ColorMode): number {
  *  are already hardest to tell apart. Narrower for the finer levels so a file's rim
  *  doesn't swallow the functions inside it. */
 const CUT = { dir: 2.2, file: 1.5, func: 0.35 }
+
+/** How wide a directory's reading is drawn on its own rim, in pixels.
+ *
+ *  A directory's colour is never a reading OF the directory — there is no such thing to
+ *  read. It is a roll-up of what is inside: a hot share under Surprise, a dominant
+ *  language, a mean age. Filling the plate says "this thing is blue", which is a sentence
+ *  about the directory; a band on the edge it shares with its children says "the contents
+ *  of this thing are blue", which is the sentence the number actually supports. The plate
+ *  underneath goes back to being what it is, structure.
+ *
+ *  It also gets the inner rings out of the way of the leaves. `HEAT_BY_KIND` was damping
+ *  directories under Surprise for exactly this reason — the level that dominates by area
+ *  was shouting a roll-up over the level whose number means what the legend says — and a
+ *  band is the same restraint applied to AREA rather than to opacity, which is where the
+ *  problem always was. The damping stays: it is about how loudly a roll-up speaks, and a
+ *  loud thin band is still available.
+ *
+ *  Stated in pixels and converted through `unitsPerPx`, like every other threshold here,
+ *  so a 4000px export draws the same band a 1000px pane does rather than a scaled one. */
+const DIR_RIM_PX = 4.5
+
+/** How far the band sits inside the plate, in pixels — clear of the outer edge and of
+ *  both angular ends.
+ *
+ *  Flush against the rim it read as the wedge's own border, which is the sentence one
+ *  level up: a directory outlined in blue is a blue directory again. Floated inside its
+ *  plate with ground visible all the way round, it reads as something the plate is
+ *  CARRYING — a mark on a surface rather than an edge of it — and the surface stays
+ *  structure. It is also what keeps two stacked rings' bands from meeting across the cut
+ *  and reading as one continuous ring of their own. */
+const DIR_RIM_INSET_PX = 3
 
 function SunburstView({
   root,
@@ -699,6 +730,63 @@ function SunburstView({
     return m
   }, [wedges, mode, ranks, ageSpan])
 
+  /** The rim band in user units, including the cut that separates it from its own plate.
+   *  Capped at the ring so a very shallow tree cannot produce a band wider than the wedge
+   *  it sits on. `unitsPerPx` is null until the pane has been measured; a fixed fallback
+   *  is better than a directory with no reading on it for the first frame. */
+  const rim = useMemo(() => {
+    const px = unitsPerPx ?? 1
+    const inset = DIR_RIM_INSET_PX * px
+    // Never more than a third of the ring: on a deep tree the bands are thin, and a
+    // margin that cannot fit is a band that eats its own plate.
+    return { width: Math.min(DIR_RIM_PX * px, band / 3), inset: Math.min(inset, band / 3) }
+  }, [band, unitsPerPx])
+
+  /** A directory's paint as a band on its outer edge — see `DIR_RIM_PX` for why a
+   *  directory does not get a fill. Returns null for every other kind, so a caller can
+   *  hand it whatever it is about to draw and let the rule live in one place; that is
+   *  what keeps the transitions from blooming a full-plate colour for half a second on
+   *  the way in and out.
+   *
+   *  Cut from its plate by a background stroke, the same way every other pair of surfaces
+   *  here is separated, and it takes no pointer events — the plate underneath is still
+   *  the thing being hovered and clicked. */
+  /** The part of a directory's plate its band does not speak for — where the name goes.
+   *
+   *  **Reserved whether or not a band is drawn.** The obvious version asks whether this
+   *  wedge has a colour and gives the label the whole plate when it does not; in a replay
+   *  that is a rim appearing for one step of the playhead, so every label in the picture
+   *  would twitch inward and back on every commit. The layout is a property of the ring,
+   *  not of what happens to be painted on it this frame.
+   *
+   *  The inset counts twice: once as the band's own margin from the edge, once again as
+   *  the gap between the band and the text, so a name is not set against the thing above
+   *  it. That is what had `tui` riding high in its wedge with its own ring through the
+   *  ascenders. */
+  const plateOf = (g: Geo): Geo => ({
+    ...g,
+    r1: Math.max(g.r0, g.r1 - rim.width - rim.inset * 2),
+  })
+
+  const dirRim = (node: Node, c: ReturnType<typeof colorFor>, g: Geo, fade = 1) => {
+    if (node.kind !== 'dir' || !c) return null
+    const r1 = g.r1 - rim.inset
+    const r0 = Math.max(g.r0, r1 - rim.width)
+    if (r1 <= r0) return null
+    // The same margin on the ends, expressed as the angle that subtends it at the band's
+    // own radius — so the gap is the same width all the way round, which is the rule the
+    // CUTs already follow. Capped as a share of the wedge, or a thin one closes up.
+    const pad = Math.min(rim.inset / Math.max(r1, 1), (g.a1 - g.a0) * 0.3)
+    return (
+      <path
+        className="pointer-events-none"
+        d={arcPath(g.a0 + pad, g.a1 - pad, r0, r1)}
+        fill={c.fill}
+        fillOpacity={fade * heatShare('dir', mode)}
+      />
+    )
+  }
+
   const target = useMemo(
     () => geoOf(wedges, R_INNER, band, (kind) => (kind === 'dir' ? RING_GAP : RING_GAP * 0.4)),
     [wedges, band],
@@ -942,6 +1030,76 @@ function SunburstView({
     () => new Set(fileWedges.map((w) => w.node.id)),
     [fileWedges],
   )
+
+  /** Where a file's functions get tiled, or null when its wedge has no room to tile them
+   *  at all. Extracted because there are two callers and they must not disagree: the
+   *  patch pass draws from it, and the escalation below asks it whether a file is showing
+   *  its own contents or standing in for them. */
+  const tilingOf = (g: Geo) => {
+    const bandStart = g.r0
+    const r0 = bandStart + FUNC_RIM
+    const rMid = bandStart + band / 2
+    const pad = Math.min(FUNC_RIM / rMid, (g.a1 - g.a0) * FUNC_RIM_MAX_SHARE)
+    const fa0 = g.a0 + pad
+    const fa1 = g.a1 - pad
+    const r1 = g.r1 - FUNC_RIM
+    const patch = minPatchArea ?? MIN_PATCH_PX
+    const sector = (fa1 - fa0) * ((r1 * r1 - r0 * r0) / 2)
+    if ((fa1 - fa0) * rMid < MIN_STACK_ARC || sector < OPEN_PATCHES * patch) return null
+    return { r0, r1, fa0, fa1 }
+  }
+
+  /** A replay's events, moved to the nearest wedge that is actually drawn.
+   *
+   *  An event belongs to a function. On anything the size of home-assistant no function
+   *  has a wedge — `minLoc` folds them away before the tree is built — and neither does
+   *  its file: fifteen thousand of them are under the angle a wedge needs. So the commit
+   *  under the playhead had nowhere to land, and a replay of a large repo was a grey map
+   *  beside a scrolling log. Nothing was wrong with the walk; the picture simply had no
+   *  surface for it.
+   *
+   *  The ladder is the obvious one — the function if it is drawn, else its file, else the
+   *  directory that holds it — and it is decided HERE rather than rolled up in the fold,
+   *  because "is it drawn" is a question about this pane at this size with this drill
+   *  stack, which the fold cannot see. What makes it cheap is that culling takes whole
+   *  subtrees (`layout`), so the drawn wedges are a connected top-down tree: a directory
+   *  only has to look at its own children, and an event under a child that is NOT drawn is
+   *  an event no descendant can be showing.
+   *
+   *  It is not a roll-up wearing a hat. A roll-up lights every ring out to the rim on
+   *  every commit — that is why `aggregate` refuses one — and this lights exactly one
+   *  wedge per event: the deepest one there is room for. */
+  const escalated = new Map<string, ReturnType<typeof flashPaint>>()
+  {
+    const drawn = new Set(wedges.map((w) => w.node.id))
+    const birthUnder = (n: Node) => n.birthBelow === true || n.score?.appeared != null
+    const touchUnder = (n: Node) => n.touchBelow === true || n.score?.edited != null
+    for (const w of wedges) {
+      const n = w.node
+      if (n.kind === 'func') continue
+      let birth = false
+      let touch = false
+      if (n.kind === 'file') {
+        // A file with room to tile shows the event on the function it happened to, which
+        // is the ladder's first rung working. Only a file drawn solid stands in for its
+        // own contents.
+        if (tilingOf(geo(n.id)) === null) {
+          birth = birthUnder(n)
+          touch = touchUnder(n)
+        }
+      } else {
+        for (const c of n.children) {
+          if (drawn.has(c.id)) continue
+          birth = birth || birthUnder(c)
+          touch = touch || touchUnder(c)
+          if (birth && touch) break
+        }
+      }
+      // Arrival beats a touch, the same way it does in `colorFor` and for the same
+      // reason: the commit that creates a function also touches it.
+      if (birth || touch) escalated.set(n.id, flashPaint(birth ? 'birth' : 'touch'))
+    }
+  }
   const viewTo = useMemo(
     () => {
       // An open file is fitted to the FAN it is opening into, not to a ring's extent —
@@ -1118,15 +1276,18 @@ function SunburstView({
           leaving.current.map((x) => {
             const g = lerpGeo(x.from, x.to, e)
             const c = colorFor(x.node, mode, ranks, ageSpan)
+            const plate = x.node.kind === 'dir' ? null : c
             return (
-              <path
-                key={`leaving-${x.node.id}`}
-                d={arcPath(g.a0, g.a1, g.r0, g.r1)}
-                fill={c ? c.fill : 'var(--structure)'}
-                fillOpacity={(1 - e) * (c ? heatShare(x.node.kind, mode) : 1)}
-                stroke="var(--background)"
-                strokeWidth={x.node.kind === 'dir' ? CUT.dir : CUT.file}
-              />
+              <g key={`leaving-${x.node.id}`}>
+                <path
+                  d={arcPath(g.a0, g.a1, g.r0, g.r1)}
+                  fill={plate ? plate.fill : 'var(--structure)'}
+                  fillOpacity={(1 - e) * (plate ? heatShare(x.node.kind, mode) : 1)}
+                  stroke="var(--background)"
+                  strokeWidth={x.node.kind === 'dir' ? CUT.dir : CUT.file}
+                />
+                {dirRim(x.node, c, g, 1 - e)}
+              </g>
             )
           })}
         <g ref={art} style={moving ? { pointerEvents: 'none' } : undefined}>
@@ -1139,13 +1300,16 @@ function SunburstView({
           const g = lerpGeo(coring.current.from, coring.current.to, e)
           const c = colorFor(coring.current.node, mode, ranks, ageSpan)
           return (
-            <path
-              d={arcPath(g.a0, g.a1, g.r0, g.r1)}
-              fill={c ? c.fill : 'var(--structure)'}
-              fillOpacity={c ? heatShare(coring.current.node.kind, mode) : 1}
-              stroke="var(--background)"
-              strokeWidth={CUT.dir}
-            />
+            <g>
+              <path
+                d={arcPath(g.a0, g.a1, g.r0, g.r1)}
+                fill="var(--structure)"
+                fillOpacity={1}
+                stroke="var(--background)"
+                strokeWidth={CUT.dir}
+              />
+              {dirRim(coring.current.node, c, g)}
+            </g>
           )
         })()}
         {/* An open file: its own tiling, unrolled out of the wedge it came from.
@@ -1221,7 +1385,14 @@ function SunburstView({
           //
           // One mechanism now: `colorFor` decides WHAT a wedge means, `heatShare` decides
           // how loudly its level says it.
-          const c = fills.get(w.node.id) ?? null
+          // The wedge's own reading, or an event from below that has nowhere else to be
+          // drawn — see `escalated`. Its own comes first: a directory that is flashing its
+          // own arrival is already saying the loudest thing it has to say.
+          const c = fills.get(w.node.id) ?? escalated.get(w.node.id) ?? null
+          // A directory's reading goes on its rim, not through it — `DIR_RIM_PX`. What is
+          // left here is the plate, which is structure and takes the structural neutral,
+          // exactly as an unread directory always did.
+          const plate = w.node.kind === 'dir' ? null : c
           // Agent verdicts and model surprisal are different instruments and must be
           // told apart at a glance. Hue is spoken for — it is the reading itself — so the
           // distinction goes on the outline.
@@ -1273,8 +1444,8 @@ function SunburstView({
               // A folded directory is drawn a shade heavier than an open one, so the
               // ring that ends at it reads as packed rather than as genuinely empty.
               fill={
-                c
-                  ? c.fill
+                plate
+                  ? plate.fill
                   : isFolded
                     ? 'color-mix(in oklch, var(--structure) 78%, var(--foreground))'
                     : 'var(--structure)'
@@ -1282,7 +1453,7 @@ function SunburstView({
               fillOpacity={
                 isSel || isHover
                   ? 0.95
-                  : c
+                  : plate
                     ? heatShare(w.node.kind, mode)
                     : w.node.kind === 'dir'
                       ? 1
@@ -1326,6 +1497,8 @@ function SunburstView({
               onDoubleClick={() => onDrill(w.node)}
             >
             </path>
+            {/* The reading itself, on the edge the directory shares with its contents. */}
+            {dirRim(w.node, c, g)}
             {/* Out with a reader: a white pulse over the wedge.
                 **After the wedge, not before it.** SVG paints in document order, so the
                 first version of this drew the marker and then painted the wedge's own
@@ -1376,45 +1549,32 @@ function SunburstView({
             // during one. Once the rings can ease toward a shape that changed under them,
             // a file's functions laid out at the target while its wedge is still on its way
             // there are functions hanging outside their own file. One source for both.
-            const g = geo(w.node.id)
-            const bandStart = g.r0
-            const r0 = bandStart + FUNC_RIM
-            // Inset angularly so the file's fill frames its own functions on both sides.
-            // A root file spans the whole circle and has no neighbors to be told apart
-            // from, so it takes no inset — an inset there would cut a wedge-shaped
-            // notch out of a full ring for no reason.
-            // Same rim as the arc edges, expressed as the angle that subtends it at
-            // the band's mid-radius — so the frame is the same width all the way round.
-            const rMid = bandStart + band / 2
-            const pad = Math.min(FUNC_RIM / rMid, (g.a1 - g.a0) * FUNC_RIM_MAX_SHARE)
-            const fa0 = g.a0 + pad
-            const fa1 = g.a1 - pad
-            const r1 = g.r1 - FUNC_RIM
-            // Too small to say anything: draw the file solid instead.
+            // Inside the file's OWN band — (depth - 1) — not the one beyond it, inset on
+            // both radii so the file's fill reads as a rim on the inside and outside edges
+            // too, and angularly so it frames its own functions on both sides. All of that
+            // is `tilingOf`, which also answers whether there is room at all:
             //
-            // The test is AREA now, and the arc floor that used to carry it alone is down
-            // to the width one patch needs. That gate was written for a radial stack,
-            // where a file's whole angular width WAS one slice, so arc was the only
-            // dimension a slice had and 5 units of it was the honest floor. Tiling spends
-            // both, so a wedge can be narrow and still hold plenty — and the old rule was
-            // silencing files that had the room. Worked through on `tui` at depth 1: a
-            // 1,000-line file gets 0.0384 rad, which is 3.45 units of arc and blanked,
-            // while its wedge is ~260px² and holds about twenty patches. Every file under
-            // roughly 1,450 lines at that depth was being told it had nothing to show.
+            // Too small to say anything: draw the file solid instead. The test is AREA —
+            // the arc floor that used to carry it alone was written for a radial stack,
+            // where a file's whole angular width WAS one slice; tiling spends both
+            // dimensions, so a wedge can be narrow and still hold plenty, and the old rule
+            // was silencing files that had the room. Four patches rather than one, because
+            // a wedge with room for a single patch draws its own roll-up over its own area
+            // and says nothing the file's fill was not already saying. The file keeps its
+            // own fill and its own hover, and drilling in still shows every function it
+            // has; `layout` culls wedges below `MIN_ANGLE` on the same reasoning, and this
+            // is that rule one level further in, where the wedges are not culled but their
+            // CONTENTS cannot be drawn.
             //
-            // Four patches rather than one, because a wedge with room for a single patch
-            // draws its own roll-up over its own area and says nothing the file's fill was
-            // not already saying.
-            //
-            // The file keeps its own fill and its own hover, and drilling in still shows
-            // every function it has. `layout` already culls wedges below `MIN_ANGLE` on
-            // the same reasoning; this is that rule applied one level further in, where
-            // the wedges are not culled but their CONTENTS cannot be drawn.
-            const patch = minPatchArea ?? MIN_PATCH_PX
-            const sector = (fa1 - fa0) * ((r1 * r1 - r0 * r0) / 2)
-            if ((fa1 - fa0) * rMid < MIN_STACK_ARC || sector < OPEN_PATCHES * patch) {
-              return null
-            }
+            // **From `geo`, not from the wedge.** The tiling used to be laid out straight
+            // off the layout's own angles, which is the wedge's FINAL position — fine while
+            // the only thing that moved was a level change, because patches are not drawn
+            // during one. Once the rings can ease toward a shape that changed under them,
+            // a file's functions laid out at the target while its wedge is still on its way
+            // there are functions hanging outside their own file. One source for both.
+            const tile = tilingOf(geo(w.node.id))
+            if (!tile) return null
+            const { r0, r1, fa0, fa1 } = tile
             return tileFunctions(w.node.children, r0, r1, fa0, fa1, { minPatchArea }).map((slot) => {
               const c = colorFor(slot.node, mode, ranks, ageSpan)
               const isSel = selected?.id === slot.node.id
@@ -1602,7 +1762,7 @@ function SunburstView({
             // The inset is what makes the gap between two names visibly a gap.
             const pad = (g.a1 - g.a0) * RIM_INSET
             const cell = isDir
-              ? g
+              ? plateOf(g)
               : {
                   a0: g.a0 + pad,
                   a1: g.a1 - pad,
@@ -1611,7 +1771,13 @@ function SunburstView({
                 }
             const at = fitLabel(cell, w.node.name, {
               weight: WEIGHT,
-              max: isDir ? Math.max(11, Math.min(17, band * 0.34)) : FILE_MAX,
+              // Off the cell's OWN depth, not off `band`. The two were the same thing
+              // while a directory's name had the whole ring to sit in; now the band takes
+              // the top of it, and sizing to the ring would set a name too big for the
+              // room actually left under it.
+              max: isDir
+                ? Math.max(11, Math.min(17, (cell.r1 - cell.r0) * 0.34))
+                : FILE_MAX,
               // Arc only out here. The rim band is a thin annulus and whatever lies past it
               // belongs to somebody else, so a radial run leaves this file's territory on
               // its first character.
@@ -1637,11 +1803,11 @@ function SunburstView({
                 // A FILE's name is not on anything. It hangs off the rim, past the outermost
                 // ring, on ground that belongs to nobody — so the ground's own ink is the
                 // right one, and it is set quieter than the structure it labels.
-                fill={
-                  isDir && fills.get(w.node.id)
-                    ? inkOn(fills.get(w.node.id)!.stop, heatShare('dir', mode))
-                    : CHROME_INK
-                }
+                // A directory's plate is now always the structural neutral — its reading
+                // moved to the rim (`DIR_RIM_PX`) — so the ink that used to be derived
+                // from the plate's own stop is the chrome's, which is what an unread
+                // plate already took. One case where there were two.
+                fill={CHROME_INK}
                 opacity={(isDir ? 0.9 : 0.62) * (at.clipped ? 0.72 : 1)}
               />
             )
@@ -1786,6 +1952,13 @@ function SunburstView({
       {mascot && (
         <div
           ref={hubMascot}
+          /* Where the creature sits in the map's OWN coordinates — its centre's y and the
+             side of its box, both in user units. The movie export composites this canvas
+             into its frames (it is not in the SVG, so a copy of the SVG does not carry it)
+             and needs to know where: reading it off the element keeps the one geometry
+             here, rather than a second copy of these two numbers in `movie.ts` that nobody
+             would think to move when the hub does. */
+          data-hub-mascot={`${HUB_MASCOT_Y} ${HUB_MASCOT}`}
           className="absolute left-0 top-0 origin-center"
           style={{
             width: HUB_MASCOT,

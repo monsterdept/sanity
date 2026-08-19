@@ -2,8 +2,8 @@ import { useRef, useState } from 'react'
 import { Choice, Field } from './Fields'
 import { Overlay } from './Overlay'
 import { saveMovie } from '../lib/api'
-import { CANCELLED, CODEC_NAME, FPS, record, type Codec, type Tick } from '../lib/movie'
-import { applyTheme, loadTheme } from '../lib/theme'
+import { CANCELLED, CODEC_NAME, FPS, mapSide, record, type Codec, type Tick } from '../lib/movie'
+import type { Staged } from '../lib/movie'
 
 /**
  * How long the exported movie runs.
@@ -17,20 +17,28 @@ import { applyTheme, loadTheme } from '../lib/theme'
 const LENGTHS = [180, 60, 30, 10, 3]
 
 /**
- * The frame sizes on offer, as the edge of a square.
+ * The frame sizes on offer, by the height of a 16:9 frame.
  *
- * Square because the map is a circle: a 16:9 file of a sunburst is two black margins
- * totalling nearly half the picture, in every frame, paid for in encode time and file size.
- * The three are a screenshot, something to present from, and something to zoom into —
- * anything finer is a control that changes only the file size, which is not a question this
- * dialog can help anybody answer.
+ * **The ladder every player and every timeline already speaks.** It was the edge of a
+ * square, on the argument that a 16:9 picture of a circle is two empty margins — true, and
+ * beside the point once the file became something to post: the margins hold the repo's name
+ * and where the movie came from, and 1080p is what a person means when they say what size
+ * they want. The four are a thumbnail, a post, something to present from and something to
+ * zoom into; anything finer is a control that changes only the file size, which is not a
+ * question this dialog can help anybody answer.
  */
 const SIZES = [
-  { px: 720, label: '720', note: 'small' },
-  { px: 1080, label: '1080', note: 'standard' },
-  { px: 2160, label: '2160', note: 'large' },
-  { px: 4000, label: '4000', note: 'huge' },
+  { h: 720, note: 'small' },
+  { h: 1080, note: 'standard' },
+  { h: 1440, note: 'large' },
+  { h: 2160, note: 'huge' },
 ]
+
+/** The frame, from the height that names it. Rounded to an even width, because encoders
+ *  subsample chroma in pairs and an odd dimension is a configuration some of them refuse. */
+function frameOf(h: number): { width: number; height: number } {
+  return { width: Math.round((h * 16) / 9 / 2) * 2, height: h }
+}
 
 function pace(total: number): string {
   return total >= 60 ? `${Math.round(total / 60)}m` : `${total}s`
@@ -42,6 +50,7 @@ const STAGE: Record<Tick['stage'], string> = {
   fetch: 'fetching commits',
   fold: 'rebuilding the map',
   raster: 'rastering the frame',
+  draw: 'drawing the frame',
   encode: 'encoding',
 }
 
@@ -97,8 +106,11 @@ export function ExportDialog({
   index,
   onIndex,
   name,
+  slug,
+  scope,
   duration,
   ensure,
+  dateOf,
   onStage,
   onClose,
 }: {
@@ -110,6 +122,10 @@ export function ExportDialog({
   onIndex: (i: number) => void
   /** The repo, for the suggested filename. */
   name: string
+  /** The repo as the world knows it, for the caption — see `HistoryBar`. */
+  slug: string
+  /** The directory the replay is scoped to, or `''`. */
+  scope: string
   /** What the transport is set to, which is this dialog's opening answer. */
   duration: number
   /** Have the timeline as far as a given commit.
@@ -120,11 +136,15 @@ export function ExportDialog({
    *  though it were a commit. See `Recording.ensure` for why it is per frame and not once
    *  up front. */
   ensure: (index: number) => Promise<void>
-  /** Lay the map out for a file of this many pixels, or null to give the pane back. */
-  onStage: (px: number | null) => void
+  /** When a commit landed, for the timeline under the caption. Null before the window. */
+  dateOf: (real: number) => number | null
+  /** Dress the map for the file being written — its size and its ground — or null to give
+   *  the pane back. See `Staged`. */
+  onStage: (stage: Staged | null) => void
   onClose: () => void
 }) {
   const [seconds, setSeconds] = useState(duration)
+  /** The frame's HEIGHT — see `SIZES`. The width follows from it. */
   const [size, setSize] = useState(1080)
   /** Opens on what the window is showing — a recording of the map you are looking at is the
    *  answer that needs no thought, and the other one is one click away. */
@@ -153,18 +173,29 @@ export function ExportDialog({
       setPhase('recording')
       // **Staged before a single frame is read, and the map is left to settle.**
       // `record` resolves the custom properties and the background once, on its way in, so
-      // the ground has to be on the document by then or the file comes out in the other one
-      // with the right wedges. Two animation frames is the same wait every frame of the
-      // recording makes for the same reason — see `settle` there.
-      applyTheme(ground)
-      onStage(size)
+      // the ground has to be on the map by then or the file comes out in the other one with
+      // the right wedges. Two animation frames is the same wait every frame of the recording
+      // makes for the same reason — see `settle` there.
+      //
+      // **On the map, not on the window.** This used to flip the whole app to the chosen
+      // ground for the length of the export — sidebar, dialogs and menus included, in front
+      // of somebody who had only asked for a file. The map paints in `var(--…)` throughout,
+      // so a class on the pane is enough; see the `.light` selector in `index.css`.
+      //
+      // The px is the map's own side inside the frame, not the frame's — every threshold
+      // that decides whether a wedge is worth drawing is a pixel size, and the pixels the
+      // map gets are the square part of a 16:9 picture with a margin round it.
+      onStage({ px: mapSide(size), ground })
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
       const bytes = await record({
         frames,
         seconds,
-        size,
+        ...frameOf(size),
+        title: slug,
+        scope,
         setIndex: onIndex,
         ensure,
+        dateOf,
         onProgress: setAt,
         onCodec: setCodec,
         cancelled: () => stop.current,
@@ -184,13 +215,12 @@ export function ExportDialog({
       setPhase('idle')
       if (why !== CANCELLED) setError(why)
     } finally {
-      // The window goes back to being a window: its own ground, its own density, and the
-      // commit it was on. The recording drove the playhead across the whole timeline, and
-      // leaving any of that behind would be the export having rearranged the view as a side
-      // effect. `loadTheme` rather than the ground we found on the way in, because `system`
-      // is a live relationship and reading the class back would have flattened it to
-      // whichever way the machine happened to be at the time.
-      applyTheme(loadTheme())
+      // The pane goes back to being a pane: its own ground, its own density, and the commit
+      // it was on. The recording drove the playhead across the whole timeline, and leaving
+      // any of that behind would be the export having rearranged the view as a side effect.
+      // Dropping the staged ground is all it takes to restore the window's own — including
+      // `system`, which is a live relationship the export never touched and so cannot have
+      // flattened.
       onStage(null)
       onIndex(index)
     }
@@ -207,8 +237,8 @@ export function ExportDialog({
         <div>
           <div className="text-[15px] font-semibold">Export the replay</div>
           <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
-            {frames.length.toLocaleString()} commit{frames.length === 1 ? '' : 's'}, as an MP4
-            of the map alone.
+            {frames.length.toLocaleString()} commit{frames.length === 1 ? '' : 's'}, as a
+            16:9 MP4 of the map, captioned <span className="mono">{slug}</span>.
           </p>
         </div>
 
@@ -230,21 +260,22 @@ export function ExportDialog({
           <div className="flex flex-wrap gap-2">
             {SIZES.map((s) => (
               <Choice
-                key={s.px}
-                on={size === s.px}
+                key={s.h}
+                on={size === s.h}
                 disabled={busy}
-                onClick={() => setSize(s.px)}
-                label={`${s.label}²`}
+                onClick={() => setSize(s.h)}
+                label={`${s.h}p`}
                 note={s.note}
               />
             ))}
           </div>
-          {/* Stated rather than left to be discovered at the end: the frame is square
-              because the thing being recorded is a circle, and the size is the LAYOUT as
-              well as the file — see `Sunburst`'s `density`. */}
+          {/* Stated rather than left to be discovered at the end: the frame is 16:9 with
+              the map in the square part of it, and that square is the LAYOUT as well as the
+              file — see `Sunburst`'s `density`. */}
           <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
-            {size} × {size} at {FPS} fps — {Math.round(seconds * FPS).toLocaleString()} frames,
-            laid out for {size.toLocaleString()}px.
+            {frameOf(size).width} × {size} at {FPS} fps —{' '}
+            {Math.round(seconds * FPS).toLocaleString()} frames, with the map laid out for{' '}
+            {mapSide(size).toLocaleString()}px.
           </p>
         </Field>
 
@@ -286,7 +317,7 @@ export function ExportDialog({
             {at && at.done > 0 && (
               <p className="mono mt-1 text-[10px] text-[var(--muted-foreground)]">
                 fetch {ms(at.cost.fetch)} · fold {ms(at.cost.fold)} · raster{' '}
-                {ms(at.cost.raster)} · encode {ms(at.cost.encode)}
+                {ms(at.cost.raster)} · draw {ms(at.cost.draw)} · encode {ms(at.cost.encode)}
               </p>
             )}
           </div>
@@ -297,8 +328,8 @@ export function ExportDialog({
             every time is a sentence nobody reads teaching nobody anything. */}
         {codec && codec !== 'avc' && (
           <p className="text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-            Encoded as {CODEC_NAME[codec]} — H.264 does not reach {size} × {size} on this
-            machine. Plays in QuickTime, Safari and the editors; not everywhere H.264 does.
+            Encoded as {CODEC_NAME[codec]} — H.264 does not reach {frameOf(size).width} ×{' '}
+            {size} on this machine. Plays in QuickTime, Safari and the editors; not everywhere H.264 does.
           </p>
         )}
         {saved && (

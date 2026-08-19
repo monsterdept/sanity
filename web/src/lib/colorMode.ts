@@ -246,6 +246,17 @@ function flash(token: string, label: string): Paint & { label: string } {
   return { fill: `var(${token})`, stop: token, ink: inkOn(token), label }
 }
 
+/** The same two flashes, for a wedge that is showing an event it does not itself carry.
+ *
+ *  A replay's event belongs to a function, and on a large repo neither the function nor
+ *  its file has a wedge on screen — so the nearest thing that IS drawn shows it instead,
+ *  which the renderer works out and this hands it the paint for. It is deliberately the
+ *  identical colour and not a diluted one: what escalated is where the event could be
+ *  DRAWN, not how certain we are that it happened. */
+export function flashPaint(kind: 'birth' | 'touch'): Paint & { label: string } {
+  return kind === 'birth' ? flash('--birth', 'new here') : flash('--touch', 'touched here')
+}
+
 /** A ramped fill, the stop it sits nearest, and the ink that survives on it. The three
  *  move together and always have to: a caller that took the fill without the ink is how
  *  every label in the map came to be one color over a ramp spanning 6:1 of lightness.

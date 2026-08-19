@@ -8,6 +8,7 @@ import {
   type MascotHandle,
 } from '../lib/mascot'
 import type { AgentCall } from '../lib/api'
+import { setMascotClock } from '../lib/mascotClock'
 import { saveMonster, storedMonster } from '../lib/monster'
 
 function loadOrMint(project: string | null | undefined): MascotConfig {
@@ -233,6 +234,37 @@ export default function MascotFigure({
     },
     [size],
   )
+
+  /**
+   * Lend the creature's clock to whatever needs to drive it — today, the movie export.
+   *
+   * **Registered here because this is where the handle is**, and resolved lazily on every
+   * call because the scene is built in an effect of the bundle's own: an address captured at
+   * mount time is null for the first frames and stale after a remint, which rebuilds the
+   * whole creature. See `mascotClock` for why an export cannot let it run on wall-clock time.
+   */
+  useEffect(() => {
+    setMascotClock({
+      hold: () => {
+        const renderer = handle.current?.renderer
+        if (typeof renderer?.setRendering !== 'function') return false
+        if (typeof renderer.shared?._renderFrame !== 'function') return false
+        if (typeof renderer.shared?.engine?.update !== 'function') return false
+        renderer.setRendering(false)
+        return true
+      },
+      step: (ms: number) => {
+        const shared = handle.current?.renderer?.shared
+        shared?.engine?.update?.(ms)
+        shared?._renderFrame?.()
+      },
+      // Unconditional, and it must stay that way: `hold` can fail after having already
+      // paused nothing, but a release that is skipped because a later check failed leaves a
+      // creature that never moves again in a window nobody is exporting from.
+      release: () => handle.current?.renderer?.setRendering?.(true),
+    })
+    return () => setMascotClock(null)
+  }, [])
 
   /**
    * Watch what the map is doing.

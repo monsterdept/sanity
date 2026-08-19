@@ -771,24 +771,29 @@ function ProjectItem({
           block behind the row is the same visual idea at a different width, and a
           half-finished project read as half-selected.
           An edge rule shares nothing with either. It is inside the row's own height, so it
-          still costs nothing, and it is drawn in the mark color readings already use rather
-          than the accent that means "selected".
+          still costs nothing.
           Six pixels rather than two: at a hairline the one thing this is FOR — how far along
           a repo is — had to be looked for, and the sweep that rides in the same band had
           almost no room to read as movement. The row grew to hold a button and can spend it. */}
       {/* **The rule shows whatever the second line is talking about.** Coverage most of the
           time, because that is the standing fact about a repo; the walk's own fraction while
           a scan or a replay is running, because during those the coverage number is frozen
-          and the thing worth watching is the one that is moving. The tint says which of the
-          two it is — the readings' own mark colour, or the accent every other in-progress
-          thing in this app already uses. */}
+          and the thing worth watching is the one that is moving.
+          **One colour for both, and for every other bar in the app.** Coverage was drawn in
+          the readings' own teal and the walk in the accent, on the argument that the tint
+          said which of the two you were looking at — a distinction nobody asked the rule to
+          make, and one it could not make anyway without a legend. What it did instead was
+          put two hues in a column of otherwise identical rows, so the palette read as status
+          where it was only provenance. A progress bar is a progress bar: accent, here and in
+          the movie export's timeline and the export dialog's own bar. The second line above
+          says which fraction it is, in words. */}
       {(walking !== null || (!project.loading && total > 0 && project.assessed > 0 && !settled)) && (
         <span
           aria-hidden
           className="absolute bottom-0 left-0 h-[6px] rounded-full"
           style={{
             width: `${Math.min(100, (walking ?? project.assessed / total) * 100)}%`,
-            background: walking !== null ? 'var(--accent)' : 'var(--agent-mark)',
+            background: 'var(--accent)',
             // Brighter while readers are out: the rule is the thing that moves during a
             // run, so it should be the thing you notice.
             opacity: reading || walking !== null ? 0.95 : 0.6,

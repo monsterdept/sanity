@@ -36,7 +36,22 @@
   --color-sidebar-border: var(--sidebar-border);
 }
 
-:root {
+/* **The ground is a palette, and a palette can be scoped.** `dark` on `<html>` is how the
+ * app itself switches (see `lib/theme.ts`) and that has not changed — what these two extra
+ * selectors buy is the ability to put a ground on ONE SUBTREE. The movie export needs it:
+ * it records the map on screen, so asking for a light file used to mean flipping the whole
+ * window to light for the length of the recording, sidebar, dialogs and menus included, in
+ * front of somebody who only asked for a file.
+ *
+ * Custom properties inherit, so a `light` or `dark` class on the pane is enough for
+ * everything the map paints with. The one thing it does NOT reach is Tailwind's `dark:`
+ * variant, which is `&:is(.dark *)` and therefore answers to the nearest `.dark` ANCESTOR —
+ * a `light` subtree inside a dark document keeps any `dark:` utilities it contains. That is
+ * fine here and checked rather than assumed: `Sunburst` has none, it paints in `var(--…)`
+ * throughout, which is the same property that lets one geometry serve seven lenses. Put a
+ * `dark:` utility inside the map and this stops being true. */
+:root,
+.light {
   --radius: 0.625rem;
   --titlebar-h: 43px;
   /* Room for the macOS overlay traffic lights, which float over the sidebar header. */

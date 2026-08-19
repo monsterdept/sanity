@@ -57,7 +57,10 @@ export function HistoryBar({
   duration,
   onDuration,
   name,
+  slug,
+  scope,
   ensure,
+  dateOf,
   onStage,
 }: {
   /** The commits in scope, as indices into `hist.commits`. Everything the transport
@@ -75,11 +78,19 @@ export function HistoryBar({
   onDuration: (s: number) => void
   /** The repo on screen, for the exported file's name. */
   name: string
+  /** The repo as the world knows it — `owner/name` where there is a remote — for an
+   *  exported movie's caption. Not the filename: that wants the drilled path. */
+  slug: string
+  /** The directory the replay is scoped to, or `''` at the top. Named in the caption so a
+   *  movie of one subtree does not read as a movie of the repo. */
+  scope: string
+  /** When a commit landed, for the timeline in an exported movie. */
+  dateOf: (real: number) => number | null
   /** Fetch the timeline as far as a given commit — see `ExportDialog`. */
   ensure: (index: number) => Promise<void>
   /** Lay the map out for a file of this many pixels, or null to go back to the pane — see
    *  `App`'s `staged`. */
-  onStage: (px: number | null) => void
+  onStage: (stage: import('../lib/movie').Staged | null) => void
 }) {
   const [exporting, setExporting] = useState(false)
   const last = frames.length - 1
@@ -276,8 +287,11 @@ export function HistoryBar({
           index={index}
           onIndex={onIndex}
           name={name}
+          slug={slug}
+          scope={scope}
           duration={duration}
           ensure={ensure}
+          dateOf={dateOf}
           onStage={onStage}
           onClose={() => setExporting(false)}
         />

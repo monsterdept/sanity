@@ -85,6 +85,10 @@ export interface MascotEngine {
   setGazeFocus?(dirX: number, dirY: number): void
   /** Hand the eyes back to mouse tracking and autonomous gaze. */
   clearGazeFocus?(): void
+  /** Advance every animation by this many milliseconds. What the bundle's own rAF loop
+   *  passes it, which is what makes driving the creature off another clock possible at all
+   *  — see `mascotClock`. */
+  update?(ms: number): void
 }
 
 /** The scene wrapper, between the renderer and the part animator. */
@@ -98,11 +102,19 @@ export interface MascotShared {
    *  said. The bundle's own `mousemove` handler calls this too, and is NOT gated on focus
    *  mode, which is the other half of why an aim has to be pushed rather than set once. */
   setMouseWorld?(x: number, y: number): void
+  /** Draw one frame, now. Underscored in the bundle and used here anyway: with the render
+   *  loop paused it is the only way to produce a frame, and the export needs one per frame
+   *  of the FILE rather than one per frame of this machine. Guarded like everything else
+   *  declared here, because a hand-written declaration cannot be checked against a bundle. */
+  _renderFrame?(): void
 }
 
 /** The scene underneath the React wrapper, reached through `MascotHandle.renderer`. */
 export interface MascotRenderer {
   readonly shared?: MascotShared | null
+  /** Pause or resume the creature's own animation loop without disposing the WebGL context.
+   *  Forwarded to `shared` by the bundle, and public there. */
+  setRendering?(on: boolean): void
 }
 
 export interface MascotHandle {

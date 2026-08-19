@@ -303,6 +303,7 @@ pub fn run() {
             commands::history_tables,
             commands::history_log,
             commands::history_scoped,
+            commands::repo_remote,
             commands::history_deltas,
             commands::history_funcs,
             commands::sync_theme_menu,
