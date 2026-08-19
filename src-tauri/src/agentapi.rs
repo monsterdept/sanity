@@ -1399,7 +1399,7 @@ fn collect_tasks(
         let queue_file = match done.get(&node.id) {
             Some(prior) => crate::assessment::is_stale(prior, node.body.as_deref()),
             None => true,
-        } && !leased.get(&node.id).is_some_and(|t| t.elapsed() < LEASE)
+        } && leased.get(&node.id).is_none_or(|t| t.elapsed() >= LEASE)
             // A file with nothing in it has no declarations to describe, so there is no
             // reading to take: the header would be graded against an empty surface.
             && !node.children.is_empty();
@@ -3578,10 +3578,10 @@ async fn reveal(
         return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
     };
     project.last_agent = Some(Instant::now());
-    if !project
+    if project
         .leased
         .get(&req.id)
-        .is_some_and(|t| t.elapsed() < LEASE)
+        .is_none_or(|t| t.elapsed() >= LEASE)
     {
         state.ping("sanity_error");
         return Json(serde_json::json!({
