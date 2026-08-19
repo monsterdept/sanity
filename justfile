@@ -374,6 +374,25 @@ publish version:
     # Stage before comparing: `git diff` ignores untracked files, so the very
     # first cask would report "no change" and never be pushed.
     git add Casks/sanity.rb
+    # A regenerated cask may only ADD. The generator is this justfile, so a workstation
+    # publishing from a stale checkout writes an OLDER cask over a newer one and the only
+    # evidence is a line that stopped being there — which is how 0.11.0 shipped without
+    # `binary`, leaving every brew user with the app and no `sanity` on PATH. Nothing
+    # downstream could see it: the tap served the right version, the DMG was the right
+    # bytes, and the check below reads the version and nothing else.
+    #
+    # version and sha256 are the two lines that are SUPPOSED to change, so they are the
+    # only exemptions. Everything else disappearing means this tree is behind the one that
+    # published last — pull, don't force.
+    lost=$(git diff --staged -U0 -- Casks/sanity.rb \
+        | grep '^-' | grep -v '^---' \
+        | grep -vE '^-  (version|sha256) ' || true)
+    if [ -n "$lost" ]; then
+        echo "error: regenerating the cask would REMOVE lines — this checkout is probably stale" >&2
+        echo "$lost" >&2
+        echo "    pull sanity and re-run \`just publish $VERSION\`" >&2
+        exit 1
+    fi
     if git diff --staged --quiet; then
         echo "    cask already current"
     else
