@@ -1,4 +1,6 @@
 import {
+  CALLER_KEY,
+  REACH_KEY,
   MODE_HINT,
   MODE_LABEL,
   OTHER_LABEL,
@@ -88,18 +90,41 @@ function Legend({
     )
   }
 
-  // Reach is not a scale either, and for the reason Traps is not: a caller count is a power
-  // law whose only interesting value is zero, so the map paints two states rather than five
-  // stops. Both states get a swatch — unlike Traps, where the absence of a trap is the
-  // ordinary case and needs no key — because here BOTH are findings, and a reader who saw
-  // only the bright one would have no way to know that the neutral means "measured, and
-  // something calls it" rather than "nobody looked".
-  if (mode === 'reach') {
+  // Callers is bands rather than a bar, and every band gets a swatch. A gradient would say
+  // the value is continuous — a caller count is, but the PAINT is not, and a key that
+  // implies four hundred shades over a picture holding four is a legend disagreeing with
+  // what is beside it. The dim end is a finding as much as the bright one, which is why the
+  // scale is labelled at both ends instead of only where the eye is drawn.
+  if (mode === 'callers') {
+    return (
+      <div className="flex items-center gap-3">
+        {CALLER_KEY.map(([fill, label]) => (
+          <span key={label} className="flex items-center gap-1.5">
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+              style={{ background: fill }}
+            />
+            <span className="text-[10px] text-[var(--muted-foreground)]">{label}</span>
+          </span>
+        ))}
+      </div>
+    )
+  }
+
+  // Reach is banded exactly as Callers is, and draws the same key for the same reason: the
+  // two are a pair read down opposite sides of one edge, so anything that made them look
+  // like different kinds of measurement would cost the comparison they exist for.
+  // Clones is a mark and two neutrals, the shape Traps takes — see `--clone`. All three get
+  // a swatch, unlike Traps where the ordinary case needs no key: here `no copy` and `too
+  // small to compare` are different answers and the second is not a finding, so a reader
+  // who saw only the purple could not tell a clean repo from an unmeasured one.
+  if (mode === 'clones') {
     return (
       <div className="flex items-center gap-3">
         {[
-          ['var(--reach-4)', 'nothing calls it'],
-          ['var(--structure)', 'called'],
+          ['var(--clone)', 'a clone'],
+          ['var(--structure)', 'unique'],
+          ['var(--unanalyzed)', 'too small'],
         ].map(([fill, label]) => (
           <span key={label} className="flex items-center gap-1.5">
             <span
@@ -113,29 +138,18 @@ function Legend({
     )
   }
 
-  // Locality IS a scale, and it has a hue of its own — it used to mix one flat accent into
-  // the structural neutral, because the palette search was reporting no room for a sixth.
-  // The bar is `heatColor` on locality's own ramp now, which is what the wedges walk.
-  if (mode === 'locality') {
+  if (mode === 'reach') {
     return (
-      <div className="flex items-center gap-2">
-        <span className="shrink-0 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
-          stays home
-        </span>
-        <div className="flex h-2 w-24 overflow-hidden rounded-full">
-          {Array.from({ length: 24 }, (_, i) => (
+      <div className="flex items-center gap-3">
+        {REACH_KEY.map(([fill, label]) => (
+          <span key={label} className="flex items-center gap-1.5">
             <span
-              key={i}
-              className="flex-1"
-              style={{
-                background: heatColor(i / 23, 'locality'),
-              }}
+              className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+              style={{ background: fill }}
             />
-          ))}
-        </div>
-        <span className="shrink-0 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
-          reaches out
-        </span>
+            <span className="text-[10px] text-[var(--muted-foreground)]">{label}</span>
+          </span>
+        ))}
       </div>
     )
   }

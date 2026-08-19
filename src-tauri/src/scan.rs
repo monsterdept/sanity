@@ -663,6 +663,10 @@ fn score_dir(
     // flattening here would be a second chance to disagree with the first.
     base: usize,
     wiring: &crate::edges::Wiring,
+    // Repo-wide for the same reason the wiring is: a copy is a relation between two
+    // functions that are usually in different directories, so it cannot be found from
+    // inside one.
+    copies: &crate::clones::Copies,
     history: &History,
     blame: &Blame,
     fidelity: Fidelity,
@@ -752,6 +756,7 @@ fn score_dir(
                     };
 
                     let wire = wiring.at(base + fi, i);
+                    let copy = copies.at(base + fi, i);
 
                     let node = Node {
                         id: crate::assessment::key_of(&file.rel_path, &func.name, ords[i]),
@@ -801,6 +806,14 @@ fn score_dir(
                         // pair of numbers meaning the same thing — see `Node::resolvable`.
                         resolvable: wire.map(|_| 1),
                         orphans: wire.map(|w| u32::from(w.callers == 0)),
+                        sinks: wire.map(|w| u32::from(w.calls == 0)),
+                        clone_group: copy.map(|c| c.group),
+                        clone_size: copy.map(|c| c.size),
+                        // A body too small to compare is an absence, not a unique function —
+                        // see `MIN_SHAPE_TOKENS`. `None` paints gray, which is the honest
+                        // answer to a question nobody asked of it.
+                        comparable: func.shape.map(|_| 1),
+                        copied: func.shape.map(|_| u32::from(copy.is_some())),
                         children: Vec::new(),
                         funcs: 0,
                     };
@@ -861,6 +874,11 @@ fn score_dir(
                     // Filled by `aggregate` from the functions inside — see `Node::resolvable`.
                     resolvable: None,
                     orphans: None,
+                    sinks: None,
+                    clone_group: None,
+                    clone_size: None,
+                    comparable: None,
+                    copied: None,
                     children,
                     funcs: 0,
                 },
@@ -1172,6 +1190,7 @@ pub fn scan(
         .map(|f| crate::edges::FileView { path: &f.rel_path, lang: f.lang, funcs: &f.funcs })
         .collect();
     let wiring = crate::edges::wire(&flat);
+    let copies = crate::clones::find(&flat);
     // Where each directory's files start in `flat`. A prefix sum over the same iteration
     // order the flattening used, which is the only thing that makes the two agree.
     let mut offsets: Vec<usize> = Vec::with_capacity(parsed_dirs.len());
@@ -1187,7 +1206,9 @@ pub fn scan(
     let per_dir: Vec<Vec<(String, Node)>> = parsed_dirs
         .par_iter()
         .enumerate()
-        .map(|(di, parsed)| score_dir(parsed, offsets[di], &wiring, &history, &blame, fidelity))
+        .map(|(di, parsed)| {
+            score_dir(parsed, offsets[di], &wiring, &copies, &history, &blame, fidelity)
+        })
         .collect();
 
     lap("score");
@@ -1639,6 +1660,7 @@ mod tests {
                 owner: None,
                 start_line: i as u32 * 3 + 1,
                 end_line: i as u32 * 3 + 2,
+                shape: None,
                 calls: Vec::new(),
             })
             .collect();

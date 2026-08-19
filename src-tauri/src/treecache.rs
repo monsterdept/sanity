@@ -47,7 +47,13 @@ use std::path::{Path, PathBuf};
 /// 2: binary rather than JSON — see `load`.
 /// 3: the parser's version is stored beside the signature, so an unchecked read can still
 ///    refuse a tree built by a different parser — see `stale`.
-const VERSION: u32 = 3;
+/// 4: `Node` gained the clone fields. **A field added to what is STORED here is a version
+///    bump even when nothing about the repo changed**, and the reason is the one `file_doc`
+///    taught in `scancache`: every one of them is `#[serde(default)]`, so a record written
+///    before it loads perfectly and reports `None`. Every repo with a warm tree would have
+///    shown an empty Clones lens — correctly according to the file it read, and wrongly about
+///    the code — until something unrelated happened to drop the cache.
+const VERSION: u32 = 4;
 
 #[derive(Serialize, Deserialize)]
 struct Cached {

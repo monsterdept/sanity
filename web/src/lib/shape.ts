@@ -66,6 +66,11 @@ function dirNode(path: string, name: string, kind: 'dir' | 'file'): Node {
     away: null,
     resolvable: null,
     orphans: null,
+    sinks: null,
+    cloneGroup: null,
+    cloneSize: null,
+    comparable: null,
+    copied: null,
     children: [],
     funcs: 0,
   }

@@ -103,6 +103,22 @@
    * and Traps cannot be confused at a glance. Hot pink is louder than any ramp end here,
    * which is the point: this is the one lens where the answer is "look at these". */
   --trap: #ff4f95;
+  /* A copy gets a mark, not a ramp — see `--trap` above and the paragraph under `--birth`
+   * for the idiom. "This body appears seven times" is a fact somebody can go and check, not
+   * a degree of anything, so it sits off every scale exactly as a reported trap does. The
+   * SIZE of the group is carried by the label and by the panel's ordering, where a number
+   * belongs; shading it would invent degrees of duplication and put the map's loudest hue on
+   * an axis nobody measured.
+   *
+   * Electric purple, chosen against the four colours it can share a screen with rather than
+   * for taste. Worst case across normal vision and all three dichromacies (CIEDE2000): 27.0
+   * from --structure ("compared, and unique") and 20.4 from --unanalyzed ("too small to
+   * compare") — the two neutrals in its own lens, and the pair that has to hold. Cross-lens,
+   * where a reader must not confuse two pictures at a glance: 21.1 from --trap and 15.4 from
+   * --cat-8's neighbour --cat-5, the violet Blame slot. Candidates that failed on exactly
+   * that last pair: #9b30ff at 7.6 and #8b2fe8 at 3.1, both indistinguishable from a Blame
+   * author for a deuteranope. */
+  --clone: #b026ff;
   /* A replay's two flashes: `--birth` when a wedge first appears, `--touch` when one is
    * edited. Everything else in that view is grey — see `colorFor`.
    *
@@ -175,7 +191,7 @@
    * go. Barring 170–240° and searching the rest of the wheel put docs on a WARM hue
    * and took the closest hot pair to 27.2.
    *
-   * THERE ARE SEVEN NOW, AND THE BAR CAME OFF TO GET THEM. Reach and locality are
+   * THERE ARE SEVEN NOW, AND THE BAR CAME OFF TO GET THEM. Callers and reach are
    * painted from the call graph, and the answer to "is there room for a sixth hue"
    * was for a while "no" — from a search that holds the five fixed AND keeps 170–240°
    * barred, then reports the leftovers. Both halves were wrong. The band was barred
@@ -189,7 +205,7 @@
    *
    * WHAT SEVEN COSTS, SO THE NEXT PERSON DOES NOT RE-DERIVE IT. Adding the two and
    * moving NOTHING scores 10.0; moving churn alone, 12.1; this set, 12.9. The tight
-   * pair is churn against reach and it is deliberate — those two are the pair a
+   * pair is churn against callers and it is deliberate — those two are the pair a
    * lightness climb separates best, both being cool and both being ramps rather than
    * states. Cold ends now sit 12.9–13.2 apart, evenly, where five sat 14.3–19: the
    * palette is tighter and more uniform, which is what a fuller wheel looks like.
@@ -256,43 +272,49 @@
   --docs-4: #ffa299;
 
   --age-0: #535737; /* age — green, at 114° now: the seven-hue solve moved it 10° warmer
-                     * to open room below locality's jade. Still the green anybody who has
+                     * to open room below reach's jade. Still the green anybody who has
                      * used the map knows; its nearest neighbor is surprise, at 13.1. */
   --age-1: #6d7341;
   --age-2: #878f49;
   --age-3: #a4ad51;
   --age-4: #bec955;
 
-  /* locality — jade, 170°, IN the band that was barred. How much of the wiring under a
-   * wedge leaves its own directory: summed, never averaged, so an inner ring reports a
-   * share rather than how many small functions a directory holds. It was drawn as an
-   * amount of one flat accent mixed into --structure, which is what a lens gets when the
-   * wheel is believed to be full; it is a ramp like every other share now, so the shared
-   * lightness climb carries its reading for anyone who cannot separate the hues. */
-  --locality-0: #375c4f;
-  --locality-1: #3f7c68;
-  --locality-2: #449b80;
-  --locality-3: #48bc9a;
-  --locality-4: #45dcb1;
-
-  /* reach — periwinkle, 268°. What nothing else calls. The ramp is for CONTAINERS, which
-   * report a share; a function is two states and an absence, because a caller count is a
-   * power law whose only interesting value is zero (22–56% across four real repos, then a
-   * decaying tail), and shading the tail would invent degrees of deadness nobody measured.
+  /* reach — jade, 170°, IN the band that was barred. What a function calls: four bands at
+   * the leaf, and above it the share of the functions underneath that call anything at all,
+   * summed rather than averaged so an inner ring reports a share and not how many small
+   * functions a directory holds.
    *
-   * At the leaf the colour IS the answer, so this ramp's hot end is held to the
-   * CATEGORICAL rule rather than the ramp one — all-pairs across the three dichromacies,
-   * the test the --cat-* slots take. It clears 27.0 from --structure ("something calls
-   * this") and 25.7 from --unanalyzed ("this language's calls were never resolved") for
-   * every viewer. The flat jade this lens shipped with cleared 4.2 on the second of those:
-   * for a deuteranope, found dead code and never looked were one colour, which is the
-   * distinction the map exists to be able to state. Re-solve under `worst`, not `plain`,
-   * if this hue ever moves. */
-  --reach-0: #48536e;
-  --reach-1: #5c6d98;
-  --reach-2: #7086c2;
-  --reach-3: #85a2ef;
-  --reach-4: #a4bdff;
+   * **The hue outlived the lens it was solved for.** It was Locality's — how much of a
+   * wedge's wiring left its own directory — which measured the filing as much as the code
+   * and, at a container, counted edges that never left the container as leaving. Reach
+   * inherits the jade rather than a new hue being solved: the palette is a seven-way
+   * assignment where every pair is checked against every other, so a swap costs nothing and
+   * an eighth costs the solve. */
+  --reach-0: #375c4f;
+  --reach-1: #3f7c68;
+  --reach-2: #449b80;
+  --reach-3: #48bc9a;
+  --reach-4: #45dcb1;
+
+  /* callers — periwinkle, 268°. How many things call it. Four bands at the leaf and a
+   * share at the container, both climbing the same way: brighter is more callers, and the
+   * quiet end is where nothing in the repo calls it. It is not five stops of a continuous
+   * scale because a caller count is a power law — the zero bucket holds 22–56% across four
+   * real repos and the rest decays — so four bands is what the distribution supports.
+   *
+   * **The pair to protect is the DIM end against --unanalyzed**, and it is a categorical
+   * test rather than a ramp one: `no in-repo caller` and `this language's calls were never
+   * resolved` are two different absences the map exists to be able to tell apart, and one
+   * of them is a finding. --callers-0 separates from --unanalyzed on lightness alone, so it
+   * survives all three dichromacies. The bright end clears 27.0 from --structure. The flat
+   * jade this lens shipped with cleared 4.2 against --unanalyzed: for a deuteranope, found
+   * dead code and never looked were one colour. Re-solve under `worst`, not `plain`, if
+   * this hue ever moves. */
+  --callers-0: #48536e;
+  --callers-1: #5c6d98;
+  --callers-2: #7086c2;
+  --callers-3: #85a2ef;
+  --callers-4: #a4bdff;
 
   /* ── Categorical: owner, language ─────────────────────────────────────────────
    *
@@ -384,6 +406,9 @@
 
   --unanalyzed: #4a4642;
   --trap: #ff5ea1;
+  /* Lifted off the ink the way --trap is. Worst case: 33.9 from --structure, 28.8 from
+   * --unanalyzed, 17.6 from --trap, 15.3 from --callers-4. */
+  --clone: #bd5cff;
   /* The ground is dark here, so both flashes climb rather than one of them descending.
      `--touch` lands about where the Age ramp's upper steps sit; `--birth` stays past its
      end, which is the distinction that carries the pair. */
@@ -644,6 +669,11 @@ textarea,
  *
  * Off entirely under reduced motion, where the color alone carries the meaning — the trap
  * pink is already the loudest thing in its lens, so nothing is lost but the movement. */
+/* A copy breathes too, on the same argument and the same animation. Clones are 1–8% of a
+ * repo (measured on two), which is exactly the density where colour alone means hunting —
+ * the problem the trap pulse was written for. One class, not two: the two lenses are never
+ * on screen together, and a second keyframe block would be a second thing to keep in step
+ * with the reduced-motion rule below. */
 @keyframes trap-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }

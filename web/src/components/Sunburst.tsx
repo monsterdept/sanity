@@ -1591,6 +1591,9 @@ function SunburstView({
                   className={clsx(
                     'wedge',
                     mode === 'traps' && trapOf(slot.node.agent) && !slot.node.agentStale && 'trap-pulse',
+                    // The same breath for the same reason — copies are 1–8% of a repo, which
+                    // is the density where a colour alone means hunting. See `--clone`.
+                    mode === 'clones' && slot.node.cloneSize != null && 'trap-pulse',
                   )}
                   d={d}
                   fill={c ? c.fill : 'var(--unanalyzed)'}

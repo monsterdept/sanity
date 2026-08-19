@@ -547,6 +547,32 @@ pub struct Node {
     pub resolvable: Option<u32>,
     #[serde(default)]
     pub orphans: Option<u32>,
+    /// Of those, how many call nothing in this repo. The outbound twin of `orphans`, and the
+    /// container's whole reading under the Reach lens: at the leaf fan-out is a count, above
+    /// it there are no counts to average, only a share of functions that reach out at all.
+    ///
+    /// Rolled up here for the reason `orphans` is — see above, and [`Node::slim`].
+    #[serde(default)]
+    pub sinks: Option<u32>,
+    /// This function's copies: which group of identical bodies it belongs to, and how big
+    /// that group is — see [`crate::clones`]. `None` on a function with no twin AND on one
+    /// too small to compare; `comparable` is what tells those apart.
+    #[serde(default)]
+    pub clone_group: Option<u32>,
+    #[serde(default)]
+    pub clone_size: Option<u32>,
+    /// Whether this function was big enough to compare, and whether it turned out to have a
+    /// twin: `1` and `0`-or-`1`, or `None` below the token floor.
+    ///
+    /// **Deliberately NOT rolled up, where every other pair here is.** `resolvable`/`orphans`
+    /// climb the tree because a share of them is a real reading about a directory; a clone is
+    /// a flashpoint — one body, findable and checkable — and "this directory is 12% clones"
+    /// is a quantity the lens does not measure and cannot act on. Containers stay `None` and
+    /// paint nothing, the same as they do under Traps.
+    #[serde(default)]
+    pub comparable: Option<u32>,
+    #[serde(default)]
+    pub copied: Option<u32>,
     #[serde(default)]
     pub children: Vec<Node>,
     /// How many functions a FILE holds, for a tree sent without them — see [`Node::slim`].
@@ -586,6 +612,11 @@ impl Node {
             away: None,
             resolvable: None,
             orphans: None,
+            sinks: None,
+            clone_group: None,
+            clone_size: None,
+            comparable: None,
+            copied: None,
             children: Vec::new(),
             funcs: 0,
         }
@@ -614,25 +645,27 @@ impl Node {
         // `None` unless something underneath resolves calls at all, so a tree of a language
         // nobody has read stays an absence all the way up instead of becoming a confident
         // zero at the first container.
-        let mut wired: Option<(u32, u32, u32, u32)> = None;
+        let mut wired: Option<(u32, u32, u32, u32, u32)> = None;
         for c in &self.children {
-            let (Some(i), Some(a), Some(r), Some(o)) =
-                (c.incident, c.away, c.resolvable, c.orphans)
+            let (Some(i), Some(a), Some(r), Some(o), Some(s)) =
+                (c.incident, c.away, c.resolvable, c.orphans, c.sinks)
             else {
                 continue;
             };
-            let t = wired.get_or_insert((0, 0, 0, 0));
+            let t = wired.get_or_insert((0, 0, 0, 0, 0));
             t.0 += i;
             t.1 += a;
             t.2 += r;
             t.3 += o;
+            t.4 += s;
         }
         if self.kind != NodeKind::Func {
-            if let Some((i, a, r, o)) = wired {
+            if let Some((i, a, r, o, s)) = wired {
                 self.incident = Some(i);
                 self.away = Some(a);
                 self.resolvable = Some(r);
                 self.orphans = Some(o);
+                self.sinks = Some(s);
             }
         }
 
@@ -767,6 +800,13 @@ impl Node {
             away: self.away,
             resolvable: self.resolvable,
             orphans: self.orphans,
+            sinks: self.sinks,
+            // The group id and its size are one function's own, so they go the way `callers`
+            // does; the share survives `slim` the way `orphans` does.
+            clone_group: self.clone_group,
+            clone_size: self.clone_size,
+            comparable: self.comparable,
+            copied: self.copied,
             funcs: if self.kind == NodeKind::File { self.children.len() as u32 } else { 0 },
             children: if self.kind == NodeKind::File {
                 Vec::new()
@@ -832,6 +872,7 @@ mod tests {
         n.away = Some(away);
         n.resolvable = Some(1);
         n.orphans = Some(u32::from(callers == 0));
+        n.sinks = Some(0);
         n
     }
 

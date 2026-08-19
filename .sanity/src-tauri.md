@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-736 of 736 read · 117 surprising
+739 of 739 read · 118 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -2069,10 +2069,10 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/commands.rs
 
 ### the file itself
-- spec 3 · read at `4a2a6921bc66` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:48:42Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: This file is the Tauri #[command] surface — the full set of frontend-invokable entry points bridging the React UI to Rust backend logic: scanning repos, reading history/source, managing project list (add/forget/reorder/select), theme sync, CLI install/link, agent reports, and starting/stopping long-running scans/checks. It's essentially a thin dispatch layer delegating to scan.rs, history.rs, reports.rs, agentapi.rs, etc., with minimal logic of its own.
-- found: The full Tauri #[command] surface: scan/history/read/project-list management, theme sync, CLI symlink install+status, movie export, reader/agent-run start-stop, all delegating to scan.rs/history.rs/agentapi.rs/reports.rs, each command carrying a substantial prose comment justifying its specific design (caching, ordering, security checks like path traversal).
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- spec 3 · read at `b450ae7321e0` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:19:53Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This file is the Tauri `#[tauri::command]` surface — the entire IPC boundary between the frontend and Rust backend, with no server or sidecar process in between. It groups thin command wrappers around domain logic living elsewhere: repo/history scanning, project list management (add/select/reorder/forget), CLI installation/linking, git history queries, agent harness config, and movie export — mostly delegating to other modules rather than containing real logic itself.
+- found: Confirmed as the Tauri IPC command surface with no server/sidecar, covering scan/history/project/CLI/movie/agent-run commands as predicted. But many commands carry substantial logic themselves rather than pure delegation — scan_repo manages pending/restoring state and emits progress events, add_project counts sibling repos as a CPU-hazard warning, install_cli/cli_status manage PATH symlinks and resolve login-shell PATH, and repo_remote/slug_of hand-parse git remote URLs — plus a `remote_tests` unit test module at the bottom.
+- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
 
 ### `scan_repo`
 - spec 3 · read at `132301c182b8` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:43:57Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -2099,6 +2099,20 @@ What this is and how to add to it: [README.md](README.md)
 - expected: A Tauri command that opens the git repo at `path`, walks its commit log (optionally filtered to commits touching the directory named by `scope`), and returns a page of `count` LogRow entries starting at `offset`. It likely delegates most logic to a helper in the `history` module rather than doing the git walk inline.
 - found: Thin delegation to crate::history::log, converting path to PathBuf and scope Option to a &str default of empty string.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `repo_remote`
+- spec 3 · read at `81f0db8182d8` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:21:51Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Opens the repo at `path` with git2 (or shells out to git), looks up the `origin` remote URL, falling back to the first remote if `origin` doesn't exist, and returns None if there's no remote or the path isn't a git repo. It then parses the URL's last two path segments (handling both `git@host:owner/name.git` scp-form and `https://host/owner/name` URL form via string splitting rather than a proper URL parser) and joins them as `owner/name`, stripping a trailing `.git` if present.
+- found: Shells out to `git -C <path> remote get-url origin`, falling back to the first listed remote if origin doesn't exist; returns None if git fails or there's no remote. Delegates the actual owner/name extraction from the URL (scp-form or https) to a separate `slug_of` helper rather than parsing inline.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: URL-shape parsing lives in the peer `slug_of`, not in this function — I'd assumed it was inline here.
+
+### `slug_of`
+- spec 3 · read at `460d4258690f` · commit `50b4d0a` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T08:21:41Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Parses a git remote URL into an `owner/name` string: handles both HTTPS (https://github.com/owner/name.git) and SSH (git@github.com:owner/name.git) forms, strips a trailing `.git` suffix and any trailing slash, and returns None if the URL doesn't split into at least an owner and a name segment.
+- found: Trims trailing slash and .git suffix, then splits on the last '/' or ':' (covering both URL and scp-style SSH forms with one rsplit) to get the last two segments as name/owner, rejecting if either is empty or owner still contains '://' (meaning there weren't really two path segments).
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The single rsplit(['/', ':']) trick handling both URL-form and scp-form hosts in one pass is neater than the two-branch parse I expected.
 
 ### `history_scoped`
 - spec 3 · read at `34d7298820c1` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:02:43Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -2280,6 +2294,13 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Looks up the running wave/check identified by `key` in the shared Tauri state and sets a cooperative stop flag (e.g. an AtomicBool or channel signal) that the wave's loop polls between readers, rather than forcibly killing it mid-read. Returns Ok(()) on success, or an Err string if the key isn't found.
 - found: Locks shared state, looks up the project by key, gets its current run (erroring with descriptive messages if the project isn't open or nothing is running), and sets the run's `stop` AtomicBool to true with Relaxed ordering.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `a_remote_url_reduces_to_owner_and_name`
+- spec 3 · read at `beabaabb2a39` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:22:25Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A #[test] function asserting slug_of's behavior across the URL shapes git remotes actually take: https://host/owner/name(.git), git@host:owner/name.git (scp-form), and a deeper GitLab-subgroup-style path, checking each reduces to "owner/name". It also asserts the two must-be-None cases the docs mention — likely a URL with too few path segments (no owner) and something degenerate like an empty string or a bare host — asserting slug_of returns None rather than fabricating a partial owner/name.
+- found: Table-driven test asserting slug_of over scp-form, https (with/without .git), ssh://, a GitLab subgroup path, a plain filesystem path (which also reduces to its last two segments), and two None cases: a URL with no owner/name segments and a bare string with only one segment.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: I didn't anticipate that slug_of is also exercised against a plain filesystem path (not just git remote URL shapes) and reduces it the same way — the fallback-to-directory-name behavior implied in repo_remote's docs is actually tested here via slug_of itself.
 
 ## src-tauri/src/edges.rs
 
@@ -3236,12 +3257,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds Sanity/File/Edit/View/Window submenus manually. Sanity menu has About, an "Install Command Line Tool…" item (I hadn't predicted this), Hide/HideOthers, Quit. File menu has "Add Project…" (⌘O). Edit menu is standard predefined items. View menu holds the Appearance submenu with the three-way theme CheckMenuItem toggle, matching my prediction. Window menu has minimize/close. Returns the built Menu plus a ThemeMenu struct wrapping the three CheckMenuItems, as I expected.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `run`
-- spec 3 · read at `c637a6d194f9` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:37:19Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: The Tauri application entry point: builds the app with its plugins/state, constructs the window and menu (via build_window/build_menu), wires up menu event handlers like ThemeMenu::select, and then hands control to the Tauri event loop (app.run(...)), handling RunEvent::Exit to do cleanup like stopping runs.
-- found: Tauri app entry: builds the app, sets up the window and (on macOS) the menu with theme/open-project/install-cli handlers, restores prior projects, spawns the shared agent API server inline in this process (so the window's own state is visible to MCP clients), registers a single-instance plugin and a long invoke_handler command list, and on RunEvent::Exit stops all running agent readers and releases the endpoint file so the CLI shim knows to start a fresh backend instead of retrying a dead port.
-- predicted: most · documented: none · derivable: no · legible: most · trap: no
-- note: The doc comment covers only the overall pipeline (scan/parse/heuristic/etc.), not this specific function's window/menu/API-server wiring — had to read the body to see the shared-state-with-MCP and endpoint-file-cleanup design.
+### `run` — QUIRKY — TRAP
+- spec 3 · read at `da4c6a69fefc` · commit `50b4d0a` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T08:19:35Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This is the Tauri application entry point: it builds a tauri::Builder, registers plugins (e.g. dialog, fs, shell), sets up the application menu via build_menu and a ThemeMenu, registers invoke_handler commands that expose the scan/parse/heuristic/churn/model pipeline to the frontend, sets up the window via build_window, and finally calls .run() to start the event loop, panicking on failure.
+- found: Builds the Tauri app: manages shared agent-API state, builds the window and warms the harness, on macOS builds a menu and wires theme/open-project/install-cli menu events, restores the previously open project with scan-shape/scan-progress emitters, spawns the async agent API server, registers single-instance/dialog/opener plugins and all invoke_handler commands, then on RunEvent::Exit stops all agent runs and releases the loopback endpoint file before the backend thread dies.
+- predicted: some · documented: none · derivable: no · legible: most · trap: yes
+- note: The exit handler is the load-bearing part: the in-process agent API server dies silently with the window, so release_endpoint must run on Exit or external readers get a stale endpoint file pointing at a dead port — nothing in the function signature suggests this cleanup matters.
 
 ## src-tauri/src/local.rs
 

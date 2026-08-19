@@ -160,6 +160,7 @@ export function FileZoom({
               className={clsx(
                 'wedge',
                 mode === 'traps' && c.node.agent?.trap && !c.node.agentStale && 'trap-pulse',
+                mode === 'clones' && c.node.cloneSize != null && 'trap-pulse',
               )}
               d={d}
               // Unread patches fall back to `--unanalyzed` at low opacity, exactly as they

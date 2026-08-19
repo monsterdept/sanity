@@ -65,6 +65,14 @@ pub struct FuncDef {
     /// languages where a named definition can nest inside another.
     #[serde(default)]
     pub calls: Vec<String>,
+    /// A structural fingerprint of the body, for finding copies of it — see [`shape_of`].
+    ///
+    /// `None` means "too small to say anything", never "unique": below the token floor
+    /// almost every function in a codebase collides with almost every other, and a lens
+    /// that reported four thousand three-line accessors as clones of one another would be
+    /// measuring the language's grammar rather than the repo.
+    #[serde(default)]
+    pub shape: Option<u64>,
 }
 
 impl FuncDef {
@@ -1107,7 +1115,108 @@ fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
         start_line: node.start_position().row as u32 + 1,
         end_line: node.end_position().row as u32 + 1,
         calls: calls_in(node, lang, src),
+        shape: shape_of(node, body_start, body_end),
     })
+}
+
+/// How many tokens a body must hold before its shape is worth comparing.
+///
+/// **The whole difference between a clone finding and noise.** Normalising identifiers away
+/// is what lets a copy-paste-and-rename be recognised, and it is also what makes every short
+/// body identical to every other: `{ return self.x }` and `{ return other.name }` are one
+/// shape. The floor is where "these are the same function" stops being a statement about the
+/// repo and becomes one about the grammar.
+///
+/// Forty is the low end of what the clone-detection literature uses for token-level
+/// comparison, chosen here because a function is already a bounded unit — we are not sliding
+/// a window over a file hoping to find a repeated fragment, so the usual reason to demand a
+/// long match does not apply. `just scan` prints the group-size histogram; read it before
+/// moving this.
+pub const MIN_SHAPE_TOKENS: u32 = 40;
+
+/// A hash of the body's token SHAPE: keywords and punctuation as they are, every identifier
+/// and every literal flattened to one placeholder.
+///
+/// **What it is for.** Two functions with the same shape are the same code wearing different
+/// names — the copy-paste-and-rename that no other lens here can see. Surprise cannot: a
+/// clone is highly predictable and reads cold, correctly, because it IS predictable. That is
+/// precisely why it is worth marking separately — predictable code that should not exist is
+/// a different finding from predictable code that should.
+///
+/// **What it refuses to claim.** Only the body, so two functions with different signatures
+/// and identical bodies still match, which is the case worth catching. Comments are skipped:
+/// a copy someone commented differently is still a copy. It is exact-after-normalisation and
+/// nothing else — no edit distance, no near-miss, no threshold to tune. A pair one statement
+/// apart is not reported, and that is the honest trade: everything this marks is genuinely
+/// the same shape, and nothing it marks needs a judgement call to believe.
+///
+/// Language is NOT mixed in here — [`crate::clones`] groups within a family, the same rule
+/// [`crate::edges`] follows, and for the same reason: a Python `main` and a Go `main` are
+/// not the same function.
+fn shape_of(node: TsNode, body_start: usize, body_end: usize) -> Option<u64> {
+    // FNV-1a. A hash, not a signature: the map is drawn from it, nothing is trusted to it,
+    // and a collision costs one wrongly-paired wedge out of 64 bits of space.
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut hash = OFFSET;
+    let mut tokens = 0u32;
+    let mut eat = |bytes: &[u8]| {
+        for b in bytes {
+            hash ^= u64::from(*b);
+            hash = hash.wrapping_mul(PRIME);
+        }
+    };
+
+    let mut cursor = node.walk();
+    let mut down = true;
+    loop {
+        if down && cursor.node().child_count() == 0 {
+            let leaf = cursor.node();
+            if leaf.start_byte() >= body_start && leaf.end_byte() <= body_end {
+                let kind = leaf.kind();
+                // Substrings rather than a per-grammar table, deliberately: 45 grammars name
+                // these differently — `identifier`, `type_identifier`, `simple_identifier`,
+                // `field_identifier`, `string_content`, `integer_literal`, `number` — and a
+                // table would be 45 more chances to silently match nothing. A kind this
+                // misreads costs one token's worth of precision; a table with a hole in it
+                // costs a language.
+                if kind.contains("comment") {
+                    // Skipped, so a copy somebody commented differently is still a copy.
+                } else {
+                    let token: &[u8] = if kind.contains("ident") {
+                        b"#"
+                    } else if kind.contains("literal")
+                        || kind.contains("string")
+                        || kind.contains("content")
+                        || kind.contains("number")
+                        || kind.contains("integer")
+                        || kind.contains("float")
+                        || kind.contains("char")
+                    {
+                        b"$"
+                    } else {
+                        kind.as_bytes()
+                    };
+                    eat(token);
+                    eat(b"\x1f");
+                    tokens += 1;
+                }
+            }
+        }
+        if down && cursor.goto_first_child() {
+            continue;
+        }
+        if cursor.goto_next_sibling() {
+            down = true;
+            continue;
+        }
+        if !cursor.goto_parent() || cursor.node().id() == node.id() {
+            break;
+        }
+        down = false;
+    }
+
+    (tokens >= MIN_SHAPE_TOKENS).then_some(hash)
 }
 
 /// Can a call site in this language be found at all?

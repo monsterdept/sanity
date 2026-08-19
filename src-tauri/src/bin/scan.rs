@@ -125,6 +125,7 @@ fn main() {
 
     histogram(&funcs);
     wiring(&funcs, &scanned.stats);
+    copies(&funcs);
     baseline_check(&mut funcs.clone());
 
     // Ranked by temperature × lines, not temperature alone.
@@ -254,6 +255,65 @@ fn wiring(funcs: &[&Node], stats: &sanity_lib::scan::ScanStats) {
             "\u{2588}".repeat((c * 30 / peak).max(usize::from(*c > 0))),
             c
         );
+    }
+}
+
+/// What the Clones lens has to draw, and whether the floor is in the right place.
+///
+/// Group sizes rather than a count of cloned functions: one 40-way group and forty pairs are
+/// very different repos and a single number says the same thing about both. Read this before
+/// touching [`sanity_lib::parse::MIN_SHAPE_TOKENS`] — the failure it guards against shows up
+/// here as a huge group of tiny bodies, and the failure of setting it too high shows up as
+/// nothing at all.
+fn copies(funcs: &[&Node]) {
+    let comparable = funcs.iter().filter(|n| n.comparable == Some(1)).count();
+    println!("\nCOPIES");
+    if comparable == 0 {
+        println!("  nothing here clears the {}-token floor", sanity_lib::parse::MIN_SHAPE_TOKENS);
+        return;
+    }
+    let cloned = funcs.iter().filter(|n| n.copied == Some(1)).count();
+    println!(
+        "  {} of {} functions are big enough to compare ({:.0}%)",
+        comparable,
+        funcs.len(),
+        100.0 * comparable as f32 / funcs.len().max(1) as f32,
+    );
+    println!(
+        "  {cloned} of those share a body with another ({:.0}%)",
+        100.0 * cloned as f32 / comparable.max(1) as f32,
+    );
+
+    let mut sizes: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    for n in funcs.iter().filter(|n| n.clone_size.is_some()) {
+        let (Some(g), Some(s)) = (n.clone_group, n.clone_size) else { continue };
+        sizes.insert(g, s);
+    }
+    if sizes.is_empty() {
+        return;
+    }
+    let bands: [(&str, u32, u32); 4] =
+        [("2", 2, 2), ("3-5", 3, 5), ("6-15", 6, 15), ("16+", 16, u32::MAX)];
+    let peak = bands
+        .iter()
+        .map(|(_, lo, hi)| sizes.values().filter(|s| (*lo..=*hi).contains(s)).count())
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    println!("  groups, by how many share the body ({} groups)", sizes.len());
+    for (label, lo, hi) in bands {
+        let c = sizes.values().filter(|s| (lo..=hi).contains(s)).count();
+        println!("    {:>5} {:<30} {}", label, "\u{2588}".repeat((c * 30 / peak).max(usize::from(c > 0))), c);
+    }
+    let mut biggest: Vec<(&u32, &u32)> = sizes.iter().collect();
+    biggest.sort_by_key(|(_, s)| std::cmp::Reverse(**s));
+    if let Some((g, s)) = biggest.first() {
+        let member = funcs
+            .iter()
+            .find(|n| n.clone_group == Some(**g))
+            .map(|n| format!("{} ({})", n.name, n.path))
+            .unwrap_or_default();
+        println!("  biggest group: {s} copies of {member}");
     }
 }
 

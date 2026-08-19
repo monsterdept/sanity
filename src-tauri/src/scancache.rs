@@ -75,7 +75,7 @@ use crate::parse::FuncDef;
 /// have dropped these entries on its own; both are bumped because they answer different
 /// questions — the record's SHAPE changed and so did what a parse MEANS — and declaring only
 /// the one you happened to think of is how the next reader learns the wrong rule.
-const FORMAT_VERSION: u32 = 4;
+const FORMAT_VERSION: u32 = 5;
 
 /// Stand-in oid for "not touched inside the churn window". See the module docs.
 const ANCIENT: &str = "-";
@@ -664,6 +664,7 @@ mod tests {
             owner: None,
             start_line: 1,
             end_line: 1,
+            shape: None,
             calls: Vec::new(),
         }
     }
@@ -716,6 +717,33 @@ mod tests {
                 "mtime",
             ],
             "the cached record's fields changed — bump FORMAT_VERSION, then update this list"
+        );
+
+        // **And the same pin one level down.** `file_doc` was the field that taught this
+        // lesson and it went on `Entry`, so that is where the guard was put — but the record
+        // this cache actually exists to hold is the function list, and a `#[serde(default)]`
+        // field added to `FuncDef` loads from a stale entry exactly as silently. `shape` was
+        // the first one: without a bump, every repo with a warm cache would have reported
+        // zero clones, correctly according to the file it read and wrongly about the code.
+        let f: serde_json::Value =
+            serde_json::to_value(&e.funcs[0]).expect("FuncDef serialises");
+        let mut fkeys: Vec<&str> =
+            f.as_object().expect("an object").keys().map(|k| k.as_str()).collect();
+        fkeys.sort_unstable();
+        assert_eq!(
+            fkeys,
+            vec![
+                "body",
+                "calls",
+                "doc",
+                "end_line",
+                "name",
+                "owner",
+                "shape",
+                "signature",
+                "start_line",
+            ],
+            "a cached function's fields changed — bump FORMAT_VERSION, then update this list"
         );
     }
 

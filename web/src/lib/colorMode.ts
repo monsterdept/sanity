@@ -6,7 +6,6 @@ import {
   heatColor,
   isAnalyzed,
   legibleOf,
-  localityOf,
   rampStop,
   readingWords,
   shareRamp,
@@ -27,7 +26,7 @@ import { inkOn } from './ink'
  *  plain, and mined. Blending them would average away the exact distinction they exist for;
  *  switching between them makes it a blink comparison.
  *
- *  `reach` and `locality` are the two that cost nothing. Every other lens here waits for
+ *  `callers` and `reach` are the two that cost nothing. Every other lens here waits for
  *  something — a reader to spend tokens, or a repo to have a history — and on a codebase a
  *  model produced an hour ago there is neither. These come off the parse, so they are on
  *  screen the moment a project opens: what nothing calls, and what reaches out of its own
@@ -37,8 +36,9 @@ export type ColorMode =
   | 'legible'
   | 'docs'
   | 'traps'
+  | 'callers'
   | 'reach'
-  | 'locality'
+  | 'clones'
   | 'language'
   | 'blame'
   | 'churn'
@@ -72,9 +72,16 @@ export const MODE_LABEL: Record<ColorMode, string> = {
   surprise: 'Surprise',
   legible: 'Legibility',
   docs: 'Docs',
-  traps: 'Traps',
+  callers: 'Callers',
   reach: 'Reach',
-  locality: 'Locality',
+  // **Between the wiring pair and Clones, and the row's order is an argument.** It was
+  // fourth, grouped with the three lenses a reader's report paints — which is what it is
+  // made of, and not what it is FOR. Read left to right the strip now runs: what reading
+  // this code was like, then how it is wired, then the two flashpoint lenses that mark
+  // individual functions to go and look at. Traps and Clones are the pair that behave
+  // alike — a mark, no ramp, no roll-up, a breathing wedge — so they sit together.
+  traps: 'Traps',
+  clones: 'Clones',
   language: 'Language',
   blame: 'Blame',
   churn: 'Churn',
@@ -86,8 +93,9 @@ export const MODE_HINT: Record<ColorMode, string> = {
   legible: 'what reading it was actually like',
   docs: 'what nobody has explained',
   traps: 'what will bite whoever edits it next',
-  reach: 'what nothing else calls',
-  locality: 'how far its calls travel',
+  callers: 'how many things call it',
+  reach: 'how much it calls out to',
+  clones: 'what is a clone of something else',
   language: 'what it is written in',
   blame: 'who committed to it last',
   churn: 'how much it has changed lately',
@@ -112,57 +120,118 @@ export function paintsFromReadings(mode: ColorMode): boolean {
  *  that a gray wedge means "this language's call shape has never been parsed" rather than
  *  "nobody has read this" — the legend has to say so, and the two are not the same absence. */
 export function paintsFromWiring(mode: ColorMode): boolean {
-  return mode === 'reach' || mode === 'locality'
+  return mode === 'callers' || mode === 'reach'
 }
 
-/** The one stop of the Reach ramp a FUNCTION is ever painted in.
+/** How big a group has to be to earn its own row in the panel.
  *
- *  At the leaf this lens is two states and an absence, so its colour is not a position on
- *  a scale — it IS the answer, the way a categorical slot is. That changes which test the
- *  hue has to pass: all-pairs across the three dichromacies, against the two neutrals it
- *  sits beside, rather than the ramp rule of normal vision only. The hot end clears 27.0
- *  from `--structure` and 25.7 from `--unanalyzed` for every viewer. The flat jade this
- *  lens shipped with cleared 4.2 on the second of those.
- *
- *  It is the ramp's hot end and not a stop chosen for contrast alone, so a function that
- *  nothing calls is the same colour as a directory entirely made of them — the map would
- *  otherwise say two different things about one fact at two levels of the tree. */
-const REACH_ALONE = '--reach-4'
+ *  Bands and not one `copied` row, because a pair and a fourteen-way group are different
+ *  findings and the second is the one worth an afternoon. They are all drawn in the SAME
+ *  purple — the wedge says *this is a copy*, and how many copies is a number, which belongs
+ *  in a label and in the panel's ordering rather than in a shade nobody can count. */
+const CLONE_BANDS: { label: string; min: number }[] = [
+  { label: '6+ clones', min: 6 },
+  { label: '3–5 clones', min: 3 },
+  { label: '2 clones', min: 2 },
+]
 
-/** The share of a node's wiring that leaves its own directory, at any level of the tree.
+/**
+ * Fan-in, in the four bands the lens paints.
  *
- *  **Read off the node, never walked.** Both counts are summed in Rust's `aggregate`, because
- *  a window is handed a tree with NO FUNCTION NODES in it on any large repo — see
- *  `Node::slim`. The first version of this walked down to `kind === 'func'`, which meant both
- *  wiring lenses went gray above the file ring on exactly the projects they are for. Same
- *  reason `hotShare` arrives precomputed rather than being averaged here.
+ * **It was two states and an absence, and the two states were the problem.** A caller count
+ * is a power law whose zero bucket holds 22–56% of a repo, so a five-stop ramp would have
+ * spent four stops on a thin tail — that argument still holds and is why this is four bands
+ * and not a continuous scale. What did not hold was painting the zero bucket at the ramp's
+ * hot end: "nothing calls it" was drawn in the colour every other lens uses for *act on
+ * this*, over a population that is mostly entry points, trait impls, `#[test]` functions,
+ * React components and anything a framework or another language calls by string. The map was
+ * asserting dead code across a repo where the honest sentence is "no in-repo caller found".
  *
- *  Summed and not averaged: a mean of per-function ratios weights a helper with one edge the
- *  same as a hub with thirty, so an inner ring would report how many small functions a
- *  directory holds. One formula at every scope — at a leaf it is that function's own edges,
- *  which is why this is `localityOf` and not a second implementation of it.
+ * So the ramp runs the way every other ramp here runs — brighter means MORE of the thing the
+ * lens is named for — and zero sits at the quiet end. Finding orphan clusters still works,
+ * because a cluster of the dimmest band in a bright neighbourhood is exactly as visible as
+ * the reverse; what changed is that the picture no longer says which of the two is a fault.
  *
- *  `null` when nothing underneath is wired, covering both "no language here resolves calls"
- *  and "this is all dead code". Reach is the lens with something to say about the second;
- *  Locality states the absence and paints gray. */
-function wiringShare(node: Node): number | null {
-  return localityOf(node)
+ * `t` is the band's position on the ramp, evenly spaced so no band is nearer another than
+ * the bands are to each other.
+ */
+const CALLER_BANDS: { label: string; short: string; min: number; t: number }[] = [
+  { label: '6+ callers', short: '6+', min: 6, t: 1 },
+  { label: '2–5 callers', short: '2–5', min: 2, t: 2 / 3 },
+  { label: '1 caller', short: '1', min: 1, t: 1 / 3 },
+  { label: 'no in-repo caller', short: 'none', min: 0, t: 0 },
+]
+
+/** The same four bands as the legend draws them: dim end first, and named in the short form
+ *  — the strip under the map has room for `none · 1 · 2–5 · 6+` and not for four sentences,
+ *  and the lens it belongs to is named an inch away in the switcher. The panel and the
+ *  tooltip use the long labels, where there is room to be explicit about `in-repo`. */
+export const CALLER_KEY: [string, string][] = [...CALLER_BANDS]
+  .reverse()
+  .map((b) => [heatColor(b.t, 'callers'), b.short])
+
+/**
+ * Fan-out, in the same four bands.
+ *
+ * **The same shape as `CALLER_BANDS` because it is the same kind of count**, read the other
+ * way down the edge: Callers is who depends on this, Reach is what this depends on. Keeping
+ * the boundaries identical is what lets the two be compared by eye — a function bright under
+ * both is a hub, bright under Reach alone is an orchestrator nothing has adopted, and bright
+ * under Callers alone is a primitive. Different boundaries would make that reading a
+ * calculation.
+ */
+const REACH_BANDS: { label: string; short: string; min: number; t: number }[] = [
+  { label: 'calls 6+', short: '6+', min: 6, t: 1 },
+  { label: 'calls 2–5', short: '2–5', min: 2, t: 2 / 3 },
+  { label: 'calls 1', short: '1', min: 1, t: 1 / 3 },
+  // **Not "calls nothing HERE".** `here` reads as this directory, which is a claim about
+  // place — the exact misreading that made Locality unusable, reintroduced in a word. The
+  // row means what the tooltip means and now says the same thing: nothing it calls resolves
+  // to a definition in this repo. It may call a great deal; the stdlib, a dependency, a
+  // dynamic target and another language are all invisible to the resolver by design.
+  { label: 'calls nothing in this repo', short: 'none', min: 0, t: 0 },
+]
+
+export const REACH_KEY: [string, string][] = [...REACH_BANDS]
+  .reverse()
+  .map((b) => [heatColor(b.t, 'reach'), b.short])
+
+/** The band a count falls in. Never called with `null`: an unresolved language is an
+ *  absence, and an absence is grey rather than a band. */
+function bandOf<T extends { min: number }>(bands: T[], n: number): T {
+  return bands.find((b) => n >= b.min) ?? bands[bands.length - 1]
 }
 
-/** The share of resolvable functions underneath that nothing in this repo calls.
+/** The share of resolvable functions underneath that something in this repo calls.
  *
- *  Reach's roll-up, and the analogue of `hotShare`: the leaf is a state, the container is how
- *  much of it is in that state. Measured across four real repos it runs 22–56%, so it spreads
- *  across the mix without a curve — the same reason the Docs share is linear where `shareRamp`
- *  is not.
+ *  Callers' roll-up, and the analogue of `hotShare`: the leaf is a band, the container is how
+ *  much of it is up the scale. Measured across four real repos the *unreferenced* half runs
+ *  22–56%, so either direction spreads across the mix without a curve — the same reason the
+ *  Docs share is linear where `shareRamp` is not.
+ *
+ *  **Called and not unreferenced**, so the container climbs the same way the leaf does: a
+ *  directory nothing calls into is the dim end, exactly like the functions inside it. It was
+ *  the other way round while the leaf's zero was the hot end, which made one fact paint two
+ *  directions at two levels of the tree.
  *
  *  Read off the node for the reason `wiringShare` is, and counted in Rust with the same
  *  denominator discipline: **functions whose language resolves calls**, never all functions. A
  *  directory of Fortran beside a directory of Rust would otherwise report the Fortran as
  *  referenced, which is a claim nobody measured. `null` when none of it resolves. */
-function unreferencedShare(node: Node): number | null {
+function calledShare(node: Node): number | null {
   if (node.resolvable == null || node.orphans == null || node.resolvable === 0) return null
-  return node.orphans / node.resolvable
+  return 1 - node.orphans / node.resolvable
+}
+
+/** The share of resolvable functions underneath that call something in this repo.
+ *
+ *  Reach's roll-up, and `calledShare` read down the other side of the edge. A container has
+ *  no fan-out of its own to report — the counts underneath are per function and averaging
+ *  them would report how many small functions a directory holds, the mistake `away / incident`
+ *  was written to avoid — so what climbs the tree is the share that reaches out at all. */
+function reachingShare(node: Node): number | null {
+  if (node.resolvable == null || node.sinks == null || node.resolvable === 0) return null
+  return 1 - node.sinks / node.resolvable
 }
 
 /**
@@ -254,7 +323,7 @@ function flash(token: string, label: string): Paint & { label: string } {
  *  identical colour and not a diluted one: what escalated is where the event could be
  *  DRAWN, not how certain we are that it happened. */
 export function flashPaint(kind: 'birth' | 'touch'): Paint & { label: string } {
-  return kind === 'birth' ? flash('--birth', 'new here') : flash('--touch', 'touched here')
+  return kind === 'birth' ? flash('--birth', 'new') : flash('--touch', 'changed')
 }
 
 /** A ramped fill, the stop it sits nearest, and the ink that survives on it. The three
@@ -467,11 +536,11 @@ export function colorFor(
     // Arrival first, and it is not a tie-break so much as the whole point: the commit that
     // creates a function also touches it, so a wedge that has just been born qualifies for
     // both and must show the loud one.
-    if (s.appeared != null) return flash('--birth', 'new here')
+    if (s.appeared != null) return flash('--birth', 'new')
     // Full strength, like the arrival. The two are ranked by their colours — a deep green
     // against a near-yellow lime — rather than by diluting this one toward the ground,
     // which was tried at 45% and then 55% and produced an event nobody could see.
-    if (s.edited != null) return flash('--touch', 'touched here')
+    if (s.edited != null) return flash('--touch', 'changed')
     return null
   }
 
@@ -587,38 +656,77 @@ export function colorFor(
     return null
   }
 
-  if (mode === 'reach') {
+  if (mode === 'callers') {
     if (showsShare(node)) {
-      const share = unreferencedShare(node)
+      const share = calledShare(node)
       if (share === null) return null
-      return { ...ramped(share, 'reach'), label: `${Math.round(share * 100)}% unreferenced` }
+      return { ...ramped(share, 'callers'), label: `${Math.round(share * 100)}% called` }
     }
-    // Two states and an absence, not a scale — the shape Traps uses, for a reason measured
-    // rather than borrowed. Caller counts are a power law: across four real repos the zero
-    // bucket holds 22–56% of functions and everything above it decays, so a ramp would spend
-    // four of its five stops on the thin tail and put the one interesting value at an end.
-    // The count is still printed, because "nothing calls this" and "one thing calls this" are
-    // different situations and only the label can say which.
+    // Bands, not a scale and not two states — see `CALLER_BANDS`.
     if (node.callers == null) return null
-    const alone = node.callers === 0
-    const fill = alone ? `var(${REACH_ALONE})` : 'var(--structure)'
+    // The exact count on the wedge, the band in the key: "no in-repo caller" and "1 caller"
+    // are different situations and the tooltip is where that fits. **"No in-repo caller"
+    // rather than "nothing calls it"** — the resolver does not cross a language family, does
+    // not follow dynamic dispatch and never sees a test harness, so the second sentence is a
+    // claim about the world made from evidence about this repo.
     return {
-      fill,
-      stop: fill,
-      ink: inkOn(fill),
-      label: alone
-        ? 'nothing calls this'
-        : `${node.callers} caller${node.callers === 1 ? '' : 's'}`,
+      ...ramped(bandOf(CALLER_BANDS, node.callers).t, 'callers'),
+      label:
+        node.callers === 0
+          ? 'no in-repo caller'
+          : `${node.callers} caller${node.callers === 1 ? '' : 's'}`,
     }
   }
 
-  if (mode === 'locality') {
-    // The one lens whose leaf and container are the SAME formula rather than a value and a
-    // share of it — `away / incident`, summed over whatever is underneath. A function is
-    // simply the case where that is one function's own edges.
-    const share = showsShare(node) ? wiringShare(node) : localityOf(node)
-    if (share === null) return null
-    return { ...ramped(share, 'locality'), label: `${Math.round(share * 100)}% reaches out` }
+  if (mode === 'reach') {
+    if (showsShare(node)) {
+      const share = reachingShare(node)
+      if (share === null) return null
+      return { ...ramped(share, 'reach'), label: `${Math.round(share * 100)}% call out` }
+    }
+    if (node.calls == null) return null
+    return {
+      ...ramped(bandOf(REACH_BANDS, node.calls).t, 'reach'),
+      label:
+        node.calls === 0
+          ? 'calls nothing in this repo'
+          : `calls ${node.calls} function${node.calls === 1 ? '' : 's'}`,
+    }
+  }
+
+  if (mode === 'clones') {
+    // **A container says nothing here, exactly as it does under Traps.** A clone is a
+    // flashpoint: one body, findable, checkable. It is not a quantity, so it does not
+    // accumulate, and a directory tinted by its share was answering a question the lens does
+    // not ask — "how cloned is this region" — in the visual language of the ones that do.
+    //
+    // It was built, and it is worth recording what it cost before somebody rebuilds it. The
+    // mix ran `in oklch`, which interpolates HUE along the shorter arc: `--clone` sits at
+    // H 308 and the neutral at H 81, 133° apart the short way round through RED. Every
+    // partly-copied file came out apricot and a half-copied one came out pink, so the whole
+    // map read as though it had a warm lens nobody had chosen. `in oklab` fixed the colour —
+    // see `flash` above, where a cyan flash mixed toward the ground went visibly GREEN for
+    // the same reason — and fixing it is what made the real problem visible: even correct,
+    // the tint was a share where the lens has only marks.
+    if (showsShare(node)) return null
+    // Grey is "not compared", never "unique" — a body under the token floor was never
+    // measured, and saying it has no copy would be the map answering a question nobody
+    // asked of it. See `MIN_SHAPE_TOKENS`.
+    if (node.comparable == null) return null
+    if (node.cloneSize == null) {
+      return {
+        fill: 'var(--structure)',
+        stop: 'var(--structure)',
+        ink: inkOn('var(--structure)'),
+        label: 'no clone in this repo',
+      }
+    }
+    return {
+      fill: 'var(--clone)',
+      stop: 'var(--clone)',
+      ink: inkOn('var(--clone)'),
+      label: `1 of ${node.cloneSize} clones`,
+    }
   }
 
   if (mode === 'churn') {
@@ -696,13 +804,6 @@ const CHURN_BANDS: { label: string; min: number }[] = [
  *  directory, a real second mass whose wiring entirely does, and a thin middle that is mostly
  *  the arithmetic of small denominators (one edge in, one out, exactly a half). Ten equal
  *  slices of that is two full buckets and eight rounding artefacts. */
-const LOCALITY_BANDS: { label: string; min: number }[] = [
-  { label: 'all of it leaves', min: 1 },
-  { label: 'most of it leaves', min: 0.5 },
-  { label: 'some of it leaves', min: 0.0001 },
-  { label: 'none of it leaves', min: 0 },
-]
-
 /** Age bands, most recent first. The boundaries are the ones people actually say out loud
  *  — today, this week, this month, this quarter — rather than an even split of a log ramp,
  *  which would be defensible and unreadable. */
@@ -848,29 +949,32 @@ export function bucketsFor(
           // release history.
           put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
         }
-      } else if (mode === 'reach') {
-        // The map's own two states and its absence, never a band per caller count. A panel
-        // that graded reach in six shades would be a legend disagreeing with the picture it
-        // sits beside — the count is on the ROW, where it adds what the heading cannot.
+      } else if (mode === 'callers') {
+        // The map's own bands and its absence — a panel that grouped by anything else would
+        // be a legend disagreeing with the picture it sits beside. The exact count is on the
+        // ROW, where it adds what the heading cannot.
         if (n.callers == null) {
           put(UNKNOWN, 'calls not resolved here', 'var(--unanalyzed)', n)
-        } else if (n.callers === 0) {
-          put('alone', 'nothing calls it', `var(${REACH_ALONE})`, n)
         } else {
-          put('called', 'called from somewhere', 'var(--structure)', n)
+          const band = bandOf(CALLER_BANDS, n.callers)
+          put(band.label, band.label, heatColor(band.t, 'callers'), n)
         }
-      } else if (mode === 'locality') {
-        const share = localityOf(n)
-        if (share === null) {
-          // One bucket for two absences, deliberately: a language nobody has read and a
-          // function nothing is wired to are the same fact from where this lens stands —
-          // it has no calls to measure the distance of. Reach is the lens that tells them
-          // apart, and it is one key away.
-          put(UNKNOWN, 'nothing wired to it', 'var(--unanalyzed)', n)
+      } else if (mode === 'clones') {
+        if (n.comparable == null) {
+          put(UNKNOWN, 'too small to compare', 'var(--unanalyzed)', n)
+        } else if (n.cloneSize == null) {
+          put('unique', 'no clone in this repo', 'var(--structure)', n)
         } else {
-          const band =
-            LOCALITY_BANDS.find((b) => share >= b.min) ?? LOCALITY_BANDS[LOCALITY_BANDS.length - 1]
-          put(band.label, band.label, '', n, share)
+          const band = bandOf(CLONE_BANDS, n.cloneSize)
+          put(band.label, band.label, 'var(--clone)', n)
+        }
+      } else if (mode === 'reach') {
+        // The map's bands and its absence, the same shape Callers takes — see `REACH_BANDS`.
+        if (n.calls == null) {
+          put(UNKNOWN, 'calls not resolved here', 'var(--unanalyzed)', n)
+        } else {
+          const band = bandOf(REACH_BANDS, n.calls)
+          put(band.label, band.label, heatColor(band.t, 'reach'), n)
         }
       } else if (mode === 'blame' || mode === 'language') {
         const key = mode === 'blame' ? n.lastAuthor : n.lang
@@ -914,8 +1018,7 @@ export function bucketsFor(
     const mean = vals.reduce((a, v) => a + v, 0) / vals.length
     // Every one of these walks a ramp, so the swatch is that ramp at the bucket's mean —
     // the color in the key is a color on screen.
-    b.fill = ramped(mean, mode === 'locality' ? 'locality' : mode === 'churn' ? 'churn' : 'age')
-      .fill
+    b.fill = ramped(mean, mode === 'churn' ? 'churn' : 'age').fill
   }
 
   const out = [...bucket.values()]
@@ -926,11 +1029,20 @@ export function bucketsFor(
   } else if (mode === 'traps') {
     // Traps first: it is the only row anybody opens this lens to find.
     out.sort((a, b) => Number(b.key === 'trap') - Number(a.key === 'trap'))
+  } else if (mode === 'callers') {
+    // Fewest callers first: it is the end people open this lens to sweep, and it reads down
+    // the same way the other banded lenses do — one end of the scale to the other.
+    const order = CALLER_BANDS.map((b) => b.label).reverse()
+    out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
+  } else if (mode === 'clones') {
+    // Biggest group first, on the same argument Traps makes for itself: it is the row
+    // anybody opens this lens to find, and the rows below it are context for it.
+    const order = [...CLONE_BANDS.map((b) => b.label), 'unique']
+    out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
   } else if (mode === 'reach') {
-    // Unreferenced first, on the same argument traps makes for itself.
-    out.sort((a, b) => Number(b.key === 'alone') - Number(a.key === 'alone'))
-  } else if (mode === 'locality') {
-    const order = LOCALITY_BANDS.map((b) => b.label)
+    // Fewest first, the direction Callers reads in — the two lenses are a pair and a reader
+    // moving between them must not have to re-learn which way a row of four runs.
+    const order = REACH_BANDS.map((b) => b.label).reverse()
     out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
   } else if (mode === 'legible' || mode === 'docs') {
     // Best first, calm end first, dark end first — the direction `Spread` reads in and the

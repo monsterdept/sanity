@@ -24,8 +24,9 @@ const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
   legible: 'Legibility',
   docs: 'Documentation',
   traps: 'Traps',
-  reach: 'Callers',
-  locality: 'Where calls go',
+  callers: 'Callers',
+  reach: 'What it calls',
+  clones: 'Clones',
   blame: 'Authors',
   language: 'Languages',
   churn: 'Commits in 90d',
@@ -75,21 +76,31 @@ function rowNote(n: Node, mode: ColorMode): string {
   // right to. The guard was correct all along; what was missing was the sentence saying so.
   if (mode === 'churn') return s && s.ageDays !== null ? `${s.commits} in 90d` : '—'
   // Both wiring lenses are grouped by a value that leaves something open, so both print the
-  // part the heading does not carry. Under `called from somewhere` the count is the whole
-  // question; under `most of it leaves` the fact behind the band is the two counts it came
+  // part the heading does not carry. Under `2–5 callers` the exact count is what the band
+  // rounded off; under `most of it leaves` the fact behind the band is the two counts it came
   // from, and `7 of 9 away` never restates a heading the way a repeated percentage would.
-  if (mode === 'reach') {
+  if (mode === 'callers') {
     if (n.callers == null) return '—'
-    // Under `nothing calls it`, what it CALLS is the useful half — and it separates the two
+    // Under `no in-repo caller`, what it CALLS is the useful half — and it separates the two
     // shapes of orphan that matter. A function calling nothing is an isolated stub; one
     // calling a dozen is the entry point of a whole subsystem nothing enters, which is a
     // much larger finding wearing the same color.
     if (n.callers === 0) return n.calls == null ? '—' : `calls ${n.calls}`
     return `${n.callers} callers`
   }
-  if (mode === 'locality') {
-    if (n.incident == null || n.away == null || n.incident === 0) return '—'
-    return `${n.away} of ${n.incident} away`
+  if (mode === 'clones') {
+    // The group's size is already the heading; what the row adds is WHERE the other copies
+    // are, which is the next thing anybody asks and the reason the count alone is not enough.
+    if (n.comparable == null) return '—'
+    return n.cloneSize == null ? 'unique' : `1 of ${n.cloneSize}`
+  }
+  if (mode === 'reach') {
+    if (n.calls == null) return '—'
+    // Under `calls nothing here`, what CALLS it is the useful half, exactly as the count of
+    // what it calls is under `no in-repo caller`. A leaf nothing calls either is dead; a leaf
+    // six things call is a primitive, which is the opposite finding in the same bucket.
+    if (n.calls === 0) return n.callers == null ? '—' : `${n.callers} callers`
+    return `calls ${n.calls}`
   }
   return `${compactCount(n.loc)} lines`
 }

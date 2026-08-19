@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-335 of 335 read · 66 surprising
+344 of 354 read · 64 surprising · 1 stale
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -67,12 +67,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Recursively searches node's children for one matching id; returns the immediate parent if found among direct children, else recurses into children and returns first found parent, else null.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `App` — TANGLED
-- spec 3 · read at `5dc2428e14cd` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:53:49Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: The root React component: owns the top-level app state (selected project, current tree/scan result, progress via useProgress, drill-in/selection path, lens choice, agent run state) and wires up Tauri event listeners (scan-shape, scan-progress, scored) to update that state as scans stream in. It renders the overall layout — sidebar/project list, the sunburst itself, progress UI (ProgressStrip/ProgressPane), and history toggle — delegating most rendering to child components while holding the coordinating state and effects here, given the file's size (~2000 lines) this is likely a large, sprawling component doing a lot of orchestration.
-- found: A ~2000-line root component owning scan/tree state, streamed-batch state (scores/shape/function-rings, each flushed on an interval with a "drain before updater" discipline for StrictMode safety), navigation/selection/lens state with per-project view banking, project/session polling with a "follow whichever project an agent is working on" inversion pattern, and a full separate history/replay subsystem (frame reconstruction from tables+deltas, scrub transport, commit log) — rendering a sidebar + central sunburst/progress/onboarding pane + right detail/commit-log panel plus several modals.
-- predicted: most · documented: none · derivable: no · legible: some · trap: no
-- note: My prediction correctly anticipated a large orchestration component with tree/progress/selection/lens/agent state and event wiring, but missed entirely that half the file is a parallel replay/history subsystem, the poll-based "follow the agent's project" inversion pattern, and the repeated drain-before-updater batching discipline.
+### `App` — QUIRKY — TANGLED
+- spec 3 · read at `c44f4c093c1a` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:21:04Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: The root React component: it holds top-level state (selected project/run, progress data, reading/history state) and wires together data fetching (probably polling or SSE for progress updates) with the various peer helpers (sameRun, sameIds, sameProjects, findById, parentOf, useProgress) to decide what to re-render. It renders the overall page layout — ProgressPane/ProgressStrip for in-progress runs, HistoryToggle for switching between live and historical views, and an Empty state when there's nothing to show — dispatching into child components like Summary based on selection.
+- found: A 2016-line root component (I sampled the opening ~13k chars of state/effects and the closing ~10k chars of JSX rather than reading all 2016 lines start to finish, given the size). It holds a huge amount of state — scan tree, per-project view (mode/stack) banked in a ref-backed store keyed by project, a full commit-history replay subsystem (tables/deltas/playhead/duration/scrub), agent activity, readings kept in a ref+revision-counter pattern to avoid re-renders, streamed shape/score batching on timers — and wires several polling effects (1.5s project/tree follow, 2s agent readings, 400ms score-batch flush) plus a Cmd+digit lens-switch keyboard handler. The return renders the sunburst/main pane, a right-side Detail or CommitLog panel, HistoryBar during replay, and several modal overlays (big-folder warning, CLI-link confirmation, ReadDialog, CodeView). Nearly every piece of state and effect carries a long comment explaining a specific past bug it fixes, which is far more intricate and battle-scarred than a generic "wires state and renders layout" description would suggest.
+- predicted: some · documented: none · derivable: no · legible: some · trap: no
+- note: sanity_next handed this with docs: [] (no docs field at all) despite the file itself being unusually heavily commented inline — the 'documented' grade here is about the handout, not the code, which is extremely self-documenting.
 
 ### `useProgress`
 - spec 3 · read at `567112bc1bd9` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:35:05Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -261,12 +261,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: no · legible: not judged · trap: no
 - note: Comments carry design rationale (why a scale/swatch shape was chosen per mode) that a stranger cannot re-derive from the JSX alone; that's the valuable part of this file.
 
-### `Legend` — QUIRKY — TANGLED
-- spec 3 · read at `7b288b19048a` · commit `0ce57c0` · read by claude-sonnet-5 · via claude · when 2026-08-19T02:12:30Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Legend branches on `mode`: for a categorical color mode it renders a swatch + label per entry in `categories`; for a gradient/heat mode it renders a continuous color ramp with min/max labels instead of enumerating categories, since per the doc a gradient would falsely imply order on unordered categories. The `history` flag likely toggles a dimmed/secondary rendering style or adds a label marking entries as historical.
-- found: Legend renders a different key depending on mode/history: history mode shows birth/touch event swatches; categorical mode shows per-category dot+label up to SLOTS with an "Other" bucket; traps mode shows a single boolean swatch; reach mode shows a two-state swatch pair; locality mode shows its own heat ramp with home/reach-out labels; and the remaining scalar modes (surprise, legible, docs, churn, age) share a generic lo/hi heat-ramp renderer keyed off an ends map and a ramp selector.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
-- note: The single doc line only explains the categorical-vs-gradient distinction; it says nothing about the traps/reach/locality/history special cases, which each carry their own inline rationale comments not surfaced in the docs field.
+### `Legend` — QUIRKY
+- spec 3 · read at `aa24876f57a6` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:19:43Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Branches on `mode`: for categorical color modes (like ownership) it renders a swatch/label per entry in `categories`, and for continuous/gradient modes (like staleness or coverage) it renders a heat-ramp gradient with min/max labels instead, since a gradient would misrepresent unordered categories. The `history` flag likely tweaks labeling or which modes are available when viewing a replay versus the live map.
+- found: Branches on `history` first (shows a fixed 2-entry new/changed swatch key), then on `categories.length>0` (per-category swatches with an Other bucket beyond SLOTS), then several individually special-cased modes (traps: single boolean swatch, callers: discrete band swatches, locality: its own heat ramp with fixed labels), and finally a generic labeled heat-ramp gradient for the remaining continuous modes (surprise/legible/docs/churn/age) via an `ends` lookup and a ramp-name switch.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: Far more special-cased branches than the doc/signature suggested — traps, callers, and locality each get bespoke non-gradient treatment even though they're not literally categorical.
 
 ### `ModeSwitcher`
 - spec 3 · read at `3f0b5702606e` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:35:06Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -341,19 +341,18 @@ What this is and how to add to it: [README.md](README.md)
 - found: A button with a `done` state toggled true only when the clipboard write promise resolves (false on rejection), auto-reverting after 1200ms via a cleanup timeout; swaps between an icon (copy vs checkmark) and its title/tooltip text based on `done`, stops click propagation, and uses opacity transitions to stay quiet until hovered/focused.
 - predicted: full · documented: some · derivable: no · legible: full · trap: no
 
-### `rank` — QUIRKY
-- spec 3 · read at `affbfc96e743` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:34:55Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Switches on `mode` (the same ColorMode used to color the sunburst ring) and returns a numeric field from node `n` — e.g. its surprise/temperature score, size (lines), or coverage/documentation percentage — so that a list of nodes can be sorted by whatever quantity is currently driving the visualization's coloring.
-- found: Returns -1 if the node has no score. Otherwise branches per ColorMode: churn returns raw churn (or -1 if age unknown), age returns negated lastTouchedDays so recent sorts first, reach returns 1/(1+callers) so unreferenced/far-flung nodes rank first, locality delegates to localityOf, and the default falls back to wedgeHeat(n).
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The doc line only names it as "what the list ranks by" — it doesn't hint at the sign-flip/reciprocal tricks each mode uses to keep 'most notable' sorting first.
+### `rank`
+- spec 3 · read at `9188748d1f66` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:20:10Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A small switch over `mode` that pulls out the same numeric quantity `colorFor` colors by for this node (e.g. surprise/hotShare for 'surprise', churn for 'churn', lastTouchedDays for 'age', caller count for 'callers', etc.), used to sort the list view consistently with the ring's coloring — likely falling back to 0 or -Infinity when the mode has nothing to say.
+- found: Switch over mode pulling the matching ranking quantity, mostly as predicted, but two details I missed: callers ranks by 1/(1+count) so unreferenced-first sorts highest (not raw count), and everything not churn/age/callers/locality falls through to wedgeHeat() as a shared default rather than each remaining mode having its own case.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `measure` — QUIRKY
-- spec 3 · read at `1bddac282c0c` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:36:18Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Given a Node and a ColorMode (like "rank", "grade", "provenance", "size"), this is a switch/if over mode that picks the single relevant numeric/text value off the node and formats it into a short string with its unit suffix baked in (e.g. "42%", "3.2kb"), returning null when that mode doesn't apply to this node (e.g. no grade available). It's a formatting helper feeding a fixed-width column in the Detail view.
-- found: A per-mode switch that formats one value into a fixed-width string: blame returns null (author swatch already conveys it), churn shows commit count ×, reach shows caller count ×, locality shows % external, age shows relative day count or "today", surprise shows either a categorical heat word or a rounded degree number depending on whether the node was model-scored vs rule-read, and the default falls back to line count.
-- predicted: some · documented: full · derivable: no · legible: full · trap: no
-- note: The mode names (blame/churn/reach/locality/age/surprise) aren't guessable from the peers list, which only showed unrelated sibling functions like rank/grade/provenance.
+- spec 3 · read at `3ec945d82145` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:19:05Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Switches on `mode` (a ColorMode enum shared with rank/grade/provenance) and returns a short string with the unit baked in (e.g. "12kb", "84%", "#3") representing the one relevant number for that node under that mode; returns null when the mode doesn't apply to this node (e.g. no data for that metric).
+- found: Switches on ColorMode: blame→null (author is categorical, no number needed since swatch carries it); churn→commit count with × suffix or em-dash; callers→count with ×; locality→rounded percentage "out"; age→"today" or "Nd ago"; surprise→either a discrete heat word from readingWords or a rounded degree number from wedgeHeat, with fallback em-dash; default→raw loc count formatted with toLocaleString.
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+- note: The per-mode fallback is inconsistent in a meaningful way — blame returns null (renders nothing) while every other unavailable-data case returns an em-dash string, which I initially assumed was uniform.
 
 ### `grade`
 - spec 2 · read at `640703ed95d9` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:13:25Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -436,12 +435,18 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/ExportDialog.tsx
 
-### the file itself — QUIRKY
-- spec 3 · read at `125d6e1a0750` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:03:57Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A React component file implementing ExportDialog, a modal that lets the user export the current visualization (e.g. as an image or data file), with format/options selection and a trigger to download. The helper functions pace/ms/lasting/suggest are small utilities for estimating and formatting export duration/progress (converting to milliseconds, describing how long an operation is taking) and suggesting a default filename or export format.
-- found: ExportDialog renders a modal to export the commit-history replay as an MP4 movie of the sunburst map (not a screen capture), with controls for length, square resolution, and light/dark ground, showing per-stage progress (fetch/fold/raster/encode) and time-left estimate while recording, then saving via saveMovie. pace/ms/lasting are duration-formatting helpers for the length choices, per-stage cost readout, and time-remaining estimate respectively; suggest builds a slugified default filename.
-- predicted: some · documented: full · derivable: no · legible: not judged · trap: no
-- note: The docs are unusually rich (extensive rationale comments explaining design decisions like square frames, no 'system' ground option, ref vs state for stop) — far beyond what's derivable from the code alone, so derivable=false despite documented=full.
+### the file itself
+- spec 3 · read at `60a20e49a89a` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:21:24Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A dialog component for exporting the history-replay as a video/movie (referenced in App.tsx as "an exported movie"). The helper functions (frameOf, pace, ms, lasting, suggest) compute frame indices and timing/pacing for the recording — e.g. converting a commit index to a frame number, computing how long the whole export will take, and suggesting a sensible duration or frame rate based on the repo's commit count. ExportDialog itself likely renders duration/quality controls, a start/cancel button, and a progress indicator while it drives the timeline's `ensure` API to fetch each frame and hand it off to a recorder.
+- found: A dialog to export the history replay as an MP4 movie of the map itself (not a screen capture): controls for length, resolution, and light/dark ground, a progress readout during recording that names the current pipeline stage (fetch/fold/raster/draw/encode) with per-stage timing and an ETA, a codec-mismatch note when H.264 isn't available at the chosen size, and a save step via saveMovie. Helpers: frameOf computes the pixel width/height for a chosen resolution height (not frame indices, as I'd guessed), pace/ms/lasting format durations at different scales, suggest derives a safe filename from the repo name.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: frameOf is about frame DIMENSIONS (pixel width/height for a resolution), not about mapping a commit index to a frame number as the name plausibly suggests next to a replay/export file.
+
+### `frameOf`
+- spec 3 · read at `57a2a9bcea07` · commit `50b4d0a` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T08:22:20Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Computes the export frame's width from a given height using the 16:9 ASPECT ratio (from movie.ts), then rounds the width to the nearest even number since video encoders require even dimensions for chroma subsampling, returning { width, height }.
+- found: Exactly as predicted: width = height * 16/9, rounded to nearest even number, height passed through unchanged.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `pace` — QUIRKY
 - spec 3 · read at `72df0d0149a5` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:48:00Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -469,11 +474,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: I expected a generic sanitize-with-fallback but didn't anticipate the fixed "-history.mp4" suffix, which reveals this is specifically for exporting the history movie feature, not a general filename helper.
 
-### `ExportDialog` — TANGLED
-- spec 3 · read at `d6f4d8c158fa` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:38:06Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Renders form controls for movie export settings (duration/pace via ms/lasting/pace, a suggested filename via suggest), then on confirm it stages the map at a target pixel size via onStage, iterates frames calling ensure(index) and awaiting it before capturing/recording each frame (unlike the live transport, which fires-and-forgets), shows progress, and on completion or cancel restores the original playhead index and calls onStage(null)/onClose to hand the pane back.
-- found: Dialog with length/resolution/ground(theme) pickers and export/stop buttons; on Export it applies the chosen theme, stages the map at the chosen pixel size, waits two RAFs to let it settle, then calls movie.record (passing frames, ensure, progress/codec callbacks, and a ref-based cancel flag), saves the resulting bytes via a save dialog, shows a progress bar with per-stage cost breakdown and time-left estimate, surfaces a non-H.264 codec note, and always restores theme/stage/playhead in a finally block.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
+### `ExportDialog`
+- spec 3 · read at `b5ac245a0908` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:19:28Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A modal dialog with form controls for export settings (resolution/quality preset, duration, filename via `suggest`), a Start/Cancel button, and a progress bar during recording. On start it loops over `frames`, calling `ensure(index)` then `onIndex(index)` to advance the timeline before capturing each frame (via movie.record/preflight), calls `onStage` to dress the map for capture and clears it (null) when done or cancelled, and calls `onClose` to dismiss, restoring the original index/stage.
+- found: Modal with length/resolution/ground choices, a Start/Stop/Cancel button and progress UI; `go()` stages the map (onStage), waits two rAFs to let it settle, calls `record()` (passing ensure/dateOf/onProgress/onCodec/cancelled-via-ref), then saveMovie(), and in `finally` always restores stage=null and the original index. Progress UI shows per-stage cost breakdown (fetch/fold/raster/draw/encode) and reports the chosen codec only when it's not the default H.264.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: The stop flag is a ref (not state) specifically because record() reads it per-frame and a closure over state would be stale.
 
 ## web/src/components/Fields.tsx
 
@@ -520,12 +526,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/HistoryBar.tsx
 
-### the file itself — QUIRKY
-- spec 3 · read at `2198a50be1b8` · commit `2cf6adc` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:42:00Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A React component (HistoryBar) that renders the transport controls for the commit replay — a scrubber/slider representing position across the timeline, plus play/pause and speed controls — driving the same playhead index that CommitLog follows. The `pace` helper likely converts a playback speed setting into a per-frame delay (milliseconds between advancing the playhead) or converts frame count/duration into a human-readable rate label.
-- found: The replay transport: a play/pause button, a scrub range input over the commit frames, a row of preset total-DURATION buttons (not a speed/rate — the control fixes how long the whole replay takes regardless of repo size), an export-to-movie button/dialog, and keyboard shortcuts (space to play, arrows to step, shift to stride by 10). The play loop uses requestAnimationFrame driven by elapsed wall-clock time (not per-tick steps) to keep the promised duration accurate at any framerate, skipping commits past MAX_FPS rather than falling behind. `pace` just formats a duration in seconds into a short "Ns"/"Nm" label for those buttons.
-- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
-- note: No file header doc; the key design facts (duration not rate, RAF-with-elapsed-time not fixed-interval, cursor/emitted ref split to preserve sub-integer progress across renders) are only in scattered inline comments.
+### the file itself
+- spec 3 · read at `f38c9ab25c86` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:21:24Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: This file defines the HistoryBar component — the playback transport UI for the history replay feature (play/pause, scrub position, maybe speed control), analogous to the timeline/Playhead concepts seen in the movie-export code. `pace` is likely a helper computing playback speed or frame-advance timing given the commit count/duration. No file header doc is itself notable — probably because the component is self-explanatory or under-documented compared to the rest of the design-heavy codebase.
+- found: Confirmed as the replay transport: play/pause toggle, a scrub range input, and `pace` formats a DURATIONS preset (180/60/30/10/3s) into 'Xm'/'Xs' labels for duration-picker buttons — matching my guess about pace exactly. Missed: an export-to-movie button opening ExportDialog, full keyboard control (space to play, arrow keys to step with shift-stride), and a requestAnimationFrame-driven clock that paces playback by real elapsed time (not per-tick commit stepping) to keep the promised duration honest even on large repos.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: No file-level header doc, but the component and most internals are heavily commented individually — the absence is only at the file-header level, not a general lack of documentation.
 
 ### `pace` — QUIRKY
 - spec 2 · read at `f97e230c1fec` · commit `ba429b4` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T20:51:49Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -534,11 +540,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: yes · legible: full · trap: no
 
 ### `HistoryBar` — QUIRKY
-- spec 3 · read at `f80e6d8549ca` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:36:56Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A bottom-of-screen transport bar component: a play/pause button toggling `playing`, a scrub slider/range input spanning `frames` (mapping slider position to `onIndex(frames[i])` rather than raw commit index), and a duration control feeding `onDuration`. When playing, an effect uses `pace` (the peer helper) to advance the frame index on an interval/rAF loop sized by `duration`, calling `ensure` to fetch data for upcoming frames before stepping onto them, and stopping at the end. It likely also wires an export/save action using `name` and `onStage` to render the current frame to an image.
-- found: Play/pause + scrub slider + preset duration buttons + export button, with playback driven by a requestAnimationFrame clock (not setInterval) that tracks a fractional cursor in a ref so slow rates still progress smoothly, keyboard shortcuts (space to toggle, arrows/shift-arrows to step) guarded against text-input focus and the export dialog being open, and export itself delegated to a separate ExportDialog opened on click rather than handled inline.
-- predicted: some · documented: full · derivable: no · legible: most · trap: no
-- note: Missed entirely: the keyboard shortcut handling and the rAF-based fractional-cursor clock design, which are most of the function's actual complexity.
+- spec 3 · read at `f11ae4ebe017` · commit `50b4d0a` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T08:19:22Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Renders the bottom transport strip: a play/pause button and a full-width scrub bar/slider bound to `index` within `frames`, calling onIndex as the user drags. When `playing` is true it advances through frames on an interval/animation loop paced by `duration` (likely using the `pace` helper), calling onPlaying(false) at the end. It also has an export trigger that calls `ensure` to fetch data up to the current index and then `onStage` with a Staged descriptor built from name/slug/scope/dateOf for an export movie/dialog.
+- found: Play/pause button, scrub range input, and duration-preset buttons (pace-labeled), driven by a rAF-based clock (not setInterval) that tracks a fractional cursor position separately from the emitted integer index to stay accurate across slow/fast rates. Also wires full keyboard transport (space to play/pause, arrows to step, shift for a 10-commit stride) with careful guards against double-handling when a range input or export dialog has focus, and delegates the actual export UI/logic to a separate ExportDialog component rather than doing ensure/onStage itself.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The doc comment describes an older design (a second caption row) that was removed; the actual component's complexity (rAF clock, keyboard handling, ref-based cursor tracking) isn't mentioned in the docs at all.
 
 ## web/src/components/MascotFigure.tsx
 
@@ -570,11 +576,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: Guessed a switch/lookup with default correctly; actual mechanism is a regex-match table (MOODS) rather than a switch.
 
 ### `MascotFigure` — QUIRKY — TANGLED — TRAP
-- spec 3 · read at `10629a7b57b5` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:36:54Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Renders an SVG "mascot" creature. It loads or mints a persistent per-project blueprint via `loadOrMint` (keyed by `project`, re-minted when `remint` changes), computes a mood from the recent `events` via `moodFor`, and picks/generates visual traits via `pick`. It animates the eyes to track the `gaze` targets when provided (else wanders on its own), and varies appearance/animation based on `state` (working/sleeping/torn down) and `size`.
-- found: Wraps an imperative `Mascot` scene (remounted via key when config changes). Loads/mints a per-project blueprint, positions the creature vertically once the bundle reports its resting silhouette extent (`onReady`), aims gaze at one of several directions on a timed dwell cycle, wakes on window mouse activity, plays a "confused" animation loop while state is 'stopping', and replays queued mood-driven animations for fresh events (by sequence number) while state is 'working', each staggered on a timer.
+- spec 3 · read at `1155b518fee3` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:19:33Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This component loads (or mints, via `loadOrMint`) a persistent per-project "blueprint" describing the creature's look, computes a mood from `state`/`events` via `moodFor`, and renders an SVG creature whose eyes track the `gaze` targets (or wander when null) while animating differently for sleeping/working/torn-down states; `pick` is probably used to select randomized visual traits from the blueprint. Re-minting happens when `remint` changes.
+- found: Loads/mints a per-project blueprint and remounts on remint as predicted, but the bulk of the function is several useEffects: computing vertical 'lift' offset from the bundle's reported rest extent, aiming gaze at one of several targets on a dwell cycle, waking the creature on any window mouse activity, playing a 'confused' animation loop while state is 'stopping', and replaying queued AgentCall events (via moodFor) in sequence while 'working', plus registering a mascotClock hook for movie export.
 - predicted: some · documented: none · derivable: no · legible: some · trap: yes
-- note: Comments call out a specific prior bug: reading `handle.current.renderer.engine` instead of `renderer.shared.engine` type-checks fine and fails silently (gaze stops working with nothing on screen indicating why) — worth flagging to anyone touching the gaze-aiming code.
+- note: Addressing the renderer via `renderer.shared.engine` (three levels down) instead of `renderer` directly is silently wrong — the typeof guards make a wrong address just as harmless-looking as a missing method, so gaze tracking or clock-lending can quietly no-op with nothing on screen indicating why.
 
 ## web/src/components/Overlay.tsx
 
@@ -717,11 +723,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: I overestimated its size — it's a 2px accent line, not a row-height placeholder block.
 
 ### `ProjectItem` — QUIRKY — TANGLED
-- spec 3 · read at `cf046e3efce5` · commit `0ce57c0` · read by claude-sonnet-5 · via claude · when 2026-08-19T02:21:34Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Renders a single project row as a div (not a button, since it nests Read/Stop buttons) with click/context-menu/pointer-drag handlers and keyboard handling for the row's role. The right-hand slot is conditional: shows a progress indicator/percentage when `replay` is non-null and running, shows Read/Stop-style controls when this row is active/hovered, and otherwise shows a static count (e.g. failure or item count). It likely manages local hover state, disables/tooltips the replay trigger when `blocked` is true, and toggles a "dragging" visual style plus renders relative to DropLine when `dragging` is true.
-- found: Renders a project row with three tiers of state: a name+status line, a history/"trace" line for commit replay (with its own Cancel/Trace button and progress bar), and a backlog/reading line with Read/Stop/failure-transcript buttons. It tracks local hover/cancelling/asked state, derives many booleans (running, stopping, winding, busy, reading, failed, settled) from the project and run props, and draws a bottom-edge progress rule plus a "reading" sweep animation. Far more machinery than a simple row — distinguishes "read" (function-level reading) from "trace" (commit replay) as two entirely separate jobs with separate UI treatment.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
-- note: The rationale comments (why div-not-button, why compact numbers, why edge-rule not fill) carry real design history not recoverable from the code alone.
+- spec 3 · read at `64ebe2da42c9` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:19:15Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Renders a single project row as a div (role=button, with onKeyDown handling since real buttons can't nest), styled active/dragging/hover states, calling onClick/onContextMenu/onGrab. The right side is a conditional slot: normally shows some count (e.g. issue/task count), but if `replay` is non-null shows a progress indicator for the running history walk with a Stop button, and if this is the active row shows Read/Stop-style buttons instead — disabling replay-trigger controls when `blocked` is true.
+- found: A large row component with two independent progress tracks (reading/backlog and history replay), each with its own bar, count line, and buttons (Read/Stop for reading, Trace/Cancel for replay), plus local state for optimistic cancel/stop feedback, hover-based control visibility, and a compact-number formatter for the 220px column.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
+- note: The two progress systems (coverage bar vs replay bar, Read/Stop vs Trace/Cancel) are easy to conflate at a glance; the JSDoc-style inline comments carry most of the actual design rationale, far more than the handout's docs field.
 
 ## web/src/components/StaleHatch.tsx
 
@@ -747,11 +753,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: No file-level doc comment despite every function inside carrying an unusually long rationale comment — the file's own purpose has to be inferred from summing its parts.
 
 ### `rowNote` — QUIRKY
-- spec 3 · read at `cab66646b605` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:34:56Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A switch/if on `mode`: for 'age' it formats the node's last-touched time as a relative string like "5d ago"; for 'churn' it formats something like "11 in 90d" from a commit count field. For all other (categorical) modes — author, language, grade, trap — it returns a string showing the node's line count (LINES), since those columns can't restate anything else useful.
-- found: Got age/churn/default(lines) right, but missed two entire branches: 'reach' mode (callers/calls wiring, with a special case distinguishing isolated stubs from unentered subsystem entry points) and 'locality' mode ("X of Y away").
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The doc comment covers only the age/churn/category rationale — it says nothing about the reach and locality branches, which have their own inline comments explaining subtler distinctions (zero commits vs no history; stub vs entry-point orphan).
+- spec 3 · read at `055dad43766c` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:19:08Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A switch/if on mode: for 'age' and 'churn' it computes and returns a band-relative value string (e.g. "5d ago" for age using the node's last-modified timestamp, "11 in 90d" for churn using a commit count field) — something that isn't just the bucket label. For all other modes (author, language, grade, trap) it falls through to a default that returns the node's line count as a string, since that's the "other axis" the docs mention distinguishing big vs small functions in a bucket.
+- found: Switches on ColorMode: 'age' returns '—' or 'Nd ago'/'today'; 'churn' returns '—' or 'N in 90d' (guarded on ageDays not commits, deliberately, per an in-code comment explaining a prior back-and-forth about this); 'callers' returns '—', 'calls N' for zero-caller orphans, or 'N callers'; 'locality' returns '—' or 'N of M away'; everything else falls through to a default returning the compact line count.
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+- note: The docs claim only age/churn deviate from the plain-LINES default ("everything else is a category... those get LINES"), but the code also gives callers and locality their own custom, non-LINES notes — the doc's stated rule doesn't match the implementation.
 
 ### `ListWindow`
 - spec 2 · read at `b01f264c6a80` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:00:52Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -794,12 +800,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: Under 'surprise' mode, looks up a per-kind damping value from a HEAT_BY_KIND table (defaulting to 1 if kind isn't in it); under every other mode it always returns 1 (no damping).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `SunburstView` — TANGLED
+### `SunburstView` — TANGLED — STALE
 - spec 3 · read at `006ca16b24ab` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:38:25Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
 - expected: The core rendering component: lays out root's tree as sunburst arcs (radius by depth, angle by size), draws them as SVG/canvas wedges colored according to mode (using ranks/ageSpan to calibrate color scales like churn/age/blame), wires pointer handlers to onSelect/onDrill/onClear/onUp, animates wedge transitions when morph is true, visually pulses nodes present in `reading`, renders the mascot creature in the central hub reflecting mascot.state, and adjusts what's drawn/labeled based on density (pixel-based level of detail) and sortBy ordering.
 - found: A ~1560-line component that lays out and renders the sunburst as SVG arc paths (via arcPath/colorFor keyed by mode/ranks/ageSpan), handles pointer hover/selection/drill/clear via a container-level mousemove rather than per-wedge listeners, animates level transitions with separate 'leaving'/'coring'/arriving wedge groups interpolated by lerpGeo when morph, tracks a hub mascot's screen transform synced to the same animation frame, computes pixel-based level-of-detail thresholds (unitsPerPx/minAngle) from either measured pane size or the density prop, and draws selection/hover outlines as separate overlay marks collected during the wedge walk and painted last to avoid stroke-width bugs from paint order.
 - predicted: most · documented: most · derivable: no · legible: some · trap: no
 - note: Extremely dense with inline rationale comments explaining non-obvious history (e.g. why selection/hover marks are two slots, why the mascot moves in the same effect as the viewBox) — could not read the full 1564 lines exhaustively, sampled representative sections (top, ~lines 700-850) given tool output size limits.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/components/WedgeLabel.tsx
 
@@ -886,11 +894,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/api.ts
 
 ### the file itself
-- spec 3 · read at `a7e1ac7b1c89` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:56:35Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This is the central data/API layer for a desktop app (likely Electron) that manages "projects" (repos being read/graded) and orchestrates an agent-based code-reading/grading workflow — the same "sanity" protocol this session is running. It's a thin bridge over some underlying IPC/electronAPI (project list/select/reorder/forget, CLI install/status, file reading, starting/stopping scans/checks) mixed with domain logic for aggregating agent reports into scores (reportGrades, reaggregate, summarize, isReportStale), and a set of pure heat/color-ramp helper functions (temperature, wedgeHeat, heatColor, rampStop, rampAt, paintHeat, shareRamp) used to visualize scan coverage/quality. Given the sheer variety of unrelated concerns (CLI installation, theme menu sync, node tree pruning, color ramps, event subscriptions), I expect this file to be a large, mixed-responsibility "everything the UI needs" module rather than a single cohesive abstraction.
-- found: A mixed-responsibility frontend data layer: hand-written TypeScript types mirroring a Rust backend's wire format (Node/Score/Scan/AgentReport etc, heavily commented), thin invoke()-based IPC wrapper functions calling into a Tauri (not Electron) backend for project management, scanning, and CLI install, listen()-based event subscription helpers for streaming scan progress/scores, substantial tree-aggregation/report-grading business logic (reaggregate, applyScores, applyAgentReports, summarize), and a final pure color/heat-ramp math section (heatColor, rampStop, rampAt using CSS color-mix) for visualizing scan results. No file-level header comment exists.
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: The runtime is Tauri (invoke/listen from @tauri-apps/api), not Electron — worth noting for anyone predicting from the outside since 'desktop app IPC bridge' is ambiguous between the two.
+- spec 3 · read at `98fcd6dd9709` · commit `50b4d0a` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T08:21:12Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: This is the frontend's bridge to the Tauri backend and the domain logic built on top of it: thin invoke() wrappers for every backend command (scanRepo, projectScan, listProjects, readSource, saveMovie, etc.), event listener subscriptions (onScanScore, onScanProgress, onSetTheme, onOpenProject, onInstallCli), plus the logic that turns raw scan/score payloads into the Node tree the UI renders (toNode, applyScores, reaggregate, applyAgentReports), the color/heat ramp math for painting surprise onto the map (heatColor, wedgeHeat, shareRamp, paintHeat, rampStop, rampAt, temperature), and helpers for grading/summarizing agent reading reports (legibleOf, trapOf, reportGrades, isReportStale, summarize). It's a large multi-purpose module mixing IPC plumbing with derived visual/report state rather than being split by concern.
+- found: A catch-all frontend lib/api.ts: hand-written TS type mirrors of the Rust model, Tauri invoke() wrappers for project/window/scan commands, Tauri listen() event wrappers, agent-report grading heuristics (word-list thresholds for legible/trap/doc-gap), scan orchestration, and pure color/heat-ramp math for painting nodes — five or six distinct concerns bundled into one module rather than split by responsibility. No single file-header banner; the closest thing is a doc comment on the first exported type explaining why types are hand-written instead of generated.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- note: There is no file-level header comment (docs was empty for good reason) — the closest thing is a doc comment scoped to the first type (NodeKind) that reads as a module rationale but isn't formally a file doc.
 
 ### `pruneExcluded`
 - spec 3 · read at `387ef5c13909` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:56:29Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -1244,11 +1252,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/colorMode.ts
 
 ### the file itself
-- spec 3 · read at `f8ee24a343c4` · commit `0ce57c0` · read by claude-sonnet-5 · via claude · when 2026-08-19T02:13:00Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This file implements the multiple "lens" color modes for the sunburst visualization (referenced elsewhere as five lenses, e.g. churn, wiring/structure, doc coverage, age, authorship). For each lens it computes an underlying per-node metric from readings/wiring data (functions like paintsFromReadings, paintsFromWiring, wiringShare, unreferencedShare, opaqueShare, docGrade, undocShare, ageSpanOf), buckets that metric into ramp stops (bucketsFor, ageRamp, ramped), maps it to an actual color (colorFor, slotColor, flash), and produces legend metadata (legendFor, rankCategories) so the UI can render a consistent legend per lens. It's essentially the data-to-color pipeline that turns raw analysis data into the palette defined elsewhere (e.g. palette-search.py's output).
-- found: Defines all ten ColorMode lenses (surprise, legible, docs, traps, reach, locality, language, blame, churn, age) plus a history-replay overlay, and for each: computes the underlying per-node metric or share, buckets/ramps it to a color via colorFor, and provides bucketsFor/legendFor for the side panel's breakdown and legend. Much richer than I predicted — categorical palette handling for blame/language with rank-based slots, absence semantics (saysNothing), and a replay-specific flash/birth/touch overlay that overrides every mode.
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: No file-level header doc exists (docs was empty), though almost every individual function/const has an unusually thorough inline doc comment explaining design rationale — the coverage lives at function granularity, not file granularity.
+- spec 3 · read at `43073b7e4c00` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:21:45Z · by ross@rossturk.com · warm reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: This is the single source of truth for the sunburst's coloring system — given a ColorMode, it computes what color and label each node gets (colorFor), what value ranks/sorts it, what band/bucket it falls into for the legend and breakdown panel (bucketsFor, legendFor, rankCategories), and various shared helpers (share computations, age ramps, author/language slot colors, flash animations for history replay). The design intent is that no other part of the app invents its own palette — everything routes through here so the map and its legend never disagree.
+- found: Confirmed: defines the ColorMode union (exactly the 10 modes I guessed — surprise, legible, docs, traps, callers, locality, language, blame, churn, age) and centralizes all coloring logic (colorFor, bucketsFor, legendFor, share/ramp helpers) so nothing else in the app invents its own palette, consistent with what colorFor and bucketsFor already showed.
+- predicted: full · documented: none · derivable: no · legible: not judged · trap: no
+- note: The `docs` field came back empty, but the file does have a rich intro comment right above the `ColorMode` type ('One geometry, ten encodings') — it just isn't attached as a file-level header, so the extractor missed real documentation that exists a few lines in.
 
 ### `paintsFromReadings`
 - spec 2 · read at `09004cfe8323` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:03:27Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -1258,23 +1266,16 @@ What this is and how to add to it: [README.md](README.md)
 - note: I predicted 3 of the 4 modes correctly (guessed 'legibility' instead of 'legible') but missed 'traps' as a fourth reading-derived lens.
 
 ### `paintsFromWiring`
-- spec 3 · read at `018894d3e890` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:59:25Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Returns true if the given ColorMode is one of the modes derived from the call graph (e.g. callers/locality-based wiring modes), false otherwise — a simple set-membership or switch check, mirroring paintsFromReadings but for wiring-based modes instead of reader-based ones.
-- found: Returns true if mode is 'reach' or 'locality', the two wiring-derived color modes.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: Got the shape right but guessed 'callers' instead of the actual mode name 'reach'.
+- spec 3 · read at `03ec87fb3355` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:21:07Z · by ross@rossturk.com · warm reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A tiny one-liner returning `mode === 'callers' || mode === 'locality'` — the two lenses whose color comes from the call graph rather than agent readings.
+- found: Exactly `mode === 'callers' || mode === 'locality'`, as predicted.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `wiringShare` — QUIRKY
 - spec 3 · read at `04e0d48e83ab` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:02:12Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
 - expected: Reads two precomputed summed fields off the node directly (e.g. outsideEdges / totalEdges, already aggregated in Rust's aggregate rather than walked), and returns outsideEdges / totalEdges, or null if totalEdges is 0 (nothing wired underneath).
 - found: Just delegates to localityOf(node) — a one-liner wrapper, not inline arithmetic on node fields.
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
-
-### `unreferencedShare`
-- spec 3 · read at `f75433fd4fe6` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:02:14Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Thin accessor mirroring wiringShare: reads pre-aggregated counts already computed in Rust off the node (something like resolvable-function count and unreferenced count) and divides to get a share, returning null when the resolvable denominator is zero/none resolves.
-- found: Reads node.resolvable and node.orphans, returns null if either is null/undefined or resolvable is 0, else orphans/resolvable — field named 'orphans' rather than the 'unreferenced' I guessed, but same shape.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `isAuthor`
 - spec 2 · read at `9578a38649cd` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:04:36Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -1338,12 +1339,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: Docs (module-level, not per-function) fully explained the rationale; I slightly misjudged the traps condition as dir-only when it's actually func-only (excludes files too).
 
-### `colorFor` — QUIRKY
-- spec 3 · read at `b9c0f39bacea` · commit `0ce57c0` · read by claude-sonnet-5 · via claude · when 2026-08-19T02:12:29Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A switch/dispatch over ColorMode values that delegates to peer helpers (paintsFromReadings, paintsFromWiring, wiringShare, docGrade, ageRamp, etc.) to compute a share/value for the given node, then wraps the result into a Paint plus a human-readable label string. Returns null early whenever the relevant helper reports no data for that node, rather than inventing a default color.
-- found: A big per-mode dispatcher for painting one node's wedge. First handles a history-replay override (grey/flash on birth/touch) that trumps every mode. Then branches on mode: surprise/legible/docs each split container (share-based rollup) vs leaf (graded value) with careful ramp-vs-linear choices and specific label wording; traps and reach are boolean/count-based rather than ramped, with distinct null-vs-zero semantics; locality unifies leaf/container via the same away/incident formula; churn and age read straight off score fields; blame/lang fall through to an author/language slot-color lookup with an uncommitted-lines special case.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
-- note: The docs comment only describes the null-return contract; the bulk of the actual logic (mode branches, history override, per-mode share vs boolean semantics) is undocumented at the function signature and only explained via inline comments in the body.
+### `colorFor` — QUIRKY — TANGLED
+- spec 3 · read at `08e6058129ac` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:19:08Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A big switch/dispatch over `ColorMode` that routes to mode-specific helpers among its peers (e.g. `isAuthor`+`slotColor` for author mode, `ageRamp`+`ageSpanOf` for age mode, `wiringShare`/`calledShare`/`callerBand` for wiring mode, `docGrade`/`undocShare`/`saysNothing` for doc mode), each producing a `{color, label}` pair, returning null when the relevant data is absent for that node/mode combination.
+- found: A big if-chain dispatch over ColorMode, but with a top-level override: any node whose score is a 'history' replay frame is painted grey/flash regardless of mode (birth/touch flash, else null). Each mode branch (surprise, legible, docs, traps, callers, locality, churn, age, blame/lang) has its own bespoke logic — containers roll up via share functions while leaves use per-node grades/counts, each with carefully chosen ramps, labels, and null-fallback rules, plus extensive comments explaining design rationale (e.g. why docs ramp is linear not curved, why traps is boolean not shaded).
+- predicted: some · documented: none · derivable: yes · legible: some · trap: no
 
 ### `rankCategories`
 - spec 2 · read at `3520bac67344` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:08:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1352,12 +1352,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: The doc comment describes the overall purpose well but doesn't reveal that this is a thin wrapper around legendFor.
 
-### `bucketsFor` — QUIRKY — TANGLED
-- spec 3 · read at `b5d280b328c2` · commit `0ce57c0` · read by claude-sonnet-5 · via claude · when 2026-08-19T02:12:47Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: bucketsFor walks the given subtree once, classifies each function (skipping .sanityignore'd ones) into a small number of discrete categories/bands depending on mode (e.g. doc grade, wiring/unreferenced share, age), and tallies counts per bucket. For ramped modes it computes the mean of the members' underlying ramp input per bucket and asks colorFor/the ramp for that color rather than inventing a swatch; anything the mode can't classify goes into a final "unclassifiable" bucket colored with the structural neutral, and it returns an array of Bucket objects (label, color, count) that sum to the same total as the header's function count.
-- found: A big per-mode dispatch: walks the tree (both files, for blame/language/docs, and funcs) building buckets keyed by category, with mode-specific logic for blame/language/docs/legible/traps/reach/locality/churn/age, each with its own UNKNOWN-bucket semantics and band lookups; ramped modes collect raw values per bucket and average them after the walk to pick a ramp color; then each mode has its own sort order for the output, with the UNKNOWN bucket always pushed last.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
-- note: Got the overall shape (walk + bucket + ramp-mean + colorFor-consistency) but missed how much mode-specific branching, per-mode sort ordering, and file-vs-func handling lives inside — it's really ~9 near-independent classifiers glued into one function.
+### `bucketsFor` — TANGLED
+- spec 3 · read at `12bbf4064fc2` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:20:27Z · by ross@rossturk.com · warm reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: This walks the whole subtree once, computing each leaf's color-relevant value via the same inputs `colorFor` uses (not a separate palette), and groups nodes into fixed bands (for ramped modes) or discrete categories (for blame/lang), tallying line/function counts per bucket while skipping `.sanityignore`d functions from the totals but still drawing them on the map. Each bucket's swatch color is the ramp color at the mean of its members' inputs, and anything the mode can't color falls into one final "unanalyzed"/neutral bucket rather than being dropped from the counts.
+- found: Matched the core idea (single walk, mean-of-ramp-inputs swatch, unknown/neutral bucket, sanityignore excluded from totals) but missed the substantial per-mode branching: surprise mode returns [] outright, files get their own rows for blame/language/docs, each mode has bespoke sort ordering (traps-first, fewest-callers-first, best-first for legible/docs, band order for age/churn/locality), and the unknown bucket is always forced last regardless of sort direction.
+- predicted: most · documented: full · derivable: no · legible: some · trap: no
 
 ### `legendFor`
 - spec 3 · read at `10460785a966` · commit `cecdbb2` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T00:34:48Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1548,11 +1547,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: Trap: Score objects are pooled/reused frame-to-frame and this function does NOT reset surprise/documented/analyzedShare/provenance/source each call — a future field added here that forgets to explicitly write-or-null every frame will silently leak the previous function's value onto the next.
 
 ### `aggregate` — QUIRKY
-- spec 3 · read at `e97ee2119cb8` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:36:26Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks node.children (if any), calling aggregate on each first, then combines their stats into `node`: sums LOC, computes a LOC-weighted average of some per-file metric (e.g. churn/heat), takes the oldest "appeared" date among children (via appearedOf) for node's age, and the newest "last touched" date for node's recency. Leaf nodes (files) are left as-is since they already carry their own values.
-- found: Recursively aggregates children first, sums LOC, computes an LOC-weighted average churn, takes max ageDays and min lastTouchedDays across children, max commits (not sum), and builds a score object — but `appeared` is deliberately NOT rolled up from children, it's looked up directly via appearedOf(node.id) since a container's arrival is its own event; `edited` is always null for containers for the same reason.
+- spec 3 · read at `19b5be80ff3d` · commit `50b4d0a` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T08:19:05Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Recursively aggregates a directory/container node's stats from its children: for each child, if it's itself a container, first recursively call aggregate on it; then combine the children's LOC by summing (LOC-weighted), take the oldest "appeared" date among children for the node's age, and the newest "last touched" date for recency. appearedOf is used to look up a leaf/child id's appeared date when not already cached on the node. Mutates node's fields in place rather than returning a new value.
+- found: Recursively aggregates children first, sums LOC, computes LOC-weighted average churn, max commits, max ageDays, min lastTouchedDays (skipping stand-in 'rest' nodes), sets birthBelow/touchBelow flags by OR-ing children's own flags or presence of appeared/edited scores, sets node's own appeared via appearedOf callback but always sets edited to null (containers never show an edit flash, only birth).
 - predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The doc comment ('the same way Node::aggregate does in Rust') undersells this — the actually load-bearing logic (why appeared/edited are never rolled up) is explained in inline comments inside the function body, not in the docstring, so a reader relying only on the file_doc/docs field would miss the most important design decision.
+- note: The extensive inline comments explain WHY (performance constraint of single walk, semantic distinction between birth/touch for containers) far beyond what the signature or docs suggested; the one-line doc comment undersells how much policy is encoded here.
 
 ### `collapse`
 - spec 2 · read at `d28aae3d52ae` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:50:25Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -1579,12 +1578,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds a Map from path string to index over hist.paths, but memoizes it in a module-level `index` variable keyed by reference equality to `hist`, returning the cached map if the same hist object is passed again.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 
-### `frameTree` — QUIRKY — TANGLED
-- spec 3 · read at `85afb546bb87` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:46:33Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Builds a fresh Node tree representing the repo's state at replay frame `index`, scoped to `scope` (or the whole repo). It walks the history tables to find which files/functions exist at that point (via something like census/opening), builds directory nodes (dirNode) and rolls small functions up into aggregate counts using a lines-based threshold (minLoc) that is scaled by `density` squared since it gates an area (tile) rather than a linear/angular quantity. It also marks nodes that changed between `since` and `index` so the sunburst can flash them (via inStep), and returns the root Node ready to hand to the same layout/render code the live map uses.
-- found: Replays to `index`, builds dir/file nodes on demand, and for each live function either builds a node (reusing a pooled node keyed by function id across frames to avoid per-frame allocation, updating only the mutable fields loc/lastAuthor/score) or, if under a lines threshold (minLoc, scaled by density² and separately recomputed per-scope as scopeMin), folds it into a per-file rollup stand-in node keyed `${path}#/folded` (deliberately not `#/rest`, which `tileFunctions` also mints, to avoid a duplicate-key React bug that froze a ghost wedge). Finally calls `aggregate` to propagate an 'arrived this step' flag up to containers via dirBornAt/pathBornAt + inStep, and `collapse` before returning the root.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
-- note: Missed the node-pooling mechanism (`pool`/`nodes` map keyed across frame calls) entirely from the docs/signature alone — that's a significant perf-motivated design choice with no signal outside the body.
+### `frameTree` — QUIRKY — TANGLED — TRAP
+- spec 3 · read at `0a3067fe5d5b` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:20:47Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Builds a fresh directory/file/function tree Node for the repo as it stood at `index` (not reusing the live scan tree), walking hist/deltas to know what existed then, rolling up small functions below a `minLoc` threshold (scaled by density² per the doc) into rolled-up bins, restricting to `scope` if given, and marking nodes that changed or were born in the (since, index] range so they can flash. Uses peer helpers like census/aggregate/collapse/dirNode/scoreInto/inStep to assemble sizes and touch/birth flags per node.
+- found: Replays hist/deltas to `index`, builds dir/file nodes on demand, and for each live function either builds/reuses a pooled Node (keyed by function id, invalidated when `hist` changes) or, if below a density²-scaled `minLoc` threshold, folds it into a per-file `#/folded` stand-in whose id is deliberately namespaced with `#` to avoid colliding with the layout's own `#/rest` id (a prior duplicate-key bug caused React to lose a ghost wedge). Tracks birth/edit flags within (since, index] both per real node (via scoreInto) and aggregated into the folded stand-in's synthetic score, then aggregates container birth flags by path and returns `collapse(root)`.
+- predicted: some · documented: most · derivable: no · legible: some · trap: yes
+- note: The `#/folded` vs `#/rest` id collision (and the resulting React duplicate-key ghost-wedge bug) is exactly the kind of trap that would resurface if someone changed the stand-in's naming scheme without reading this comment.
 
 ### `posOf` — QUIRKY
 - spec 3 · read at `077496c8f1ea` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:48:27Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -1682,6 +1681,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: Computes max legible size along both arc and radial axes via distinct geometric formulas (radial solved as a fixed-point for centering), picks a preferred axis by cell shape, tries whole name on preferred then other axis, and only if neither fits falls back to middle-truncating on the preferred axis alone until it fits at MIN_SIZE or gives up (null).
 - predicted: most · documented: most · derivable: no · legible: some · trap: no
 
+## web/src/lib/mascotClock.ts
+
+### `setMascotClock`
+- spec 3 · read at `27aad1144c3a` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:19:50Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Just assigns the given clock (or null) to a module-level variable, presumably named mascotClock, so other code can look it up later via the peer export.
+- found: Assigns the argument to a module-level `current` variable.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
 ## web/src/lib/monster.ts
 
 ### the file itself
@@ -1718,12 +1725,32 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/movie.ts
 
-### the file itself — QUIRKY
-- spec 3 · read at `8194ca063b11` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:04:07Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Implements screen-recording/video-export of the sanity map UI — capturing a sequence of rendered frames (via a Shot class with target/draw) as the visualization animates, waiting for it to settle between frames (settle, within), then encoding the frames into a video/gif and returning it as base64 (encoded, base64). probe/preflight check browser/canvas capabilities before starting, and faceCss/varCss/background grab styling to bake into rendered frames.
-- found: Records a fixed-length MP4 export of the commit-history replay: for each output frame it maps to a commit, ensures/fetches that commit's timeline data, re-renders the map, rasterizes the live SVG via Shot into a canvas, and feeds it to a WebCodecs encoder (via mediabunny) with codec preflight/fallback (H.264 then H.265), hang-detection timeouts on every async step, and per-stage (fetch/fold/raster/encode) progress+ETA reporting.
-- predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
-- note: No file header doc existed at all (docs was empty) despite extremely dense per-function docs — file-level summary would have helped orient before diving in.
+### the file itself
+- spec 3 · read at `e77fa85b50ff` · commit `50b4d0a` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T08:21:31Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: This file implements exporting the history replay as a movie file. A `Shot` class draws a single frame onto a canvas — the map rect, the "creature"/icon, a caption column, signature/timeline text, using CSS variable colors (varCss, faceCss, background, ink) and helpers like mapRect/mapSide/base64/round/stamp/within for layout and encoding. `settings`, `probe`, and `preflight` figure out what recording capability/codec is available in the browser (e.g. MediaRecorder support), and `record`/`encoded`/`settle` drive the actual frame-by-frame capture loop and produce the final encoded video (base64 or Blob) for saveMovie to write to disk.
+- found: Records the history replay as an MP4: Shot draws each frame by cloning the live SVG into a raster base canvas (re-rasterized only when the commit changes, not every frame), compositing a WebGL mascot canvas on top per-frame, and drawing a caption/timeline/signature with careful text-fitting logic; record() drives a fixed-clock (not realtime) frame loop with per-stage progress/cost reporting and cancellation checks, calling preflight/probe to find a codec (H.264 then H.265 fallback) that will actually encode at the requested size via mediabunny, and encoded() base64s the result for the Rust side to write to disk.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- note: No file header comment exists; the file's real complexity (encoder deadlock workarounds, WebKit SVG-decode hangs, fixed-clock vs realtime capture, two-canvas base/frame split) is entirely in inline comments distributed across the file, not summarized anywhere.
+
+### `mapRect`
+- spec 3 · read at `e7e68e2675f3` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:22:39Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Computes the square region for the map within a width×height frame: calls mapSide(height) (or similar) to get the side length as 0.72 of the frame height, then returns {x, y, side} with x placing it right-aligned (x = width - side, or width - side - some margin) and y vertically centered ((height - side) / 2), leaving the remaining left-hand column for the caption.
+- found: Computes side = height*(1-2*PAD), x = width - height*PAD - side (right-aligned with a PAD margin), y = (height-side)/2 (vertically centered); returns {x, y, side}.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: The side/x math is done inline with a PAD constant rather than delegating to the peer mapSide, which I'd assumed it called.
+
+### `mapSide` — QUIRKY
+- spec 3 · read at `2f803f5cc5cd` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:22:52Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Returns Math.round(height * (1 - 2 * PAD)) — the same side-length formula used inline in mapRect, extracted as its own export so callers like ExportDialog can report the layout size without needing the full rect.
+- found: Delegates to mapRect(height*ASPECT, height).side — reconstructs a full 16:9 frame from the height alone (using the ASPECT constant) and reuses mapRect's own side computation, rather than duplicating the PAD formula.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: I had the delegation direction backwards — mapSide calls mapRect, not the other way around — and didn't know about the ASPECT constant it uses to reconstruct a full frame from just a height.
+
+### `ink`
+- spec 3 · read at `4bb5b17e7502` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:23:02Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Calls getComputedStyle(from).getPropertyValue(name).trim() to read a CSS custom property's resolved value off the given element (the staged SVG/pane during export), returning it as a plain color string usable in Canvas2D fillStyle.
+- found: getComputedStyle(from).getPropertyValue(name).trim() — exactly as predicted.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `base64`
 - spec 3 · read at `679d78a3ef04` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:00:42Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1738,23 +1765,22 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ### `varCss`
-- spec 3 · read at `cef6b812b36b` · commit `2cf6adc` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:42:29Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Scans the document's stylesheets to collect the names of all custom CSS properties (--foo) used/declared anywhere, then for each name reads its currently active value via getComputedStyle on the document root (so light/dark theme is respected), and returns a CSS string like ":root { --foo: value; --bar: value; }" to be injected at the root of a cloned DOM so var() references keep resolving after being detached from the live stylesheet.
-- found: Collects all custom property names referenced across document.styleSheets (skipping cross-origin sheets that throw), resolves each to its currently active value via getComputedStyle(document.documentElement), and returns a single `svg{--name:value;...}` CSS string (not :root) to inject so var() references keep resolving on a detached/exported clone.
+- spec 3 · read at `4a1f19053778` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:20:01Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Walks the document's stylesheets to collect every custom property name (--foo) declared anywhere, then uses getComputedStyle(from) to resolve each to its current value given whatever theme is active, and returns a CSS string (e.g. a `:root { --foo: value; ... }` block or inline style text) that can be attached to the cloned/exported element so its var() references still resolve without needing the original stylesheets.
+- found: Collects all `--foo` custom property names by regex-scanning every stylesheet's cssText (skipping cross-origin sheets that throw), resolves each via getComputedStyle(from) — deliberately the passed element rather than `<html>`, since the export stages its ground on the pane — and emits a single `svg{ --foo:val; ... }` rule string.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `background`
-- spec 3 · read at `bf279d52bb9d` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:58:14Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Reads the computed `background-color` style of the document (likely `document.body` or `document.documentElement`) via `getComputedStyle` and returns it as a CSS color string, so the video canvas can be filled with the same color the app currently sits on rather than defaulting to black or transparent.
-- found: Reads the `--background` CSS custom property off document.documentElement via getComputedStyle, trims it, and falls back to '#fff' if empty.
+- spec 3 · read at `0653551529f0` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:20:54Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Reads the `--background` custom property off getComputedStyle(from) and returns it trimmed, defaulting to reading it from the document root but accepting a specific element since the ground can be staged on the pane rather than globally during a recording.
+- found: Reads and trims the `--background` custom property via getComputedStyle(from), falling back to `#fff` if empty.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `constructor` — OBSCURE
-- spec 3 · read at `5734f846587d` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:54:31Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Stores the svg/size/bg fields, and injects the given style string into the SVG by creating a <style> element and appending/prepending it to the svg, so that later draws of this svg (or clones of it) render with consistent CSS. May also set the svg's width/height attributes to `size`.
-- found: Stores the style string as a field, creates an offscreen canvas sized size x size, grabs its 2D context (throwing if unavailable), and stores it for later frame drawing. No DOM injection into the SVG happens here.
-- predicted: none · documented: none · derivable: no · legible: full · trap: no
-- note: The svg/bg fields are stored via parameter properties but never touched in this constructor body — all the visible work is canvas setup, unrelated to my SVG-styling guess.
+### `constructor` — QUIRKY
+- spec 3 · read at `5d076a57b010` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:20:43Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: This constructor mostly just assigns its constructor-parameter fields (svg, w, h, bg are already parameter-properties) and manually stores title/scope since those aren't marked private in the signature, plus perhaps injects the passed style string into a <style> element inside the SVG so each exported frame carries its own CSS rather than depending on the live document.
+- found: No CSS injection into the SVG — instead it computes the map layout rect via mapRect(w,h), creates two off-screen canvases (main + base) sized w×h, grabs their 2D contexts, and throws if either context is unavailable. I also misread title/scope as not being parameter-properties when they actually are (marked private), so I invented a manual-assignment step that doesn't exist.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
 
 ### `target`
 - spec 3 · read at `89dc2df62df9` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:01:37Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -1763,11 +1789,45 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `draw` — TRAP
-- spec 3 · read at `f446b71567df` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:59:17Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: draw() is an async method on Shot that renders the current DOM target element into a canvas frame — likely serializing the target's HTML/CSS (using faceCss/varCss/background) into an SVG-wrapped image, drawing it onto a canvas, and encoding the result, contributing one frame toward a recorded "movie" of visual state over time.
-- found: Clones the live SVG, strips its class, sets explicit width/height (letterboxing via preserved viewBox) and injects a style block, serializes it to a blob URL (chosen over a data URL for size/perf), loads it into an Image, awaits decode() raced against a DECODE_LIMIT timeout (to survive WebKit's decode() sometimes never settling), then draws it onto the canvas with a background fill, finally revoking the blob URL.
-- predicted: most · documented: none · derivable: no · legible: most · trap: yes
-- note: The WebKit decode()-hang workaround (raced against within()/DECODE_LIMIT) is not obvious from the signature and is the kind of thing a future editor could accidentally remove, reintroducing hung exports.
+- spec 3 · read at `ea1158dcc252` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:20:59Z · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: This async method rebuilds the base canvas from scratch for one frame — paints the background, serializes/rasterizes the current SVG map (via base64 + loading an Image, hence async) into the map rect, draws the caption text, and renders the timeline with its playhead positioned at `at`. It likely also draws the signature/watermark and any rule drop shadow.
+- found: Clones and resizes the live SVG, injects the style element, serializes it to a blob URL (not base64/data-URL, to avoid percent-encoding megabyte-scale path data), loads it into an Image with img.decode() raced against a DECODE_LIMIT timeout to guard against WebKit's SVG-decode hang, then paints background+map image+caption()+timeline(). No signature/watermark drawing here despite it being a peer method.
+- predicted: most · documented: most · derivable: no · legible: full · trap: yes
+- note: img.decode() on an SVG blob URL can hang forever in WebKit rather than rejecting, so it's raced against a DECODE_LIMIT timeout via `within` — an editor calling decode() directly elsewhere would silently freeze an export with no way to cancel.
+
+### `creature`
+- spec 3 · read at `1cb5f5e22d7f` · commit `50b4d0a` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T08:21:53Z · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Draws the WebGL mascot canvas composited on top of the base map frame, since the mascot lives outside the SVG and cloning the SVG doesn't carry it. It reads the mascot canvas's DOM position relative to the hub layer, computes an equivalent position/scale in the export's coordinate space using the SVG viewBox and map rect, and drawImages the mascot canvas onto the frame's context at that computed location; it's a no-op if no mascot canvas is present.
+- found: Finds the mascot's DOM canvas and hub layer, computes a scale from the SVG viewBox to the export's map rect, then derives the canvas's on-screen offset relative to its layer box (accounting for the sprite's internal "lift" offset) via getBoundingClientRect ratios, and drawImages it onto the frame at the computed position/size; no-ops if there's no mascot canvas.
+- predicted: full · documented: none · derivable: yes · legible: most · trap: no
+- note: Already read this exact function body verbatim as part of the movie.ts whole-file reveal a couple tasks earlier, so this was a warm/recall reading, not a cold prediction.
+
+### `caption` — QUIRKY — TANGLED
+- spec 3 · read at `55c2bc9b1113` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:22:08Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A private Shot method that draws the caption block beneath the map: the repo's slug/name in a larger bold font, the drilled-in directory path (if any) in a smaller font below it, and the current commit's date on another line, computing x/y positions from the frame dimensions, then calling this.signature() near the bottom to add the attribution. It likely uses ctx.fillText multiple times with different font sizes/weights for each line.
+- found: Draws the title block: splits the slug into owner/name, computes an inline layout (owner prefix + bold name on one line) shrinking font size until it fits the available column width, and falls back to a stacked layout (owner on its own small line, name on its own line) if it still doesn't fit even at a floor size — the name itself is never elided/truncated. Below that it draws the drilled-in scope path on its own line, independently sized to fit. It records the computed rule (left/right/base) for the timeline to use, but does not call signature() or draw any date — both of my guesses on that front were wrong.
+- predicted: some · documented: none · derivable: no · legible: some · trap: no
+- note: No docs were given for this one despite the sizing/layout logic being intricate (dynamic shrink-to-fit with an inline/stacked fallback) — worth a header explaining the two-layout strategy.
+
+### `signature`
+- spec 3 · read at `7e2818bbbc3d` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:21:37Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A private method on the Shot class that draws the app's own attribution/watermark text (something like "sanity") onto the canvas frame, positioned at the given `left` x-coordinate below `base` (a y-coordinate under the timeline/date block), using a small muted font via ctx.fillText — a sign-off distinct from and below the repo/directory/date caption block drawn elsewhere.
+- found: Draws a small muted-color text signature (SIGNATURE constant) at (left, base) on the canvas using a font sized relative to frame height, with a fallback color chain (muted-foreground → foreground → black).
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `timeline`
+- spec 3 · read at `967ee64acfab` · commit `50b4d0a` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T08:22:12Z · by ross@rossturk.com · warm reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Draws a progress rule under the caption: a muted background bar and a filled accent-colored portion proportional to playhead position (this.at.at / this.at.of), with the commit's date (via stamp) on the left and a "N / total" counter on the right, then calls signature() below it. Positioned relative to this.rule, which caption() set.
+- found: Matches prediction: rounded muted background bar plus accent-filled progress portion, date via stamp() on the left, "N / total" count on the right, and calls signature() beneath it all.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: Already read this exact function in the earlier movie.ts whole-file reveal, so this is a warm/recall reading.
+
+### `stamp`
+- spec 3 · read at `32c58c4d592a` · commit `50b4d0a` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T08:22:04Z · by ross@rossturk.com · warm reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Formats a commit timestamp (seconds since epoch) as a locale date string including the year, month, and day, for display under the timeline in the exported movie; returns a fallback string like "before this history" when ts is null (for frames before the export window).
+- found: Exactly as predicted: null returns 'before this history', otherwise formats as a locale date string with year/month/day.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: Already read this exact function in the earlier movie.ts whole-file reveal, so this is a warm/recall reading.
 
 ### `within`
 - spec 3 · read at `f598d9fd28de` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:59:15Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -1789,22 +1849,24 @@ What this is and how to add to it: [README.md](README.md)
 - note: I expected a preferBitrate conversion mentioned in the file doc to happen here, but this function is just the trivial object literal; the actual quality-to-bitrate logic must live elsewhere (or inside mediabunny's Quality type).
 
 ### `probe`
-- spec 3 · read at `8340c10b3ff5` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:56:47Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Creates a small offscreen canvas/recording target of the given `size`, sets up a MediaRecorder (or similar) configured with `encoding`, and feeds it ten blank/black frames via the injected `deps` (for testability). It awaits whether the recorder successfully encodes those frames, resolving if the codec works and throwing (with a generic/swallowed error) if not, so the caller can fall back to trying another codec without needing to know why this one failed.
-- found: Draws a blank filled canvas at `size`, sets up an Output/CanvasSource pipeline (mp4 format, buffer target) with the given encoding, and pushes 10 blank frames through it, each step wrapped in a timeout (within(..., PREFLIGHT_LIMIT)) so a stuck codec throws with a size/codec-specific message; always cancels the output afterward since only success/failure matters, not the resulting file.
+- spec 3 · read at `c9ebc1ef3f14` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:20:14Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Sets up a real mediabunny output/encoder with the given width/height/encoding config, feeds it ten blank (e.g. black canvas) frames, and finalizes/closes it — resolving if the whole pipeline actually produces output, and letting any thrown error (from WebCodecs or mediabunny) propagate up uncaught so the caller (preflight) can just try the next codec without needing to know why this one failed.
+- found: Draws a background-filled canvas, builds a real mediabunny Output/CanvasSource/Mp4OutputFormat/BufferTarget pipeline with the given encoding, and wraps start/each of 10 frame adds/finalize in `within(..., PREFLIGHT_LIMIT, slow)` so a codec that hangs rather than errors still fails with a clear message; always cancels the output afterward since only the pass/fail verdict matters, not the produced bytes.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The `within` timeout wrapper is the key detail the doc/signature don't hint at — this guards against codecs that hang silently instead of throwing.
 
 ### `preflight`
-- spec 3 · read at `94c0c0c0a49a` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:37:48Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Iterates candidate codecs (probably via the `settings`/`probe` peers) at the given size and quality, and instead of trusting `canEncodeVideo`'s yes/no answer, actually tries to encode a tiny test frame with each one in turn (using `probe`/`record`/`encoded` peers) to see if it truly works on this machine. Returns the settings for the first codec that actually produces output, and if none do, throws/returns an app-authored error rather than surfacing WebCodecs' raw browser-flavored error text.
-- found: Loops over CODECS, builds settings for each via `settings(quality, codec)`, and calls `probe` to actually attempt an encode at the given size; returns the first encoding that doesn't throw, swallowing individual failures, and if every codec fails throws an app-authored error naming the tried codecs and size rather than surfacing the raw WebCodecs error.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `9e5e446fdd2b` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:19:00Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over candidate codec configurations (probably from `settings`/`probe` helpers) for the given width/height/quality, checking each with something like canEncodeVideo, but since that check can lie, it likely actually attempts a real encode (via `record`/`encoded`) to confirm a packet is produced. Returns the settings object for the first codec that truly works, and throws/returns an app-authored error message (not WebCodecs' raw error) if none do.
+- found: Loops through CODECS, building settings via settings(quality, codec) and calling probe(width, height, encoding, deps) to actually try it; returns the first settings that don't throw. If all codecs fail, throws a custom Error naming all tried codecs and the resolution, telling the user to try a smaller resolution — deliberately not surfacing WebCodecs' own error message, matching the doc's point about the refusal being "the app's own sentence."
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `record`
-- spec 3 · read at `36b9c118da1a` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:57:24Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Iterates output frame indices 0..totalFrames, computing for each frame's timestamp (f/FPS) which commit should be under the playhead at that point in the replay; only re-draws/rasterizes the sunburst (via a Shot-like helper) when that commit differs from the previous frame's, otherwise reuses the last rendered image to save work. Each frame is fed into a video encoder (likely WebCodecs VideoEncoder or similar), and once all frames are encoded the function finalizes/muxes them into an MP4 and returns the resulting bytes as a Uint8Array.
-- found: Dynamically imports the mediabunny muxer, preflights codec/quality, sets up a Shot-based canvas capture and Mp4 Output/CanvasSource pipeline, then loops over `total` output frames mapping each to a commit index; only re-fetches/folds/rasterizes via `shot.draw()` when the commit under the playhead changes, otherwise reuses the last raster; every frame still gets encoded via `source.add`; tracks per-stage timing to report progress/ETA and checks a cancellation flag throughout; finally finalizes the MP4 output and returns its buffer as Uint8Array.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
+### `record` — TANGLED — TRAP
+- spec 3 · read at `ce9cc554d57a` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:20:31Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Loops over the total output frames (seconds*FPS), mapping each output frame to a source commit index, calling o.ensure/o.setIndex to advance the timeline only when the target commit changes from the last drawn one — caching/reusing the last rasterized bitmap otherwise to avoid redundant draws. For each frame it uses a Shot-like drawer to rasterize the map (with varCss/background baked in) onto a canvas, feeds it to a mediabunny CanvasSource/Output built from a codec selected via preflight, reports progress and per-stage timing costs via o.onProgress, checks o.cancelled() each iteration to bail early, and finally calls output.finalize() to return the resulting MP4 bytes as a Uint8Array.
+- found: Lazily imports mediabunny, runs preflight to pick a codec, loads fonts, builds a Shot rasterizer and Output/CanvasSource pipeline, then loops `total` output frames mapping each to a source commit (only re-fetching/folding/rastering when the mapped commit changes, reusing the last raster otherwise), holds/steps/releases the mascot clock so the creature animates on the output's own clock rather than wall time, tracks rolling per-stage average costs to estimate time-left, checks cancellation at multiple points throwing CANCELLED, and returns the finalized MP4 buffer.
+- predicted: most · documented: most · derivable: no · legible: some · trap: yes
+- note: The mascot clock hold/step/release is wrapped in try/finally specifically so a cancelled or errored export doesn't leave the creature frozen mid-animation in the live hub — easy to miss if refactoring the loop's control flow.
 
 ### `encoded`
 - spec 3 · read at `f3a2a05b43bb` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:01:40Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded

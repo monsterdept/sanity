@@ -103,6 +103,18 @@ export interface Node {
    *  `hotShare` arrives precomputed. */
   resolvable: number | null
   orphans: number | null
+  /** Of those, how many call nothing in this repo — Reach's roll-up, and the outbound twin
+   *  of `orphans`. See `Node::sinks` in Rust for why it is summed there and not walked here. */
+  sinks: number | null
+  /** Which group of identical bodies this function belongs to, and how big that group is —
+   *  see `clones.rs`. Both `null` where it has no twin AND where it is too small to compare;
+   *  `comparable` is what tells those apart, and only the first is a finding. */
+  cloneGroup: number | null
+  cloneSize: number | null
+  /** Functions underneath big enough to compare, and how many of those have a twin. Rolled
+   *  up in Rust for the reason `resolvable` is. */
+  comparable: number | null
+  copied: number | null
   /** Set when an agent assessed this function over MCP. */
   agent?: AgentReport
   /** The reading in `agent` was made against a different body than the one here.
@@ -286,6 +298,11 @@ interface WireNode {
   away?: number | null
   resolvable?: number | null
   orphans?: number | null
+  sinks?: number | null
+  clone_group?: number | null
+  clone_size?: number | null
+  comparable?: number | null
+  copied?: number | null
   /** Absent rather than empty for a function — see the `skip_serializing_if` on `Node` in
    *  Rust. A hundred thousand `"children":[]` is megabytes of nothing. */
   children?: WireNode[]
@@ -344,6 +361,11 @@ function toNode(w: WireNode): Node {
     away: w.away ?? null,
     resolvable: w.resolvable ?? null,
     orphans: w.orphans ?? null,
+    sinks: w.sinks ?? null,
+    cloneGroup: w.clone_group ?? null,
+    cloneSize: w.clone_size ?? null,
+    comparable: w.comparable ?? null,
+    copied: w.copied ?? null,
     children: (w.children ?? []).map(toNode),
     funcs: w.funcs ?? 0,
   }
@@ -1574,7 +1596,7 @@ export function isAnalyzed(node: Node): boolean {
 
 /** Which ramp a reading walks. Each is five CSS stops of a single hue, sharing one
  *  lightness profile — see index.css. */
-export type Ramp = 'heat' | 'legible' | 'churn' | 'age' | 'docs' | 'locality' | 'reach'
+export type Ramp = 'heat' | 'legible' | 'churn' | 'age' | 'docs' | 'reach' | 'callers'
 
 /** Interpolate a ramp's five CSS stops. Returns a `var(...)` mix so the ramps stay
  *  defined in one place (index.css) and re-theme with the rest of the app. */
