@@ -903,48 +903,79 @@ export function agentReports(key: string | null): Promise<AgentReport[]> {
  * point: this is not a probability, it is a reader saying "this caught me out", and
  * dressing it up as 0.73 would imply a precision nobody measured.
  */
+/**
+ * One reading, folded into the function it describes.
+ *
+ * **Extracted so the two ways a function reaches the map share one definition.** A tree
+ * arrives without its functions — see `Node::slim` — so `applyAgentReports` folds readings
+ * into a tree that has none, and the rings turn up later from `fileFunctions` carrying raw
+ * scan nodes. Nothing re-applied to those, so every function reading in every repo was
+ * invisible while the store held 768 of them and the status line reported 69.9% read.
+ *
+ * Returns `node` unchanged when there is no reading or no score, so a caller can hand it
+ * everything and let identity say what moved.
+ */
+export function readInto(node: Node, r: AgentReport | undefined): Node {
+  if (!r || !node.score) return node
+  // A reading whose code has changed does NOT color the wedge. It described a body
+  // that is not there any more, and letting it keep painting is the exact failure
+  // the metric refuses everywhere else — a number claiming confidence it no longer
+  // has. The wedge falls back to the proxy, which is what an unread function looks
+  // like, because that is what this now is. The reading is still attached, and the
+  // hatch on the map plus the panel say why it went quiet.
+  if (isReportStale(r, node)) {
+    return {
+      ...node,
+      agent: r,
+      agentStale: true,
+      score: node.proxyScore ?? node.score,
+      proxyScore: undefined,
+    }
+  }
+  return {
+    ...node,
+    agent: r,
+    agentStale: false,
+    proxyScore: node.proxyScore ?? node.score,
+    score: {
+      ...node.score,
+      // Both numbers from the SAME instrument. Overwriting surprise while leaving
+      // `documented` behind is what produced the incoherent panel: an agent's 90
+      // multiplied by a lexical heuristic's 0. If the reader graded the docs, its
+      // grade wins; if it didn't, the proxy's estimate stands and `source` says so.
+      ...(() => {
+        const g = reportGrades(r)
+        return g.documented === null
+          ? { surprise: g.surprise }
+          : { surprise: g.surprise, documented: g.documented }
+      })(),
+      source: 'agent',
+      analyzedShare: 1,
+    },
+  }
+}
+
+/** Every reading a ring's functions have, folded in as the ring is grafted.
+ *
+ *  The other half of `readInto`'s reason for existing: `filled` splices these into the tree
+ *  after `applyAgentReports` has already run, so this is the only place their readings can
+ *  reach them. Identity-preserving — an untouched ring comes back as the same array, which is
+ *  what keeps the graft's memo from rebuilding the sunburst on every reading poll. */
+export function readIntoRing(ring: Node[], byId: Map<string, AgentReport>): Node[] {
+  let moved = false
+  const out = ring.map((n) => {
+    const next = readInto(n, byId.get(n.id))
+    if (next !== n) moved = true
+    return next
+  })
+  return moved ? out : ring
+}
+
 export function applyAgentReports(root: Node, reports: AgentReport[]): Node {
   const byId = new Map(reports.map((r) => [r.id, r]))
   const visit = (node: Node): Node => {
     if (node.children.length === 0) {
-      const r = byId.get(node.id)
-      if (!r || !node.score) return node
-      // A reading whose code has changed does NOT color the wedge. It described a body
-      // that is not there any more, and letting it keep painting is the exact failure
-      // the metric refuses everywhere else — a number claiming confidence it no longer
-      // has. The wedge falls back to the proxy, which is what an unread function looks
-      // like, because that is what this now is. The reading is still attached, and the
-      // hatch on the map plus the panel say why it went quiet.
-      if (isReportStale(r, node)) {
-        return {
-          ...node,
-          agent: r,
-          agentStale: true,
-          score: node.proxyScore ?? node.score,
-          proxyScore: undefined,
-        }
-      }
-      return {
-        ...node,
-        agent: r,
-        agentStale: false,
-        proxyScore: node.proxyScore ?? node.score,
-        score: {
-          ...node.score,
-          // Both numbers from the SAME instrument. Overwriting surprise while leaving
-          // `documented` behind is what produced the incoherent panel: an agent's 90
-          // multiplied by a lexical heuristic's 0. If the reader graded the docs, its
-          // grade wins; if it didn't, the proxy's estimate stands and `source` says so.
-          ...(() => {
-            const g = reportGrades(r)
-            return g.documented === null
-              ? { surprise: g.surprise }
-              : { surprise: g.surprise, documented: g.documented }
-          })(),
-          source: 'agent',
-          analyzedShare: 1,
-        },
-      }
+      return readInto(node, byId.get(node.id))
     }
     const children = node.children.map(visit)
     const folded = children.every((c, i) => c === node.children[i])

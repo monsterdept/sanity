@@ -7,10 +7,12 @@ import {
   selectProject,
   applyAgentReports,
   applyScores,
+  readIntoRing,
   fileFunctions,
   pruneExcluded,
   countPending,
   type Added,
+  type AgentReport,
   cliStatus,
   type CliState,
   forgetProject,
@@ -187,6 +189,31 @@ function findById(node: Node, id: string): Node | null {
  *  "Up" has to mean the tree's parent, not the previous stack entry. Drilling is a JUMP
  *  — double-clicking a file three rings out pushes a single entry — so popping the stack
  *  undoes the whole jump and lands you back at the top, however deep you had gone. */
+/** A cheap fingerprint of a poll's readings, for deciding whether anything actually moved.
+ *
+ *  **The readings poll runs every two seconds and fetches all of them** — 16,925 on tonepoet
+ *  — so whatever consumes it has to be able to say "same as last time" without rebuilding
+ *  anything. Storing them unconditionally would re-graft every function ring on a fixed
+ *  period, which is precisely the periodic stutter a replay makes visible.
+ *
+ *  Covers what can CHANGE a wedge: which readings exist, the body each was taken against, and
+ *  the grades. Deliberately not `found` or `note` — they are paragraphs, and hashing a
+ *  megabyte of prose twice a second to learn nothing is the cost this exists to avoid. A
+ *  reading whose prose changed but whose grades did not paints identically.
+ *
+ *  FNV-1a, which is what `assessment` uses on the Rust side for the same kind of job. */
+function readingSignature(reports: AgentReport[]): string {
+  let h = 0x811c9dc5
+  for (const r of reports) {
+    const part = `${r.id}|${r.at ?? ''}|${r.body ?? ''}|${r.predicted ?? ''}|${r.documented ?? ''}|${r.legible ?? ''}|${r.trap ?? ''}|${r.derivable ?? ''}|${r.legibleDated ?? ''}|${r.trapDated ?? ''}`
+    for (let i = 0; i < part.length; i++) {
+      h ^= part.charCodeAt(i)
+      h = Math.imul(h, 0x01000193)
+    }
+  }
+  return `${reports.length}:${h >>> 0}`
+}
+
 function parentOf(node: Node, id: string): Node | null {
   for (const c of node.children) {
     if (c.id === id) return node
@@ -206,6 +233,29 @@ export default function App() {
    *  indistinguishable by identity and have opposite consequences for anything cached
    *  against the tree — see the effect that drops the function rings. */
   const [treeRev, setTreeRev] = useState(0)
+
+  /** Readings, kept so a function ring can carry them the moment it lands.
+   *
+   *  **A tree arrives without its functions** — see `Node::slim` — so `applyAgentReports`
+   *  folds readings into a tree that has none, and the rings turn up afterwards from
+   *  `fileFunctions` holding raw scan nodes. Nothing re-applied to those, so every function
+   *  reading was invisible on the map while the status line reported 69.9% read. `filled` is
+   *  the only place they can meet, and this is how they get there.
+   *
+   *  A ref plus a revision counter rather than state, on the same argument `treeRev` makes:
+   *  the poll refetches every reading every two seconds, and a new Map each time would
+   *  invalidate the graft's memo on a fixed period and re-lay the sunburst out for nothing.
+   *  The counter moves only when `readingSignature` says something changed. */
+  const readings = useRef<Map<string, AgentReport>>(new Map())
+  const readingSig = useRef('')
+  const [readingRev, setReadingRev] = useState(0)
+  const keepReadings = useCallback((list: AgentReport[]) => {
+    const sig = readingSignature(list)
+    if (sig === readingSig.current) return
+    readingSig.current = sig
+    readings.current = new Map(list.map((r) => [r.id, r]))
+    setReadingRev((n) => n + 1)
+  }, [])
   const [error, setError] = useState<string | null>(null)
   /** A repo just added by hand, waiting for its scan to reach the project list.
    *
@@ -417,6 +467,7 @@ export default function App() {
           mark('tree')
           if (!s) return
           setTreeRev((n) => n + 1)
+          keepReadings(reports)
           setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
           return
         }
@@ -440,6 +491,7 @@ export default function App() {
         const [s, reports] = await Promise.all([projectScan(here), agentReports(here)])
         if (!s) return
         setTreeRev((n) => n + 1)
+        keepReadings(reports)
         setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
       })
     }
@@ -472,11 +524,12 @@ export default function App() {
       if (historyOn) return
       void agentReports(activeKey).then((reports) => {
         if (reports.length === 0) return
+        keepReadings(reports)
         setScan((prev) => (prev ? { ...prev, root: applyAgentReports(prev.root, reports) } : prev))
       })
     }, 2000)
     return () => clearInterval(timer)
-  }, [activeKey, historyOn])
+  }, [activeKey, historyOn, keepReadings])
 
   // Streamed scores are batched and flushed on a timer rather than applied per event.
   // Each application re-aggregates the tree and re-renders a few thousand arcs; at the
@@ -1138,7 +1191,13 @@ export default function App() {
     const graft = (n: Node): Node => {
       if (n.kind === 'file') {
         const got = fns.get(n.path)
-        return got ? { ...n, children: got, funcs: 0 } : n
+        // **Readings are folded in HERE, and nothing else reaches these nodes.** The tree
+        // being grafted into has already been through `applyAgentReports`, which ran when it
+        // held no functions at all — so a ring spliced in raw is a ring whose readings never
+        // arrive, which is how a repo reporting 69.9% read drew as entirely unread.
+        // `readIntoRing` returns the same array when nothing moved, so a reading poll that
+        // changed nothing does not rebuild the file.
+        return got ? { ...n, children: readIntoRing(got, readings.current), funcs: 0 } : n
       }
       let moved = false
       const kids = n.children.map((c) => {
@@ -1149,7 +1208,9 @@ export default function App() {
       return moved ? { ...n, children: kids } : n
     }
     return graft(drawn)
-  }, [drawn, fns])
+    // `readingRev` and not `readings`: the ref is mutated in place so its identity never
+    // changes, and the counter is what says a poll brought something new — see `keepReadings`.
+  }, [drawn, fns, readingRev])
 
   const tree = histRoot ?? filled
 
@@ -1675,6 +1736,7 @@ export default function App() {
                 return
               }
               setTreeRev((n) => n + 1)
+              keepReadings(reports)
               setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
             })
           }}
