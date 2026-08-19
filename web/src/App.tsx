@@ -289,6 +289,29 @@ export default function App() {
   // what changes the question is what the color MEANS, and the same rings answer five
   // different ones depending on that.
   const [mode, setMode] = useState<ColorMode>('surprise')
+
+  /** What each project was last looking at, so coming back to one is coming back.
+   *
+   *  **A lens and a drill-in are a question you were in the middle of asking.** Switching to
+   *  another repo to check something and coming back used to drop you at the root under
+   *  Surprise, which is fine once and infuriating on the fifth trip — the sidebar is a set of
+   *  projects you move between, not a set you visit.
+   *
+   *  Kept in a ref rather than in state: nothing renders from the store itself, only from
+   *  what a switch pushes into `mode`, `stack` and `historyOn`, and a Map in state would
+   *  re-render the window every time the current view was recorded.
+   *
+   *  Deliberately NOT persisted. It is where you were in this session, and a lens restored
+   *  across a relaunch would be a window that opens on a question you asked last week with
+   *  nothing on screen saying when you asked it. */
+  const views = useRef<Map<string, { mode: ColorMode; stack: string[] }>>(new Map())
+  /** The live view, mirrored so a switch can bank it from a stale closure.
+   *
+   *  The poll that follows an agent-opened project runs on an interval and closes over
+   *  whatever `mode` was when its effect was built, which is not what is on screen by the
+   *  time it fires. Recording through a ref is what makes the banked view the one you were
+   *  actually looking at. */
+  const view = useRef({ mode: 'surprise' as ColorMode, stack: [] as string[] })
   // Open projects, in the order they were opened. The sidebar lists everything sanity
   // holds; the rail is what you have in front of you.
   // Defaults to following the system; View → Appearance overrides it. The app used to
@@ -350,6 +373,37 @@ export default function App() {
   // today's code and cannot be replayed onto a 2019 body, so a frame is colored by
   // recency and the switcher is disabled rather than offered with one option that lies.
   const [historyOn, setHistoryOn] = useState(false)
+  // Mirrored every render, so `switchTo` banks what is on screen rather than what some
+  // interval's closure remembers.
+  view.current = { mode, stack }
+
+  /** Leave one project and arrive at another, carrying each one's view with it.
+   *
+   *  One function for all three ways the window changes project — a sidebar click, an agent
+   *  opening something, and a project being forgotten — because they used to be three copies
+   *  of `setStack([]); setPicked(null)` and a fourth would have been written the same way.
+   *  What has to happen on a switch is now stated once.
+   *
+   *  **The selection is dropped and never restored.** A drill-in is a place and survives, but
+   *  a picked wedge is a FUNCTION, and the tree it pointed into has been refetched — the
+   *  panel would be describing a node the rings are not drawing. That is the same argument
+   *  the history toggle already makes for clearing it.
+   *
+   *  **History is deliberately not part of the view.** It is the one mode that owns state
+   *  outside this store — a timeline is several megabytes of one repo's commits, dropped on
+   *  every switch because a per-project cache of them has no eviction and no owner. Restoring
+   *  the MODE without the timeline is precisely the state that drop exists to prevent: the
+   *  live map on screen with the lens pinned to Age and a replay's key under it, explaining
+   *  itself with `new here` and `touched` while showing nothing of the kind. Re-entering is
+   *  one click, and it is a click that says which repo it means.
+   */
+  const switchTo = useCallback((from: string | null, to: string | null) => {
+    if (from) views.current.set(from, { ...view.current })
+    const v = to ? views.current.get(to) : undefined
+    setMode(v?.mode ?? 'surprise')
+    setStack(v?.stack ?? [])
+    setPicked(null)
+  }, [])
   /** The timeline's tables, and a handle on the deltas that stream in behind them.
    *
    *  Two halves because they arrive differently: the tables are one bounded fetch and the
@@ -453,13 +507,15 @@ export default function App() {
         // for one.
         if (list.active && list.active !== followed) {
           followed = list.active
+          // Banked BEFORE `shown` is moved: it is the only thing here that still names the
+          // project being left, and the view being put away is that project's.
+          const leaving = shown.current
           shown.current = list.active
           shownRev.current = revOf(list.active)
           setActiveKey(list.active)
-          // A different project means a different tree; a stale drill-in or selection would
-          // point at nodes that no longer exist.
-          setStack([])
-          setPicked(null)
+          // A different project means a different tree, so the selection goes; the lens and
+          // the drill-in are this project's own and come back with it.
+          switchTo(leaving, list.active)
           // Both, together. `project_scan` returns the tree as Rust scored it — proxy only —
           // so fetching it without the readings shows an assessed repo as entirely gray
           // until some later poll happens to repaint it.
@@ -766,8 +822,12 @@ export default function App() {
         setActiveKey(null)
         setTreeRev((n) => n + 1)
         setScan(null)
-        setStack([])
-        setPicked(null)
+        // Nowhere to arrive, so nothing is banked — and the departing view is DROPPED rather
+        // than kept: a project can be added back under the same key, and it would return
+        // wearing a drill-in from before it was forgotten, pointing into a tree nobody has
+        // scanned yet.
+        switchTo(null, null)
+        views.current.delete(key)
         // The poll compares against these to decide whether to refetch. Left naming a
         // project that is gone, the next tick would fetch a tree for it.
         shown.current = null
@@ -927,10 +987,18 @@ export default function App() {
   // instant, and the commits behind you cannot have changed.
   useEffect(() => {
     if (!historyOn || !repoPath || !activeKey) return
-    // `busyKey`, not `historyBusy`: one walk at a time whatever is on screen. Two would
-    // interleave their progress events, which carry no repo, so the row would count two
-    // walks as one.
-    if (historyKey === activeKey || busyKey) return
+    // **`historyBusy`, not `busyKey`, and the difference is a project you are not looking
+    // at.** This effect READS a banked timeline; it never walks one — see the note below,
+    // which is emphatic that tracing belongs to the project row. So the one-walk-at-a-time
+    // rule has no business here: it lives in `trace`, where the walking is. Guarding on any
+    // repo being busy meant that tracing ceph for an hour silently refused to open sanity's
+    // already-banked replay — the button was enabled, because that is judged per project,
+    // and pressing it did nothing at all, which is the worst of the three possible answers.
+    //
+    // What DOES have to be excluded is the repo being walked right now: its story is still
+    // being written, and reading it mid-walk would open on a timeline that grows under the
+    // playhead.
+    if (historyKey === activeKey || historyBusy) return
     setHistoryProgress(null)
     // **Viewing only.** Turning History on used to bring the timeline up to date, which is
     // how the top bar came to start an hour of parsing: the control that opens a view was
@@ -963,7 +1031,7 @@ export default function App() {
         setHistIndex(Math.min(tables.commits, deltas.have()) - 1)
       })
       .catch((e) => setError(String(e)))
-  }, [historyOn, repoPath, activeKey, historyKey, busyKey])
+  }, [historyOn, repoPath, activeKey, historyKey, historyBusy])
 
   /** Walk this repo's commits, from the project row's `Trace`.
    *
@@ -1025,7 +1093,12 @@ export default function App() {
     if (!arrived) return
     setPendingAdd(null)
     setActiveKey(arrived.key)
-  }, [pendingAdd, projects])
+    // Through the same path as every other switch. A repo somebody has just added has no
+    // banked view and lands on the defaults — but the project being LEFT has one, and this
+    // was the fourth way to change project and the only one that never put it away.
+    switchTo(shown.current, arrived.key)
+    shown.current = arrived.key
+  }, [pendingAdd, projects, switchTo])
 
   // A different project is a different timeline. Dropped rather than kept per project:
   // holding several megabytes of somebody else's commits against the chance they click
@@ -1725,10 +1798,10 @@ export default function App() {
             // The poll follows what is on screen, and this IS the screen changing. Both
             // halves, or the next tick sees a revision from the project you just left and
             // refetches a tree you are not looking at.
+            const leaving = shown.current
             shown.current = key
             shownRev.current = projects.find((p) => p.key === key)?.scanned ?? 0
-            setStack([])
-            setPicked(null)
+            switchTo(leaving, key)
             // Readings fetched WITH the scan, not left to the next poll: `project_scan`
             // returns the proxy-scored tree, so between the two the repo renders gray.
             void Promise.all([projectScan(key), agentReports(key)]).then(([s, reports]) => {
