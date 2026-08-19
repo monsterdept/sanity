@@ -489,28 +489,46 @@ textarea,
   );
 }
 
-/* Nav surfaces tinted with the accent rather than a neutral gray — selection is the one
- * place the chrome's color earns its keep.
+/* Project tiles. Three steps, and the resting one is new — a row used to be nothing until
+ * you pointed at it, which is right for a 28px strip in a list of names: the names ARE the
+ * list, and a fill behind every one of them is chrome competing with content. It stopped
+ * being right when a row became a tile of five lines — at that size "nothing" is not a row
+ * at rest, it is several unrelated numbers floating on the sidebar, and a person has to
+ * reconstruct which belong together every time they look. The resting fill is what says
+ * "these five things are one project".
  *
- * **Three steps, and the resting one is new.** A row used to be nothing until you pointed
- * at it, which is right for a 28px strip in a list of names: the names ARE the list, and a
- * fill behind every one of them is chrome competing with content. It stopped being right
- * when a row became a tile of three lines — at that size "nothing" is not a row at rest, it
- * is several unrelated numbers floating on the sidebar, and a person has to reconstruct
- * which belong together every time they look. The resting fill is what says "these five
- * things are one project".
+ * **The SELECTED tile is the content surface, and the others are chrome.** This was the
+ * other way round for a day, on the reasonable-sounding argument that a tile is a piece of
+ * content sitting on the chrome. It is not: the selected project is not a piece of content,
+ * it IS the content — the pane to its right is drawn on `--background`, so giving the
+ * selected tile that same ground makes the selection continuous with the thing it opened,
+ * and the row stops being a swatch that refers to the map and starts being the near edge of
+ * it. Selection is also the one state that has somewhere to be continuous WITH, which is
+ * why the reversal only works in this direction.
  *
- * 6 / 12 / 24 rather than 0 / 10 / 22: the steps have to stay legible against each OTHER,
- * because selection is now a difference between two fills rather than the difference
- * between a fill and the ground. */
+ * The unselected tiles are the same grey a step off it, never a tint of the rose. One
+ * family of surfaces for the tiles and one for the chrome behind them: a tile is a tile
+ * whether or not it is the one open, and the thing that changes is only how near it is to
+ * the pane. They still separate from the ground they sit on — 14.2 ΔE00 in dark and 9.5 in
+ * light against `--sidebar`, which is what keeps the grouping the resting fill is here for.
+ *
+ * Steps of 12% and 6% toward `--foreground`: 6.7 ΔE00 from rest to selected and about 3.3
+ * either side of hover, in both themes. Small numbers, and they are fills the size of a
+ * business card rather than two stops on a ramp. Hover moves TOWARD selection, so pointing
+ * at a row previews what clicking it does.
+ *
+ * Opaque, all three, and that part survived the reversal: transparent tints composited over
+ * the chrome gradient, which is fixed-pixel, so the same resting fill came out a different
+ * colour at the top of the list than at the bottom. Mixed against a named surface they are
+ * the same three colours in every row. */
 .shell-chrome--rest {
-  background: color-mix(in oklch, var(--accent) 6%, transparent);
+  background: color-mix(in oklch, var(--background) 88%, var(--foreground) 12%);
 }
 .shell-chrome--active {
-  background: color-mix(in oklch, var(--accent) 24%, transparent);
+  background: var(--background);
 }
 .shell-chrome--hover:hover {
-  background: color-mix(in oklch, var(--accent) 12%, transparent);
+  background: color-mix(in oklch, var(--background) 94%, var(--foreground) 6%);
 }
 
 /* Wedges animate their fill only. Transitioning `d` would re-tessellate every arc on

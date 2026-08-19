@@ -655,6 +655,30 @@ function ProjectItem({
             ? { text: 'Read failed', tint: 'var(--warning)' }
             : null
 
+  /** Commits nobody has replayed yet.
+   *
+   *  **A repo is two jobs, and the sidebar used to show one.** Readings are taken from the
+   *  code as it stands; the story is replayed from the commits behind it. They are worked
+   *  separately, they finish separately, and a row that reported only the first left the
+   *  second discoverable by turning a mode on and waiting to find out. Same shape, same
+   *  verb, one under the other. */
+  const unreplayed = Math.max(0, project.commits - project.replayed)
+
+  /** Every job this row can report is done: nothing unread, nothing stale, nothing left to
+   *  trace. Stale is covered by `left` rather than checked beside it — `assessed` excludes
+   *  stale everywhere, so an expired reading is already outstanding work here.
+   *
+   *  **A finished row states it in words and drops the bar.** A rule drawn at 100% is a
+   *  measurement of nothing left to measure: it says "read" in the same shape it uses to say
+   *  "part read", so the one state a person can stop thinking about looked identical to the
+   *  one that needs them, minus a few pixels of gap. The sentence is unambiguous at a glance
+   *  down the column, which is the question this list exists to answer.
+   *
+   *  Not while a scan or a run is live: during those the coverage number is frozen and the
+   *  bar is carrying the walk instead, which is the thing worth watching. */
+  const settled =
+    !project.loading && !busy && total > 0 && left === 0 && unreplayed === 0 && !replay
+
   /** LEVEL TWO, left: the work outstanding, which is the number a person acts on.
    *
    *  It sits under the state and beside the button that does something about it, because
@@ -676,16 +700,9 @@ function ProjectItem({
         project.read_phase || 'queued'
     : left > 0
       ? `${compact(left)} unread functions`
-      : ''
-
-  /** Commits nobody has replayed yet.
-   *
-   *  **A repo is two jobs, and the sidebar used to show one.** Readings are taken from the
-   *  code as it stands; the story is replayed from the commits behind it. They are worked
-   *  separately, they finish separately, and a row that reported only the first left the
-   *  second discoverable by turning a mode on and waiting to find out. Same shape, same
-   *  verb, one under the other. */
-  const unreplayed = Math.max(0, project.commits - project.replayed)
+      : settled
+        ? 'analysis up to date'
+        : ''
 
   /** How full the rule along the bottom edge is drawn. The scan while there is one, because
    *  until it lands there is no coverage to report; coverage otherwise.
@@ -765,7 +782,7 @@ function ProjectItem({
           and the thing worth watching is the one that is moving. The tint says which of the
           two it is — the readings' own mark colour, or the accent every other in-progress
           thing in this app already uses. */}
-      {(walking !== null || (!project.loading && total > 0 && project.assessed > 0)) && (
+      {(walking !== null || (!project.loading && total > 0 && project.assessed > 0 && !settled)) && (
         <span
           aria-hidden
           className="absolute bottom-0 left-0 h-[6px] rounded-full"
@@ -835,8 +852,15 @@ function ProjectItem({
           story was there to be read.
           Above the reading line because it is the one that changes: while a replay runs this
           line carries its own count, its own bar and its own Cancel, and the reading line
-          below goes on saying what it always says. */}
-      {project.commits > 0 && (
+          below goes on saying what it always says.
+          **Nothing left to trace is nothing to say.** The settled state used to read `history
+          traced`, which is a line about a job that is over, on every project, forever — and
+          the two controls it shares the row with (Trace, Cancel) both hide themselves there,
+          so it was a sentence with nothing to act on standing above the one number the tile
+          exists for. The line still appears the moment there IS something to walk, which is
+          what it was added for: a repo with commits outstanding advertises them rather than
+          waiting to be known about. */}
+      {project.commits > 0 && (replay || unreplayed > 0) && (
         <div className="relative flex w-full flex-col gap-1">
           <div className="flex w-full items-center gap-2">
             {/* One phrase, not three columns. `68k / 145k commits` and `47% replayed` and a
@@ -857,9 +881,7 @@ function ProjectItem({
                   replay.total === 0
                   ? (replay.phase || 'starting…')
                   : `${compact(replay.done)} / ${compact(replay.total)} traced`
-                : unreplayed > 0
-                  ? `${compact(unreplayed)} commits to trace`
-                  : 'history traced'}
+                : `${compact(unreplayed)} commits to trace`}
             </span>
 
             {/* **Cancel keeps what it has.** An hour of parsing with no way out is a thing
