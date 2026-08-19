@@ -217,7 +217,15 @@ C_PROFILE = [0.048, 0.071, 0.094, 0.117, 0.140]
 # Read back off the shipped stops rather than remembered. Chroma is gamut-clamped at the top
 # for churn and docs, which `oklch_to_hex` reproduces by reducing chroma rather than clipping
 # channels — clipping would move lightness and hue and break the shared profile silently.
-SHIPPED = {"heat": 74.0, "churn": 244.0, "legible": 312.0, "docs": 24.0, "age": 124.0}
+SHIPPED = {
+    "heat": 74.0,
+    "churn": 224.0,
+    "legible": 322.0,
+    "docs": 26.0,
+    "age": 114.0,
+    "locality": 170.0,
+    "reach": 268.0,
+}
 
 # What `index.css` actually holds, so `verify` compares against the file rather than against a
 # remembered number. Reconstruction lands on these to within one 8-bit step everywhere; the
@@ -225,24 +233,42 @@ SHIPPED = {"heat": 74.0, "churn": 244.0, "legible": 312.0, "docs": 24.0, "age": 
 # single channel of rounding there is the whole discrepancy.
 SHIPPED_STOPS = {
     "heat": ["#634f35", "#87683d", "#aa7f43", "#d09949", "#f4b04a"],
-    "churn": ["#3c576c", "#497395", "#538ebd", "#5face9", "#81c7ff"],
-    "legible": ["#5c4c67", "#7c628c", "#9b77b2", "#bd8fda", "#dca5fe"],
-    "docs": ["#6c4946", "#935e5a", "#ba716c", "#e58681", "#fea39c"],
-    "age": ["#4e583a", "#657546", "#7c9250", "#96b15b", "#acce63"],
+    "churn": ["#345967", "#3b778d", "#3c94b2", "#3db4db", "#40d1ff"],
+    "legible": ["#604b63", "#826087", "#a375aa", "#c78cd0", "#e9a0f4"],
+    "docs": ["#6c4945", "#935e58", "#ba716a", "#e5877e", "#ffa299"],
+    "age": ["#535737", "#6d7341", "#878f49", "#a4ad51", "#bec955"],
+    "locality": ["#375c4f", "#3f7c68", "#449b80", "#48bc9a", "#45dcb1"],
+    "reach": ["#48536e", "#5c6d98", "#7086c2", "#85a2ef", "#a4bdff"],
 }
-BARRED = (170, 240)
+# The cyan band is NOT barred any more, and removing it is what let seven hues fit.
+#
+# It was barred because DOCS was in it, 40 degrees from churn, and the pair read as one
+# colour; docs left for 26 and nothing has been in that region since. Barring a band while
+# also enforcing all-pairs dE is one constraint counted twice — and dE is the half that can
+# see what is actually adjacent, which a band cannot. Held as a bar, the search reported
+# there was no room for a sixth hue; released, seven clear 12.9 and locality sits at 170,
+# inside what used to be forbidden. Keep the floors, not the folklore.
+BARRED = None
 # Drawn over the same wedges as every ramp, so both are floors rather than preferences.
 NEUTRAL = {"light": "#b3aca3", "dark": "#4a4642"}
 TRAP = {"light": "#ff4f95", "dark": "#ff5ea1"}
-# The agent outline and the directory fill are drawn over the same wedges as every ramp, so
-# they are floors too — and they were missing from the first version of this search, which
-# duly recommended a teal one step from `--agent-mark`. A constraint you forget is not a
-# constraint the picture forgets.
-MARK = {"light": "#358189", "dark": "#42a2ab"}
+# The directory fill IS drawn over the same wedges as every ramp, so it is a floor — it was
+# missing from the first version of this search, which duly recommended a colour one step from
+# a thing the map already draws. A constraint you forget is not a constraint the picture
+# forgets.
 STRUCTURE = {"light": "#d0c9bd", "dark": "#38342f"}
-# 14.0 rather than 15: the shipped five clear 14.3, and a floor stricter than the incumbent is
-# not a fair test of a newcomer.
-COLD_FLOOR, HOT_FLOOR, MARK_FLOOR = 10.0, 15.0, 14.0
+# `--agent-mark` is REPORTED and not enforced, and the difference matters. It was a floor here
+# on the belief that it outlines assessed wedges; it does not, and index.css says as much where
+# it defines the token — "only for annotation". Its two uses are a paragraph of text and a dot
+# in the sidebar, neither of which shares a picture region with a ramp. Enforcing it cost real
+# hue: churn at 224 sits 7.9 from the light-mode teal, which is why that number is printed
+# rather than hidden, but a status dot in the chrome and a wedge in the ring are not two things
+# anybody compares. If the mark is ever drawn ON the map again, this goes back to being a floor
+# and churn has to move.
+MARK = {"light": "#358189", "dark": "#42a2ab"}
+# 14.0 rather than 15: the five that shipped cleared 14.3, and a floor stricter than the
+# incumbent is not a fair test of a newcomer.
+COLD_FLOOR, HOT_FLOOR, STRUCTURE_FLOOR = 10.0, 15.0, 14.0
 
 
 def ramp(hue):
@@ -263,12 +289,13 @@ def margins(hues):
     )
     vs_neutral = min(plain(r[0], n) for r in ramps.values() for n in NEUTRAL.values())
     vs_trap = min(plain(r[4], t) for r in ramps.values() for t in TRAP.values())
-    vs_mark = min(plain(c, m) for r in ramps.values() for c in r for m in list(MARK.values()) + list(STRUCTURE.values()))
-    return cold, hot, vs_neutral, vs_trap, vs_mark
+    vs_struct = min(plain(c, v) for r in ramps.values() for c in r for v in STRUCTURE.values())
+    vs_mark = min(plain(c, v) for r in ramps.values() for c in r for v in MARK.values())
+    return cold, hot, vs_neutral, vs_trap, vs_struct, vs_mark
 
 
 def legal(hue):
-    return not (BARRED[0] <= hue <= BARRED[1])
+    return BARRED is None or not (BARRED[0] <= hue <= BARRED[1])
 
 
 def add(n):
@@ -285,18 +312,18 @@ def add(n):
         hues = dict(SHIPPED)
         for i, h in enumerate(pick):
             hues[f"new{i}"] = float(h)
-        cold, hot, vn, vt, vm = margins(hues)
-        if vn < COLD_FLOOR or vt < HOT_FLOOR or vm < MARK_FLOOR:
+        cold, hot, vn, vt, vs, _vm = margins(hues)
+        if vn < COLD_FLOOR or vt < HOT_FLOOR or vs < STRUCTURE_FLOOR:
             continue
         score = min(cold, hot)
         if best is None or score > best[0]:
-            best = (score, pick, cold, hot, vn, vt, vm)
+            best = (score, pick, cold, hot, vn, vt, vs)
     if not best:
         print("NOTHING CLEARS THE FLOORS — the wheel is full at this ramp count.")
         return 1
-    score, pick, cold, hot, vn, vt, vm = best
+    score, pick, cold, hot, vn, vt, vs = best
     print(f"\nbest worst-pair {score:.1f}  (cold {cold:.1f}, hot {hot:.1f})")
-    print(f"floors: cold vs unanalyzed {vn:.1f} (>= {COLD_FLOOR}), hot vs trap {vt:.1f} (>= {HOT_FLOOR}), any stop vs mark/structure {vm:.1f} (>= {MARK_FLOOR})")
+    print(f"floors: cold vs unanalyzed {vn:.1f} (>= {COLD_FLOOR}), hot vs trap {vt:.1f} (>= {HOT_FLOOR}), any stop vs structure {vs:.1f} (>= {STRUCTURE_FLOOR})")
     for i, h in enumerate(pick):
         print(f"\nnew hue {i}: {h} degrees")
         for j, c in enumerate(ramp(float(h))):
@@ -342,14 +369,19 @@ def flat():
 def verify():
     """Reproduce the shipped palette, and say so or fail.
 
+    Seven ramps since the wiring lenses got hues of their own; `add` and its MARK_FLOOR are
+    kept for the next one, and the note there about existing lenses not moving is now a
+    statement about a trade this palette DID make — four of them moved by 2 to 20 degrees to
+    take the worst pair from 10.0 to its 12.9 ceiling.
+
     The check is against the STOPS, not against the margins. A margin is one number summarising
     twenty-five colors and two of those colors could be wrong without moving it; and the tightest
     margin here (docs against --trap) is driven by a single channel at the gamut boundary, so
     comparing margins to one decimal would fail on rounding while comparing them loosely would
     pass on nonsense. Channel-exact-to-one is the property that actually says this script models
     the palette."""
-    cold, hot, vn, vt, vm = margins(SHIPPED)
-    print("shipped five:")
+    cold, hot, vn, vt, vs, vm = margins(SHIPPED)
+    print(f"shipped {len(SHIPPED)}:")
     worst_step = 0
     for k, h in SHIPPED.items():
         got, want = ramp(h), SHIPPED_STOPS[k]
@@ -360,11 +392,12 @@ def verify():
         worst_step = max(worst_step, max(steps))
         flag = "" if max(steps) == 0 else f"   <- off by {max(steps)}/255"
         print(f"  {k:<8} {h:>5.0f}deg  {' '.join(got)}{flag}")
-    print(f"\nworst cold pair      {cold:.1f}   (index.css says 14-19 apart)")
-    print(f"worst hot pair       {hot:.1f}   (index.css says 27.2)")
+    print(f"\nworst cold pair      {cold:.1f}   (index.css says 12.9-13.2, evenly)")
+    print(f"worst hot pair       {hot:.1f}   (index.css says 19.5, churn against reach)")
     print(f"cold vs unanalyzed   {vn:.1f}   (index.css says worst 11.5)")
-    print(f"hot vs trap          {vt:.1f}   (index.css says docs is tight at 20.5)")
-    print(f"any stop vs mark/str {vm:.1f}")
+    print(f"hot vs trap          {vt:.1f}   (index.css says legible is tight at 18.7)")
+    print(f"any stop vs structure {vs:.1f}   (floor {STRUCTURE_FLOOR}; --structure is on the map)")
+    print(f"any stop vs agent-mark {vm:.1f}   (reported, NOT a floor — see MARK)")
     ok = worst_step <= 1
     print("\n" + (f"REPRODUCES the shipped palette (worst stop off by {worst_step}/255)."
                    if ok else f"DOES NOT REPRODUCE — worst stop off by {worst_step}/255."))

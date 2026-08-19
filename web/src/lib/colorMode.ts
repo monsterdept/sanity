@@ -115,24 +115,19 @@ export function paintsFromWiring(mode: ColorMode): boolean {
   return mode === 'reach' || mode === 'locality'
 }
 
-/** A fill mixed from the structural neutral toward the wiring accent, and the ink for it.
+/** The one stop of the Reach ramp a FUNCTION is ever painted in.
  *
- *  The wiring pair's whole palette. `scripts/palette-search.py` says there is no room for a
- *  sixth ramp hue — see `--wiring` in `index.css` — so a share is drawn as an AMOUNT of one
- *  color rather than as a position on a scale of five. Same direction as Docs: the accent is
- *  the gap, so bright is what you have to do something about.
+ *  At the leaf this lens is two states and an absence, so its colour is not a position on
+ *  a scale — it IS the answer, the way a categorical slot is. That changes which test the
+ *  hue has to pass: all-pairs across the three dichromacies, against the two neutrals it
+ *  sits beside, rather than the ramp rule of normal vision only. The hot end clears 27.0
+ *  from `--structure` and 25.7 from `--unanalyzed` for every viewer. The flat jade this
+ *  lens shipped with cleared 4.2 on the second of those.
  *
- *  `stop` rounds to whichever end the mix is nearer, exactly as `rampStop` does and for the
- *  same reason — `inkOn` needs a custom-property name and cannot read a `color-mix()` back. */
-function wiringPaint(share: number): Paint {
-  const t = Math.max(0, Math.min(1, share))
-  const stop = t < 0.5 ? 'var(--structure)' : 'var(--wiring)'
-  return {
-    fill: `color-mix(in oklch, var(--wiring) ${Math.round(t * 100)}%, var(--structure))`,
-    stop,
-    ink: inkOn(stop),
-  }
-}
+ *  It is the ramp's hot end and not a stop chosen for contrast alone, so a function that
+ *  nothing calls is the same colour as a directory entirely made of them — the map would
+ *  otherwise say two different things about one fact at two levels of the tree. */
+const REACH_ALONE = '--reach-4'
 
 /** The share of a node's wiring that leaves its own directory, at any level of the tree.
  *
@@ -585,7 +580,7 @@ export function colorFor(
     if (showsShare(node)) {
       const share = unreferencedShare(node)
       if (share === null) return null
-      return { ...wiringPaint(share), label: `${Math.round(share * 100)}% unreferenced` }
+      return { ...ramped(share, 'reach'), label: `${Math.round(share * 100)}% unreferenced` }
     }
     // Two states and an absence, not a scale — the shape Traps uses, for a reason measured
     // rather than borrowed. Caller counts are a power law: across four real repos the zero
@@ -595,7 +590,7 @@ export function colorFor(
     // different situations and only the label can say which.
     if (node.callers == null) return null
     const alone = node.callers === 0
-    const fill = alone ? 'var(--wiring)' : 'var(--structure)'
+    const fill = alone ? `var(${REACH_ALONE})` : 'var(--structure)'
     return {
       fill,
       stop: fill,
@@ -612,7 +607,7 @@ export function colorFor(
     // simply the case where that is one function's own edges.
     const share = showsShare(node) ? wiringShare(node) : localityOf(node)
     if (share === null) return null
-    return { ...wiringPaint(share), label: `${Math.round(share * 100)}% reaches out` }
+    return { ...ramped(share, 'locality'), label: `${Math.round(share * 100)}% reaches out` }
   }
 
   if (mode === 'churn') {
@@ -849,7 +844,7 @@ export function bucketsFor(
         if (n.callers == null) {
           put(UNKNOWN, 'calls not resolved here', 'var(--unanalyzed)', n)
         } else if (n.callers === 0) {
-          put('alone', 'nothing calls it', 'var(--wiring)', n)
+          put('alone', 'nothing calls it', `var(${REACH_ALONE})`, n)
         } else {
           put('called', 'called from somewhere', 'var(--structure)', n)
         }
@@ -906,12 +901,10 @@ export function bucketsFor(
     const b = bucket.get(key)
     if (!b || vals.length === 0) continue
     const mean = vals.reduce((a, v) => a + v, 0) / vals.length
-    // Locality is not on a ramp — see `--wiring` — so its swatch is mixed the same way its
-    // wedges are. Same rule either way: the color in the key is a color on screen.
-    b.fill =
-      mode === 'locality'
-        ? wiringPaint(mean).fill
-        : ramped(mean, mode === 'churn' ? 'churn' : 'age').fill
+    // Every one of these walks a ramp, so the swatch is that ramp at the bucket's mean —
+    // the color in the key is a color on screen.
+    b.fill = ramped(mean, mode === 'locality' ? 'locality' : mode === 'churn' ? 'churn' : 'age')
+      .fill
   }
 
   const out = [...bucket.values()]

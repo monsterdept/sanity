@@ -1557,7 +1557,7 @@ export function isAnalyzed(node: Node): boolean {
 
 /** Which ramp a reading walks. Each is five CSS stops of a single hue, sharing one
  *  lightness profile — see index.css. */
-export type Ramp = 'heat' | 'legible' | 'churn' | 'age' | 'docs'
+export type Ramp = 'heat' | 'legible' | 'churn' | 'age' | 'docs' | 'locality' | 'reach'
 
 /** Interpolate a ramp's five CSS stops. Returns a `var(...)` mix so the ramps stay
  *  defined in one place (index.css) and re-theme with the rest of the app. */

@@ -98,7 +98,7 @@ function Legend({
     return (
       <div className="flex items-center gap-3">
         {[
-          ['var(--wiring)', 'nothing calls it'],
+          ['var(--reach-4)', 'nothing calls it'],
           ['var(--structure)', 'called'],
         ].map(([fill, label]) => (
           <span key={label} className="flex items-center gap-1.5">
@@ -113,10 +113,9 @@ function Legend({
     )
   }
 
-  // Locality IS a scale, and the one scale in the app that is not one of the five hue ramps
-  // — `scripts/palette-search.py` says the wheel is full, so it mixes one accent into the
-  // structural neutral instead. The bar therefore has to be built the same way the wedges
-  // are rather than from `heatColor`, or the key under a jade map would be an amber gradient.
+  // Locality IS a scale, and it has a hue of its own — it used to mix one flat accent into
+  // the structural neutral, because the palette search was reporting no room for a sixth.
+  // The bar is `heatColor` on locality's own ramp now, which is what the wedges walk.
   if (mode === 'locality') {
     return (
       <div className="flex items-center gap-2">
@@ -129,7 +128,7 @@ function Legend({
               key={i}
               className="flex-1"
               style={{
-                background: `color-mix(in oklch, var(--wiring) ${Math.round((i / 23) * 100)}%, var(--structure))`,
+                background: heatColor(i / 23, 'locality'),
               }}
             />
           ))}

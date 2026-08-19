@@ -157,12 +157,27 @@
    * hot pair 17.7, the tightest number in the palette. Nudging hues and chroma around
    * it produced three candidate sets indistinguishable from each other and from what
    * shipped, which is the tell — with cyan in the ring the other four have nowhere to
-   * go. Barring 170–240° outright for EVERY lens and searching the rest of the wheel
-   * (surprise pinned to amber, because it has to read as heat) leaves 8,355 valid
-   * assignments and one winning shape: a WARM hue where the cyan was. Docs is
-   * terracotta now, and the closest hot pair is 27.2 — better than half again, with
-   * every other margin improving beside it rather than paying for it. Green stays on
-   * age, blue on churn, violet on legibility, so nothing already learned is relearned.
+   * go. Barring 170–240° and searching the rest of the wheel put docs on a WARM hue
+   * and took the closest hot pair to 27.2.
+   *
+   * THERE ARE SEVEN NOW, AND THE BAR CAME OFF TO GET THEM. Reach and locality are
+   * painted from the call graph, and the answer to "is there room for a sixth hue"
+   * was for a while "no" — from a search that holds the five fixed AND keeps 170–240°
+   * barred, then reports the leftovers. Both halves were wrong. The band was barred
+   * because DOCS was in it, 40° from churn; docs left for 26° and nothing has been in
+   * that region since, so barring it while all-pairs ΔE is already enforced is one
+   * constraint counted twice — and the ΔE floor is the half that can see what is
+   * actually adjacent. Solved as an assignment instead, all seven hues free on a 2°
+   * grid with both floors enforced, the worst pair is 12.9 against 14.3 for the five.
+   * That is the CEILING: past ±20° of movement nothing further is bought, and four
+   * lenses move to reach it — docs +2, age −10, churn −20, legibility +10.
+   *
+   * WHAT SEVEN COSTS, SO THE NEXT PERSON DOES NOT RE-DERIVE IT. Adding the two and
+   * moving NOTHING scores 10.0; moving churn alone, 12.1; this set, 12.9. The tight
+   * pair is churn against reach and it is deliberate — those two are the pair a
+   * lightness climb separates best, both being cool and both being ramps rather than
+   * states. Cold ends now sit 12.9–13.2 apart, evenly, where five sat 14.3–19: the
+   * palette is tighter and more uniform, which is what a fuller wheel looks like.
    *
    * The floor is NOT zero, and the bar is measured. Dark-mode --unanalyzed is a warm
    * gray (L .397 C .009 h 68) and heat shares its hue, so draining to neutral would
@@ -186,11 +201,11 @@
    * sRGB runs out of blue around C .106, so this ramp alone is gamut-clamped at the
    * top whatever chroma it is asked for. Lifting it would mean dropping the shared
    * lightness profile for one lens, which costs more than the paleness does. */
-  --churn-0: #3c576c;
-  --churn-1: #497395;
-  --churn-2: #538ebd;
-  --churn-3: #5face9;
-  --churn-4: #81c7ff;
+  --churn-0: #345967;
+  --churn-1: #3b778d;
+  --churn-2: #3c94b2;
+  --churn-3: #3db4db;
+  --churn-4: #40d1ff;
 
   /* legible — violet. Its own hue, not surprise's amber, and that is the whole point:
    * the pair is meant to be TOGGLED, and a blink comparison between two identically
@@ -199,11 +214,11 @@
    * takes the same dark→light climb as the others, which is what carries the reading for
    * anyone who cannot separate the hues. Same direction as heat, too: bright means harder,
    * so an unreadable repo glows under both lenses rather than one of them inverting. */
-  --legible-0: #5c4c67;
-  --legible-1: #7c628c;
-  --legible-2: #9b77b2;
-  --legible-3: #bd8fda;
-  --legible-4: #dca5fe;
+  --legible-0: #604b63;
+  --legible-1: #826087;
+  --legible-2: #a375aa;
+  --legible-3: #c78cd0;
+  --legible-4: #e9a0f4;
 
   /* docs — terracotta, and the one ramp whose bright end is an ABSENCE. Surprise,
    * legibility, churn and age all brighten toward more of the thing they measure; this one
@@ -219,17 +234,50 @@
    * bright end is the only one that can be mistaken for hot pink, and 20.5 is the margin
    * that keeps "nobody has described this" from reading as "this will bite you".
    * Re-solve, don't eyeball. */
-  --docs-0: #6c4946;
-  --docs-1: #935e5a;
-  --docs-2: #ba716c;
-  --docs-3: #e58681;
-  --docs-4: #fea39c;
+  --docs-0: #6c4945;
+  --docs-1: #935e58;
+  --docs-2: #ba716a;
+  --docs-3: #e5877e;
+  --docs-4: #ffa299;
 
-  --age-0: #4e583a; /* age — green */
-  --age-1: #657546;
-  --age-2: #7c9250;
-  --age-3: #96b15b;
-  --age-4: #acce63;
+  --age-0: #535737; /* age — green, at 114° now: the seven-hue solve moved it 10° warmer
+                     * to open room below locality's jade. Still the green anybody who has
+                     * used the map knows; its nearest neighbor is surprise, at 13.1. */
+  --age-1: #6d7341;
+  --age-2: #878f49;
+  --age-3: #a4ad51;
+  --age-4: #bec955;
+
+  /* locality — jade, 170°, IN the band that was barred. How much of the wiring under a
+   * wedge leaves its own directory: summed, never averaged, so an inner ring reports a
+   * share rather than how many small functions a directory holds. It was drawn as an
+   * amount of one flat accent mixed into --structure, which is what a lens gets when the
+   * wheel is believed to be full; it is a ramp like every other share now, so the shared
+   * lightness climb carries its reading for anyone who cannot separate the hues. */
+  --locality-0: #375c4f;
+  --locality-1: #3f7c68;
+  --locality-2: #449b80;
+  --locality-3: #48bc9a;
+  --locality-4: #45dcb1;
+
+  /* reach — periwinkle, 268°. What nothing else calls. The ramp is for CONTAINERS, which
+   * report a share; a function is two states and an absence, because a caller count is a
+   * power law whose only interesting value is zero (22–56% across four real repos, then a
+   * decaying tail), and shading the tail would invent degrees of deadness nobody measured.
+   *
+   * At the leaf the colour IS the answer, so this ramp's hot end is held to the
+   * CATEGORICAL rule rather than the ramp one — all-pairs across the three dichromacies,
+   * the test the --cat-* slots take. It clears 27.0 from --structure ("something calls
+   * this") and 25.7 from --unanalyzed ("this language's calls were never resolved") for
+   * every viewer. The flat jade this lens shipped with cleared 4.2 on the second of those:
+   * for a deuteranope, found dead code and never looked were one colour, which is the
+   * distinction the map exists to be able to state. Re-solve under `worst`, not `plain`,
+   * if this hue ever moves. */
+  --reach-0: #48536e;
+  --reach-1: #5c6d98;
+  --reach-2: #7086c2;
+  --reach-3: #85a2ef;
+  --reach-4: #a4bdff;
 
   /* ── Categorical: owner, language ─────────────────────────────────────────────
    *
@@ -265,37 +313,6 @@
   --cat-7: #966c81;
   --cat-8: #c89abc;
 
-  /* Wiring — Reach and Locality, the two lenses painted from the call graph rather than
-   * from a reading or a commit. ONE color for both, and not a ramp, and both of those are
-   * results rather than preferences.
-   *
-   * `scripts/palette-search.py` is the search this file has always asked for and never
-   * had. It reproduces the five ramps above to within one 8-bit step and every margin
-   * they claim — worst hot pair 27.2, cold ends 14-19 apart, heat at 11.5 against the
-   * unanalyzed neutral, docs the tight one at 20.5 against --trap — which is what makes
-   * its verdict on a SIXTH ramp worth acting on: there is no room. The best available
-   * sixth hue costs the worst pair 14.3 -> 9.4, and it lands at 274 degrees, thirty from
-   * churn's blue. Thirty degrees is nearer than the forty that made docs and churn one
-   * color and got cyan barred from the palette. The wheel is full at five.
-   *
-   * So the wiring pair does what the ninth categorical slot did when the same answer came
-   * back: it declines the hue and reaches for a different encoding. Reach is two states and
-   * an absence — the shape Traps already established, because a caller count is a power law
-   * whose only interesting value is zero (22-56% of functions across four real repos, and
-   * the rest a decaying tail). Locality is a share, so it mixes from --structure toward this
-   * color: none of its wiring leaves home, through to all of it.
-   *
-   * Solved as a FLAT accent, which is a far smaller ask than a ramp because it is only ever
-   * on screen under its own two lenses. It has to be told apart from what sits beside it
-   * there — the directory fill, the unread neutral, the agent outline, the trap pink and the
-   * page, in both themes — and from nothing else. Jade at 164 degrees clears 20.4 at its
-   * worst, against a palette whose own tightest pair is 14.3, and it is held to the muted
-   * chroma range for the reason the categorical block gives: a lens like this fills the
-   * whole chart, and at that coverage a saturated color is unreadable. Held 40 degrees clear
-   * of every lens hue so a glance still says which question is being asked.
-   *
-   * `just palette` re-runs the search. Re-solve, don't eyeball. */
-  --wiring: #42be8f;
 
   --unanalyzed: #b3aca3;
   /* Outlines wedges an AGENT judged, so they are distinguishable from model-scored ones
