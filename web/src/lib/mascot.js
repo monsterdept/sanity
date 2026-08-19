@@ -2519,17 +2519,17 @@ class je {
       s: e,
       pos: e.wrapper.position.clone(),
       rot: e.wrapper.rotation.z,
-      scale: e.wrapper.scale.clone(),
       mg: e.modelGroup?.position.clone() ?? null,
-      mgRot: e.modelGroup?.rotation.z ?? 0
+      mgRot: e.modelGroup?.rotation.z ?? 0,
+      mgScale: e.modelGroup?.scale.clone() ?? null
     }));
     for (const e of A)
-      e.wrapper.position.set(e.baseX, e.baseY, e.baseZ), e.wrapper.rotation.z = e.baseRotZ, e.wrapper.scale.set(e.baseSX, e.baseSY, e.baseSZ), e.modelGroup && (e.modelGroup.position.set(e.baseMGX, e.baseMGY, e.modelGroup.position.z), e.modelGroup.rotation.z = 0);
+      e.wrapper.position.set(e.baseX, e.baseY, e.baseZ), e.wrapper.rotation.z = e.baseRotZ, e.modelGroup && (e.modelGroup.position.set(e.baseMGX, e.baseMGY, e.modelGroup.position.z), e.modelGroup.rotation.z = 0, e.modelGroup.scale.set(e.baseSX, e.baseSY, e.baseSZ));
     const s = new D.Box3();
     for (const e of A)
       e.wrapper.updateMatrixWorld(!0), s.expandByObject(e.wrapper);
     for (const e of i)
-      e.s.wrapper.position.copy(e.pos), e.s.wrapper.rotation.z = e.rot, e.s.wrapper.scale.copy(e.scale), e.s.modelGroup && e.mg && (e.s.modelGroup.position.copy(e.mg), e.s.modelGroup.rotation.z = e.mgRot), e.s.wrapper.updateMatrixWorld(!0);
+      e.s.wrapper.position.copy(e.pos), e.s.wrapper.rotation.z = e.rot, e.s.modelGroup && e.mg && (e.s.modelGroup.position.copy(e.mg), e.s.modelGroup.rotation.z = e.mgRot, e.mgScale && e.s.modelGroup.scale.copy(e.mgScale)), e.s.wrapper.updateMatrixWorld(!0);
     return s.isEmpty() ? null : s;
   }
   // Measure the unscaled bounding box of a part's model geometry,
