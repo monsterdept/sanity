@@ -71,10 +71,11 @@ use crate::parse::FuncDef;
 /// a half-understood parse entry would put functions at lines they are not at, and every
 /// reading taken against those lines would be a reading about nothing.
 ///
-/// 3 because the stored record gained [`crate::parse::PARSE_VERSION`]. That bump also drops
-/// every entry written before the parser was versioned, which is the point: those are
-/// exactly the entries whose parse cannot be vouched for.
-const FORMAT_VERSION: u32 = 3;
+/// 4 because the stored `FuncDef` gained `calls`. `PARSE_VERSION` moved with it and would
+/// have dropped these entries on its own; both are bumped because they answer different
+/// questions — the record's SHAPE changed and so did what a parse MEANS — and declaring only
+/// the one you happened to think of is how the next reader learns the wrong rule.
+const FORMAT_VERSION: u32 = 4;
 
 /// Stand-in oid for "not touched inside the churn window". See the module docs.
 const ANCIENT: &str = "-";
@@ -663,6 +664,7 @@ mod tests {
             owner: None,
             start_line: 1,
             end_line: 1,
+            calls: Vec::new(),
         }
     }
 

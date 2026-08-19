@@ -319,6 +319,15 @@ function aggregate(fns: Node[], filePath: string): Node {
     name: `${fns.length}+`,
     kind: 'func',
     path: filePath,
+    // The overflow wedge is a COLLECTION wearing a function's kind, so it has no wiring of
+    // its own — and it must not sum its members', because `showsShare` already routes it
+    // down the container branch, which walks the real nodes underneath.
+    callers: null,
+    calls: null,
+    incident: null,
+    away: null,
+    resolvable: null,
+    orphans: null,
     loc,
     line: null,
     endLine: null,

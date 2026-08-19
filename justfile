@@ -81,6 +81,14 @@ test:
     cd src-tauri && cargo test
     cd src-tauri && cargo clippy --all-targets -- -D warnings
 
+# Re-solve the sunburst's ramp hues. `verify` reproduces what ships (and fails if it cannot,
+# which is what makes the rest of it worth reading); `add N` asks whether the wheel has room
+# for N more lens ramps; `flat` picks a standalone accent for a lens that is not a ramp.
+#
+# index.css says "Re-solve, don't eyeball" over a search nobody could re-run. This is it.
+palette cmd="verify" *args:
+    @python3 scripts/palette-search.py {{cmd}} {{args}}
+
 # Does this release expire committed readings? Run it any time; `just release` gates on it.
 # Takes an optional ref pair for auditing history — `just expiry 16b3bba~1 16b3bba` is the
 # change that made this necessary, and it fails there.

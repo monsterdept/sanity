@@ -158,6 +158,16 @@ pub struct ScanStats {
     /// them here was measuring one thing and reporting it against another.
     pub commits: usize,
     pub model: String,
+    /// Call sites that reached a definition in this repo, and ones that did not.
+    ///
+    /// The diagnostic for the two wiring lenses, and the one number that can tell a bad rule
+    /// from an ordinary repo. Most calls in any real file go to the standard library or to a
+    /// dependency, so a low share is normal — but a repo at 2% means [`crate::edges::family`]
+    /// or the grammar is wrong, and every ranking the lenses produce is noise. Reported
+    /// rather than inferred, on the same rule `excluded` follows: a denominator nobody can
+    /// see is how an instrument comes to overstate its own coverage.
+    pub calls_resolved: u64,
+    pub calls_unresolved: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -647,6 +657,12 @@ pub enum Fidelity {
 
 fn score_dir(
     files: &[ParsedFile],
+    // Index of this directory's first file in the flat list [`edges::wire`] was given.
+    // Passed rather than recomputed because the wiring is repo-wide by construction and the
+    // scoring pass is per directory: a directory cannot know its own offset, and a second
+    // flattening here would be a second chance to disagree with the first.
+    base: usize,
+    wiring: &crate::edges::Wiring,
     history: &History,
     blame: &Blame,
     fidelity: Fidelity,
@@ -655,7 +671,8 @@ fn score_dir(
 
     files
         .iter()
-        .map(|file| {
+        .enumerate()
+        .map(|(fi, file)| {
             let churn = history.churn_of(&file.rel_path);
             let age_days = history.age_of(&file.rel_path);
             let commits = history.commits_of(&file.rel_path);
@@ -734,6 +751,8 @@ fn score_dir(
                         Provenance::None
                     };
 
+                    let wire = wiring.at(base + fi, i);
+
                     let node = Node {
                         id: crate::assessment::key_of(&file.rel_path, &func.name, ords[i]),
                         name: func.name.clone(),
@@ -768,6 +787,20 @@ fn score_dir(
                             analyzed_share: 0.0,
                         }),
                         hotspots: Vec::new(),
+                        // `Option` all the way from `edges` to the wedge. A language whose
+                        // call shape has never been parsed has no `Wire` at all, and the
+                        // absence has to survive every hop — the moment it becomes a zero it
+                        // reads as "nothing calls this", which is the finding this lens
+                        // exists to make, asserted about code nobody looked at.
+                        callers: wire.map(|w| w.callers),
+                        calls: wire.map(|w| w.calls),
+                        incident: wire.map(|w| w.incident),
+                        away: wire.map(|w| w.away),
+                        // A function is its own denominator of one. Written here rather than
+                        // derived in `aggregate` so the leaf and the container carry the same
+                        // pair of numbers meaning the same thing — see `Node::resolvable`.
+                        resolvable: wire.map(|_| 1),
+                        orphans: wire.map(|w| u32::from(w.callers == 0)),
                         children: Vec::new(),
                         funcs: 0,
                     };
@@ -817,6 +850,17 @@ fn score_dir(
                     last_author: last_author.clone(),
                     score: None,
                     hotspots: Vec::new(),
+                    // A file is not called and does not call; its functions are. Rolled up in
+                    // the browser instead, as a share, the way `hot_share` and `opaqueShare`
+                    // are — and for the same reason, that a mean over a container's leaves
+                    // converges on the repo's mean and says nothing.
+                    callers: None,
+                    calls: None,
+                    incident: None,
+                    away: None,
+                    // Filled by `aggregate` from the functions inside — see `Node::resolvable`.
+                    resolvable: None,
+                    orphans: None,
                     children,
                     funcs: 0,
                 },
@@ -1117,12 +1161,33 @@ pub fn scan(
     scans.retain(&for_blame.iter().map(|(p, _)| p.clone()).collect());
     let is_model = model.is_model();
 
+    // Call edges, repo-wide, before anything is scored. It has to be one pass over every
+    // file at once — a call in `web/src/App.tsx` resolves against a definition three
+    // directories away, so the per-directory scoring pass below is exactly the wrong shape
+    // to compute it in. Cheap: it reads the `calls` the parse already collected and does not
+    // touch a file.
+    let flat: Vec<crate::edges::FileView<'_>> = parsed_dirs
+        .iter()
+        .flatten()
+        .map(|f| crate::edges::FileView { path: &f.rel_path, lang: f.lang, funcs: &f.funcs })
+        .collect();
+    let wiring = crate::edges::wire(&flat);
+    // Where each directory's files start in `flat`. A prefix sum over the same iteration
+    // order the flattening used, which is the only thing that makes the two agree.
+    let mut offsets: Vec<usize> = Vec::with_capacity(parsed_dirs.len());
+    let mut acc = 0usize;
+    for d in &parsed_dirs {
+        offsets.push(acc);
+        acc += d.len();
+    }
+
     // Build the whole tree from the proxy first. It is fast, it is entirely gray (no
     // wedge claims to have been analyzed), and it means the user has the repo's shape on
     // screen in about a second instead of after the model finishes.
     let per_dir: Vec<Vec<(String, Node)>> = parsed_dirs
         .par_iter()
-        .map(|parsed| score_dir(parsed, &history, &blame, fidelity))
+        .enumerate()
+        .map(|(di, parsed)| score_dir(parsed, offsets[di], &wiring, &history, &blame, fidelity))
         .collect();
 
     lap("score");
@@ -1279,6 +1344,8 @@ pub fn scan(
             without_history: history.is_empty(),
             commits: commit_count(root),
             model: model.label(),
+            calls_resolved: wiring.resolved,
+            calls_unresolved: wiring.unresolved,
         },
     };
     // Kept under the signature computed before the work started, so the next launch of this
@@ -1572,6 +1639,7 @@ mod tests {
                 owner: None,
                 start_line: i as u32 * 3 + 1,
                 end_line: i as u32 * 3 + 2,
+                calls: Vec::new(),
             })
             .collect();
         let file = ParsedFile {

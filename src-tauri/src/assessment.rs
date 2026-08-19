@@ -2027,6 +2027,8 @@ mod tests {
                 functions: funcs.len(),
                 without_history: true,
                 model: "test".into(),
+                calls_resolved: 0,
+                calls_unresolved: 0,
             },
         }
     }

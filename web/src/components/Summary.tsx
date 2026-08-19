@@ -24,6 +24,8 @@ const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
   legible: 'Legibility',
   docs: 'Documentation',
   traps: 'Traps',
+  reach: 'Callers',
+  locality: 'Where calls go',
   blame: 'Authors',
   language: 'Languages',
   churn: 'Commits in 90d',
@@ -72,6 +74,23 @@ function rowNote(n: Node, mode: ColorMode): string {
   // reader flagged the comment for asserting a property the body did not have. Both were
   // right to. The guard was correct all along; what was missing was the sentence saying so.
   if (mode === 'churn') return s && s.ageDays !== null ? `${s.commits} in 90d` : '—'
+  // Both wiring lenses are grouped by a value that leaves something open, so both print the
+  // part the heading does not carry. Under `called from somewhere` the count is the whole
+  // question; under `most of it leaves` the fact behind the band is the two counts it came
+  // from, and `7 of 9 away` never restates a heading the way a repeated percentage would.
+  if (mode === 'reach') {
+    if (n.callers == null) return '—'
+    // Under `nothing calls it`, what it CALLS is the useful half — and it separates the two
+    // shapes of orphan that matter. A function calling nothing is an isolated stub; one
+    // calling a dozen is the entry point of a whole subsystem nothing enters, which is a
+    // much larger finding wearing the same color.
+    if (n.callers === 0) return n.calls == null ? '—' : `calls ${n.calls}`
+    return `${n.callers} callers`
+  }
+  if (mode === 'locality') {
+    if (n.incident == null || n.away == null || n.incident === 0) return '—'
+    return `${n.away} of ${n.incident} away`
+  }
   return `${compactCount(n.loc)} lines`
 }
 

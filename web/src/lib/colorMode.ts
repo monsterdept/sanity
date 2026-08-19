@@ -6,6 +6,7 @@ import {
   heatColor,
   isAnalyzed,
   legibleOf,
+  localityOf,
   rampStop,
   readingWords,
   shareRamp,
@@ -17,19 +18,27 @@ import {
 } from './api'
 import { inkOn } from './ink'
 
-/** What the color in the sunburst means. One geometry, seven encodings.
+/** What the color in the sunburst means. One geometry, ten encodings.
  *
  *  `surprise`, `legible` and `traps` all come from a reader's report and answer three
  *  different questions about it: could you reach the intent from outside, was the body clear
  *  once open, and will it bite the next person to edit it. They are lenses rather than one
  *  blended number because they disagree — a body can be unguessable and plain, or guessable,
  *  plain, and mined. Blending them would average away the exact distinction they exist for;
- *  switching between them makes it a blink comparison. */
+ *  switching between them makes it a blink comparison.
+ *
+ *  `reach` and `locality` are the two that cost nothing. Every other lens here waits for
+ *  something — a reader to spend tokens, or a repo to have a history — and on a codebase a
+ *  model produced an hour ago there is neither. These come off the parse, so they are on
+ *  screen the moment a project opens: what nothing calls, and what reaches out of its own
+ *  neighbourhood. */
 export type ColorMode =
   | 'surprise'
   | 'legible'
   | 'docs'
   | 'traps'
+  | 'reach'
+  | 'locality'
   | 'language'
   | 'blame'
   | 'churn'
@@ -64,6 +73,8 @@ export const MODE_LABEL: Record<ColorMode, string> = {
   legible: 'Legibility',
   docs: 'Docs',
   traps: 'Traps',
+  reach: 'Reach',
+  locality: 'Locality',
   language: 'Language',
   blame: 'Blame',
   churn: 'Churn',
@@ -75,6 +86,8 @@ export const MODE_HINT: Record<ColorMode, string> = {
   legible: 'what reading it was actually like',
   docs: 'what nobody has explained',
   traps: 'what will bite whoever edits it next',
+  reach: 'what nothing else calls',
+  locality: 'how far its calls travel',
   language: 'what it is written in',
   blame: 'who committed to it last',
   churn: 'how much it has changed lately',
@@ -90,6 +103,71 @@ export const MODE_HINT: Record<ColorMode, string> = {
  *  would have silently stopped marking anything under the two new lenses. */
 export function paintsFromReadings(mode: ColorMode): boolean {
   return mode === 'surprise' || mode === 'legible' || mode === 'docs' || mode === 'traps'
+}
+
+/** Which lenses come off the call graph.
+ *
+ *  Asked once here for the same reason `paintsFromReadings` is: three call sites would each
+ *  decide for themselves and the third one added would be forgotten. What follows from it is
+ *  that a gray wedge means "this language's call shape has never been parsed" rather than
+ *  "nobody has read this" — the legend has to say so, and the two are not the same absence. */
+export function paintsFromWiring(mode: ColorMode): boolean {
+  return mode === 'reach' || mode === 'locality'
+}
+
+/** A fill mixed from the structural neutral toward the wiring accent, and the ink for it.
+ *
+ *  The wiring pair's whole palette. `scripts/palette-search.py` says there is no room for a
+ *  sixth ramp hue — see `--wiring` in `index.css` — so a share is drawn as an AMOUNT of one
+ *  color rather than as a position on a scale of five. Same direction as Docs: the accent is
+ *  the gap, so bright is what you have to do something about.
+ *
+ *  `stop` rounds to whichever end the mix is nearer, exactly as `rampStop` does and for the
+ *  same reason — `inkOn` needs a custom-property name and cannot read a `color-mix()` back. */
+function wiringPaint(share: number): Paint {
+  const t = Math.max(0, Math.min(1, share))
+  const stop = t < 0.5 ? 'var(--structure)' : 'var(--wiring)'
+  return {
+    fill: `color-mix(in oklch, var(--wiring) ${Math.round(t * 100)}%, var(--structure))`,
+    stop,
+    ink: inkOn(stop),
+  }
+}
+
+/** The share of a node's wiring that leaves its own directory, at any level of the tree.
+ *
+ *  **Read off the node, never walked.** Both counts are summed in Rust's `aggregate`, because
+ *  a window is handed a tree with NO FUNCTION NODES in it on any large repo — see
+ *  `Node::slim`. The first version of this walked down to `kind === 'func'`, which meant both
+ *  wiring lenses went gray above the file ring on exactly the projects they are for. Same
+ *  reason `hotShare` arrives precomputed rather than being averaged here.
+ *
+ *  Summed and not averaged: a mean of per-function ratios weights a helper with one edge the
+ *  same as a hub with thirty, so an inner ring would report how many small functions a
+ *  directory holds. One formula at every scope — at a leaf it is that function's own edges,
+ *  which is why this is `localityOf` and not a second implementation of it.
+ *
+ *  `null` when nothing underneath is wired, covering both "no language here resolves calls"
+ *  and "this is all dead code". Reach is the lens with something to say about the second;
+ *  Locality states the absence and paints gray. */
+function wiringShare(node: Node): number | null {
+  return localityOf(node)
+}
+
+/** The share of resolvable functions underneath that nothing in this repo calls.
+ *
+ *  Reach's roll-up, and the analogue of `hotShare`: the leaf is a state, the container is how
+ *  much of it is in that state. Measured across four real repos it runs 22–56%, so it spreads
+ *  across the mix without a curve — the same reason the Docs share is linear where `shareRamp`
+ *  is not.
+ *
+ *  Read off the node for the reason `wiringShare` is, and counted in Rust with the same
+ *  denominator discipline: **functions whose language resolves calls**, never all functions. A
+ *  directory of Fortran beside a directory of Rust would otherwise report the Fortran as
+ *  referenced, which is a claim nobody measured. `null` when none of it resolves. */
+function unreferencedShare(node: Node): number | null {
+  if (node.resolvable == null || node.orphans == null || node.resolvable === 0) return null
+  return node.orphans / node.resolvable
 }
 
 /**
@@ -503,6 +581,40 @@ export function colorFor(
     return null
   }
 
+  if (mode === 'reach') {
+    if (showsShare(node)) {
+      const share = unreferencedShare(node)
+      if (share === null) return null
+      return { ...wiringPaint(share), label: `${Math.round(share * 100)}% unreferenced` }
+    }
+    // Two states and an absence, not a scale — the shape Traps uses, for a reason measured
+    // rather than borrowed. Caller counts are a power law: across four real repos the zero
+    // bucket holds 22–56% of functions and everything above it decays, so a ramp would spend
+    // four of its five stops on the thin tail and put the one interesting value at an end.
+    // The count is still printed, because "nothing calls this" and "one thing calls this" are
+    // different situations and only the label can say which.
+    if (node.callers == null) return null
+    const alone = node.callers === 0
+    const fill = alone ? 'var(--wiring)' : 'var(--structure)'
+    return {
+      fill,
+      stop: fill,
+      ink: inkOn(fill),
+      label: alone
+        ? 'nothing calls this'
+        : `${node.callers} caller${node.callers === 1 ? '' : 's'}`,
+    }
+  }
+
+  if (mode === 'locality') {
+    // The one lens whose leaf and container are the SAME formula rather than a value and a
+    // share of it — `away / incident`, summed over whatever is underneath. A function is
+    // simply the case where that is one function's own edges.
+    const share = showsShare(node) ? wiringShare(node) : localityOf(node)
+    if (share === null) return null
+    return { ...wiringPaint(share), label: `${Math.round(share * 100)}% reaches out` }
+  }
+
   if (mode === 'churn') {
     if (!s || s.ageDays === null) return null
     return {
@@ -569,6 +681,20 @@ const CHURN_BANDS: { label: string; min: number }[] = [
   { label: '3–9 commits', min: 3 },
   { label: '1–2 commits', min: 1 },
   { label: 'untouched in 90d', min: 0 },
+]
+
+/** Locality bands, most-remote first — the end anybody opens this lens to find.
+ *
+ *  Four rather than deciles, and bounded by what the distribution actually looks like. Measured
+ *  across four real repos the shape is bimodal: a large mass whose wiring never leaves its own
+ *  directory, a real second mass whose wiring entirely does, and a thin middle that is mostly
+ *  the arithmetic of small denominators (one edge in, one out, exactly a half). Ten equal
+ *  slices of that is two full buckets and eight rounding artefacts. */
+const LOCALITY_BANDS: { label: string; min: number }[] = [
+  { label: 'all of it leaves', min: 1 },
+  { label: 'most of it leaves', min: 0.5 },
+  { label: 'some of it leaves', min: 0.0001 },
+  { label: 'none of it leaves', min: 0 },
 ]
 
 /** Age bands, most recent first. The boundaries are the ones people actually say out loud
@@ -716,6 +842,30 @@ export function bucketsFor(
           // release history.
           put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
         }
+      } else if (mode === 'reach') {
+        // The map's own two states and its absence, never a band per caller count. A panel
+        // that graded reach in six shades would be a legend disagreeing with the picture it
+        // sits beside — the count is on the ROW, where it adds what the heading cannot.
+        if (n.callers == null) {
+          put(UNKNOWN, 'calls not resolved here', 'var(--unanalyzed)', n)
+        } else if (n.callers === 0) {
+          put('alone', 'nothing calls it', 'var(--wiring)', n)
+        } else {
+          put('called', 'called from somewhere', 'var(--structure)', n)
+        }
+      } else if (mode === 'locality') {
+        const share = localityOf(n)
+        if (share === null) {
+          // One bucket for two absences, deliberately: a language nobody has read and a
+          // function nothing is wired to are the same fact from where this lens stands —
+          // it has no calls to measure the distance of. Reach is the lens that tells them
+          // apart, and it is one key away.
+          put(UNKNOWN, 'nothing wired to it', 'var(--unanalyzed)', n)
+        } else {
+          const band =
+            LOCALITY_BANDS.find((b) => share >= b.min) ?? LOCALITY_BANDS[LOCALITY_BANDS.length - 1]
+          put(band.label, band.label, '', n, share)
+        }
       } else if (mode === 'blame' || mode === 'language') {
         const key = mode === 'blame' ? n.lastAuthor : n.lang
         if (key && (mode !== 'blame' || isAuthor(key))) {
@@ -756,7 +906,12 @@ export function bucketsFor(
     const b = bucket.get(key)
     if (!b || vals.length === 0) continue
     const mean = vals.reduce((a, v) => a + v, 0) / vals.length
-    b.fill = ramped(mean, mode === 'churn' ? 'churn' : 'age').fill
+    // Locality is not on a ramp — see `--wiring` — so its swatch is mixed the same way its
+    // wedges are. Same rule either way: the color in the key is a color on screen.
+    b.fill =
+      mode === 'locality'
+        ? wiringPaint(mean).fill
+        : ramped(mean, mode === 'churn' ? 'churn' : 'age').fill
   }
 
   const out = [...bucket.values()]
@@ -767,6 +922,12 @@ export function bucketsFor(
   } else if (mode === 'traps') {
     // Traps first: it is the only row anybody opens this lens to find.
     out.sort((a, b) => Number(b.key === 'trap') - Number(a.key === 'trap'))
+  } else if (mode === 'reach') {
+    // Unreferenced first, on the same argument traps makes for itself.
+    out.sort((a, b) => Number(b.key === 'alone') - Number(a.key === 'alone'))
+  } else if (mode === 'locality') {
+    const order = LOCALITY_BANDS.map((b) => b.label)
+    out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
   } else if (mode === 'legible' || mode === 'docs') {
     // Best first, calm end first, dark end first — the direction `Spread` reads in and the
     // direction each ramp's own legend reads in (`crystal → nonsense`, `covered →

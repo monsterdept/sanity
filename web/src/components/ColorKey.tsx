@@ -88,6 +88,59 @@ function Legend({
     )
   }
 
+  // Reach is not a scale either, and for the reason Traps is not: a caller count is a power
+  // law whose only interesting value is zero, so the map paints two states rather than five
+  // stops. Both states get a swatch — unlike Traps, where the absence of a trap is the
+  // ordinary case and needs no key — because here BOTH are findings, and a reader who saw
+  // only the bright one would have no way to know that the neutral means "measured, and
+  // something calls it" rather than "nobody looked".
+  if (mode === 'reach') {
+    return (
+      <div className="flex items-center gap-3">
+        {[
+          ['var(--wiring)', 'nothing calls it'],
+          ['var(--structure)', 'called'],
+        ].map(([fill, label]) => (
+          <span key={label} className="flex items-center gap-1.5">
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+              style={{ background: fill }}
+            />
+            <span className="text-[10px] text-[var(--muted-foreground)]">{label}</span>
+          </span>
+        ))}
+      </div>
+    )
+  }
+
+  // Locality IS a scale, and the one scale in the app that is not one of the five hue ramps
+  // — `scripts/palette-search.py` says the wheel is full, so it mixes one accent into the
+  // structural neutral instead. The bar therefore has to be built the same way the wedges
+  // are rather than from `heatColor`, or the key under a jade map would be an amber gradient.
+  if (mode === 'locality') {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
+          stays home
+        </span>
+        <div className="flex h-2 w-24 overflow-hidden rounded-full">
+          {Array.from({ length: 24 }, (_, i) => (
+            <span
+              key={i}
+              className="flex-1"
+              style={{
+                background: `color-mix(in oklch, var(--wiring) ${Math.round((i / 23) * 100)}%, var(--structure))`,
+              }}
+            />
+          ))}
+        </div>
+        <span className="shrink-0 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
+          reaches out
+        </span>
+      </div>
+    )
+  }
+
   const ends: Record<string, [string, string]> = {
     // The row words this key sits above, not a fifth vocabulary: it read
     // `clear → unclear` while the rows beneath said something else entirely, and now the
@@ -187,7 +240,8 @@ export function ModeSwitcher({
             title={
               disabled
                 ? 'A trace is uncoloured — a past commit has no reading, and nothing in the commit stream stood in for one'
-                : `${MODE_HINT[k]}  (⌘${i + 1})`
+                // Ten lenses and nine digits, so the tenth is ⌘0 — see `App`'s key listener.
+                : `${MODE_HINT[k]}  (⌘${(i + 1) % 10})`
             }
             className="rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
             style={{

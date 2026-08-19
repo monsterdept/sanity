@@ -44,6 +44,27 @@ pub struct FuncDef {
     pub owner: Option<String>,
     pub start_line: u32,
     pub end_line: u32,
+    /// The names this body calls, deduplicated and in file order of first appearance.
+    ///
+    /// Names, not targets: resolving one to a definition needs every other file in the
+    /// repo, which is [`crate::edges`]'s job. What the parse can honestly say is "this
+    /// body contains a call whose callee is spelled `foo`", and the receiver is
+    /// deliberately dropped — `a.render()`, `b.render()` and `render()` all arrive as
+    /// `render`, because tree-sitter cannot tell which `render` without a type checker
+    /// and pretending otherwise would invent edges.
+    ///
+    /// **Empty when the language is not in [`call_sites`], which is not the same as a
+    /// function that calls nothing.** `Lang::resolves_calls` is what tells those apart,
+    /// and every consumer has to ask it — a zero standing in for "we did not look" is
+    /// how a map reports dead code in a language it never read.
+    ///
+    /// Collected over the whole function node, closures included, which is the same
+    /// extent `body` covers. A nested named function is its own `FuncDef` AND its calls
+    /// are counted against the enclosing one; that is the price of keeping this
+    /// consistent with the body text a reader is handed, and it is confined to the
+    /// languages where a named definition can nest inside another.
+    #[serde(default)]
+    pub calls: Vec<String>,
 }
 
 impl FuncDef {
@@ -148,7 +169,12 @@ fn language(lang: Lang) -> tree_sitter::Language {
 ///
 /// Cheap to be wrong in the safe direction. A needless bump costs one re-parse per repo —
 /// seconds — while a missed one is silently wrong for as long as the files sit still.
-pub const PARSE_VERSION: u32 = 1;
+/// 2 because a parse now also yields [`FuncDef::calls`]. Nothing about a body's text
+/// changed, so no reading expires — but every cached `FuncDef` written before this has an
+/// empty call list, which under the Reach lens is indistinguishable from a repo whose
+/// functions genuinely call nothing. That is the exact shape of the `file_doc` failure and
+/// the bump is what stops it.
+pub const PARSE_VERSION: u32 = 2;
 
 /// Node kinds that count as "a function with a body someone wrote".
 ///
@@ -1080,12 +1106,347 @@ fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
         owner: owner_of(node, lang, src),
         start_line: node.start_position().row as u32 + 1,
         end_line: node.end_position().row as u32 + 1,
+        calls: calls_in(node, lang, src),
     })
+}
+
+/// Can a call site in this language be found at all?
+///
+/// **The one thing standing between an honest map and a confident wrong one.** The Reach and
+/// Locality lenses are built on call edges, and a language absent from [`call_sites`] yields
+/// none — which is indistinguishable, downstream, from a language whose functions really are
+/// unreferenced. So the absence is stated here and carried all the way to the wedge as a
+/// `None`, which paints gray, rather than as a zero, which paints "nothing calls this" over
+/// code somebody wrote last week.
+///
+/// Derived from the table rather than written out as a second list of languages. The second
+/// list was drafted, in `model.rs`, next to the language enum where it reads more naturally —
+/// and it is the shape of every drift this codebase has already paid for: two copies of one
+/// decision, kept in step by a test that has to be remembered. Here there is nothing to keep
+/// in step. Adding a language to `call_sites` turns its lenses on, and that is the only way
+/// to turn them on.
+pub fn resolves_calls(lang: Lang) -> bool {
+    !call_sites(lang).is_empty()
+}
+
+/// Node kinds that are a call, and the field holding what is being called.
+///
+/// The same discipline `func_kinds` runs on, for the same reason: every pair here was
+/// read off a real parse of a real snippet, never off memory. A kind that does not exist
+/// matches nothing, and a language whose calls all silently fail to match looks exactly
+/// like a language whose functions genuinely call nothing — which under the Reach lens
+/// reads as an all-clear over dead code. There is a test per language; keep them passing.
+///
+/// `None` for the field means "the callee is the first named child". Swift and Kotlin
+/// spell a call as an anonymous juxtaposition — `(call_expression (simple_identifier)
+/// (call_suffix …))` — so there is no field to name, and reaching for one yields nothing.
+///
+/// **A language absent from this list resolves no calls at all**, which is a stated
+/// absence rather than a zero — see [`crate::model::Lang::resolves_calls`], and keep the
+/// two in step. The list is short on purpose: it is the set whose call shape has actually
+/// been parsed and asserted, and adding to it is the same job as adding a language.
+///
+/// Constructors count. `new Thing()` and `Thing()` are the same edge as far as this map is
+/// concerned — one piece of code depending on another — and in Java, C# and TypeScript a
+/// great deal of the real wiring is spelled that way.
+fn call_sites(lang: Lang) -> &'static [(&'static str, Option<&'static str>)] {
+    match lang {
+        Lang::Rust => &[("call_expression", Some("function"))],
+        // JSX elements are calls, and leaving them out was the single biggest hole this
+        // table had. A React component is invoked as `<Sidebar />`, never as `Sidebar()`, so
+        // without these two kinds every component in every frontend reports zero callers —
+        // and zero callers is the Reach lens's headline finding. A repo of the exact kind
+        // this app is aimed at would have opened with its entire UI painted as dead code.
+        //
+        // `jsx_closing_element` is deliberately absent: `</Sidebar>` names the same component
+        // its opening tag does, and while the dedup would swallow it anyway, a table that
+        // lists a kind it does not need reads as though it needed it.
+        //
+        // No case filter on the name. `<div>` yields `div`, which resolves to nothing because
+        // no function in the repo is called `div` — so the resolver already refuses it, and a
+        // capital-letter rule here would be a second, weaker copy of that judgement.
+        Lang::TypeScript | Lang::Tsx | Lang::JavaScript => &[
+            ("call_expression", Some("function")),
+            ("new_expression", Some("constructor")),
+            ("jsx_opening_element", Some("name")),
+            ("jsx_self_closing_element", Some("name")),
+        ],
+        Lang::Python => &[("call", Some("function"))],
+        Lang::Go => &[("call_expression", Some("function"))],
+        // `field_expression` (`s->c()`) and `qualified_identifier` (`std::make_unique<T>()`)
+        // are both reached by following fields — see `callee_name`.
+        Lang::C | Lang::Cpp => &[("call_expression", Some("function"))],
+        Lang::Java => &[
+            ("method_invocation", Some("name")),
+            ("object_creation_expression", Some("type")),
+        ],
+        Lang::CSharp => &[
+            ("invocation_expression", Some("function")),
+            ("object_creation_expression", Some("type")),
+        ],
+        Lang::Ruby => &[("call", Some("method"))],
+        Lang::Swift | Lang::Kotlin => &[("call_expression", None)],
+        Lang::Lua => &[("function_call", Some("name"))],
+        Lang::Php => &[
+            ("function_call_expression", Some("function")),
+            ("member_call_expression", Some("name")),
+            ("scoped_call_expression", Some("name")),
+        ],
+        Lang::Scala => &[("call_expression", Some("function"))],
+        Lang::Dart => &[("call_expression", Some("function"))],
+        Lang::Zig => &[("call_expression", Some("function"))],
+        _ => &[],
+    }
+}
+
+/// The fields that lead from a callee expression to the name at the end of it.
+///
+/// Followed rather than descended blindly, and the difference is not cosmetic. Taking the
+/// last identifier under `std::make_unique<T>()` yields `T` — the template ARGUMENT — so a
+/// C++ repo would have every smart-pointer construction recorded as a call to whatever type
+/// it holds. Following `name` through `qualified_identifier` and then through
+/// `template_function` yields `make_unique`, which is the thing being called.
+const CALLEE_FIELDS: &[&str] = &["name", "field", "property", "method", "attribute", "member", "suffix"];
+
+/// How many wrappers deep to chase a callee before giving up. A generous ceiling on a
+/// structure that is three or four deep in the worst real case; it exists so a pathological
+/// tree cannot turn one call site into unbounded recursion.
+const CALLEE_DEPTH: u32 = 12;
+
+/// The bare name at the end of a callee expression, or `None` if it does not end in one.
+///
+/// `a.b.c()` and `T::c()` and `c()` all yield `c`. The receiver is discarded deliberately —
+/// see [`FuncDef::calls`].
+fn callee_name(node: TsNode, src: &str, depth: u32) -> Option<String> {
+    if depth > CALLEE_DEPTH {
+        return None;
+    }
+    for field in CALLEE_FIELDS {
+        if let Some(child) = node.child_by_field_name(field) {
+            return callee_name(child, src, depth + 1);
+        }
+    }
+    let mut cursor = node.walk();
+    let named: Vec<TsNode> = node.children(&mut cursor).filter(|c| c.is_named()).collect();
+    if let Some(last) = named.last() {
+        // Kotlin's `navigation_expression` and the lisp-shaped wrappers carry no fields at
+        // all, so the tail is the name. Anything that reached here with children and no
+        // recognised field is that shape.
+        return callee_name(*last, src, depth + 1);
+    }
+    let t = text(node, src).trim();
+    is_identifier(t).then(|| t.to_string())
+}
+
+/// Does this text look like a name a definition could carry?
+///
+/// The gate on everything that reaches `calls`. Without it a callee that resolves to a
+/// literal, an operator or a whole expression enters the symbol table as a name, and the
+/// resolver — which matches on strings — would happily join two functions through it.
+fn is_identifier(t: &str) -> bool {
+    !t.is_empty()
+        && t.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+        && t.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
+/// At most this many distinct callee names per function.
+///
+/// A ceiling on what a cached parse costs, not a claim about code. These names ride inside
+/// `scancache`'s `FuncDef`, so an unbounded list on a 2,000-line generated dispatcher is
+/// paid on every open of every repo forever. Truncation loses edges from the one function
+/// that is already the least readable thing in the file, which is the cheapest place to
+/// lose them.
+pub(crate) const MAX_CALLS: usize = 64;
+
+/// Every distinct name this function calls, in order of first appearance.
+///
+/// Deduplicated because the question downstream is "does this function depend on that one",
+/// asked once — a body that calls `push` forty times has one edge to `push`, and counting
+/// forty would let a loop outvote a subsystem.
+fn calls_in(node: TsNode, lang: Lang, src: &str) -> Vec<String> {
+    let sites = call_sites(lang);
+    if sites.is_empty() {
+        return Vec::new();
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    walk_calls(node, sites, src, &mut out, &mut seen);
+    out
+}
+
+/// Depth-first in document order, so the list is the order a reader would meet the calls.
+///
+/// A CURSOR walk rather than recursion, for the reason `collect` is one: a tree-sitter tree is
+/// as deep as the source nests, and a real file can nest far enough to exhaust the stack — a
+/// long C initializer chain does it, and there is a test named for it. This function walks the
+/// same trees `collect` does, so it had the same hazard; being newer is not being safer.
+///
+/// Order has to be deterministic whatever the mechanism: the list is cached, and one that
+/// reshuffled between two parses of identical bytes would rewrite the cache on every open and
+/// make `PARSE_VERSION` meaningless. Document order is the one order anybody can predict.
+///
+/// Unlike `collect` this descends into everything, nested definitions included, because the
+/// extent it reports on is the extent `body` covers — see [`FuncDef::calls`].
+fn walk_calls(
+    root: TsNode,
+    sites: &[(&str, Option<&str>)],
+    src: &str,
+    out: &mut Vec<String>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    let mut cursor = root.walk();
+    loop {
+        let node = cursor.node();
+        if let Some((_, field)) = sites.iter().find(|(k, _)| *k == node.kind()) {
+            let callee = match field {
+                Some(f) => node.child_by_field_name(f),
+                None => node.named_child(0),
+            };
+            if let Some(name) = callee.and_then(|c| callee_name(c, src, 0)) {
+                if out.len() < MAX_CALLS && seen.insert(name.clone()) {
+                    out.push(name);
+                }
+            }
+        }
+        if cursor.goto_first_child() {
+            continue;
+        }
+        // Climb until there is a sibling to move to. The cursor was made from `root`, so it
+        // cannot ascend past it — `goto_parent` returning false at the top is the walk
+        // finishing, and is the only exit.
+        loop {
+            if cursor.goto_next_sibling() {
+                break;
+            }
+            if !cursor.goto_parent() {
+                return;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The calls found in the file's single function, in the order they appear.
+    fn calls(lang: Lang, src: &str) -> Vec<String> {
+        let fns = parse_functions(lang, src);
+        assert_eq!(fns.len(), 1, "the call fixtures hold exactly one function");
+        fns[0].calls.clone()
+    }
+
+    /// One fixture per language whose call shape has been read off its grammar.
+    ///
+    /// **The point of this test is that it goes RED rather than quiet.** `call_sites` matches
+    /// node kinds literally, so a grammar bump that renames `call_expression` makes every call
+    /// in that language vanish — and a language with no edges is drawn exactly like a language
+    /// whose functions nothing calls, which is a finding rather than a blank. Every fixture
+    /// exercises the three shapes that broke during development: a bare call, a call through a
+    /// receiver (the receiver must be dropped), and whatever that language does with a
+    /// qualified or constructed name.
+    #[test]
+    fn every_resolving_language_finds_its_calls() {
+        assert_eq!(calls(Lang::Rust, "fn a(){ b(); self.c(); T::d(); }"), ["b", "c", "d"]);
+        assert_eq!(
+            calls(Lang::TypeScript, "function a(){ b(); x.y.c(); new D(); }"),
+            ["b", "c", "D"]
+        );
+        assert_eq!(calls(Lang::Tsx, "function a(){ b(); x.c(); }"), ["b", "c"]);
+        // A component is invoked by being written, not by being called.
+        assert_eq!(
+            calls(Lang::Tsx, "function a(){ return <Outer x={f()}><Inner/></Outer>; }"),
+            ["Outer", "f", "Inner"]
+        );
+        assert_eq!(calls(Lang::JavaScript, "function a(){ b(); new C(); }"), ["b", "C"]);
+        assert_eq!(calls(Lang::Python, "def a():\n  b()\n  x.y.c()\n"), ["b", "c"]);
+        assert_eq!(calls(Lang::Go, "func a(){ b(); x.C() }"), ["b", "C"]);
+        assert_eq!(calls(Lang::C, "int a(){ b(); s->c(); return 0; }"), ["b", "c"]);
+        // `std::make_unique<T>()` is the reason `callee_name` follows fields instead of
+        // taking the last identifier: the last identifier here is the template ARGUMENT.
+        assert_eq!(
+            calls(Lang::Cpp, "int a(){ b(); std::make_unique<Widget>(); }"),
+            ["b", "make_unique"]
+        );
+        assert_eq!(
+            calls(Lang::Java, "class K { void a(){ b(); x.c(); new D(); } }"),
+            ["b", "c", "D"]
+        );
+        assert_eq!(
+            calls(Lang::CSharp, "class K { void a(){ b(); x.c(); new D(); } }"),
+            ["b", "c", "D"]
+        );
+        assert_eq!(calls(Lang::Ruby, "def a\n b()\n x.c\nend\n"), ["b", "c"]);
+        assert_eq!(calls(Lang::Swift, "func a(){ b(); x.c() }"), ["b", "c"]);
+        assert_eq!(calls(Lang::Kotlin, "fun a(){ b(); x.c() }"), ["b", "c"]);
+        assert_eq!(calls(Lang::Lua, "function a() b() x.c() y:d() end"), ["b", "c", "d"]);
+        assert_eq!(
+            calls(Lang::Php, "<?php function a(){ b(); $x->c(); D::e(); }"),
+            ["b", "c", "e"]
+        );
+        assert_eq!(calls(Lang::Scala, "def a() = { b(); x.c() }"), ["b", "c"]);
+        assert_eq!(calls(Lang::Dart, "void a(){ b(); x.c(); }"), ["b", "c"]);
+        assert_eq!(calls(Lang::Zig, "fn a() void { b(); x.c(); }"), ["b", "c"]);
+    }
+
+    /// A language nobody has read the call shape of reports nothing, and says which it is.
+    ///
+    /// The two states this asserts are the whole honesty of the Reach lens: Fortran parses
+    /// perfectly well and yields no calls, and the ONLY thing separating that from a Fortran
+    /// repo where nothing calls anything is `resolves_calls` saying so out loud.
+    #[test]
+    fn a_language_with_no_call_shape_says_so_rather_than_reporting_zero() {
+        assert!(!resolves_calls(Lang::Fortran));
+        assert!(resolves_calls(Lang::Rust));
+        let f = parse_functions(Lang::Fortran, "subroutine a()\n  call b()\nend subroutine\n");
+        assert!(f.first().is_some_and(|f| f.calls.is_empty()));
+    }
+
+    /// One edge per callee, however many times the body says it.
+    #[test]
+    fn a_call_made_forty_times_is_one_dependency() {
+        let src = "fn a(){ push(1); push(2); push(3); pop(); }";
+        assert_eq!(calls(Lang::Rust, src), ["push", "pop"]);
+    }
+
+    /// Nothing that is not a name may enter the symbol table.
+    ///
+    /// The resolver matches on strings, so an operator or a literal arriving as a "call name"
+    /// is a token two unrelated functions could be joined through.
+    #[test]
+    fn only_identifiers_become_call_names() {
+        let found = calls(Lang::Rust, "fn a(){ (|x| x)(1); b(); }");
+        assert!(found.iter().all(|n| is_identifier(n)), "{found:?}");
+        assert!(found.contains(&"b".to_string()));
+    }
+
+    /// The list rides in `scancache`, so it cannot be unbounded.
+    #[test]
+    fn the_call_list_is_capped() {
+        let body: String = (0..MAX_CALLS + 40).map(|i| format!("f{i}(); ")).collect();
+        assert_eq!(calls(Lang::Rust, &format!("fn a(){{ {body} }}")).len(), MAX_CALLS);
+    }
+
+    /// A tree deep enough to exhaust the stack is walked, not recursed.
+    ///
+    /// The twin of `a_deeply_nested_file_does_not_overflow_the_stack`, which covers `collect`.
+    /// Both walk the same trees, so a fix to one that is not applied to the other leaves the
+    /// crash exactly where it was — reachable from any real file that nests this far.
+    #[test]
+    fn a_deeply_nested_body_does_not_overflow_the_call_walk() {
+        let chain = "1 + ".repeat(40_000);
+        let src = format!("fn deep() {{ let x = {chain}1; helper(); }}");
+        assert_eq!(calls(Lang::Rust, &src), ["helper"]);
+    }
+
+    /// Identical bytes must yield an identical list, or the cache rewrites itself on every
+    /// open and `PARSE_VERSION` stops meaning anything.
+    #[test]
+    fn the_call_list_is_deterministic_and_in_document_order() {
+        let src = "fn a(){ first(); { second(); } third(); }";
+        assert_eq!(calls(Lang::Rust, src), ["first", "second", "third"]);
+        assert_eq!(calls(Lang::Rust, src), calls(Lang::Rust, src));
+    }
 
     fn names(lang: Lang, src: &str) -> Vec<String> {
         parse_functions(lang, src)
@@ -1715,3 +2076,4 @@ extension Thing {
         assert_eq!(fns.len(), 1);
     }
 }
+

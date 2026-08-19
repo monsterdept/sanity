@@ -500,6 +500,53 @@ pub struct Node {
     /// only part of a reading a reader can act on directly.
     #[serde(default)]
     pub hotspots: Vec<crate::surprise::Hotspot>,
+    /// This function's wiring: who calls it, what it calls, and how far those neighbours
+    /// live from it.
+    ///
+    /// From the parse, not from a reading — available the moment a repo is opened, with no
+    /// tokens spent and no git history needed, which on a repo a model generated an hour ago
+    /// is the only evidence there is. See [`crate::edges`].
+    ///
+    /// **`None` means the language's call shape has never been parsed**, never "nothing calls
+    /// this". Those are opposite facts and the map paints them differently: an absence is
+    /// gray, a genuine zero is the brightest thing on the Reach lens. Kept on the node beside
+    /// `lang` and `path` rather than in `Score`, because it is a property of the code rather
+    /// than a component of a reading — and because `Score` is `Copy`, which the aggregation
+    /// path relies on.
+    #[serde(default)]
+    pub callers: Option<u32>,
+    #[serde(default)]
+    pub calls: Option<u32>,
+    /// Distinct neighbours — callers and callees together, a mutual pair counted once — and
+    /// how many of them live outside this function's own directory.
+    ///
+    /// The COUNTS travel rather than the ratio they make, and that is the whole reason there
+    /// are two fields here instead of one `locality: f32`. A container's locality is
+    /// `sum(away) / sum(incident)` over everything underneath it; from ratios alone the
+    /// browser could only average, which weights a function with one edge the same as one
+    /// with thirty and turns the inner rings into a count of small functions. One formula,
+    /// applied at two scopes, needs the numerator and the denominator.
+    #[serde(default)]
+    pub incident: Option<u32>,
+    #[serde(default)]
+    pub away: Option<u32>,
+    /// Functions underneath whose language resolves calls, and how many of those nothing in
+    /// this repo calls. On a function itself, `1` and `0`-or-`1`.
+    ///
+    /// **Rolled up here rather than walked in the browser, and `slim` is why.** A window is
+    /// handed a tree with no function nodes in it — see [`Node::slim`] — so a share computed
+    /// by walking down to the leaves finds nothing on exactly the repos big enough to need
+    /// the lens. This is the same reason `hot_share` is computed in `aggregate` and not in
+    /// the frontend, and the first draft of these lenses got it wrong in the way that rule
+    /// exists to prevent: both went gray above the file ring on anything large.
+    ///
+    /// Defined identically at every level so one formula serves both — `orphans / resolvable`
+    /// is a function's own state at the leaf and a directory's unreferenced share above it,
+    /// exactly as `away / incident` is.
+    #[serde(default)]
+    pub resolvable: Option<u32>,
+    #[serde(default)]
+    pub orphans: Option<u32>,
     #[serde(default)]
     pub children: Vec<Node>,
     /// How many functions a FILE holds, for a tree sent without them — see [`Node::slim`].
@@ -533,6 +580,12 @@ impl Node {
             end_line: None,
             score: None,
             hotspots: Vec::new(),
+            callers: None,
+            calls: None,
+            incident: None,
+            away: None,
+            resolvable: None,
+            orphans: None,
             children: Vec::new(),
             funcs: 0,
         }
@@ -552,6 +605,35 @@ impl Node {
 
         if self.kind != NodeKind::Func {
             self.loc = self.children.iter().map(|c| c.loc).sum();
+        }
+
+        // The wiring counts, summed rather than averaged. A directory's locality is
+        // `sum(away) / sum(incident)` over everything underneath it, not the mean of its
+        // children's ratios — a mean weights a helper with one edge the same as a hub with
+        // thirty, so an inner ring would report how many small functions a directory holds.
+        // `None` unless something underneath resolves calls at all, so a tree of a language
+        // nobody has read stays an absence all the way up instead of becoming a confident
+        // zero at the first container.
+        let mut wired: Option<(u32, u32, u32, u32)> = None;
+        for c in &self.children {
+            let (Some(i), Some(a), Some(r), Some(o)) =
+                (c.incident, c.away, c.resolvable, c.orphans)
+            else {
+                continue;
+            };
+            let t = wired.get_or_insert((0, 0, 0, 0));
+            t.0 += i;
+            t.1 += a;
+            t.2 += r;
+            t.3 += o;
+        }
+        if self.kind != NodeKind::Func {
+            if let Some((i, a, r, o)) = wired {
+                self.incident = Some(i);
+                self.away = Some(a);
+                self.resolvable = Some(r);
+                self.orphans = Some(o);
+            }
         }
 
         let mut w = 0.0f32;
@@ -674,6 +756,17 @@ impl Node {
             body: self.body.clone(),
             score: self.score,
             hotspots: self.hotspots.clone(),
+            // The wiring roll-ups survive slimming, which is the whole point of computing
+            // them in `aggregate`: a file keeps its share of unreferenced code and its share
+            // of calls that leave home after its functions are gone, exactly as it keeps
+            // `hot_share`. `callers` and `calls` do NOT — they are one function's own counts,
+            // and a file has neither.
+            callers: self.callers,
+            calls: self.calls,
+            incident: self.incident,
+            away: self.away,
+            resolvable: self.resolvable,
+            orphans: self.orphans,
             funcs: if self.kind == NodeKind::File { self.children.len() as u32 } else { 0 },
             children: if self.kind == NodeKind::File {
                 Vec::new()
@@ -726,6 +819,66 @@ mod tests {
             source: Source::Model,
             analyzed_share: 1.0,
         }
+    }
+
+    /// A function node with the wiring counts a scan would give it.
+    fn wired(name: &str, loc: u32, callers: u32, incident: u32, away: u32) -> Node {
+        let mut n = Node::dir(name, name);
+        n.kind = NodeKind::Func;
+        n.loc = loc;
+        n.callers = Some(callers);
+        n.calls = Some(0);
+        n.incident = Some(incident);
+        n.away = Some(away);
+        n.resolvable = Some(1);
+        n.orphans = Some(u32::from(callers == 0));
+        n
+    }
+
+    /// The wiring counts roll up as SUMS, so a container's ratio is over its edges rather
+    /// than over its children.
+    ///
+    /// The distinction is the whole reason `Node` carries four counts instead of two ratios.
+    /// Here the hub has nine neighbours and three leave; the helper has one and it stays. A
+    /// mean of the two ratios is 17%, which describes a directory holding one small function;
+    /// the sum is 3 of 10, which describes the directory.
+    #[test]
+    fn wiring_rolls_up_by_edges_not_by_children() {
+        let mut dir = Node::dir("src", "src");
+        dir.children = vec![wired("hub", 100, 4, 9, 3), wired("helper", 4, 1, 1, 0)];
+        dir.aggregate();
+        assert_eq!((dir.away, dir.incident), (Some(3), Some(10)), "summed, not averaged");
+        assert_eq!((dir.orphans, dir.resolvable), (Some(0), Some(2)));
+        // A container answers for its subtree, never for itself: it is not called and does
+        // not call, so the two per-function counts stay absent all the way up.
+        assert_eq!((dir.callers, dir.calls), (None, None));
+    }
+
+    /// A subtree in a language whose calls were never parsed stays an absence, and does not
+    /// become a confident zero at the first container above it.
+    ///
+    /// Zero would paint "nothing here is called" over code nobody looked at, which is the one
+    /// claim both wiring lenses exist to avoid making.
+    #[test]
+    fn an_unreadable_subtree_rolls_up_as_absent_rather_than_as_zero() {
+        let mut unread = Node::dir("vendor", "vendor");
+        let mut f = Node::dir("thing", "thing");
+        f.kind = NodeKind::Func;
+        f.loc = 10;
+        unread.children = vec![f];
+        unread.aggregate();
+        assert_eq!((unread.resolvable, unread.orphans), (None, None));
+        assert_eq!((unread.incident, unread.away), (None, None));
+
+        // And a directory holding both counts only the half it can see, rather than diluting
+        // the measured share with functions nobody measured.
+        let mut mixed = Node::dir("", "repo");
+        let mut read = Node::dir("src", "src");
+        read.children = vec![wired("orphan", 5, 0, 0, 0), wired("used", 5, 2, 2, 1)];
+        mixed.children = vec![read, unread];
+        mixed.aggregate();
+        assert_eq!(mixed.resolvable, Some(2), "the unreadable half is not in the denominator");
+        assert_eq!(mixed.orphans, Some(1));
     }
 
     #[test]

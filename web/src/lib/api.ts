@@ -78,6 +78,31 @@ export interface Node {
   /** Hash of this function's body — what a committed reading is checked against. */
   body: string | null
   hotspots: Hotspot[]
+  /** This function's wiring, from the parse: how many functions call it, how many it calls,
+   *  how many distinct neighbours that makes, and how many of them live outside its own
+   *  directory.
+   *
+   *  **`null` means the language's call shape has never been parsed** — see
+   *  `parse::call_sites` — never "nothing calls this". Those are opposite facts and the Reach
+   *  lens paints them differently: an absence is gray, a genuine zero is the brightest thing
+   *  on the map. Every consumer has to keep them apart, which is why the counts are nullable
+   *  rather than defaulted to 0.
+   *
+   *  The two COUNTS travel rather than the ratio they make, so a container can sum them —
+   *  see `wiringShare`. */
+  callers: number | null
+  calls: number | null
+  incident: number | null
+  away: number | null
+  /** Functions underneath whose language resolves calls, and how many of those nothing calls.
+   *  On a function itself, `1` and `0`-or-`1`.
+   *
+   *  **Rolled up in Rust, never walked here.** A window is handed a tree with no function
+   *  nodes in it on any large repo — see `Node::slim` — so a share computed by walking down to
+   *  the leaves finds nothing on exactly the projects that need the lens most. Same reason
+   *  `hotShare` arrives precomputed. */
+  resolvable: number | null
+  orphans: number | null
   /** Set when an agent assessed this function over MCP. */
   agent?: AgentReport
   /** The reading in `agent` was made against a different body than the one here.
@@ -142,6 +167,24 @@ export function pruneExcluded(node: Node): Node {
   return { ...node, children, loc }
 }
 
+/** A node's locality — the share of the wiring underneath it that leaves its own directory.
+ *
+ *  One formula at every scope. At a function it is that function's own neighbours; above it,
+ *  Rust's `aggregate` has already summed the two counts, which is why the COUNTS cross the
+ *  wire and not the ratio they make.
+ *
+ *  The single accessor, on the same rule `legibleOf` follows: the lens, the panel row and the
+ *  breakdown all need this number, and three copies of one division is three chances for the
+ *  map and the list beside it to disagree about the same wedge.
+ *
+ *  `null` on anything nothing is wired to. Zero would say "everything it touches is next
+ *  door" — the calmest reading on the ramp — about a function that touches nothing, which has
+ *  not earned it. That case is Reach's subject, not this one's. */
+export function localityOf(n: Node): number | null {
+  if (n.incident == null || n.away == null || n.incident === 0) return null
+  return n.away / n.incident
+}
+
 export function showsShare(node: Node): boolean {
   return node.kind !== 'func' || node.rest !== undefined
 }
@@ -163,6 +206,12 @@ export interface ScanStats {
    *
    *  Kept on the wire because `just scan` still reports it, where the reader is us. */
   withoutHistory: boolean
+  /** Call sites that reached a definition in this repo, and ones that did not. The diagnostic
+   *  behind the two wiring lenses — most calls in any real file go to a dependency, so a low
+   *  share is normal, but a repo near zero means the resolver is wrong and both lenses are
+   *  noise. Optional because a scan taken by an older backend does not carry them. */
+  callsResolved?: number
+  callsUnresolved?: number
   /** Commits reachable from HEAD. 0 when there is no history — the header reads that as
    *  "say nothing" rather than as a repo with no commits. */
   commits: number
@@ -218,6 +267,14 @@ interface WireNode {
   body: string | null
   score: WireScore | null
   hotspots?: Hotspot[]
+  /** Optional because a scan taken by an older backend does not carry them, and the absence
+   *  has to arrive as `null` rather than 0 — see `Node.callers`. */
+  callers?: number | null
+  calls?: number | null
+  incident?: number | null
+  away?: number | null
+  resolvable?: number | null
+  orphans?: number | null
   /** Absent rather than empty for a function — see the `skip_serializing_if` on `Node` in
    *  Rust. A hundred thousand `"children":[]` is megabytes of nothing. */
   children?: WireNode[]
@@ -232,6 +289,8 @@ interface WireScan {
     without_history: boolean
     commits?: number
     model: string
+    calls_resolved?: number
+    calls_unresolved?: number
   }
 }
 
@@ -264,6 +323,16 @@ function toNode(w: WireNode): Node {
         }
       : null,
     hotspots: w.hotspots ?? [],
+    // `?? null`, never `?? 0`. A backend that has never heard of the call graph and a repo
+    // in a language whose calls do not resolve are the same fact here — nobody looked — and
+    // a zero would paint both as "nothing calls this", which is the finding the lens exists
+    // to make.
+    callers: w.callers ?? null,
+    calls: w.calls ?? null,
+    incident: w.incident ?? null,
+    away: w.away ?? null,
+    resolvable: w.resolvable ?? null,
+    orphans: w.orphans ?? null,
     children: (w.children ?? []).map(toNode),
     funcs: w.funcs ?? 0,
   }
@@ -1181,6 +1250,8 @@ function toScan(w: WireScan): Scan {
       withoutHistory: w.stats.without_history,
       commits: w.stats.commits ?? 0,
       model: w.stats.model,
+      callsResolved: w.stats.calls_resolved,
+      callsUnresolved: w.stats.calls_unresolved,
     },
   }
 }

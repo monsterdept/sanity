@@ -124,6 +124,7 @@ fn main() {
     );
 
     histogram(&funcs);
+    wiring(&funcs, &scanned.stats);
     baseline_check(&mut funcs.clone());
 
     // Ranked by temperature × lines, not temperature alone.
@@ -160,6 +161,99 @@ fn histogram(funcs: &[&Node]) {
     for (i, count) in buckets.iter().enumerate() {
         let bar = "█".repeat((count * 34 / peak).max(usize::from(*count > 0)));
         println!("  {:>3}-{:<3} {:<34} {}", i * 10, i * 10 + 10, bar, count);
+    }
+}
+
+/// What the call graph found, before anybody is asked to trust a color made out of it.
+///
+/// **The null model for the Reach and Locality lenses, and the reason to print it rather
+/// than to reason about it.** Both lenses turn a count into a ramp, and a ramp is a claim
+/// about how the quantity is distributed in real code. `calibrate`'s own doc makes the
+/// argument for surprise — "a flat or saturated spread means the metric is measuring nothing
+/// and the rankings are decoration" — and nothing about call counts exempts them.
+///
+/// Three numbers decide whether the lenses are worth looking at on a given repo, and every
+/// one of them is a way for this to be USELESS rather than merely imprecise:
+///
+/// - **Coverage.** Functions in a language whose calls resolve at all. A repo that is 90%
+///   Fortran gets two gray lenses, and the honest thing is to say so up front rather than to
+///   let somebody read gray as calm.
+/// - **Resolution.** The share of call sites that reached a definition in this repo. Most
+///   calls in any real file go to the standard library or a dependency, so this is naturally
+///   low — but a repo at 2% means the family rule or the grammar is wrong, and the ranking
+///   below is noise.
+/// - **Unreferenced.** The share of resolvable functions nothing in the repo calls. This is
+///   the finding the Reach lens exists for, and it is also the number most likely to be
+///   misread: a library's public surface is unreferenced BY ITS OWN REPO and entirely
+///   healthy, while the same figure in a freshly generated application is dead code.
+fn wiring(funcs: &[&Node], stats: &sanity_lib::scan::ScanStats) {
+    let resolvable: Vec<&&Node> = funcs.iter().filter(|n| n.callers.is_some()).collect();
+    println!("\nWIRING");
+    if resolvable.is_empty() {
+        println!("  no language here has a call shape sanity has read — both lenses are gray");
+        return;
+    }
+    let sites = stats.calls_resolved + stats.calls_unresolved;
+    println!(
+        "  {} of {} call sites reached a definition in this repo ({:.0}%)",
+        stats.calls_resolved,
+        sites,
+        100.0 * stats.calls_resolved as f32 / sites.max(1) as f32,
+    );
+    let orphans = resolvable.iter().filter(|n| n.callers == Some(0)).count();
+    println!(
+        "  {} of {} functions in a language whose calls resolve ({:.0}%)",
+        resolvable.len(),
+        funcs.len(),
+        100.0 * resolvable.len() as f32 / funcs.len().max(1) as f32,
+    );
+    println!(
+        "  {orphans} of those are called by nothing in this repo ({:.0}%)",
+        100.0 * orphans as f32 / resolvable.len().max(1) as f32,
+    );
+
+    // Caller counts, in the bands the lens has to tell apart. Bands rather than deciles
+    // because the distribution is expected to be a power law, and ten equal slices of a
+    // power law are one full bucket and nine empty ones.
+    let bands: [(&str, u32, u32); 6] =
+        [("0", 0, 0), ("1", 1, 1), ("2", 2, 2), ("3-5", 3, 5), ("6-15", 6, 15), ("16+", 16, u32::MAX)];
+    let peak = bands
+        .iter()
+        .map(|(_, lo, hi)| resolvable.iter().filter(|n| (*lo..=*hi).contains(&n.callers.unwrap())).count())
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    println!("  callers");
+    for (label, lo, hi) in bands {
+        let c = resolvable.iter().filter(|n| (lo..=hi).contains(&n.callers.unwrap())).count();
+        println!("    {:>5} {:<30} {}", label, "\u{2588}".repeat((c * 30 / peak).max(usize::from(c > 0))), c);
+    }
+
+    // Locality, over the functions that have any wiring at all. Deciles here because a share
+    // is bounded and its shape is the open question — if this is flat the lens is a ranking,
+    // if it piles at one end it is a constant wearing a ramp.
+    let wired: Vec<f32> = resolvable
+        .iter()
+        .filter_map(|n| sanity_lib::edges::locality_gap(n.away, n.incident))
+        .collect();
+    if wired.is_empty() {
+        println!("  nothing is wired to anything — Locality has nothing to draw");
+        return;
+    }
+    let mut deciles = [0usize; 10];
+    for v in &wired {
+        deciles[((v * 10.0) as usize).min(9)] += 1;
+    }
+    let peak = deciles.iter().copied().max().unwrap_or(1).max(1);
+    println!("  calls leaving their own directory, per function ({} wired)", wired.len());
+    for (i, c) in deciles.iter().enumerate() {
+        println!(
+            "    {:>3}-{:<3} {:<30} {}",
+            i * 10,
+            i * 10 + 10,
+            "\u{2588}".repeat((c * 30 / peak).max(usize::from(*c > 0))),
+            c
+        );
     }
 }
 

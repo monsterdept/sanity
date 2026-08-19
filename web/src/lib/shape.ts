@@ -57,6 +57,15 @@ function dirNode(path: string, name: string, kind: 'dir' | 'file'): Node {
     score: null,
     body: null,
     hotspots: [],
+    // The shape tree is what a scan streams while it is still running, so nothing has been
+    // wired yet — call edges are resolved repo-wide once every file is parsed. Both wiring
+    // lenses are gray until the real tree lands, which is the honest state: absent, not zero.
+    callers: null,
+    calls: null,
+    incident: null,
+    away: null,
+    resolvable: null,
+    orphans: null,
     children: [],
     funcs: 0,
   }

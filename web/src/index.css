@@ -265,6 +265,38 @@
   --cat-7: #966c81;
   --cat-8: #c89abc;
 
+  /* Wiring — Reach and Locality, the two lenses painted from the call graph rather than
+   * from a reading or a commit. ONE color for both, and not a ramp, and both of those are
+   * results rather than preferences.
+   *
+   * `scripts/palette-search.py` is the search this file has always asked for and never
+   * had. It reproduces the five ramps above to within one 8-bit step and every margin
+   * they claim — worst hot pair 27.2, cold ends 14-19 apart, heat at 11.5 against the
+   * unanalyzed neutral, docs the tight one at 20.5 against --trap — which is what makes
+   * its verdict on a SIXTH ramp worth acting on: there is no room. The best available
+   * sixth hue costs the worst pair 14.3 -> 9.4, and it lands at 274 degrees, thirty from
+   * churn's blue. Thirty degrees is nearer than the forty that made docs and churn one
+   * color and got cyan barred from the palette. The wheel is full at five.
+   *
+   * So the wiring pair does what the ninth categorical slot did when the same answer came
+   * back: it declines the hue and reaches for a different encoding. Reach is two states and
+   * an absence — the shape Traps already established, because a caller count is a power law
+   * whose only interesting value is zero (22-56% of functions across four real repos, and
+   * the rest a decaying tail). Locality is a share, so it mixes from --structure toward this
+   * color: none of its wiring leaves home, through to all of it.
+   *
+   * Solved as a FLAT accent, which is a far smaller ask than a ramp because it is only ever
+   * on screen under its own two lenses. It has to be told apart from what sits beside it
+   * there — the directory fill, the unread neutral, the agent outline, the trap pink and the
+   * page, in both themes — and from nothing else. Jade at 164 degrees clears 20.4 at its
+   * worst, against a palette whose own tightest pair is 14.3, and it is held to the muted
+   * chroma range for the reason the categorical block gives: a lens like this fills the
+   * whole chart, and at that coverage a saturated color is unreadable. Held 40 degrees clear
+   * of every lens hue so a glance still says which question is being asked.
+   *
+   * `just palette` re-runs the search. Re-solve, don't eyeball. */
+  --wiring: #42be8f;
+
   --unanalyzed: #b3aca3;
   /* Outlines wedges an AGENT judged, so they are distinguishable from model-scored ones
    * without touching hue — hue is the reading. Off the ramp entirely, and off the rose

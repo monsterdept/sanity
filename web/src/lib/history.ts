@@ -522,6 +522,12 @@ function dirNode(path: string, name: string): Node {
     name,
     kind: 'dir',
     path,
+    callers: null,
+    calls: null,
+    incident: null,
+    away: null,
+    resolvable: null,
+    orphans: null,
     loc: 0,
     line: null,
     endLine: null,
@@ -747,6 +753,19 @@ export function frameTree(
         score: null,
         body: null,
         hotspots: [],
+        // A replay has no wiring, and never will. Resolving calls needs every file in the
+        // repo as it stood at that commit, and the walk carries parse state forward rather
+        // than re-parsing the tree — so the honest answer is the one the module already
+        // gives for surprise: this is a second VIEW, not a second measurement, and a lens
+        // it cannot compute stays gray rather than being stamped with today's answer.
+        // The switcher is disabled during a replay anyway; this is what makes that true
+        // rather than merely enforced.
+        callers: null,
+        calls: null,
+        incident: null,
+        away: null,
+        resolvable: null,
+        orphans: null,
         children: [],
         funcs: 0,
       }

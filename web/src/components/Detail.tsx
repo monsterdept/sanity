@@ -10,6 +10,7 @@ import { FunctionRanks } from './Reading'
 import type { Population } from '../lib/population'
 import {
   isAnalyzed,
+  localityOf,
   readingWords,
   wedgeHeat,
   type AgentReport,
@@ -138,6 +139,10 @@ function rank(n: Node, mode: ColorMode): number {
   if (mode === 'churn') return s.ageDays === null ? -1 : s.churn
   // Recent is the bright end of the age ramp, so recent sorts first.
   if (mode === 'age') return s.lastTouchedDays === null ? -1 : -s.lastTouchedDays
+  // Both wiring lenses rank by their own bright end, so the list opens on what the map is
+  // shouting about: the unreferenced first, and the most far-flung first.
+  if (mode === 'reach') return n.callers == null ? -1 : 1 / (1 + n.callers)
+  if (mode === 'locality') return localityOf(n) ?? -1
   return wedgeHeat(n)
 }
 
@@ -150,6 +155,11 @@ function measure(n: Node, mode: ColorMode): string | null {
   // already carries it — a line count beside it answers a question nobody asked here.
   if (mode === 'blame') return null
   if (mode === 'churn') return s && s.ageDays !== null ? `${s.commits}\u00d7` : '\u2014'
+  if (mode === 'reach') return n.callers == null ? '\u2014' : `${n.callers}\u00d7`
+  if (mode === 'locality') {
+    const v = localityOf(n)
+    return v === null ? '\u2014' : `${Math.round(v * 100)}% out`
+  }
   if (mode === 'age') {
     if (!s || s.lastTouchedDays === null) return '\u2014'
     return s.lastTouchedDays < 1 ? 'today' : `${Math.round(s.lastTouchedDays)}d ago`

@@ -386,7 +386,7 @@ export default function App() {
   // making the user find the directory again.
   const lastPath = useRef<string | null>(null)
 
-  // Cmd-1..7 for the lenses, in the order they appear in the switcher.
+  // Cmd-1..9 then Cmd-0 for the lenses, in the order they appear in the switcher.
   //
   // Derived from `MODE_LABEL`'s key order rather than a second list, so the digit always
   // matches the position on screen — the two cannot drift because there is only one order.
@@ -406,7 +406,10 @@ export default function App() {
       // shortcut is the switcher, and a control that is disabled in one place and live on
       // the keyboard is not disabled.
       if (historyOn) return
-      const i = Number(e.key) - 1
+      // Cmd-0 is the TENTH, which is the convention every tab strip uses and the only place
+      // to put a tenth lens: renumbering the row to fit nine would mean choosing a lens to
+      // have no shortcut, and the row's order carries meaning — see `MODE_LABEL`.
+      const i = e.key === '0' ? 9 : Number(e.key) - 1
       const modes = Object.keys(MODE_LABEL) as ColorMode[]
       if (!Number.isInteger(i) || i < 0 || i >= modes.length) return
       e.preventDefault()
