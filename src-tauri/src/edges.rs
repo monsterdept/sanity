@@ -93,7 +93,7 @@ pub fn locality_gap(away: Option<u32>, incident: Option<u32>) -> Option<f32> {
 /// Position in the file rather than name, because `path#name` is not unique — the same
 /// reason [`crate::assessment::key_of`] takes an ordinal. Nothing durable is keyed on this;
 /// it is an index into the scan that produced it and dies with it.
-type Site = (usize, usize);
+pub type Site = (usize, usize);
 
 /// Which definitions a call in one language is allowed to reach.
 ///
@@ -130,6 +130,15 @@ pub struct FileView<'a> {
 /// Every function's wiring, plus what could not be resolved.
 pub struct Wiring {
     per_site: HashMap<Site, Wire>,
+    /// Every resolved edge, caller first. Deduplicated, recursion already dropped.
+    ///
+    /// **Kept rather than folded away, because two scalars cannot be clicked.** The counts
+    /// below them answer "how wired is this"; the panel that opens when somebody wants to
+    /// know *what* calls a function needs the pairs themselves, and rebuilding them costs
+    /// the whole repo's parse — the one thing a launch off a cached tree never reads. See
+    /// [`crate::links`], which is the only consumer and turns these into a form that
+    /// survives the scan.
+    pub edges: Vec<(Site, Site)>,
     /// Call names that reached no definition, and how many did. Reported rather than
     /// swallowed: a repo where 95% of calls go nowhere is one where the family rule or the
     /// grammar is wrong, and the only way to notice is to be told the share.
@@ -244,7 +253,12 @@ pub fn wire(files: &[FileView<'_>]) -> Wiring {
         w.away = near.iter().filter(|(fi, _)| dir_of(files[*fi].path) != home).count() as u32;
     }
 
-    Wiring { per_site, resolved, unresolved, resolvable }
+    // Sorted, so the panel's lists come out in a stable order rather than a hash order that
+    // reshuffles between two scans of an unchanged repo — the same argument `BTreeMap`
+    // carries in `scan`'s directory grouping.
+    let mut edges: Vec<(Site, Site)> = edges.into_iter().collect();
+    edges.sort_unstable();
+    Wiring { per_site, resolved, unresolved, resolvable, edges }
 }
 
 /// Which definitions a call by this name reaches, nearest tier first.

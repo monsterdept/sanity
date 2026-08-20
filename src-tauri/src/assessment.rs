@@ -2030,6 +2030,7 @@ mod tests {
                 calls_resolved: 0,
                 calls_unresolved: 0,
             },
+            links: Default::default(),
         }
     }
 

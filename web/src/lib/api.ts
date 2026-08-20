@@ -74,6 +74,16 @@ export interface Node {
    *  so the browser had a file's header and could not show it. It is what the Docs lens
    *  grades on a file and what the pane prints under HEADER. */
   doc: string | null
+  /** The declaration line — everything up to the body.
+   *
+   *  On the wire all along and dropped here, like `doc` was. It is what the Docs pane shows a
+   *  comment ALONGSIDE: a doc is graded against the thing it describes, and a panel that
+   *  prints the prose without the signature is showing half of what the reader was handed. */
+  signature: string | null
+  /** The type, trait or class this function is defined inside. A bare name is not an
+   *  identity — see `owner` in Rust; the panel's neighbour lists carry it for the same
+   *  reason the reader's peer list does. */
+  owner: string | null
   score: Score | null
   /** Hash of this function's body — what a committed reading is checked against. */
   body: string | null
@@ -287,6 +297,8 @@ interface WireNode {
   excluded?: boolean
   last_author: string | null
   doc?: string | null
+  signature?: string | null
+  owner?: string | null
   body: string | null
   score: WireScore | null
   hotspots?: Hotspot[]
@@ -335,6 +347,8 @@ function toNode(w: WireNode): Node {
     excluded: w.excluded ?? false,
     lastAuthor: w.last_author ?? null,
     doc: w.doc ?? null,
+    signature: w.signature ?? null,
+    owner: w.owner ?? null,
     body: w.body ?? null,
     score: w.score
       ? {
@@ -743,6 +757,143 @@ export async function fileFunctions(
 ): Promise<Map<string, Node[]>> {
   const wire = await invoke<Record<string, WireNode[]>>('file_functions', { key, paths })
   return new Map(Object.entries(wire).map(([path, fns]) => [path, fns.map(toNode)]))
+}
+
+/** One function, as a row in a list of its neighbours. Mirrors `links::Ref`. */
+export interface FuncRef {
+  path: string
+  name: string
+  owner: string | null
+  line: number
+  loc: number
+}
+
+/** What one function is connected to. Mirrors `links::Related`.
+ *
+ *  **`wired` and `comparable` are why this is a shape and not two arrays.** An empty
+ *  `callers` means "nothing in this repo calls it" only when `wired` is true; otherwise it
+ *  means the language's call shape was never parsed, which is the same absence the map paints
+ *  gray. Two lists that look identical and mean opposite things is precisely what the counts
+ *  already refuse to do. */
+export interface Related {
+  callers: FuncRef[]
+  calls: FuncRef[]
+  clones: FuncRef[]
+  wired: boolean
+  comparable: boolean
+}
+
+/** Who a function's neighbours are — fetched on selection, never sent with the tree.
+ *
+ *  `null` where the scan holds no function starting at that line (an edit since the scan, a
+ *  synthesised roll-up wedge) or where the table has not been built. The panel says so rather
+ *  than drawing an empty list, which would read as a function with no neighbours. */
+export async function functionLinks(
+  key: string,
+  path: string,
+  line: number,
+): Promise<Related | null> {
+  return invoke<Related | null>('function_links', { key, path, line })
+}
+
+/** The source of one function, as the panel asks for it. Mirrors `commands::Snippet`. */
+export interface Snippet {
+  text: string
+  /** The name is nowhere near the top of these lines, so the file has moved since the scan
+   *  cut them and this is probably somebody else's code. Shown as a caveat, never corrected:
+   *  the fix for a stale scan is a scan. */
+  moved: boolean
+  /** Cut at the backend's line cap — said out loud so an expanded view is never quietly a
+   *  partial one. */
+  truncated: boolean
+}
+
+/** The source behind a list of neighbour rows, in one call.
+ *
+ *  **A set per call, not a row per call.** A function with two hundred callers would be two
+ *  hundred round trips and two hundred reads of files that repeat; Rust reads each file once
+ *  however many spans land in it. The answer is positional — one entry per span, `null` where
+ *  the file could not supply those lines. */
+export async function functionSources(
+  key: string,
+  spans: { path: string; start: number; end: number; name: string }[],
+): Promise<(Snippet | null)[]> {
+  return invoke<(Snippet | null)[]>('function_sources', { key, spans })
+}
+
+/** One commit still alive in a function's line range. Mirrors `blame::Touch`. */
+export interface Touch {
+  commit: string
+  author: string
+  /** Author time, seconds since the epoch — formatted in the reader's own locale here, which
+   *  is the reason it crosses the wire as a number. */
+  when: number
+  summary: string
+  lines: number
+}
+
+/** Mirrors `blame::RangeDetail`. See `range_detail` for what this is NOT: blame reports the
+ *  commit that last touched each LINE, so this is the provenance of the code as it stands and
+ *  never a list of everyone who has ever touched the function. */
+export interface RangeDetail {
+  touches: Touch[]
+  authors: { author: string; lines: number }[]
+  lines: number
+}
+
+/** One file's part in one commit. Mirrors `commands::CommitFile`. */
+export interface CommitFile {
+  path: string
+  added: number
+  removed: number
+}
+
+/** Everything about one commit a panel row cannot hold. Mirrors `commands::CommitDetail`. */
+export interface CommitDetail {
+  sha: string
+  short: string
+  author: string
+  email: string
+  when: number
+  subject: string
+  body: string
+  files: CommitFile[]
+  added: number
+  removed: number
+}
+
+/** One commit, in full — fetched when somebody opens a row that names one.
+ *
+ *  `null` for a sha this repo does not have, or one that is not a sha: the shas reaching this
+ *  come from blame and from the replay's own log, and a revision expression built out of a
+ *  string is a place to be careful. Rust checks before it shells out. */
+export async function commitDetail(key: string, sha: string): Promise<CommitDetail | null> {
+  return invoke<CommitDetail | null>('commit_detail', { key, sha })
+}
+
+/** When every commit touching one file landed, newest first, within `days`.
+ *
+ *  A FILE, not a function: churn on the map is a file-level quantity already, and the
+ *  per-function version follows a moving line range through every diff in the history — see
+ *  `file_commits`. Seconds, not milliseconds, on a repo with a deep history for one hot file,
+ *  so it is asked for when the lens is open and never with the tree. */
+export async function fileCommits(
+  key: string,
+  path: string,
+  days: number,
+): Promise<number[]> {
+  return invoke<number[]>('file_commits', { key, path, days })
+}
+
+/** Blame one function's range, on demand. One `git blame -L` — cheap, but a process, so it is
+ *  asked for when a history lens is open and not before. */
+export async function functionHistory(
+  key: string,
+  path: string,
+  start: number,
+  end: number,
+): Promise<RangeDetail | null> {
+  return invoke<RangeDetail | null>('function_history', { key, path, start, end })
 }
 
 export async function projectScan(key: string): Promise<Scan | null> {

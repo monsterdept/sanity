@@ -72,6 +72,16 @@
   --muted-foreground: #8b8279; /* Muted */
   --border: #e5e1da; /* Rule */
 
+  /* The ground under SOURCE, and it is deliberately not one of the chrome's four greys.
+   *
+   * A snippet on `--secondary` sat one step off the pane it was in, so a column of tiles read
+   * as a slightly darker region of panel rather than as code — and the row of text above each
+   * one, which is chrome, was indistinguishable from the pane behind it. Code goes to the
+   * page's own EXTREME instead: white here, Ink in the dark, one step further out than the
+   * chrome ever goes. In both themes it is the surface furthest from the panel, which is what
+   * makes the tile a thing sitting on the panel rather than a patch of it. */
+  --code: #ffffff;
+
   /* Chrome is the rose surface in BOTH themes. Anything else leaves one mode wearing
    * the tool's identity and the other wearing generic department beige. */
   --sidebar: color-mix(in oklch, #f3d9e7 58%, #efebe3 42%);
@@ -379,6 +389,9 @@
   --muted: color-mix(in oklch, #1a1a1a 88%, #f5f1ea 12%);
   --muted-foreground: color-mix(in oklch, #8b8279 72%, #f5f1ea 28%);
   --border: color-mix(in oklch, #1a1a1a 82%, #f5f1ea 18%);
+  /* Ink itself — the panel is a lighter mix of it, so the code sits BELOW the chrome here
+   * exactly as it sits above it in light mode. Same rule, opposite direction. */
+  --code: #1a1a1a;
 
   /* Rose deep — the dark end of the icon tile's ground gradient, taken down far enough
    * to sit under Paper text the way tally's #14383c does. */
@@ -546,29 +559,44 @@ textarea,
  * it. Selection is also the one state that has somewhere to be continuous WITH, which is
  * why the reversal only works in this direction.
  *
- * The unselected tiles are the same grey a step off it, never a tint of the rose. One
- * family of surfaces for the tiles and one for the chrome behind them: a tile is a tile
- * whether or not it is the one open, and the thing that changes is only how near it is to
- * the pane. They still separate from the ground they sit on — 14.2 ΔE00 in dark and 9.5 in
- * light against `--sidebar`, which is what keeps the grouping the resting fill is here for.
+ * The unselected tiles are `--card`, which is the app's OTHER content surface — the one the
+ * detail pane is drawn on. That makes the pair meaningful rather than merely graded: a tile is
+ * either the pane you are looking at or the surface the app puts content on, and both are
+ * named colours somewhere else on screen instead of two stops on a private ramp.
  *
- * Steps of 12% and 6% toward `--foreground`: 6.7 ΔE00 from rest to selected and about 3.3
- * either side of hover, in both themes. Small numbers, and they are fills the size of a
- * business card rather than two stops on a ramp. Hover moves TOWARD selection, so pointing
- * at a row previews what clicking it does.
+ * They were a 12% mix toward `--foreground`, which in light mode is a long step off Paper and
+ * read as a column of dark slabs against the chrome. `--card` is the same idea at the distance
+ * the rest of the app already uses, and it is the same relationship in both themes — one step
+ * away from the background, darker on Paper and lighter on Ink.
  *
- * Opaque, all three, and that part survived the reversal: transparent tints composited over
- * the chrome gradient, which is fixed-pixel, so the same resting fill came out a different
- * colour at the top of the list than at the bottom. Mixed against a named surface they are
- * the same three colours in every row. */
+ * **Which leaves selection with almost no fill difference to spend, so it stops spending
+ * one.** `--card` and `--background` are a step and a half apart in light mode — the point of
+ * choosing them — and a selected tile that is only that much lighter than its neighbours does
+ * not read as selected at all. So the selected row is LIFTED instead: the pane's own ground,
+ * plus a shadow and a hairline. That is a different channel from the one the other two rows
+ * are using, which is why it survives their being close together; and it says the true thing
+ * about the state, which is that this row is the near edge of the pane rather than a darker
+ * version of its neighbours.
+ *
+ * Both, not either: the shadow carries it on Paper, where a hairline against a pale ground is
+ * nearly nothing, and the hairline carries it on Ink, where a shadow is invisible.
+ *
+ * Hover sits between the two, so pointing at a row previews what clicking it does.
+ *
+ * Opaque, all three, and that part survived: transparent tints composited over the chrome
+ * gradient, which is fixed-pixel, so the same resting fill came out a different colour at the
+ * top of the list than at the bottom. Named surfaces are the same in every row. */
 .shell-chrome--rest {
-  background: color-mix(in oklch, var(--background) 88%, var(--foreground) 12%);
+  background: var(--card);
 }
 .shell-chrome--active {
   background: var(--background);
+  box-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.11),
+    inset 0 0 0 1px color-mix(in oklch, var(--foreground) 13%, transparent);
 }
 .shell-chrome--hover:hover {
-  background: color-mix(in oklch, var(--background) 94%, var(--foreground) 6%);
+  background: color-mix(in oklch, var(--card) 50%, var(--background) 50%);
 }
 
 /* Wedges animate their fill only. Transitioning `d` would re-tessellate every arc on
@@ -756,4 +784,16 @@ textarea,
 
 @media (prefers-reduced-motion: reduce) {
   .reading-sweep { animation: none; transform: translateX(150%); }
+}
+
+/** The head of a code tile — the name and path above a snippet.
+ *
+ *  Its own rule because the hover is a MIX and Tailwind's arbitrary values cannot express one
+ *  against a token that changes with the theme. Toward the foreground, so it darkens on Paper
+ *  and lightens on Ink without either being spelled out. */
+.tile-head {
+  background: var(--secondary);
+}
+.tile-head:hover {
+  background: color-mix(in oklch, var(--secondary) 90%, var(--foreground));
 }

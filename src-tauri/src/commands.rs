@@ -206,7 +206,7 @@ pub async fn scan_repo(
     }
     // Slim, like `project_scan` and for the same reason — the window asks for a file's
     // functions when it has somewhere to draw them.
-    scanned.map(|s| Scan { root: s.root.slim(), stats: s.stats })
+    scanned.map(|s| Scan { root: s.root.slim(), stats: s.stats, links: s.links })
 }
 
 
@@ -594,7 +594,7 @@ pub fn project_scan(
     // before anything appeared. A file's own ring arrives when something asks for it.
     let mut s = crate::agentapi::lock(&state);
     if let Some(p) = s.projects.get(&key) {
-        return Some(Scan { root: p.scan.root.slim(), stats: p.scan.stats.clone() });
+        return Some(Scan { root: p.scan.root.slim(), stats: p.scan.stats.clone(), links: p.scan.links.clone() });
     }
     // Not loaded, and somebody is looking at it: scan this one next — see `AppState::wanted`.
     // This command is what the window calls when it switches project, which makes it the one
@@ -645,6 +645,307 @@ pub fn file_functions(
         .get(&key)
         .map(|p| p.scan.root.functions_of(&want))
         .unwrap_or_default()
+}
+
+/// What one function is connected to: its callers, what it calls, and its clone group.
+///
+/// **Asked for on selection, never sent with the tree.** The lists are the edges the Callers,
+/// Reach and Clones counts are made of — see [`crate::links`] — and shipping every function's
+/// with the map would be megabytes of function names to answer a question about the one wedge
+/// somebody clicked.
+///
+/// `None` where the table has never been built (a project drawn from a slim cached tree
+/// before its scan has run) or where the scan holds no function starting at that line. Those
+/// are different absences and the panel says which: an empty table is [`Related::wired`]
+/// false with nothing in it, and a missing function is nothing at all.
+#[tauri::command]
+pub fn function_links(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    key: String,
+    path: String,
+    line: u32,
+) -> Option<crate::links::Related> {
+    let s = crate::agentapi::lock(&state);
+    let p = s.projects.get(&key)?;
+    p.scan.links.at(&path, line)
+}
+
+/// One function's line range, as the window asks for it.
+///
+/// `name` rides along so the answer can say whether the span still looks like the function it
+/// was cut for — see [`Snippet::moved`]. It is not used to FIND anything: the scan decided
+/// where this function is, and re-finding it here would be a second parser.
+#[derive(serde::Deserialize)]
+pub struct Span {
+    pub path: String,
+    pub start: u32,
+    pub end: u32,
+    pub name: String,
+}
+
+/// The source of one span, with what is wrong with it if anything.
+#[derive(serde::Serialize)]
+pub struct Snippet {
+    pub text: String,
+    /// The function's name is nowhere near the top of this span, so the file has almost
+    /// certainly moved since the scan cut it and these are somebody else's lines.
+    ///
+    /// **A scan is a photograph and the repo is not standing still.** The same hazard
+    /// `resync_changed` exists for on the reader path: one edit above a function puts every
+    /// function below it at the wrong lines, and code shown under the wrong name is worse
+    /// than no code — it looks exactly as authoritative. Reported rather than corrected,
+    /// because correcting it means re-parsing, and the fix for a stale scan is a scan.
+    pub moved: bool,
+    /// Cut at [`MAX_SNIPPET_LINES`]. Said out loud so an expanded view is never quietly a
+    /// partial one.
+    pub truncated: bool,
+}
+
+/// How much of one function the panel will show. A body longer than this is a body nobody is
+/// reading in a side pane, and the map's own outliers run to the low thousands of lines.
+const MAX_SNIPPET_LINES: usize = 2_000;
+
+/// The source behind a list of function rows, in one call.
+///
+/// **A set per call, not a row per call**, on the same argument as `file_functions`: a
+/// function with two hundred callers is two hundred round trips and, worse, two hundred reads
+/// of files that repeat. Each file is read once here however many spans land in it.
+///
+/// Bounded on the way out rather than on the way in: `read_source` hands over a whole file,
+/// which is right for the code view and wrong for a twenty-line snippet out of a five
+/// thousand line file. A span the file cannot supply is `null` — an absence the panel states,
+/// never an empty block.
+#[tauri::command]
+pub async fn function_sources(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    key: String,
+    spans: Vec<Span>,
+) -> Result<Vec<Option<Snippet>>, String> {
+    let repo = {
+        let s = crate::agentapi::lock(&state);
+        match s.projects.get(&key) {
+            Some(p) => p.repo.clone(),
+            None => return Ok(spans.iter().map(|_| None).collect()),
+        }
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let Ok(root) = repo.canonicalize() else {
+            return spans.iter().map(|_| None).collect();
+        };
+        let mut files: std::collections::HashMap<String, Option<Vec<String>>> =
+            std::collections::HashMap::new();
+        spans
+            .iter()
+            .map(|span| {
+                let lines = files.entry(span.path.clone()).or_insert_with(|| {
+                    // Canonicalised and checked per file, exactly as `read_source` does. A
+                    // path arrives from the window, and the window got it from a scan, but
+                    // "it came from us" is not a boundary check.
+                    let full = root.join(&span.path).canonicalize().ok()?;
+                    if !full.starts_with(&root) {
+                        return None;
+                    }
+                    let text = std::fs::read_to_string(&full).ok()?;
+                    Some(text.lines().map(str::to_string).collect())
+                });
+                let lines = lines.as_ref()?;
+                let from = (span.start.max(1) as usize) - 1;
+                let to = (span.end.max(span.start) as usize).min(lines.len());
+                if from >= to {
+                    return None;
+                }
+                let truncated = to - from > MAX_SNIPPET_LINES;
+                let end = to.min(from + MAX_SNIPPET_LINES);
+                let body = &lines[from..end];
+                // The name in the first few lines, which is where every grammar this parses
+                // puts it. Three rather than one: an attribute, a decorator or a wrapped
+                // signature can push a declaration down, and crying wolf on those would
+                // teach people to ignore the one case that matters.
+                let moved = !body.iter().take(3).any(|l| l.contains(&span.name));
+                Some(Snippet { text: body.join("\n"), moved, truncated })
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// One file's part in one commit.
+#[derive(serde::Serialize)]
+pub struct CommitFile {
+    pub path: String,
+    pub added: u32,
+    pub removed: u32,
+}
+
+/// Everything about one commit that a panel row cannot hold.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitDetail {
+    pub sha: String,
+    pub short: String,
+    pub author: String,
+    pub email: String,
+    pub when: i64,
+    pub subject: String,
+    /// The message past its subject line, unwrapped. Empty on the many commits that have none.
+    pub body: String,
+    /// Every file it touched, with what it did to each. Empty on a merge, which `git show`
+    /// reports nothing for without being told which parent to diff against.
+    pub files: Vec<CommitFile>,
+    pub added: u32,
+    pub removed: u32,
+}
+
+/// One commit, in full.
+///
+/// **Every row that names a commit can now open it.** The panel shows a sha, an author and a
+/// truncated subject because that is what fits beside a timeline — and every one of those rows
+/// was a dead end: the next question is always *what did that commit actually do*, and the
+/// answer was in a terminal in another window.
+///
+/// One `git show` per open, on a click. `--numstat` rather than a patch: the question a row
+/// raises is what the commit touched, and a diff of a 2,000-line refactor in a 260px panel is
+/// not an answer to it.
+#[tauri::command]
+pub async fn commit_detail(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    key: String,
+    sha: String,
+) -> Result<Option<CommitDetail>, String> {
+    let repo = {
+        let s = crate::agentapi::lock(&state);
+        match s.projects.get(&key) {
+            Some(p) => p.repo.clone(),
+            None => return Ok(None),
+        }
+    };
+    // A sha and nothing else. `git show` takes a revision expression, and one built from a
+    // string the window supplies is a place to be careful: `--` would make it a path, `HEAD~1`
+    // a walk, and neither is a commit anybody clicked on.
+    if sha.is_empty() || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(None);
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args([
+                "show",
+                "--numstat",
+                // \x01 between fields, \x02 closing the header — a body contains newlines and
+                // may contain anything else, so the only safe boundary is one git will not
+                // emit itself.
+                "--format=%H%x01%h%x01%an%x01%ae%x01%ct%x01%s%x01%b%x02",
+                &sha,
+            ])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&out.stdout);
+        let (head, rest) = text.split_once('\u{2}')?;
+        let mut f = head.split('\u{1}');
+        let mut detail = CommitDetail {
+            sha: f.next()?.trim_start().to_string(),
+            short: f.next()?.to_string(),
+            author: f.next()?.to_string(),
+            email: f.next()?.to_string(),
+            when: f.next()?.parse().unwrap_or(0),
+            subject: f.next()?.to_string(),
+            body: f.next().unwrap_or("").trim().to_string(),
+            files: Vec::new(),
+            added: 0,
+            removed: 0,
+        };
+        for line in rest.lines() {
+            let mut parts = line.split('\t');
+            let (Some(a), Some(d), Some(path)) = (parts.next(), parts.next(), parts.next()) else {
+                continue;
+            };
+            // `-` for both counts is git's word for a binary file. Counted as zero lines and
+            // still listed: what it touched is the question, and a binary blob is an answer.
+            let added: u32 = a.parse().unwrap_or(0);
+            let removed: u32 = d.parse().unwrap_or(0);
+            detail.added += added;
+            detail.removed += removed;
+            detail.files.push(CommitFile { path: path.to_string(), added, removed });
+        }
+        Some(detail)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// When every commit touching one FILE landed, newest first.
+///
+/// **A file, deliberately, and the panel says so.** Churn on the map is already a file-level
+/// quantity — commits in the last 90 days touching this file, see `churn.rs` — so this is the
+/// same subject the wedge is coloured by rather than a second one. The per-FUNCTION version is
+/// `git log -L`, which follows a moving line range through every diff in the file's history
+/// and is a different order of cost; that is the same trade `blame.rs` refuses for the same
+/// reason.
+///
+/// Timestamps only. What the panel draws is a count per day, and sending the commits
+/// themselves would be a subject line and an author per cell for a picture that shows neither.
+#[tauri::command]
+pub async fn file_commits(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    key: String,
+    path: String,
+    days: u32,
+) -> Result<Vec<i64>, String> {
+    let repo = {
+        let s = crate::agentapi::lock(&state);
+        match s.projects.get(&key) {
+            Some(p) => p.repo.clone(),
+            None => return Ok(Vec::new()),
+        }
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            // Merges excluded, matching `churn::read` — a merge touches every path under it
+            // and would light up a calendar for work done on a branch weeks earlier.
+            .args(["log", "--no-merges", "--format=%ct"])
+            .arg(format!("--since={days}.days.ago"))
+            .args(["--", &path])
+            .output();
+        let Ok(out) = out else { return Vec::new() };
+        if !out.status.success() {
+            return Vec::new();
+        }
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| l.trim().parse().ok())
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Who wrote the lines that are in this function now.
+///
+/// One `git blame -L` per call, on the range the scan cut — see [`crate::blame::range_detail`],
+/// which is where the difference between this and a real history of the function is written
+/// down. The lock is dropped before git runs: this is the one command here that waits on a
+/// process, and holding the state while it does would stall every reader and the window with
+/// it.
+#[tauri::command]
+pub fn function_history(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    key: String,
+    path: String,
+    start: u32,
+    end: u32,
+) -> Option<crate::blame::RangeDetail> {
+    let repo = {
+        let s = crate::agentapi::lock(&state);
+        s.projects.get(&key)?.repo.clone()
+    };
+    crate::blame::range_detail(&repo, &path, start, end)
 }
 
 /// Tick the appearance item the webview is actually using.

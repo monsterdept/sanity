@@ -27,6 +27,7 @@ pub mod commands;
 pub mod harness;
 pub mod heuristic;
 pub mod history;
+pub mod links;
 #[cfg(feature = "local-model")]
 pub mod local;
 pub mod mcp;
@@ -314,6 +315,11 @@ pub fn run() {
             commands::projects,
             commands::project_scan,
             commands::file_functions,
+            commands::function_links,
+            commands::function_sources,
+            commands::function_history,
+            commands::file_commits,
+            commands::commit_detail,
             commands::scan_history,
             commands::warm_history,
             commands::agent_activity,

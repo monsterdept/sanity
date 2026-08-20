@@ -342,6 +342,8 @@ function aggregate(fns: Node[], filePath: string): Node {
     excluded: false,
     // The roll-up stands in for many functions and has no comment of its own.
     doc: null,
+    signature: null,
+    owner: null,
     lastAuthor: first.lastAuthor,
     body: null,
     hotspots: [],

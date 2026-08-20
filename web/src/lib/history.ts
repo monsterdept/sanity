@@ -562,6 +562,8 @@ function dirNode(path: string, name: string): Node {
     // what a frame is allowed to claim — and a comment is a reading's input, not a fact
     // about a commit.
     doc: null,
+    signature: null,
+    owner: null,
     score: null,
     body: null,
     hotspots: [],
@@ -781,6 +783,8 @@ export function frameTree(
         kind: 'func',
         path: hist.paths[def.path],
         doc: null,
+        signature: null,
+        owner: null,
         loc,
         line: null,
         endLine: null,

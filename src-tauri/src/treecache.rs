@@ -47,13 +47,41 @@ use std::path::{Path, PathBuf};
 /// 2: binary rather than JSON — see `load`.
 /// 3: the parser's version is stored beside the signature, so an unchecked read can still
 ///    refuse a tree built by a different parser — see `stale`.
+/// 5: the neighbour table is written beside the tree — see [`links_path`]. A bump even
+///    though nothing in THIS file's shape moved: a tree cached by version 4 has no `links.bin`
+///    beside it, so every warm repo would have shown an empty Callers list — right about the
+///    file it read, wrong about the code — until something unrelated dropped the cache. Which
+///    is the failure `file_doc` taught in `scancache`, arriving through a sibling file instead
+///    of through a defaulted field.
 /// 4: `Node` gained the clone fields. **A field added to what is STORED here is a version
 ///    bump even when nothing about the repo changed**, and the reason is the one `file_doc`
 ///    taught in `scancache`: every one of them is `#[serde(default)]`, so a record written
 ///    before it loads perfectly and reports `None`. Every repo with a warm tree would have
 ///    shown an empty Clones lens — correctly according to the file it read, and wrongly about
 ///    the code — until something unrelated happened to drop the cache.
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
+
+/// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
+/// the tree is written twice, whole and slim, and the slim copy exists to be small.
+#[derive(Deserialize)]
+struct CachedLinks {
+    version: u32,
+    signature: u64,
+    links: crate::links::Links,
+}
+
+/// The same record, borrowed, for the write.
+///
+/// **A `Scan` holds its table behind an `Arc` and cloning it to encode would defeat that.**
+/// On ceph the table is megabytes and the tree cache is written on every scan; bincode only
+/// needs to READ the value, so the owning half is only needed on the way back in. Field order
+/// and types match [`CachedLinks`] exactly, which is what makes the two halves one format.
+#[derive(Serialize)]
+struct CachedLinksRef<'a> {
+    version: u32,
+    signature: u64,
+    links: &'a crate::links::Links,
+}
 
 #[derive(Serialize, Deserialize)]
 struct Cached {
@@ -201,7 +229,33 @@ pub fn load(repo: &Path, signature: u64) -> Option<Scan> {
     let bytes = std::fs::read(path_for(repo)?).ok()?;
     let (cached, _): (Cached, usize) =
         bincode::serde::decode_from_slice(&bytes, config()).ok()?;
-    (cached.version == VERSION && cached.signature == signature).then_some(cached.scan)
+    let mut scan =
+        (cached.version == VERSION && cached.signature == signature).then_some(cached.scan)?;
+    // The neighbour table, from beside it and under the same signature. Its absence is not a
+    // reason to reject the tree — it is a table the panel can say it does not have, where the
+    // tree is the map itself.
+    if let Some(links) = load_links(repo, signature) {
+        scan.links = std::sync::Arc::new(links);
+    }
+    Some(scan)
+}
+
+/// The neighbour table written beside a cached tree — see [`crate::links`] for why it is not
+/// simply rebuilt.
+///
+/// Its own file, read only when something asks a question about one function's neighbours, so
+/// a launch that draws the map and nothing else never touches it. Guarded by the same
+/// signature as the tree: a table describing a repo that has moved would name callers that no
+/// longer call.
+fn load_links(repo: &Path, signature: u64) -> Option<crate::links::Links> {
+    let bytes = std::fs::read(links_path(repo)?).ok()?;
+    let (cached, _): (CachedLinks, usize) =
+        bincode::serde::decode_from_slice(&bytes, config()).ok()?;
+    (cached.version == VERSION && cached.signature == signature).then_some(cached.links)
+}
+
+fn links_path(repo: &Path) -> Option<PathBuf> {
+    path_for(repo).map(|p| p.with_extension("links.bin"))
 }
 
 /// Keep this tree for next time. A failed write costs a derivation, never an answer, so
@@ -234,7 +288,7 @@ pub fn save(repo: &Path, signature: u64, scan: &Scan) {
             version: VERSION,
             signature,
             parse: crate::parse::PARSE_VERSION,
-            scan: Scan { root: scan.root.slim(), stats: scan.stats.clone() },
+            scan: Scan { root: scan.root.slim(), stats: scan.stats.clone(), links: Default::default() },
         },
         config(),
     ) else {
@@ -244,10 +298,47 @@ pub fn save(repo: &Path, signature: u64, scan: &Scan) {
     if std::fs::write(&tmp, bytes).is_ok() {
         let _ = std::fs::rename(&tmp, &thin);
     }
+    // The neighbour table, last, in its own file. Nothing reads it to draw anything, so a
+    // failed write costs a panel a list and never a map — the same rule the two above follow.
+    if scan.links.is_empty() {
+        return;
+    }
+    let Some(links) = links_path(repo) else { return };
+    let Ok(bytes) = bincode::serde::encode_to_vec(
+        CachedLinksRef { version: VERSION, signature, links: &scan.links },
+        config(),
+    ) else {
+        return;
+    };
+    let tmp = links.with_extension("tmp");
+    if std::fs::write(&tmp, bytes).is_ok() {
+        let _ = std::fs::rename(&tmp, &links);
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    /// The borrowed record and the owned one are one format, and nothing but this says so.
+    ///
+    /// **They are two structs precisely so the write can avoid a multi-megabyte clone**, which
+    /// means a field added to one and not the other compiles, encodes, and produces a file the
+    /// reader silently rejects — a repo whose neighbour lists quietly never load. Cheaper to
+    /// assert than to notice.
+    #[test]
+    fn the_borrowed_links_record_decodes_as_the_owned_one() {
+        let links = crate::links::Links::default();
+        let bytes = bincode::serde::encode_to_vec(
+            super::CachedLinksRef { version: super::VERSION, signature: 7, links: &links },
+            super::config(),
+        )
+        .expect("encodes");
+        let (back, _): (super::CachedLinks, usize) =
+            bincode::serde::decode_from_slice(&bytes, super::config()).expect("decodes");
+        assert_eq!(back.version, super::VERSION);
+        assert_eq!(back.signature, 7);
+        assert!(back.links.is_empty());
+    }
+
     /// What the drawable half costs to read, against the whole tree. Ignored: a measurement,
     /// `REPO=/path/to/repo cargo test -- --ignored --nocapture halves`.
     #[test]

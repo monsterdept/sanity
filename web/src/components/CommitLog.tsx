@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { posOf } from '../lib/history'
 import { historyLog, type LogRow, type Tables } from '../lib/timeline'
+import { CommitCard } from './CommitCard'
 import { compactCount, elide } from '../lib/text'
 
 /** One row's height, in pixels, fixed rather than measured.
@@ -58,6 +59,7 @@ const Row = memo(function Row({
   real,
   selected,
   onPick,
+  onOpen,
 }: {
   /** Undefined until this row's page arrives. A blank row of the right height, rather than a
    *  spinner or a collapsed list: the scrollbar must not move under somebody's hand because
@@ -66,11 +68,18 @@ const Row = memo(function Row({
   real: number
   selected: boolean
   onPick: (real: number) => void
+  /** Show this commit in full.
+   *
+   *  **Its own affordance, because the row already means something.** Clicking a row here
+   *  jumps the playhead, which is the log's whole job — the transport and the list are one
+   *  gesture. So the details take a button of their own rather than a second meaning for the
+   *  same click, or a modal would open every time somebody scrubbed. */
+  onOpen: (sha: string) => void
 }) {
   return (
     <button
       onClick={() => onPick(real)}
-      className="block w-full border-b border-[var(--border)] px-4 py-1.5 text-left hover:bg-[var(--secondary)]"
+      className="group relative block w-full border-b border-[var(--border)] px-4 py-1.5 text-left hover:bg-[var(--secondary)]"
       style={{ height: ROW_H, background: selected ? 'var(--secondary)' : undefined }}
     >
       {c && (
@@ -90,6 +99,41 @@ const Row = memo(function Row({
             {c.sets > 0 && <> · +{c.sets}</>}
             {c.dels > 0 && <> · −{c.dels}</>}
           </p>
+          {/* The same glyph and the same weight the code tiles and the lifespan rows use — one
+              mark in this app means "open this in full". Quiet at rest and up on hover: a
+              permanent control at full strength on every row of a list this long is a column
+              of chrome down the side of a transcript.
+
+              A `span` with a role, not a `button`: the row IS a button — clicking it jumps the
+              playhead — and a button inside a button is not something the platform renders. */}
+          <span
+            role="button"
+            tabIndex={0}
+            title="Open this commit"
+            aria-label={`Open commit ${c.short}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpen(c.sha)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.stopPropagation()
+                e.preventDefault()
+                onOpen(c.sha)
+              }
+            }}
+            className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center rounded-[4px] border border-[var(--border)] bg-[var(--card)] p-[3px] text-[var(--muted-foreground)] opacity-70 shadow-sm transition-opacity group-hover:opacity-100 hover:!text-[var(--foreground)] focus-visible:opacity-100"
+          >
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden>
+              <path
+                d="M7.2 1.4h3.4v3.4M4.8 10.6H1.4V7.2M10.6 1.4 7 5M1.4 10.6 5 7"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
         </>
       )}
     </button>
@@ -116,6 +160,7 @@ function stamp(ts: number): string {
  * still to come. Same picture, one update instead of a thousand.
  */
 export function CommitLog({
+  repoKey,
   repoPath,
   tables,
   frames,
@@ -128,6 +173,10 @@ export function CommitLog({
   loc,
   functions,
 }: {
+  /** Which project a commit card asks about. The log fetches its own rows by PATH — the
+   *  timeline is machine-local and keyed that way — but a commit is asked of the backend's
+   *  project map, like every other per-repo lookup on this side. */
+  repoKey: string | null
   /** Where to fetch rows from. The log is paged — see `pages` below. */
   repoPath: string | null
   tables: Tables
@@ -298,6 +347,12 @@ export function CommitLog({
     [onIndex],
   )
 
+  /** The commit whose card is open, or null. Stable callback for the same reason `pick` is:
+   *  an arrow rebuilt per render defeats every row's memo, which is the arrangement this
+   *  component exists for. */
+  const [card, setCard] = useState<string | null>(null)
+  const open = useCallback((sha: string) => setCard(sha), [])
+
   return (
     <div className="flex h-full flex-col">
       <div className="shrink-0 px-4 pt-4">
@@ -378,6 +433,7 @@ export function CommitLog({
                   real={real}
                   selected={at === pos}
                   onPick={pick}
+                  onOpen={open}
                 />
               )
             })}
@@ -404,6 +460,7 @@ export function CommitLog({
         </div>
       </div>
       )}
+      {card && <CommitCard repoKey={repoKey} sha={card} onClose={() => setCard(null)} />}
     </div>
   )
 }

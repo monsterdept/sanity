@@ -139,6 +139,9 @@ parse.rs      tree-sitter → functions with signatures and doc comments
 heuristic.rs  the offline proxy + the measured doc-coverage term
 surprise.rs   the SurpriseModel trait and the offline proxy behind it
 churn.rs      git history → the stability axis
+edges.rs      call sites → who calls whom, and how far the call travels
+clones.rs     normalised bodies → which functions are copies of each other
+links.rs      the two above, kept, so the panel can answer "which fourteen"
 model.rs      the tree, LOC-weighted aggregation, temperature, quadrants
 ```
 
@@ -243,4 +246,7 @@ Named here so the gaps don't read as oversights:
   syntax, and the hard part was never syntax — it's holding the branching and the state.
 - **The diff view.** Two scans, before and after. "Your agent added 11k lines here and
   you have never opened a file in it."
-- **A results cache.** Every scan is currently from scratch.
+- **A call graph worth drawing.** `edges.rs` resolves by name within one language family,
+  which is enough for two scalars per function and for the neighbour lists `links.rs` serves
+  — and is not a dependency graph. Types, imports and overload resolution are what would
+  make it one, and a per-file parse has none of them.

@@ -632,6 +632,246 @@ When a field is added to `Report`, add it to the schema in the same commit.
   separate from `NOT_RUNNING` (never started) for that reason. Models fill silence with
   invention.
 
+## The panel answers the lens, not the tab it was born under
+
+The detail pane had one subject whatever tab was pressed. Expected and Found are the
+SURPRISE reading, and they were printed under Callers, under Blame, under Clones — so
+switching lens changed every wedge on screen and nothing at all in the pane beside them.
+`LensPane` is the one section that follows the tabs; everything above it — name, path,
+dials, ranks, the provenance footer — qualifies every lens and never moves.
+
+- **An absent measurement is stated, never hidden, and each lens states its own.** The
+  scroller used to be gated on `analyzed`, so clicking a grey wedge under Blame answered
+  "this has not yet been analyzed" — true about a reading nobody had asked for, and beside
+  the point under a lens that reads git. Each section now says what ITS absence is, and the
+  two absences that must never merge are the map's own: `wired: false` (this language's call
+  shape was never parsed) against an empty list (nothing in this repo calls this, which is
+  the finding the lens exists to make).
+- **A container gets a section only where it has something of its own to say.** Its pane is
+  `Summary`, which already breaks the subtree down under every lens — so a legibility
+  section printed LEGIBILITY twice a hundred pixels apart, and a wiring roll-up said "1 of 4
+  are called by nothing" directly above the bucket list saying it again with names attached.
+  A file keeps four: its own reading, its own header, its own trap, its own lines.
+- **Docs is the one section that shows the SUBJECT rather than a measurement of it.**
+  `Node::doc` and `Node::signature` were on the wire all along and the browser dropped both.
+  The old argument — a file's banner is one click away in its own syntax, and this pane
+  shows what was MEASURED — holds under ten lenses and is exactly backwards under the
+  eleventh, because Docs grades the header against the body and a grade without the text
+  being graded is half of what the reader was handed. It is rendered as PRE, never as
+  markdown: a `*` down the left margin of a C comment is a comment marker, not emphasis.
+- **Legibility shows `found` and never `expected`, and that division is the section.**
+  Surprise is the pair, graded before the body is open; legibility is graded after, at the
+  same moment `found` is written. A prose field per axis would be a per-reading token charge
+  on every reader forever — `just tokens` before anyone proposes one — and the grade plus
+  the pass it describes is what the axis measures.
+- **The rung ladder lives here and not in the dial row.** Three of them side by side read as
+  a phrase rather than as three readings, which is why `Dials` prints `2/4`; a lens section
+  has one grade and all the room, and the rung wording is the reader's own, lifted from
+  `mcp.rs`'s schema. A ladder that paraphrased the ask would be the panel quietly asking
+  something else.
+- **`links.rs` is a lookup table, stored, not a query.** `edges::wire` folded its edge list
+  away and `clones::find` kept membership pointing the wrong way, so `14×` under Callers
+  raised a question — *which fourteen* — that the app could not answer anywhere. Resolving
+  one call needs a repo-wide index of definitions, which means the whole parse, which is the
+  one thing a launch off `treecache` never reads (300MB on ceph, 1.3GB on linux). Rebuilding
+  it on the click would charge that read to somebody who clicked a wedge. So it is written
+  beside the cached tree under the same signature, in its own file, read only when something
+  asks. `Scan.links` is `#[serde(skip)]` for the same reason it is a separate file: the
+  window is sent a `Scan` on every open and the slim tree cache exists to be small.
+  **Adding it moved `treecache::VERSION`** — a tree cached by the old version has no
+  `links.bin` beside it, so every warm repo would have shown an empty Callers list, right
+  about the file it read and wrong about the code. Same failure as `file_doc` in
+  `scancache`, arriving through a sibling file instead of a defaulted field.
+- **A row that only NAMES a function is an instruction to go and look somewhere else**, which
+  is the thing the count already made you do. Each row carries its body — bounded, scrolled in
+  its own box, one click from filling the window (`CodeBlock`). Two sizes and no third: the
+  inline box is a glance, and a panel that grows to fit its longest member has stopped being a
+  panel. The doc under Docs takes the same box, because a module header is regularly longer
+  than the pane is tall. Code scrolls sideways and prose WRAPS — wrapping a line of code moves
+  it under its own indentation and invents structure the file has not got.
+  **A tile is ONE thing: header on chrome, source on `--code`.** The head was on the pane's own
+  ground, which made it indistinguishable from the panel behind it and from the section heading
+  a few pixels above — so a row read as a second heading with a code block loose underneath.
+  And `--code` is deliberately not one of the chrome's four greys: source goes to the page's
+  own EXTREME, white on Paper and Ink in the dark, one step further out than the chrome ever
+  goes. In both themes it is the surface furthest from the panel, which is what makes a tile
+  something sitting ON the panel rather than a patch of it.
+  **A tile scrolls and does NOT contain its overscroll.** `overscroll-behavior: contain` is
+  right for a pane and wrong for a box inside one: it stops the wheel chaining out when the
+  block reaches its end, so a pane holding a dozen tiles could only be scrolled in the gaps
+  between them — and past a certain density there are none. The default chains, which is what
+  a code box in a sidebar is expected to do. Clipping the block to N lines fixes the same
+  symptom and was tried; it is the wrong fix, because a snippet you cannot scroll is a snippet
+  the modal has to be opened for every time.
+  **No line count on the row.** It was the one number there and it answered a question nobody
+  asked — how long another function is, in a list about which functions these are, with that
+  function's source printed underneath where its length is visible. The gutter's line numbers
+  are the size cue that earns its place.
+  **`SNIPPETS` is a cap and it is counted out loud.** `new` in this repo has 205 callers, and
+  fetching every body would read a hundred files to fill a pane nobody scrolls to the end of.
+  Past the batch a row says *Show code* and asks for its own — nothing is out of reach, and
+  the note says where the batch stopped. Same rule the coverage numbers follow.
+  **A span whose name is not at the top of it is reported, never corrected.** A scan is a
+  photograph: one edit above a function puts every function below it at the wrong lines, and
+  code shown under the wrong name is worse than no code because it looks exactly as
+  authoritative. `Snippet::moved` is that check, and the fix for a stale scan is a scan.
+  `function_sources` takes a SET of spans and reads each file once — a row per call is a round
+  trip apiece and re-reads whatever file the rows share.
+- **Every graded section runs grade, then scale, then the thing itself.** Legibility and Docs
+  had it opposite ways round — one put the ladder under its word, the other buried the ladder
+  below the doc it was grading — which is two shapes for one kind of reading in one pane. The
+  grade is the answer, the ladder is what it is out of, and the text is the evidence you go to
+  if you doubt it.
+- **The provenance line belongs to a READING, and the pinned slot belongs to the lens.**
+  `Read by claude-sonnet-5 …` under Blame is true and irrelevant — it names the instrument
+  behind numbers that came from git — and `Not read yet` under Age is worse: an absence
+  reported at the foot of a section full of measurements. It shows on the four reading lenses;
+  otherwise a section may fill the slot itself (`onFooter`), which is where Age's summary
+  lives. That sentence is the answer the timeline is evidence for, so inside the scroller it
+  sat below the fold on any function with ten commits, and scrolling to it scrolled the
+  timeline away.
+- **Every row that names a commit opens it.** A sha, an author and a truncated subject is what
+  fits beside a timeline or under a wedge, and every one of those rows was a dead end: the next
+  question is always *what did that commit actually do*, and the answer was in a terminal in
+  another window. `CommitCard` is one `git show` on a click — message and file list, never a
+  patch, because the question is what it touched and a two-thousand-line diff in a modal is not
+  an answer to it. The sha is validated as hex in Rust before it reaches a shell: the shas
+  arriving here come from blame and from the replay's log, and a revision expression built out
+  of a string is a place to be careful.
+  **It is an ICON, not a click target on the row.** The row was the button for a while, with
+  nothing on it saying so — an affordance you have to try in order to find, and a piece of
+  information that opens a dialog when you brush it. Same glyph and weight as the code tiles'
+  expand, because in this app one mark means "open this in full". In the replay's log it has to
+  be a `span` with a role: the row is already a button (it jumps the playhead) and a button
+  inside a button is not something the platform renders.
+- **A bare number beside a date is a riddle.** The commit rows printed `4` — how many of the
+  function's current lines that commit still accounts for, the same figure the author bars
+  divide up — and unlabelled it read as a file position, a commit count, anything. The unit is
+  spelled out and dimmed, so a column of them still scans as numbers.
+- **A number in a section has to be about the rows in that section.** The wiring lists printed
+  `localityOf`, which is the share of ALL a function's neighbours living elsewhere — callers
+  and callees together — under a heading naming one of them. It counts the rows on screen now:
+  *6 of 18 callers are outside src-tauri/src*. A number that is not about what is in front of
+  you is worse than no number.
+- **Jargon is not honesty.** "15 commits are still alive in these 1,876 lines" is a sentence
+  about the mechanism — *alive* means blame still attributes a line to that commit — and it
+  asks the reader to know how the instrument works before they can read its output. Say what
+  was counted: *these 1,876 lines came from 15 different commits*. The instrument's own caveat
+  moved to the section heading's `title`, where it can be found and does not have to be
+  scrolled past twice a pane.
+- **Under Language, say only what is MISSING.** It listed three facts that all said yes on a
+  Rust function — calls resolved, long enough to compare, under git history — which is a list
+  of things that are fine in a panel whose job is to point at what is not, and it read as
+  noise nobody could place. Gaps only; when there are none, one line saying so.
+- **Traps get links and the sentence, never the body.** Every other list carries source because
+  seeing the code IS the answer there. A trap is not in its body — it is what a reader wrote
+  about what the body does not say — and eleven lines of the function it hides in is the least
+  informative eleven lines available.
+- **A snippet is dedented to its own left margin.** A method body arrives indented by its impl
+  block, and that is four characters of a 260px box spent on a relationship to code that is not
+  on screen. The literal shortest common prefix, never a count of levels: a file that mixes
+  tabs and spaces has no levels, and normalising one into the other reflows somebody's code on
+  the way past. What is copied is the dedented text, for the same reason.
+- **"Not measured yet" is a fact about a READING, and most lenses are not readings.** `WedgeTip`
+  asked `isAnalyzed` whatever tab was on, so an unread function under Clones — a parse-derived
+  lens, whose wedge was on screen in the colour for its answer — hovered as unmeasured. The
+  map and its own tooltip disagreed about one wedge and the tooltip was wrong. It asks
+  `paintsFromReadings` now, the same gate the stale hatch takes.
+- **Clones is two SECTIONS — This function, then Clones — and no paragraph explaining them.**
+  A clone list is a comparison; one section holding both sides with sub-headings inside it read
+  as a single list whose first row happened to be you. Two headings say the same thing
+  structurally, which is the only place it does not have to be read to work. The prose that
+  stood above them — same body, names normalised away, a group is a fact not a verdict — is the
+  definition of the LENS rather than a fact about the function you clicked, and printed there
+  it was re-read on every clone anybody opened. It rides on the headings.
+- **A list is exactly as honest as the number above it and never more.** These are the same
+  resolved edges: a name is not a target, `new` in one file resolves to that file's own
+  `new`, and the panel says so rather than presenting a list as a call graph. Exposing the
+  lists makes the instrument's own limits inspectable, which is the argument for showing
+  them rather than against.
+- **Three time lenses, three pictures, and the shape is the answer in each.** They were one
+  dataset in three orders — same two lists, different headline, different order — which is
+  decoration standing in for a difference. On the MAP they are genuinely three questions with
+  three ramps; the pane now answers each in the shape it wants. **Blame is a list of people.**
+  **Churn is a rate, so it is a calendar** — `11 in 90d` is ambiguous between a file somebody
+  works on every week and one rewritten twice in a fortnight and left alone, which are opposite
+  findings and the pair the second axis exists to separate. **Age is a span, so it is a
+  timeline**: "newest line 9 months ago; oldest 9 months ago" is two facts needing arithmetic
+  to become the one thing the lens is for, and on a function written in a sitting it reads as a
+  bug.
+  **`Lifespan`, and the two ENDS are pinned while the run between them scrolls.** It was one
+  time-positioned column — spaced by log of how long ago, declumped — and both properties were
+  wrong. Spacing by date leaves holes: a function with a burst last week and a tail from 2022
+  drew most of its height as blank pane, which reads as something failing to load. And the fact
+  the lens exists to give you — when the newest line was written and when the oldest was — was
+  two rows separated by however many commits happened to fall between them, so a function with
+  thirty put the two halves of one sentence a scroll apart. Both ends now stay on screen at any
+  length of history, each tagged as the end it is, because two dates in a column are two dates
+  and nobody should have to know the sort order to read them. The name moved with the shape:
+  `Age` is a number, and what is drawn is the span.
+  **These are FUNCTION views.** A file can be blamed whole, which is true and is not the point:
+  the timeline and the calendar are about one body's history, and `Summary` already breaks a
+  container down under both lenses — by band, with its members listed — so a file was getting a
+  picture of itself directly above a better breakdown of its parts. A container keeps Blame's
+  last commit and nothing else, and under Traps it shows a trap or nothing: the absence
+  sentences are worth printing about a function, where unread, dated and looked-and-found-
+  nothing are three states of one question a reader was asked, and on a file they spend a
+  section saying there is nothing here.
+  **It scrolls only when it has to, and the cap is MEASURED rather than guessed.** A fixed cap
+  clipped ten commits into a 220px box with half the pane empty beneath it — a scrollbar
+  offered instead of the space that was already there. `calc(100vh - 360px)` replaced it and
+  was the same mistake one level up: 360 is a guess at the name, path, dials and ranks above,
+  and the path wraps to two lines on a deep directory while the dials vanish on an unread
+  function, so it is wrong by a row either way and Oldest lands mid-pane with a scrollbar. The
+  element is asked for its own top instead, against the window's bottom, less the row that has
+  to stay under it. And the summary sentence that was pinned at the foot went
+  with it: the two ends are already on screen and dated, which is the same fact in the place
+  you were looking. `onFooter` and the slot it filled are gone rather than kept for later; an
+  unused mechanism is a thing the next person has to work out the purpose of.
+  **The caveat rides on the heading, not under every function.** "A floor on its age, not a
+  birthday — blame reports the last commit to touch each line, so a rewrite resets it" is the
+  reason this lens cannot promise a birthday, and printed in the pane it is a lecture under
+  everything anybody looks at. The pinned line is for the ANSWER; the reason is a `title` away.
+  **Its bottom is a FLOOR, not a birthday, and the ceiling is a different number.** Blame can
+  only see the oldest surviving line, which a rewrite resets. `churn::age_of` — already on the
+  file's node, free with the scan — is the honest upper bound, and it is shown ONLY when it
+  actually bounds: that function does not follow renames and stops at `MAX_COMMITS`, so a moved
+  file can report an age younger than the lines in it, and printing "the ceiling" under a
+  larger floor is the panel contradicting itself.
+  **On a FILE, Blame is the last commit and nothing else.** `Summary` already breaks a
+  container down by author, with each author's functions listed under them, so the per-line
+  sections printed a second coarser copy directly above the real one and the pane said AUTHORS
+  twice. Per-line provenance stays on the function, where there is no breakdown to duplicate
+  and the lines being attributed are the ones on screen.
+  **Each week of the calendar carries its own count.** The column beside the grid held the
+  90-day bracket and its total — the number already in the heading — so the only annotation
+  restated the header while the rows, which are the thing being read, said nothing. A count
+  per week turns "a dark cell" into "four commits that week", and blank weeks stay blank,
+  which is what makes a busy one visible.
+  **The calendar is by FILE and says so.** That is what the map's churn ramp already measures;
+  a function's own would mean following its line range through every diff in the history, the
+  same trade `blame.rs` refuses for churn. It draws the 90-day window on itself rather than
+  describing it, because the dial above is measured over exactly that and nothing else on
+  screen said where it ended.
+- **Blame answers all three time lenses from one fetch, and says what it is not.** Blame
+  reports the commit that last touched each LINE, so this is the provenance of the code as
+  it stands, never a list of everyone who has touched the function — a body rewritten
+  wholesale reads as new and whoever it replaced is invisible. A true history of a moving
+  range is `git log -L`, the same trade `blame.rs` refuses for churn. What changes per lens
+  is which half leads and what the headline counts; the measurement is one.
+  `blame::range_detail` is its own `git blame -L` rather than a slice of the cached
+  `FileBlame`, because that record packs a line down to a commit PREFIX and an author index
+  — everything needed to colour a wedge and nothing a person can read. `end` of zero is the
+  whole file, so a file and a function ask one question at two scopes rather than two
+  endpoints drifting apart.
+- **A `→` cannot be a single call, because the thing being jumped to may not exist yet.**
+  The window holds a tree with no functions in it and fetches each file's ring when the map
+  has somewhere to draw it, so a caller two directories away is a name and a line. `jumpTo`
+  holds a REQUEST and an effect resolves it as rings land — through the same `asked`/`landed`
+  pair the map's own fetch uses, so nothing is asked for twice and there is no second
+  grafting path beside `filled`. It resolves by LINE: a name is not unique in a file, and
+  picking the first match is how a jump lands on the wrong twin.
+
 ## History is replayed, never re-measured
 
 `history.rs` grows the same rings one commit at a time. It is a second *view*, not a

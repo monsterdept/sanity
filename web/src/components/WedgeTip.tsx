@@ -1,5 +1,5 @@
 import { isAnalyzed, type Node } from '../lib/api'
-import { colorFor, saysNothing, type ColorMode } from '../lib/colorMode'
+import { colorFor, paintsFromReadings, saysNothing, type ColorMode } from '../lib/colorMode'
 import { elide } from '../lib/text'
 
 /** Characters that fit on one line of the tooltip, at its two type sizes.
@@ -64,7 +64,22 @@ export function WedgeTip({
 }) {
   const c = colorFor(n, mode, ranks, ageSpan)
   const sc = n.score
-  const analyzed = isAnalyzed(n)
+  /** **"Not measured yet" is a fact about a READING, and most lenses are not readings.**
+   *
+   *  The card asked `isAnalyzed` whatever tab was on, so an unread function under Clones —
+   *  a lens computed from the parse, whose wedge was right there on screen in the colour
+   *  for its answer — hovered as "not measured yet". The map and its own tooltip disagreed
+   *  about the same wedge, and the tooltip was the one that was wrong. Callers, Reach,
+   *  Language and the three git lenses were all in the same state.
+   *
+   *  So the absence is asked per lens, exactly as `paintsFromReadings` is asked for the
+   *  stale hatch and the legend: on a reading lens an unread wedge has nothing to say and
+   *  says so, and everywhere else the paint's own label IS the answer. */
+  const fromReading = paintsFromReadings(mode)
+  const unread = fromReading && !isAnalyzed(n)
+  /** Stale is a property of a reading too, so it marks nothing on a lens that has none. The
+   *  same gate the wedge's own hatch takes. */
+  const expired = fromReading && n.agentStale === true
   // The whole path, with the node's own segment picked out — showing the name and
   // then the path again repeated the last word on every hover.
   //
@@ -176,8 +191,8 @@ export function WedgeTip({
         <span
           className="h-2.5 w-2.5 shrink-0 translate-y-px rounded-[2px]"
           style={{
-            background: analyzed && c ? c.fill : 'var(--unanalyzed)',
-            backgroundImage: n.agentStale
+            background: !unread && c ? c.fill : 'var(--unanalyzed)',
+            backgroundImage: expired
               ? 'repeating-linear-gradient(45deg, var(--foreground) 0 1.2px, transparent 1.2px 4px)'
               : undefined,
           }}
@@ -189,7 +204,7 @@ export function WedgeTip({
             contradicted the sentence directly beneath it, which was explaining why the
             reading no longer counts. */}
         <span className="truncate text-[11px]">
-          {n.agentStale ? 'stale' : analyzed && c ? c.label : 'not measured yet'}
+          {expired ? 'stale' : unread || !c ? 'not measured yet' : c.label}
         </span>
       </div>
       )}
@@ -207,7 +222,7 @@ export function WedgeTip({
       {/* Said on hover, not only on click. A hatched wedge poses a question — why
           is this one different — and making you select it to get the answer is a
           click charged for reading the map. */}
-      {n.agentStale && (
+      {expired && (
         <p className="mb-1 text-[10px] leading-snug text-[var(--warning)]">
           Changed since last reading
         </p>

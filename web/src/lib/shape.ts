@@ -54,6 +54,8 @@ function dirNode(path: string, name: string, kind: 'dir' | 'file'): Node {
     excluded: false,
     lastAuthor: null,
     doc: null,
+    signature: null,
+    owner: null,
     score: null,
     body: null,
     hotspots: [],

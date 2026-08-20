@@ -1752,6 +1752,70 @@ export default function App() {
     [tree],
   )
 
+  /** Where a `→` in the panel is pointing, until the tree can answer it.
+   *
+   *  **A jump cannot be a single call, because the thing being jumped to may not exist yet.**
+   *  The window is handed a tree with no functions in it (see `Node::slim`) and fetches each
+   *  file's ring when the map has somewhere to draw it — so a caller two directories away is
+   *  a name and a line, and nothing in the tree. Held as a REQUEST and resolved by the effect
+   *  below, which runs again every time a ring lands: ask, wait, select. The alternative —
+   *  awaiting the fetch inside the click — would have to splice the answer into the tree
+   *  itself, which is `filled`'s job and would be a second grafting path to keep in step. */
+  const [heading, setHeading] = useState<{ path: string; line: number } | null>(null)
+  const jumpTo = useCallback((path: string, line: number) => setHeading({ path, line }), [])
+
+  useEffect(() => {
+    if (!heading || !tree || !activeKey) return
+    // A file node's id IS its path — the same fact `drill` leans on for the overflow wedge.
+    const file = findById(tree, heading.path)
+    if (!file) {
+      // Not in this tree at all: an excluded file, or a path from a scan the window has since
+      // replaced. Dropped rather than left pending, or the next ring to land would resolve a
+      // request nobody remembers making.
+      setHeading(null)
+      return
+    }
+    if (file.children.length === 0) {
+      if (file.funcs === 0) {
+        // Nothing to select inside it. The file itself is the honest landing place.
+        setStack(file.id === tree.id ? [] : [file.id])
+        setPicked(file)
+        setHeading(null)
+        return
+      }
+      // Ask, and come back when it lands. Through the same `asked`/`landed` pair the map's own
+      // fetch uses, so a ring already in flight is not asked for twice and the answer is
+      // spliced in one batch with everything else that arrives.
+      if (!asked.current.has(heading.path)) {
+        const path = heading.path
+        asked.current.add(path)
+        void fileFunctions(activeKey, [path])
+          .then((got) => {
+            asked.current.delete(path)
+            if (activeRef.current !== activeKey) return
+            for (const [p, ring] of got) landed.current.set(p, ring)
+            // Nothing came back for it. Dropped rather than left pending: `asked` is cleared
+            // above, so a request nobody can satisfy would otherwise sit here re-asking on
+            // every tree that lands.
+            if (!got.has(path)) setHeading(null)
+          })
+          .catch(() => {
+            asked.current.delete(path)
+            setHeading(null)
+          })
+      }
+      return
+    }
+    // By LINE, which is what the panel had to point with: a name is not unique in a file —
+    // a dozen `init`s, same-named methods in two `impl` blocks — and picking the first match
+    // is how a jump lands on the wrong twin. Falling back to the file is better than landing
+    // on a function nobody asked for.
+    const target = file.children.find((f) => f.line === heading.line)
+    setStack(file.id === tree.id ? [] : [file.id])
+    setPicked(target ?? file)
+    setHeading(null)
+  }, [heading, tree, activeKey])
+
   /** Jump to any level of the ancestry. Index 0 is the root. */
   const goTo = useCallback(
     (i: number) => {
@@ -2088,6 +2152,7 @@ export default function App() {
               commit, not whichever wedge the pointer last brushed. */}
           {historyOn && history && historyKey === activeKey ? (
           <CommitLog
+            repoKey={activeKey}
             repoPath={repoPath}
             tables={history.tables}
             frames={frames}
@@ -2119,6 +2184,9 @@ export default function App() {
             owners={owners}
             onShowIn={showIn}
             pop={pop}
+            repoKey={activeKey}
+            replaying={replaying}
+            onJump={jumpTo}
           />
           )}
         </aside>

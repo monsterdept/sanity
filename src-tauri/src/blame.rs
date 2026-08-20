@@ -188,6 +188,168 @@ impl Blame {
     }
 }
 
+/// One commit that still has lines in a function, as the panel shows it.
+///
+/// The full identity, unlike [`Line::commit`] — that one is a 64-bit prefix because a
+/// 2,000-line file holds one per line and it only ever has to be counted. This is read for one
+/// function at a time, on a click, so it can afford the sha, the subject and the name.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Touch {
+    /// Abbreviated to what a person pastes into `git show`.
+    pub commit: String,
+    pub author: String,
+    /// Author time, seconds since the epoch. Formatted by the window, in the reader's own
+    /// locale — a date rendered here would be rendered in the machine's.
+    pub when: i64,
+    /// The commit's subject line. Empty where git gave none.
+    pub summary: String,
+    /// How many of this range's lines still come from it.
+    pub lines: u32,
+}
+
+/// One person's surviving share of a function.
+#[derive(Debug, Clone, Serialize)]
+pub struct Contributor {
+    pub author: String,
+    pub lines: u32,
+}
+
+/// Who wrote the lines that are in a function NOW, and which commits put them there.
+///
+/// **This is not a timeline of everybody who has touched it, and the difference matters.**
+/// `git blame` reports the commit that last touched each LINE, so a function rewritten
+/// wholesale reads as new and everyone whose lines were replaced is invisible. A true history
+/// of a moving range is `git log -L`, which follows it through every diff and is a different
+/// order of cost — see the module note, where the same trade is made for churn. What is here
+/// is exactly what blame can support: the provenance of the code as it stands.
+#[derive(Debug, Clone, Serialize)]
+pub struct RangeDetail {
+    /// Newest first, which is the order somebody reads a history in.
+    pub touches: Vec<Touch>,
+    /// Most lines first.
+    pub authors: Vec<Contributor>,
+    /// How many lines were actually blamed. Not `end - start`: the working tree may have moved
+    /// since the scan cut this range, and a share is only honest against its own denominator.
+    pub lines: u32,
+}
+
+/// Blame one function's line range, on demand.
+///
+/// **Its own git call, not a slice of the cached `FileBlame`.** The cache packs a line down to
+/// a commit prefix, an author index and a time — everything the three lenses need to COLOR a
+/// wedge, and nothing a person can read: no sha to look up, no subject line. Widening that
+/// record would put a subject on every line of every file in a store that is already 300MB on
+/// ceph, to serve a panel that opens on one function at a time.
+///
+/// `-L` bounds the work to the range, so this is a fraction of the 22ms a whole file costs.
+/// Inclusive of both ends, 1-indexed, exactly as [`FileBlame::range`] is.
+///
+/// **`end` of zero is the whole file, and that is one command rather than two on purpose.**
+/// The panel asks this of a file as well as of a function — a file has no line range, it IS
+/// the range — and the question is the same question at two scopes. A second endpoint for it
+/// would be two implementations of one answer, with the unwatched one going wrong.
+pub fn range_detail(repo: &Path, path: &str, start: u32, end: u32) -> Option<RangeDetail> {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(repo).args(["blame", "--line-porcelain"]);
+    if end > 0 {
+        let start = start.max(1);
+        cmd.args(["-L", &format!("{},{}", start, end.max(start))]);
+    }
+    let out = cmd.args(["--", path]).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(fold_porcelain(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Fold `--line-porcelain` into per-commit and per-author totals.
+///
+/// **A commit's header fields appear once, on its first line, and never again.** Porcelain
+/// repeats the `<sha> <orig> <final>` line for every line but only spells out `author` and
+/// `summary` the first time it meets that commit — so anything that reads the fields per line
+/// attributes every later line to whatever it saw last. That is why the metadata is kept by
+/// sha and the count is kept by sha, rather than a single running record.
+fn fold_porcelain(text: &str) -> RangeDetail {
+    #[derive(Default, Clone)]
+    struct Meta {
+        author: String,
+        when: i64,
+        summary: String,
+        lines: u32,
+    }
+    let mut by_commit: HashMap<String, Meta> = HashMap::new();
+    // Insertion order, so two commits made in the same second keep the order git listed them
+    // in rather than a hash's.
+    let mut order: Vec<String> = Vec::new();
+    let mut sha = String::new();
+    let mut total = 0u32;
+    for raw in text.lines() {
+        if let Some(rest) = raw.strip_prefix("author ") {
+            if let Some(m) = by_commit.get_mut(&sha) {
+                m.author = rest.trim().to_string();
+            }
+        } else if let Some(rest) = raw.strip_prefix("author-time ") {
+            if let Some(m) = by_commit.get_mut(&sha) {
+                m.when = rest.trim().parse().unwrap_or(0);
+            }
+        } else if let Some(rest) = raw.strip_prefix("summary ") {
+            if let Some(m) = by_commit.get_mut(&sha) {
+                m.summary = rest.trim().to_string();
+            }
+        } else if raw.starts_with('\t') {
+            // The source line closes the record, and is the only thing worth counting: the
+            // header repeats, the fields do not.
+            if let Some(m) = by_commit.get_mut(&sha) {
+                m.lines += 1;
+                total += 1;
+            }
+        } else {
+            let Some(first) = raw.split(' ').next() else { continue };
+            if first.len() < 16 || !first.as_bytes()[0].is_ascii_hexdigit() {
+                continue;
+            }
+            sha = first.to_string();
+            if !by_commit.contains_key(&sha) {
+                by_commit.insert(sha.clone(), Meta::default());
+                order.push(sha.clone());
+            }
+        }
+    }
+
+    let mut touches: Vec<Touch> = order
+        .iter()
+        .filter_map(|sha| by_commit.get(sha).map(|m| (sha, m)))
+        .filter(|(_, m)| m.lines > 0)
+        .map(|(sha, m)| Touch {
+            // A range of zeros is git's word for a line that is not committed yet. Named
+            // rather than shown as a sha nobody can look up — it is the one row in this list
+            // that is about the working tree instead of the history.
+            commit: if sha.bytes().all(|b| b == b'0') {
+                "uncommitted".into()
+            } else {
+                sha[..sha.len().min(8)].to_string()
+            },
+            author: if m.author.is_empty() { "unknown".into() } else { m.author.clone() },
+            when: m.when,
+            summary: m.summary.clone(),
+            lines: m.lines,
+        })
+        .collect();
+    touches.sort_by_key(|t| std::cmp::Reverse(t.when));
+
+    let mut per_author: HashMap<String, u32> = HashMap::new();
+    for t in &touches {
+        *per_author.entry(t.author.clone()).or_default() += t.lines;
+    }
+    let mut authors: Vec<Contributor> =
+        per_author.into_iter().map(|(author, lines)| Contributor { author, lines }).collect();
+    // By share, then by name, so a tie does not reshuffle between two openings of the panel.
+    authors.sort_by(|a, b| b.lines.cmp(&a.lines).then_with(|| a.author.cmp(&b.author)));
+
+    RangeDetail { touches, authors, lines: total }
+}
+
 fn blame_file(repo: &Path, path: &str) -> Option<FileBlame> {
     let out = Command::new("git")
         .arg("-C")
@@ -287,6 +449,103 @@ summary second
         assert_eq!(both.last_author, "Grace", "the most RECENT toucher, not the first");
         assert_eq!(both.last_touched_days, 0.0);
         assert!((both.age_days - 11.57).abs() < 0.1, "oldest line is ~11.6 days back");
+    }
+
+    /// The `-L` path against real git, because the fold above is only half of it.
+    ///
+    /// **A parser test cannot catch the wrong command.** Everything else here is asserted on
+    /// a literal porcelain sample, which is exactly as correct as the sample — a flag that
+    /// bounds the wrong range, or a git that stops emitting `summary`, produces a perfectly
+    /// parsed answer about the wrong lines. This makes two commits touch two halves of one
+    /// file and asks for one half.
+    #[test]
+    fn a_range_is_blamed_against_the_lines_it_names() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .output()
+                .expect("git runs");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "ada@example.com"]);
+        git(&["config", "user.name", "Ada"]);
+        std::fs::write(dir.path().join("a.rs"), "one\ntwo\n").expect("writes");
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "first pair"]);
+        git(&["config", "user.name", "Grace"]);
+        std::fs::write(dir.path().join("a.rs"), "one\ntwo\nthree\nfour\n").expect("writes");
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "second pair"]);
+
+        let whole = range_detail(dir.path(), "a.rs", 0, 0).expect("blames");
+        assert_eq!(whole.lines, 4, "`end` of 0 is the whole file");
+        assert_eq!(whole.touches.len(), 2);
+        assert_eq!(whole.authors.len(), 2);
+
+        let tail = range_detail(dir.path(), "a.rs", 3, 4).expect("blames");
+        assert_eq!(tail.lines, 2, "-L bounds it to the two lines asked for");
+        assert_eq!(tail.touches.len(), 1, "only the second commit reaches them");
+        assert_eq!(tail.touches[0].author, "Grace");
+        assert_eq!(tail.touches[0].summary, "second pair", "the subject survives the fold");
+        assert_eq!(tail.authors[0].lines, 2);
+
+        let head = range_detail(dir.path(), "a.rs", 1, 2).expect("blames");
+        assert_eq!(head.touches[0].author, "Ada", "the first pair is untouched by the second");
+    }
+
+    /// Porcelain spells a commit's fields out ONCE. Read per line, every later line of the
+    /// same commit is attributed to whatever author was seen last — which in `SAMPLE` would
+    /// put Ada's second line under Ada anyway, so the test uses a range where the two
+    /// interleave.
+    #[test]
+    fn a_commits_fields_are_kept_by_sha_not_by_whatever_came_last() {
+        const INTERLEAVED: &str = "\
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1 1 1
+author Ada
+author-time 1000000
+summary first
+\tone
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 2 2 1
+author Grace
+author-time 2000000
+summary second
+\ttwo
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 3 3 1
+\tthree
+";
+        let d = super::fold_porcelain(INTERLEAVED);
+        assert_eq!(d.lines, 3);
+        assert_eq!(d.touches.len(), 2, "two commits, three lines");
+        // Newest first.
+        assert_eq!(d.touches[0].commit, "bbbbbbbb");
+        assert_eq!(d.touches[0].lines, 1);
+        assert_eq!(d.touches[1].commit, "aaaaaaaa");
+        assert_eq!(
+            d.touches[1].lines, 2,
+            "the header-only third line belongs to the commit it names",
+        );
+        assert_eq!(d.touches[1].author, "Ada", "and keeps its own author, not Grace's");
+        assert_eq!(d.touches[1].summary, "first");
+        assert_eq!(d.authors[0].author, "Ada", "most surviving lines first");
+        assert_eq!(d.authors[0].lines, 2);
+    }
+
+    /// A line git has no commit for is the working tree, and is named rather than shown as
+    /// forty zeroes somebody could try to look up.
+    #[test]
+    fn an_uncommitted_line_is_named_not_shown_as_a_sha() {
+        const PENDING: &str = "\
+0000000000000000000000000000000000000000 1 1 1
+author Not Committed Yet
+author-time 3000000
+summary Version of a.rs from a.rs
+\tedited
+";
+        let d = super::fold_porcelain(PENDING);
+        assert_eq!(d.touches[0].commit, "uncommitted");
     }
 
     /// The header order follows the original file, so a function's lines must be placed

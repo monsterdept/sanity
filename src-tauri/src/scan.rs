@@ -175,6 +175,20 @@ pub struct ScanStats {
 pub struct Scan {
     pub root: Node,
     pub stats: ScanStats,
+    /// Who calls whom, and what is a copy of what — see [`crate::links`].
+    ///
+    /// **Skipped by serde, and stored beside the tree rather than in it.** Two consumers read
+    /// this struct and neither should carry the table: the window is sent a `Scan` on every
+    /// open and would receive a megabytes-long list of function names it has no use for until
+    /// somebody clicks one, and `treecache` writes a `Scan` twice — once whole and once slim,
+    /// the slim one existing precisely to be small. It rides in its own file under the same
+    /// signature, which is what makes an absence here mean "not built yet" rather than "no
+    /// neighbours".
+    ///
+    /// `Arc` because a `Scan` is cloned to be slimmed and a clone of the table would be the
+    /// quadratic accident `slim` documents, one level up.
+    #[serde(skip)]
+    pub links: std::sync::Arc<crate::links::Links>,
 }
 
 /// How many commits HEAD can reach, merges excluded — see [`ScanStats::commits`]. Zero when
@@ -1425,7 +1439,9 @@ pub fn scan(
     // flush threshold — which is every small repo — still leaves something behind.
     scans.save();
 
+    let links = std::sync::Arc::new(crate::links::Links::build(&flat, &wiring, &copies));
     let scan = Scan {
+        links: links.clone(),
         root: tree,
         stats: ScanStats {
             files_scanned,
@@ -1468,6 +1484,27 @@ mod tests {
         fs::create_dir_all(dir.path().join("vendor")).unwrap();
         fs::write(dir.path().join("vendor/huge.rs"), "fn vendored() { }\n").unwrap();
         dir
+    }
+
+    /// The neighbour table is built by the scan that produced the tree, and describes the
+    /// same functions.
+    ///
+    /// **Written because an empty table is indistinguishable from a repo with no wiring.**
+    /// `Scan::links` is `#[serde(skip)]` and defaults, so every path that rebuilds a `Scan` —
+    /// the slim copy, the tree cache, a restore — can drop it silently and the only symptom
+    /// is a Callers panel that says "nothing calls this" about everything.
+    #[test]
+    fn a_scan_builds_the_neighbour_table_beside_its_tree() {
+        let dir = fixture();
+        let scan = run(dir.path());
+        assert_eq!(
+            scan.links.len(),
+            scan.stats.functions,
+            "one entry per function the tree holds",
+        );
+        let add = scan.links.at("src/deep/nest/a.rs", 2).expect("`add` starts on line 2");
+        assert!(add.wired, "Rust resolves calls, so an empty list here is a real zero");
+        assert!(add.callers.is_empty(), "nothing in the fixture calls it");
     }
 
     /// The streamed shape describes the same repo the scan returns.
@@ -1547,7 +1584,7 @@ mod tests {
         let root = scan.root.slim();
         let trimmed = t.elapsed();
         let t = std::time::Instant::now();
-        let slim = serde_json::to_string(&Scan { root, stats: scan.stats.clone() })
+        let slim = serde_json::to_string(&Scan { root, ..scan.clone() })
             .expect("serialises");
         println!(
             "  slim {:.2}s · encode {:.2}s",
