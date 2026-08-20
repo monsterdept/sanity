@@ -52,10 +52,14 @@ pub struct KnownProject {
     /// or shrunk across the boundary is misfiled for exactly one launch and corrects itself
     /// when that scan lands.
     ///
-    /// `None` means "never scanned here", which is a real third answer rather than zero, and
-    /// it is treated as small: a repo somebody has just added is one they are watching, and
-    /// making them wait behind an hour of linux to find out they picked the wrong directory
-    /// is the failure this whole arrangement exists to avoid.
+    /// `None` means "never scanned here", which is a real third answer rather than zero — and
+    /// it is no longer GUESSED at. It used to be treated as small, on the sound argument that
+    /// somebody who has just added a repo is watching it and must not wait behind an hour of
+    /// linux. The case that argument misses is the unknown repo that is enormous: ladybird
+    /// arrived unmeasured, took the small lane and held it at 7,646 files while five repos of
+    /// a few hundred each queued behind the lane that exists to protect them. `restore` walks
+    /// an unknown repo before laning it and banks the count here, which costs the cheapest
+    /// phase of a scan and turns the assignment into a measurement.
     #[serde(default)]
     pub files: Option<usize>,
     /// Which model reads this repo, when it has no readings yet to say so.

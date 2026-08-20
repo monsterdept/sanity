@@ -261,6 +261,11 @@ pub async fn scan_history(
         let emit = |p: Progress| {
             let _ = app.emit("history-progress", p);
         };
+        // **Rate-limited, because the trace now reports per commit from its first second.**
+        // The log read ticks once per commit and the walk ticks again, so an unbounded window
+        // on a large repo is millions of events crossing to the webview from the thread doing
+        // the work. See `scan::throttled`, which never drops a phase change or a final tick.
+        let emit = crate::scan::throttled(&emit);
         crate::history::read_cached(&root, limit, &emit).commits.len()
     })
     .await

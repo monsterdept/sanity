@@ -437,25 +437,69 @@ fn commits_named(repo: &Path, shas: &[String]) -> Vec<RawCommit> {
     out
 }
 
-fn commits(repo: &Path, range: CommitRange) -> (Vec<RawCommit>, usize) {
-    let total = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(["rev-list", "--no-merges", "--count", "HEAD"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .and_then(|s| s.trim().parse::<usize>().ok())
-        .unwrap_or(0);
+/// The commit stream, read a line at a time as git produces it.
+///
+/// **Streamed rather than collected, and the reason is the wait rather than the memory.**
+/// This used to be `Command::output()`, which hands back the whole log at once: on the Linux
+/// kernel that is 400MB and about a minute and a half during which the phase line says
+/// `reading the log` and can say nothing else, because there is no denominator until the
+/// command returns. It was reported as a hang, which is what a two-minute silence is.
+///
+/// **`--reverse` was suspected and is innocent** — worth recording, because the obvious fix
+/// is to drop it and reverse in memory. Measured on a 112,385-commit repo: git emits the
+/// first commit at 3.5s and then streams steadily to 35.8s. The ordering pass is a few
+/// seconds of walking the commit graph, not a buffer of the whole diff. So the order the
+/// walk wants is also the order git is happy to produce, and 90% of the wait is reportable.
+///
+/// Keeping it also makes a cancelled read COHERENT rather than wasted. Oldest-first means a
+/// partial read is a complete prefix of the story — exactly what a bounded window already is
+/// — so stopping halfway leaves a shorter timeline rather than a broken one. Reading
+/// newest-first would have made the same interruption a hole in the middle.
+fn commits(
+    repo: &Path,
+    range: CommitRange,
+    progress: &dyn Fn(Progress),
+    // **Passed rather than read off the global, so stopping can be TESTED.** `CANCELLED` is
+    // one flag for the whole process and `cargo test` runs in threads: a test that set it to
+    // prove this loop honours it stopped every other walk running beside it, which is how
+    // this parameter came to exist. `read` hands over `cancelled` and nothing else does.
+    stop: &dyn Fn() -> bool,
+) -> (Vec<RawCommit>, usize) {
+    // **Counted BESIDE the log, not before it.** `rev-list --count` is a full revwalk — 19
+    // seconds on the Linux kernel — and it was the first thing this did, so the phase that
+    // has no number was also the phase nothing could report. It only ever produces the
+    // denominator, and the numerator does not need it to start arriving: the log is spawned
+    // immediately and the count lands in an atomic that the ticks pick up when it does.
+    // Until then the row shows the phase, which is what it shows for any uncountable step.
+    let counted = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counting = {
+        let counted = counted.clone();
+        let repo = repo.to_path_buf();
+        std::thread::spawn(move || {
+            let n = Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(["rev-list", "--no-merges", "--count", "HEAD"])
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .and_then(|s| s.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            counted.store(n, std::sync::atomic::Ordering::Relaxed);
+        })
+    };
 
-    let selector = match &range {
+    let CommitRange::Last(limit) = range;
+    let selector = match limit {
         // Unbounded asks for no bound at all rather than for an enormous one: `git log`
         // parses `--max-count` into a signed int, so a `usize::MAX` written out is not a
         // very large window, it is an error.
-        CommitRange::Last(limit) if *limit == ALL_COMMITS => "HEAD".to_string(),
-        CommitRange::Last(limit) => format!("--max-count={limit}"),
+        ALL_COMMITS => "HEAD".to_string(),
+        n => format!("--max-count={n}"),
     };
-    let out = Command::new("git")
+    progress(Progress::phase("reading the log"));
+
+    let spawned = Command::new("git")
         .arg("-C")
         .arg(repo)
         .args([
@@ -470,42 +514,99 @@ fn commits(repo: &Path, range: CommitRange) -> (Vec<RawCommit>, usize) {
             "--format=%x01%H%x1f%ct%x1f%an%x1f%s",
             &selector,
         ])
-        .output();
-    let Ok(out) = out else {
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn();
+    let Ok(mut child) = spawned else {
         return (Vec::new(), 0);
     };
-    let text = String::from_utf8_lossy(&out.stdout);
-    let list = parse_commits(&text);
-    let CommitRange::Last(limit) = range;
-    let dropped = total.saturating_sub(limit);
-    (list, dropped)
+    let Some(out) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return (Vec::new(), 0);
+    };
+
+    let mut list: Vec<RawCommit> = Vec::new();
+    let mut reader = BufReader::with_capacity(1 << 20, out);
+    // One buffer for the whole log rather than a `String` per line: the kernel's log is
+    // eight million lines, and allocating per line is most of what the old lossy copy cost.
+    let mut buf: Vec<u8> = Vec::with_capacity(256);
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let line = String::from_utf8_lossy(&buf);
+        if absorb(&mut list, line.trim_end_matches(['\n', '\r'])) {
+            // Checked and reported per COMMIT, not per line: a commit is the unit being
+            // counted, changes outnumber commits several to one, and breaking between two of
+            // a commit's own diff lines would leave a half-read commit at the end of the list.
+            if stop() {
+                break;
+            }
+            // **A bounded window already knows its denominator**, so it never waits for the
+            // count: `--max-count=n` cannot produce more than n. Only an unbounded one has to
+            // ask, and until the answer lands this is zero — which the row reads as "no
+            // denominator yet" and renders as the phase name, the same as any uncountable
+            // step.
+            let expected = match limit {
+                ALL_COMMITS => counted.load(std::sync::atomic::Ordering::Relaxed),
+                n => n,
+            };
+            progress(Progress::counting("reading the log", "read", list.len(), expected));
+        }
+    }
+    // **Killed rather than left to finish.** Dropping the pipe would eventually stop git with
+    // a broken pipe, but not before it had computed however much output fits in the OS
+    // buffer, and on a cancelled kernel trace that is a process still doing minutes of diff
+    // work for nobody. `wait` reaps it; neither call can usefully fail.
+    let _ = child.kill();
+    let _ = child.wait();
+    // Long finished by now on any repo where it mattered; joined so the count is final before
+    // it decides how much of the story was left off the front.
+    let _ = counting.join();
+    let total = counted.load(std::sync::atomic::Ordering::Relaxed);
+
+    (list, total.saturating_sub(limit))
 }
 
 /// One `--raw` log into commits and their changes.
 fn parse_commits(text: &str) -> Vec<RawCommit> {
     let mut list: Vec<RawCommit> = Vec::new();
     for line in text.lines() {
-        if let Some(head) = line.strip_prefix('\u{1}') {
-            let mut f = head.split('\u{1f}');
-            let (Some(sha), Some(ts), Some(author), Some(subject)) =
-                (f.next(), f.next(), f.next(), f.next())
-            else {
-                continue;
-            };
-            list.push(RawCommit {
-                sha: sha.to_string(),
-                ts: ts.parse().unwrap_or(0),
-                author: author.to_string(),
-                subject: subject.to_string(),
-                changes: Vec::new(),
-            });
-        } else if let Some(change) = parse_raw(line) {
-            if let Some(c) = list.last_mut() {
-                c.changes.push(change);
-            }
-        }
+        absorb(&mut list, line);
     }
     list
+}
+
+/// One line of a `--raw` log into `list`, and whether it began a new commit.
+///
+/// Split out of `parse_commits` so the streaming reader and the batched one cannot drift:
+/// they are the same format, and the only difference is where the lines come from.
+fn absorb(list: &mut Vec<RawCommit>, line: &str) -> bool {
+    if let Some(head) = line.strip_prefix('\u{1}') {
+        let mut f = head.split('\u{1f}');
+        let (Some(sha), Some(ts), Some(author), Some(subject)) =
+            (f.next(), f.next(), f.next(), f.next())
+        else {
+            return false;
+        };
+        list.push(RawCommit {
+            sha: sha.to_string(),
+            ts: ts.parse().unwrap_or(0),
+            author: author.to_string(),
+            subject: subject.to_string(),
+            changes: Vec::new(),
+        });
+        return true;
+    }
+    if let Some(change) = parse_raw(line) {
+        if let Some(c) = list.last_mut() {
+            c.changes.push(change);
+        }
+    }
+    false
 }
 
 /// Every source blob in one commit's tree — the opening state, when history is longer
@@ -556,7 +657,7 @@ const WINDOW: usize = 500;
 /// Deduplicated by `(path, blob)`: a file reverted inside the window, or two commits landing
 /// the same content, is read once. The blob text is dropped as soon as it is parsed, so what
 /// this holds is function lists rather than sources.
-fn prefetch(blobs: &mut Blobs, log: &[RawCommit]) -> Parsed {
+fn prefetch(blobs: &mut Blobs, log: &[RawCommit], progress: &dyn Fn(Progress)) -> Parsed {
     let mut want: Vec<(String, String)> = Vec::new();
     let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
     for c in log {
@@ -572,11 +673,57 @@ fn prefetch(blobs: &mut Blobs, log: &[RawCommit]) -> Parsed {
         }
     }
     let keys = want.clone();
-    parse_batch(blobs, want)
+    parse_batch(blobs, want, progress)
         .into_iter()
         .zip(keys)
         .map(|((_, state), (path, sha))| ((path, sha), state))
         .collect()
+}
+
+/// How many files are parsed between two progress reports.
+///
+/// **A window is one `par_iter` and that made it one silent step.** A window is five hundred
+/// commits, about fifteen hundred file versions, and the walk only ticks once a window has
+/// been parsed and is being applied — so on a repo where parsing a window takes a while, the
+/// row sat on the last commit of the PREVIOUS window with nothing to say. Chunking costs a
+/// barrier every hundred and twenty-eight files, which is nothing against fifteen hundred
+/// tree-sitter parses, and buys a line that moves.
+const PARSE_CHUNK: usize = 128;
+
+/// The trace's own thread pool.
+///
+/// **Rayon has one global pool, no priorities, and a scan fills it.** A scan submits a
+/// `par_iter` over every file in the repo; a trace's window submits fifteen hundred parses
+/// into the same queue and waits behind however much of the scan is already in flight. That
+/// is not slowness, it is starvation — the trace stops reporting entirely for as long as the
+/// scan holds the workers, which is exactly what "seems stalled" looks like.
+///
+/// A pool of its own makes the two compete for CPU rather than for a queue, which the OS
+/// scheduler arbitrates and rayon's single queue does not. Sized to the machine rather than
+/// to half of it: a trace running alone is the common case and should have the whole
+/// machine, and the overlap costs 2x oversubscription of CPU-bound work, which the scheduler
+/// handles by giving each about half. Rayon's idle workers sleep, so the second pool costs
+/// nothing when no trace is running.
+///
+/// Falls back to the global pool if one cannot be built — a trace that shares a queue is
+/// worse than a trace, and much better than no trace.
+fn pool() -> Option<&'static rayon::ThreadPool> {
+    static POOL: std::sync::OnceLock<Option<rayon::ThreadPool>> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        rayon::ThreadPoolBuilder::new()
+            .thread_name(|i| format!("trace-{i}"))
+            .build()
+            .ok()
+    })
+    .as_ref()
+}
+
+/// Run a parallel job on the trace's pool, or on the global one if there isn't one.
+fn on_pool<T: Send>(work: impl FnOnce() -> T + Send) -> T {
+    match pool() {
+        Some(p) => p.install(work),
+        None => work(),
+    }
 }
 
 /// Read a batch of blobs, then parse them in parallel.
@@ -584,32 +731,57 @@ fn prefetch(blobs: &mut Blobs, log: &[RawCommit]) -> Parsed {
 /// The split is the whole point: reading is one sequential conversation with a single git
 /// process, and parsing is the expensive part and embarrassingly parallel. Interleaving
 /// them would serialise the tree-sitter work behind the pipe.
-fn parse_batch(blobs: &mut Blobs, want: Vec<(String, String)>) -> Vec<(String, FileState)> {
+fn parse_batch(
+    blobs: &mut Blobs,
+    want: Vec<(String, String)>,
+    progress: &dyn Fn(Progress),
+) -> Vec<(String, FileState)> {
     // A refused blob still comes back, as an EMPTY state rather than as nothing at all.
     // Dropping it would leave the file's last good functions in the live state with no
     // commit able to remove them — a file that turns into a generated bundle would keep
     // its old wedges for the rest of the timeline.
-    let sources: Vec<(String, Option<(Lang, String)>)> = want
-        .into_iter()
-        .filter_map(|(path, sha)| {
-            let lang = lang_of(&path)?;
-            let src = blobs.read(&sha).filter(|src| {
-                // Refused here rather than at the git layer: minification is a property
-                // of the bytes, and the only way to know is to have read them.
-                !src.lines().any(|l| l.len() > MINIFIED_LINE_BYTES)
-            });
-            Some((path, src.map(|s| (lang, s))))
-        })
-        .collect();
-    sources
-        .into_par_iter()
-        .map(|(path, src)| {
-            let state = src
-                .map(|(lang, text)| functions_of(&path, lang, &text))
-                .unwrap_or_default();
-            (path, state)
-        })
-        .collect()
+    let total = want.len();
+    let mut sources: Vec<(String, Option<(Lang, String)>)> = Vec::with_capacity(total);
+    for (n, (path, sha)) in want.into_iter().enumerate() {
+        let Some(lang) = lang_of(&path) else { continue };
+        let src = blobs.read(&sha).filter(|src| {
+            // Refused here rather than at the git layer: minification is a property
+            // of the bytes, and the only way to know is to have read them.
+            !src.lines().any(|l| l.len() > MINIFIED_LINE_BYTES)
+        });
+        sources.push((path, src.map(|s| (lang, s))));
+        if n % PARSE_CHUNK == 0 {
+            progress(Progress::counting("reading files", "files", n, total * 2));
+        }
+    }
+
+    // **Chunked, so the line moves, and on the trace's own pool, so it moves at all.** See
+    // `PARSE_CHUNK` and `pool`. The two halves are counted as one job of `2 * total` because
+    // they are one wait as far as anybody watching is concerned: reading the blobs out of git
+    // is the first half of it and parsing them is the second.
+    let mut out: Vec<(String, FileState)> = Vec::with_capacity(sources.len());
+    for (i, chunk) in sources.chunks_mut(PARSE_CHUNK).enumerate() {
+        progress(Progress::counting(
+            "parsing files",
+            "files",
+            total + i * PARSE_CHUNK,
+            total * 2,
+        ));
+        let done: Vec<(String, FileState)> = on_pool(|| {
+            chunk
+                .par_iter_mut()
+                .map(|(path, src)| {
+                    let state = src
+                        .take()
+                        .map(|(lang, text)| functions_of(path, lang, &text))
+                        .unwrap_or_default();
+                    (std::mem::take(path), state)
+                })
+                .collect()
+        });
+        out.extend(done);
+    }
+    out
 }
 
 /// The walk, in a form that can be stopped and resumed.
@@ -708,8 +880,8 @@ impl Replayer {
 
     /// Parse a whole tree into the opening state — everything the commits before the
     /// window built.
-    fn seed(&mut self, blobs: &mut Blobs, tree: Vec<(String, String)>) {
-        for (path, state_of) in parse_batch(blobs, tree) {
+    fn seed(&mut self, blobs: &mut Blobs, tree: Vec<(String, String)>, progress: &dyn Fn(Progress)) {
+        for (path, state_of) in parse_batch(blobs, tree, progress) {
             let pi = self.path_idx(&path);
             for f in &state_of {
                 let fi = self.funcs.intern(pi, f);
@@ -769,7 +941,10 @@ impl Replayer {
                 None => missing.push((c.path.clone(), sha)),
             }
         }
-        states.extend(parse_batch(blobs, missing));
+        // Whatever the window's prefetch did not cover: a handful of blobs per commit, so
+        // there is nothing here worth reporting and a tick per commit would fight the walk's
+        // own count for the same line.
+        states.extend(parse_batch(blobs, missing, &|_| {}));
 
         for (path, next) in states {
             let pi = self.path_idx(&path);
@@ -951,8 +1126,7 @@ impl Checkpoint {
 pub fn read(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> HistoryScan {
     // A hundred thousand commits of `git log --raw` is several seconds, and until it lands
     // there is no denominator to report.
-    progress(Progress::phase("reading the log"));
-    let (log, truncated) = commits(repo, CommitRange::Last(limit));
+    let (log, truncated) = commits(repo, CommitRange::Last(limit), progress, &cancelled);
     let mut r = Replayer::empty();
     r.out.base_ts = log.first().map(|c| c.ts).unwrap_or(0);
     r.out.truncated = truncated;
@@ -964,28 +1138,33 @@ pub fn read(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> HistorySc
     };
 
     let total = log.len() + 1;
-    progress(Progress::at(0, total));
+    // **Named and united, because the log now counts too.** Both phases report a fraction of
+    // the same commits and they are not the same fraction — one is bytes off a pipe, the
+    // other is minutes of parsing per thousand — so the row has to be able to say which it
+    // is watching. It said `12k / 112k traced` during a read that had traced nothing.
+    let walked = |n: usize| Progress::counting("replaying", "traced", n, total);
+    progress(walked(0));
 
     // The opening state: everything the truncated commits built, parsed once from the tree
     // of the commit *before* the window. Skipped entirely when the window covers the whole
     // repo, which is where the timeline should start empty.
     if truncated > 0 {
         let tree = tree_of(repo, &format!("{}^", log[0].sha));
-        r.seed(&mut blobs, tree);
+        r.seed(&mut blobs, tree, progress);
     }
-    progress(Progress::at(1, total));
+    progress(walked(1));
 
     let mut checkpoint = Checkpoint::new();
     // A window's file versions are read and parsed together, then its commits are applied
     // one at a time — see `WINDOW`. Frames stay per commit; only the parsing is batched.
     'walk: for (w, window) in log.chunks(WINDOW).enumerate() {
-        let ready = prefetch(&mut blobs, window);
+        let ready = prefetch(&mut blobs, window, progress);
         for (n, commit) in window.iter().enumerate() {
             if cancelled() {
                 break 'walk;
             }
             r.apply(&mut blobs, commit, &ready);
-            progress(Progress::at(w * WINDOW + n + 2, total));
+            progress(walked(w * WINDOW + n + 2));
             checkpoint.maybe(repo, limit, || r.snapshot());
         }
     }
@@ -1041,7 +1220,7 @@ pub fn read_cached(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> Hi
         }
     }
     let scan = read(repo, limit, progress);
-    save_cache(repo, limit, &scan);
+    bank(repo, limit, &scan);
     // The held copy describes a story this walk has just replaced.
     unload();
     scan
@@ -1124,7 +1303,13 @@ fn extend(
     // under it, and the answer to both is the same: walk it again rather than append to
     // something that does not describe this repo.
     progress(Progress::phase("reading the log"));
-    let shas = log_shas(repo);
+    // **Stopped here means keep the timeline, not rebuild it.** `Refused` sends the caller to
+    // a full replay, which a person who has just pressed Cancel is not asking for — and that
+    // replay would itself be cancelled, leaving an empty walk where a good timeline used to
+    // be. `Same` is the honest answer: nothing was added, nothing was lost.
+    let Some(shas) = log_shas(repo, progress, &cancelled) else {
+        return Carry::Same(cached);
+    };
     let at = cached.commits.len() + cached.truncated;
     if shas.len() < at || at == 0 || shas.get(at - 1) != Some(&cached.head) {
         return Carry::Refused;
@@ -1155,13 +1340,18 @@ fn extend(
     let mut r = Replayer::resume(cached);
     let total = banked + log.len();
     'walk: for (w, window) in log.chunks(WINDOW).enumerate() {
-        let ready = prefetch(&mut blobs, window);
+        let ready = prefetch(&mut blobs, window, progress);
         for (n, commit) in window.iter().enumerate() {
             if cancelled() {
                 break 'walk;
             }
             r.apply(&mut blobs, commit, &ready);
-            progress(Progress::at(banked + w * WINDOW + n + 1, total));
+            progress(Progress::counting(
+                "replaying",
+                "traced",
+                banked + w * WINDOW + n + 1,
+                total,
+            ));
             checkpoint.maybe(repo, limit, || r.snapshot());
         }
     }
@@ -1191,7 +1381,12 @@ pub fn warm(repo: &Path, limit: usize) -> bool {
     //
     // Answered from the sidecar and a sha list, so deciding costs no timeline read: `banked`
     // is four bytes and `log_shas` is 0.8s on a repo of 122,791 commits.
-    let behind = log_shas(repo).len().saturating_sub(banked(repo, limit));
+    let behind = match log_shas(repo, &|_| {}, &cancelled) {
+        Some(shas) => shas.len().saturating_sub(banked(repo, limit)),
+        // Somebody cancelled a trace while this was deciding. Deciding is all this does, so
+        // the answer is "not now" rather than a guess.
+        None => return false,
+    };
     if behind > WARM_MAX {
         return false;
     }
@@ -1216,16 +1411,66 @@ const WARM_MAX: usize = 2_000;
 /// A position is the honest cursor: the order is deterministic for a given HEAD, `--reverse`
 /// appends new work at the END, so a stored prefix stays a prefix. 0.8s on 122,791 commits,
 /// against the several seconds a `--raw` log costs — which is why this exists separately.
-fn log_shas(repo: &Path) -> Vec<String> {
-    Command::new("git")
+/// **Streamed and interruptible, for the reason the `--raw` log is** — one size down and on
+/// the path that matters more. This is what a RESUME costs before it can do anything: 19
+/// seconds and 56MB on the Linux kernel, and it used to be a single `output()`, so the phase
+/// that says `reading the log` on a resumed trace was 19 seconds of nothing followed by
+/// everything. It also runs on `warm`, which fires when a project with a partial timeline
+/// comes on screen.
+///
+/// **`None` means it gave up, and that is not the same as an empty list.** A short list read
+/// as data is the dangerous outcome: the position check below would find the stored head
+/// missing, call it a rewritten history, and replay a repo from nothing. Callers that cannot
+/// tell the two apart would trade a stopped resume for a full walk.
+fn log_shas(
+    repo: &Path,
+    progress: &dyn Fn(Progress),
+    stop: &dyn Fn() -> bool,
+) -> Option<Vec<String>> {
+    let spawned = Command::new("git")
         .arg("-C")
         .arg(repo)
         .args(["log", "--no-merges", "--reverse", "--root", "--format=%H", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).lines().map(|l| l.to_string()).collect())
-        .unwrap_or_default()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn();
+    let Ok(mut child) = spawned else { return Some(Vec::new()) };
+    let Some(out) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Some(Vec::new());
+    };
+
+    let mut shas: Vec<String> = Vec::new();
+    let mut reader = BufReader::with_capacity(1 << 20, out);
+    let mut buf = String::with_capacity(64);
+    let mut gave_up = false;
+    loop {
+        buf.clear();
+        match reader.read_line(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let line = buf.trim_end();
+        if line.is_empty() {
+            continue;
+        }
+        shas.push(line.to_string());
+        // No denominator, and none worth buying: the only way to know how many commits there
+        // are is the same revwalk this IS, so a second one beside it would double the work to
+        // narrate it. The count alone is honest — see the row, which shows a bare number when
+        // there is nothing to divide it by.
+        if shas.len().is_multiple_of(1024) {
+            if stop() {
+                gave_up = true;
+                break;
+            }
+            progress(Progress::counting("reading the log", "read", shas.len(), 0));
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    (!gave_up).then_some(shas)
 }
 
 
@@ -1335,6 +1580,25 @@ pub fn banked(repo: &Path, limit: usize) -> usize {
         .unwrap_or(0)
 }
 
+/// Write a freshly walked timeline over whatever is banked — unless it walked nothing.
+///
+/// **A stopped walk must not erase the timeline it was resuming.** `save_cache` is
+/// unconditional, and a cancel during the log read returns an empty scan, so without this the
+/// act of stopping a resumed trace would write nothing over a banked hour — destroying the
+/// thing the resume exists to protect. A walk that applied nothing has nothing to say, and
+/// the other case it covers is a directory with no git history, which is instant to
+/// recompute and has nothing worth storing.
+///
+/// Separate from `save_cache` because a CHECKPOINT is not this decision: it writes mid-walk,
+/// on purpose, with fewer commits than the file it replaces might have had, and it is the
+/// mechanism that makes resuming possible. Only the end of a full walk asks this question.
+fn bank(repo: &Path, limit: usize, scan: &HistoryScan) {
+    if scan.commits.is_empty() {
+        return;
+    }
+    save_cache(repo, limit, scan);
+}
+
 fn save_cache(repo: &Path, limit: usize, scan: &HistoryScan) {
     let Some(path) = cache_path(repo, limit) else { return };
     // Nothing is reported when this fails. A reading that fails to save is an error the
@@ -1441,6 +1705,73 @@ mod tests {
         assert_ne!(keys[0], keys[1], "and they are not the same function");
     }
 
+    /// **A stopped walk must not overwrite the timeline it was resuming.**
+    ///
+    /// `read_cached` saves whatever `read` returns, and a cancel during the log read returns
+    /// an empty one — so the act of stopping a resumed trace would have written nothing over
+    /// a banked hour. The guard is that an empty walk is not worth caching, which is also
+    /// true of the case it otherwise covers: a directory with no git history is instant to
+    /// recompute and has nothing to store.
+    #[test]
+    fn a_cancelled_walk_does_not_erase_a_banked_timeline() {
+        let dir = repo_with(4);
+        let full = read_cached(dir.path(), ALL_COMMITS, &|_| {});
+        assert_eq!(full.commits.len(), 4);
+        assert_eq!(banked(dir.path(), ALL_COMMITS), 4, "four commits are on disk");
+
+        // A walk that reaches nothing, exactly as a cancel during the log read produces.
+        bank(dir.path(), ALL_COMMITS, &HistoryScan::default());
+        assert_eq!(
+            banked(dir.path(), ALL_COMMITS),
+            4,
+            "the banked timeline survived a walk that applied nothing"
+        );
+        assert_eq!(
+            load_cache(dir.path(), ALL_COMMITS).map(|s| s.commits.len()),
+            Some(4),
+        );
+    }
+
+    /// **Stopping is checked, because "it can be stopped" is the claim, not the code.**
+    ///
+    /// The log read is the phase that used to be uninterruptible: `Command::output()` cannot
+    /// be asked to stop, so a trace of a very large repo could not be abandoned until git
+    /// had finished producing four hundred megabytes nobody was going to use. Streaming it
+    /// makes the cancel flag reachable, and this is the assertion that it is actually
+    /// reached — with the flag already set, the reader must give up at the first commit
+    /// rather than draining the pipe.
+    ///
+    /// The prefix it keeps is deliberate and is why the break sits where it does: commits
+    /// arrive oldest-first, so what a stopped read holds is a shorter STORY rather than a
+    /// hole in the middle of one.
+    #[test]
+    fn a_cancelled_log_read_stops_at_the_first_commit() {
+        let dir = repo_with(12);
+        let (log, _) = commits(dir.path(), CommitRange::Last(ALL_COMMITS), &|_| {}, &|| true);
+        assert_eq!(log.len(), 1, "stopped at the first commit header, not after all twelve");
+    }
+
+    /// The streamed reader and the batched one are one parser — `commits_named` still takes a
+    /// whole `git log` as a string, and the day they disagree is the day a resumed walk and a
+    /// fresh one produce different timelines from the same commits.
+    #[test]
+    fn streaming_and_batched_parsing_agree() {
+        let dir = repo_with(6);
+        let (streamed, _) = commits(dir.path(), CommitRange::Last(ALL_COMMITS), &|_| {}, &|| false);
+        let named: Vec<String> = streamed.iter().map(|c| c.sha.clone()).collect();
+        let batched = commits_named(dir.path(), &named);
+        assert_eq!(streamed.len(), batched.len());
+        for (a, b) in streamed.iter().zip(batched.iter()) {
+            assert_eq!(a.sha, b.sha);
+            assert_eq!(a.ts, b.ts);
+            assert_eq!(a.subject, b.subject);
+            assert_eq!(
+                a.changes.iter().map(|c| &c.path).collect::<Vec<_>>(),
+                b.changes.iter().map(|c| &c.path).collect::<Vec<_>>(),
+            );
+        }
+    }
+
     /// A repo with `n` commits, each adding one function to `src/lib.rs`.
     fn repo_with(n: usize) -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -1510,7 +1841,7 @@ mod tests {
         // The same repo with a third commit on top, walked by hand so the walk can be
         // stopped where a checkpoint would have landed.
         let dir = repo_with(3);
-        let (log, _) = commits(dir.path(), CommitRange::Last(ALL_COMMITS));
+        let (log, _) = commits(dir.path(), CommitRange::Last(ALL_COMMITS), &|_| {}, &|| false);
         let mut blobs = Blobs::open(dir.path()).expect("a repo has blobs");
         let mut r = Replayer::empty();
         r.out.base_ts = log.first().map(|c| c.ts).unwrap_or(0);

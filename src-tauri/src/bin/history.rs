@@ -37,16 +37,39 @@ fn main() {
         }
     }
 
+    // **On stderr, one line, rewritten in place.** A trace of a large repo is minutes to
+    // hours, and this tool used to discard the progress it was being handed — so the way to
+    // check the walk was to start it and have no idea whether it was working. stdout stays
+    // clean for `--json`; `\r` keeps a terminal to one line and a redirect to one long one.
+    let tick = |p: Progress| {
+        if p.total > 0 {
+            let pct = 100.0 * p.done as f32 / p.total as f32;
+            eprint!(
+                "\r{:<22} {:>9} / {:<9} {:>5.1}%   ",
+                p.phase, p.done, p.total, pct
+            );
+        } else if p.done > 0 {
+            // A count with no denominator — see `log_shas`, where buying one would mean
+            // doing the same revwalk twice. It still says "working", which is the job.
+            eprint!("\r{:<22} {:>9} {:<16}", p.phase, p.done, p.unit);
+        } else if !p.phase.is_empty() {
+            eprint!("\r{:<60}", p.phase);
+        }
+        let _ = std::io::Write::flush(&mut std::io::stderr());
+    };
+    let tick = sanity_lib::scan::throttled(&tick);
+
     let started = std::time::Instant::now();
     // Uncached by default: this is the tool that CHECKS the walk, and a run that answers
     // from a file is not a run of the thing being checked. `--cached` exercises the other
     // path deliberately.
     let hist = if cached {
-        history::read_cached(&path, limit, &|_: Progress| {})
+        history::read_cached(&path, limit, &tick)
     } else {
-        history::read(&path, limit, &|_: Progress| {})
+        history::read(&path, limit, &tick)
     };
     let elapsed = started.elapsed();
+    eprintln!();
 
     // The exact payload the webview receives, so the replay on that side can be checked
     // against this one without a window. Two implementations of one walk is how the two

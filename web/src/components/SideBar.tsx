@@ -884,8 +884,21 @@ function ProjectItem({
                   // are seconds on a large repo, and `starting…` for all of them reads as a
                   // button that missed the press.
                   replay.total === 0
-                  ? (replay.phase || 'starting…')
-                  : `${compact(replay.done)} / ${compact(replay.total)} traced`
+                  ? // **A number with no denominator is still a number.** Reading a resumed
+                    // trace's sha list is a nineteen-second revwalk on the kernel, and the
+                    // only way to know how many there are is the same walk — so buying a
+                    // denominator would mean doing the work twice to narrate it once. A
+                    // count that climbs says "working" as well as a fraction does; what it
+                    // cannot say is how much is left, and it does not pretend to.
+                    replay.done > 0
+                    ? `${compact(replay.done)} ${replay.unit || 'read'}`
+                    : (replay.phase || 'starting…')
+                  : // **The unit comes from the phase, because two phases count now.**
+                    // Reading the log counts commits off a pipe and the walk counts commits
+                    // parsed; both are a fraction of the same total and they are nothing
+                    // like the same work, so a hard-coded `traced` described the second
+                    // while the first was running — see `Progress::unit`.
+                    `${compact(replay.done)} / ${compact(replay.total)} ${replay.unit || 'traced'}`
                 : `${compact(unreplayed)} commits to trace`}
             </span>
 

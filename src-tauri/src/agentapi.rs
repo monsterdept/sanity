@@ -5262,9 +5262,44 @@ pub fn restore(
         // linux a third of the way through). It is how many `git blame` processes are
         // competing for one disk. One big lane keeps that bounded; one small lane empties in
         // seconds and rejoins.
-        let (big, small): (Vec<_>, Vec<_>) = queue
+        // **A repo of unknown size is MEASURED before it is laned, not guessed at.**
+        // `files: None` used to mean small, on the sound argument that somebody who has just
+        // added a repo is watching it and must not wait behind an hour of linux. What that
+        // did not cover is the unknown repo that turns out to be enormous: ladybird arrived
+        // with no recorded size, took the small lane, and held it at 7,646 files while five
+        // repos of a few hundred each waited behind the very lane that exists to protect
+        // them. Its size was written during that scan, so the misfiling corrected itself on
+        // the next launch and looked like a one-off — it is not, it is every repo's first
+        // launch after being added.
+        //
+        // The walk is what the scan does first anyway, and it is the cheapest thing in the
+        // scan: 0.01s on a 344-file repo, a couple of seconds on the kernel. Paying it here,
+        // once, only for repos nobody has a number for, buys a lane assignment that is a
+        // measurement instead of a hope.
+        let sized: Vec<(crate::reports::KnownProject, usize)> = queue
             .into_iter()
-            .partition(|k| k.files.is_some_and(|n| n > BIG_REPO_FILES));
+            .map(|k| {
+                let n = match k.files {
+                    Some(n) => n,
+                    None => {
+                        let n = crate::scan::collect_files(&PathBuf::from(&k.repo)).len();
+                        // Banked immediately: a launch that is quit before this repo's scan
+                        // reaches its first counted tick would otherwise arrive at the next
+                        // launch just as unknown, and lane just as badly.
+                        crate::reports::note_size(&k.key, n);
+                        n
+                    }
+                };
+                (k, n)
+            })
+            .collect();
+        let (big, small): (Vec<_>, Vec<_>) = sized
+            .into_iter()
+            .partition(|(_, n)| *n > BIG_REPO_FILES);
+        let (big, small): (Vec<_>, Vec<_>) = (
+            big.into_iter().map(|(k, _)| k).collect(),
+            small.into_iter().map(|(k, _)| k).collect(),
+        );
         let lanes: Vec<_> = [big, small]
             .into_iter()
             .filter(|lane| !lane.is_empty())

@@ -12,6 +12,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// Files above this never contain a function anybody reasons about. They are vendored
@@ -288,6 +289,49 @@ impl Progress {
     pub fn on(mut self, path: &str) -> Self {
         self.at = path.to_string();
         self
+    }
+}
+
+/// The closest two progress reports may be delivered, in wall clock.
+///
+/// Fifty milliseconds is twenty a second, which is past what anybody reads off a moving
+/// number and comfortably inside a frame. The ticks themselves stay per unit of work — a
+/// count that skips is a count that lies about where it stopped.
+const TICK_GAP: Duration = Duration::from_millis(50);
+
+/// Rate-limit a progress sink, so a job that ticks a million times does not post a million
+/// events.
+///
+/// **The long jobs here report per commit, and that number is now unbounded.** Every tick
+/// crosses to the webview as a serialized event; at ceph's 122,792 commits that is a
+/// hundred thousand messages for a bar with a few hundred readable positions, and the
+/// kernel's 1.27 million would spend more time announcing the walk than walking. The work is
+/// not the reporting, but the reporting is on the same thread as the work.
+///
+/// **A phase change is never dropped, whatever the clock says.** Phases are what the row
+/// reads when there is no count — `counting commits`, `reading the log`, `walking` — and one
+/// swallowed by the rate limit leaves the window naming a step that finished minutes ago.
+/// The same goes for the last tick of a countable job: a bar that stops at 99% because its
+/// final report landed inside the gap is the exact failure this whole area is about.
+pub fn throttled(to: &dyn Fn(Progress)) -> impl Fn(Progress) + '_ {
+    let last: std::cell::Cell<Option<Instant>> = std::cell::Cell::new(None);
+    let phase = std::cell::RefCell::new(String::new());
+    move |p: Progress| {
+        let fresh = {
+            let mut held = phase.borrow_mut();
+            let changed = *held != p.phase;
+            if changed {
+                held.clear();
+                held.push_str(&p.phase);
+            }
+            changed
+        };
+        let done = p.total > 0 && p.done >= p.total;
+        let due = last.get().is_none_or(|t| t.elapsed() >= TICK_GAP);
+        if fresh || done || due {
+            last.set(Some(Instant::now()));
+            to(p);
+        }
     }
 }
 
@@ -1189,7 +1233,15 @@ pub fn scan(
         .flatten()
         .map(|f| crate::edges::FileView { path: &f.rel_path, lang: f.lang, funcs: &f.funcs })
         .collect();
+    // **Named, because everything from here to the tree used to be silent.** The parse and
+    // the blame both count themselves and then hand over to four phases that did not — so on
+    // a large repo the row sat on the blame's final `5,302 / 5,302 files` for as long as the
+    // rest took, which reads as a scan that finished and then hung. It was reported as one.
+    // These two are single passes over what is already in memory and are over in moments;
+    // they get a name rather than a count because there is nothing to divide.
+    on_progress(Progress::phase("wiring the call graph"));
     let wiring = crate::edges::wire(&flat);
+    on_progress(Progress::phase("finding copies"));
     let copies = crate::clones::find(&flat);
     // Where each directory's files start in `flat`. A prefix sum over the same iteration
     // order the flattening used, which is the only thing that makes the two agree.
@@ -1203,11 +1255,28 @@ pub fn scan(
     // Build the whole tree from the proxy first. It is fast, it is entirely gray (no
     // wedge claims to have been analyzed), and it means the user has the repo's shape on
     // screen in about a second instead of after the model finishes.
+    // Counted in FILES rather than directories, because directories are wildly uneven — one
+    // holding four hundred files and the next holding two would make a bar that jumps and
+    // then stops. Files are also the unit the two phases before this counted in, so the
+    // number keeps meaning the same thing across the whole scan.
+    let scored = AtomicUsize::new(0);
+    let to_score: usize = parsed_dirs.iter().map(|d| d.len()).sum();
     let per_dir: Vec<Vec<(String, Node)>> = parsed_dirs
         .par_iter()
         .enumerate()
         .map(|(di, parsed)| {
-            score_dir(parsed, offsets[di], &wiring, &copies, &history, &blame, fidelity)
+            let out = score_dir(parsed, offsets[di], &wiring, &copies, &history, &blame, fidelity);
+            // After the directory rather than during it: `score_dir` is one call per
+            // directory and splitting it to report inside would be reshaping the work to
+            // suit the narration. At `Full` fidelity a big directory is the slow unit here,
+            // which is exactly what a reader watching this needs to be able to see.
+            on_progress(Progress::counting(
+                "scoring",
+                "files",
+                scored.fetch_add(parsed.len(), Ordering::Relaxed) + parsed.len(),
+                to_score,
+            ));
+            out
         })
         .collect();
 
