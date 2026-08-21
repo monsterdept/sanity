@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-785 of 785 read · 124 surprising
+786 of 786 read · 125 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -2168,11 +2168,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/commands.rs
 
 ### the file itself
-- spec 3 · read at `d05b94978edc` · commit `d92c31f` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:22:52Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: The full Tauri `#[command]` surface exposed to the frontend: a large flat collection of async command handlers covering repo scanning (scan_repo, stop_scan), git history (scan_history, history_log/tables/deltas/funcs/scoped, warm_history, stop_history, file_commits, function_history), source/code access (read_source, open_code_window, file_functions, function_links, function_sources), project management (projects, add_project, select_project, reorder_projects, forget_project, project_scan), CLI integration (cli_link_dirs, install_cli, cli_status), agent/reader harness control (agent_reports, agent_activity, harnesses, set_reader, start_check, stop_check), movie/curve replay (save_movie, read_curve), and misc utilities (sync_theme_menu, repo_remote/slug_of for parsing remote URLs). Most functions are thin wrappers delegating real work to other modules, with the file itself mostly concerned with marshaling Tauri state/AppHandle and serializing results across the IPC boundary.
-- found: Confirmed: the full Tauri command surface — scanning, history, source/code viewing, project list management, CLI install/status, agent activity polling, movie/curve export, and reader-harness control (start_check/stop_check/set_reader) — each handler is heavily commented with the specific bug or regression that shaped its current behavior (e.g. slim trees to avoid megabytes of JSON, canonicalize+starts_with checks to prevent path traversal, restoring-list races, PATH resolution quirks for GUI apps).
-- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
-- note: The one-line file doc only states the IPC-surface framing; it says nothing about the much richer content — nearly every command carries a paragraph explaining a specific historical bug/regression it was written to fix, which is the file's real character and wasn't derivable from the header or peer list alone.
+- spec 3 · read at `d4160d84504c` · commit `00bad90` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:56:30Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: The Tauri command surface file — a large collection of #[tauri::command] functions (matching the invoke_handler list in lib.rs's run()) that bridge the frontend to backend modules: repo scanning, git history queries, project management (add/forget/reorder/select), function-level source/history lookups, CLI install/link/status, theme sync, and check running. Mostly thin wrappers delegating to scan.rs/churn.rs/model.rs/agentapi/harness, plus a few small helper functions (slug_of, remote-url-to-owner/name parsing) shared across commands.
+- found: A large file of #[tauri::command] functions forming the invoke surface (matching the handler list registered in lib.rs run()): scan_repo/stop_scan, git history queries, project management, function-level source/history lookups, CLI install/status, theme sync, and check running, plus small helpers (slug_of, remote-url parsing). Individual commands (e.g. scan_repo) carry substantive doc comments explaining design rationale (e.g. why the scan result is returned as one payload instead of streamed), so it's not purely thin delegation — some real design decisions live directly in this file.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- note: File was too large to read in full via the reveal tool (875 lines exceeded the read token cap), so this grading is based on the file header, the complete peer/command list, and a ~2KB source preview rather than a full read — flagging this as a partial reading.
 
 ### `scan_repo`
 - spec 3 · read at `938afb53f4df` · commit `d92c31f` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:22:29Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -2297,6 +2297,13 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Groups the input spans by file, reads each distinct file from disk once (using project/state lookup by key), then for each span slices out the matching lines/bytes into a Snippet. Returns a Vec<Option<Snippet>> aligned to the original spans order, with None where the file can't be read or the span falls outside the file's bounds.
 - found: Looks up the repo path for the project key (returning all-None if unknown), then in a blocking task canonicalizes it and, per unique file path, canonicalizes+checks it stays within the repo root before reading and caching its lines. For each span it slices the requested line range (clamped), truncates to MAX_SNIPPET_LINES, and sets a `moved` flag if the function's name isn't found in the first 3 lines of the snippet (to detect declarations that have drifted from their recorded span).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `commit_detail`
+- spec 3 · read at `db2c73ac3582` · commit `00bad90` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:57:22Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the repo path for `key` in shared state, then runs `git show --numstat` (with a custom --format for subject/body/author/email/date/sha) against `sha` as a subprocess, parses stdout into a CommitDetail struct (message, author, files with added/removed line counts), and returns Ok(None) if the commit isn't found in this repo (e.g. non-zero git exit) rather than erroring, reserving Err for actual failures like the repo key not being registered.
+- found: Looks up repo path by key (Ok(None) if unregistered), validates sha is non-empty hex-only (guarding against `git show` revision-expression injection like `--` or `HEAD~1`), then in spawn_blocking runs `git show --numstat` with a custom \x01/\x02-delimited format string, parses the header fields and per-file numstat lines (treating `-`/`-` binary markers as zero added/removed but still listing the file) into a CommitDetail.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: Docs explain the UX rationale (numstat not patch) but say nothing about the sha validation or the \x01/\x02 delimiter scheme, which is the part that actually matters for correctness/safety.
 
 ### `file_commits`
 - spec 3 · read at `461f10f69ce3` · commit `d92c31f` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:23:14Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -3424,12 +3431,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds Sanity/File/Edit/View/Window submenus manually. Sanity menu has About, an "Install Command Line Tool…" item (I hadn't predicted this), Hide/HideOthers, Quit. File menu has "Add Project…" (⌘O). Edit menu is standard predefined items. View menu holds the Appearance submenu with the three-way theme CheckMenuItem toggle, matching my prediction. Window menu has minimize/close. Returns the built Menu plus a ThemeMenu struct wrapping the three CheckMenuItems, as I expected.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `run`
-- spec 3 · read at `9d58bf790657` · commit `d92c31f` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:21:55Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: The Tauri application entry point: initializes logging/panic handling, sets up shared app state (project list, scan cache), registers all the invoke_handler commands (project_scan, history_*, agent_*, etc.), builds the window and menu via build_window/build_menu, wires up menu event handlers like ThemeMenu::select, and kicks off background restore/scan work before calling .run() to start the Tauri event loop.
-- found: Sets up shared state, builds window/menu with theme-select and CLI-install menu event emission, restores prior projects with progress callbacks, spawns the loopback agent API server async, registers all invoke_handler commands, adds single-instance (focus existing window) and dialog/opener plugins, and on RunEvent::Exit stops all agent runs and releases the endpoint claim file before the process dies.
-- predicted: most · documented: none · derivable: no · legible: most · trap: no
-- note: The exit handler's ordering (stop runs before releasing the endpoint file) encodes a real bug fix about stale endpoint files sending readers into a hole — worth preserving if this is ever refactored.
+### `run` — QUIRKY
+- spec 3 · read at `d574b818dff4` · commit `00bad90` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:55:36Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Sets up and launches the Tauri application: builds a Tauri Builder with plugins, constructs the app menu (via build_menu/ThemeMenu) and main window (via build_window), registers invoke_handler commands exposing the scan/parse/heuristic/surprise/churn/model pipeline to the frontend, and finally calls .run() to start the event loop.
+- found: Sets up shared agent-API state, then in Builder.setup() builds the window, warms the harness, builds the macOS menu (with theme-select and open-project/install-cli event emission to webviews), restores the previously open project with scan-shape/scan-progress emit callbacks, stamps the build id, and spawns the loopback agent API server as an async task. Registers single-instance/dialog/opener plugins and a large invoke_handler command list, then calls .build().run() with an exit handler that stops all agent runs and releases the endpoint claim file so external readers know the backend is gone.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+- note: The exit-ordering comment (stop_all_runs before release_endpoint) is important context for anyone touching shutdown — it's non-obvious why the order matters.
 
 ## src-tauri/src/links.rs
 

@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { trapOf, type AgentCall, type Node } from '../lib/api'
 import { clsx } from '../lib/cn'
 import { colorFor, flashPaint, type ColorMode, paintsFromReadings } from '../lib/colorMode'
@@ -301,6 +301,31 @@ function heatShare(kind: string, mode: ColorMode): number {
  *  are already hardest to tell apart. Narrower for the finer levels so a file's rim
  *  doesn't swallow the functions inside it. */
 const CUT = { dir: 2.2, file: 1.5, func: 0.35 }
+
+/** A wedge the map has to point at, and enough of its geometry to point at its SUBTREE.
+ *
+ *  The path is the wedge itself, for the outline; the angles and inner radius are what the
+ *  spotlight is cut from — see `SECTOR`. */
+type Mark = { d: string; a0: number; a1: number; r0: number; width: number }
+
+/** How far out a spotlight reaches: past the rim, whatever the rim is.
+ *
+ *  **A node's descendants are always the same angular slice at a larger radius**, which is the
+ *  one property of a sunburst that makes this a single rule rather than three. Cutting the
+ *  hole at the selected wedge's own band left a directory lit and everything inside it dimmed,
+ *  which is exactly backwards — you select a directory to look at what is in it. Cut to the
+ *  sector instead and a directory keeps its whole subtree, a file keeps its functions, and a
+ *  function keeps the rim of the file it sits in. Overshooting the rings costs nothing: past
+ *  them the veil is the ground drawn over the ground. */
+const SECTOR = 1e4
+
+/** How far everything that is not selected falls back, as a veil of the ground over it.
+ *
+ *  High enough that the selection is the only thing at full strength — which is the whole
+ *  mechanism — and short of hiding the picture, because the answer to "where is it" is
+ *  useless without "what is it near". At 0.62 the rings are still readable as shape and
+ *  colour underneath; the selected wedge is simply the one that has not been touched. */
+const DIM = 0.62
 
 /** How wide a directory's reading is drawn on its own rim, in pixels.
  *
@@ -1197,7 +1222,15 @@ function SunburstView({
    *  drawn" stand-in fired and dashed its PARENT: the map dropped the mark for what you
    *  chose and put a different mark on something you did not. Both are kept and both are
    *  drawn; the selection's is the heavier one and goes on top. */
-  let selMark: { d: string; width: number } | null = null
+  /** This instance's own id for the spotlight mask.
+   *
+   *  A fixed string would be fine while one map is mounted, and an export stages a SECOND one
+   *  — a duplicate id in one document resolves to whichever came first, so the staged map and
+   *  the live one would share a hole cut for one of them. `useId` costs nothing and removes
+   *  the class of bug rather than the instance. */
+  const spotlight = useId()
+
+  let selMark: Mark | null = null
   let hoverMark: { d: string; width: number } | null = null
   /** Where the selection IS, when the selection itself is not drawn.
    *
@@ -1209,7 +1242,7 @@ function SunburstView({
    *  "in here" instead of saying nothing, which is the honest answer and the one that tells
    *  you where to drill. Dashed, and never with the selected wedge's own outline, so a
    *  container standing in for its contents cannot be mistaken for the thing itself. */
-  let selCoarse: { d: string; depth: number } | null = null
+  let selCoarse: (Mark & { depth: number }) | null = null
 
   return (
     // Clicking the empty space around the chart clears the selection. Without it the
@@ -1401,12 +1434,12 @@ function SunburstView({
           const isHover = hover?.node.id === w.node.id
           const foldable = w.node.kind === 'dir' && w.node.children.length > 0
           const isFolded = foldable && collapsed.has(w.node.id)
-          if (isSel) selMark = { d: arcPath(a0, a1, r0, r1), width: 2 }
+          if (isSel) selMark = { d: arcPath(a0, a1, r0, r1), a0, a1, r0, width: 2 }
           else if (isHover) hoverMark = { d: arcPath(a0, a1, r0, r1), width: 1.6 }
           // Deepest wins: the file that holds the selection beats the directory that holds
           // the file, because a narrower answer to "where is it" is a better one.
           if (selTrail?.has(w.node.id) && (!selCoarse || w.depth > selCoarse.depth)) {
-            selCoarse = { d: arcPath(a0, a1, r0, r1), depth: w.depth }
+            selCoarse = { d: arcPath(a0, a1, r0, r1), a0, a1, r0, depth: w.depth, width: 1.4 }
           }
           const isReading = pulsing?.has(w.node.id) ?? false
           return (
@@ -1580,7 +1613,7 @@ function SunburstView({
               const isSel = selected?.id === slot.node.id
               const isHover = hover?.node.id === slot.node.id
               const d = arcPath(slot.a0, slot.a1, slot.r0, slot.r1)
-              if (isSel) selMark = { d, width: 1.6 }
+              if (isSel) selMark = { d, a0: slot.a0, a1: slot.a1, r0: slot.r0, width: 1.6 }
               else if (isHover) hoverMark = { d, width: 1.2 }
               return (
                 <g key={slot.node.id}>
@@ -1828,30 +1861,79 @@ function SunburstView({
             strokeWidth={(hoverMark as { width: number }).width}
           />
         )}
-        {selMark && (
-          <g className="pointer-events-none">
-            {/* A halo under the outline, in the ground the cuts between wedges are already
-                drawn in. A 1.6-unit stroke is legible on a directory and invisible on a
-                function patch two pixels wide, which is the size of the thing you most often
-                arrive at from the list — so the mark has to be bigger than the wedge rather
-                than a border on it. Selection only: hover already tells you where it is,
-                because your pointer is there. */}
-            <path
-              d={(selMark as { d: string }).d}
-              fill="none"
-              stroke="var(--background)"
-              strokeWidth={(selMark as { width: number }).width + 3}
-              strokeOpacity={0.85}
+        {/* **The selection is drawn by taking everything ELSE away.**
+         *
+         *  It was an outline: a foreground stroke with a background halo under it, sized up
+         *  from the wedge so a two-pixel function patch had a mark bigger than itself. It did
+         *  not work, and the reason is that an outline competes on the same terms as the
+         *  picture it is drawn over — a ring of four thousand wedges is already all edges, and
+         *  one more edge somewhere in it is a thing you have to FIND. Making it heavier only
+         *  made it a heavier thing to find.
+         *
+         *  Dimming inverts that. Nothing is added to the picture; the rest of the picture is
+         *  removed, and what is left is the only thing at full strength on the screen. It
+         *  cannot be missed at any wedge size, which is the property the outline never had at
+         *  the size that matters — the sliver you arrive at from the panel's list.
+         *
+         *  A MASK rather than a redraw of the selected wedge on top of the veil. A redraw
+         *  needs the wedge's fill, opacity, cut and pulse class restated in a second place,
+         *  and the second copy is the one that goes wrong the next time any of them moves.
+         *  Punching a hole leaves the original wedge showing through, painted once.
+         *
+         *  The veil sits inside the wedge group, so it dims the labels with them — a bright
+         *  name on a dimmed ring is the same competition one layer up — and stops short of the
+         *  hub, the legend and the tooltip, which are chrome rather than picture. */}
+        {(selMark || selCoarse) && (
+          <>
+            <mask
+              id={spotlight}
+              maskUnits="userSpaceOnUse"
+              x={-1e5}
+              y={-1e5}
+              width={2e5}
+              height={2e5}
+            >
+              <rect x={-1e5} y={-1e5} width={2e5} height={2e5} fill="white" />
+              {/* The SECTOR, not the wedge — see `SECTOR`. */}
+              <path
+                d={((m) => arcPath(m.a0, m.a1, m.r0, SECTOR))(
+                  (selMark ?? selCoarse) as unknown as Mark,
+                )}
+                fill="black"
+              />
+            </mask>
+            <rect
+              className="pointer-events-none"
+              x={-1e5}
+              y={-1e5}
+              width={2e5}
+              height={2e5}
+              fill="var(--background)"
+              opacity={DIM}
+              mask={`url(#${spotlight})`}
             />
-            <path
-              d={(selMark as { d: string }).d}
-              fill="none"
-              stroke="var(--foreground)"
-              strokeWidth={(selMark as { width: number }).width}
-            />
-          </g>
+          </>
         )}
-        {/* Only when the selection itself was not drawn — see `selCoarse`. */}
+        {/* **And the outline comes back, because dimming alone cannot serve a two-pixel
+            patch.** A function is often a sliver, and at that size a lit sliver and a veiled
+            one are a few pixels of slightly different colour — the spotlight tells you which
+            NEIGHBOURHOOD to look in and then leaves you hunting inside it.
+            What killed the outline before was competition: a ring of four thousand wedges is
+            already all edges, so one more edge was a thing to find. The veil removes exactly
+            that competition, which is what makes the same mark work now. No halo under it any
+            more — the dimmed picture is the halo. */}
+        {selMark && (
+          <path
+            className="pointer-events-none"
+            d={(selMark as Mark).d}
+            fill="none"
+            stroke="var(--foreground)"
+            strokeWidth={(selMark as Mark).width}
+          />
+        )}
+        {/* Only when the selection itself was not drawn — see `selCoarse`. The hole is its
+            deepest drawn ancestor, so the map says "in here"; the dashes stay, because a
+            container standing in for its contents must not read as the thing itself. */}
         {!selMark && selCoarse && (
           <path
             d={(selCoarse as { d: string }).d}
