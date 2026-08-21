@@ -23,6 +23,14 @@ whether their FILE changed — `parse.rs` and `assessment.rs` change constantly 
 reasons, and a gate that cries wolf on every release is one people learn to skip, which is
 the same failure as a warning that fires unconditionally.
 
+The same argument reaches one step further, and a formatter is what proved it: `cargo fmt`
+moved line breaks inside two watched functions and this failed the release, over a change
+that provably cannot expire anything, because `body_hash` collapses whitespace before it
+hashes. So layout is compared apart from substance — same text, different wrapping, REPORTED
+and not failed. String and char literals are held out of that normalisation and compared
+literally: whitespace inside a literal is content, it can reach a reader through `file_doc`,
+and collapsing it here would hide the one whitespace change that does move a hash.
+
 Usage: expiry-check.py [<previous-ref> [<later-ref>]]   (defaults: most recent tag, HEAD)
 Exit 0 when the release is declared, 1 when it is not.
 
@@ -81,6 +89,30 @@ def function_text(src, name):
     return rest[: end.end() + 1] if end else rest
 
 
+# A Rust string or char literal, raw forms included. Held out of whitespace normalisation
+# because what is inside one is content rather than layout.
+LITERAL = re.compile(r'r#*"(?:[^"]|"(?!#))*"#*|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])\'')
+
+
+def shape(text):
+    """A function's substance, with its layout normalised away.
+
+    Literals are lifted out and kept exact; everything else collapses to single spaces. Two
+    texts with the same shape differ only in how they are wrapped and indented, which
+    `body_hash` already treats as no difference at all.
+    """
+    if text is None:
+        return None
+    kept = LITERAL.findall(text)
+    body = LITERAL.sub("\x00", text)
+    # Whitespace next to punctuation goes entirely, because that is the whitespace a formatter
+    # moves: `runs\n.last()` and `runs.last()` are one expression written two ways. Whitespace
+    # BETWEEN words is collapsed rather than dropped, or `let x` and `letx` would compare
+    # equal, and a gate that can be fooled by deleting a space is not a gate.
+    body = re.sub(r"\s*([^\w\s])\s*", r"\1", body)
+    return (" ".join(body.split()), kept)
+
+
 def version_of(src, name):
     """The integer a `const NAME: u32 = N;` is set to. Absent is 0 — see `SPEC`."""
     if src is None:
@@ -101,12 +133,17 @@ def main():
         print("no previous tag — nothing to compare against, so nothing to declare")
         return 0
 
-    changed = []
+    changed, reflowed = [], []
     for path, names in WATCHED.items():
         before, after = at(prev, path), at(later, path)
         for name in names:
-            if function_text(before, name) != function_text(after, name):
-                changed.append(f"{path.split('/')[-1]}::{name}")
+            was, now = function_text(before, name), function_text(after, name)
+            if was == now:
+                continue
+            # Same substance, different wrapping: worth saying, not worth failing over.
+            (reflowed if shape(was) == shape(now) else changed).append(
+                f"{path.split('/')[-1]}::{name}"
+            )
 
     moved = []
     for path, const in VERSIONS.items():
@@ -115,6 +152,8 @@ def main():
             moved.append(f"{const} {was} → {now}")
 
     print(f"==> reading expiry, {prev}..{later}")
+    for r in reflowed:
+        print(f"    reflowed: {r} (layout only — hashes the same)")
     if not changed and not moved:
         print("    EXPIRES NOTHING — no hash input moved, no version moved.")
         return 0
