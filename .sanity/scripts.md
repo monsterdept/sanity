@@ -1,6 +1,6 @@
 # scripts — sanity assessment
 
-27 of 27 read · 3 surprising
+28 of 28 read · 3 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -18,10 +18,11 @@ What this is and how to add to it: [README.md](README.md)
 ## scripts/expiry-check.py
 
 ### the file itself
-- spec 2 · read at `0c7a120a83c8` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:56:12Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A CI script that inspects a git diff to decide whether this release invalidates existing .sanity/ readings. Uses at/function_text to pull specific function bodies (the ones feeding reading_hash, the parser, and the assessment question) at two revisions, compares them, and via version_of checks whether a version bump accompanied any such change. main is the entrypoint that fails the check if inputs changed without a corresponding version bump, guarding against the past incident where file_doc silently changed cached-record meaning without one.
-- found: CI script comparing a previous git ref (defaults to latest tag) against a later one (defaults HEAD), extracting specific named top-level Rust functions (reading_hash, body_hash, file_doc, leading_doc, body_span, header_end, file_surface) by regex and comparing their text, then checking whether PARSE_VERSION or SPEC constants moved. Three outcomes: EXPIRES NOTHING (exit 0), EXPIRES READINGS (deliberate version bump, exit 0), or UNDECLARED (watched function changed but no version bump — exit 1, the actual bug this guards against).
+- spec 3 · read at `123d91fa4b30` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:48:42Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: CI script that detects whether a release would invalidate cached readings. It diffs current code against a previous git ref (via `at`), extracts the source of specific functions like `reading_hash`, the parser, and the prompt/question text (via `function_text`/`shape`), compares their hashes/shapes across versions (`version_of`), and in `main` fails/warns if those inputs changed without a corresponding version bump in the cache format.
+- found: CLI tool comparing watched function source text (reading_hash inputs like body_hash, parse doc-stack functions, file_surface) between two git refs; if their text changed but no version const (PARSE_VERSION/SPEC) was bumped, exits 1 with an UNDECLARED EXPIRY error. Also normalizes away pure whitespace/formatting reflow (collapsing everything but string/char literals) so cosmetic changes are reported but not treated as a failure.
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: The whitespace-vs-literal 'shape' normalization is a subtle but load-bearing detail not guessable from names/peers alone.
 
 ### `at`
 - spec 2 · read at `41b52f38dccc` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:44:25Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -36,6 +37,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: Missed the pub-visibility prefix handling and used regex-on-remainder rather than a manual line scan, though the overall mechanism (start marker, column-zero close) matched.
 
+### `shape`
+- spec 3 · read at `87afe58247e2` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:56:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Normalizes a function's source text so that pure formatting/whitespace/indentation differences don't count as changes. It probably tokenizes the text, extracting string/number literals verbatim (keeping their exact content), and collapses all other whitespace runs (and maybe other non-literal tokens) into single spaces, then joins everything back into one normalized string used elsewhere (e.g. by body_hash) to compare function bodies for semantic equality.
+- found: Normalizes source text into a (normalized_string, literals_tuple) pair: literals are extracted verbatim via regex into `kept`, replaced with a placeholder in the body, then whitespace adjacent to punctuation is stripped entirely (not just collapsed) while whitespace between word characters is collapsed to a single space. Returns None if input is None.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
 ### `version_of`
 - spec 2 · read at `7fb9eb7a5d80` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:47:34Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
 - expected: Uses a regex to find `const {name}: u32 = N;` in the source text `src` and returns N as an int; returns 0 if no match is found (absent = 0, per the docstring).
@@ -43,11 +50,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `main`
-- spec 2 · read at `06131c6f5f9e` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:50:19Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Runs as a CI check comparing the current branch against a base ref, using version_of and function_text to compare the code feeding reading_hash (and parser/question logic) before and after. If those inputs changed but the version wasn't bumped, it prints an error and exits non-zero; otherwise exits cleanly.
-- found: Compares a previous git ref (defaulting to the latest tag) against a later one (defaulting to HEAD): diffs the text of each watched function and the value of each watched version constant across the two refs. If a watched function changed but no version constant moved, it prints an 'UNDECLARED EXPIRY' error and returns 1; if versions moved it prints that readings expire and returns 0 (informational); if nothing changed it returns 0.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: No per-function docstring — only the file-level doc explains the rationale; the argv/tag-default handling and the three distinct outcome branches weren't predictable from the signature alone.
+- spec 3 · read at `24e4d7b6d35c` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:43:43Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Parses CLI args (likely two git refs to compare), runs a diff to check whether files affecting reading_hash inputs, the parser, or the question text changed between the two revisions, then checks whether the version constant was bumped accordingly (via version_of). Exits non-zero with an error message if semantics changed without a version bump, otherwise exits cleanly — acting as a CI gate.
+- found: Defaults prev to the last git tag if not given, later defaults to HEAD. For each watched function it diffs text between the two revisions, splitting changes into 'reflowed' (same shape, cosmetic) vs 'changed' (real). It also checks whether version constants (PARSE_VERSION, SPEC) were bumped. If functions changed but no version moved, it prints an UNDECLARED EXPIRY error and returns 1 (CI failure); if versions moved it prints EXPIRES READINGS and returns 0 with guidance to note it in release notes; if nothing changed it returns 0 saying nothing expires.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The file_doc explains the motivating incident (file_doc added without version bump) which matches exactly what this function guards against.
 
 ## scripts/make-icon.py
 
