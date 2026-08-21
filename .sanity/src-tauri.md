@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-786 of 786 read · 125 surprising
+791 of 791 read · 126 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -1707,125 +1707,137 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/churn.rs
 
 ### the file itself
-- spec 2 · read at `0c7433ce609f` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:09:00Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Computes git history stats (churn, commit counts, last-touched, last-author, age) from one `git log` pass instead of per-file git spawns. Parses the log once, accumulates commit credit up directory trees so a file's commits count toward all ancestor directories, stores results in a `History` struct with lookup methods, and applies saturation logic so one pathological file doesn't dominate scores. Includes unit tests verifying directory credit propagation, saturation, and empty-repo handling.
-- found: Single-pass `git log` parser that builds a History of per-path (file and directory) commit stats: recent commit count within a 90-day churn window, age from oldest commit, last-touched/last-author/last-commit from newest commit. Directory ancestors are credited once per commit (via a per-commit touched-files buffer) rather than by summing per-file counts, avoiding double counting. Churn is normalized against a fixed absolute saturation constant (8 commits in-window) rather than relative to the repo, specifically to prevent a single high-churn generated file (e.g. lockfile) from squashing everything else's score. Includes unit tests for directory credit accumulation, saturation, oldest/newest commit semantics, and non-repo handling.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: The doc comment on parse_log explicitly explains a documentation-drift meta-issue: a paragraph about parse_log had been misplaced above credit's definition, fooling extractors/readers into attributing it to credit.
+- spec 3 · read at `e849e5282ef9` · commit `6cf7dc9` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-21T07:07:23Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A single-pass git log walker (History struct) that builds per-path stats — age (oldest commit), churn (recent commit count, saturating so one hot file doesn't dominate), total commit count, last author, last commit timestamp, last-touched-days — used as the stability axis. Commits are credited to each ancestor directory as well as the touched file, parsed incrementally via parse_log/flush_commit/credit, with read/now_secs as I/O helpers, plus unit tests for directory accumulation and saturation behavior.
+- found: Exactly as predicted: single git-log-pass History builder tracking age, churn (saturating, absolute-anchored), total commits, last author/commit per file and per ancestor directory (including root), plus rationale-heavy docs and tests for the edge cases (root crediting, unseen vs zero, saturation).
+- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
 
 ### `churn_of`
-- spec 2 · read at `2e7d59626e95` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:43:08Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Looks up the commit count for `path` (via an internal map built from the git log pass), divides by CHURN_SATURATION, and clamps the result to 0..1 — returning 0 if the path has no recorded commits. The absolute (not repo-relative) scale is so churn values are comparable across different repos.
-- found: Looks up the file's recent_commits from self.files map, returns 0.0 if absent, else divides by CHURN_SATURATION and clamps to 0..1.
+- spec 3 · read at `a7307b69edc1` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:04:15Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the FileHistory entry for `path` (returning 0.0 if absent), then normalizes its recent_commits count to 0..1 by dividing by the absolute CHURN_SATURATION constant and clamping/capping at 1.0, so a file with commits at or above that threshold reads as maximally churny rather than being scaled relative to the busiest file in the repo.
+- found: Returns 0.0 for an unseen path, otherwise recent_commits divided by CHURN_SATURATION, clamped to 0..1.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `commits_of`
-- spec 2 · read at `f077c53a23d4` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:46:43Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Looks up `path` in an internal map (e.g. HashMap<String, u32>) built during the git log pass and returns the raw commit count, defaulting to 0 if the path isn't present.
-- found: Looks up path in self.files map and returns the recent_commits field of the per-file history struct, defaulting to 0 if not found.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `2dac66e5874a` · commit `1edee41` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:07:03Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Looks up `path` in an internal map built from the git log parse (mapping path -> commit info/list) and returns the raw commit count touching that path, defaulting to 0 if the path has no recorded history. Likely a one-line HashMap lookup with `.map_or(0, ...)` or similar.
+- found: Looks up path in self.files map and returns the recent_commits field of the matching entry, or 0 if not found. Confirms it's a simple map lookup as predicted, but the field is specifically "recent_commits" (window-scoped), distinct from a total_commits_of peer — a distinction I didn't capture in the prediction.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `total_commits_of`
+- spec 3 · read at `99f9cb3b042c` · commit `c4c6042` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:08:01Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Looks up path in self.files, returning Some(entry.total_commits) — a field separate from recent_commits — if the entry exists, or None if the path was never seen by git, preserving the None-vs-zero distinction the doc emphasizes.
+- found: Exactly as predicted: map lookup returning Some(total_commits) or None.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `last_touched_of`
-- spec 2 · read at `b2dfed3bfff2` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:28:10Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Looks up the file's last commit timestamp in a map built by the single git log pass, and if found, computes and returns days since that commit (using now_secs() minus the stored timestamp, divided into days). Returns None if the path has no recorded history.
-- found: Simple map lookup returning a precomputed last_touched_days field from a per-file history struct — the day-conversion math happens elsewhere (at parse/flush time), not here as I assumed.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `e85a60809d62` · commit `1edee41` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-21T07:07:00Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the file's last commit timestamp from an internal map (similar to last_commit_of), computes days elapsed as (now_secs() - timestamp) / 86400.0, and returns None if the path has no recorded history.
+- found: Simple accessor that looks up the file in self.files map and returns the precomputed last_touched_days field, wrapped in Option via map(). No computation happens here; it was done during log parsing.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `last_author_of`
-- spec 2 · read at `71fc831087df` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:01:51Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Simple accessor on History: looks up `path` in an internal per-file map built during the single git log pass, and returns the author of the most recent commit touching that file as Option<String>, returning None if the path has no recorded history.
-- found: Looks up path in self.files, maps to last_author cloned, and filters out empty-string authors so an empty author reads as None rather than Some("").
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Missed the empty-string filter guard.
+- spec 3 · read at `fb92b041606d` · commit `1edee41` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:07:12Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Simple accessor: looks up `path` in a map inside `History` (built from the single git-log pass) and returns the author of the most recent commit touching that file, cloned into an Option<String>, None if the path has no recorded history.
+- found: Looks up path in self.files map, maps to h.last_author.clone(), then filters out empty-string authors, returning None in that case too.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: The empty-author filter suggests some commits in the parsed log can yield a blank author string that should be treated the same as no history.
 
 ### `age_of`
-- spec 2 · read at `f204332fb880` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:28:15Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Looks up path in self.files; if present, computes the age as now_secs() minus the file's oldest/first commit timestamp (converted to some unit like days), returning Some(age); returns None if the path isn't in the map (no history).
-- found: Looks up path in self.files and returns the precomputed age_days field, wrapped in Option; no computation happens here — the subtraction from now_secs happens elsewhere during parsing.
+- spec 3 · read at `0b960e7cd834` · commit `1edee41` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:06:59Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the path in an internal map of per-file/per-directory git history stats and returns the age of the oldest commit touching it, likely as a float representing days or seconds since that commit relative to "now". Returns None if the path has no recorded history (untracked or not in the repo).
+- found: A simple map lookup returning the precomputed age_days field stored on the file's history record, or None if the path isn't tracked.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `last_commit_of`
-- spec 2 · read at `fda8fa978861` · commit `10d6afa` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T22:03:40Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Looks up `path` in a HashMap (built during the single git log parse) that stores per-file commit history, and returns the oid of the first/most recent entry as Some(&str), or None if the path isn't present in the map.
-- found: Looks up the path in a `files` map and returns a pre-stored `last_commit` field as Some(&str) unless it's empty, in which case None — close to my guess but the struct stores a dedicated `last_commit` field rather than a history list I'd have to take the first of.
+- spec 3 · read at `b2d3d99e6d5f` · commit `1edee41` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:07:15Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Looks up path in the internal files map and returns the stored commit oid (as &str) of the most recent commit that touched it, wrapped in Some; returns None if the path isn't present in the map (never touched, per the docs).
+- found: Looks up path in files map, maps to last_commit field as &str, then filters out empty strings so an empty-but-present sentinel value also yields None.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The empty-string-as-sentinel-for-None filter wasn't something I anticipated.
+- note: I predicted the map/get correctly but missed that there's an extra filter for empty-string oids, which the doc's None-means-"never seen" framing doesn't fully explain (empty string is a distinct internal sentinel).
 
 ### `is_empty`
-- spec 2 · read at `6c522ef55697` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:28:14Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether the History struct's underlying data (e.g. a map of per-file/per-directory commit records) is empty, used to detect repos with no git history at all.
-- found: Returns self.files.is_empty() — checks if the per-file commit map has no entries.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `fa82152d23c7` · commit `1edee41` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:07:06Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether the History struct has no data at all — likely returns true if the internal map of path->stats (or total commit count) is empty, used to detect repos/directories with no git history so callers can fall back to scoring without history.
+- found: Returns whether the internal `files` map is empty, i.e. no per-file history was recorded.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: Field is named `files` not a generic map/count, and there's no directory-level field checked separately — good to know since the module also tracks directory-level churn.
 
 ### `read`
-- spec 2 · read at `8aeeb414bca3` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:50:37Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Runs a single `git log` command (with --name-only or similar, and a custom format string encoding hash/author/timestamp per commit) against `repo` as a subprocess, capturing stdout. Passes the output to `parse_log` to build up per-file commit history. If the `git log` invocation fails (not a repo, git missing, etc.), catches that and returns an empty/default History rather than propagating an error, since the doc says this never fails.
-- found: Spawns `git -C repo log --no-merges --format=%x01%ct%x02%an%x02%H --name-only --max-count=N`, and on subprocess spawn failure or non-success exit returns History::default(); otherwise decodes stdout lossily and hands it to parse_log with the current timestamp.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `48dc118bf84e` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:59Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Spawns a single `git log` process against `repo` (likely with a custom format flag to get commit boundaries plus per-commit changed file paths, given peers like `parse_log`/`flush_commit`/`credit`), reads its stdout, and folds it into a `History` struct — crediting each directory ancestor once per commit that touched any file beneath it (per the file doc), tracking oldest/newest per path for age and churn. If the command fails (not a git repo, git missing), it catches that and returns an empty/default `History` rather than propagating an error, matching "never fails".
+- found: Spawns `git log --no-merges --format=%x01%ct%x02%an%x02%H --name-only` via Command, and on any failure (spawn error or non-zero exit) returns History::default(); otherwise hands the raw stdout text straight to `parse_log` which does all the actual accumulation/crediting work. `read` itself is just the process boundary — I incorrectly attributed the ancestor-crediting/folding logic to this function when it's fully delegated to `parse_log`.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The \x01/\x02 delimiter format is a nice detail worth knowing when touching parse_log — commit boundary is \x01, field separator is \x02.
 
 ### `now_secs`
-- spec 2 · read at `e9ed17b3f23e` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:25:11Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Returns SystemTime::now() converted to seconds since the Unix epoch as an i64, used as the "now" reference for computing commit age and recency elsewhere in the churn module.
-- found: SystemTime::now() minus UNIX_EPOCH, as seconds i64, defaulting to 0 on error (clock before epoch) — matches prediction exactly except for the unwrap_or(0) fallback detail.
+- spec 3 · read at `fbdc243743ae` · commit `1edee41` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:06:58Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Returns the current time as Unix seconds (i64), likely via SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() cast to i64, used to compute age/recency elsewhere in churn calculations.
+- found: Returns current Unix time in seconds as i64, using SystemTime::now().duration_since(UNIX_EPOCH), defaulting to 0 on error (e.g. clock before epoch).
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `credit` — QUIRKY — TRAP
-- spec 3 · read at `1a421829daf9` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:56:41Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Looks up or inserts a FileHistory entry for `key` in `files`, then updates it with this commit: increments a commit counter, updates the oldest-seen age (age_of) and most-recent touch/author/oid, and adds to a churn accumulator that saturates rather than growing unbounded so one pathological file doesn't squash the rest.
-- found: Gets or creates the FileHistory entry; on first sighting for this key it sets last_touched/author/commit from this commit (relying on the caller feeding commits newest-first from git log); increments recent_commits only if age_days is within CHURN_WINDOW_DAYS; unconditionally overwrites age_days each call, so the final value ends up being the oldest commit's age (again relying on newest→oldest call order).
-- predicted: some · documented: none · derivable: yes · legible: full · trap: yes
-- note: Correctness silently depends on the caller iterating git log in newest-to-oldest order — nothing in the type signature enforces it, and calling credit() out of order would silently corrupt last_touched/author/oid and age_days.
+### `credit` — TRAP
+- spec 3 · read at `6bcf8007d0b6` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:03:06Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Looks up or inserts a FileHistory entry for `key` in `files`, then updates it for this one commit: increments total commit count, updates last-touched/last-author/last-commit-oid if this commit is more recent than what's stored, and updates the oldest age_days seen (since the oldest commit sets the path's age). It likely also increments a churn counter for commits falling within a recent window, capped/saturating so one very hot file doesn't dominate the churn scale for everything else.
+- found: Gets/inserts the FileHistory entry; relies entirely on the caller's guarantee that git log is walked newest-to-oldest rather than comparing timestamps: first sighting (total_commits==0) sets last_touched/author/commit since it's necessarily the newest, every call increments total_commits and conditionally increments recent_commits if within CHURN_WINDOW_DAYS, and age_days is unconditionally overwritten every call since the last call seen is guaranteed oldest.
+- predicted: most · documented: some · derivable: no · legible: full · trap: yes
+- note: There's no explicit comparison guarding last_touched/age_days updates — correctness depends entirely on the undocumented-in-this-function invariant that callers feed commits in newest-to-oldest order; feeding out of order silently corrupts age and last-touched with no error.
 
 ### `flush_commit`
-- spec 2 · read at `cd3690e69372` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:00:19Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Takes the buffered list of file paths touched by one commit, and for each file calls `credit` to record the commit (timestamp, author, oid) against that file's FileHistory. To avoid double-crediting a directory when several of its files are touched by the same commit, it collects the set of unique ancestor directories across all touched files first (e.g. into a HashSet) and credits each ancestor directory exactly once, then clears the `touched` buffer for the next commit.
-- found: Guards against a zero timestamp or empty buffer, computes age_days from ts/now, then walks each touched path's slashes to collect the set of unique ancestor directories, credits every touched file and then every unique ancestor directory once each via `credit`, and clears the buffer.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Missed the ts==0/empty early-return guard and the age_days computation.
+- spec 3 · read at `957b68eeaa0c` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:08Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: For each file path in `touched`, this updates that file's FileHistory (increment total commit count, bump churn if `ts` is recent relative to `now`, set/refresh last_touched, last_author, and oid, and possibly track oldest commit for age). Then, to credit each ancestor directory exactly once, it walks up each touched file's path collecting ancestor directories into a local dedup set (since multiple touched files can share ancestors), and for each unique directory applies the same kind of update to that directory's own FileHistory entry. Finally it clears `touched` to prepare the buffer for the next commit.
+- found: Guards against ts==0/empty touched, computes age_days once, collects ancestor directories of all touched files into a dedup set via manual '/' scanning, then calls a shared `credit` helper for each touched file and each unique ancestor directory. It also explicitly credits the repo root ("") since the ancestor-walk loop never reaches it (cuts stop at the last '/'), which the comment flags as a real historical bug fix — the root is where lifetime totals get read.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `parse_log`
-- spec 2 · read at `c5c2933cf7c0` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:13:01Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Walks the raw `git log` text line by line, detecting commit-header lines (hash/timestamp/author) versus file-path lines, accumulating touched files per commit and flushing them via flush_commit/credit into a History (tracking churn, commit counts, last-touched time, last author, age per file/directory), using the passed-in `now` for age/churn calculations instead of the real clock so it's deterministic in tests.
-- found: Parses git log output using \x01 as a commit-header marker and \x02 as a field separator (splitting timestamp from the right-most fields since author names can contain \x02), accumulating touched file paths per commit until the next header, flushing each completed commit's file list plus timestamp/author/oid into the files map via flush_commit, and returns a History wrapping that map.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `a6221e33d514` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:03:38Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Parses the raw text output of a single `git log` invocation (with commit metadata and changed-file paths per commit) line by line, building up a History struct. For each commit it likely parses the hash/author/timestamp header line, collects the following file paths until the next header, and calls `credit`/`flush_commit` to roll the commit into per-file and per-directory stats (commits, churn, age, last-touched) — taking `now` as a fixed reference clock rather than calling the system clock, to keep parsing pure and testable.
+- found: Broadly matched: line-based parse of a custom-delimited git log format, header lines starting with \u{1} carrying timestamp/author/oid separated by \u{2}, file path lines accumulated until flush_commit rolls up the previous commit. I got the overall commit-header/file-accumulation shape and the `now`-as-fixed-clock reasoning right, but missed the specific delimiter scheme (\x01/\x02 control characters, presumably from a custom `--format`) and the right-to-left rsplit trick to protect against \x02 appearing in author names — a parsing subtlety I didn't anticipate. Also didn't predict that `credit` isn't called directly here (only `flush_commit` is, which presumably calls `credit` internally per file).
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `a_commit_touching_three_files_counts_once_for_their_directory`
-- spec 2 · read at `e7dd0e3164f6` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:09:35Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A test that feeds a synthetic git-log-style input containing one commit that touches three files within the same directory, parses it via parse_log/read, and asserts that the directory's commit count (via History::commits_of or churn_of) is 1 rather than 3 — proving the dedup-per-commit-per-directory logic works instead of naively summing per-file touches.
-- found: Builds a synthetic git-log entry for one commit touching src/a.rs, src/b.rs, src/c.rs, parses it with parse_log, and asserts commits_of("src/a.rs") == 1 and commits_of("src") == 1 (not 3), confirming per-directory commit dedup.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `63739de855ec` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:03:32Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A unit test that builds a fake git log with one commit touching three files in the same directory, parses it with parse_log, and asserts commits_of (or total_commits_of) for that directory equals 1 rather than 3 — proving directory commit counts are deduplicated per-commit rather than summed per-file.
+- found: Matches prediction: builds a one-commit log touching three files in src/, parses it, asserts commits_of on the file is 1 and commits_of on the directory "src" is also 1, not 3.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `directory_commits_accumulate_and_reach_every_ancestor`
-- spec 2 · read at `37a48eee2c7f` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:17:15Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Constructs a small fake git log with commits touching files nested a few directories deep across multiple separate commits, runs it through parse_log/History building, then asserts that each ancestor directory (not just the immediate parent) shows a commit count equal to the number of commits that touched files beneath it, confirming counts accumulate across commits rather than being overwritten.
-- found: Builds a fake git log with two separate commits, each touching one file under a/b/, parses it via parse_log, and asserts commits_of counts 1 for the individual file, 2 for directory a/b, and 2 for ancestor a — confirming accumulation and propagation to ancestors. Also checks last_touched_of reflects the newest of the two commits.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Also verifies last_touched_of picks the newest commit among the two, which my prediction didn't mention.
+- spec 3 · read at `f47ef4001865` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:03:53Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A unit test: builds a synthetic git-log-formatted string with two or more separate commits touching a file nested several directories deep (e.g. a/b/c/file.rs), runs it through parse_log, and asserts that commits_of (or similar) on each ancestor directory (a, a/b, a/b/c) reflects the accumulated count across both commits — i.e. commit counts propagate up through every level of nesting, not just the immediate parent.
+- found: Confirms the core prediction: commits_of accumulates through every ancestor directory level (a/b and a both get count 2). One detail I got wrong: the two commits touch two *different* files in the same directory (a/b/one.rs and a/b/two.rs), not the same file twice — so it's testing directory-level accumulation across distinct files, not repeated touches to one file. Also includes an extra assertion on last_touched_of confirming "newest first" ordering that I didn't predict.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `oldest_commit_sets_age_and_recent_ones_set_churn`
-- spec 2 · read at `e247eed68707` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:20:43Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: A test that constructs a synthetic git log (via parse_log or similar fixture) with multiple commits touching a file spread across time — an old first commit and several recent ones — then asserts History::age_of reflects the oldest commit's timestamp while History::churn_of reflects only the recent commit activity, confirming the two metrics are derived from different ends of the commit history.
-- found: Parses a synthetic git-log-format string with three commits (two on a.rs 400 days apart with one recent b.rs commit in between) and asserts age_of picks the oldest commit per file, last_author_of picks the newest commit's author, and churn_of weighs commits inside a 90-day window higher than older ones.
+- spec 3 · read at `da87db8bcdd7` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:04:18Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A test that builds a synthetic log for one file with a very old commit (long before `now`) plus several recent commits close to `now`, parses it, and asserts that `age_of` reflects the old/first commit (the file has existed a long time) while `churn_of`/commits reflects only the recent activity — confirming the two axes are computed from different ends of the commit history rather than one timestamp doing double duty.
+- found: Builds a log with a.rs touched at -1d, -10d (shared with b.rs), and -400d; asserts age_of reflects the oldest commit per file (400 for a.rs, 10 for b.rs, None for an unseen path), that last_author_of returns the newest commit's author (not oldest), and that a.rs's churn exceeds b.rs's since two of its three commits fall inside the 90-day window versus b.rs's one.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+### `a_total_counts_every_commit_and_an_unseen_path_has_none`
+- spec 3 · read at `9001a0184ac0` · commit `c4c6042` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:08:07Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A regression test verifying: (1) total_commits_of reports the true full commit count even when internal processing is capped/windowed, not silently truncated to the newest N commits; (2) a path git has never tracked returns None/absent, distinguished from an old-but-tracked file that just has no recent commits. Likely builds synthetic log data exceeding the cap and asserts both cases with assert_eq!.
+- found: Builds a synthetic parsed log with three commits on src/a.rs (one recent, two old) and one on src/b.rs, then asserts commits_of (windowed) vs total_commits_of (all-time) diverge correctly, that directory aggregation counts a multi-file commit once, that a fully-outside-window file still has a total, that a never-seen path returns None, and that the root path aggregates everything.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The doc summary only covers two of the five distinct assertions this test makes — directory aggregation and the root-path case are additional properties not hinted at in the header.
 
 ### `one_pathological_file_does_not_squash_the_rest`
-- spec 2 · read at `577dcf3c2de9` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:55:04Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A test that feeds History a synthetic commit log where one file has an extremely high commit count compared to the rest, then checks that the churn score for that outlier saturates (caps) rather than blowing out the normalization range, and that the other, normally-churned files still get differentiated, non-squashed churn scores rather than being crushed toward zero by the outlier.
-- found: Builds a synthetic git log with a lockfile touched 500 times and a real source file touched 10 times, parses it, and asserts the lockfile's churn saturates at 1.0 while the real file still scores above 0.5 rather than being flattened by absolute scale.
+- spec 3 · read at `fb523f1b5799` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:03:07Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A test that builds a synthetic commit log where one file is touched in almost every commit (pathologically high churn) while another file is touched in only a couple of commits, runs it through the history-building pipeline (parse_log/flush_commit), and asserts that the second file's churn/commit numbers come out unaffected by the first file's huge count — i.e. churn is computed per-file rather than normalized against the busiest file in the repo, so one hot file doesn't visually flatten everything else.
+- found: Builds a synthetic git log with a "Cargo.lock" touched 500 times (pathological churn) and "src/hot.rs" touched only 10 times, parses it, and asserts the lockfile saturates to churn 1.0 while hot.rs still reads above 0.5 rather than being flattened toward zero by the lockfile's dominance — confirming churn is on an absolute saturating scale, not normalized relative to the busiest file.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 
-### `churn_saturates_rather_than_running_away` — QUIRKY
-- spec 2 · read at `ee541947758d` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:05:20Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A test asserting churn scoring is bounded/saturating rather than unbounded: feeding a file an extremely large number of commits and checking the resulting churn score stays capped (asymptotes) instead of growing linearly, via some log/diminishing-returns transform in History::churn_of.
-- found: Parses a synthetic one-commit git log for a single file and asserts `churn_of` returns a value within [0.0, 1.0] — a basic range/bounds check, not a stress test with many commits.
-- predicted: some · documented: none · derivable: no · legible: full · trap: no
-- note: Test name promised saturation under heavy churn but the body only exercises a single commit — the interesting many-commits case isn't actually tested here.
+### `churn_saturates_rather_than_running_away` — OBSCURE
+- spec 3 · read at `6ce81a27853d` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:03:13Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A unit test building a History with one file that has an extremely high commit count and another with a moderate count, then asserting churn_of returns values that compress toward some ceiling (e.g. both close to 1.0, or the ratio between them much smaller than the ratio of raw commit counts) rather than scaling linearly — showing churn uses a saturating function like log or a capped ratio so one hyperactive file doesn't dominate the churn axis.
+- found: Builds a log with a single commit touching one file and just asserts churn_of returns a value within [0.0, 1.0] — it doesn't compare a high-commit file against a low-commit one or check compression of an extreme ratio at all, just bounds-checks the simplest case.
+- predicted: none · documented: none · derivable: no · legible: full · trap: no
+- note: The test name promises a saturation property but the body only checks a trivial single-commit case stays in [0,1]; the actual saturating behavior is asserted nowhere near this test.
 
 ### `a_directory_that_is_not_a_repo_scores_without_history`
-- spec 2 · read at `e68b97e30a4b` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:22:04Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: This test likely calls read (or History construction) on a temp directory that isn't a git repo, then asserts it doesn't crash/error but returns an empty/default History — i.e., churn/age lookups on that directory return zero/None gracefully rather than propagating a git error.
-- found: Calls read() on a nonexistent path, asserts the resulting History is_empty(), churn_of returns 0.0, and age_of returns None — confirming graceful degradation instead of an error/panic when there's no git history available.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `7a695399e67b` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:04:29Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A short test that calls `read` (the public entry point) on a temp directory that has no `.git`, and asserts it doesn't error but instead returns an empty History (`is_empty()` true), so a non-repo directory still scores fine with churn/age simply absent rather than the scan failing.
+- found: Calls `read` on a nonexistent/non-repo path and asserts the resulting History is empty, with churn_of returning 0.0 and age_of returning None for any path — confirming graceful degradation rather than an error.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ## src-tauri/src/cli.rs
 
@@ -2506,11 +2518,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: I predicted the general shape correctly but didn't anticipate the specific w.at(dir,idx) indexing API or that it would also assert the caller's own callers=0.
 
 ### `an_unreadable_language_is_absent_and_an_uncalled_function_is_zero`
-- spec 3 · read at `171ed5fcd7fe` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:47:46Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A test that builds two functions — one in a language whose calls the resolver doesn't support/resolve, and one in a supported language that simply has no callers — computes their caller counts, and asserts the unresolvable one's count is None/absent while the uncalled-but-resolvable one's count is Some(0), confirming "nobody looked" is distinguished from "looked and found nothing."
-- found: Builds a wired fixture with a Rust orphan function and a Fortran orphan function, asserts the Rust one's caller count is Some(0) (measured, found nothing), the Fortran one's is None (Fortran calls are never resolved), and that the resolvable denominator counts only the Rust file.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Also checks `resolvable` count as the denominator, not just the per-function caller value — a detail worth keeping if this test is trimmed.
+- spec 3 · read at `d739b362580b` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:25Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A unit test that builds two scenarios: one function in a language edges.rs can't parse/resolve calls for, and one function in a supported language that simply has zero callers. It asserts the first yields None/absent (no wiring data at all) while the second yields Some(0) or an explicit zero caller count, proving the two "no calls" cases are distinguishable in the resulting data structure.
+- found: Builds a Rust orphan function and a SQL orphan function via `wired`, then asserts the Rust one's caller count is Some(0) (measured, zero) while the SQL one's is None (language never analyzed), and that `resolvable` counts only the one language that could be read.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `a_function_does_not_call_itself_into_the_ranking`
 - spec 3 · read at `bee4285b1321` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:59:19Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -3497,12 +3508,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds a table with a caller function edging to a target function; asserts the callee's callers list names the caller and its own calls list is empty, and the caller's calls list names the target.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `an_unparsed_language_is_an_absence_not_a_zero`
-- spec 3 · read at `e48d5cf6645b` · commit `d92c31f` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:30:05Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Builds a Links table from a fixture containing a function in a language with no call-graph support (unparsed), looks it up via Links::at or similar, and asserts wired is false even though callers and callees are both empty lists — proving the wired flag, not list emptiness, distinguishes 'not analyzed' from 'analyzed and found genuinely zero calls'.
-- found: Builds a Links table from a fixture function in Lang::Ada (an unparsed language) and asserts wired is false despite empty caller/callee lists, then builds a second Links table for a normal Rust function and asserts wired is true there — confirming wired distinguishes absence from a real zero.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The assertion message says 'markdown resolves no calls' but the fixture actually uses Lang::Ada, a stale/mismatched comment.
+### `an_unparsed_language_is_an_absence_not_a_zero` — QUIRKY
+- spec 3 · read at `2e5bdff248ba` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:37Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A unit test building Links for a function in an unparsed/unsupported language and one in a parsed language with no callers, then asserting Links::at (or similar) returns None for the unparsed one versus Some(empty lists) for the parsed-but-uncalled one, mirroring the same absence-vs-zero distinction tested in edges.rs.
+- found: Builds Links for a SQL function (unparsed) and asserts `links.at(...)` still returns Some(entry) but with `wired: false`; builds the same for a Rust function and asserts `wired: true`. The absence/zero distinction lives in a boolean field on the entry, not in Links::at returning None vs Some.
+- predicted: some · documented: full · derivable: no · legible: full · trap: no
+- note: I expected the None-vs-Some(empty) split to happen at Links::at's Option return, but it actually happens via a `wired` bool field on the always-present entry.
 
 ### `a_clone_group_lists_the_twins_and_not_the_function_itself`
 - spec 3 · read at `cadf00d68fba` · commit `d92c31f` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:30:09Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -3820,11 +3831,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `aggregate` — TANGLED
-- spec 3 · read at `32d99ec59a0d` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T04:51:33Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A recursive (likely post-order, mutating self via &mut self and probably called on children first) rollup: for each directory/file node, sum children's LOC, and compute a LOC-weighted "hot share" (fraction of lines belonging to hot/surprising children) rather than averaging child scores, per the doc note about not letting a small hot helper dominate a big directory. It probably also aggregates wiring/edge counts separately (following the "wiring rolls up by edges not children" peer), treats unreadable subtrees as "absent" rather than contributing zero, and excludes unanalyzed lines from the hot-share denominator so they don't dilute the ratio.
-- found: Post-order recursive rollup on Node: recurses into children first, sums LOC for non-func nodes, sums wiring counts (incident/away/resolvable/orphans/sinks) staying None until something resolvable exists underneath, then computes a LOC-weighted average of surprise/documented/churn, a hot_share computed only over analyzed lines (excluding Source::Proxy leaves), max age_days and min last_touched_days across children, hardcodes commits to 0 (filled later from git log) and provenance to Source (since provenance doesn't average).
-- predicted: most · documented: some · derivable: no · legible: some · trap: no
-- note: Missed several concrete details in prediction: age uses max (oldest surviving code) while last_touched uses min (most recent activity), commits is a 0 placeholder filled in by a separate git-log pass, and there's a flagged (but currently harmless) mismatch with the JS twin `reaggregate` in api.ts over Source::Proxy exclusion.
+- spec 3 · read at `c55fcd29bfdd` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:29Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A recursive, post-order method on Node: first calls aggregate() on each child, then rolls up loc as the sum of children's loc, and computes the node's own Score as an LOC-weighted aggregate of children's scores (churn, temperature/hot_share) rather than a simple mean, so a tiny hot file doesn't dominate a big cold directory. It likely treats unreadable/unanalyzed subtrees as excluded from the weighted denominator (absent, not zero) per the test names, computes hot_share as the LOC-weighted share of hot lines rather than an average temperature, and rolls up "wired" status by counting edges rather than by whether children are wired.
+- found: Post-order recursion, LOC-weighted rollup, wiring summed as edges (not children) and left absent if nothing underneath resolves calls — all as predicted. Missed several specifics: age is max (oldest surviving code) and touched is min (most recent) exactly as I guessed for the TS twin but got right here conceptually; hot_share is computed only over analyzed lines with leaf-vs-directory branching (Func leaves count in/out binary, directories carry their own analyzed_share*hot_share); commits/all_commits are deliberately left as 0/None here because a separate history pass fills them in (summing children would double count a shared commit) — I did not predict that gap at all; also surprised by the comment noting a real bug found by a previous reader (reaggregate in api.ts disagreeing on the Proxy-source exclusion).
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: commits/all_commits are intentionally left as placeholders (0/None) here, filled later by apply_dir_history — anyone reading aggregate() in isolation would wrongly assume commit counts are rolled up here.
 
 ### `visit`
 - spec 2 · read at `bdb1f7563573` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:04:06Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -3846,10 +3857,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: I predicted the mechanism correctly but assumed it filtered children by function-kind explicitly; it just clones all of a File node's children wholesale, trusting a File's children are functions.
 
 ### `score`
-- spec 2 · read at `b78ef871806a` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:08:06Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A test-helper constructor that builds a Score struct from the four given inputs (surprise, documented, churn, age), filling in the remaining fields (like source, hot_share, analyzed_share) with sensible defaults such as Source::Model and 1.0, so unit tests elsewhere in this file can build Score values tersely without specifying every field.
-- found: Test-helper constructor building a Score from the 4 args, defaulting age_days=Some(age), commits=0, last_touched_days=None, provenance=Source, hot_share=0.0, source=Model, analyzed_share=1.0.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `9693a414bc56` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:04:04Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A small test-fixture helper (likely #[cfg(test)]) that constructs a Score struct from just the four given fields (surprise, documented, churn, age), filling in the remaining fields (commits, hot_share, analyzed_share, provenance, source, last_touched_days, all_commits, age_days) with fixed/sensible defaults so tests can build minimal Score values without listing every field.
+- found: Matched exactly as predicted: a minimal test-fixture constructor filling the four named fields and defaulting the rest (commits=0, all_commits=None, last_touched_days=None, provenance=Source, hot_share=0.0, source=Model, analyzed_share=1.0). Only minor miss was guessing age would map to a plain `age` field rather than `age_days: Some(age)`, and I didn't anticipate source defaulting to Model specifically (vs e.g. Proxy) — a sensible choice for exercising the "analyzed" test paths given peer test names about hot_share/temperature.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `wired`
 - spec 3 · read at `ad3c638b9d17` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T04:53:58Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -3924,11 +3935,10 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/parse.rs
 
 ### the file itself
-- spec 3 · read at `903e756b9270` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T05:00:23Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: This is the tree-sitter-based source parser: for each supported language it walks the AST via a cursor matching node kinds (not queries) to extract FuncDef records (name, owner/qualifying type for methods, loc, span) plus each function's doc comment (leading/wrapper doc, Python docstrings) and the file-level doc comment, handling per-language quirks (Rust module docs vs item docs, Python module docstrings, Go methods, C++ namespaces vs methods, Swift inits, TS arrow consts). It also extracts the call graph: resolving call sites within a function body to callee names, deduplicating repeated calls into one edge, capping/bounding the call list per function for deeply nested bodies, and failing gracefully (empty result, no panic) on unparseable input rather than crashing.
-- found: Tree-sitter multi-language parser producing FuncDef (name/owner/loc/span/doc/calls/shape) per ~60 languages via cursor-based (non-recursive, stack-safety-motivated) traversal matching node kinds rather than queries. Extracts leading/wrapper/file-level doc comments with many per-language special cases, resolves method owners as a capped ancestor chain (not just nearest enclosing type, due to a real bug), extracts a deduplicated/capped/deterministic call graph distinguishing 'language doesn't resolve calls' from 'resolves calls but finds none', and computes a normalized-token FNV hash (shape_of) for clone detection. PARSE_VERSION guards the on-disk cache against silent format drift. The given header doc only covers the kind-vs-query design rationale, not the rest.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: legible/trap are N/A for this file-level task; values are placeholders since the schema requires them. Missed an entire subsystem (shape_of clone-detection hashing) and the cache-versioning/stack-safety rationale, which the given doc snippet also doesn't mention.
+- spec 3 · read at `9087fd27d3ea` · commit `c4c6042` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:09:22Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A multi-language source parser built on tree-sitter that walks each file's syntax tree using a cursor and node-kind matching (not queries) to extract function/method definitions (FuncDef) with their name, owner (enclosing type/class for methods), location, doc comment or docstring, and body span. It also extracts call sites within each function body to build a call graph, handling per-language quirks (Rust, Python, Go, TypeScript, Swift, C++, etc.) for what counts as a function, an owner, a doc comment vs file-level doc, and what counts as a resolvable call.
+- found: A tree-sitter-based multi-language (~65 languages) function extractor. Central FuncDef struct with name/signature/body/doc/owner/lines/calls/shape; parse_functions and file_doc as main entry points; per-language dispatch tables feeding language-agnostic core logic for name/owner/doc/body-span/call extraction. Confirms all four things I predicted (defs+owner+location, docs, body span, call graph across languages), but also includes a structural clone-detector (shape_of, FNV-1a hash of normalized token shape) and an explicit absence-vs-zero distinction for call resolution (resolves_calls) that I did not predict, plus a PARSE_VERSION cache-invalidation constant and no cross-file symbol resolution (deferred to crate::edges).
+- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
 
 ### `loc`
 - spec 2 · read at `0e1677eba3db` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:26:13Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -4058,10 +4068,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: some · derivable: no · legible: most · trap: no
 
 ### `extract` — QUIRKY
-- spec 3 · read at `07382cc8d85c` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T04:51:06Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: extract takes a tree-sitter node believed to be a function-like construct and, using helpers like accepts (to confirm the node kind is a function), name_node, body_node, body_span, and header_end, pulls out the function's name, source span, and header/body boundaries to build a FuncDef. It returns None if the node doesn't pass the accepts check or a name can't be found.
-- found: Builds a FuncDef from a tree-sitter node: extracts name, computes signature as the source slice before the body starts, extracts body text, and derives a language-specific doc comment (Python docstring, Elisp docstring field, or leading/wrapper comment for others). Also computes owner, calls_in, and shape_of to fill out the rest of the struct. Returns None if name or body span can't be found.
-- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `de5a44013c29` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:49Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Given a tree-sitter node, checks whether its kind matches a known function-like shape for the language (via shape_of); if not, returns None. If it does match, pulls out the name via name_node, the body span via body_node/body_span and header_end, collects doc comments, and calls calls_in (if the language resolves calls) to gather callee names, assembling all of it into a FuncDef.
+- found: Pulls name and body span (returns None early if either is missing, not via shape_of gating), slices out the signature text before the body, extracts doc comments with per-language logic (Python docstring-as-first-statement, Elisp docstring field, everyone else leading-comment-or-walk-out-through-wrapper-declarations), gathers calls via calls_in, and assembles a FuncDef including owner_of and shape_of (used to classify, not to gate).
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+- note: shape_of isn't a filter/early-return as I assumed — extract only bails via the name/body Option chain, and shape_of is computed at the end just to tag the result.
 
 ### `shape_of`
 - spec 3 · read at `7b38e9a9bd9c` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T05:03:53Z · by ross@rossturk.com · warm reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -4077,55 +4088,76 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `call_sites`
-- spec 3 · read at `9ae2e8c95888` · commit `443bab0` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T01:00:03Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: A match on Lang returning a static slice of (node_kind, Option<field_name>) pairs per language describing what tree-sitter node kinds count as call expressions (e.g. call_expression with field "function", plus constructor forms like new_expression for Java/C#/TypeScript), with Swift/Kotlin entries using None for the field since their call shape has no named field, and a catch-all arm returning an empty slice for languages whose call shape hasn't been parsed/asserted.
-- found: Match over Lang returning static (kind, field) pairs per language for call-expression detection; JS/TS/TSX also include new_expression and JSX element kinds so components read as calls; Java/C#/PHP have multiple entries; Swift/Kotlin use None field; unlisted languages fall to empty slice.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `8974854480d4` · commit `1edee41` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:07:04Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A big `match lang { ... }` over the `Lang` enum returning a static slice of `(node_kind, callee_field)` pairs hardcoded per language based on each grammar's actual call node kinds (e.g. `call_expression` with field `function`), with Swift/Kotlin using `None` for the field since they lack one. Languages that don't resolve calls return an empty slice, and this must stay consistent with `resolves_calls`.
+- found: A large match over ~50 Lang variants, each returning a static list of (node_kind, callee_field) pairs specific to that language's tree-sitter grammar, with inline doc comments explaining non-obvious choices per language (JSX elements as calls, Elixir def-is-a-call, lisps being loose, PowerShell avoiding a wrong-edge field, Fortran/Julia/Perl quirks). Falls through to empty slice for unlisted languages.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: The doc comments on individual match arms carry most of the real information (why a field was chosen or omitted) — reading just the function signature and top-level docs gives no hint of the per-language subtlety.
+
+### `skip_fields`
+- spec 3 · read at `3858b11579e9` · commit `c4c6042` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:07:51Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A match statement on lang returning a static slice of field names to skip during the call walk: something like &["signature"] for Julia, &["parameters"] for Elisp, &["lambda_list"] for Common Lisp, and &[] (empty) for every other language.
+- found: Exactly as predicted: a match on lang returning the field names to skip (signature/parameters/lambda_list) per the three languages named in the doc, empty slice otherwise.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `callee_name`
-- spec 3 · read at `48d805213e10` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:47:10Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Walks a callee expression tree-sitter node to find the trailing bare identifier (e.g. the `c` in `a.b.c()` or `T::c()`), likely by matching on node kind and recursing into the rightmost/field child for member-access or scope-resolution nodes, discarding any receiver/qualifier. The `depth` parameter is probably a recursion-depth guard that returns None once some max is exceeded, to avoid stack overflow on pathological trees.
-- found: Recurses with a depth guard (CALLEE_DEPTH); first tries known field names (CALLEE_FIELDS) on the node and recurses into the first match; if none of those fields exist, falls back to the last named child (for fieldless grammars like Kotlin's navigation_expression or lisp-shaped forms) and recurses into that; base case takes the node's own text and returns it only if it looks like a bare identifier.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The fallback-to-last-named-child branch exists specifically for fieldless node shapes (Kotlin navigation_expression, lisp-style wrappers) — not obvious without the comment.
+- spec 3 · read at `3c270c6e0918` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:02Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Looks at node.kind() and matches against known callee shapes across languages: plain identifier returns its text; member/field access (a.b.c) recurses into the field/property child to get just "c"; scoped/path expressions (T::c) recurse into the last segment. Uses depth to bound recursion depth and returns None for shapes it doesn't recognize.
+- found: It generically walks known field names (CALLEE_FIELDS) to descend toward the callee's name-bearing child, recursing on whichever field matches; if no field matches but there are named children, it recurses into the last one (handles field-less shapes like Kotlin's navigation_expression and lisp wrappers); at the leaf it takes the node's text and returns it only if is_identifier confirms it's a valid identifier for that language. Depth is bounded by CALLEE_DEPTH to prevent runaway recursion.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: The doc's "receiver is discarded deliberately" is explained by field lookup order (field child preferred) plus the last-named-child fallback, not obvious without seeing CALLEE_FIELDS.
 
 ### `is_identifier`
-- spec 3 · read at `e388d0505989` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:59:38Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether the string t is non-empty, starts with an alphabetic character or underscore, and all remaining characters are alphanumeric or underscore — a simple identifier-shape check to reject literals, operators, and punctuation-containing expressions from being treated as callee names.
-- found: Non-empty check, first char alphabetic-or-underscore, all chars alphanumeric-or-underscore.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `883fa1276d59` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:49Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Checks that the first character of `t` is alphabetic (rejecting flags, negative numbers, bare operators), then checks the remaining characters are alphanumeric/underscore plus a per-language allowlist of extra characters: hyphen for PowerShell and the lisps, `?`/`!` for Ruby and Elixir, and `.` for R. Implemented as a match on `lang` selecting which extra-char set to test against, returning a bool.
+- found: Delegates the per-language extra-character set to a separate `name_chars(lang)` helper rather than matching inline; checks non-empty, first char alphabetic-or-underscore, and every char alphanumeric/underscore/in the extra set.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: I expected the per-language logic inline (a match on lang); it actually delegates to the peer `name_chars` function, and the first-char rule allows underscore too, not just alphabetic.
+
+### `name_chars`
+- spec 3 · read at `a15418e16bc8` · commit `6cf7dc9` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-21T07:07:44Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Returns a per-language string of extra characters allowed in identifiers beyond alphanumerics/underscore (e.g. '-' for languages like Lisp/Clojure, '$' for JS/PHP), via a match over the Lang enum, used by is_identifier to validate callee names against what that language's own definitions are actually named.
+- found: Match over Lang returning extra allowed name characters per language: Ruby/Elixir/Julia get \"!?\", R gets \".\", shell languages get \"-\", and lisp-family languages get a wide set \"-?!*/+<>=.\"; everything else gets empty string.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `calls_in`
-- spec 3 · read at `b37d5521ba02` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:00:06Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Walks the subtree under `node` (likely via `walk_calls`) collecting call sites, extracts each callee's name via `callee_name`/`is_identifier` filtering to keep only real identifiers, then builds the result by pushing each name into a Vec only if not already present (dedup preserving first-appearance order), and caps the result at some maximum length to bound cost on huge functions.
-- found: Looks up the language's call-site node kinds; if none defined, returns empty immediately (a language with no call shape says so). Otherwise sets up a dedup HashSet and output Vec and delegates the actual tree walk/collection to walk_calls.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: This is mostly a thin setup wrapper — the real dedup/cap/order logic lives in walk_calls, which I folded into this function's prediction instead of recognizing it was delegated.
+- spec 3 · read at `d11b61257f23` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:03:27Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Walks the function body's tree-sitter node (probably via `walk_calls`/`call_sites`) to find call expressions for the given language, extracts each callee's name via `callee_name` (only accepting identifiers per `only_identifiers_become_call_names`), and builds a `Vec<String>` of distinct names in first-appearance order — deduplicating so a name called many times only appears once, and likely capping the list length per `the_call_list_is_capped`. The `name` parameter is probably the enclosing function's own name, used to exclude self-recursive calls from the list.
+- found: Gets call_sites for the language (empty vec if unresolvable), seeds the `seen` set with the function's own name so recursion/self-reference never enters the list, then delegates the actual walk/dedup/ordering to `walk_calls` which mutates `out` and `seen` in place. The self-exclusion comment reveals a specific bug it prevents: Scheme's `(a)` definition-signature syntax is indistinguishable from a call node, so without excluding the own name it would falsely appear as a self-call edge.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The comment explaining self-exclusion cites a concrete language quirk (Scheme signature-as-list-syntax) that isn't derivable from the signature or file doc alone.
 
 ### `walk_calls`
-- spec 3 · read at `ef00daa12a6f` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:52:27Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Iterative (explicit-stack, not recursive) depth-first walk of the tree-sitter tree in document order, matching each node's kind against `sites` (language-specific call-node kind plus optional field name for the callee) to recognize call expressions, extracting the callee name via a helper like callee_name, keeping only identifier-shaped names, and pushing each new name onto out while using seen to deduplicate repeated calls to the same target — descending into every nested node, including nested function bodies, since it reports the full call surface under `root`.
-- found: Manual cursor-based DFS (goto_first_child / goto_next_sibling / goto_parent, terminating when goto_parent fails at root) matching each node's kind against sites, extracting the callee via a field name or first named child, resolving its name via callee_name, and pushing to out (capped at MAX_CALLS) while seen dedupes repeats.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: I didn't predict the explicit MAX_CALLS cap enforced inline here.
+- spec 3 · read at `9565a041bdc8` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:43Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: An explicit-stack (or tree-sitter cursor-based) depth-first walk over the syntax tree in document order, visiting every node including nested definitions. At each node it checks whether the node kind matches one of the call `sites` (kind + optional field name for the callee), extracts the callee identifier text via a helper (skipping fields in `skip`), and if it's a plain identifier and not already in `seen`, pushes it into `out` and marks it seen — deduping repeated calls to the same name and capping the list at some max length, all using a manual stack rather than recursion to avoid stack overflow on deeply nested trees.
+- found: Cursor-based DFS in document order as predicted, matching sites by kind+field, extracting callee name, deduping via `seen`, capping at MAX_CALLS. I correctly predicted the mechanics but missed the specific reason for `skip`: it's not just skipping arbitrary fields, it's specifically to prevent a definition node from matching its own call-site table (Elixir/lisp `def`/`defn` share node shape with call nodes) — a subtlety I didn't anticipate. Also missed that `skipped` still allows descending into children (just prevents recording that node as a call) — skip suppresses recording, not traversal into the subtree.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: `skip` only suppresses treating a node itself as a call site — it still walks into that node's children, which isn't obvious from the parameter name alone.
 
 ### `calls`
-- spec 3 · read at `3d6a4a903fcb` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:00:10Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: calls is a test-helper wrapper that parses src (assumed to contain exactly one function) with tree-sitter for lang, extracts that single function via extract, and returns the ordered list of callee names inside its body — likely by delegating to calls_in/walk_calls on that one function's body node.
-- found: Test helper: parses src into functions via parse_functions, asserts exactly one function was found (fixtures are expected to hold one), and returns a clone of that function's precomputed `.calls` field.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `329ea292e6a0` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:03:23Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A test helper that parses the given source with parse_functions for the given language, takes the first (only) function found, and returns its `calls` list — used throughout the test suite to check what callee names extract/calls_in found for a small source snippet.
+- found: Test helper: parses source with parse_functions, asserts exactly one function was found, and returns its calls list clone — matches prediction exactly including the assert on count.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `every_resolving_language_finds_its_calls`
-- spec 3 · read at `1571a09808d8` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:02:35Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Loops over every language whose resolves_calls flag is true, parses a small fixture snippet for that language, runs calls_in/call_sites on it, and asserts the resulting call list is non-empty, catching a grammar node-kind rename that would otherwise silently yield zero edges for that language.
-- found: Explicit per-language assert_eq! calls (not a loop) checking calls() extracts the exact expected list of callee names from a small hardcoded fixture snippet per language, including edge cases like C++ template calls, TSX components-as-calls, and receiver-dropping.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `5af7b500291f` · commit `1edee41` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:07:16Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over every language that has a resolved call shape (from resolves_calls/shape_of), parses a small per-language fixture string containing a bare call, a receiver call, and a qualified/constructed call, extracts calls via calls_in/walk_calls, and asserts the expected call names come out (non-empty, receiver stripped) for each language — so a grammar rename shows up as a specific failing assertion rather than a silent empty result.
+- found: A single test with ~50 assert_eq! calls, one per supported language, each parsing a tiny fixture snippet and asserting the exact ordered list of call names extracted (bare call, receiver call, constructor/qualified call), with inline comments explaining specific grammar traps (C++ template args, TSX component invocation, Lisp def-forms not counting as calls).
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+
+### `a_name_may_hold_what_that_language_lets_a_name_hold`
+- spec 3 · read at `89ba2d1a2a6c` · commit `c4c6042` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-21T07:07:56Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A unit test verifying calls using language-specific name characters (like PowerShell's Write-Output, or Ruby's save!) are correctly resolved as call edges rather than silently dropped, by parsing source with a definition and a matching call, then asserting the resolved calls list contains that name.
+- found: Table-style test across five languages (PowerShell, Shell, Ruby, R, Clojure) confirming each language's special name characters resolve calls correctly, plus two negative cases confirming names must start alphabetic (flags and operators are excluded).
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `a_language_with_no_call_shape_says_so_rather_than_reporting_zero`
-- spec 3 · read at `7e82ece7ede7` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:58:33Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This is a test that picks a language without call-shape support in this parser, parses some trivial source, calls extract(), and asserts that the resulting resolves_calls flag is false while calls is empty — proving the two states (no calls found vs. no call resolution) are distinguishable.
-- found: Test asserting resolves_calls(Fortran) is false and resolves_calls(Rust) is true, then parsing a Fortran subroutine with a `call b()` statement and asserting the resulting function's calls list is empty despite Fortran having actual call syntax in the source.
+- spec 3 · read at `70b88548243e` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:03:10Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A test that picks a language whose call shape isn't wired (e.g. Verilog, per the file doc), parses a small fixture in it, and asserts that some `resolves_calls`-style flag/function reports false for that language while the calls list itself comes back empty/None — distinguishing "we didn't look" from "we looked and found zero," which is the point made in the doc.
+- found: Asserts resolves_calls(Sql) is false and resolves_calls(Rust) is true (the honesty contrast), then parses a SQL fixture containing a call to b() and asserts the parsed function's calls list is empty — confirming SQL parses fine but yields no calls rather than erroring, exactly the case the doc named.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: I guessed Verilog as the example language from the file doc's mention of it, but the doc's actual worked example was SQL, which is what the test uses.
 
 ### `a_call_made_forty_times_is_one_dependency`
 - spec 3 · read at `3759c9b4ec5a` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:01:30Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -4133,11 +4165,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Test asserts repeated calls to the same callee (push x3, pop x1) dedupe/collapse in the extracted calls list, confirming the dedup behavior though the literal "forty times" in the name is just flavor, not the actual count used.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `only_identifiers_become_call_names`
-- spec 3 · read at `b05d97141c41` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:56:41Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Constructs a source snippet where a call site's callee is not a plain identifier (e.g. an operator or expression being invoked), and asserts is_identifier/callee_name rejects it so it never becomes a call name entering the symbol table — proving non-name tokens can't spuriously link two unrelated functions.
-- found: Parses Rust source containing an immediately-invoked closure `(|x| x)(1)` plus a plain call `b()`, asserts every found call name passes is_identifier, and asserts `b` is among them — confirming the closure-call callee (not a plain identifier) is excluded while the real named call survives.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+### `only_identifiers_become_call_names` — QUIRKY
+- spec 3 · read at `0df32689a223` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:03:00Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A short unit test that calls is_identifier (or callee_name) on a few sample tokens — an operator like "+" or a string/number literal — and asserts they are rejected (false/None), while a normal identifier string is accepted, confirming the resolver's symbol table can't be polluted by non-name tokens.
+- found: Parses real Rust source containing an immediately-invoked closure `(|x| x)(1)` alongside a normal call `b()`, then asserts every name that `calls()` extracted passes `is_identifier`, and that "b" is among them — proving the closure invocation didn't leak a non-identifier callee name into the list.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
 
 ### `the_call_list_is_capped`
 - spec 3 · read at `5f253882a3d9` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:58:05Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -4488,16 +4520,18 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `apply_dir_history`
-- spec 2 · read at `c4f036e60dfa` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:45:51Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks the Node tree; for each Dir node it looks up the distinct commit count for that directory's path in `history` and sets it on the node, then recurses into children. Per the doc's note, it also handles File nodes the same way (looking up commits by the file's own path) since aggregate() left file commit counts at 0.
-- found: For Dir and File nodes, looks up the node's path in history.commits_of and writes the result into node.score.commits (if score is Some); then recurses into all children regardless of kind.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `dca2440176bd` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:01Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Recursively walks the Node tree. For a Dir node, looks up the distinct commit count for that directory's path in `history` and sets node.commits, then recurses into children. For a File node (per the docs' surprise), also looks up commits by the file's own path and sets it, since `aggregate` left file commit counts at 0. Likely matches on node kind (Dir/File) and recurses through child nodes either way.
+- found: Recurses through Dir and File nodes (skipping Function nodes), setting score.commits via history.commits_of(path) and also score.all_commits via history.total_commits_of(path) — the lifetime total is set here too, for the same per-path-once reason as commits. Then recurses into all children unconditionally.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: The docs explain the File-arm surprise well but don't mention the second field (all_commits/lifetime total) also being set here — that's a second, undocumented reason this function touches more than 'commits'.
 
 ### `score_dir` — QUIRKY — TANGLED
-- spec 3 · read at `0f27dad62855` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T04:53:36Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: score_dir processes one directory's slice of ParsedFiles, building a function-level Node for each parsed function by scoring it against wiring (call graph), copies (clone detection), and history/blame (churn/authorship/age), adjusted by fidelity. It rolls those function nodes into file nodes, then groups files into subdirectory nodes (collapsing single-child chains via collapse_chains), and returns the resulting (path, Node) pairs representing this directory's portion of the tree.
-- found: For each file in the slice, builds one Node per function combining: own-range blame stats (falling back to whole-file history when blame can't resolve the range), a distinctiveness/surprise heuristic computed against same-file or same-directory fingerprint peers (skipped entirely at Ordering fidelity), a documented-coverage heuristic discounted by provenance, and wiring/clone lookups keyed by (base+file index, func index) — all kept as Option so an unanalyzed language reads as absent rather than zero. Then wraps each file's function nodes into a file-level Node (loc/score left for aggregate() to fill) and returns one (path, Node) pair per file — it does not itself do any directory grouping or chain-collapsing.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+- spec 3 · read at `af08493fb92a` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:06:31Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over the files belonging to one directory in the parsed-file list, and for each file builds a File Node whose children are per-function Nodes scored from the passed-in repo-wide data: `wiring` for callers/calls, `copies` for clone group/size, `history` for churn/age, `blame` for per-function commit tracing, and `fidelity` presumably gating how much of this work runs (e.g. skipping expensive scoring in a fast/preview mode). Returns a `Vec<(String, Node)>` of (relative path, built Node) pairs for this directory, to be inserted into the overall tree by the caller.
+- found: For each file, builds per-function Nodes: prefers blame's own commit-range trace over file-level history when available (falling back to file history for untracked/no-git cases), picks comparison peers for distinctiveness (same-file peers if multiple, else directory peers) unless fidelity is Ordering (then UNDECIDED, no fingerprints), computes surprise/documented/provenance heuristics, looks up wiring (callers/calls/orphans/sinks, kept as Option so an unparsed-call-shape language stays absent rather than reading as zero) and clone info, then wraps it all into a Score. Also builds the parent File Node per file, with a content hash over doc+function-signature-surface (not raw bytes) so file-level 'reading' staleness is judged by structural surface, not implementation edits.
+- predicted: some · documented: none · derivable: no · legible: some · trap: no
+- note: Extremely dense inline comments justify nearly every field choice (Option vs 0, surface-hash vs byte-hash, blame vs history fallback) — reading the whole function required going back over several sections repeatedly to track which fields come from which source.
 
 ### `ordinals`
 - spec 2 · read at `6eedc9651175` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:07:56Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
