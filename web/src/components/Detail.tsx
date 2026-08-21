@@ -3,10 +3,8 @@ import { Bloom } from './Bloom'
 import { colorFor, paintsFromReadings, type ColorMode } from '../lib/colorMode'
 import { elide } from '../lib/text'
 import { FAMILY } from '../lib/labelStyle'
-import { Dials } from './Dials'
 import { LensPane } from './LensPane'
-import { FunctionRanks } from './Reading'
-import type { Population } from '../lib/population'
+import { Counts } from './Counts'
 import {
   isAnalyzed,
   readingWords,
@@ -164,7 +162,6 @@ export function Detail({
   focus,
   title,
   repo,
-  commits,
   model,
   mode,
   ranks,
@@ -173,7 +170,6 @@ export function Detail({
   onDrill,
   owners,
   onShowIn,
-  pop,
   repoKey,
   replaying,
   onJump,
@@ -197,10 +193,6 @@ export function Detail({
   owners?: Node[]
   /** Show the map one of them, keeping this selection. */
   onShowIn?: (n: Node) => void
-  /** The repo's own distributions, for placing a function in them. Built once per scan by
-   *  `App` — a leaf pane that walked the tree on every selection would do it thousands of
-   *  times for one answer that never changes. */
-  pop?: Population
   /** Which project this node belongs to. The lens sections that fetch — neighbours, blame —
    *  are routed by key rather than by whatever is active, on the same rule the MCP endpoints
    *  follow: a pane must not be able to answer with another repo's answer. */
@@ -224,7 +216,6 @@ export function Detail({
         node={focus}
         title={title ?? focus.name}
         repo={repo ?? null}
-        commits={commits ?? 0}
         // The pane describes the picture, so it has to know which picture is on screen.
         mode={mode}
         ranks={ranks}
@@ -256,7 +247,6 @@ export function Detail({
     owners && owners.length > 0 && owners[owners.length - 1].kind === 'file'
       ? owners[owners.length - 1].children
       : undefined
-  const analyzed = isAnalyzed(node)
   /** The same gate the header badge takes: a stale trap describes a body that has changed,
    *  so it must not color anything, here or on the map. */
   const trapped = trapOf(node.agent) && !node.agentStale
@@ -279,7 +269,11 @@ export function Detail({
   const pathLine =
     owners && owners.length > 0 && onShowIn ? (
       <p
-        className="mt-0.5 flex flex-wrap items-baseline text-[10px] text-[var(--muted-foreground)]"
+        // `-ml-0.5` cancels the first crumb's own padding. Every segment is a button and
+        // carries `px-0.5` so its hover background clears the text — which left the whole
+        // line sitting two pixels right of the name above it and the counts below it, a
+        // misalignment small enough to read as a mistake rather than as an indent.
+        className="-ml-0.5 mt-0.5 flex flex-wrap items-baseline text-[10px] text-[var(--muted-foreground)]"
         style={{ fontFamily: FAMILY }}
       >
         {owners.map((o, i) => (
@@ -307,8 +301,8 @@ export function Detail({
     )
 
   /* A selected container is described by the SAME pane the repo is, scoped to it.
-     They were two designs for one job: `Summary` for the whole project, and a dial row
-     plus a `Contents` list here. But a directory IS a subtree exactly as the root is, and
+     They were two designs for one job: `Summary` for the whole project, and a row of
+     dials plus a `Contents` list here. But a directory IS a subtree exactly as the root is, and
      the question either pane answers is the same one — what is this made of, under the
      lens I am looking through, and which things are they. So drilling in is a change of
      SUBJECT and not of layout, which is what the header line already claimed to be.
@@ -357,12 +351,6 @@ export function Detail({
         node={node}
         title={node.name}
         repo={null}
-        // The repo header's third figure. A directory has no commit count of its own —
-        // `score.commits` is the 90-day churn window, and printing it under the same word
-        // the repo line uses for all of history would have a folder read "0 commits"
-        // because nobody touched it this quarter. The churn dial states that window on a
-        // scale that admits what it is.
-        commits={0}
         mode={mode}
         ranks={ranks}
         ageSpan={ageSpan}
@@ -387,19 +375,21 @@ export function Detail({
           rubber-banding carried the header with it — the pinned block bounced away from
           the top edge and left a gap of panel behind it. Outside the box it cannot move,
           and the bounce happens under it where it belongs. */}
-      {/* `px-4 pt-4` and no bottom border, which is the readings pane's header and the
-          history pane's to the pixel. The three are one column under three subjects, and the
-          rule below the header belongs to the section it introduces — drawn here as well it
-          put two dividers a dozen pixels apart. */}
-      <div className="shrink-0 px-4 pt-4">
+      {/* **The rule under the header belongs to the header, because the header is the part
+          that stays.** It lived on the first section instead, which is inside the scroller —
+          so the moment anybody scrolled a lens with more than a pane's worth in it, the line
+          between what this pane is ABOUT and what it says went up with the content and the
+          two ran together. `Block` drops its own top border when it is first (`first:`), so
+          there is still exactly one line there and it is now the one that cannot move. */}
+      <div className="shrink-0 border-b border-[var(--border)] px-4 pb-3 pt-4">
       {/* No bottom margin: the path's own `mt-0.5` is the whole gap, which pulls the name and
           the thing it names into one block and leaves the `mt-2` above the counts as the only
           real break in the header. Two groups, not three lines — the same spacing the repo and
           history headers get, where a name and its path were never further apart than a path
           and its totals. */}
       <div className="flex items-center gap-2">
-        {/* No swatch. It was the wedge's own color repeated beside its name, and the dial
-            directly under it already says that — in words, on the scale the reading actually
+        {/* No swatch. It was the wedge's own color repeated beside its name, and the lens
+            section below already says that — in words, on the scale the reading actually
             has. Two encodings of one number, the smaller of which cannot be read. */}
         {/* The label face, not the monospace one — see `FAMILY`. A name is a NAME here, the
             same one the wedge is wearing three inches to the left, and setting it in the
@@ -415,7 +405,7 @@ export function Detail({
             only outlined thing in the header. The distinction it defended is real for
             FUNCTIONS, and those are told apart by what the pane holds: a function's panel
             has a reading and prose in it, a container's has a breakdown and a list. */}
-        {/* In the header, not among the dials.
+        {/* In the header, beside the name.
             A trap is the one thing here that is not a measurement on a scale — it is a
             warning about this specific function, and it was reachable only by finding the
             same function again in the notes list. Beside the name is where it is unmissable,
@@ -431,22 +421,18 @@ export function Detail({
         )}
       </div>
       {pathLine}
-      {/* No lines-alone line here: the count is a member of a distribution and is printed as
-          one, in `FunctionRanks`, where `153` sits beside what it is long or short against. */}
+      {/* The same line every other pane opens with, minus the one figure a function cannot
+          have — see `Counts`.
 
-      {/* The dials ride WITH the header, above the verdict rather than below it. They were
-          under the verdict box, which put the panel's only measurements three paragraphs down
-          and off the bottom of a short pane — the verdict is a reading OF them, so it cannot
-          come first. Same row every other pane opens with; see `Dials`, and see `Reading` for
-          why the leaf keeps it rather than a grade table of its own. */}
-      <Dials node={node} />
-      {/* The rule under the header belongs to the header, not to the dials — but it is
-          drawn by `Dials`, which returns nothing for an unread function, so an unread pane
-          ran its name straight into the counts while every read one had a divider there.
-          Full-bleed (`-mx-4`) to match, and only when the dials are absent, or the two
-          would land a dozen pixels apart. */}
-      {!analyzed && <div className="-mx-4 mt-4 border-t border-[var(--border)]" />}
-      <FunctionRanks node={node} pop={pop} />
+          **It replaced a rank row rather than joining one.** `FunctionRanks` printed these
+          same two numbers with a percentile rail beside each — `47 lines … 85th`, `traces to
+          4 commits … 90th` — on the argument that a length only means something against the
+          code it sits in. True, and it bought a rail: two facts became four, in a header,
+          about a function whose actual reading is one scroll below. The counts are what the
+          header is for; where this one sits in the repo's distribution is a question the map
+          answers by drawing it. */}
+      <Counts node={node} />
+
       </div>
 
       {/* `min-h-0` because a flex child's default `min-height:auto` refuses to shrink
@@ -464,7 +450,7 @@ export function Detail({
           for, and beside the point under a lens that reads git. Each section says what its
           own absence is; that is the rule they are all written to. */}
       {!s ? (
-        <p className="text-xs text-[var(--muted-foreground)]">Not scored.</p>
+        <p className="pt-3 text-xs text-[var(--muted-foreground)]">Not scored.</p>
       ) : (
         <LensPane
           node={node}

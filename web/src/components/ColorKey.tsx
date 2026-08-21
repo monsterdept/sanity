@@ -158,7 +158,7 @@ function Legend({
     // The row words this key sits above, not a fifth vocabulary: it read
     // `clear → unclear` while the rows beneath said something else entirely, and now the
     // rows say what `.sanity/` says.
-    surprise: ['predictable', 'obscure'],
+    surprise: ['mundane', 'obscure'],
     // Same direction as heat: the bright end is the one you have to do something about.
     legible: ['clean', 'unclear'],
     // Named for the ends the ramp actually paints, and the bright one is an absence: this
@@ -200,6 +200,17 @@ function Legend({
     </div>
   )
 }
+
+/**
+ * The key that reaches this lens, or `null` where the shortcuts have run out.
+ *
+ * Nine digits, then ⌘0 for the tenth as every tab strip does, then ⌘- for the eleventh —
+ * which is the position the old `(i + 1) % 10` wrapped at, so Age advertised ⌘1, a key that
+ * selects Surprise. A twelfth lens gets no shortcut and says nothing about one, because a
+ * tooltip naming a key that does something else is worse than a tooltip naming none. The
+ * keys themselves live in `App`'s listener; this is the only place they are written down.
+ */
+const shortcut = (i: number) => (i < 9 ? `${i + 1}` : i === 9 ? '0' : i === 10 ? '-' : null)
 
 /**
  * The mode switcher, floated over the top of the graph.
@@ -253,8 +264,7 @@ export function ModeSwitcher({
             title={
               disabled
                 ? 'A trace is uncoloured — a past commit has no reading, and nothing in the commit stream stood in for one'
-                // Ten lenses and nine digits, so the tenth is ⌘0 — see `App`'s key listener.
-                : `${MODE_HINT[k]}  (⌘${(i + 1) % 10})`
+                : `${MODE_HINT[k]}${shortcut(i) ? `  (⌘${shortcut(i)})` : ''}`
             }
             className="rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
             style={{

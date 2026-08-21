@@ -425,7 +425,7 @@ function opaqueShare(node: Node): number | null {
  *  **`derivable` forces it to `none`.** A doc a model could write from the body explains
  *  nothing that was not already there, so it must not paint a wedge as covered — the same
  *  rule `reportGrades` applies to the number, applied here to the color, because a lens
- *  that disagreed with the dial beside it would be two answers to one question. */
+ *  that disagreed with the breakdown beside it would be two answers to one question. */
 function docGrade(n: Node): Grade | undefined {
   if (!n.agent || n.agentStale) return undefined
   return n.agent.derivable ? 'none' : (n.agent.documented ?? undefined)
@@ -558,7 +558,7 @@ export function colorFor(
       ...ramped(share ? shareRamp(t) : t),
       label: share
         ? // `hot` was the last of the temperatures, left behind when the rows became
-          // `predictable / typical / quirky / obscure`. The threshold this counts is
+          // `mundane / typical / quirky / obscure`. The threshold this counts is
           // "quirky or worse", and `surprising` is the word for that on this tab.
           `${Math.round(t * 100)}% surprising`
         : (readingWords(node)?.heat ?? `${Math.round(t * 100)}°`),
@@ -896,9 +896,9 @@ export function bucketsFor(
   const walk = (n: Node, out: boolean) => {
     const outOfScope = out || n.excluded
     // A FILE is a reading of its own under Docs — its header — so it is a row here beside
-    // the functions, and the list counts what the dial above it counts. Only Docs: `legible`
-    // and `trap` are never sent on a file reading (see `FILE_ASK`), and the other lenses ask
-    // questions a file has no answer to.
+    // the functions, and the buckets count what the list under them counts. Only Docs:
+    // `legible` and `trap` are never sent on a file reading (see `FILE_ASK`), and the other
+    // lenses ask questions a file has no answer to.
     // A file stands in for its own functions when they have not arrived — see `legendFor`,
     // which ranks the colours this fills in. Only where a file has an answer of its own:
     // its author and its language are its own, while a grade is its functions'.

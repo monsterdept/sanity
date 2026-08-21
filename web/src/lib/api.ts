@@ -947,7 +947,7 @@ export interface AgentReport {
    *  is to paint what it is told.
    *
    *  Treated exactly like `agentStale`: the grade is kept and shown as history, but it does
-   *  not color a wedge and does not count in a dial. A number whose question has moved is
+   *  not color a wedge and does not count anywhere. A number whose question has moved is
    *  a term claiming confidence it has not got. */
   legibleDated?: boolean
   /** The reader says something here will bite whoever edits it next. */
@@ -1005,7 +1005,7 @@ export const DOC_GAP: Record<Grade, number> = { full: 0.05, most: 0.3, some: 0.6
  * A reading's legibility grade, or undefined if it has none THAT STILL MEANS ANYTHING.
  *
  * One accessor, because a grade whose question has moved is not a grade any more and every
- * consumer has to agree about that — the lens, the breakdown, the dial and the spread. When
+ * consumer has to agree about that — the lens, the breakdown, the panel and the spread. When
  * `legible` was read straight off the report in four places, a bump to the ask would have
  * been honored wherever somebody remembered and ignored everywhere else, which is worse
  * than not bumping: the map would disagree with the panel beside it about the same wedge.
@@ -1065,12 +1065,18 @@ export function reportGrades(r: AgentReport): { surprise: number; documented: nu
  *  screen. Then they were amounts of surprise, which was accurate and put `none` at the calm
  *  end of one lens and the alarming end of the next.
  *
- *  These name the thing on the map. A wedge is `predictable`, `typical`, `quirky` or
+ *  These name the thing on the map. A wedge is `mundane`, `typical`, `quirky` or
  *  `obscure` — properties of the code a person can go and look at — where "some surprise" is
  *  a property of somebody's reading of it. It also sidesteps the inversion entirely: the
  *  grade is `predicted` because that is what a reader can answer honestly about its own work,
  *  the lens is Surprise because that is what a person wants to know, and these four words
  *  belong to neither frame. Nothing has to be read backwards to be understood.
+ *
+ *  `mundane` was `predictable`, and it was the one word here still describing the READER.
+ *  Everything else in this list is a property of the code — `quirky` is a thing a wedge is,
+ *  where "predictable" is a claim about whether somebody managed to predict it, which is what
+ *  `predicted` already records one field over. It was also the only one too wide for the
+ *  ladder's name column, and it ran into the rung it was labelling.
  *
  *  `nuanced` is no longer shared with `LEGIBLE_WORDS`, and the two second rungs are better
  *  apart: here it is code that holds nothing its neighbors have not already taught you,
@@ -1086,7 +1092,7 @@ export function reportGrades(r: AgentReport): { surprise: number; documented: nu
  *  asserting it underneath. Numbers stay where they are earned: on containers, which
  *  average many readings in surprise space and mean every digit they show. */
 export const HEAT_WORDS: Record<Grade, string> = {
-  full: 'predictable',
+  full: 'mundane',
   most: 'typical',
   some: 'quirky',
   none: 'obscure',

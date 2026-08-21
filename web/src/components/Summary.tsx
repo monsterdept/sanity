@@ -11,7 +11,7 @@ import {
   type Node,
 } from '../lib/api'
 import { bucketsFor, colorFor, type Bucket, type ColorMode } from '../lib/colorMode'
-import { Dials } from './Dials'
+import { Counts } from './Counts'
 
 const GRADES: Grade[] = ['full', 'most', 'some', 'none']
 
@@ -29,7 +29,10 @@ const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
   clones: 'Clones',
   blame: 'Authors',
   language: 'Languages',
-  churn: 'Commits in 90d',
+  // Not 'Commits in 90d': what is listed under it are functions, bucketed by the commits
+  // their lines trace back to. The 90-day window is the FILE's quantity, and it has its own
+  // section in the pane — see `blame.rs`.
+  churn: 'Commits behind these lines',
   age: 'Last touched',
 }
 
@@ -74,7 +77,12 @@ function rowNote(n: Node, mode: ColorMode): string {
   // A reader flagged the mismatch, I wrote a comment claiming I had fixed it, and a later
   // reader flagged the comment for asserting a property the body did not have. Both were
   // right to. The guard was correct all along; what was missing was the sentence saying so.
-  if (mode === 'churn') return s && s.ageDays !== null ? `${s.commits} in 90d` : '—'
+  // The rows are FUNCTIONS, so this is the commits their lines trace back to and not a
+  // window — see `blame.rs` and `CHURN_BANDS`. It read `in 90d`, which the number is not.
+  if (mode === 'churn')
+    return s && s.ageDays !== null
+      ? `${s.commits} ${s.commits === 1 ? 'commit' : 'commits'}`
+      : '—'
   // Both wiring lenses are grouped by a value that leaves something open, so both print the
   // part the heading does not carry. Under `2–5 callers` the exact count is what the band
   // rounded off; under `most of it leaves` the fact behind the band is the two counts it came
@@ -407,7 +415,6 @@ export function Summary({
   node,
   title,
   repo,
-  commits,
   mode,
   ranks,
   ageSpan,
@@ -430,8 +437,6 @@ export function Summary({
   /** What to call it — the project when at the root, the directory when drilled in. */
   title: string
   repo: string | null
-  /** Commits reachable from HEAD; 0 when the scan found no history. */
-  commits: number
   /** The lens the map is under. The panel describes the picture, so it has to follow —
    *  readings, expiries and "connect an agent" are answers to the surprise map and to
    *  nothing else, and under Blame they were a page of confident numbers about a quantity
@@ -496,34 +501,19 @@ export function Summary({
               {elide(repo, 40)}
             </p>
           ))}
-        {/* What was measured of this subtree, under the same rule as what it is made of —
-            see `Dials`, which is where the row lives so the repo and a folder inside it
-            cannot end up with two versions of it. The counts ride in as its `lead`: they
-            are numbers about the subject, and the header above the rule is the subject's
-            NAME. */}
-        <Dials
-          node={node}
-          lead={
-            <p className="mb-3 text-[11px] text-[var(--muted-foreground)]">
-              {/* One shape for what a repo IS: lines, functions, commits — the same three the
-                  history header prints, so switching between them is not switching layouts.
-                  `compactCount` keeps it on one line whatever the project's size; a header that
-                  wraps on a big repo and not a small one is a layout tested against one repo. */}
-              {compactCount(node.loc)} lines · {compactCount(s.functions)}{' '}
-              {s.functions === 1 ? 'function' : 'functions'}
-              {commits > 0 && <> · {compactCount(commits)} commits</>}
-              {/* Never on its own line and never omitted: `functions` is what the readings
-                  below are counted against, and a denominator somebody narrowed months ago
-                  has to be visible beside it. */}
-              {s.excluded > 0 && (
-                <span title=".sanityignore set these aside: still drawn, never queued.">
-                  {' '}
-                  · {s.excluded.toLocaleString()} excluded
-                </span>
-              )}
-            </p>
-          }
-        />
+        {/* What this subtree is MADE OF, with the name above it.
+
+            It used to ride into the dial row as that row's `lead`, so that what a thing is
+            made of sat with what was measured of it. With the dials gone it belongs to the
+            header, and it brings no rule of its own: the breakdown below already opens with
+            one, and two rules a few pixels apart would divide a header from itself.
+
+            The commit count comes off the node's own score now, not from the `commits` prop:
+            that prop is `git rev-list --count HEAD`, which the repo has and nothing below it
+            does, and one word over two different questions is what put `in 90d` on a number
+            that was not. See `Counts`. */}
+        <Counts node={node} functions={s.functions} excluded={s.excluded} />
+
         {about}
 
         {s.functions > 0 && (

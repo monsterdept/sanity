@@ -59,7 +59,6 @@ import {
   ageSpanOf,
   type ColorMode,
 } from './lib/colorMode'
-import { populationOf } from './lib/population'
 import { dismissSplash } from './lib/splash'
 import { mark, marked } from './lib/stopwatch'
 import { loadTheme, saveTheme, watchSystemTheme, type Theme } from './lib/theme'
@@ -441,39 +440,6 @@ export default function App() {
   // The path of whatever is on screen, so changing the model can re-scan it rather than
   // making the user find the directory again.
   const lastPath = useRef<string | null>(null)
-
-  // Cmd-1..9 then Cmd-0 for the lenses, in the order they appear in the switcher.
-  //
-  // Derived from `MODE_LABEL`'s key order rather than a second list, so the digit always
-  // matches the position on screen — the two cannot drift because there is only one order.
-  // The cost is that reordering renumbers: the row is grouped by what paints it — readings,
-  // then language, then the git-derived three in widening time windows — so the digits
-  // follow meaning rather than history. See `MODE_LABEL`.
-  //
-  // The whole app is one geometry under seven encodings, and the question you are asking
-  // changes far more often than anything else you can do here — reaching for the mouse
-  // to change it costs more than the change is worth. Cmd rather than a bare digit
-  // because a bare digit is a character, and one text field anywhere later would make
-  // this a bug rather than a shortcut.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return
-      // Pinned while the replay is up, for the same reason the switcher is grayed: the
-      // shortcut is the switcher, and a control that is disabled in one place and live on
-      // the keyboard is not disabled.
-      if (historyOn) return
-      // Cmd-0 is the TENTH, which is the convention every tab strip uses and the only place
-      // to put a tenth lens: renumbering the row to fit nine would mean choosing a lens to
-      // have no shortcut, and the row's order carries meaning — see `MODE_LABEL`.
-      const i = e.key === '0' ? 9 : Number(e.key) - 1
-      const modes = Object.keys(MODE_LABEL) as ColorMode[]
-      if (!Number.isInteger(i) || i < 0 || i >= modes.length) return
-      e.preventDefault()
-      setMode(modes[i])
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [historyOn])
 
   // Follow whatever an agent opened.
   //
@@ -1350,6 +1316,72 @@ export default function App() {
     return node
   }, [tree, stack])
 
+  /** Open the replay, or leave it — the History button's own action.
+   *
+   *  A callback rather than the button's inline handler because the keyboard reaches it too,
+   *  and the RULE has to travel with the action: entering needs something to show, leaving is
+   *  always allowed. The button spells that as `disabled`, which the keyboard cannot see, and
+   *  a control that is grayed in one place and live on the other is not disabled. */
+  const toggleHistory = useCallback(() => {
+    if (!focus) return
+    if (!historyOn && (historyBusy || (activeProject?.replayed ?? 0) === 0)) return
+    setHistoryOn((v) => !v)
+    setPlaying(false)
+    // Selection and drill-in survive the switch by id, but a selected FUNCTION usually will
+    // not exist in the frame under the playhead — and a panel describing a function the rings
+    // are not drawing is worse than an empty one.
+    setPicked(null)
+  }, [focus, historyOn, historyBusy, activeProject?.replayed])
+
+  // Cmd-1..9 then Cmd-0 for the lenses, in the order they appear in the switcher, then Cmd--
+  // for the eleventh. Cmd-+ toggles the replay.
+  //
+  // Derived from `MODE_LABEL`'s key order rather than a second list, so the digit always
+  // matches the position on screen — the two cannot drift because there is only one order.
+  // The cost is that reordering renumbers: the row is grouped by what paints it — readings,
+  // then language, then the git-derived three in widening time windows — so the digits
+  // follow meaning rather than history. See `MODE_LABEL`.
+  //
+  // The whole app is one geometry under seven encodings, and the question you are asking
+  // changes far more often than anything else you can do here — reaching for the mouse
+  // to change it costs more than the change is worth. Cmd rather than a bare digit
+  // because a bare digit is a character, and one text field anywhere later would make
+  // this a bug rather than a shortcut.
+  //
+  // **The two keys past the digits sit either side of the row for a reason.** Minus reaches
+  // the lens the digits ran out before — a tenth lens takes ⌘0, and the eleventh had a
+  // tooltip promising ⌘1, a key that selects the FIRST lens. Plus is the one shortcut that
+  // is not a lens at all, and it is the one that has to keep working while the replay is up,
+  // because it is also the way back out.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.metaKey || e.altKey || e.ctrlKey) return
+      // Before the shift guard and before the replay guard, and both are deliberate: `+` is
+      // Shift-`=` on most layouts, so a handler that refuses Shift never sees it, and a
+      // toggle that only works one way is a door that locks behind you.
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault()
+        toggleHistory()
+        return
+      }
+      if (e.shiftKey) return
+      // Pinned while the replay is up, for the same reason the switcher is grayed: the
+      // shortcut is the switcher, and a control that is disabled in one place and live on
+      // the keyboard is not disabled.
+      if (historyOn) return
+      const modes = Object.keys(MODE_LABEL) as ColorMode[]
+      // Cmd-0 is the TENTH, which is the convention every tab strip uses and the only place
+      // to put a tenth lens: renumbering the row to fit nine would mean choosing a lens to
+      // have no shortcut, and the row's order carries meaning — see `MODE_LABEL`.
+      const i = e.key === '0' ? 9 : e.key === '-' ? 10 : Number(e.key) - 1
+      if (!Number.isInteger(i) || i < 0 || i >= modes.length) return
+      e.preventDefault()
+      setMode(modes[i])
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [historyOn, toggleHistory])
+
   /** Ask for the rings the map is about to draw.
    *
    *  Runs on what is FOCUSED, not on the whole repo: drilling into a directory is exactly
@@ -1662,17 +1694,6 @@ export default function App() {
     return at
   }, [shape])
 
-  /** The repo's own distributions, so a selected function can be placed in them.
-   *
-   *  Off the whole TREE, never off `focus`: a percentile is only a fact about a fixed
-   *  population, and rebuilding it per drill would mean the same function read `longer than
-   *  71%` at the top and `longer than 40%` one ring in, with nothing on screen saying the
-   *  scale had moved under it. Same argument as `ageSpan` directly above.
-   *
-   *  Memoised on the tree because it is one walk of every function and the panel it feeds
-   *  re-renders on every hover. */
-  const pop = useMemo(() => (tree ? populationOf(tree) : undefined), [tree])
-
   /** The splash comes down here, not after the first paint. See `lib/splash.ts`.
    *
    *  Ready means the window has something true to say. That used to be a MAP — or, with the
@@ -1915,15 +1936,7 @@ export default function App() {
                 on={historyOn}
                 busy={historyBusy}
                 traced={(activeProject?.replayed ?? 0) > 0}
-                onToggle={() => {
-                  setHistoryOn((v) => !v)
-                  setPlaying(false)
-                  // Selection and drill-in survive the switch by id, but a selected
-                  // FUNCTION usually will not exist in the frame under the playhead — and
-                  // a panel describing a function the rings are not drawing is worse than
-                  // an empty one.
-                  setPicked(null)
-                }}
+                onToggle={toggleHistory}
               />
             </div>
           )}
@@ -2174,7 +2187,6 @@ export default function App() {
             focus={focus}
             title={focus && tree && focus.id === tree.id ? (activeProject?.name ?? focus.name) : focus?.name}
             repo={repoPath}
-            commits={scan?.stats.commits ?? 0}
             model={scan?.stats.model ?? null}
             mode={viewMode}
             ranks={ranks}
@@ -2183,7 +2195,6 @@ export default function App() {
             onDrill={drill}
             owners={owners}
             onShowIn={showIn}
-            pop={pop}
             repoKey={activeKey}
             replaying={replaying}
             onJump={jumpTo}
@@ -2493,12 +2504,12 @@ function HistoryToggle({
       disabled={!on && (busy || !traced)}
       title={
         on
-          ? 'Back to the repo as it stands now'
+          ? 'Back to the repo as it stands now  (⌘+)'
           : busy
             ? 'Tracing this repo — the project row has the progress and a way to stop'
             : !traced
               ? 'No trace yet. Press Trace on the project to walk its commits.'
-              : 'The repo commit by commit — colored by arrivals, not by surprise'
+              : 'The repo commit by commit — colored by arrivals, not by surprise  (⌘+)'
       }
       className="rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
       style={{

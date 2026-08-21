@@ -37,7 +37,7 @@ import {
  * Worse, the lens with the most to say was the one saying least: `14×` under Callers is a
  * number you cannot act on, and *which fourteen* had no answer anywhere in the app.
  *
- * So the pane splits. Everything above this — the name, the path, the dials, the ranks, the
+ * So the pane splits. Everything above this — the name, the path, the counts, the
  * provenance footer — qualifies EVERY lens and never moves; this is the one section that
  * follows the tabs. Two rules hold across all of them, and they are the map's own:
  *
@@ -47,7 +47,7 @@ import {
  *   way `colorMode` keeps gray apart from the bright end of a ramp.
  * - **A stale or dated reading does not colour anything here either.** It is shown as
  *   history, marked, and left out of every count — which is what `applyAgentReports` does to
- *   the wedge and `legibleOf` does to the dial.
+ *   the wedge and `legibleOf` does to the breakdown.
  */
 export function LensPane({
   node,
@@ -113,13 +113,18 @@ export function LensPane({
     // `Summary` under both lenses — by band, with its members listed. A container was getting
     // a picture of itself directly above a better breakdown of its parts.
     const own: ColorMode[] = ['surprise', 'docs', 'traps', 'blame']
+    // **The exception is a key rather than a reading**, which is why it is here and not in
+    // the list above. A container has no legibility grade and never will, but the breakdown
+    // it is standing over is bucketed by four words nothing on screen defines — see
+    // `LegibleKey`. Explaining a scale is not the same as claiming a measurement under it.
+    if (mode === 'legible') return <LegibleKey />
     if (!own.includes(mode)) return null
   }
   switch (mode) {
     case 'surprise':
       return <SurpriseSection node={node} />
     case 'legible':
-      return <LegibleSection node={node} report={r} stale={stale} />
+      return <LegibleSection report={r} stale={stale} />
     case 'docs':
       return <DocsSection node={node} report={r} stale={stale} />
     case 'traps':
@@ -151,7 +156,7 @@ export function LensPane({
 /** A section of the pane, under the same full-bleed rule every other one takes.
  *
  *  Full-bleed (`-mx-4`) and re-padded so the rule reaches both edges of the pane exactly as
- *  the dials' and the contents list's do — a rule that stops short of the edge reads as a box
+ *  the contents list's does — a rule that stops short of the edge reads as a box
  *  somebody forgot to finish. */
 function Block({
   label,
@@ -171,7 +176,10 @@ function Block({
   children: React.ReactNode
 }) {
   return (
-    <div className="-mx-4 mt-4 border-t border-[var(--border)] px-4 pt-3">
+    // `first:` drops both the rule and the gap above the FIRST section, because the pane's
+    // header now draws that line itself — see `Detail`. A section rule scrolls, and the one
+    // marking the top of the scrolling area is the one that must not.
+    <div className="-mx-4 mt-4 border-t border-[var(--border)] px-4 pt-3 first:mt-0 first:border-t-0">
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <p
           className={`text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)] ${
@@ -200,9 +208,10 @@ function Absent({ children }: { children: React.ReactNode }) {
 
 /** The four rungs of a grade, with the reader's one lit and each one saying what it meant.
  *
- *  **The ladder lives here and not in the dial row.** Three of them side by side read as a
- *  phrase rather than as three readings — that is why `Dials` prints `2/4` instead — but a
- *  lens section has exactly one grade in it and all the room in the world, and the rung
+ *  **The ladder lives here, and it is why there is no longer a dial row.** Three grades side
+ *  by side read as a phrase rather than as three readings, which is what the dials were for —
+ *  four arcs printing `2/4` with the words moved into their tooltips. A lens section has
+ *  exactly one grade in it and all the room in the world, and the rung
  *  descriptions are the part nobody can reconstruct from a fraction. They are the reader's
  *  own wording, from the `report` schema in `mcp.rs`: a ladder that paraphrased the question
  *  would be the panel quietly asking something else. */
@@ -213,6 +222,7 @@ function Ladder({
   ramp,
   at,
   dated,
+  legend,
 }: {
   grade: Grade | undefined
   words: Record<Grade, string>
@@ -222,6 +232,16 @@ function Ladder({
    *  each, or the panel shows four colors the map never uses. */
   at: Record<Grade, number>
   dated?: boolean
+  /** No reading to point at: colour EVERY rung and light none.
+   *
+   *  The same four rows answer two different questions depending on whether there is a grade
+   *  in front of them — "which rung did this one get" for a function, "what do these four
+   *  words on the map mean" for a container, which has no grade of its own and a breakdown
+   *  full of the words. One component either way, because the rung wording is the reader's
+   *  and a second copy of it would drift from the schema it was lifted from. What must change
+   *  is the swatches: greyed, as an ungraded ladder is, this would be a key showing none of
+   *  the colours it is a key to. */
+  legend?: boolean
 }) {
   const order: Grade[] = ['none', 'some', 'most', 'full']
   return (
@@ -233,13 +253,14 @@ function Ladder({
             <span
               className="h-2 w-2 shrink-0 translate-y-px rounded-[2px]"
               style={{
-                background: on && !dated ? heatColor(at[g], ramp) : 'var(--secondary)',
+                background:
+                  legend || (on && !dated) ? heatColor(at[g], ramp) : 'var(--secondary)',
                 outline: on ? '1px solid var(--muted-foreground)' : undefined,
               }}
             />
             <span
               className={`mono w-[64px] shrink-0 text-[11px] ${
-                on ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'
+                on || legend ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'
               }`}
             >
               {words[g]}
@@ -480,7 +501,7 @@ function RefList({
       ))}
       {code && refs.length > SNIPPETS && (
         <p className="mt-1 text-[10px] leading-snug text-[var(--muted-foreground)]">
-          Source shown for the first {SNIPPETS} of {refs.length}. The rest say Show code.
+          Source shown for the first {SNIPPETS} of {refs.length}.
         </p>
       )}
     </>
@@ -504,6 +525,21 @@ function dirOf(path: string): string {
 }
 
 /* ------------------------------------------------------------------- surprise */
+
+/** The rungs of `predicted`, in the reader's own words from `mcp.rs`'s report schema.
+ *
+ *  The grade is about the PREDICTION, not about the code — which is the one thing a person
+ *  reading a wedge called `quirky` cannot work out from the word alone, and the reason the
+ *  ladder earns its place under the lens the whole app is for. `HEAT_WORDS` names what the
+ *  map shows (`mundane`, `typical`, `quirky`, `obscure`); these say what a reader did to
+ *  earn one. Same division as Legibility's, and the same rule: lift the wording, never
+ *  paraphrase it, or the panel is quietly describing a question nobody was asked. */
+const PREDICT_RUNGS: Record<Grade, string> = {
+  full: 'called it — nothing missed',
+  most: 'broadly right, one detail that was not obvious',
+  some: 'recognizable, but it does real work the prediction did not cover',
+  none: 'the prediction did not describe this code',
+}
 
 /**
  * The prediction test: what a reader expected, what it found, and what it flagged.
@@ -536,6 +572,23 @@ function SurpriseSection({ node }: { node: Node }) {
             title="The agent had already read this file, so it recalled rather than predicted."
           >
             warm read
+          </p>
+        )}
+        {/* Grade, then scale, then the thing itself — the order both other graded sections
+            run. The word is in the header, the ladder says what it is out of, and the two
+            passages below are the evidence you go to if you doubt it. */}
+        <Ladder
+          grade={predicted}
+          words={HEAT_WORDS}
+          rungs={PREDICT_RUNGS}
+          ramp="heat"
+          at={GRADE_SURPRISE}
+          dated={node.agentStale}
+        />
+        {!r.predicted && (
+          <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
+            Banked before the grades existed, when a reading recorded only surprised-or-not —
+            so this is one of the two ENDS of the scale, never a middle rung somebody chose.
           </p>
         )}
         <Passage label="Expected" text={r.expected} hint="Copy what the reader expected" />
@@ -652,6 +705,42 @@ const LEGIBLE_RUNGS: Record<Grade, string> = {
 }
 
 /**
+ * The four words, for a container that has no grade of its own.
+ *
+ * **The one graded lens where a container was left with nothing.** Surprise, Docs and Traps
+ * each give a file a section because a file has its own reading, its own header and its own
+ * trap; legibility it has none of — the question is what reading one BODY was like, and a
+ * reader is never handed a file as one (see `FILE_ASK`, which does not ask). So the pane
+ * returned nothing, and the breakdown directly above it listed `clean`, `nuanced`, `tangled`
+ * and `unclear` as bucket headings with no statement anywhere on screen of what any of them
+ * meant. The words are the reader's, out of `mcp.rs`; nothing else in the window says so.
+ *
+ * **A key, not a second breakdown.** The heading says what the rows are — the scale — rather
+ * than repeating LEGIBILITY, which is already the breakdown's own word directly
+ * below, and which is exactly how a legibility section here read as duplication the last time
+ * one existed. It counts nothing: the counts are the breakdown's job and it does them better,
+ * with the members named.
+ */
+function LegibleKey() {
+  return (
+    <Block label="What the grades mean">
+      <Ladder
+        grade={undefined}
+        words={LEGIBLE_WORDS}
+        rungs={LEGIBLE_RUNGS}
+        ramp="legible"
+        at={GRADE_SURPRISE}
+        legend
+      />
+      <p className="mt-2 text-[11px] leading-snug text-[var(--muted-foreground)]">
+        Graded per function by the reader after it opened the body. A file carries no grade of
+        its own — the breakdown below is its functions', with each one named.
+      </p>
+    </Block>
+  )
+}
+
+/**
  * What reading this was like, judged by what the reader actually did.
  *
  * **`found` is shown here and `expected` is not, and that division is the whole section.**
@@ -665,29 +754,7 @@ const LEGIBLE_RUNGS: Record<Grade, string> = {
  * field per axis is a per-reading token charge on every reader forever — `just tokens` before
  * anyone proposes it — and the grade plus the pass it describes is what the axis measures.
  */
-function LegibleSection({
-  node,
-  report,
-  stale,
-}: {
-  node: Node
-  report?: AgentReport
-  stale: boolean
-}) {
-  // A file's reading carries no legibility grade and never has — see `FILE_ASK`, which does
-  // not ask. Saying "unread" here would be the pane inventing a gap in a corpus that is
-  // complete; the axis is about a body, and a file is not one.
-  if (node.kind !== 'func') {
-    return (
-      <Block label="Legibility">
-        <Absent>
-          A file is not graded for legibility — the question is what reading one BODY was like,
-          and a reader is never handed a file as one. Its functions each carry their own; the
-          dial above is their share.
-        </Absent>
-      </Block>
-    )
-  }
+function LegibleSection({ report, stale }: { report?: AgentReport; stale: boolean }) {
   if (!report) {
     return (
       <Block label="Legibility">
@@ -1353,10 +1420,9 @@ function AgeSection({
   /** How tall the run between the ends may be, MEASURED rather than guessed.
    *
    *  It was `calc(100vh - 360px)`, and 360 is a guess at everything the pane puts above this:
-   *  the name, the path, the dials, the ranks. The path wraps to two lines on a deep directory
-   *  and the dials disappear on an unread function, so the guess is wrong by a row in either
-   *  direction — which shows up as a scrollbar with empty pane below it, the exact thing the
-   *  cap exists to avoid.
+   *  the name, the path, the counts. The path wraps to two lines on a deep directory, so the
+   *  guess is wrong by a row on half the repo — which shows up as a scrollbar with empty pane
+   *  below it, the exact thing the cap exists to avoid.
    *
    *  Asked of the element instead: its own top, against the window's bottom, less the row that
    *  has to stay under it. `useLayoutEffect` so it is set before the frame is painted rather
@@ -1539,7 +1605,7 @@ const CHURN_WINDOW_DAYS = 90
  * Churn as a calendar, because churn is a rate.
  *
  * **A count cannot show you that fourteen commits were one afternoon.** `11 in 90d` is the
- * number the dial and the ramp are built on and it is genuinely ambiguous between a file
+ * number the ramp is built on and it is genuinely ambiguous between a file
  * somebody works on every week and one that was rewritten twice in a fortnight and left alone
  * — which are opposite findings, and the second axis exists to tell brilliance from mess.
  * The shape is the answer, so the shape is what is drawn.
@@ -1549,8 +1615,8 @@ const CHURN_WINDOW_DAYS = 90
  * `churn.rs`), and the per-function version follows a moving line range through every diff in
  * the history. The heading says which, rather than letting the reader assume the narrower one.
  *
- * The 90-day window is drawn on it rather than described, because the dial above is measured
- * over exactly that and nothing else on screen says where it ends.
+ * The 90-day window is drawn on it rather than described, because the ramp this file is
+ * coloured by is measured over exactly that and nothing else on screen says where it ends.
  */
 function ChurnSection({ node, repoKey }: { node: Node; repoKey: string | null }) {
   const [stamps, setStamps] = useState<number[] | null | 'loading'>('loading')

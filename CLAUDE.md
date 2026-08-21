@@ -233,7 +233,7 @@ readings (1.4 MB) parse in 30ms, once, on open.
   only be answered once cold — and discarding 6,900 cold predictions to fix a legibility ask
   would be the worst trade available. A dated grade is kept and shown as history; what it
   does not do is colour, count or bucket. `legibleOf` is the single accessor so the lens, the
-  breakdown, the dial and the spread cannot disagree.
+  breakdown, the panel and the spread cannot disagree.
   **There is no single-axis re-read pass, and the reason is not cost.** Backfilling one
   expired axis by asking readers only that question is the obvious move — `legible` is
   graded after the body is open, so it looks like the cheap half of a reading. It is not the
@@ -664,11 +664,20 @@ dials, ranks, the provenance footer — qualifies every lens and never moves.
   same moment `found` is written. A prose field per axis would be a per-reading token charge
   on every reader forever — `just tokens` before anyone proposes one — and the grade plus
   the pass it describes is what the axis measures.
-- **The rung ladder lives here and not in the dial row.** Three of them side by side read as
-  a phrase rather than as three readings, which is why `Dials` prints `2/4`; a lens section
-  has one grade and all the room, and the rung wording is the reader's own, lifted from
-  `mcp.rs`'s schema. A ladder that paraphrased the ask would be the panel quietly asking
-  something else.
+- **The rung ladder lives here, and it is what the dial row was standing in for.** Three
+  grades side by side read as a phrase rather than as three readings, which is why the four
+  arcs at the top of every pane printed `2/4` and kept the words in their tooltips — a
+  measurement with nowhere to explain itself. A lens section has one grade and all the room,
+  so the ladder says what each rung MEANS in the reader's own words, lifted from `mcp.rs`'s
+  schema; a ladder that paraphrased the ask would be the panel quietly asking something else.
+  With one under Surprise, one under Docs and a key under Legibility, the dial row was the
+  same four answers a screen earlier and is gone. `Gauge` survives it, for `ReadDialog`.
+- **A container gets the KEY without the grade.** A file has no legibility reading and never
+  will — the question is what reading one body was like, and a reader is never handed a file
+  as one — but the breakdown it stands over is bucketed by four words nothing else on screen
+  defines. So the ladder renders with every rung coloured and none lit. Explaining a scale is
+  not claiming a measurement under it, and the heading says `What the grades mean` rather
+  than repeating LEGIBILITY, which is the breakdown's own word directly below it.
 - **`links.rs` is a lookup table, stored, not a query.** `edges::wire` folded its edge list
   away and `clones::find` kept membership pointing the wrong way, so `14×` under Callers
   raised a question — *which fourteen* — that the app could not answer anywhere. Resolving
@@ -820,9 +829,8 @@ dials, ranks, the provenance footer — qualifies every lens and never moves.
   **It scrolls only when it has to, and the cap is MEASURED rather than guessed.** A fixed cap
   clipped ten commits into a 220px box with half the pane empty beneath it — a scrollbar
   offered instead of the space that was already there. `calc(100vh - 360px)` replaced it and
-  was the same mistake one level up: 360 is a guess at the name, path, dials and ranks above,
-  and the path wraps to two lines on a deep directory while the dials vanish on an unread
-  function, so it is wrong by a row either way and Oldest lands mid-pane with a scrollbar. The
+  was the same mistake one level up: 360 is a guess at the name, path and counts above, and
+  the path wraps to two lines on a deep directory, so it is wrong by a row on half the repo and Oldest lands mid-pane with a scrollbar. The
   element is asked for its own top instead, against the window's bottom, less the row that has
   to stay under it. And the summary sentence that was pinned at the foot went
   with it: the two ends are already on screen and dated, which is the same fact in the place
@@ -851,7 +859,7 @@ dials, ranks, the provenance footer — qualifies every lens and never moves.
   **The calendar is by FILE and says so.** That is what the map's churn ramp already measures;
   a function's own would mean following its line range through every diff in the history, the
   same trade `blame.rs` refuses for churn. It draws the 90-day window on itself rather than
-  describing it, because the dial above is measured over exactly that and nothing else on
+  describing it, because the rank above is measured over exactly that and nothing else on
   screen said where it ended.
 - **Blame answers all three time lenses from one fetch, and says what it is not.** Blame
   reports the commit that last touched each LINE, so this is the provenance of the code as
