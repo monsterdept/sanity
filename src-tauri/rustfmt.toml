@@ -1,0 +1,10 @@
+# The house style, pinned so a formatter run is a no-op rather than a rewrite.
+#
+# **`Max` is measured, not preferred.** Against the tree as it stood, default rustfmt rewrote
+# ~2,600 lines across 26 files and this setting rewrites the fewest of any combination tried —
+# it keeps a call, a chain or a struct literal on one line up to `max_width` instead of
+# exploding it at 60, which is what the code was already doing by hand. `struct_lit_width = 0`
+# and the per-knob equivalents were both tried and were worse; the numbers are in the commit
+# that added this file.
+max_width = 100
+use_small_heuristics = "Max"

@@ -64,6 +64,18 @@ check:
     cd src-tauri && cargo check
     cd web && npx tsc -b
 
+# Format both halves. The configs beside them are what make this a no-op rather than a
+# rewrite — see src-tauri/rustfmt.toml and web/.prettierrc. Run it on its own, never mixed
+# into a change somebody has to review.
+fmt:
+    cd src-tauri && cargo fmt
+    cd web && npx prettier --write "src/**/*.{ts,tsx,css}"
+
+# Fail if anything is unformatted — the check half of `fmt`, for CI or a pre-commit look.
+fmt-check:
+    cd src-tauri && cargo fmt --check
+    cd web && npx prettier --check "src/**/*.{ts,tsx,css}"
+
 # Full release bundle (needs the icon set — `just icons` first).
 build:
     cd web && npm run build
