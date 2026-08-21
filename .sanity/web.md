@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-391 of 391 read · 76 surprising · 1 stale
+391 of 391 read · 76 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -1003,14 +1003,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Under 'surprise' mode, looks up a per-kind damping value from a HEAT_BY_KIND table (defaulting to 1 if kind isn't in it); under every other mode it always returns 1 (no damping).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `SunburstView` — TANGLED — TRAP — STALE
-- spec 3 · read at `9cc9d39357ef` · commit `00bad90` · read by claude-sonnet-5 · via claude · when 2026-08-21T00:00:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This is the top-level React component that renders the sunburst visualization itself: it lays out the tree of Nodes into rings/wedges (likely using d3 partition/arc utilities), handles click/hover for selection and drilling into a node, and draws the central "hub" with the repo name, size, and the mascot creature reflecting agent activity. It also manages animation state (morphing between tree shapes over MORPH_TAU_MS), computes wedge visibility thresholds from the `density` prop via `unitsPerPx`, applies node coloring based on `mode`/`ranks`/`ageSpan`, and highlights nodes currently in `reading` with a pulsing effect.
-- found: Renders the sunburst chart: custom (non-d3) partition/arc math into SVG wedges, with function-level treemap tiling inside file bands. Handles click/hover select, double-click drill, alt-click collapse, a spotlight-mask selection style, a center hub that shows either the repo name or a WebGL mascot creature whose gaze tracks active/replay activity. Two separate animation systems — a keyframed level-change zoom (triggered synchronously during render, not in an effect) and a continuous "morph" chase toward a soft target for replay scrubbing — plus density-driven pixel thresholds (unitsPerPx) that cull wedges/patches, colorFor-based fills per mode/ranks/ageSpan, and a "reading"/"escalated" pulse system that reduces highlighted ids to only the deepest drawn ancestor.
-- predicted: most · documented: most · derivable: no · legible: some · trap: yes
-- note: Reduced-motion (prefers-reduced-motion) is honored in the level-change keyframe RAF loop but not in the separate morph-chase RAF loop, an inconsistency the code doesn't flag; also level-change/morph "seed" logic runs as a side effect during render (mutating refs), so edits must preserve the exact read/write order of prevRoot/prevWedges/leaving/coring or the leaving-wedge set silently comes out wrong.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `SunburstView` — TANGLED
+- spec 3 · read at `284f6a99e255` · commit `8da95bf` · read by claude-sonnet-5 · via claude · when 2026-08-21T01:17:43Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Main render component that lays out and draws the sunburst rings from `root`, handling pointer events to call onSelect/onDrill/onClear/onUp, coloring wedges per mode/ranks/ageSpan, and rendering the center hub with the mascot. It manages animation/tween state for morph transitions and pulsing wedges in `reading`, and recomputes layout thresholds from density/onSide - a large stateful component mixing hooks with SVG/canvas drawing.
+- found: SVG-rendered sunburst with wedge/rim/patch paths, plus a separate WebGL canvas layer for the center mascot creature. Uses a mix of useState/useRef/useEffect/useLayoutEffect: two independent rAF loops (a discrete eased level-change zoom keyed on `run`, and a continuous exponential-decay "morph chase" keyed on `morph`), with soft geometry state kept in refs and viewBox/hub transforms written imperatively to the DOM to skip a React re-render per frame. Click/dblclick map to onSelect/onDrill (option+click toggles collapse instead), background click clears, hub click calls onUp. Colors are memoized per level via colorFor(mode, ranks, ageSpan); reading-pulse animation is pure CSS classes for compositor-only cost; density/onSide drive unitsPerPx which sets MIN_ARC_PX/MIN_PATCH_PX thresholds; selection uses an SVG mask "spotlight" rather than outlines.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: Component is too large (1766 lines) to read directly via the reveal tool in one pass; had to delegate to a subagent to read/summarize the raw source dump.
 
 ## web/src/components/WedgeLabel.tsx
 
