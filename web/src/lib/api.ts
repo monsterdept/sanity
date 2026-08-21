@@ -14,8 +14,22 @@ export interface Score {
   churn: number
   ageDays: number | null
   lastTouchedDays: number | null
-  /** Raw commits in the 90-day window — the fact behind `churn`. */
+  /** The raw count behind `churn` — and it counts a different thing on a function than on
+   *  a file, which every consumer has to say out loud.
+   *
+   *  A file or directory: commits in the 90-day window, a RATE. A function: how many
+   *  distinct commits its current lines trace back to, because a window per function needs
+   *  `git log -L` and that is a process apiece. The two are told apart by `Node.kind` and by
+   *  nothing else — see `Score::commits` in Rust, and `blame.rs`, which asks the UI not to
+   *  present them as one number. */
   commits: number
+  /** Every commit that has ever touched this path, or `null`.
+   *
+   *  What a header means by "commits": a SIZE, where `commits` is a rate over a window. Null
+   *  on a function, where the question needs `git log -L`, and on anything git has never seen
+   *  — both print nothing rather than a zero, because a zero is a claim about the file where
+   *  an absence is a fact about the repo. */
+  allCommits: number | null
   provenance: Provenance
   /** Fraction of this node's ANALYZED lines sitting in hot code. What a
    *  directory or file wedge is colored by — see `wedgeHeat`. */
@@ -279,6 +293,9 @@ interface WireScore {
   churn: number
   age_days: number | null
   commits: number
+  /** Optional because a scan taken by an older backend does not carry it — see
+   *  `Score.allCommits`, where the absence and a zero are different answers. */
+  all_commits?: number | null
   last_touched_days: number | null
   provenance: Provenance
   hot_share: number
@@ -357,6 +374,7 @@ function toNode(w: WireNode): Node {
           churn: w.score.churn,
           ageDays: w.score.age_days,
           commits: w.score.commits,
+          allCommits: w.score.all_commits ?? null,
           lastTouchedDays: w.score.last_touched_days,
           provenance: w.score.provenance,
           hotShare: w.score.hot_share,
@@ -1562,6 +1580,9 @@ function reaggregate(node: Node, children: Node[]): Node {
               // every re-aggregated directory reports zero commits while its churn bar
               // sits at 72.
               commits: node.score?.commits ?? 0,
+              // Carried for the same reason and with the same danger: a directory's total
+              // counts a commit once, and summing children would count it once per file.
+              allCommits: node.score?.allCommits ?? null,
               lastTouchedDays: touched,
               provenance: 'source',
               hotShare: analyzed > 0 ? hot / analyzed : 0,

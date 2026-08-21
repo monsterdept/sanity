@@ -436,6 +436,7 @@ function scoreInto(into: Score | null, frame: Frame, f: number, since: number): 
     ageDays: null,
     lastTouchedDays: null,
     commits: 0,
+    allCommits: null,
     provenance: 'history',
     hotShare: 0,
     source: 'proxy',
@@ -501,6 +502,10 @@ function aggregate(node: Node, appearedOf: (id: string) => number | null): void 
     surprise: 0,
     documented: 0,
     churn: churn / w,
+    // A replay has none. The timeline holds which commits touched what, so this is
+    // derivable — but it would be a count as of the FRAME, and every other number here is
+    // already that. Left absent rather than filled with today's answer about a past commit.
+    allCommits: null,
     ageDays: age,
     lastTouchedDays: touched,
     commits,
@@ -870,6 +875,7 @@ export function frameTree(
               ageDays: null,
               lastTouchedDays: null,
               commits: 0,
+              allCommits: null,
               provenance: 'history',
               hotShare: 0,
               source: 'proxy',

@@ -354,10 +354,25 @@ pub struct Score {
     pub churn: f32,
     /// Days since the code first appeared. `None` when there is no git history.
     pub age_days: Option<f32>,
-    /// Commits touching this file inside the churn window — the raw count behind
-    /// `churn`. Shown to the user instead of the normalized figure, because a number of
-    /// commits is a fact and a percentage of a saturation constant is not.
+    /// The raw count behind `churn`. Shown to the user instead of the normalized figure,
+    /// because a number of commits is a fact and a percentage of a saturation constant is
+    /// not.
+    ///
+    /// **It counts a different thing on a function than on a file, and every consumer has to
+    /// say which.** A file's is commits in the 90-day window; a function's is how many
+    /// distinct commits its current lines trace back to, because a window per function needs
+    /// `git log -L` — see `blame.rs`, which states the difference and asks the UI not to
+    /// present the two as one number. The UI can tell them apart from `kind` and nothing
+    /// else, which is why this stayed one field: two fields, one of them always zero, is an
+    /// invitation to add them up.
     pub commits: u32,
+    /// Every commit that has ever touched this path, or `None` where git has never seen it.
+    ///
+    /// The figure a header wants: `commits` is a RATE over a window and this is a SIZE. A
+    /// function has none — its lifetime count is `git log -L`, a process apiece — and `None`
+    /// there means "not this kind of question", the same way it means "no history" on a file.
+    /// Both absences print nothing rather than a zero.
+    pub all_commits: Option<u32>,
     /// Days since the most recent commit. `None` without history.
     pub last_touched_days: Option<f32>,
     pub provenance: Provenance,
@@ -732,6 +747,8 @@ impl Node {
                 // files in one directory is ONE commit for that directory and only the
                 // log pass still knows that. Summing the children would report twelve.
                 commits: 0,
+                // Same story, same filler: `apply_dir_history` sets both from the log pass.
+                all_commits: None,
                 last_touched_days: touched,
                 // Provenance doesn't average — a directory containing one
                 // human-documented function is not 1/12th documented by a human. The
@@ -853,6 +870,7 @@ mod tests {
             churn,
             age_days: Some(age),
             commits: 0,
+            all_commits: None,
             last_touched_days: None,
             provenance: Provenance::Source,
             hot_share: 0.0,

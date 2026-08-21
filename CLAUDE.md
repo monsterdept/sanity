@@ -864,6 +864,32 @@ dials, ranks, the provenance footer — qualifies every lens and never moves.
   — everything needed to colour a wedge and nothing a person can read. `end` of zero is the
   whole file, so a file and a function ask one question at two scopes rather than two
   endpoints drifting apart.
+- **There are two commit counts and they are different questions. Every place that prints
+  one has to say which.** A file's `Score.commits` is commits in the 90-day window — a RATE.
+  A function's is how many distinct commits its current lines TRACE BACK TO, because blame
+  is all a per-function answer can be built from and a real window there is `git log -L`, a
+  process apiece. `blame.rs` has said so since it was written and asked the UI not to present
+  them as one number; the UI printed `in 90d` over both for months. Measured on ceph's
+  `Monitor.cc:100-200`: 27 commits behind those lines, 2 commits touching that file in ninety
+  days. They are told apart by `Node.kind` and by nothing else, which is why it stays ONE
+  field — two fields with one always zero is an invitation to add them up. `TRACE_SATURATION`
+  is the normalizer for the second, at the same value as `CHURN_SATURATION` and separate from
+  it so retuning the window cannot silently move the function axis; its doc carries the
+  measured distribution across five repos, which is what says 8 is neither flat nor saturated.
+- **`all_commits` is the count a HEADER means, and getting it is one uncapped walk.** Lines,
+  functions and commits is what a thing is made of; a rate over ninety days cannot answer it,
+  and a folder reading `0 commits` under the same word a repo reads `2,847` is two questions
+  wearing one. `churn::read` now walks the whole log — measured at **4.0s on ceph** (163,916
+  commits) against 29.4s for that repo's blame pass, and 0.02s here — and counts both from the
+  one pass. **The cap had to go rather than be raised**: a capped total is a longer window
+  with no label on it, which is the failure the paragraph above is about. It was quietly
+  costing a second thing too — a file untouched for 5,000 commits had no entry at all, so it
+  reported the same `None` as a file git has never seen and the panel said "no history" over
+  code with twenty years of it. **`None` now means what it says**, and it is still never a
+  zero: the pane prints nothing rather than claiming nobody has touched something.
+  The root is credited explicitly, because the ancestor walk cuts at each `/` and therefore
+  reaches `src` and never the directory above it — the one path in the tree that was
+  reporting itself untracked was the repo.
 - **A `→` cannot be a single call, because the thing being jumped to may not exist yet.**
   The window holds a tree with no functions in it and fetches each file's ring when the map
   has somewhere to draw it, so a caller two directories away is a name and a line. `jumpTo`

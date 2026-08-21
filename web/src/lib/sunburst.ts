@@ -367,6 +367,7 @@ function aggregate(fns: Node[], filePath: string): Node {
             ageDays: mean((f) => f.score!.ageDays ?? 0),
             lastTouchedDays: mean((f) => f.score!.lastTouchedDays ?? 0),
             commits: Math.round(mean((f) => f.score!.commits)),
+            allCommits: null,
             provenance: s.provenance,
             hotShare: w === 0 ? 0 : hotLoc / w,
             source: s.source,

@@ -72,6 +72,33 @@ pub struct FileBlame {
     authors: Vec<String>,
 }
 
+/// Commits behind a function's lines at which it counts as fully worked over.
+///
+/// **Its own constant, at the same value as `churn::CHURN_SATURATION`, and the point is
+/// that they can now move apart.** They are normalizers over two different quantities — a
+/// rate over 90 days for a file, a count of surviving commits for a function — and one
+/// constant meant that retuning the window's saturation silently moved the function axis
+/// with it. Absolute rather than a percentile of the repo's own functions, for the reason
+/// spelled out on `CHURN_SATURATION`: one generated file becomes the denominator and
+/// squashes everything hand-written to nothing.
+///
+/// Eight was inherited rather than measured, so it has been measured. Share of
+/// history-bearing functions at or above it:
+///
+/// | repo | n | median | p90 | p99 | max | ≥8 |
+/// |---|---|---|---|---|---|---|
+/// | krapow | 227 | 1 | 3 | 6 | 7 | 0.0% |
+/// | tonepoet | 16,992 | 1 | 2 | 7 | 123 | 0.9% |
+/// | sanity | 1,119 | 1 | 3 | 14 | 39 | 2.5% |
+/// | VectorLand | 1,871 | 1 | 4 | 13 | 75 | 3.5% |
+/// | ceph/src/mon | 2,095 | 2 | 10 | 36 | 342 | 14.3% |
+///
+/// A young repo puts nearly everything at one or two commits and an old one spreads; the
+/// bright end stays rare and stays earned, which is what the constant is for. It is not
+/// flat and it is not saturated, so there is no case here for moving it — what there was a
+/// case for is being able to.
+pub const TRACE_SATURATION: f32 = 8.0;
+
 /// What one function's line range says about its history.
 pub struct RangeHistory {
     /// Distinct commits still alive in the range. NOT the same as `FileHistory`'s

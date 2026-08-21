@@ -733,7 +733,17 @@ export function colorFor(
     if (!s || s.ageDays === null) return null
     return {
       ...ramped(s.churn, 'churn'),
-      label: s.commits > 0 ? `${s.commits} commits in 90d` : 'untouched in 90d',
+      // **One ramp, two quantities, and the label is the only thing that says which.** A
+      // file's is commits in the 90-day window; a function's is how many distinct commits
+      // its current lines trace back to, because blame is all a per-function answer can be
+      // built from — see `blame.rs`. The wedge said `27 commits in 90d` about a range whose
+      // file had two.
+      label:
+        node.kind === 'func'
+          ? `traces to ${s.commits} ${s.commits === 1 ? 'commit' : 'commits'}`
+          : s.commits > 0
+            ? `${s.commits} commits in 90d`
+            : 'untouched in 90d',
     }
   }
 
@@ -789,12 +799,17 @@ export interface Bucket {
 }
 
 /** Churn bands, in the order the panel lists them — busiest first, because that is the end
- *  of this ramp anyone opens the mode to find. Upper bound is exclusive. */
+ *  of this ramp anyone opens the mode to find. Upper bound is exclusive.
+ *
+ *  **Unwindowed wording, because the members are functions.** These bucket `Score.commits`,
+ *  which on a function is the commits its lines trace back to and not a 90-day rate — the
+ *  bottom band read `untouched in 90d` over code whose lines every one of them came from a
+ *  commit. What a band can honestly say is how many, not when. */
 const CHURN_BANDS: { label: string; min: number }[] = [
   { label: '10+ commits', min: 10 },
   { label: '3–9 commits', min: 3 },
   { label: '1–2 commits', min: 1 },
-  { label: 'untouched in 90d', min: 0 },
+  { label: 'no commits found', min: 0 },
 ]
 
 /** Locality bands, most-remote first — the end anybody opens this lens to find.

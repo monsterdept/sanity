@@ -678,6 +678,10 @@ fn apply_dir_history(node: &mut Node, history: &History) {
     if node.kind == NodeKind::Dir || node.kind == NodeKind::File {
         if let Some(score) = node.score.as_mut() {
             score.commits = history.commits_of(&node.path);
+            // The lifetime total comes from the same place and for the same reason: a
+            // directory counts a commit once, and only the log pass still knows which
+            // commit touched what. A function keeps `None` — see `Score::all_commits`.
+            score.all_commits = history.total_commits_of(&node.path);
         }
     }
     for child in &mut node.children {
@@ -756,7 +760,10 @@ fn score_dir(
                         .and_then(|b| b.range(func.start_line, func.end_line, blame.now));
                     let (churn, age_days, commits, last_touched_days, last_author) = match &own {
                         Some(h) => (
-                            (h.commits as f32 / crate::churn::CHURN_SATURATION).clamp(0.0, 1.0),
+                            // `TRACE_SATURATION`, not the window's: this count is commits
+                            // surviving in the body, which is a different quantity from
+                            // commits in ninety days — see `blame.rs`.
+                            (h.commits as f32 / crate::blame::TRACE_SATURATION).clamp(0.0, 1.0),
                             Some(h.age_days),
                             h.commits,
                             Some(h.last_touched_days),
@@ -841,6 +848,10 @@ fn score_dir(
                             churn,
                             age_days,
                             commits,
+                            // A function's lifetime count would be `git log -L`, a process
+                            // apiece — see `Score::all_commits`, which is `None` here for
+                            // that reason and not for want of history.
+                            all_commits: None,
                             last_touched_days,
                             provenance,
                             // Leaves don't have a share of anything; `aggregate` reads

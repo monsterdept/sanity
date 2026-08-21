@@ -7,7 +7,28 @@
 //!
 //! Everything here comes from **one** `git log` pass. The obvious implementation asks
 //! git per file, which on a repo with a few thousand files means a few thousand process
-//! spawns and turns a two-second scan into a two-minute one.
+//! spawns and turns a two-second scan into a two-minute one. Measured on ceph: the whole
+//! walk is `git rev-list --count HEAD -- src/mon` nine hundred times over, and that one
+//! query alone costs 0.94s.
+//!
+//! # Two counts out of one walk, and they are different questions
+//!
+//! `recent_commits` is the churn axis: commits inside a 90-day window, which is a RATE.
+//! `total_commits` is how many commits have ever touched this path, which is a SIZE — the
+//! figure a header wants when it says what a thing is made of. Neither substitutes for the
+//! other: a file rewritten forty times in 2019 and untouched since is huge and settled, and
+//! a window cannot say the first half while a total cannot say the second.
+//!
+//! **The total is why the walk is no longer capped.** It read the newest 5,000 commits, on
+//! the argument that older ones change neither the window nor the age ranking. That was true
+//! of both things it then computed and is false of a total, which a cap turns into a longer
+//! window with no label on it. It was quietly false of age too: a file untouched for 5,000
+//! commits had no entry at all, so it reported the same `None` as a file git has never heard
+//! of, and the panel said "no history" over code with twenty years of it.
+//!
+//! The full walk measured 4.0s on ceph (163,916 commits, 603k path lines) against 29.4s for
+//! the blame pass on a fraction of that repo, and 0.02s on this one. It is not free and it is
+//! not the expensive part of a scan.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -17,11 +38,6 @@ use std::process::Command;
 /// people whose repos grew ten thousand lines last month, and a year-long window would
 /// call all of it stable.
 const CHURN_WINDOW_DAYS: f32 = 90.0;
-
-/// Cap on how far back we read. Full history on a large repo is the slowest thing in the
-/// scan and the oldest commits change neither the churn window nor, in practice, the age
-/// ranking — anything older than this is "old" for every purpose the UI has.
-const MAX_COMMITS: usize = 5000;
 
 /// Commits in the window at which a file counts as fully churning.
 ///
@@ -38,6 +54,9 @@ pub const CHURN_SATURATION: f32 = 8.0;
 pub struct FileHistory {
     /// Commits in the window touching this file.
     pub recent_commits: u32,
+    /// Commits touching this file in the whole history — see the module docs for why this
+    /// is not the same question as `recent_commits` and cannot be derived from it.
+    pub total_commits: u32,
     /// Days since the oldest commit we saw touching it.
     pub age_days: f32,
     /// Days since the newest.
@@ -81,6 +100,18 @@ impl History {
         self.files.get(path).map(|h| h.recent_commits).unwrap_or(0)
     }
 
+    /// Every commit that has ever touched this path, or `None` where git has never heard
+    /// of it.
+    ///
+    /// `None` rather than zero, and the distinction is the whole reason this exists: an
+    /// untracked file and a file nobody has touched this quarter were one answer while the
+    /// walk was capped, and "no history" is a fact about the REPO where "0 commits" is a
+    /// claim about the file. A directory counts a commit once however many of its files
+    /// that commit touched — see [`flush_commit`].
+    pub fn total_commits_of(&self, path: &str) -> Option<u32> {
+        self.files.get(path).map(|h| h.total_commits)
+    }
+
     /// Days since the most recent commit touching this file.
     pub fn last_touched_of(&self, path: &str) -> Option<f32> {
         self.files.get(path).map(|h| h.last_touched_days)
@@ -103,12 +134,14 @@ impl History {
         self.files.get(path).map(|h| h.age_days)
     }
 
-    /// Oid of the newest commit touching this path, if it fell inside the walked window.
+    /// Oid of the newest commit touching this path.
     ///
-    /// `None` is not "never committed" — it is "not in the last `MAX_COMMITS` commits",
-    /// and `scancache` treats the two the same on purpose: a file untouched for five
-    /// thousand commits cannot have its blame change without the history being rewritten,
-    /// which is detected separately and wholesale.
+    /// `None` now means what it says — git has never seen this path — because the walk is
+    /// no longer capped. It used to mean "not in the last 5,000 commits" as well, which
+    /// `scancache` was written to tolerate: a file untouched that long cannot have its blame
+    /// change without the history being rewritten, and that is detected separately and
+    /// wholesale. Nothing there needs revisiting; there is simply one fewer way to be
+    /// absent.
     pub fn last_commit_of(&self, path: &str) -> Option<&str> {
         self.files
             .get(path)
@@ -133,7 +166,6 @@ pub fn read(repo: &Path) -> History {
             // \x01 starts a commit, \x02 separates its fields: timestamp, author, oid.
             "--format=%x01%ct%x02%an%x02%H",
             "--name-only",
-            &format!("--max-count={MAX_COMMITS}"),
         ])
         .output();
 
@@ -163,12 +195,13 @@ fn credit(
     oid: &str,
 ) {
     let e = files.entry(key.to_string()).or_default();
-    if e.recent_commits == 0 && e.age_days == 0.0 {
+    if e.total_commits == 0 {
         // First sighting, and git walks newest first, so this is the latest commit.
         e.last_touched_days = age_days;
         e.last_author = author.to_string();
         e.last_commit = oid.to_string();
     }
+    e.total_commits += 1;
     if age_days <= CHURN_WINDOW_DAYS {
         e.recent_commits += 1;
     }
@@ -211,6 +244,12 @@ fn flush_commit(
     for dir in dirs {
         credit(files, &dir, age_days, author, oid);
     }
+    // The repo root is a directory too, and it is the one every ancestor walk misses: the
+    // loop above cuts at each `/`, so `src/a.rs` credits `src` and nothing above it. Nobody
+    // noticed while this only fed the churn window, because the root's wedge is the hub and
+    // is painted by nothing — but the root is exactly where a lifetime total gets read, and
+    // it was the one path in the tree reporting that git had never heard of it.
+    credit(files, "", age_days, author, oid);
     touched.clear();
 }
 
@@ -312,6 +351,37 @@ mod tests {
         assert_eq!(h.last_author_of("src/b.rs").as_deref(), Some("Grace"));
         // Two of a.rs's three commits are inside the 90-day window; the 400-day one isn't.
         assert!(h.churn_of("src/a.rs") > h.churn_of("src/b.rs"));
+    }
+
+    /// A total is not a longer window, and an untracked path is not a quiet one.
+    ///
+    /// Both halves of this went wrong at once while the walk was capped: the count a header
+    /// prints was the newest 5,000 commits' worth with nothing saying so, and a file older
+    /// than that reported the same absence as a file git has never seen.
+    #[test]
+    fn a_total_counts_every_commit_and_an_unseen_path_has_none() {
+        let now = 1_000 * DAY;
+        let log = format!(
+            "\u{1}{}\u{2}Ada\nsrc/a.rs\n\u{1}{}\u{2}Ada\nsrc/a.rs\n\u{1}{}\u{2}Grace\nsrc/a.rs\nsrc/b.rs\n",
+            now - DAY,
+            now - 300 * DAY,
+            now - 900 * DAY,
+        );
+        let h = parse_log(&log, now);
+        // One commit in the window, three in the history — the window cannot say the second
+        // number and the total cannot say the first.
+        assert_eq!(h.commits_of("src/a.rs"), 1);
+        assert_eq!(h.total_commits_of("src/a.rs"), Some(3));
+        // A directory counts a commit once however many of its files it touched.
+        assert_eq!(h.total_commits_of("src"), Some(3));
+        // Nothing in the window at all, and still a history.
+        assert_eq!(h.commits_of("src/b.rs"), 0);
+        assert_eq!(h.total_commits_of("src/b.rs"), Some(1));
+        // The one path git has never heard of, which is a different answer from zero.
+        assert_eq!(h.total_commits_of("src/never.rs"), None);
+        // The root is a directory as much as `src` is, and it is the one the ancestor walk
+        // cannot reach — every commit counts for it exactly once.
+        assert_eq!(h.total_commits_of(""), Some(3));
     }
 
     #[test]

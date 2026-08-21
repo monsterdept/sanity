@@ -59,7 +59,11 @@ use std::path::{Path, PathBuf};
 ///    before it loads perfectly and reports `None`. Every repo with a warm tree would have
 ///    shown an empty Clones lens — correctly according to the file it read, and wrongly about
 ///    the code — until something unrelated happened to drop the cache.
-const VERSION: u32 = 5;
+/// 6: `Score` gained `all_commits`, the lifetime commit count a header prints. Same rule as
+///    4 and for the same reason — it is an `Option`, so a version-5 tree would load and
+///    report `None` for every path, and a repo with a warm cache would have quietly gone on
+///    printing nothing where the count belongs.
+const VERSION: u32 = 6;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.
