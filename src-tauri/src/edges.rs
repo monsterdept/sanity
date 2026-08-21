@@ -338,15 +338,15 @@ mod tests {
 
     /// The distinction the whole lens rests on: a language nobody has read reports NOTHING,
     /// and a function nothing calls reports ZERO. Collapsing the two would draw every
-    /// Fortran repo as dead code.
+    /// repo in an unwired language as dead code.
     #[test]
     fn an_unreadable_language_is_absent_and_an_uncalled_function_is_zero() {
         let w = wired(&[
             ("a.rs", Lang::Rust, vec![def("orphan", &[])]),
-            ("b.f90", Lang::Fortran, vec![def("also_orphan", &[])]),
+            ("b.sql", Lang::Sql, vec![def("also_orphan", &[])]),
         ]);
         assert_eq!(w.at(0, 0).map(|x| x.callers), Some(0), "Rust: measured, and it is zero");
-        assert_eq!(w.at(1, 0).map(|x| x.callers), None, "Fortran: never looked");
+        assert_eq!(w.at(1, 0).map(|x| x.callers), None, "SQL: never looked");
         assert_eq!(w.resolvable, 1, "the denominator counts only what could be read");
     }
 

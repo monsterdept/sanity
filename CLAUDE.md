@@ -1132,7 +1132,8 @@ second metric, and the line between those is the whole design.
   real bundle from the private lapbar/neo-mascots repo; the placeholder exists so a
   fresh checkout and CI both build without SSH access to that org. Don't delete it.
 - New language = a `Lang` variant, a grammar in Cargo.toml, an entry in
-  `parse::func_kinds`, and a test in `parse.rs`. The kind names are matched literally,
+  `parse::func_kinds`, an entry in `parse::call_sites` if its calls can be read off the
+  grammar, and a test in `parse.rs`. The kind names are matched literally,
   so a grammar bump that renames a node goes red rather than silently returning nothing.
   **Read the kinds off the grammar, never off memory** — a kind that doesn't exist matches
   nothing and looks exactly like a language with no functions in it, which is the failure
@@ -1164,6 +1165,29 @@ second metric, and the line between those is the whole design.
   Grammars are cheap in time and expensive in bytes: 45 of them compile in 16s, and they
   took the release binary from 44MB to 150MB, over a third of it Verilog and SystemVerilog
   alone. Measure the linked binary before adding a big one — the `.o` totals overstate it.
+- **A call shape is read off the grammar or it is absent, and there is no partial credit.**
+  57 of 63 languages resolve calls; the rest paint Callers and Reach grey, which is a stated
+  absence rather than a zero, and a test keeps one of them unwired so the two cannot quietly
+  become one thing. Wiring thirty-nine in a sitting produced four rules. **A wrong edge is
+  worse than a missing one** — PowerShell's `invokation_expression` names its member without
+  a field, so reaching for one records `[T]::d()` as a call to `T`; the arm was left out
+  rather than guessed at, and the same judgement keeps jq and VHDL absent, where only some
+  call forms are distinguishable and the rest would read as honest zeros. **The definition is
+  not a call it makes**, which is not pedantry in Elixir and the lisps, where the definition
+  IS a call node and matches the very table used to find calls inside it: `walk_calls` refuses
+  to match the node it was handed, `skip_fields` covers the three grammars that parse a
+  signature or a parameter list as one, and a function's own name never enters its own list —
+  Scheme writes a signature as `(a)`, which no grammar can tell from a call. **And a call name
+  has to be spellable the way the definition was** — the resolver matches strings, so the
+  `[A-Za-z0-9_]` gate every name passed through dropped every edge that used any other
+  character, silently: PowerShell is all `Verb-Noun`, the lisps hyphenate everything, Ruby
+  and Elixir end names in `?` and `!`, R has `as.data.frame`. Nine PowerShell functions in
+  ceph's Windows suite, every line of them a `Write-Output`, reported one call between them.
+  `name_chars` is per language for the same reason `skip_fields` is. **What is left
+  unwired is a decision, not a queue**: SQL, jq, VHDL, Verilog and SystemVerilog either have
+  no call worth the name, or expose only some of their call forms, or wire themselves through
+  a different graph entirely — module instantiation is not a call — and a table
+  written on hope matches nothing while reading as though it were covered.
 - **`body_span` returns bytes, not a node, because some languages have no body node.**
   Julia, Fortran, the lisps and Visual Basic hang their statements straight off the
   definition, so there is nothing to point at and the body is "everything after the
@@ -1215,9 +1239,9 @@ second metric, and the line between those is the whole design.
   two disagreed with no way to tell which was live. History is the worse half: a timeline is
   EXTENDED, so mismatched frames would be appended to matched ones and produce a story that
   never happened. The constant lives in `parse.rs`, next to the things that break it, and it
-  covers a new `Lang` or extension mapping, `func_kinds`, `name_node`, `body_span`,
-  `header_end`, `leading_doc`, and a grammar dependency bump. A needless bump costs one
-  re-parse; a missed one is silently wrong for as long as the files sit still.
+  covers a new `Lang` or extension mapping, `func_kinds`, `call_sites`, `name_node`,
+  `body_span`, `header_end`, `leading_doc`, and a grammar dependency bump. A needless bump
+  costs one re-parse; a missed one is silently wrong for as long as the files sit still.
 
 ## Commits
 

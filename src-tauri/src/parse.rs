@@ -177,12 +177,13 @@ fn language(lang: Lang) -> tree_sitter::Language {
 ///
 /// Cheap to be wrong in the safe direction. A needless bump costs one re-parse per repo —
 /// seconds — while a missed one is silently wrong for as long as the files sit still.
-/// 2 because a parse now also yields [`FuncDef::calls`]. Nothing about a body's text
-/// changed, so no reading expires — but every cached `FuncDef` written before this has an
-/// empty call list, which under the Reach lens is indistinguishable from a repo whose
-/// functions genuinely call nothing. That is the exact shape of the `file_doc` failure and
-/// the bump is what stops it.
-pub const PARSE_VERSION: u32 = 2;
+/// 3 because thirty-nine more languages had their call shape read off their grammars,
+/// and a cached `FuncDef` from before it holds the empty list they used to yield. Same reasoning
+/// as the bump to 2, which introduced [`FuncDef::calls`] in the first place: the stale
+/// answer is not wrong-looking, it is a confident zero under the Reach lens, and the only
+/// thing that can tell the caches it moved is this number. No reading expires — a body's
+/// text is untouched, so `reading_hash` does not move.
+pub const PARSE_VERSION: u32 = 3;
 
 /// Node kinds that count as "a function with a body someone wrote".
 ///
@@ -1106,6 +1107,7 @@ fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
         _ => leading_doc(node, src).or_else(|| wrapper_doc(node, src)),
     };
 
+    let calls = calls_in(node, lang, &name, src);
     Some(FuncDef {
         name,
         signature,
@@ -1114,7 +1116,7 @@ fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
         owner: owner_of(node, lang, src),
         start_line: node.start_position().row as u32 + 1,
         end_line: node.end_position().row as u32 + 1,
-        calls: calls_in(node, lang, src),
+        calls,
         shape: shape_of(node, body_start, body_end),
     })
 }
@@ -1304,6 +1306,119 @@ fn call_sites(lang: Lang) -> &'static [(&'static str, Option<&'static str>)] {
         Lang::Scala => &[("call_expression", Some("function"))],
         Lang::Dart => &[("call_expression", Some("function"))],
         Lang::Zig => &[("call_expression", Some("function"))],
+        // Godot spells a bare call and a call through a receiver as two different kinds,
+        // and `attribute_call` is the one that carries `_ready`-style engine work through
+        // a node reference. Neither names its callee with a field.
+        Lang::GdScript => &[("call", None), ("attribute_call", None)],
+        // The C-family shader languages parse as C here too, exactly as `func_kinds` says.
+        Lang::Glsl | Lang::Hlsl | Lang::Slang | Lang::GdShader => {
+            &[("call_expression", Some("function"))]
+        }
+        // QML's grammar is JavaScript's below the object layer, so a call is a call.
+        Lang::Qml => &[
+            ("call_expression", Some("function")),
+            ("new_expression", Some("constructor")),
+        ],
+        Lang::Cfml => &[("call_expression", Some("function"))],
+        Lang::Luau => &[("function_call", Some("name"))],
+        // A shell script cannot tell calling a function it defines from running `grep`, and
+        // neither can this: every command is recorded and the resolver keeps the ones that
+        // name something in the repo. That is the same filter every language leans on.
+        Lang::Shell | Lang::Zsh => &[("command", Some("name"))],
+        // Elixir has no call node of its own because `def` is itself a call — which is why
+        // `walk_calls` refuses to match the function node it was handed.
+        Lang::Elixir => &[("call", Some("target"))],
+        // A keyword message repeats `method` once per selector part, so `[x c:1 d:2]` is
+        // recorded against `c`. The first part is what a reader would name it by.
+        Lang::ObjC => &[
+            ("call_expression", Some("function")),
+            ("message_expression", Some("method")),
+        ],
+        Lang::Haskell => &[("apply", Some("function"))],
+        Lang::Elm => &[("function_call_expr", Some("target"))],
+        Lang::R => &[("call", Some("function"))],
+        // Julia writes a signature as a call, which would make every function call itself —
+        // see `skip_fields`.
+        Lang::Julia => &[("call_expression", None)],
+        Lang::Erlang => &[("call", Some("expr"))],
+        Lang::Groovy => &[
+            ("method_invocation", Some("name")),
+            ("object_creation_expression", Some("type")),
+        ],
+        Lang::Gleam => &[("function_call", Some("function"))],
+        Lang::Odin => &[("call_expression", Some("function"))],
+        // Perl distinguishes `b()`, `b 1` and `&b()` at the top and shares one bareword node
+        // underneath, which is the node worth matching.
+        Lang::Perl => &[
+            ("call_expression_with_bareword", Some("function_name")),
+            ("method_invocation", Some("function_name")),
+        ],
+        Lang::D => &[("call_expression", None)],
+        Lang::Solidity => &[("call_expression", Some("function"))],
+        Lang::FSharp => &[("application_expression", None)],
+        Lang::OCaml => &[("application_expression", Some("function"))],
+        Lang::VisualBasic => &[("invocation", Some("target"))],
+        // Only `command`. PowerShell's own functions are invoked as commands; the
+        // `invokation_expression` beside it is .NET method and static calls, and it names
+        // its member without a field — reaching for one yields the TYPE, so `[T]::d()`
+        // would be recorded as a call to `T`. A wrong edge is worse than a missing one.
+        Lang::PowerShell => &[("command", Some("command_name"))],
+        Lang::Pascal => &[("exprCall", Some("entity"))],
+        Lang::Ada => &[
+            ("procedure_call_statement", Some("name")),
+            ("function_call", Some("name")),
+        ],
+        Lang::Starlark => &[("call", Some("function"))],
+        Lang::Nix => &[("apply_expression", Some("function"))],
+        // `c(1)` is a call or an array read and Fortran's grammar cannot tell either; the
+        // resolver's own filter decides it, and an array sharing a name with a function in
+        // the same repo is the residue.
+        Lang::Fortran => &[
+            ("subroutine_call", Some("subroutine")),
+            ("call_expression", None),
+        ],
+        // Every command, because CMake cannot tell one it defined from `message` — the same
+        // filter the shells lean on.
+        Lang::Cmake => &[("normal_command", None)],
+        // A goal and a data term are one shape in Prolog, so a compound term inside an
+        // argument is recorded too. Loose in the same way the lisps are, and held up by the
+        // same thing: only a name some predicate in the repo actually has survives the
+        // resolver. The clause HEAD is a compound term as well — that one is the function's
+        // own name, which never enters its list.
+        Lang::Prolog => &[("compound_term", Some("functor"))],
+        // **The lisps are the loosest table here and the doc comment is the warning.** A
+        // call is a list whose head is a symbol, and so is `let`, `when` and every macro
+        // form — the grammar draws no line, so neither can this. What holds it up is that
+        // the resolver only keeps a name some function in the repo actually has, so a
+        // binding form contributes an edge only when somebody bound a name that is also a
+        // function here. Narrower would mean a list of special forms per dialect, which is
+        // a claim about the language rather than a reading of its grammar.
+        Lang::Clojure | Lang::CommonLisp => &[("list_lit", None)],
+        Lang::Scheme | Lang::Racket | Lang::Elisp => &[("list", None)],
+        _ => &[],
+    }
+}
+
+/// Subtrees that are the definition's own header rather than anything it calls, per language.
+///
+/// A definition's own parameter list is not a call, and in three languages here it parses as
+/// one: Julia writes a signature AS a call expression, Emacs Lisp's `parameters` and Common
+/// Lisp's `lambda_list` are ordinary lists whose head is a symbol. Left alone, every Julia
+/// function calls itself and every lisp function calls its own first argument — an invented
+/// edge that looks exactly like a real one.
+///
+/// **Per language rather than a global list**, because the same name means something else
+/// elsewhere: Python and TypeScript put default values in `parameters`, and `def f(x = g())`
+/// really does call `g`.
+///
+/// A name is matched against the FIELD a node arrives under and against its KIND, because the
+/// three grammars spell it two ways — Julia hangs an unnamed `signature` node off the
+/// definition, while the two lisps name a field over a list kind they use everywhere else.
+fn skip_fields(lang: Lang) -> &'static [&'static str] {
+    match lang {
+        Lang::Julia => &["signature"],
+        Lang::Elisp => &["parameters"],
+        Lang::CommonLisp => &["lambda_list"],
         _ => &[],
     }
 }
@@ -1326,13 +1441,13 @@ const CALLEE_DEPTH: u32 = 12;
 ///
 /// `a.b.c()` and `T::c()` and `c()` all yield `c`. The receiver is discarded deliberately —
 /// see [`FuncDef::calls`].
-fn callee_name(node: TsNode, src: &str, depth: u32) -> Option<String> {
+fn callee_name(node: TsNode, lang: Lang, src: &str, depth: u32) -> Option<String> {
     if depth > CALLEE_DEPTH {
         return None;
     }
     for field in CALLEE_FIELDS {
         if let Some(child) = node.child_by_field_name(field) {
-            return callee_name(child, src, depth + 1);
+            return callee_name(child, lang, src, depth + 1);
         }
     }
     let mut cursor = node.walk();
@@ -1341,21 +1456,58 @@ fn callee_name(node: TsNode, src: &str, depth: u32) -> Option<String> {
         // Kotlin's `navigation_expression` and the lisp-shaped wrappers carry no fields at
         // all, so the tail is the name. Anything that reached here with children and no
         // recognised field is that shape.
-        return callee_name(*last, src, depth + 1);
+        return callee_name(*last, lang, src, depth + 1);
     }
     let t = text(node, src).trim();
-    is_identifier(t).then(|| t.to_string())
+    is_identifier(lang, t).then(|| t.to_string())
 }
 
-/// Does this text look like a name a definition could carry?
+/// Does this text look like a name a definition could carry **in this language**?
 ///
 /// The gate on everything that reaches `calls`. Without it a callee that resolves to a
 /// literal, an operator or a whole expression enters the symbol table as a name, and the
 /// resolver — which matches on strings — would happily join two functions through it.
-fn is_identifier(t: &str) -> bool {
+///
+/// **It has to admit exactly what the DEFINITION side admits, and `[A-Za-z0-9_]` does not.**
+/// The resolver matches a call name against a parsed function name, so a character allowed
+/// in one and refused in the other silently drops every edge that uses it — and that is not
+/// an edge case in four of these languages: PowerShell's entire convention is `Verb-Noun`,
+/// the lisps hyphenate everything, Ruby and Elixir end a predicate in `?` and a bang method
+/// in `!`, and R's own standard library is full of `as.data.frame`. Measured before it was
+/// fixed: nine PowerShell functions in ceph's Windows suite, one of which reported calling
+/// anything, in files whose every line is a `Write-Output`.
+///
+/// The FIRST character stays alphabetic in every language. That is what keeps `--force`, a
+/// negative number and a bare operator out, and it costs only the lisp names that are
+/// entirely punctuation — `+` is a function there, but it is not one anybody's repo defines.
+fn is_identifier(lang: Lang, t: &str) -> bool {
+    let extra = name_chars(lang);
     !t.is_empty()
         && t.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
-        && t.chars().all(|c| c.is_alphanumeric() || c == '_')
+        && t.chars().all(|c| c.is_alphanumeric() || c == '_' || extra.contains(c))
+}
+
+/// What a name may hold beyond `[A-Za-z0-9_]`, per language — see [`is_identifier`].
+///
+/// Read off what each language's own definitions are named, not off what its grammar will
+/// tolerate in an expression: the list is here to make the call side agree with the name a
+/// `FuncDef` already carries.
+fn name_chars(lang: Lang) -> &'static str {
+    match lang {
+        // `save!`, `valid?` — the convention, not the exception.
+        Lang::Ruby | Lang::Elixir | Lang::Julia => "!?",
+        // `as.data.frame`. R's dot is a name character and nothing else.
+        Lang::R => ".",
+        // `Verb-Noun`, and a shell command is regularly `docker-compose`.
+        Lang::PowerShell | Lang::Shell | Lang::Zsh => "-",
+        // Hyphens everywhere, `empty?` and `swap!` in Clojure, `set-car!` in Scheme,
+        // `with-output-to-string` in all of them. Wide, because a lisp name is wide — but
+        // still alphabetic FIRST, so `*ns*` and `->thing` are the names this does not reach.
+        Lang::Clojure | Lang::Scheme | Lang::Racket | Lang::CommonLisp | Lang::Elisp => {
+            "-?!*/+<>=."
+        }
+        _ => "",
+    }
 }
 
 /// At most this many distinct callee names per function.
@@ -1372,14 +1524,19 @@ pub(crate) const MAX_CALLS: usize = 64;
 /// Deduplicated because the question downstream is "does this function depend on that one",
 /// asked once — a body that calls `push` forty times has one edge to `push`, and counting
 /// forty would let a loop outvote a subsystem.
-fn calls_in(node: TsNode, lang: Lang, src: &str) -> Vec<String> {
+fn calls_in(node: TsNode, lang: Lang, name: &str, src: &str) -> Vec<String> {
     let sites = call_sites(lang);
     if sites.is_empty() {
         return Vec::new();
     }
     let mut out: Vec<String> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    walk_calls(node, sites, src, &mut out, &mut seen);
+    // A function's own name never enters its list. Recursion is not two pieces of code
+    // depending on each other and [`crate::edges::wire`] drops it anyway — but a Scheme
+    // definition writes its signature as `(a)`, a list indistinguishable from a call, so
+    // without this the artifact would sit in the list looking exactly like an edge.
+    seen.insert(name.to_string());
+    walk_calls(node, lang, sites, skip_fields(lang), src, &mut out, &mut seen);
     out
 }
 
@@ -1398,7 +1555,9 @@ fn calls_in(node: TsNode, lang: Lang, src: &str) -> Vec<String> {
 /// extent it reports on is the extent `body` covers — see [`FuncDef::calls`].
 fn walk_calls(
     root: TsNode,
+    lang: Lang,
     sites: &[(&str, Option<&str>)],
+    skip: &[&str],
     src: &str,
     out: &mut Vec<String>,
     seen: &mut std::collections::HashSet<String>,
@@ -1406,18 +1565,27 @@ fn walk_calls(
     let mut cursor = root.walk();
     loop {
         let node = cursor.node();
-        if let Some((_, field)) = sites.iter().find(|(k, _)| *k == node.kind()) {
-            let callee = match field {
-                Some(f) => node.child_by_field_name(f),
-                None => node.named_child(0),
-            };
-            if let Some(name) = callee.and_then(|c| callee_name(c, src, 0)) {
-                if out.len() < MAX_CALLS && seen.insert(name.clone()) {
-                    out.push(name);
+        // A definition is not a call it makes, and in Elixir and the lisps the definition IS
+        // a call node — `def a do … end` and `(defn a [] …)` match the very table used to
+        // find calls inside them. Every function would report calling `def`.
+        let is_root = node.id() == root.id();
+        let skipped = !is_root
+            && (cursor.field_name().is_some_and(|f| skip.contains(&f))
+                || skip.contains(&node.kind()));
+        if !is_root && !skipped {
+            if let Some((_, field)) = sites.iter().find(|(k, _)| *k == node.kind()) {
+                let callee = match field {
+                    Some(f) => node.child_by_field_name(f),
+                    None => node.named_child(0),
+                };
+                if let Some(name) = callee.and_then(|c| callee_name(c, lang, src, 0)) {
+                    if out.len() < MAX_CALLS && seen.insert(name.clone()) {
+                        out.push(name);
+                    }
                 }
             }
         }
-        if cursor.goto_first_child() {
+        if !skipped && cursor.goto_first_child() {
             continue;
         }
         // Climb until there is a sibling to move to. The cursor was made from `root`, so it
@@ -1441,7 +1609,7 @@ mod tests {
     /// The calls found in the file's single function, in the order they appear.
     fn calls(lang: Lang, src: &str) -> Vec<String> {
         let fns = parse_functions(lang, src);
-        assert_eq!(fns.len(), 1, "the call fixtures hold exactly one function");
+        assert_eq!(fns.len(), 1, "the call fixtures hold exactly one function: {lang:?}");
         fns[0].calls.clone()
     }
 
@@ -1496,19 +1664,181 @@ mod tests {
         assert_eq!(calls(Lang::Scala, "def a() = { b(); x.c() }"), ["b", "c"]);
         assert_eq!(calls(Lang::Dart, "void a(){ b(); x.c(); }"), ["b", "c"]);
         assert_eq!(calls(Lang::Zig, "fn a() void { b(); x.c(); }"), ["b", "c"]);
+
+        assert_eq!(
+            calls(Lang::GdScript, "func a():\n\tb()\n\tx.c()\n\tD.new()\n"),
+            ["b", "c", "new"]
+        );
+        assert_eq!(calls(Lang::GdShader, "void a(){ b(); }"), ["b"]);
+        assert_eq!(calls(Lang::Glsl, "void a(){ b(); }"), ["b"]);
+        assert_eq!(calls(Lang::Hlsl, "void a(){ b(); }"), ["b"]);
+        assert_eq!(calls(Lang::Slang, "void a(){ b(); }"), ["b"]);
+        assert_eq!(
+            calls(
+                Lang::Qml,
+                "Item {\n  function a(){ b(); x.c(); new D(); }\n}\n"
+            ),
+            ["b", "c", "D"]
+        );
+        assert_eq!(calls(Lang::Cfml, "function a(){ b(); x.c(); }"), ["b", "c"]);
+        assert_eq!(
+            calls(Lang::Luau, "function a() b() x.c() y:d() end"),
+            ["b", "c", "d"]
+        );
+        assert_eq!(calls(Lang::Shell, "a() {\n  b\n  c arg\n}\n"), ["b", "c"]);
+        assert_eq!(calls(Lang::Zsh, "a() {\n  b\n  c arg\n}\n"), ["b", "c"]);
+        // `def` itself is a call, and the function node is the one place it must not count.
+        assert_eq!(
+            calls(Lang::Elixir, "def a do\n  b()\n  X.c()\nend\n"),
+            ["b", "c"]
+        );
+        assert_eq!(
+            calls(
+                Lang::ObjC,
+                "@implementation K\n- (void)a { b(); [x c:1 d:2]; }\n@end\n"
+            ),
+            ["b", "c"]
+        );
+        assert_eq!(calls(Lang::Haskell, "a x = b (M.c x)\n"), ["b", "c"]);
+        assert_eq!(calls(Lang::Elm, "a = b (c 1)\n"), ["b", "c"]);
+        assert_eq!(
+            calls(Lang::R, "a <- function() { b(); x$c() }\n"),
+            ["b", "c"]
+        );
+        // The signature is a call expression, so `a` must not appear in its own list.
+        assert_eq!(
+            calls(Lang::Julia, "function a(x)\n  b()\n  X.c()\nend\n"),
+            ["b", "c"]
+        );
+        assert_eq!(calls(Lang::Erlang, "a() -> b(), x:c().\n"), ["b", "c"]);
+        assert_eq!(
+            calls(Lang::Groovy, "def a() { b(); x.c(); new D() }\n"),
+            ["b", "c", "D"]
+        );
+        assert_eq!(calls(Lang::Gleam, "fn a() { b() c.d() }\n"), ["b", "d"]);
+        assert_eq!(
+            calls(Lang::Odin, "a :: proc() { b(); x.c() }\n"),
+            ["b", "c"]
+        );
+        assert_eq!(
+            calls(Lang::Perl, "sub a { b(); c 1; $x->d(); &e(); }\n"),
+            ["b", "c", "d", "e"]
+        );
+        assert_eq!(calls(Lang::D, "void a(){ b(); x.c(); }\n"), ["b", "c"]);
+        assert_eq!(
+            calls(
+                Lang::Solidity,
+                "contract K { function a() public { b(); x.c(); } }\n"
+            ),
+            ["b", "c"]
+        );
+        assert_eq!(
+            calls(Lang::FSharp, "let a () =\n    b ()\n    x.c ()\n"),
+            ["b", "c"]
+        );
+        assert_eq!(calls(Lang::OCaml, "let a x = b (M.c x)\n"), ["b", "c"]);
+        assert_eq!(
+            calls(
+                Lang::VisualBasic,
+                "Class K\n Sub A()\n  B()\n  x.C()\n End Sub\nEnd Class\n"
+            ),
+            ["B", "C"]
+        );
+        assert_eq!(
+            calls(Lang::PowerShell, "function a {\n  b\n  c 1\n}\n"),
+            ["b", "c"]
+        );
+        assert_eq!(
+            calls(
+                Lang::Pascal,
+                "procedure a;\nbegin\n  b();\n  x.c();\nend;\n"
+            ),
+            ["b", "c"]
+        );
+        assert_eq!(
+            calls(
+                Lang::Ada,
+                "procedure A is\nbegin\n  B;\n  X := C (1);\nend A;\n"
+            ),
+            ["B", "C"]
+        );
+        assert_eq!(
+            calls(Lang::Starlark, "def a():\n  b()\n  x.c()\n"),
+            ["b", "c"]
+        );
+        assert_eq!(calls(Lang::Nix, "{ a = x: b (c x); }\n"), ["b", "c"]);
+        assert_eq!(
+            calls(
+                Lang::Fortran,
+                "subroutine a()\n  call b()\n  x = c(1)\nend subroutine\n"
+            ),
+            ["b", "c"]
+        );
+        // The lisps: the definition form is the function node and cannot count as a call,
+        // and the parameter list must not be read as one either.
+        assert_eq!(calls(Lang::Clojure, "(defn a [] (b) (x/c))\n"), ["b", "c"]);
+        assert_eq!(calls(Lang::Scheme, "(define (a) (b) (c 1))\n"), ["b", "c"]);
+        assert_eq!(calls(Lang::Racket, "(define (a) (b) (c 1))\n"), ["b", "c"]);
+        assert_eq!(
+            calls(Lang::CommonLisp, "(defun a (x)\n  (b)\n  (c 1))\n"),
+            ["b", "c"]
+        );
+        assert_eq!(
+            calls(Lang::Elisp, "(defun a (x y)\n  (b)\n  (c 1))\n"),
+            ["b", "c"]
+        );
+        assert_eq!(
+            calls(Lang::Cmake, "function(a)\n  b()\n  c(1)\nendfunction()\n"),
+            ["b", "c"]
+        );
+        assert_eq!(calls(Lang::Prolog, "a(X) :- b(X), c(X, 1).\n"), ["b", "c"]);
+    }
+
+    /// A call name is only useful if it can be spelled the way the definition was.
+    ///
+    /// The resolver matches strings, so a character the parse admits on one side and refuses
+    /// on the other drops the edge without a trace — see [`is_identifier`], which was
+    /// `[A-Za-z0-9_]` for every language until a PowerShell suite came back reporting one
+    /// call across nine functions of `Write-Output`.
+    #[test]
+    fn a_name_may_hold_what_that_language_lets_a_name_hold() {
+        assert_eq!(
+            calls(Lang::PowerShell, "function Install-All {\n  Install-Tool\n}\n"),
+            ["Install-Tool"]
+        );
+        assert_eq!(calls(Lang::Shell, "a() {\n  docker-compose up\n}\n"), ["docker-compose"]);
+        assert_eq!(calls(Lang::Ruby, "def a\n  save!\n  valid?\nend\n"), ["save!", "valid?"]);
+        assert_eq!(calls(Lang::R, "a <- function() as.data.frame(1)\n"), ["as.data.frame"]);
+        assert_eq!(
+            calls(Lang::Clojure, "(defn a [] (do-thing) (empty? x))\n"),
+            ["do-thing", "empty?"]
+        );
+        // The first character stays alphabetic in every language, which is what keeps a
+        // flag, a negative number and a bare operator out of the symbol table.
+        assert_eq!(calls(Lang::Shell, "a() {\n  ls --color\n}\n"), ["ls"]);
+        assert_eq!(calls(Lang::Clojure, "(defn a [] (+ 1 2) (b))\n"), ["b"]);
     }
 
     /// A language nobody has read the call shape of reports nothing, and says which it is.
     ///
-    /// The two states this asserts are the whole honesty of the Reach lens: Fortran parses
-    /// perfectly well and yields no calls, and the ONLY thing separating that from a Fortran
+    /// The two states this asserts are the whole honesty of the Reach lens: SQL parses
+    /// perfectly well and yields no calls, and the ONLY thing separating that from a SQL
     /// repo where nothing calls anything is `resolves_calls` saying so out loud.
+    ///
+    /// The fixture was Fortran until Fortran was wired. What is left unwired is deliberate
+    /// rather than pending: a stored procedure calling another is not the dependency this
+    /// lens is about, and Verilog's real wiring is module instantiation, which is a
+    /// different graph from a call. Read the fixture as "some language will always be
+    /// here", not as a queue.
     #[test]
     fn a_language_with_no_call_shape_says_so_rather_than_reporting_zero() {
-        assert!(!resolves_calls(Lang::Fortran));
+        assert!(!resolves_calls(Lang::Sql));
         assert!(resolves_calls(Lang::Rust));
-        let f = parse_functions(Lang::Fortran, "subroutine a()\n  call b()\nend subroutine\n");
-        assert!(f.first().is_some_and(|f| f.calls.is_empty()));
+        let f = parse_functions(
+            Lang::Sql,
+            "CREATE FUNCTION a() RETURNS int AS $$ SELECT b(); $$ LANGUAGE sql;\n",
+        );
+        assert!(f.first().is_none_or(|f| f.calls.is_empty()));
     }
 
     /// One edge per callee, however many times the body says it.
@@ -1525,7 +1855,7 @@ mod tests {
     #[test]
     fn only_identifiers_become_call_names() {
         let found = calls(Lang::Rust, "fn a(){ (|x| x)(1); b(); }");
-        assert!(found.iter().all(|n| is_identifier(n)), "{found:?}");
+        assert!(found.iter().all(|n| is_identifier(Lang::Rust, n)), "{found:?}");
         assert!(found.contains(&"b".to_string()));
     }
 

@@ -264,12 +264,12 @@ mod tests {
     #[test]
     fn an_unparsed_language_is_an_absence_not_a_zero() {
         let funcs = vec![func("solo", 1, &[], None)];
-        let views = vec![FileView { path: "a.adb", lang: Lang::Ada, funcs: &funcs }];
+        let views = vec![FileView { path: "a.sql", lang: Lang::Sql, funcs: &funcs }];
         let wiring = crate::edges::wire(&views);
         let copies = crate::clones::find(&views);
         let links = Links::build(&views, &wiring, &copies);
-        let solo = links.at("a.adb", 1).expect("it is still a function");
-        assert!(!solo.wired, "markdown resolves no calls, and the panel has to say so");
+        let solo = links.at("a.sql", 1).expect("it is still a function");
+        assert!(!solo.wired, "SQL resolves no calls, and the panel has to say so");
 
         let wired = table(&[("src/a.rs", vec![func("solo", 1, &[], None)])]);
         assert!(wired.at("src/a.rs", 1).expect("present").wired);
