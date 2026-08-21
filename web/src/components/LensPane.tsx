@@ -14,7 +14,6 @@ import {
   functionHistory,
   functionLinks,
   functionSources,
-  fileCommits,
   heatColor,
   legibleOf,
   trapOf,
@@ -22,7 +21,7 @@ import {
   type FuncRef,
   type Grade,
   type Node,
-  type RangeDetail,
+  type LineHistory,
   type Ramp,
   type Related,
   type Snippet,
@@ -1271,23 +1270,23 @@ function HistorySection({
   repoKey: string | null
   ranks?: Map<string, number>
 }) {
-  const [detail, setDetail] = useState<RangeDetail | null | 'loading'>('loading')
+  const [history, setHistory] = useState<LineHistory | null | 'loading'>('loading')
   const { path, line, endLine } = node
   useEffect(() => {
     if (!repoKey) {
-      setDetail(null)
+      setHistory(null)
       return
     }
     let live = true
-    setDetail('loading')
-    // A file blames whole; a function blames its own range. `0` is the whole-file case rather
+    setHistory('loading')
+    // A file blames whole; a function walks its own range. `0` is the whole-file case rather
     // than a second command, because the two questions are the same question at two scopes.
     functionHistory(repoKey, path, line ?? 0, endLine ?? 0)
       .then((d) => {
-        if (live) setDetail(d)
+        if (live) setHistory(d)
       })
       .catch(() => {
-        if (live) setDetail(null)
+        if (live) setHistory(null)
       })
     return () => {
       live = false
@@ -1297,23 +1296,24 @@ function HistorySection({
   const label = mode === 'blame' ? 'Last commit' : mode === 'churn' ? 'Churn' : 'Lifespan'
   /** The one sentence every section here is read under, on the heading instead of under it.
    *
+   *  **It names the POPULATION, because that is what told the lenses apart.** Blame can only
+   *  see the commits whose lines SURVIVED; the walk behind Churn and Age sees every commit
+   *  that changed the range, including the ones whose work is gone. One record carries both.
+   *
    *  It was a paragraph, printed twice per pane, and it is a fact about the INSTRUMENT rather
    *  than about the function you clicked. Stated where it can be found and not where it has to
    *  be scrolled past. */
   const HINT =
-    'Blame reports the commit that last touched each LINE, so this is where the code as it stands came from — not everyone who has ever worked on it. A function rewritten wholesale reads as new.'
+    'One walk of these lines, three questions about it. Blame is what SURVIVES — the commit that last touched each line, so a body rewritten wholesale reads as new. Churn and Age are every commit that CHANGED the range, which git follows through a rewrite, so their oldest rows can belong to code that stood here before this function did.'
 
-  if (mode === 'churn') {
-    return <ChurnSection node={node} repoKey={repoKey} />
-  }
-  if (detail === 'loading') {
+  if (history === 'loading') {
     return (
       <Block label={label}>
-        <Absent>Blaming…</Absent>
+        <Absent>Reading the history…</Absent>
       </Block>
     )
   }
-  if (!detail || detail.lines === 0) {
+  if (!history || (history.lines === 0 && history.changes.length === 0)) {
     return (
       <Block label={label}>
         <Absent>
@@ -1324,17 +1324,24 @@ function HistorySection({
       </Block>
     )
   }
+  if (mode === 'churn') {
+    return <ChurnSection node={node} history={history} hint={HINT} />
+  }
   if (mode === 'age') {
-    return <AgeSection detail={detail} hint={HINT} repoKey={repoKey} />
+    return <AgeSection history={history} hint={HINT} repoKey={repoKey} />
   }
 
-  const newest = detail.touches[0]
+  const newest = history.touches[0]
   return (
     <>
       <Block label={label} hint={HINT}>
         {/* The same openable row the lifespan uses. It was its own little layout, which meant
             one of the two places a commit appears on this pane opened and the other did not. */}
-        <Touch t={newest} bright repoKey={repoKey} />
+        {newest ? (
+          <Touch t={newest} bright repoKey={repoKey} />
+        ) : (
+          <Absent>No line of this range survives in the file as it stands.</Absent>
+        )}
       </Block>
       {/* **On a file, the last commit and nothing else.** `Summary` already breaks a container
           down by author under this lens — with each author's functions listed under them — so
@@ -1348,9 +1355,9 @@ function HistorySection({
       <Block
         label="Lines by author"
         hint={HINT}
-        aside={`${detail.authors.length} ${detail.authors.length === 1 ? 'person' : 'people'}`}
+        aside={`${history.authors.length} ${history.authors.length === 1 ? 'person' : 'people'}`}
       >
-        {detail.authors.map((a) => (
+        {history.authors.map((a) => (
           <div key={a.author} className="mb-1 flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate text-[11px]" style={{ fontFamily: FAMILY }}>
               {a.author}
@@ -1359,7 +1366,7 @@ function HistorySection({
               <span
                 className="block h-full rounded-[2px]"
                 style={{
-                  width: `${Math.max(3, (a.lines / detail.lines) * 100)}%`,
+                  width: `${Math.max(3, (a.lines / history.lines) * 100)}%`,
                   // Their own slot, which is the colour their wedges are wearing three inches
                   // to the left. Beyond the palette everything is `OTHER`, exactly as on the
                   // ring — an author off the end of the legend is off the end here too.
@@ -1368,13 +1375,20 @@ function HistorySection({
               />
             </span>
             <span className="mono w-[54px] shrink-0 text-right text-[10px] tabular-nums text-[var(--muted-foreground)]">
-              {a.lines} / {detail.lines}
+              {a.lines} / {history.lines}
             </span>
           </div>
         ))}
       </Block>
-      <Block label="Where these lines came from" hint={HINT} aside={String(detail.touches.length)}>
-        {detail.touches.map((t) => (
+      {/* **The surviving half, said as what it is.** These are the commits with lines still
+          here, which is a subset of the history Age draws — the heading names the population
+          so the two lenses cannot be read as disagreeing about a count. */}
+      <Block
+        label="Where these lines came from"
+        hint={HINT}
+        aside={`${history.touches.length} of ${history.changes.length}`}
+      >
+        {history.touches.map((t) => (
           <Touch key={t.commit + t.when} t={t} repoKey={repoKey} />
         ))}
       </Block>
@@ -1382,6 +1396,52 @@ function HistorySection({
       )}
     </>
   )
+}
+
+/** Fit a scrolling box to the pane it is in, measuring BOTH ends of the guess.
+ *
+ *  **The top was measured and the bottom was a constant, so half of it was still a guess.** A
+ *  cap of `100vh - 360px` became "ask the element for its own top", which fixed the header —
+ *  and kept a hand-written number for everything below, plus `window.innerHeight` for the
+ *  bottom. Neither is the pane: the pane ends above the window by whatever chrome sits under
+ *  it, and what has to stay visible below the box is a paragraph that wraps to two lines on
+ *  some functions and one on others. Both showed up as the thing the cap exists to avoid — a
+ *  scrollbar with empty pane beneath it.
+ *
+ *  So the box asks for its own top, the SCROLLING ANCESTOR for its bottom, and the element
+ *  that must stay under it for its height. `useLayoutEffect` so it is set before the frame is
+ *  painted rather than one frame late, which would flash a taller list and then clip it. */
+function useFitToPane(
+  box: React.RefObject<HTMLElement | null>,
+  below: React.RefObject<HTMLElement | null>,
+  deps: unknown[],
+  floor = 96,
+) {
+  const [cap, setCap] = useState<number | undefined>(undefined)
+  useLayoutEffect(() => {
+    const fit = () => {
+      const el = box.current
+      if (!el) return
+      // The pane, found rather than named: whichever ancestor actually scrolls is the one
+      // whose bottom this box has to stop at.
+      let pane: HTMLElement | null = el.parentElement
+      while (pane) {
+        const flow = getComputedStyle(pane).overflowY
+        if (flow === 'auto' || flow === 'scroll') break
+        pane = pane.parentElement
+      }
+      const bottom = pane ? pane.getBoundingClientRect().bottom : window.innerHeight
+      // A few pixels of air, so the last row does not sit flush against the pane's edge.
+      const SLACK = 10
+      const under = below.current?.getBoundingClientRect().height ?? 0
+      setCap(Math.max(floor, bottom - el.getBoundingClientRect().top - under - SLACK))
+    }
+    fit()
+    window.addEventListener('resize', fit)
+    return () => window.removeEventListener('resize', fit)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps)
+  return cap
 }
 
 /**
@@ -1393,58 +1453,39 @@ function HistorySection({
  * shows the span, the gaps in it, and where the work clustered — which is what "how old is
  * this" actually means once you look at it.
  *
- * **Positioned by TIME, not evenly spaced.** Even spacing would draw a function whose three
- * commits were one afternoon four years ago identically to one worked on every year since —
- * the two shapes this is here to tell apart. Newest at the top, because that is the end you
- * are standing at.
+ * **Newest at the top, because that is the end you are standing at.**
  *
- * **The bottom of the timeline is not a birthday, and it says which one it is.** Blame reports
- * the commit that last touched each LINE, so the oldest thing it can see is the oldest
- * SURVIVING line — a lower bound on age, and one a wholesale rewrite resets. The file's own
- * first commit is the honest upper bound and comes free with the scan (`churn::age_of`), so
- * both ends are shown and neither is presented as the answer.
+ * **It draws the CHANGES, not the survivors, and that is the half of this that was wrong.** The
+ * timeline was blame's list, so its far end was the oldest surviving LINE — a floor a rewrite
+ * resets — while the calendar beside it, once Churn took its own walk, ran back to the first
+ * commit that ever changed the range. Two tabs, two first dates, and nothing on either saying
+ * which population it had. One record answers both now: the rows are every commit that changed
+ * these lines, each carrying how much of it is still here, so a run of rows with nothing left
+ * IS the rewrite the old floor could only hide.
  */
 function AgeSection({
-  detail,
+  history,
   hint,
   repoKey,
 }: {
-  detail: RangeDetail
+  history: LineHistory
   hint: string
   repoKey: string | null
 }) {
-  const newest = detail.touches[0]
-  const oldest = detail.touches[detail.touches.length - 1]
-  const between = detail.touches.slice(1, -1)
+  // `changes` and not `touches`: the survivors are a subset, and a lifespan drawn from a subset
+  // ends wherever the last rewrite was.
+  const rows = history.changes
+  const newest = rows[0]
+  const oldest = rows[rows.length - 1]
+  const between = rows.slice(1, -1)
 
-  /** How tall the run between the ends may be, MEASURED rather than guessed.
-   *
-   *  It was `calc(100vh - 360px)`, and 360 is a guess at everything the pane puts above this:
-   *  the name, the path, the counts. The path wraps to two lines on a deep directory, so the
-   *  guess is wrong by a row on half the repo — which shows up as a scrollbar with empty pane
-   *  below it, the exact thing the cap exists to avoid.
-   *
-   *  Asked of the element instead: its own top, against the window's bottom, less the row that
-   *  has to stay under it. `useLayoutEffect` so it is set before the frame is painted rather
-   *  than one frame late, which would flash a taller list and then clip it. */
+  // The run between the ends scrolls; the OLDEST row under it is what has to stay visible, so
+  // it is measured rather than allowed for.
   const mid = useRef<HTMLDivElement>(null)
-  const [cap, setCap] = useState<number | undefined>(undefined)
-  useLayoutEffect(() => {
-    const fit = () => {
-      const el = mid.current
-      if (!el) return
-      // The OLDEST tag and its row, plus the pane's own bottom padding. A constant, but a
-      // small one about a fixed piece of layout directly below — not a guess about a header
-      // that changes shape with the node.
-      const BELOW = 78
-      setCap(Math.max(96, window.innerHeight - el.getBoundingClientRect().top - BELOW))
-    }
-    fit()
-    window.addEventListener('resize', fit)
-    return () => window.removeEventListener('resize', fit)
-  }, [between.length, detail.touches.length])
+  const foot = useRef<HTMLDivElement>(null)
+  const cap = useFitToPane(mid, foot, [between.length, rows.length])
   return (
-    <Block label="Lifespan" hint={hint} aside={`${detail.touches.length} commits`}>
+    <Block label="Lifespan" hint={hint} aside={`${rows.length} commits`}>
       {/* **The two ends are the answer; the middle is the working.**
        *
        *  This was one time-positioned column, and both of its properties were wrong. Spacing
@@ -1474,7 +1515,9 @@ function AgeSection({
           ))}
         </div>
       )}
-      {detail.touches.length > 1 && <Edge label="Oldest" t={oldest} repoKey={repoKey} />}
+      <div ref={foot}>
+        {rows.length > 1 && <Edge label="Oldest" t={oldest} repoKey={repoKey} />}
+      </div>
     </Block>
   )
 }
@@ -1502,7 +1545,7 @@ function Edge({
   )
 }
 
-type TouchRow = RangeDetail['touches'][number]
+type TouchRow = LineHistory['changes'][number]
 
 /** The corner control that opens something — the same glyph and the same weight the code
  *  tiles use.
@@ -1575,9 +1618,29 @@ function Touch({
           {/* **Labelled, because a bare number beside a date is a riddle.** It is how many of
               this function's CURRENT lines that commit still accounts for — the same figure
               the author bars divide up. The unit is dimmed so a column of them still scans as
-              numbers. */}
-          <span className="mono ml-auto shrink-0 whitespace-nowrap text-[9px] tabular-nums text-[var(--muted-foreground)]">
-            {t.lines} <span className="opacity-60">{t.lines === 1 ? 'line' : 'lines'}</span>
+              numbers.
+
+              **Zero is a row that says `gone`, not one that says `0 lines`.** The history holds
+              every commit that changed these lines and blame holds the ones whose work
+              survives; joining them put both in one list, and the difference is the finding —
+              a run of `gone` rows under a recent commit IS a rewrite, which a blame-only list
+              could express only by not being there. A number would read as a measurement of
+              nothing rather than as an absence. */}
+          <span
+            className="mono ml-auto shrink-0 whitespace-nowrap text-[9px] tabular-nums text-[var(--muted-foreground)]"
+            title={
+              t.lines > 0
+                ? 'Lines of this range git still attributes to this commit'
+                : 'This commit changed these lines and none of its work is left here'
+            }
+          >
+            {t.lines > 0 ? (
+              <>
+                {t.lines} <span className="opacity-60">{t.lines === 1 ? 'line' : 'lines'}</span>
+              </>
+            ) : (
+              <span className="opacity-60">gone</span>
+            )}
           </span>
           {openable && (
             <ExpandIcon title={`Open commit ${t.commit}`} onClick={() => setOpen(true)} />
@@ -1590,70 +1653,80 @@ function Touch({
         >
           {t.summary || '—'}
         </p>
+        {/* **A crossed rename, on the row where it was crossed.** Both halves of this record
+            follow renames — blame by default, `-L` on its own — and neither said so, so a row
+            dated 2007 was made against a path that no longer exists and the only way to find
+            out was to open the commit and be surprised by its file list. */}
+        {t.path && (
+          <p
+            className="mono truncate text-[9px] leading-tight text-[var(--muted-foreground)] opacity-70"
+            title={`These lines were in ${t.path} at this commit`}
+          >
+            in {t.path}
+          </p>
+        )}
       </div>
       {open && <CommitCard repoKey={repoKey} sha={t.commit} onClose={() => setOpen(false)} />}
     </div>
   )
 }
 
-/** How many weeks of calendar the churn heatmap draws. */
-const CHURN_WEEKS = 26
-/** The window the map's churn ramp is actually measured over — see `CHURN_WINDOW_DAYS`. */
-const CHURN_WINDOW_DAYS = 90
+/** The fewest weeks worth drawing as a calendar. A function written last Tuesday has one row
+ *  of history, and one row is a swatch rather than a picture. */
+const MIN_CHURN_WEEKS = 6
 
 /**
  * Churn as a calendar, because churn is a rate.
  *
  * **A count cannot show you that fourteen commits were one afternoon.** `11 in 90d` is the
- * number the ramp is built on and it is genuinely ambiguous between a file
- * somebody works on every week and one that was rewritten twice in a fortnight and left alone
- * — which are opposite findings, and the second axis exists to tell brilliance from mess.
- * The shape is the answer, so the shape is what is drawn.
+ * number the ramp is built on and it is genuinely ambiguous between a function somebody works
+ * on every week and one rewritten twice in a fortnight and left alone — opposite findings, and
+ * the second axis exists to tell brilliance from mess. The shape is the answer, so the shape is
+ * what is drawn.
  *
- * **Vertical, and by FILE.** Vertical because the pane is 260px wide and a year across is
- * three pixels a week; by file because that is what the map's churn already measures (see
- * `churn.rs`), and the per-function version follows a moving line range through every diff in
- * the history. The heading says which, rather than letting the reader assume the narrower one.
+ * **By FUNCTION, and that is the whole of this section.** It drew the file's commits, under a
+ * heading naming the file, in a pane opened on one function — so every cell was about a subject
+ * the reader had not selected, and `LevelEditor.gd` read `147 in 90d` whichever of its forty
+ * functions you clicked. The rows are `history.changes` now: the same commits the lifespan
+ * beside it lists, counted per day instead of listed. One record, two shapes, so a calendar and
+ * a timeline cannot disagree about a date.
  *
- * The 90-day window is drawn on it rather than described, because the ramp this file is
- * coloured by is measured over exactly that and nothing else on screen says where it ends.
+ * **The map's ramp is still the FILE's**, because that is what a scan can afford — so the
+ * wedge's colour and this grid answer two different questions and the heading says which is
+ * which. The 90-day window went with the file: it was the window the RAMP is measured over.
+ *
+ * **The whole history, scrolling, with the key and the totals pinned.** A rate needs a
+ * denominator you can see: a fixed 26 weeks draws a function untouched since 2019 and one
+ * written last month as the same mostly-empty grid. Empty rows are the finding here, so they
+ * are drawn to the oldest commit and the weekday letters stay put while they scroll.
+ *
+ * Vertical because the pane is 260px wide and a year across is three pixels a week.
  */
-function ChurnSection({ node, repoKey }: { node: Node; repoKey: string | null }) {
-  const [stamps, setStamps] = useState<number[] | null | 'loading'>('loading')
-  const path = node.path
-  useEffect(() => {
-    if (!repoKey) {
-      setStamps(null)
-      return
-    }
-    let live = true
-    setStamps('loading')
-    fileCommits(repoKey, path, CHURN_WEEKS * 7)
-      .then((s) => {
-        if (live) setStamps(s)
-      })
-      .catch(() => {
-        if (live) setStamps(null)
-      })
-    return () => {
-      live = false
-    }
-  }, [repoKey, path])
+function ChurnSection({
+  node,
+  history,
+  hint,
+}: {
+  node: Node
+  history: LineHistory
+  hint: string
+}) {
+  // The grid scrolls to the pane's bottom, less the summary that has to stay under it — which
+  // is measured, because that sentence is one line on most functions and three on a renamed
+  // one in a dirty worktree. A constant there left a band of empty pane below the calendar.
+  const grid = useRef<HTMLDivElement>(null)
+  const foot = useRef<HTMLParagraphElement>(null)
+  const cap = useFitToPane(grid, foot, [history], 120)
 
   const label = 'Churn'
-  if (stamps === 'loading') {
+  const stamps = history.changes.map((c) => c.when).filter((t) => t > 0)
+  if (stamps.length === 0) {
     return (
-      <Block label={label}>
-        <Absent>Reading the log…</Absent>
-      </Block>
-    )
-  }
-  if (!stamps) {
-    return (
-      <Block label={label}>
+      <Block label={label} hint={hint}>
         <Absent>
-          Git has nothing for this file — untracked, or a repo with no history. Churn has no
-          axis at all here, which is not the same as a file nobody has touched.
+          No commit in this history changed these lines. On a tracked file that means the range
+          is not in HEAD — code written since the last commit, or a scan the file has moved
+          under.
         </Absent>
       </Block>
     )
@@ -1678,106 +1751,180 @@ function ChurnSection({ node, repoKey }: { node: Node; repoKey: string | null })
   const dow = new Date(today).getDay()
   const weekStart = today - dow * DAY
   const peak = Math.max(1, ...counts.values())
-  const inWindow = stamps.filter((t) => (Date.now() / 1000 - t) / 86_400 <= CHURN_WINDOW_DAYS).length
+  const oldest = stamps[stamps.length - 1]
+  const oldestWeek = midnight(oldest * 1000) - new Date(midnight(oldest * 1000)).getDay() * DAY
+  const weeks = Math.max(MIN_CHURN_WEEKS, Math.round((weekStart - oldestWeek) / (7 * DAY)) + 1)
   const CELL = 13
   const GAP = 3
+  /** The month labels, which hang off the LEFT of each row. */
+  const GUTTER = 22
+  /** The seven weekday columns: the only part of this with a width of its own. */
+  const GRID = 7 * CELL + 6 * GAP
+  /** Room kept for the week counts, which hang off the RIGHT of each row.
+   *
+   *  **Centring has to include the ink that is out of flow.** Both annotations are positioned
+   *  against their row rather than laid out in it, so a box drawn round the grid alone is not
+   *  the shape a reader sees — centre that and the picture sits left of centre by however wide
+   *  the counts are. Wide enough for three digits: a busy week on a repo like ceph reads
+   *  `128 commits`. */
+  const COUNTS = 78
+  // **The rename comes off the oldest row, which is where Age reads it too.** Both lenses are
+  // looking at one list, so the fact arrives once and is stated in whichever of them is open.
+  const originPath = history.changes[history.changes.length - 1]?.path ?? null
+  // **The file is worth naming only where it is older than the lines and the walk says why.**
+  // On a `created` origin the two dates are one event wearing two hats — the same rule the Age
+  // ceiling follows, that a bound which does not bind is a second date under the first. A day
+  // of slack, because a file created and edited in one afternoon is not one to be younger than.
+  const olderFile =
+    history.origin === 'added' && history.fileFirst !== null && history.fileFirst < oldest - 86_400
 
   return (
-    <Block
-      label={label}
-      aside={`${inWindow} in ${CHURN_WINDOW_DAYS}d`}
-      hint="Commits touching this FILE, which is what the map's churn ramp measures. A function's own churn would mean following its line range through every diff in the history, which is a different order of cost."
-    >
-      <p className="mb-2 text-[11px] leading-snug text-[var(--muted-foreground)]">
-        Commits to <span className="mono">{node.path.split('/').pop()}</span>, a week per row,
-        newest at the top.
-      </p>
-      <div className="flex gap-2">
-        {/* A calendar nobody can orient in is a texture. Two labels do it: the weekday across
-            the top, and the month where the rows cross into one — the same two GitHub's
-            carries, turned ninety degrees with the grid. */}
-        <div className="w-[22px] shrink-0" />
-        <div className="flex flex-col" style={{ gap: GAP }}>
-          <div className="flex" style={{ gap: GAP }}>
-            {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
-              <span
-                key={i}
-                className="text-center text-[8px] leading-none text-[var(--muted-foreground)]"
-                style={{ width: CELL }}
-              >
-                {d}
-              </span>
-            ))}
-          </div>
-          {Array.from({ length: CHURN_WEEKS }, (_, w) => {
-            const start = weekStart - w * 7 * DAY
-            let week = 0
-            for (let d = 0; d < 7; d++) week += counts.get(start + d * DAY) ?? 0
-            return (
-              <div key={start} className="relative flex" style={{ gap: GAP }}>
-                {/* The month, on the row that first falls inside it reading downward — so the
-                    label marks where the month BEGINS as the eye travels back through time. */}
-                {(w === CHURN_WEEKS - 1 ||
-                  new Date(start).getMonth() !== new Date(start - 7 * DAY).getMonth()) && (
-                  <span className="absolute right-full mr-2 whitespace-nowrap text-[8px] leading-[13px] text-[var(--muted-foreground)]">
-                    {new Date(start).toLocaleDateString(undefined, { month: 'short' })}
-                  </span>
-                )}
-                {Array.from({ length: 7 }, (_, d) => {
-                  const day = start + d * DAY
-                  const n = counts.get(day) ?? 0
-                  const future = day > today
-                  return (
-                    <div
-                      key={day}
-                      title={
-                        future
-                          ? undefined
-                          : `${new Date(day).toLocaleDateString()} — ${n} ${n === 1 ? 'commit' : 'commits'}`
-                      }
-                      style={{
-                        width: CELL,
-                        height: CELL,
-                        borderRadius: 2,
-                        // One ramp, sampled by the day's share of the busiest day — the same
-                        // churn ramp the wedge is painted with, so a hot row here and a hot
-                        // wedge out there are the same colour by construction.
-                        background: future
-                          ? 'transparent'
-                          : n === 0
-                            ? 'var(--secondary)'
-                            : heatColor(0.25 + 0.75 * (n / peak), 'churn'),
-                        opacity: future ? 0 : 1,
-                      }}
-                    />
-                  )
-                })}
-                {/* **The week's own count, on the weeks that have one.**
-                    The column beside the grid held the 90-day window's bracket and total,
-                    which is the number already printed in the heading — so the calendar's
-                    only annotation restated the header while the rows themselves, which are
-                    the thing being read, said nothing. A count per week is the fact the
-                    picture is made of: it turns "a dark cell" into "four commits that week",
-                    and blank weeks stay blank, which is what makes a busy one visible. */}
-                {week > 0 && (
-                  <span className="mono absolute left-full ml-2 whitespace-nowrap text-[9px] leading-[13px] tabular-nums text-[var(--muted-foreground)]">
-                    {week}{' '}
-                    {/* The unit, said every time it appears. A bare column of numbers beside a
-                        grid of squares is a quantity of nothing in particular — the reader has
-                        to infer that a row is a week and the number is its commits, and the
-                        cost of not making them infer it is one dimmer word. */}
-                    <span className="opacity-60">{week === 1 ? 'commit' : 'commits'}</span>
-                  </span>
-                )}
-              </div>
-            )
-          })}
+    <Block label={label} aside={`${stamps.length} commits`} hint={hint}>
+      {/* **The picture is centred; the SCROLLER is not.** Both are boxes of the same width, and
+          making the scrolling one that width put its scrollbar against the picture's edge —
+          floating in the middle of the pane, attached to nothing a reader can see. A scrollbar
+          belongs at the edge of the thing it scrolls, which as far as anyone looking at it is
+          concerned is the pane. So the scroller runs the full width and its CONTENTS take the
+          centred box, which is also what keeps the key and the grid on one offset: the weekday
+          letters label the columns under them, and an offset applied in two places is an offset
+          that gets fixed in one. */}
+      <div className="mx-auto" style={{ width: GUTTER + 8 + GRID + COUNTS }}>
+        {/* The key is outside the scroller, because a key that scrolls away stops being one. */}
+        <div className="flex" style={{ gap: GAP, marginLeft: GUTTER + 8 }}>
+          {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+            <span
+              key={i}
+              className="text-center text-[8px] leading-none text-[var(--muted-foreground)]"
+              style={{ width: CELL }}
+            >
+              {d}
+            </span>
+          ))}
         </div>
       </div>
-      <p className="mt-2 text-[10px] leading-snug text-[var(--muted-foreground)]">
-        {stamps.length === 0
-          ? `Nothing has touched this file in ${CHURN_WEEKS} weeks.`
-          : `${stamps.length} ${stamps.length === 1 ? 'commit' : 'commits'} in ${CHURN_WEEKS} weeks, busiest day ${peak}.`}
+      {/* The scroller wraps the month gutter as well as the grid: those labels are positioned
+          against their own row and would be clipped by an overflow set on the column alone. */}
+      <div ref={grid} className="mt-1 overflow-y-auto" style={{ maxHeight: cap }}>
+        <div className="mx-auto" style={{ width: GUTTER + 8 + GRID + COUNTS }}>
+          <div className="flex gap-2">
+            {/* A calendar nobody can orient in is a texture. Two labels do it: the weekday
+                across the top, and the month where the rows cross into one — the same two
+                GitHub's carries, turned ninety degrees with the grid. */}
+            <div className="shrink-0" style={{ width: GUTTER }} />
+            <div className="flex flex-col" style={{ gap: GAP }}>
+              {Array.from({ length: weeks }, (_, w) => {
+                const start = weekStart - w * 7 * DAY
+                let week = 0
+                for (let d = 0; d < 7; d++) week += counts.get(start + d * DAY) ?? 0
+                return (
+                  <div key={start} className="relative flex" style={{ gap: GAP }}>
+                    {/* The month, on the row that first falls inside it reading downward — so
+                        the label marks where the month BEGINS as the eye travels back through
+                        time. The year rides with January, because a grid this long crosses
+                        several and "Mar" over a row four years back is a month of no
+                        particular year. */}
+                    {(w === weeks - 1 ||
+                      new Date(start).getMonth() !== new Date(start - 7 * DAY).getMonth()) && (
+                      <span className="absolute right-full mr-2 whitespace-nowrap text-[8px] leading-[13px] text-[var(--muted-foreground)]">
+                        {new Date(start).toLocaleDateString(undefined, {
+                          month: 'short',
+                          ...(new Date(start).getMonth() === 0 || w === weeks - 1
+                            ? { year: '2-digit' }
+                            : {}),
+                        })}
+                      </span>
+                    )}
+                    {Array.from({ length: 7 }, (_, d) => {
+                      const day = start + d * DAY
+                      const n = counts.get(day) ?? 0
+                      const future = day > today
+                      return (
+                        <div
+                          key={day}
+                          title={
+                            future
+                              ? undefined
+                              : `${new Date(day).toLocaleDateString()} — ${n} ${n === 1 ? 'commit' : 'commits'}`
+                          }
+                          style={{
+                            width: CELL,
+                            height: CELL,
+                            borderRadius: 2,
+                            // One ramp, sampled by the day's share of the busiest day — the
+                            // same churn ramp the wedge is painted with, so a hot row here and
+                            // a hot wedge out there are the same colour by construction.
+                            background: future
+                              ? 'transparent'
+                              : n === 0
+                                ? 'var(--secondary)'
+                                : heatColor(0.25 + 0.75 * (n / peak), 'churn'),
+                            opacity: future ? 0 : 1,
+                          }}
+                        />
+                      )
+                    })}
+                    {/* **The week's own count, on the weeks that have one.**
+                        The column beside the grid held the 90-day window's bracket and total,
+                        which is the number already printed in the heading — so the calendar's
+                        only annotation restated the header while the rows themselves, which
+                        are the thing being read, said nothing. A count per week is the fact
+                        the picture is made of: it turns "a dark cell" into "four commits that
+                        week", and blank weeks stay blank, which is what makes a busy one
+                        visible. */}
+                    {week > 0 && (
+                      <span className="mono absolute left-full ml-2 whitespace-nowrap text-[9px] leading-[13px] tabular-nums text-[var(--muted-foreground)]">
+                        {week}{' '}
+                        {/* The unit, said every time it appears. A bare column of numbers
+                            beside a grid of squares is a quantity of nothing in particular —
+                            the reader has to infer that a row is a week and the number is its
+                            commits, and the cost of not making them infer it is one dimmer
+                            word. */}
+                        <span className="opacity-60">{week === 1 ? 'commit' : 'commits'}</span>
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* **The bottom of the grid is where the walk stopped, and it says what kind of stop it
+          was rather than assuming the worst one.** This asserted a rewrite the instrument
+          cannot see — "a floor, not a birthday" — over what is nearly always a function written
+          into a file older than itself. `git log -L` ends where these lines came from nowhere,
+          which is either the file being created or the lines being inserted into it, and those
+          are two different sentences. The rewrite caveat is real and points the other way, so
+          it lives on the heading: the walk goes THROUGH a rewrite, and the oldest rows can be
+          about text that is gone. */}
+      <p ref={foot} className="mt-2 text-[10px] leading-snug text-[var(--muted-foreground)]">
+        {stamps.length} {stamps.length === 1 ? 'commit' : 'commits'} since{' '}
+        {new Date(oldest * 1000).toLocaleDateString()}, busiest day {peak}.
+        {olderFile && (
+          <>
+            {' '}
+            Written into {node.path.split('/').pop()}, which goes back to{' '}
+            {new Date((history.fileFirst as number) * 1000).toLocaleDateString()}.
+          </>
+        )}
+        {/* **A crossed rename is reported, because the alternative is a reader inferring it.**
+            The walk names the path these lines were under when it ended; without it, a function
+            that moved files reads as one whose history simply predates its file. */}
+        {originPath && (
+          <>
+            {' '}
+            These lines started out in <span className="mono">{originPath}</span>.
+          </>
+        )}
+        {history.dirty && (
+          <>
+            {' '}
+            <span title="The scan read the worktree; git log -L reads HEAD.">
+              This file has uncommitted changes, so these lines may not be the lines the walk
+              followed.
+            </span>
+          </>
+        )}
       </p>
     </Block>
   )

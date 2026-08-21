@@ -856,17 +856,59 @@ dials, ranks, the provenance footer — qualifies every lens and never moves.
   restated the header while the rows, which are the thing being read, said nothing. A count
   per week turns "a dark cell" into "four commits that week", and blank weeks stay blank,
   which is what makes a busy one visible.
-  **The calendar is by FILE and says so.** That is what the map's churn ramp already measures;
-  a function's own would mean following its line range through every diff in the history, the
-  same trade `blame.rs` refuses for churn. It draws the 90-day window on itself rather than
-  describing it, because the rank above is measured over exactly that and nothing else on
-  screen said where it ended.
-- **Blame answers all three time lenses from one fetch, and says what it is not.** Blame
-  reports the commit that last touched each LINE, so this is the provenance of the code as
-  it stands, never a list of everyone who has touched the function — a body rewritten
-  wholesale reads as new and whoever it replaced is invisible. A true history of a moving
-  range is `git log -L`, the same trade `blame.rs` refuses for churn. What changes per lens
-  is which half leads and what the headline counts; the measurement is one.
+  **The calendar is by FUNCTION, and it used to be by file.** A file's commits under a heading
+  naming the file, in a pane opened on one function, is a picture that cannot tell that file's
+  forty functions apart and therefore says nothing about the one that was clicked. It is
+  `blame::range_churn` — `git log -L`, which follows the range back through every diff instead
+  of holding it still, so a commit that inserted lines above the function moves the range
+  rather than counting as a change to it, and a rename is crossed without being reported.
+  The cost argument `churn.rs` makes is about a whole SCAN — thousands of processes — and does
+  not reach one range somebody clicked: measured on ceph, 2.2s against 0.8s for the `git blame
+  -L` the same click already pays for.
+  **The map's ramp is still the file's, so the two are different questions and the heading says
+  which.** The 90-day window went with the file: a rate over a fixed window was the number the
+  wedge is coloured by, and what is drawn now is the function's whole history, scrolling, with
+  the weekday key and the totals pinned outside the scroller. Empty rows are the finding — a
+  function untouched since 2019 and one written last month are the pair this axis exists to
+  separate — so they are drawn rather than cropped to a tidy 26 weeks.
+  **The far end of the walk is READ, not assumed, and the first version assumed the worst.**
+  The footer said "a floor, not a birthday" — a rewrite hidden behind the oldest date — under
+  what is nearly always a function written into a file older than itself. Both halves were
+  wrong. `-L` stops only where these lines came from nowhere, so the end is the file being
+  created or the lines being inserted into one that existed, which is why `Origin` has two
+  variants and deliberately no `Replaced`: **git maps replaced lines onto the lines they
+  replaced and keeps walking.** So the caveat a rewrite deserves points the OTHER way — the
+  oldest rows can be about text that stood at these lines before this function did — and it
+  belongs on the heading, as a property of the instrument, not in a per-function footer.
+  Telling the two ends apart costs nothing but dropping `-s`: the oldest stanza's `--- /dev/null`
+  is a creation, and the path on its `+++` side is where these lines lived when the walk ended,
+  which turns a crossed RENAME into something reported rather than inferred from a gap between
+  two dates. Read the b-side, never the a-side — at a creation the a-side is `/dev/null` and the
+  name is only on the other one, so the a-side misses a rename in exactly the case that has one.
+  `file_first` is printed only against an `added` origin, where it is the file the function was
+  written into; on a `created` origin the two dates are one event wearing two hats. `dirty` is
+  the remaining honesty: the scan read the worktree and `-L` reads HEAD, so uncommitted edits
+  put the range out of step, which is said rather than guessed at.
+- **One record answers all three time lenses, and a second fetch is a second POPULATION.**
+  It was one blame fetch; Churn grew its own `git log -L` and the two then disagreed about
+  when a function began while each was internally right — blame can only see the commits whose
+  lines SURVIVED, the walk sees every commit that CHANGED the range, and nothing on screen said
+  which a date had come from. `blame::line_history` reads both halves in one parallel scope and
+  JOINS them: `changes` is the history, `touches` is what is left of it, and every row carries
+  `lines` — how much of that commit is still present, where **zero is a real answer**. So a run
+  of `gone` rows under a recent commit IS a rewrite, which the blame-only list could express
+  only by not being there.
+  **Age draws `changes`, Blame draws `touches`, Churn counts the same dates Age lists.** The
+  lifespan's far end used to be the oldest surviving LINE — a floor a rewrite resets — beside a
+  calendar that ran to the first commit that ever touched the range. Two tabs, two first dates.
+  The lens now says which population it is showing, on the heading, and the headline counts say
+  it too (`3 of 17`, not a bare 3).
+  **Renames are crossed by both halves and were reported by neither.** `git blame` follows them
+  by default and spells the old name out per line as `filename`, which the fold read straight
+  past; `-L` names it on the `+++` side of each stanza. So a row dated 2007 was made against a
+  path that no longer exists and the only way to find out was to open the commit and be
+  surprised by its file list. `Touch::path` carries it from either side, set only where it
+  differs, and the row says `in old/path.cc`.
   `blame::range_detail` is its own `git blame -L` rather than a slice of the cached
   `FileBlame`, because that record packs a line down to a commit PREFIX and an author index
   — everything needed to colour a wedge and nothing a person can read. `end` of zero is the

@@ -318,7 +318,6 @@ pub fn run() {
             commands::function_links,
             commands::function_sources,
             commands::function_history,
-            commands::file_commits,
             commands::commit_detail,
             commands::scan_history,
             commands::warm_history,

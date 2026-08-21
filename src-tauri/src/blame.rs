@@ -231,8 +231,20 @@ pub struct Touch {
     pub when: i64,
     /// The commit's subject line. Empty where git gave none.
     pub summary: String,
-    /// How many of this range's lines still come from it.
+    /// How many of this range's lines still come from it. **Zero is a real answer** — a
+    /// commit that changed these lines and whose work has since been replaced is in the
+    /// history and not in the blame, and that difference is the whole distinction between
+    /// the lenses that read this.
     pub lines: u32,
+    /// The path these lines were under at this commit, when it is not the one asked about.
+    ///
+    /// **A rename is crossed by both halves of this record and was reported by neither.**
+    /// `git blame` follows renames by default and spells the name out per line as
+    /// `filename`, which the fold read past; `-L` names it on the `+++` side of each stanza.
+    /// So the pane showed a function "here since 2007" whose 2007 commit was made against a
+    /// path that no longer exists, and the only way to find that out was to open the commit
+    /// and be surprised by its file list.
+    pub path: Option<String>,
 }
 
 /// One person's surviving share of a function.
@@ -287,7 +299,245 @@ pub fn range_detail(repo: &Path, path: &str, start: u32, end: u32) -> Option<Ran
     if !out.status.success() {
         return None;
     }
-    Some(fold_porcelain(&String::from_utf8_lossy(&out.stdout)))
+    Some(fold_porcelain(&String::from_utf8_lossy(&out.stdout), path))
+}
+
+/// What the far end of a line walk actually was.
+///
+/// **The panel had to guess this and guessed wrong in both directions.** `-L` stops where these
+/// lines came from nowhere, and the footer read that as a rewrite it could not see through.
+/// Neither half held up. The ordinary end is a function written into a file older than itself,
+/// which is not a limit but the answer; and a rewrite does not stop the walk at all — git maps
+/// the removed lines onto their predecessors and carries on, so the caveat a rewrite deserves
+/// is the opposite one, that the dates can run back PAST this function into whatever text stood
+/// at these lines. That belongs on the heading, where it is a fact about the instrument, and
+/// this enum is only about the end.
+///
+/// There are two variants and there is deliberately no third: a commit that replaces lines has
+/// somewhere to be followed to, so `Replaced` is not a state the walk can stop in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Origin {
+    /// The file itself was created there, so these lines are as old as it is and there is
+    /// nothing left to say about the far end.
+    Created,
+    /// The lines were inserted into a file that already existed. The function is younger than
+    /// its file, which is a fact rather than a limit — and it is the fact the file's own first
+    /// commit is worth printing beside.
+    Added,
+}
+
+/// One function's history: every commit that changed these lines, and what survives of them.
+///
+/// Not [`RangeHistory`], which is the same range folded down to the four numbers a WEDGE is
+/// coloured by. This is the panel's record: rows a person reads, on a click.
+///
+/// **Three lenses, one record, because they are three questions about one history.** Blame,
+/// Churn and Age were one fetch until Churn grew its own, and a second fetch is a second
+/// population: `git blame` sees the commits whose lines SURVIVED, `git log -L` sees every
+/// commit that changed the range, and two tabs reading two of those disagree about when a
+/// function began while each is internally correct. The disagreement is invisible — nothing on
+/// screen says which population a date came from — which is the failure mode this whole panel
+/// is written against. So both halves are read once and JOINED here: [`LineHistory::changes`]
+/// is the history, [`Touch::lines`] on each of its rows is what blame still attributes to that
+/// commit, and zero is a real answer meaning the work is gone.
+///
+/// **The line walk is `git log -L`, which `churn.rs` refuses at scan scale for cost.** That
+/// refusal is about thousands of processes over a whole repo and does not reach one range
+/// somebody clicked: measured on ceph's `src/mon/Monitor.cc:100-200`, 2.2s for the walk beside
+/// 0.8s for the blame this pane already paid for, and they run together.
+///
+/// **The range is followed, not held still.** Git rewrites it at every step, so a commit that
+/// inserted twenty lines above the function moves the range rather than counting as a change to
+/// it. Both halves cross file renames — blame by default, `-L` on its own — and both now say so
+/// through [`Touch::path`], which is the same fact reaching the pane by the same name from
+/// either side.
+///
+/// **What it cannot do is tell a function's history from its LINES'.** Where a body was
+/// rewritten wholesale, git maps the removed lines onto the lines they replaced and keeps
+/// walking, so the oldest changes can belong to code that stood here before this function did.
+/// That is a property of the instrument and lives on the heading, not in a per-function footer.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineHistory {
+    /// Every commit that CHANGED these lines, newest first, with what survives of each joined
+    /// on. Empty for a whole-file query, which has a line range only in the sense that it is
+    /// one — see [`line_history`].
+    pub changes: Vec<Touch>,
+    /// The commits whose lines are still here, newest first. A subset of `changes` by
+    /// definition, and the one the Blame lens is about: provenance of the code as it stands.
+    pub touches: Vec<Touch>,
+    /// Surviving lines per author, biggest share first.
+    pub authors: Vec<Contributor>,
+    /// How many lines blame actually covered, which is the denominator every share here is
+    /// honest against.
+    pub lines: u32,
+    /// What the oldest commit in the walk did to these lines. See [`Origin`].
+    pub origin: Origin,
+    /// The oldest commit touching this PATH at all. `None` when git has never seen the path —
+    /// never a zero. Worth printing against an `added` origin, where it is the file the
+    /// function was written into.
+    pub file_first: Option<i64>,
+    /// The worktree differs from HEAD here, so the scan's line numbers may not be HEAD's.
+    ///
+    /// **It is reported and never corrected.** The lines come from the scan, which read the
+    /// worktree; `-L` reads HEAD. Uncommitted edits put the two out of step and the walk then
+    /// follows whatever now sits at those lines — the photograph problem `Snippet::moved` also
+    /// answers by saying so rather than by guessing.
+    pub dirty: bool,
+}
+
+/// See [`LineHistory`]. `None` when git could not answer at all — an untracked path, a repo
+/// with no history — which is not the same answer as a range nothing has changed since it was
+/// written.
+///
+/// **`end` of zero is the whole file, and it has no walk.** The blame half answers a file
+/// perfectly well and the Blame lens asks it of one; the other two lenses are function views
+/// and never ask. A plain `git log -- path` would look like the missing half and would not be
+/// it: it does not follow renames, so its far end is a rename rather than a creation, and it
+/// would disagree with the `-L` walk about the one fact this record exists to make consistent.
+pub fn line_history(repo: &Path, path: &str, start: u32, end: u32) -> Option<LineHistory> {
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+    };
+    // Four independent processes and the line walk is the slow one, so they run together: the
+    // click costs the slowest rather than the sum.
+    let range = format!("{},{}:{path}", start.max(1), end.max(start.max(1)));
+    let walked = start > 0 && end > 0;
+    let (detail, walk, first, dirty) = std::thread::scope(|sc| {
+        let a = sc.spawn(|| range_detail(repo, path, start, end));
+        let b = sc.spawn(|| {
+            walked.then(|| {
+                git(&[
+                    "log",
+                    // Merges excluded, matching `churn::read` — a merge touches every path
+                    // under it and would light a calendar up for work done weeks earlier.
+                    "--no-merges",
+                    "-L",
+                    &range,
+                    // A sentinel byte, because the patch is in this output: the stanza header
+                    // has to be told from a context line that could say anything at all.
+                    "--format=%x01%H%x00%an%x00%ct%x00%s",
+                    "HEAD",
+                ])
+            })
+        });
+        let c = sc.spawn(|| git(&["log", "--format=%ct", "--", path]));
+        let d = sc.spawn(|| {
+            Command::new("git")
+                .arg("-C")
+                .arg(repo)
+                .args(["diff", "--quiet", "HEAD", "--", path])
+                .status()
+                .map(|s| !s.success())
+                .unwrap_or(false)
+        });
+        (
+            a.join().ok().flatten(),
+            b.join().ok().flatten().flatten(),
+            c.join().ok().flatten(),
+            d.join().unwrap_or(false),
+        )
+    });
+    let detail = detail?;
+    // A file has no walk, and `Created` is the honest default there rather than `Added`: it is
+    // the variant that says "nothing more to report about the far end", which is exactly the
+    // state of a query that never made one.
+    let (mut changes, origin) = walk
+        .map(|w| fold_line_log(&w, path))
+        .unwrap_or((Vec::new(), Origin::Created));
+    // **The join is by sha and the survivors are the authority on their own count.** Blame and
+    // the walk abbreviate the same commit to the same eight characters, and a commit blame
+    // knows about that the walk does not is the working tree: `uncommitted` has no entry in any
+    // log and belongs at the top of a history all the same.
+    let surviving: HashMap<&str, u32> = detail
+        .touches
+        .iter()
+        .map(|t| (t.commit.as_str(), t.lines))
+        .collect();
+    for c in &mut changes {
+        c.lines = surviving.get(c.commit.as_str()).copied().unwrap_or(0);
+    }
+    if walked {
+        if let Some(pending) = detail.touches.iter().find(|t| t.commit == "uncommitted") {
+            changes.insert(0, pending.clone());
+        }
+    }
+    // The path's own log is newest-first like everything else here, so its oldest commit is the
+    // last line of it.
+    let file_first = first.and_then(|s| s.lines().last().and_then(|l| l.trim().parse().ok()));
+    Some(LineHistory {
+        changes,
+        touches: detail.touches,
+        authors: detail.authors,
+        lines: detail.lines,
+        origin,
+        file_first,
+        dirty,
+    })
+}
+
+/// Split a `-L` log into its commits and read the far end of it.
+///
+/// The stanzas carry a patch, so a commit's own header is marked with a sentinel byte rather
+/// than recognised by shape. Only the OLDEST stanza decides the [`Origin`], because it is the
+/// only one that says anything the dates do not: every other commit in the walk changed lines
+/// that were already there.
+///
+/// **The path is read off the `+++` side, not the `---` side.** The far end is regularly the
+/// commit that created the file, where the a-side is `/dev/null` and the only name in the diff
+/// is on the b-side — read from the a-side, a rename would be missed in exactly the case that
+/// produces one.
+fn fold_line_log(text: &str, path: &str) -> (Vec<Touch>, Origin) {
+    let mut out: Vec<Touch> = Vec::new();
+    let mut created = false;
+    for raw in text.lines() {
+        if let Some(head) = raw.strip_prefix('\u{1}') {
+            let mut f = head.split('\0');
+            let (Some(sha), Some(author), Some(ct), summary) =
+                (f.next(), f.next(), f.next(), f.next().unwrap_or_default())
+            else {
+                continue;
+            };
+            created = false;
+            out.push(Touch {
+                commit: sha[..sha.len().min(8)].to_string(),
+                author: if author.is_empty() {
+                    "unknown".into()
+                } else {
+                    author.to_string()
+                },
+                when: ct.trim().parse().unwrap_or(0),
+                summary: summary.to_string(),
+                // Filled by the join in `range_history`: what the walk knows is that this
+                // commit changed the range, not whether any of it is left.
+                lines: 0,
+                path: None,
+            });
+        } else if let Some(last) = out.last_mut() {
+            if raw.strip_prefix("--- ") == Some("/dev/null") {
+                created = true;
+            } else if let Some(p) = raw.strip_prefix("+++ b/").filter(|p| *p != path) {
+                last.path = Some(p.to_string());
+            }
+        }
+    }
+    // `created` describes whatever stanza was parsed last, which is the oldest one.
+    (
+        out,
+        if created {
+            Origin::Created
+        } else {
+            Origin::Added
+        },
+    )
 }
 
 /// Fold `--line-porcelain` into per-commit and per-author totals.
@@ -297,13 +547,16 @@ pub fn range_detail(repo: &Path, path: &str, start: u32, end: u32) -> Option<Ran
 /// `summary` the first time it meets that commit — so anything that reads the fields per line
 /// attributes every later line to whatever it saw last. That is why the metadata is kept by
 /// sha and the count is kept by sha, rather than a single running record.
-fn fold_porcelain(text: &str) -> RangeDetail {
+fn fold_porcelain(text: &str, path: &str) -> RangeDetail {
     #[derive(Default, Clone)]
     struct Meta {
         author: String,
         when: i64,
         summary: String,
         lines: u32,
+        /// The `filename` field, which porcelain spells out per line and which is how blame
+        /// says it has crossed a rename. It follows them by default; nothing here read it.
+        file: String,
     }
     let mut by_commit: HashMap<String, Meta> = HashMap::new();
     // Insertion order, so two commits made in the same second keep the order git listed them
@@ -319,6 +572,10 @@ fn fold_porcelain(text: &str) -> RangeDetail {
         } else if let Some(rest) = raw.strip_prefix("author-time ") {
             if let Some(m) = by_commit.get_mut(&sha) {
                 m.when = rest.trim().parse().unwrap_or(0);
+            }
+        } else if let Some(rest) = raw.strip_prefix("filename ") {
+            if let Some(m) = by_commit.get_mut(&sha) {
+                m.file = rest.trim().to_string();
             }
         } else if let Some(rest) = raw.strip_prefix("summary ") {
             if let Some(m) = by_commit.get_mut(&sha) {
@@ -361,6 +618,9 @@ fn fold_porcelain(text: &str) -> RangeDetail {
             when: m.when,
             summary: m.summary.clone(),
             lines: m.lines,
+            // Only when it differs: a path repeated on every row of a file nobody renamed is
+            // noise the reader has to check and discard.
+            path: (!m.file.is_empty() && m.file != path).then(|| m.file.clone()),
         })
         .collect();
     touches.sort_by_key(|t| std::cmp::Reverse(t.when));
@@ -543,7 +803,7 @@ summary second
 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 3 3 1
 \tthree
 ";
-        let d = super::fold_porcelain(INTERLEAVED);
+        let d = super::fold_porcelain(INTERLEAVED, "a.rs");
         assert_eq!(d.lines, 3);
         assert_eq!(d.touches.len(), 2, "two commits, three lines");
         // Newest first.
@@ -571,7 +831,7 @@ author-time 3000000
 summary Version of a.rs from a.rs
 \tedited
 ";
-        let d = super::fold_porcelain(PENDING);
+        let d = super::fold_porcelain(PENDING, "a.rs");
         assert_eq!(d.touches[0].commit, "uncommitted");
     }
 
@@ -602,5 +862,199 @@ author-time 900
         let b = parse_porcelain(SAMPLE);
         assert!(b.range(2, 999, 2_000_000).is_some());
         assert!(b.range(50, 60, 2_000_000).is_none(), "entirely past the end is nothing");
+    }
+    /// The line walk, against real git, for the two properties the panel rests on.
+    ///
+    /// **A commit that only moves the range is not a change to it**, which is the whole
+    /// difference between this and the file's log — the calendar would otherwise light up for
+    /// every edit anywhere above the function. **And the range crosses a rename**, which is
+    /// worth pinning because `-L` refuses `--follow` and looks as though it could not.
+    #[test]
+    fn a_range_is_followed_across_a_rename() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .output()
+                .expect("git runs");
+        };
+        let write = |name: &str, text: &str| {
+            std::fs::write(dir.path().join(name), text).expect("writes");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "ada@example.com"]);
+        git(&["config", "user.name", "Ada"]);
+        write("one.rs", "fn f() {\n    x\n}\n");
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "the function"]);
+        // Above the function: it moves the range down and changes nothing in it.
+        write("one.rs", "// header\nfn f() {\n    x\n}\n");
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "a line above"]);
+        git(&["mv", "one.rs", "two.rs"]);
+        git(&["commit", "-q", "-m", "moved"]);
+        write("two.rs", "// header\nfn f() {\n    x\n    y\n}\n");
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "a line inside"]);
+
+        // The function is lines 2-5 of `two.rs` now.
+        let c = line_history(dir.path(), "two.rs", 2, 5).expect("walks");
+        assert_eq!(
+            c.changes.len(),
+            2,
+            "the edit inside and the commit that wrote the lines — not the one above it, and \
+             not the rename, which changed nothing in the range"
+        );
+        assert!(c.changes[0].when >= c.changes[1].when, "newest first");
+        assert!(!c.dirty, "nothing is uncommitted yet");
+        assert_eq!(
+            c.origin,
+            Origin::Created,
+            "the walk ends at the commit that made the file"
+        );
+        assert_eq!(
+            c.changes.last().and_then(|t| t.path.as_deref()),
+            Some("one.rs"),
+            "the walk crossed a rename and says so on the row it crossed at — the panel must \
+             not have to infer it from a gap between two dates"
+        );
+
+        // **A renamed file's own log stops AT the rename, and the walk does not.** `file_first`
+        // is `git log -- path` without `--follow`, so here it is the rename commit — NEWER
+        // than the creation the line walk reached through it. That is why the panel's "written
+        // into <file>" line is gated on the file being older: on this shape it would otherwise
+        // claim a function predates a file it was moved into. It reads as flaky rather than
+        // wrong when every commit lands in the same second, which is how it was written.
+        let first = c.file_first.expect("the path has a history");
+        assert!(
+            first >= c.changes[1].when,
+            "the path's log cannot see past the rename that gave it this name"
+        );
+        assert!(
+            !(first < c.changes[1].when - 86_400),
+            "so the pane's older-file sentence stays silent here"
+        );
+
+        // The scan reads the worktree and `-L` reads HEAD, so a difference between them is the
+        // one thing that makes the answer be about other lines. It is reported, never fixed.
+        write("two.rs", "// header\nfn f() {\n    x\n    y\n    z\n}\n");
+        assert!(
+            line_history(dir.path(), "two.rs", 2, 5)
+                .expect("walks")
+                .dirty
+        );
+
+        let whole = line_history(dir.path(), "two.rs", 0, 0).expect("a file blames");
+        assert!(
+            whole.changes.is_empty(),
+            "a whole-file query has no line walk — the Blame lens asks it of a file and the \
+             two that read `changes` are function views"
+        );
+        assert!(
+            !whole.touches.is_empty(),
+            "the blame half answers a file perfectly well"
+        );
+        assert!(
+            line_history(dir.path(), "gone.rs", 1, 2).is_none(),
+            "a path git has never seen"
+        );
+    }
+
+    /// The far end of a walk, and the thing it turned out NOT to be.
+    ///
+    /// **This is what the footer was guessing at.** It read the end of the walk as a rewrite
+    /// hidden behind it. Both halves were wrong, and the second half is the interesting one:
+    /// git maps replaced lines onto the lines they replaced and keeps going, so a wholesale
+    /// rewrite does not end a walk — it means the dates can reach back past this function into
+    /// the text that stood at these lines. The end is only ever a file being created or lines
+    /// being written into one that already existed, and those two want opposite sentences.
+    #[test]
+    fn the_far_end_of_a_walk_says_which_kind_of_end_it_is() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .output()
+                .expect("git runs");
+        };
+        let commit = |name: &str, text: &str, msg: &str| {
+            std::fs::write(dir.path().join(name), text).expect("writes");
+            git(&["add", "-A"]);
+            git(&["commit", "-q", "-m", msg]);
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "ada@example.com"]);
+        git(&["config", "user.name", "Ada"]);
+        commit("a.rs", "// header\n// header\n", "just a file");
+        // Written into a file that already existed: the walk ends here and nothing is hidden
+        // behind it — the function is simply younger than its file.
+        commit(
+            "a.rs",
+            "// header\n// header\nfn f() {\n    x\n}\n",
+            "a new function",
+        );
+        let added = line_history(dir.path(), "a.rs", 3, 5).expect("walks");
+        assert_eq!(
+            added.origin,
+            Origin::Added,
+            "an insertion into a file that was already there"
+        );
+        assert!(
+            added.changes.iter().all(|t| t.path.is_none()),
+            "no rename was crossed"
+        );
+        assert_eq!(
+            added.changes.len(),
+            1,
+            "the commit above it never touched these lines"
+        );
+        assert!(
+            // `<=` because a test's commits land inside one second; the panel's own test of
+            // whether the bound BINDS is a day apart, in `ChurnSection`.
+            added.file_first.expect("history") <= added.changes[0].when,
+            "the file is at least as old as the lines, which is the case worth printing it in"
+        );
+
+        // A wholesale rewrite of the same lines. The walk goes THROUGH it: two commits, ending
+        // at the file's creation, and the older of the two is about text that no longer exists.
+        commit(
+            "b.rs",
+            "// header\nfn old() {\n    was here\n}\n",
+            "the old one",
+        );
+        commit(
+            "b.rs",
+            "// header\nfn new() {\n    is here\n}\n",
+            "wholesale",
+        );
+        // 2,3 rather than 2,4: the closing brace of the old body survives the rewrite, and a
+        // test about a commit whose work is gone must not include a line of it that is not.
+        let rewritten = line_history(dir.path(), "b.rs", 2, 3).expect("walks");
+        assert_eq!(
+            rewritten.changes.len(),
+            2,
+            "a rewrite does not stop the walk — git follows the removed lines to what they \
+             replaced, so `Origin` has no `Replaced` variant to report"
+        );
+        assert_eq!(
+            rewritten.origin,
+            Origin::Created,
+            "it ends at the file, not at the rewrite"
+        );
+        // **The join is the point of one record.** The rewrite's lines are here and the lines
+        // it replaced are not, so the same list carries both and says which is which — two
+        // lenses reading two fetches could only disagree about it.
+        assert!(
+            rewritten.changes[0].lines > 0,
+            "the newer commit still owns these lines"
+        );
+        assert_eq!(
+            rewritten.changes[1].lines, 0,
+            "the commit it replaced changed these lines and survives in none of them"
+        );
     }
 }

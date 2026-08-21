@@ -878,74 +878,33 @@ pub async fn commit_detail(
     .map_err(|e| e.to_string())
 }
 
-/// When every commit touching one FILE landed, newest first.
+/// One function's history, on demand — see [`crate::blame::line_history`], which is where the
+/// difference between the commits that CHANGED these lines and the ones whose lines survive is
+/// written down. Blame, Churn and Age are three shapes over this one record.
 ///
-/// **A file, deliberately, and the panel says so.** Churn on the map is already a file-level
-/// quantity — commits in the last 90 days touching this file, see `churn.rs` — so this is the
-/// same subject the wedge is coloured by rather than a second one. The per-FUNCTION version is
-/// `git log -L`, which follows a moving line range through every diff in the file's history
-/// and is a different order of cost; that is the same trade `blame.rs` refuses for the same
-/// reason.
-///
-/// Timestamps only. What the panel draws is a count per day, and sending the commits
-/// themselves would be a subject line and an author per cell for a picture that shows neither.
+/// Four git processes run together, so this waits: `-L` on a hot file in a deep repo is
+/// seconds, and the window would sit on it. The lock is dropped before any of them start —
+/// holding the state across a process would stall every reader and the window with it.
 #[tauri::command]
-pub async fn file_commits(
-    state: tauri::State<'_, crate::agentapi::Shared>,
-    key: String,
-    path: String,
-    days: u32,
-) -> Result<Vec<i64>, String> {
-    let repo = {
-        let s = crate::agentapi::lock(&state);
-        match s.projects.get(&key) {
-            Some(p) => p.repo.clone(),
-            None => return Ok(Vec::new()),
-        }
-    };
-    tauri::async_runtime::spawn_blocking(move || {
-        let out = std::process::Command::new("git")
-            .arg("-C")
-            .arg(&repo)
-            // Merges excluded, matching `churn::read` — a merge touches every path under it
-            // and would light up a calendar for work done on a branch weeks earlier.
-            .args(["log", "--no-merges", "--format=%ct"])
-            .arg(format!("--since={days}.days.ago"))
-            .args(["--", &path])
-            .output();
-        let Ok(out) = out else { return Vec::new() };
-        if !out.status.success() {
-            return Vec::new();
-        }
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .filter_map(|l| l.trim().parse().ok())
-            .collect()
-    })
-    .await
-    .map_err(|e| e.to_string())
-}
-
-/// Who wrote the lines that are in this function now.
-///
-/// One `git blame -L` per call, on the range the scan cut — see [`crate::blame::range_detail`],
-/// which is where the difference between this and a real history of the function is written
-/// down. The lock is dropped before git runs: this is the one command here that waits on a
-/// process, and holding the state while it does would stall every reader and the window with
-/// it.
-#[tauri::command]
-pub fn function_history(
+pub async fn function_history(
     state: tauri::State<'_, crate::agentapi::Shared>,
     key: String,
     path: String,
     start: u32,
     end: u32,
-) -> Option<crate::blame::RangeDetail> {
+) -> Result<Option<crate::blame::LineHistory>, String> {
     let repo = {
         let s = crate::agentapi::lock(&state);
-        s.projects.get(&key)?.repo.clone()
+        match s.projects.get(&key) {
+            Some(p) => p.repo.clone(),
+            None => return Ok(None),
+        }
     };
-    crate::blame::range_detail(&repo, &path, start, end)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::blame::line_history(&repo, &path, start, end)
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Tick the appearance item the webview is actually using.

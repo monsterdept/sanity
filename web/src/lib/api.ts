@@ -839,7 +839,7 @@ export async function functionSources(
   return invoke<(Snippet | null)[]>('function_sources', { key, spans })
 }
 
-/** One commit still alive in a function's line range. Mirrors `blame::Touch`. */
+/** One commit in a function's line history. Mirrors `blame::Touch`. */
 export interface Touch {
   commit: string
   author: string
@@ -847,16 +847,40 @@ export interface Touch {
    *  is the reason it crosses the wire as a number. */
   when: number
   summary: string
+  /** How many of the range's CURRENT lines still come from this commit. Zero is a real
+   *  answer: the commit changed these lines and its work has since been replaced. */
   lines: number
+  /** The path these lines were under at this commit, when it is not the one being shown — a
+   *  rename both halves of this record cross and both now report. */
+  path: string | null
 }
 
-/** Mirrors `blame::RangeDetail`. See `range_detail` for what this is NOT: blame reports the
- *  commit that last touched each LINE, so this is the provenance of the code as it stands and
- *  never a list of everyone who has ever touched the function. */
-export interface RangeDetail {
+/** What the far end of a line walk was. Mirrors `blame::Origin`, and there is no third
+ *  variant: a rewrite does not stop the walk, git follows the replaced lines to what they
+ *  replaced — which is a caveat about the dates reaching too far BACK, not about them
+ *  stopping short. */
+export type Origin = 'created' | 'added'
+
+/** One function's line history. Mirrors `blame::LineHistory`.
+ *
+ *  **One record, because Blame, Churn and Age are three questions about one history.** They
+ *  read two different populations for a while — blame sees the commits whose lines SURVIVED,
+ *  `git log -L` sees every commit that changed the range — and two lenses on two fetches
+ *  disagree about when a function began while each is internally right, with nothing on screen
+ *  saying which population a date came from. `changes` is the history and `touches` is what is
+ *  left of it; every row of the first carries its own share of the second. */
+export interface LineHistory {
+  /** Every commit that CHANGED these lines, newest first. Empty for a whole-file query. */
+  changes: Touch[]
+  /** The commits whose lines are still here — a subset of `changes`, and what Blame is about. */
   touches: Touch[]
   authors: { author: string; lines: number }[]
   lines: number
+  origin: Origin
+  /** The oldest commit touching this PATH at all, worth printing against an `added` origin. */
+  fileFirst: number | null
+  /** The worktree differs from HEAD here, so the scan's lines may not be HEAD's lines. */
+  dirty: boolean
 }
 
 /** One file's part in one commit. Mirrors `commands::CommitFile`. */
@@ -889,29 +913,28 @@ export async function commitDetail(key: string, sha: string): Promise<CommitDeta
   return invoke<CommitDetail | null>('commit_detail', { key, sha })
 }
 
-/** When every commit touching one file landed, newest first, within `days`.
+/** One function's whole line history, on demand: every commit that changed these lines, the
+ *  ones whose lines survive, and who owns what is left.
  *
- *  A FILE, not a function: churn on the map is a file-level quantity already, and the
- *  per-function version follows a moving line range through every diff in the history — see
- *  `file_commits`. Seconds, not milliseconds, on a repo with a deep history for one hot file,
- *  so it is asked for when the lens is open and never with the tree. */
-export async function fileCommits(
-  key: string,
-  path: string,
-  days: number,
-): Promise<number[]> {
-  return invoke<number[]>('file_commits', { key, path, days })
-}
-
-/** Blame one function's range, on demand. One `git blame -L` — cheap, but a process, so it is
- *  asked for when a history lens is open and not before. */
+ *  Four git processes in parallel — a `git blame -L`, a `git log -L`, the path's own log and a
+ *  dirty check — so it is seconds on a hot file in a deep repo, asked for when a history lens
+ *  is open and never with the tree. One call for three lenses: see `LineHistory`. */
 export async function functionHistory(
   key: string,
   path: string,
   start: number,
   end: number,
-): Promise<RangeDetail | null> {
-  return invoke<RangeDetail | null>('function_history', { key, path, start, end })
+): Promise<LineHistory | null> {
+  const r = await invoke<{
+    changes: Touch[]
+    touches: Touch[]
+    authors: { author: string; lines: number }[]
+    lines: number
+    origin: Origin
+    file_first: number | null
+    dirty: boolean
+  } | null>('function_history', { key, path, start, end })
+  return r && { ...r, fileFirst: r.file_first }
 }
 
 export async function projectScan(key: string): Promise<Scan | null> {
