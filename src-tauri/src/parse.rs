@@ -177,13 +177,19 @@ fn language(lang: Lang) -> tree_sitter::Language {
 ///
 /// Cheap to be wrong in the safe direction. A needless bump costs one re-parse per repo —
 /// seconds — while a missed one is silently wrong for as long as the files sit still.
+/// 4 because a formatter ran over this file. `header_end` came out with a match arm wrapped in
+/// braces — `=> end_of(x)` became `=> { end_of(x) }`, which is inert — and the point of this
+/// number is that nobody has to take that on faith: the parse is declared to have moved, every
+/// cache re-reads, and the answer either matches or the gate was right to insist. Re-parsing is
+/// seconds; being asked to trust a diff is forever. **No reading expires** — the bodies are
+/// untouched and `reading_hash` collapses whitespace, so identical bytes hash identically.
 /// 3 because thirty-nine more languages had their call shape read off their grammars,
 /// and a cached `FuncDef` from before it holds the empty list they used to yield. Same reasoning
 /// as the bump to 2, which introduced [`FuncDef::calls`] in the first place: the stale
 /// answer is not wrong-looking, it is a confident zero under the Reach lens, and the only
 /// thing that can tell the caches it moved is this number. No reading expires — a body's
 /// text is untouched, so `reading_hash` does not move.
-pub const PARSE_VERSION: u32 = 3;
+pub const PARSE_VERSION: u32 = 4;
 
 /// Node kinds that count as "a function with a body someone wrote".
 ///
