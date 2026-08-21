@@ -162,10 +162,7 @@ fn probe(ep: Endpoint) -> Option<u32> {
 
 /// The whole health reply, for the one caller that needs more than "somebody is there".
 fn health(ep: Endpoint) -> Option<Value> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(PROBE_TIMEOUT)
-        .build()
-        .ok()?;
+    let client = reqwest::blocking::Client::builder().timeout(PROBE_TIMEOUT).build().ok()?;
     client.get(format!("{}/health", ep.url())).send().ok()?.json().ok()
 }
 
@@ -290,8 +287,9 @@ pub(crate) fn ensure_backend() -> Result<Endpoint, String> {
     // and it would spawn a second server for the same gap this exists to close.
     let Some(_lock) = take_spawn_lock() else {
         // Somebody else is already starting one. Theirs will do.
-        return await_backend(deadline)
-            .ok_or_else(|| "another process is starting the backend and it did not come up in 15s".to_string());
+        return await_backend(deadline).ok_or_else(|| {
+            "another process is starting the backend and it did not come up in 15s".to_string()
+        });
     };
     // Under the lock, ask again. The holder we queued behind may have finished between our
     // probe and our claim, and starting a second server on top of a working one is the
@@ -591,11 +589,7 @@ fn reveal_in_window(repo: &std::path::Path, show: bool) {
         return;
     }
     let Ok(ep) = ensure_backend() else { return };
-    let _ = post(
-        &ep,
-        "/open",
-        json!({ "path": repo.to_string_lossy(), "focus": true }),
-    );
+    let _ = post(&ep, "/open", json!({ "path": repo.to_string_lossy(), "focus": true }));
 }
 
 /// `sanity init --harness <name> [--model <id>] [--show]` — say which agent reads this repo.
@@ -628,10 +622,8 @@ pub fn init(path: &str, harness: Option<&str>, model: Option<&str>, show: bool) 
         return 1;
     }
     let key = agentapi::project_key(&repo);
-    let name = repo
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| key.clone());
+    let name =
+        repo.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| key.clone());
 
     // Recorded before the harness branch, so `init --model <id>` on its own changes the
     // model without also demanding you restate the agent — the two are independent choices
@@ -724,11 +716,9 @@ pub fn init(path: &str, harness: Option<&str>, model: Option<&str>, show: bool) 
             println!();
             println!("Which model reads is the measurement — a smaller one is surprised by");
             println!("more, and readings taken by two models are one map on two scales.");
-            if let Some(m) = choose(
-                "Which model? (return for the default)",
-                &choices,
-                default.as_deref(),
-            ) {
+            if let Some(m) =
+                choose("Which model? (return for the default)", &choices, default.as_deref())
+            {
                 crate::reports::set_reader(&key, &repo.to_string_lossy(), &name, None, Some(&m));
             }
         }
@@ -784,11 +774,8 @@ pub fn check(
     // Opened first, because `check` is something you run standing in a repo and the repo
     // may never have been scanned. This is the same "a human may name a project" rule
     // `init` follows.
-    let opened = match post(
-        &ep,
-        "/open",
-        json!({ "path": repo.to_string_lossy(), "focus": false }),
-    ) {
+    let opened = match post(&ep, "/open", json!({ "path": repo.to_string_lossy(), "focus": false }))
+    {
         Ok(v) => v,
         Err(e) => {
             eprintln!("sanity: {e}");
@@ -833,11 +820,11 @@ pub fn check(
                 None if interactive() => {
                     let h = crate::reports::harness_for(&key)
                         .and_then(|h| crate::harness::Harness::parse(&h));
-                    let choices: Vec<String> =
-                        h.map(|h| h.models().into_iter().map(|m| m.id).collect()).unwrap_or_default();
-                    let default = h
-                        .and_then(|h| h.models().into_iter().find(|m| m.default))
-                        .map(|m| m.id);
+                    let choices: Vec<String> = h
+                        .map(|h| h.models().into_iter().map(|m| m.id).collect())
+                        .unwrap_or_default();
+                    let default =
+                        h.and_then(|h| h.models().into_iter().find(|m| m.default)).map(|m| m.id);
                     println!();
                     println!("Nothing has read this repo yet, so there is no scale to match.");
                     if choices.is_empty() {
@@ -905,12 +892,7 @@ pub fn check(
         return tail(
             &ep,
             &key,
-            &Wanted {
-                repo: repo.clone(),
-                model: model.map(str::to_string),
-                readers,
-                limit,
-            },
+            &Wanted { repo: repo.clone(), model: model.map(str::to_string), readers, limit },
             &banner,
         );
     }
@@ -980,24 +962,15 @@ pub fn check(
     tail(
         &ep,
         &key,
-        &Wanted {
-            repo: repo.clone(),
-            model: model.map(str::to_string),
-            readers,
-            limit,
-        },
+        &Wanted { repo: repo.clone(), model: model.map(str::to_string), readers, limit },
         &banner,
     )
 }
 
 /// Open the repo on a backend and start the same wave again.
 fn resume(ep: &Endpoint, want: &Wanted) -> Result<(), ()> {
-    let opened = post(
-        ep,
-        "/open",
-        json!({ "path": want.repo.to_string_lossy(), "focus": false }),
-    )
-    .map_err(|_| ())?;
+    let opened = post(ep, "/open", json!({ "path": want.repo.to_string_lossy(), "focus": false }))
+        .map_err(|_| ())?;
     if !opened.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
         return Err(());
     }
@@ -1185,14 +1158,20 @@ fn tail(ep: &Endpoint, key: &str, want: &Wanted, banner: &[String]) -> i32 {
         let (d, o) = ("\x1b[2m", "\x1b[0m");
         format!(
             "  {d}{:<NAME$} {:<G$}{:<G$}{:<G$}derivable{o}",
-            "function", "predicted", "doc'd", "legible",
+            "function",
+            "predicted",
+            "doc'd",
+            "legible",
             NAME = NAME_COL,
             G = GRADE_COL,
         )
     } else {
         format!(
             "  {:<NAME$} {:<G$}{:<G$}{:<G$}derivable",
-            "function", "predicted", "doc'd", "legible",
+            "function",
+            "predicted",
+            "doc'd",
+            "legible",
             NAME = NAME_COL,
             G = GRADE_COL,
         )
@@ -1623,11 +1602,7 @@ pub fn status(path: &str) -> i32 {
     // thing you need to look at the process, and a daemon nobody can name is a rumour.
     match v.get("in_flight") {
         Some(_) => {
-            println!(
-                "Backend: running (pid {}, port {})",
-                num(&v, "pid"),
-                num(&v, "port")
-            );
+            println!("Backend: running (pid {}, port {})", num(&v, "pid"), num(&v, "port"));
             let run = v.get("run").cloned().unwrap_or(Value::Null);
             if run.get("running").and_then(|x| x.as_bool()) == Some(true) {
                 println!(
@@ -1757,17 +1732,17 @@ pub fn summary(path: &str) -> i32 {
     // The curve `by_position` exists for: does a reader get better as it works? Printed as
     // the share of its readings at the top rung, per position, because a slope there is the
     // warming that would make the batch size wrong — and flat is the finding so far.
-    if let Some(pos) = v.get("by_position").and_then(|x| x.get("positions")).and_then(|x| x.as_object()) {
+    if let Some(pos) =
+        v.get("by_position").and_then(|x| x.get("positions")).and_then(|x| x.as_object())
+    {
         if pos.len() > 1 {
             println!();
             println!("  {d}Full predictions by position in a reader's batch{o}");
             // Sorted as NUMBERS. JSON object keys are strings, so iterating them put
             // position 10 between 1 and 2 — a curve read left to right in the wrong order,
             // which is worse than not drawing it.
-            let mut cols: Vec<(u32, &Value)> = pos
-                .iter()
-                .filter_map(|(k, v)| k.parse::<u32>().ok().map(|n| (n, v)))
-                .collect();
+            let mut cols: Vec<(u32, &Value)> =
+                pos.iter().filter_map(|(k, v)| k.parse::<u32>().ok().map(|n| (n, v))).collect();
             cols.sort_by_key(|(n, _)| *n);
             print!("   ");
             for (k, _) in &cols {
@@ -2006,7 +1981,9 @@ pub fn main(args: &[String]) -> i32 {
     use clap::Parser;
     // The binary's own name back in front, because clap reports usage with argv[0] and
     // `main.rs` hands over the arguments with it already stripped.
-    let cli = match Cli::try_parse_from(std::iter::once("sanity".to_string()).chain(args.iter().cloned())) {
+    let cli = match Cli::try_parse_from(
+        std::iter::once("sanity".to_string()).chain(args.iter().cloned()),
+    ) {
         Ok(cli) => cli,
         Err(e) => {
             // clap decides the stream and the code: `--help` and `--version` are a success

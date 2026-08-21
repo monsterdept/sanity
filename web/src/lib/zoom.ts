@@ -252,7 +252,10 @@ export interface View {
  * — that is the whole of it, since `x = r sin a` and `y = −r cos a` are monotonic between
  * quarter turns.
  */
-export function extentOf(geos: Iterable<Geo>, hubR: number): {
+export function extentOf(
+  geos: Iterable<Geo>,
+  hubR: number,
+): {
   x0: number
   x1: number
   y0: number

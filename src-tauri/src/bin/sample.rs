@@ -72,11 +72,7 @@ fn main() {
         let body = lines[from - 1..to].join("\n");
 
         let owner = t.owner.as_deref().unwrap_or("—");
-        let docs = if t.docs.is_empty() {
-            "(none)".to_string()
-        } else {
-            t.docs.join("\n\n")
-        };
+        let docs = if t.docs.is_empty() { "(none)".to_string() } else { t.docs.join("\n\n") };
         let peers = if t.peers.is_empty() {
             "(none)".to_string()
         } else {

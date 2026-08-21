@@ -140,11 +140,7 @@ impl FileBlame {
             // line, so a function rewritten wholesale reads as young. Stated rather than
             // hidden — the alternative is `git log -L` per function.
             age_days: days(oldest),
-            last_author: self
-                .authors
-                .get(newest.author as usize)
-                .cloned()
-                .unwrap_or_default(),
+            last_author: self.authors.get(newest.author as usize).cloned().unwrap_or_default(),
         })
     }
 }
@@ -450,18 +446,14 @@ pub fn line_history(repo: &Path, path: &str, start: u32, end: u32) -> Option<Lin
     // A file has no walk, and `Created` is the honest default there rather than `Added`: it is
     // the variant that says "nothing more to report about the far end", which is exactly the
     // state of a query that never made one.
-    let (mut changes, origin) = walk
-        .map(|w| fold_line_log(&w, path))
-        .unwrap_or((Vec::new(), Origin::Created));
+    let (mut changes, origin) =
+        walk.map(|w| fold_line_log(&w, path)).unwrap_or((Vec::new(), Origin::Created));
     // **The join is by sha and the survivors are the authority on their own count.** Blame and
     // the walk abbreviate the same commit to the same eight characters, and a commit blame
     // knows about that the walk does not is the working tree: `uncommitted` has no entry in any
     // log and belongs at the top of a history all the same.
-    let surviving: HashMap<&str, u32> = detail
-        .touches
-        .iter()
-        .map(|t| (t.commit.as_str(), t.lines))
-        .collect();
+    let surviving: HashMap<&str, u32> =
+        detail.touches.iter().map(|t| (t.commit.as_str(), t.lines)).collect();
     for c in &mut changes {
         c.lines = surviving.get(c.commit.as_str()).copied().unwrap_or(0);
     }
@@ -509,11 +501,7 @@ fn fold_line_log(text: &str, path: &str) -> (Vec<Touch>, Origin) {
             created = false;
             out.push(Touch {
                 commit: sha[..sha.len().min(8)].to_string(),
-                author: if author.is_empty() {
-                    "unknown".into()
-                } else {
-                    author.to_string()
-                },
+                author: if author.is_empty() { "unknown".into() } else { author.to_string() },
                 when: ct.trim().parse().unwrap_or(0),
                 summary: summary.to_string(),
                 // Filled by the join in `range_history`: what the walk knows is that this
@@ -530,14 +518,7 @@ fn fold_line_log(text: &str, path: &str) -> (Vec<Touch>, Origin) {
         }
     }
     // `created` describes whatever stanza was parsed last, which is the oldest one.
-    (
-        out,
-        if created {
-            Origin::Created
-        } else {
-            Origin::Added
-        },
-    )
+    (out, if created { Origin::Created } else { Origin::Added })
 }
 
 /// Fold `--line-porcelain` into per-commit and per-author totals.
@@ -909,11 +890,7 @@ author-time 900
         );
         assert!(c.changes[0].when >= c.changes[1].when, "newest first");
         assert!(!c.dirty, "nothing is uncommitted yet");
-        assert_eq!(
-            c.origin,
-            Origin::Created,
-            "the walk ends at the commit that made the file"
-        );
+        assert_eq!(c.origin, Origin::Created, "the walk ends at the commit that made the file");
         assert_eq!(
             c.changes.last().and_then(|t| t.path.as_deref()),
             Some("one.rs"),
@@ -940,11 +917,7 @@ author-time 900
         // The scan reads the worktree and `-L` reads HEAD, so a difference between them is the
         // one thing that makes the answer be about other lines. It is reported, never fixed.
         write("two.rs", "// header\nfn f() {\n    x\n    y\n    z\n}\n");
-        assert!(
-            line_history(dir.path(), "two.rs", 2, 5)
-                .expect("walks")
-                .dirty
-        );
+        assert!(line_history(dir.path(), "two.rs", 2, 5).expect("walks").dirty);
 
         let whole = line_history(dir.path(), "two.rs", 0, 0).expect("a file blames");
         assert!(
@@ -952,14 +925,8 @@ author-time 900
             "a whole-file query has no line walk — the Blame lens asks it of a file and the \
              two that read `changes` are function views"
         );
-        assert!(
-            !whole.touches.is_empty(),
-            "the blame half answers a file perfectly well"
-        );
-        assert!(
-            line_history(dir.path(), "gone.rs", 1, 2).is_none(),
-            "a path git has never seen"
-        );
+        assert!(!whole.touches.is_empty(), "the blame half answers a file perfectly well");
+        assert!(line_history(dir.path(), "gone.rs", 1, 2).is_none(), "a path git has never seen");
     }
 
     /// The far end of a walk, and the thing it turned out NOT to be.
@@ -992,26 +959,11 @@ author-time 900
         commit("a.rs", "// header\n// header\n", "just a file");
         // Written into a file that already existed: the walk ends here and nothing is hidden
         // behind it — the function is simply younger than its file.
-        commit(
-            "a.rs",
-            "// header\n// header\nfn f() {\n    x\n}\n",
-            "a new function",
-        );
+        commit("a.rs", "// header\n// header\nfn f() {\n    x\n}\n", "a new function");
         let added = line_history(dir.path(), "a.rs", 3, 5).expect("walks");
-        assert_eq!(
-            added.origin,
-            Origin::Added,
-            "an insertion into a file that was already there"
-        );
-        assert!(
-            added.changes.iter().all(|t| t.path.is_none()),
-            "no rename was crossed"
-        );
-        assert_eq!(
-            added.changes.len(),
-            1,
-            "the commit above it never touched these lines"
-        );
+        assert_eq!(added.origin, Origin::Added, "an insertion into a file that was already there");
+        assert!(added.changes.iter().all(|t| t.path.is_none()), "no rename was crossed");
+        assert_eq!(added.changes.len(), 1, "the commit above it never touched these lines");
         assert!(
             // `<=` because a test's commits land inside one second; the panel's own test of
             // whether the bound BINDS is a day apart, in `ChurnSection`.
@@ -1021,16 +973,8 @@ author-time 900
 
         // A wholesale rewrite of the same lines. The walk goes THROUGH it: two commits, ending
         // at the file's creation, and the older of the two is about text that no longer exists.
-        commit(
-            "b.rs",
-            "// header\nfn old() {\n    was here\n}\n",
-            "the old one",
-        );
-        commit(
-            "b.rs",
-            "// header\nfn new() {\n    is here\n}\n",
-            "wholesale",
-        );
+        commit("b.rs", "// header\nfn old() {\n    was here\n}\n", "the old one");
+        commit("b.rs", "// header\nfn new() {\n    is here\n}\n", "wholesale");
         // 2,3 rather than 2,4: the closing brace of the old body survives the rewrite, and a
         // test about a commit whose work is gone must not include a line of it that is not.
         let rewritten = line_history(dir.path(), "b.rs", 2, 3).expect("walks");
@@ -1040,18 +984,11 @@ author-time 900
             "a rewrite does not stop the walk — git follows the removed lines to what they \
              replaced, so `Origin` has no `Replaced` variant to report"
         );
-        assert_eq!(
-            rewritten.origin,
-            Origin::Created,
-            "it ends at the file, not at the rewrite"
-        );
+        assert_eq!(rewritten.origin, Origin::Created, "it ends at the file, not at the rewrite");
         // **The join is the point of one record.** The rewrite's lines are here and the lines
         // it replaced are not, so the same list carries both and says which is which — two
         // lenses reading two fetches could only disagree about it.
-        assert!(
-            rewritten.changes[0].lines > 0,
-            "the newer commit still owns these lines"
-        );
+        assert!(rewritten.changes[0].lines > 0, "the newer commit still owns these lines");
         assert_eq!(
             rewritten.changes[1].lines, 0,
             "the commit it replaced changed these lines and survives in none of them"

@@ -301,10 +301,7 @@ function aggregate(fns: Node[], filePath: string): Node {
   // Both halves of that are the bug: this pool is what is LEFT after the hottest members
   // were drawn as their own wedges, so a mean of it is bounded by its coldest neighbor
   // and reports the truncation rather than the code.
-  const hotLoc = read.reduce(
-    (n, f) => n + (temperature(f.score) > HOT ? Math.max(f.loc, 1) : 0),
-    0,
-  )
+  const hotLoc = read.reduce((n, f) => n + (temperature(f.score) > HOT ? Math.max(f.loc, 1) : 0), 0)
   return {
     // One per file per layout, so this is unique among the slots it is emitted with — but
     // it is NOT the only roll-up in the app: the replay folds its own per-file stand-in
@@ -653,7 +650,6 @@ export function tileFunctions(
   return out
 }
 
-
 /**
  * A file's functions as angular slices of a ring, for when the file IS the view.
  *
@@ -741,7 +737,7 @@ const BASELINE_TO_CENTER_REVERSED = 0.28
 export function labelArc(a0: number, a1: number, r: number, fontSize: number): string {
   // Normalized, because the layout starts at -π/2 and midpoints can be negative — an
   // un-normalized comparison silently stops flipping the labels that need it.
-  const mid = (((a0 + a1) / 2) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2)
+  const mid = ((((a0 + a1) / 2) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)
   const upsideDown = mid > Math.PI / 2 && mid < (3 * Math.PI) / 2
 
   // Text sits ON its baseline and grows away from it, so the path has to be offset by
@@ -754,9 +750,7 @@ export function labelArc(a0: number, a1: number, r: number, fontSize: number): s
   // Geometry is not optional in the same way a style property is.
   const rr =
     r +
-    (upsideDown
-      ? fontSize * BASELINE_TO_CENTER_REVERSED
-      : -fontSize * BASELINE_TO_CENTER_FORWARD)
+    (upsideDown ? fontSize * BASELINE_TO_CENTER_REVERSED : -fontSize * BASELINE_TO_CENTER_FORWARD)
   const x = (a: number) => (rr * Math.sin(a)).toFixed(2)
   const y = (a: number) => (-rr * Math.cos(a)).toFixed(2)
   const large = a1 - a0 > Math.PI ? 1 : 0

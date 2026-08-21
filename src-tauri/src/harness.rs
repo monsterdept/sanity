@@ -315,9 +315,7 @@ impl Harness {
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty() && l.contains('/'))
-            .filter(|l| {
-                mine.is_empty() || mine.iter().any(|p| l.starts_with(&format!("{p}/")))
-            })
+            .filter(|l| mine.is_empty() || mine.iter().any(|p| l.starts_with(&format!("{p}/"))))
             .map(|l| ModelChoice { id: l.to_string(), label: l.to_string(), default: false })
             .collect()
     }
@@ -413,8 +411,9 @@ impl Harness {
     pub fn resolve(self) -> Option<PathBuf> {
         // Cached: this is called for every row of the Read dialog and again before every
         // wave, and asking a login shell costs a process each time.
-        static CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<&'static str, Option<PathBuf>>>> =
-            std::sync::OnceLock::new();
+        static CACHE: std::sync::OnceLock<
+            std::sync::Mutex<HashMap<&'static str, Option<PathBuf>>>,
+        > = std::sync::OnceLock::new();
         let cache = CACHE.get_or_init(Default::default);
         if let Some(hit) = cache.lock().ok().and_then(|c| c.get(self.name()).cloned()) {
             return hit;
@@ -444,11 +443,7 @@ impl Harness {
             home.as_ref().map(|h| h.join(".bun/bin")),
             home.as_ref().map(|h| h.join(".volta/bin")),
         ];
-        candidates
-            .into_iter()
-            .flatten()
-            .map(|d| d.join(prog))
-            .find(|p| is_runnable(p))
+        candidates.into_iter().flatten().map(|d| d.join(prog)).find(|p| is_runnable(p))
     }
 }
 
@@ -470,9 +465,7 @@ fn is_runnable(p: &Path) -> bool {
 /// Look a program up on the PATH this process inherited.
 pub fn which(prog: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|d| d.join(prog))
-        .find(|p| is_runnable(p))
+    std::env::split_paths(&path).map(|d| d.join(prog)).find(|p| is_runnable(p))
 }
 
 /// Ask the user's login shell where a program is.
@@ -732,9 +725,7 @@ pub fn reader_command(
     // The resolved path, not the bare name — see `Harness::resolve`. Falling back to the
     // name keeps this infallible; a spawn that fails is reported by the wave, and by then
     // `check` has already refused on `available()`.
-    let program = harness
-        .resolve()
-        .unwrap_or_else(|| PathBuf::from(harness.program()));
+    let program = harness.resolve().unwrap_or_else(|| PathBuf::from(harness.program()));
     let mut c = tokio::process::Command::new(program);
     match harness {
         Harness::Claude => {
@@ -820,8 +811,6 @@ pub fn reader_command(
     c.kill_on_drop(true);
     c
 }
-
-
 
 #[cfg(test)]
 mod tests {

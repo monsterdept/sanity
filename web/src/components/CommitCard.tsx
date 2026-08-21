@@ -67,7 +67,9 @@ export function CommitCard({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-baseline gap-2 border-b border-[var(--border)] px-4 py-2.5">
-          <span className="mono shrink-0 text-[12px] font-semibold">{d?.short ?? sha.slice(0, 8)}</span>
+          <span className="mono shrink-0 text-[12px] font-semibold">
+            {d?.short ?? sha.slice(0, 8)}
+          </span>
           <span
             className="min-w-0 flex-1 truncate text-[12px] text-[var(--muted-foreground)]"
             style={{ fontFamily: FAMILY }}
@@ -92,8 +94,8 @@ export function CommitCard({
             <p className="text-[12px] text-[var(--muted-foreground)]">Reading the commit…</p>
           ) : !d ? (
             <p className="text-[12px] leading-relaxed text-[var(--muted-foreground)]">
-              Git has nothing for <span className="mono">{sha}</span> in this repo. A shallow
-              clone, a rewritten history, or a commit that only ever existed somewhere else.
+              Git has nothing for <span className="mono">{sha}</span> in this repo. A shallow clone,
+              a rewritten history, or a commit that only ever existed somewhere else.
             </p>
           ) : (
             <>

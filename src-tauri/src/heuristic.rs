@@ -103,13 +103,12 @@ pub fn words(src: &str) -> Vec<String> {
 /// because both contain `let`, `self`, `return` and `err`.
 fn is_structural(w: &str) -> bool {
     const STRUCTURAL: &[&str] = &[
-        "let", "const", "var", "fun", "func", "def", "fn", "return", "self", "this",
-        "new", "null", "nil", "none", "true", "false", "and", "not", "the", "for",
-        "while", "loop", "match", "case", "else", "elif", "then", "async", "await",
-        "type", "class", "struct", "enum", "impl", "pub", "use", "import", "from",
-        "export", "default", "static", "mut", "ref", "int", "str", "string", "bool",
-        "err", "error", "res", "result", "ret", "val", "value", "out", "tmp", "obj",
-        "args", "arg", "opts", "opt", "param", "params",
+        "let", "const", "var", "fun", "func", "def", "fn", "return", "self", "this", "new", "null",
+        "nil", "none", "true", "false", "and", "not", "the", "for", "while", "loop", "match",
+        "case", "else", "elif", "then", "async", "await", "type", "class", "struct", "enum",
+        "impl", "pub", "use", "import", "from", "export", "default", "static", "mut", "ref", "int",
+        "str", "string", "bool", "err", "error", "res", "result", "ret", "val", "value", "out",
+        "tmp", "obj", "args", "arg", "opts", "opt", "param", "params",
     ];
     STRUCTURAL.contains(&w)
 }
@@ -234,8 +233,8 @@ fn incompressibility(body: &str) -> f32 {
 /// Decisions per line. `?` counts: in Rust it is a branch wearing one character.
 fn branch_density(body: &str) -> f32 {
     const BRANCH: &[&str] = &[
-        "if", "else", "match", "case", "switch", "for", "while", "loop", "try",
-        "catch", "except", "&&", "||", "?",
+        "if", "else", "match", "case", "switch", "for", "while", "loop", "try", "catch", "except",
+        "&&", "||", "?",
     ];
     let line_count = body.lines().count();
     if line_count < MIN_LINES_FOR_BRANCHING {
@@ -271,9 +270,7 @@ pub struct Fingerprint {
 }
 
 pub fn fingerprint(body: &str) -> Fingerprint {
-    Fingerprint {
-        shingles: shingles(body),
-    }
+    Fingerprint { shingles: shingles(body) }
 }
 
 /// 1 − (closest sibling match). `peers` should be the other functions in the same file,
@@ -290,10 +287,7 @@ pub fn distinctiveness(me: &Fingerprint, peers: &[&Fingerprint]) -> f32 {
     if peers.is_empty() || me.shingles.len() < MIN_SHINGLES {
         return UNDECIDED;
     }
-    let closest = peers
-        .iter()
-        .map(|p| jaccard(&me.shingles, &p.shingles))
-        .fold(0.0f32, f32::max);
+    let closest = peers.iter().map(|p| jaccard(&me.shingles, &p.shingles)).fold(0.0f32, f32::max);
     // Even near-duplicate functions rarely exceed ~0.6 Jaccard once identifiers differ,
     // so the interesting band sits low. Above 0.55 overlap it is the same function.
     1.0 - linmap(closest, 0.08, 0.55)
@@ -352,18 +346,14 @@ pub fn documented(doc: Option<&str>, signature: &str, body: &str) -> f32 {
     let from_sig: HashSet<String> = words(signature).into_iter().collect();
 
     // What the reader still has to account for after reading the signature.
-    let uncovered: HashSet<String> = words(body)
-        .into_iter()
-        .filter(|w| !from_sig.contains(w))
-        .collect();
+    let uncovered: HashSet<String> =
+        words(body).into_iter().filter(|w| !from_sig.contains(w)).collect();
     if uncovered.is_empty() {
         return 1.0;
     }
     // What the doc contributes beyond echoing the signature.
-    let doc_words: HashSet<String> = words(doc)
-        .into_iter()
-        .filter(|w| !from_sig.contains(w))
-        .collect();
+    let doc_words: HashSet<String> =
+        words(doc).into_iter().filter(|w| !from_sig.contains(w)).collect();
     if doc_words.is_empty() {
         return 0.0;
     }
@@ -451,8 +441,10 @@ mod tests {
     fn lex_separates_punctuation_from_identifiers() {
         // The property the sibling comparison depends on: one changed word must not
         // change the tokens around it.
-        assert_eq!(lex("db.query(USERS, id)"),
-                   vec!["db", ".", "query", "(", "USERS", ",", "id", ")"]);
+        assert_eq!(
+            lex("db.query(USERS, id)"),
+            vec!["db", ".", "query", "(", "USERS", ",", "id", ")"]
+        );
     }
 
     #[test]
@@ -467,11 +459,8 @@ mod tests {
             .map(|i| format!("    if cond{i} {{ self.step{i}(&ledger, clock)?; }}\n"))
             .collect();
         let other = fingerprint("fn other() { println!(\"unrelated\"); }");
-        let tiny = surprise(
-            "fn main()",
-            tiny_body,
-            distinctiveness(&fingerprint(tiny_body), &[&other]),
-        );
+        let tiny =
+            surprise("fn main()", tiny_body, distinctiveness(&fingerprint(tiny_body), &[&other]));
         let long = surprise(
             "fn reconcile(&mut self)",
             &long_body,

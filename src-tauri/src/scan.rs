@@ -1,19 +1,19 @@
 //! Walk a repo, parse it, score it, and hand back the tree the sunburst renders.
 
-use crate::cache::{self, Cache};
 use crate::blame::Blame;
-use crate::scancache::{Look, ScanCache};
+use crate::cache::{self, Cache};
 use crate::churn::{self, History};
 use crate::heuristic::{self, Fingerprint};
 use crate::model::{Lang, Node, NodeKind, Provenance, Score, Source};
 use crate::parse::{self, FuncDef};
+use crate::scancache::{Look, ScanCache};
 use crate::surprise::{Hotspot, Item, Reading, SurpriseModel};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 /// Files above this never contain a function anybody reasons about. They are vendored
 /// bundles, fixtures, or generated clients — and at a megabyte apiece they'd dominate
@@ -289,13 +289,7 @@ impl Progress {
 
     /// A countable job that says which one it is and what it is counting.
     pub fn counting(what: &str, unit: &str, done: usize, total: usize) -> Self {
-        Progress {
-            done,
-            total,
-            phase: what.to_string(),
-            unit: unit.to_string(),
-            at: String::new(),
-        }
+        Progress { done, total, phase: what.to_string(), unit: unit.to_string(), at: String::new() }
     }
 
     /// …and where it has got to. Separate from [`Progress::counting`] because most phases
@@ -563,12 +557,8 @@ fn context_for(file: &ParsedFile, skip: usize) -> String {
     {
         out.push_str("\n\n");
         out.push_str(&f.signature);
-        let body: String = f
-            .body
-            .lines()
-            .take(CONTEXT_SIBLING_LINES)
-            .collect::<Vec<_>>()
-            .join("\n");
+        let body: String =
+            f.body.lines().take(CONTEXT_SIBLING_LINES).collect::<Vec<_>>().join("\n");
         out.push_str(&body);
     }
     out
@@ -601,8 +591,7 @@ fn parse_file(
     // Excluded is recomputed on every scan and never cached: `.sanityignore` is a file the
     // human edits, and a scan that answered from a memo would keep drawing a slice they
     // just took out of scope.
-    let excluded =
-        scope.is_some_and(|s| s.matched_path_or_any_parents(path, false).is_ignore());
+    let excluded = scope.is_some_and(|s| s.matched_path_or_any_parents(path, false).is_ignore());
 
     let (funcs, file_doc, head, hash) = match cache.look(&rel_path, path, None) {
         Look::Unreadable => return None,
@@ -619,11 +608,7 @@ fn parse_file(
             // bytes, one cache entry, so a file's header cannot go stale against its own
             // parse. See `parse::file_doc`.
             let file_doc = parse::file_doc(lang, &src);
-            let head = src
-                .lines()
-                .take(CONTEXT_HEAD_LINES)
-                .collect::<Vec<_>>()
-                .join("\n");
+            let head = src.lines().take(CONTEXT_HEAD_LINES).collect::<Vec<_>>().join("\n");
             cache.put_parse(&rel_path, &ident, lang, &funcs, file_doc.as_deref(), &head);
             (funcs, file_doc, head, ident.hash)
         }
@@ -756,8 +741,8 @@ fn score_dir(
                     // This function's own history where blame could read it, the file's
                     // otherwise — an untracked file, a repo without git, or a range the
                     // blame no longer covers should cost resolution, not the axis.
-                    let own = file_blame
-                        .and_then(|b| b.range(func.start_line, func.end_line, blame.now));
+                    let own =
+                        file_blame.and_then(|b| b.range(func.start_line, func.end_line, blame.now));
                     let (churn, age_days, commits, last_touched_days, last_author) = match &own {
                         Some(h) => (
                             // `TRACE_SATURATION`, not the window's: this count is commits
@@ -769,13 +754,7 @@ fn score_dir(
                             Some(h.last_touched_days),
                             Some(h.last_author.clone()).filter(|a| !a.is_empty()),
                         ),
-                        None => (
-                            churn,
-                            age_days,
-                            commits,
-                            last_touched_days,
-                            last_author.clone(),
-                        ),
+                        None => (churn, age_days, commits, last_touched_days, last_author.clone()),
                     };
                     // Same-file peers when there are any; otherwise the directory's.
                     let peers: Vec<&Fingerprint> = if fidelity == Fidelity::Ordering {
@@ -809,16 +788,10 @@ fn score_dir(
                     // comment already in the source is `Source`, never `Human`: we
                     // cannot tell whether a person or an agent typed it, and the
                     // difference is the whole reason the map can be trusted.
-                    let measured = heuristic::documented(
-                        func.doc.as_deref(),
-                        &func.signature,
-                        &func.body,
-                    );
-                    let provenance = if func.doc.is_some() {
-                        Provenance::Source
-                    } else {
-                        Provenance::None
-                    };
+                    let measured =
+                        heuristic::documented(func.doc.as_deref(), &func.signature, &func.body);
+                    let provenance =
+                        if func.doc.is_some() { Provenance::Source } else { Provenance::None };
 
                     let wire = wiring.at(base + fi, i);
                     let copy = copies.at(base + fi, i);
@@ -890,12 +863,7 @@ fn score_dir(
                 })
                 .collect();
 
-            let name = file
-                .rel_path
-                .rsplit('/')
-                .next()
-                .unwrap_or(&file.rel_path)
-                .to_string();
+            let name = file.rel_path.rsplit('/').next().unwrap_or(&file.rel_path).to_string();
             (
                 file.rel_path.clone(),
                 Node {
@@ -986,11 +954,7 @@ pub fn ordinals(funcs: &[crate::parse::FuncDef]) -> Vec<usize> {
 /// produce the identical string from the identical bytes — two implementations of this
 /// would make a file reading flip between current and expired on alternate opens.
 pub fn file_surface(funcs: &[crate::parse::FuncDef]) -> String {
-    funcs
-        .iter()
-        .map(|f| f.signature.as_str())
-        .collect::<Vec<_>>()
-        .join("\n")
+    funcs.iter().map(|f| f.signature.as_str()).collect::<Vec<_>>().join("\n")
 }
 
 /// One function queued for the model, with everything the call needs.
@@ -1122,7 +1086,8 @@ pub fn scan(
     // Only for the proxy. A model pass writes different scores into the same shape, and it
     // streams them as it goes; handing it a finished tree would skip the very work it was
     // asked to do.
-    let signature = (!model.is_model()).then(|| crate::treecache::signature(root, &files, fidelity));
+    let signature =
+        (!model.is_model()).then(|| crate::treecache::signature(root, &files, fidelity));
     if let Some(sig) = signature {
         if let Some(cached) = crate::treecache::load(root, sig) {
             on_progress(Progress::phase("reading the cached map"));
@@ -1173,9 +1138,7 @@ pub fn scan(
         .map(|(dir, entries)| {
             let files: Vec<ParsedFile> = entries
                 .iter()
-                .filter_map(|(p, lang)| {
-                    parse_file(root, p, *lang, fidelity, scope.as_ref(), scans)
-                })
+                .filter_map(|(p, lang)| parse_file(root, p, *lang, fidelity, scope.as_ref(), scans))
                 .collect();
             // Streamed HERE, from inside the parallel map, for the same reason `on_scored`
             // is: reported after the loop, nothing would reach the window until the whole
@@ -1212,11 +1175,8 @@ pub fn scan(
     // cache is keyed on content, so the blame pass needs the hash the parse pass computed;
     // running first would mean stat-ing and reading every file twice to learn the same
     // thing.
-    let for_blame: Vec<(String, u64)> = parsed_dirs
-        .iter()
-        .flatten()
-        .map(|f| (f.rel_path.clone(), f.hash))
-        .collect();
+    let for_blame: Vec<(String, u64)> =
+        parsed_dirs.iter().flatten().map(|f| (f.rel_path.clone(), f.hash)).collect();
     // **Counted from zero, under its own name.** It used to continue the parse's numbering —
     // one bar from the top of the scan, on the argument that the two phases are one wait as
     // far as anybody watching is concerned, and that a bar which fills, empties and fills
@@ -1353,7 +1313,8 @@ pub fn scan(
                 let ords = ordinals(&file.funcs);
                 for (i, func) in file.funcs.iter().enumerate() {
                     let id = crate::assessment::key_of(&file.rel_path, &func.name, ords[i]);
-                    let ck = cache::key(&file.rel_path, &func.name, &func.body, func.doc.as_deref());
+                    let ck =
+                        cache::key(&file.rel_path, &func.name, &func.body, func.doc.as_deref());
                     // Already scored by this model, and unchanged since — reuse it.
                     // Resuming an interrupted scan and rescanning a repo you edited two
                     // files in are the same code path.
@@ -1383,9 +1344,7 @@ pub fn scan(
             }
         }
         work.sort_by(|a, b| {
-            b.priority
-                .partial_cmp(&a.priority)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            b.priority.partial_cmp(&a.priority).unwrap_or(std::cmp::Ordering::Equal)
         });
 
         let total = work.len();
@@ -1508,11 +1467,7 @@ mod tests {
     fn a_scan_builds_the_neighbour_table_beside_its_tree() {
         let dir = fixture();
         let scan = run(dir.path());
-        assert_eq!(
-            scan.links.len(),
-            scan.stats.functions,
-            "one entry per function the tree holds",
-        );
+        assert_eq!(scan.links.len(), scan.stats.functions, "one entry per function the tree holds",);
         let add = scan.links.at("src/deep/nest/a.rs", 2).expect("`add` starts on line 2");
         assert!(add.wired, "Rust resolves calls, so an empty list here is a real zero");
         assert!(add.callers.is_empty(), "nothing in the fixture calls it");
@@ -1595,13 +1550,8 @@ mod tests {
         let root = scan.root.slim();
         let trimmed = t.elapsed();
         let t = std::time::Instant::now();
-        let slim = serde_json::to_string(&Scan { root, ..scan.clone() })
-            .expect("serialises");
-        println!(
-            "  slim {:.2}s · encode {:.2}s",
-            trimmed.as_secs_f64(),
-            t.elapsed().as_secs_f64()
-        );
+        let slim = serde_json::to_string(&Scan { root, ..scan.clone() }).expect("serialises");
+        println!("  slim {:.2}s · encode {:.2}s", trimmed.as_secs_f64(), t.elapsed().as_secs_f64());
         let mut funcs = 0;
         scan.root.visit(&mut |n| {
             if n.kind == NodeKind::Func {
@@ -1839,7 +1789,8 @@ mod tests {
 
         let before = ids("fn one() { println!(\"1\"); }\nfn two() { println!(\"2\"); }\n");
         assert_eq!(before, vec!["a.rs#one", "a.rs#two"]);
-        let after = ids("use std::fmt;\n\nfn one() { println!(\"1\"); }\nfn two() { println!(\"2\"); }\n");
+        let after =
+            ids("use std::fmt;\n\nfn one() { println!(\"1\"); }\nfn two() { println!(\"2\"); }\n");
         assert_eq!(before, after, "an import above them is not a new pair of functions");
     }
 

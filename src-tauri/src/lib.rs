@@ -20,10 +20,10 @@ pub mod assessment;
 pub mod blame;
 pub mod cache;
 pub mod churn;
-pub mod clones;
-pub mod edges;
 pub mod cli;
+pub mod clones;
 pub mod commands;
+pub mod edges;
 pub mod harness;
 pub mod heuristic;
 pub mod history;
@@ -35,10 +35,10 @@ pub mod model;
 pub mod parse;
 pub mod reports;
 pub mod scan;
-pub mod screen;
 pub mod scancache;
-pub mod treecache;
+pub mod screen;
 pub mod surprise;
+pub mod treecache;
 pub mod watch;
 
 /// Where the macOS traffic lights sit inside the overlay titlebar.
@@ -185,21 +185,17 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<(tauri::menu::Menu<tauri:
         app,
         "View",
         true,
-        &[
-            &Submenu::with_items(app, "Appearance", true, &[&light, &dark, &system])?,
-        ],
+        &[&Submenu::with_items(app, "Appearance", true, &[&light, &dark, &system])?],
     )?;
 
     let window_menu = Submenu::with_items(
         app,
         "Window",
         true,
-        &[
-            &PredefinedMenuItem::minimize(app, None)?,
-            &PredefinedMenuItem::close_window(app, None)?,
-        ],
+        &[&PredefinedMenuItem::minimize(app, None)?, &PredefinedMenuItem::close_window(app, None)?],
     )?;
-    let menu = Menu::with_items(app, &[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu])?;
+    let menu =
+        Menu::with_items(app, &[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu])?;
     Ok((menu, ThemeMenu { light, dark, system }))
 }
 
@@ -269,11 +265,13 @@ pub fn run() {
                 api_state.clone(),
                 move |key: &str, files: &[crate::scan::ShapeFile]| {
                     use tauri::Emitter;
-                    let _ = shape_app.emit("scan-shape", crate::scan::ShapeBatch { project: key, files });
+                    let _ = shape_app
+                        .emit("scan-shape", crate::scan::ShapeBatch { project: key, files });
                 },
                 move |key: &str, p: &crate::scan::Progress| {
                     use tauri::Emitter;
-                    let _ = tick_app.emit("scan-progress", crate::scan::Tick { project: key, progress: p });
+                    let _ = tick_app
+                        .emit("scan-progress", crate::scan::Tick { project: key, progress: p });
                 },
             );
             // Stamped here for the same reason `serve` stamps it: read lazily on the first

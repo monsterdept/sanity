@@ -139,9 +139,7 @@ fn main() {
         n.score.map_or(0.0, |s| s.temperature() * n.loc as f32)
     });
     section("BULKIEST PREDICTABLE — lines that decide nothing", &mut funcs, |n| {
-        n.score
-            .filter(|s| s.quadrant(n.loc) == Quadrant::Bloat)
-            .map_or(0.0, |_| n.loc as f32)
+        n.score.filter(|s| s.quadrant(n.loc) == Quadrant::Bloat).map_or(0.0, |_| n.loc as f32)
     });
 }
 
@@ -216,18 +214,31 @@ fn wiring(funcs: &[&Node], stats: &sanity_lib::scan::ScanStats) {
     // Caller counts, in the bands the lens has to tell apart. Bands rather than deciles
     // because the distribution is expected to be a power law, and ten equal slices of a
     // power law are one full bucket and nine empty ones.
-    let bands: [(&str, u32, u32); 6] =
-        [("0", 0, 0), ("1", 1, 1), ("2", 2, 2), ("3-5", 3, 5), ("6-15", 6, 15), ("16+", 16, u32::MAX)];
+    let bands: [(&str, u32, u32); 6] = [
+        ("0", 0, 0),
+        ("1", 1, 1),
+        ("2", 2, 2),
+        ("3-5", 3, 5),
+        ("6-15", 6, 15),
+        ("16+", 16, u32::MAX),
+    ];
     let peak = bands
         .iter()
-        .map(|(_, lo, hi)| resolvable.iter().filter(|n| (*lo..=*hi).contains(&n.callers.unwrap())).count())
+        .map(|(_, lo, hi)| {
+            resolvable.iter().filter(|n| (*lo..=*hi).contains(&n.callers.unwrap())).count()
+        })
         .max()
         .unwrap_or(1)
         .max(1);
     println!("  callers");
     for (label, lo, hi) in bands {
         let c = resolvable.iter().filter(|n| (lo..=hi).contains(&n.callers.unwrap())).count();
-        println!("    {:>5} {:<30} {}", label, "\u{2588}".repeat((c * 30 / peak).max(usize::from(c > 0))), c);
+        println!(
+            "    {:>5} {:<30} {}",
+            label,
+            "\u{2588}".repeat((c * 30 / peak).max(usize::from(c > 0))),
+            c
+        );
     }
 
     // Locality, over the functions that have any wiring at all. Deciles here because a share
@@ -303,7 +314,12 @@ fn copies(funcs: &[&Node]) {
     println!("  groups, by how many share the body ({} groups)", sizes.len());
     for (label, lo, hi) in bands {
         let c = sizes.values().filter(|s| (lo..=hi).contains(s)).count();
-        println!("    {:>5} {:<30} {}", label, "\u{2588}".repeat((c * 30 / peak).max(usize::from(c > 0))), c);
+        println!(
+            "    {:>5} {:<30} {}",
+            label,
+            "\u{2588}".repeat((c * 30 / peak).max(usize::from(c > 0))),
+            c
+        );
     }
     let mut biggest: Vec<(&u32, &u32)> = sizes.iter().collect();
     biggest.sort_by_key(|(_, s)| std::cmp::Reverse(**s));
@@ -335,11 +351,7 @@ fn baseline_check(funcs: &mut [&Node]) {
         return;
     }
     let top = |rank: &dyn Fn(&Node) -> f32, funcs: &mut [&Node]| -> Vec<String> {
-        funcs.sort_by(|a, b| {
-            rank(b)
-                .partial_cmp(&rank(a))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        funcs.sort_by(|a, b| rank(b).partial_cmp(&rank(a)).unwrap_or(std::cmp::Ordering::Equal));
         funcs.iter().take(N).map(|n| n.id.clone()).collect()
     };
 
@@ -347,9 +359,7 @@ fn baseline_check(funcs: &mut [&Node]) {
     let by_size = top(&|n: &Node| n.loc as f32, funcs);
     let shared = by_metric.iter().filter(|id| by_size.contains(id)).count();
 
-    println!(
-        "\nBASELINE  top-{N} by metric vs top-{N} by raw line count: {shared}/{N} the same"
-    );
+    println!("\nBASELINE  top-{N} by metric vs top-{N} by raw line count: {shared}/{N} the same");
     println!(
         "  {}",
         match shared {
@@ -361,11 +371,7 @@ fn baseline_check(funcs: &mut [&Node]) {
 }
 
 fn section(title: &str, funcs: &mut [&Node], rank: impl Fn(&Node) -> f32) {
-    funcs.sort_by(|a, b| {
-        rank(b)
-            .partial_cmp(&rank(a))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    funcs.sort_by(|a, b| rank(b).partial_cmp(&rank(a)).unwrap_or(std::cmp::Ordering::Equal));
     println!("\n{title}");
     for n in funcs.iter().take(15).filter(|n| rank(n) > 0.0) {
         let s = n.score.unwrap_or_else(|| unreachable!("ranked nodes are scored"));

@@ -428,7 +428,9 @@ function scoreInto(into: Score | null, frame: Frame, f: number, since: number): 
   // Counted at read time, not carried: the window moves with the playhead, so a touch
   // that counted last frame may have aged out of this one.
   const seen = frame.hits.get(f)
-  const commits = seen ? seen.filter((t) => daysBetween(frame.ts, t) <= CHURN_WINDOW_DAYS).length : 0
+  const commits = seen
+    ? seen.filter((t) => daysBetween(frame.ts, t) <= CHURN_WINDOW_DAYS).length
+    : 0
   const s: Score = into ?? {
     surprise: 0,
     documented: 0,
@@ -744,8 +746,7 @@ export function frameTree(
   /** What a function inside the scope has to clear. Falls back to the repo-wide cut when the
    *  scope holds nothing in this frame — a directory drilled into at HEAD and replayed from
    *  before it existed, which is an ordinary thing to do. */
-  const scopeMin =
-    inScope && scopeLines > 0 ? scopeLines / (4000 * density * density) : minLoc
+  const scopeMin = inScope && scopeLines > 0 ? scopeLines / (4000 * density * density) : minLoc
   /** Lines and count rolled up per file, for the stand-in wedges below. */
   const restLoc = new Map<number, number>()
   const restCount = new Map<number, number>()
@@ -922,4 +923,3 @@ export function realOf(frames: number[], pos: number, fallback: number): number 
   if (frames.length === 0) return fallback
   return pos < 0 ? frames[0] - 1 : frames[Math.min(pos, frames.length - 1)]
 }
-

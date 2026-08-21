@@ -95,7 +95,10 @@ function luminance(hex: string): number {
  *  give a different answer wherever the two differ in hue, which is everywhere here. */
 function over(hex: string, ground: string, alpha: number): number {
   const [a, b] = [srgb(hex), srgb(ground)]
-  return a.reduce((y, c, i) => y + [0.2126, 0.7152, 0.0722][i] * (c * alpha + b[i] * (1 - alpha)), 0)
+  return a.reduce(
+    (y, c, i) => y + [0.2126, 0.7152, 0.0722][i] * (c * alpha + b[i] * (1 - alpha)),
+    0,
+  )
 }
 
 /** The three channels, linearised. */

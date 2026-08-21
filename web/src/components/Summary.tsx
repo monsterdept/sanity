@@ -80,9 +80,7 @@ function rowNote(n: Node, mode: ColorMode): string {
   // The rows are FUNCTIONS, so this is the commits their lines trace back to and not a
   // window — see `blame.rs` and `CHURN_BANDS`. It read `in 90d`, which the number is not.
   if (mode === 'churn')
-    return s && s.ageDays !== null
-      ? `${s.commits} ${s.commits === 1 ? 'commit' : 'commits'}`
-      : '—'
+    return s && s.ageDays !== null ? `${s.commits} ${s.commits === 1 ? 'commit' : 'commits'}` : '—'
   // Both wiring lenses are grouped by a value that leaves something open, so both print the
   // part the heading does not carry. Under `2–5 callers` the exact count is what the band
   // rounded off; under `most of it leaves` the fact behind the band is the two counts it came
@@ -171,10 +169,7 @@ function ListWindow({
   const shown = rows.slice(first, last)
 
   return (
-    <div
-      ref={box}
-      className="min-h-0 flex-1 overflow-y-auto [overscroll-behavior:contain]"
-    >
+    <div ref={box} className="min-h-0 flex-1 overflow-y-auto [overscroll-behavior:contain]">
       {/* Spacers, so the scrollbar describes the whole list rather than the slice of it
           that happens to exist. */}
       <div style={{ height: first * ROW_H }} />
@@ -451,7 +446,10 @@ export function Summary({
   onDrill?: (n: Node) => void
 }) {
   const s = summarize(node)
-  const buckets = useMemo(() => bucketsFor(node, mode, ranks, ageSpan), [node, mode, ranks, ageSpan])
+  const buckets = useMemo(
+    () => bucketsFor(node, mode, ranks, ageSpan),
+    [node, mode, ranks, ageSpan],
+  )
   // Go to it AND open the file around it: a name in this list is useless if clicking it
   // selects something off-screen. Drill first so the map moves, then select so the panel
   // fills in — the panel replacing this one is the point of the click.
@@ -469,7 +467,9 @@ export function Summary({
    *  remembered default would then be a choice nobody made. */
   const [picked, setPicked] = useState<Grade | null>(null)
   const shown: Grade =
-    picked ?? ((['none', 'some', 'most', 'full'] as Grade[]).find((g) => s.byGrade[g].length > 0) ?? 'none')
+    picked ??
+    (['none', 'some', 'most', 'full'] as Grade[]).find((g) => s.byGrade[g].length > 0) ??
+    'none'
   const list = s.byGrade[shown]
 
   /** The same idea one lens over: unchosen falls back to the biggest slice, so switching to
@@ -546,8 +546,6 @@ export function Summary({
             )}
           </div>
         )}
-
-
       </div>
 
       {/* The one part that grows. `min-h-0` because a flex child will not shrink below its
@@ -558,48 +556,48 @@ export function Summary({
             are, which is the thing you cannot read off a ring.
             It was the hot list alone, which answered one of the four questions the key
             above was already asking. Now the key chooses and this follows. */}
-        {lens ? (
-          bucket && bucket.nodes.length > 0 && (
-            <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-[var(--border)] pt-3">
-              <div className="mb-2 flex items-baseline justify-between gap-2">
-                <p
-                  className="truncate text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]"
-                  title={bucket.label}
-                >
-                  {bucket.label}
-                </p>
-                <p className="mono shrink-0 text-[10px] tabular-nums text-[var(--muted-foreground)]">
-                  {bucket.nodes.length}
-                </p>
-              </div>
-              {/* Painted by the same call the wedge is, so the swatch beside a name in this
+        {lens
+          ? bucket &&
+            bucket.nodes.length > 0 && (
+              <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-[var(--border)] pt-3">
+                <div className="mb-2 flex items-baseline justify-between gap-2">
+                  <p
+                    className="truncate text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]"
+                    title={bucket.label}
+                  >
+                    {bucket.label}
+                  </p>
+                  <p className="mono shrink-0 text-[10px] tabular-nums text-[var(--muted-foreground)]">
+                    {bucket.nodes.length}
+                  </p>
+                </div>
+                {/* Painted by the same call the wedge is, so the swatch beside a name in this
                   list is the color that name is wearing on the map. `colorFor` returns null
                   for what the mode cannot speak about, which is exactly the "no git history"
                   bucket — those take the neutral, and the label says why rather than showing
                   a blank. */}
-              <ListWindow
-                rows={bucket.nodes}
-                onSelect={onSelect}
-                goTo={goTo}
-                mode={mode}
-                paint={(n) => ({
-                  fill: colorFor(n, mode, ranks, ageSpan)?.fill ?? 'var(--unanalyzed)',
-                })}
-              />
-            </div>
-          )
-        ) : (
-          list.length > 0 && (
-          <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-[var(--border)] pt-3">
-            <div className="mb-2 flex items-baseline justify-between">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-                {HEAT_WORDS[shown]}
-              </p>
-              <p className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
-                {list.length}
-              </p>
-            </div>
-            {/* Scrolled, not truncated, and windowed.
+                <ListWindow
+                  rows={bucket.nodes}
+                  onSelect={onSelect}
+                  goTo={goTo}
+                  mode={mode}
+                  paint={(n) => ({
+                    fill: colorFor(n, mode, ranks, ageSpan)?.fill ?? 'var(--unanalyzed)',
+                  })}
+                />
+              </div>
+            )
+          : list.length > 0 && (
+              <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-[var(--border)] pt-3">
+                <div className="mb-2 flex items-baseline justify-between">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                    {HEAT_WORDS[shown]}
+                  </p>
+                  <p className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
+                    {list.length}
+                  </p>
+                </div>
+                {/* Scrolled, not truncated, and windowed.
                 It showed twelve and then "and 37 more", which names a quantity and hides
                 the thing itself — the whole reason this list exists is that the map can say
                 WHERE the readings are and only a list can say WHICH. Thirty-seven behind a
@@ -615,10 +613,9 @@ export function Summary({
                 reason: uniform height is what lets the first visible index be arithmetic
                 instead of measurement, and the two spacers hold the scrollbar at the size
                 the whole list would have had. */}
-            <ListWindow rows={list} onSelect={onSelect} goTo={goTo} mode={mode} />
-          </div>
-          )
-        )}
+                <ListWindow rows={list} onSelect={onSelect} goTo={goTo} mode={mode} />
+              </div>
+            )}
       </div>
 
       {/* Pinned to the bottom, a flex sibling of the list rather than the last thing inside

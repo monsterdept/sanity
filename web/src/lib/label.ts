@@ -272,11 +272,7 @@ export function fitLabel(cell: Cell, name: string, opts: FitOpts): Placement | n
    */
   const midR = (cell.r0 + cell.r1) / 2
   const span = cell.a1 - cell.a0
-  const alongRadius = Math.min(
-    (span * midR) / (LINE + (span * w) / 2),
-    (depth * PAD) / w,
-    max,
-  )
+  const alongRadius = Math.min((span * midR) / (LINE + (span * w) / 2), (depth * PAD) / w, max)
   const rRadial = midR
 
   const mid = (cell.a0 + cell.a1) / 2
@@ -295,8 +291,7 @@ export function fitLabel(cell: Cell, name: string, opts: FitOpts): Placement | n
   const arcOk = opts.only !== 'radial'
   const radialOk = opts.only !== 'arc'
   const outerArc = (cell.a1 - cell.a0) * cell.r1
-  const prefer: 'arc' | 'radial' =
-    !radialOk || (arcOk && outerArc >= depth) ? 'arc' : 'radial'
+  const prefer: 'arc' | 'radial' = !radialOk || (arcOk && outerArc >= depth) ? 'arc' : 'radial'
   const other: 'arc' | 'radial' = prefer === 'arc' ? 'radial' : 'arc'
   const sizeOf = (axis: 'arc' | 'radial') =>
     axis === 'arc' ? (arcOk ? alongArc : -1) : radialOk ? alongRadius : -1

@@ -351,8 +351,8 @@ export function ReadDialog({
         <div>
           <div className="text-[15px] font-semibold">Sanity check</div>
           <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
-            The Sanity backend orchestrates readers, each in its own process with no
-            repository access.
+            The Sanity backend orchestrates readers, each in its own process with no repository
+            access.
           </p>
         </div>
 
@@ -394,8 +394,8 @@ export function ReadDialog({
                 an instruction to use the control above it. The chips above are the step;
                 this appears when it has something to say. */}
             {harness && (
-            <Field label="Model">
-              {/* **A repo that has been read already has a model, so this states it rather
+              <Field label="Model">
+                {/* **A repo that has been read already has a model, so this states it rather
                   than asking again.** The picker was always on, so a project with a pinned
                   `claude-sonnet-5` opened showing four alias chips with none selected and
                   `sonnet` marked "(default)" — an interface inviting somebody to pick the
@@ -405,59 +405,61 @@ export function ReadDialog({
 
                   Changing it is one click away and warned about when taken. What is gone is
                   the suggestion that a choice is outstanding when it is not. */}
-              {suggested && !overriding ? (
-                <div className="flex items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1">
-                  <span className="mono min-w-0 truncate text-xs">{suggested}</span>
-                  <button
-                    onClick={() => setOverriding(true)}
-                    className="shrink-0 text-[11px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                  >
-                    Change
-                  </button>
-                </div>
-              ) : (
-              <>
-              {/* Chips only while they fit. **What each agent knows about itself differs by
+                {suggested && !overriding ? (
+                  <div className="flex items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1">
+                    <span className="mono min-w-0 truncate text-xs">{suggested}</span>
+                    <button
+                      onClick={() => setOverriding(true)}
+                      className="shrink-0 text-[11px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Chips only while they fit. **What each agent knows about itself differs by
                   two orders of magnitude**: Claude names four aliases, Codex four models,
                   Antigravity eleven, and opencode enumerates every model of every provider
                   it has ever heard of — 341 on this machine, which rendered as a wall of
                   buttons taller than the window. A list that long is not a set of choices,
                   it is a search problem, so past a handful it becomes completion on the
                   field below instead. */}
-              {models.length > 0 && models.length <= CHIP_LIMIT && (
-                <div className="flex flex-wrap gap-2">
-                  {models.map((m) => (
-                    <Choice
-                      key={m.id}
-                      on={model === m.id}
-                      onClick={() => setModel(m.id)}
-                      label={m.label}
-                      note={m.default ? 'default' : undefined}
-                    />
-                  ))}
-                </div>
-              )}
-              {/* A select once there are too many for buttons. opencode enumerates every
+                    {models.length > 0 && models.length <= CHIP_LIMIT && (
+                      <div className="flex flex-wrap gap-2">
+                        {models.map((m) => (
+                          <Choice
+                            key={m.id}
+                            on={model === m.id}
+                            onClick={() => setModel(m.id)}
+                            label={m.label}
+                            note={m.default ? 'default' : undefined}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {/* A select once there are too many for buttons. opencode enumerates every
                   model of every provider it can reach — 358 here, 349 of them OpenRouter's,
                   because OpenRouter is itself an aggregator — so filtering by credentials
                   barely dents it and never will. That is a list you scroll, not a row you
                   scan. */}
-              {models.length > CHIP_LIMIT && (
-                <select
-                  value={models.some((m) => m.id === model) ? model : ''}
-                  onChange={(e) => setModel(e.target.value)}
-                  className="w-full rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1.5 text-xs"
-                >
-                  <option value="">{models.length.toLocaleString()} models — choose one</option>
-                  {models.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.label}
-                      {m.default ? '  (default)' : ''}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {/* **Only where the list is not the agent's own, which is Claude alone.**
+                    {models.length > CHIP_LIMIT && (
+                      <select
+                        value={models.some((m) => m.id === model) ? model : ''}
+                        onChange={(e) => setModel(e.target.value)}
+                        className="w-full rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1.5 text-xs"
+                      >
+                        <option value="">
+                          {models.length.toLocaleString()} models — choose one
+                        </option>
+                        {models.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                            {m.default ? '  (default)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {/* **Only where the list is not the agent's own, which is Claude alone.**
                   It used to be on every harness, reasoning that pinning a full version is
                   the only way to be sure which reader you got — an alias mixed this repo's
                   corpus, 708 `claude-sonnet-5` against 66 `claude-sonnet-4.5` under one
@@ -469,64 +471,63 @@ export function ReadDialog({
                   A datalist rather than a select: it completes against the four aliases
                   while still accepting a full version they do not name, which is the same
                   "suggestions, not a gate" rule the chips follow. */}
-              {!enumerated && (
-                <>
-                  <datalist id="sanity-models">
-                    {models.map((m) => (
-                      <option key={m.id} value={m.id} />
-                    ))}
-                  </datalist>
-                  <input
-                    list="sanity-models"
-                    value={model}
-                    onChange={(e) => setModel(e.target.value.trim())}
-                    placeholder={
-                      models.length > 0
-                        ? `or a full version, e.g. ${EXAMPLE[harness] ?? models[0].id}`
-                        : 'model name'
-                    }
-                    className="mt-2 w-full rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1 text-xs"
-                  />
-                </>
-              )}
-              {/* The rule, stated where it can still be acted on. `model` is recorded on
+                    {!enumerated && (
+                      <>
+                        <datalist id="sanity-models">
+                          {models.map((m) => (
+                            <option key={m.id} value={m.id} />
+                          ))}
+                        </datalist>
+                        <input
+                          list="sanity-models"
+                          value={model}
+                          onChange={(e) => setModel(e.target.value.trim())}
+                          placeholder={
+                            models.length > 0
+                              ? `or a full version, e.g. ${EXAMPLE[harness] ?? models[0].id}`
+                              : 'model name'
+                          }
+                          className="mt-2 w-full rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1 text-xs"
+                        />
+                      </>
+                    )}
+                    {/* The rule, stated where it can still be acted on. `model` is recorded on
                   every reading, so a mixture stays answerable afterwards — what it does not
                   stay is readable, and nothing on the map says which wedge is on which
                   scale. */}
-              {/* One sentence. The other two explained that a smaller model is surprised by
+                    {/* One sentence. The other two explained that a smaller model is surprised by
                   more and that the map ends up on two scales — the reasoning behind the
                   rule, which belongs in CLAUDE.md and in the doc comments where it costs
                   nothing, not in a warning somebody reads while deciding. The fact is the
                   warning; the argument is why the fact matters, and anybody who needs it
                   has already been told once. */}
-              {switching && (
-                <p className="mt-2 text-[11px] leading-relaxed text-[var(--warning)]">
-                  This repo's {project.assessed.toLocaleString()}{' '}
-                  {project.assessed === 1 ? 'reading was' : 'readings were'} taken by{' '}
-                  <strong>{project.banked_model}</strong>.
-                </p>
-              )}
-              {!switching && project.banked_model && (
-                <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
-                  Matching the {project.assessed} readings already banked.
-                </p>
-              )}
-              </>
-              )}
-              {suggested && !overriding && (
-                <p className="mt-1.5 text-[11px] text-[var(--muted-foreground)]">
-                  {project.recent_model
-                    ? // A fact about one run, which is what this string came from.
-                      'The last model used in a read.'
-                    : // Nothing dated, so the corpus itself is the only source — and it
-                      // agrees, or `suggested` would be empty and this a picker.
-                      `What this repo's ${project.assessed.toLocaleString()} ${
-                        project.assessed === 1 ? 'reading was' : 'readings were'
-                      } taken by.`}
-                </p>
-              )}
-            </Field>
-
+                    {switching && (
+                      <p className="mt-2 text-[11px] leading-relaxed text-[var(--warning)]">
+                        This repo's {project.assessed.toLocaleString()}{' '}
+                        {project.assessed === 1 ? 'reading was' : 'readings were'} taken by{' '}
+                        <strong>{project.banked_model}</strong>.
+                      </p>
+                    )}
+                    {!switching && project.banked_model && (
+                      <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
+                        Matching the {project.assessed} readings already banked.
+                      </p>
+                    )}
+                  </>
+                )}
+                {suggested && !overriding && (
+                  <p className="mt-1.5 text-[11px] text-[var(--muted-foreground)]">
+                    {project.recent_model
+                      ? // A fact about one run, which is what this string came from.
+                        'The last model used in a read.'
+                      : // Nothing dated, so the corpus itself is the only source — and it
+                        // agrees, or `suggested` would be empty and this a picker.
+                        `What this repo's ${project.assessed.toLocaleString()} ${
+                          project.assessed === 1 ? 'reading was' : 'readings were'
+                        } taken by.`}
+                  </p>
+                )}
+              </Field>
             )}
 
             <Field label="Coverage">

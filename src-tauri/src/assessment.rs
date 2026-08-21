@@ -477,10 +477,7 @@ fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
             } else {
                 key_of(&file, name, ord)
             };
-            cur = Some((
-                id.clone(),
-                Report { id, ..Report::blank() },
-            ));
+            cur = Some((id.clone(), Report { id, ..Report::blank() }));
             continue;
         }
         let Some((_, r)) = cur.as_mut() else { continue };
@@ -541,10 +538,7 @@ fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
                     // already seen when it made this call. Absent on everything banked
                     // before the field existed, which is a different thing from 1 and is
                     // reported as such.
-                    r.position = v
-                        .split_whitespace()
-                        .next()
-                        .and_then(|n| n.parse().ok());
+                    r.position = v.split_whitespace().next().and_then(|n| n.parse().ok());
                 } else if let Some(v) = seg.strip_prefix("predicted:") {
                     r.predicted = parse_grade(v);
                 } else if let Some(v) = seg.strip_prefix("documented:") {
@@ -723,25 +717,20 @@ fn compile(scan: &Scan, reports: &HashMap<String, Report>) -> Vec<Compiled> {
     // that already distinguishes it, and staleness compares against its own body.
     let readable_files = live_files(scan);
     let mut shards: BTreeMap<String, BTreeMap<String, Vec<Placed>>> = BTreeMap::new();
-    for (l, is_file) in live
-        .values()
-        .map(|l| (l, false))
-        .chain(readable_files.values().map(|l| (l, true)))
+    for (l, is_file) in
+        live.values().map(|l| (l, false)).chain(readable_files.values().map(|l| (l, true)))
     {
         let Some(r) = reports.get(&l.id) else { continue };
-        shards
-            .entry(shard_of(&l.path))
-            .or_default()
-            .entry(l.path.clone())
-            .or_default()
-            .push(Placed {
+        shards.entry(shard_of(&l.path)).or_default().entry(l.path.clone()).or_default().push(
+            Placed {
                 line: l.line,
                 name: l.name.clone(),
                 ord: l.ord,
                 is_file,
                 report: r,
                 stale: is_stale(r, Some(l.body.as_str())),
-            });
+            },
+        );
     }
 
     let mut out = Vec::new();
@@ -870,7 +859,8 @@ pub fn refresh(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> I
     };
 
     for c in &compiled {
-        let fresh = render_shard(&c.shard, c.read, c.total, c.surprising, c.stale, c.dated, &c.body);
+        let fresh =
+            render_shard(&c.shard, c.read, c.total, c.surprising, c.stale, c.dated, &c.body);
         if let Err(e) = write_if_changed(root.join(shard_file(&c.shard)), fresh) {
             return Index::Failed(e);
         }
@@ -1000,11 +990,7 @@ fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) 
     // The ordinal is only printed when there IS a twin, so the overwhelming majority of
     // entries read as a plain function name and the marker means something where it
     // appears. Parsed back as part of the key — see `key_of`.
-    let nth = if ord == 0 {
-        String::new()
-    } else {
-        format!(" #{}", ord + 1)
-    };
+    let nth = if ord == 0 { String::new() } else { format!(" #{}", ord + 1) };
     if is_file {
         // Prose, unbackticked — see `FILE_ENTRY`. The heading is what `parse_shard` keys
         // the reading off, so this string is format rather than presentation.
@@ -1109,11 +1095,7 @@ fn render_shard(
     dated: usize,
     body: &str,
 ) -> String {
-    let stale_note = if stale > 0 {
-        format!(" · {stale} stale")
-    } else {
-        String::new()
-    };
+    let stale_note = if stale > 0 { format!(" · {stale} stale") } else { String::new() };
     // Said in the header, not on every entry. Three repos would gain 6,900 identical lines
     // saying the same thing about the same release, which is decoration pretending to be
     // per-reading information — and the question a person actually has here is "how much of
@@ -1181,7 +1163,15 @@ fn render_index(repo: &str, shards: &[(String, usize, usize, usize, usize, usize
     let mut table = String::from(head);
     let (mut tr, mut tt, mut ts, mut tx, mut td) = (0, 0, 0, 0, 0);
     for (shard, read, total, surprising, stale, dated) in shards {
-        table.push_str(&format!("| [{}]({}) | {} | {} | {} | {}", shard, shard_file(shard), read, total, surprising, stale));
+        table.push_str(&format!(
+            "| [{}]({}) | {} | {} | {} | {}",
+            shard,
+            shard_file(shard),
+            read,
+            total,
+            surprising,
+            stale
+        ));
         if any_dated {
             table.push_str(&format!(" | {dated}"));
         }
@@ -1307,12 +1297,7 @@ const AGENT_DOCS: &[&str] = &["CLAUDE.md", "AGENTS.md", "GEMINI.md", ".cursorrul
 /// question is being asked about whole runs. It is the same shape as `cold`: a check worth
 /// having is not the same as a proof.
 pub fn agent_docs(repo: &Path) -> String {
-    AGENT_DOCS
-        .iter()
-        .filter(|f| repo.join(f).exists())
-        .copied()
-        .collect::<Vec<_>>()
-        .join(", ")
+    AGENT_DOCS.iter().filter(|f| repo.join(f).exists()).copied().collect::<Vec<_>>().join(", ")
 }
 
 /// The moment a reading was taken, as sortable UTC — `2026-08-13T05:12:03Z`.
@@ -1599,10 +1584,8 @@ mod tests {
         assert!(
             render_entry("foo", 0, false, primed, false).contains("priming: CLAUDE.md in context"),
         );
-        assert!(
-            render_entry("bar", 0, false, clean, false)
-                .contains("priming: CLAUDE.md, AGENTS.md excluded"),
-        );
+        assert!(render_entry("bar", 0, false, clean, false)
+            .contains("priming: CLAUDE.md, AGENTS.md excluded"),);
 
         // A repo with no instructions file has nothing to be primed by, and says so by
         // saying nothing. `primed` alone must not be enough to print a segment.
@@ -1781,7 +1764,15 @@ mod tests {
         let src = compiled.iter().find(|c| c.shard == "src").expect("one shard");
         assert_eq!(src.dated, 1, "only the pre-spec GRADE counts, not the ungraded reading");
 
-        let text = render_shard(&src.shard, src.read, src.total, src.surprising, src.stale, src.dated, &src.body);
+        let text = render_shard(
+            &src.shard,
+            src.read,
+            src.total,
+            src.surprising,
+            src.stale,
+            src.dated,
+            &src.body,
+        );
         assert!(text.contains("1 of these answered an earlier version of a question"), "{text}");
 
         // **Any graded axis counts, not just legibility.** `trap` moved at spec 3 while
@@ -1841,7 +1832,10 @@ mod tests {
         let reports: HashMap<String, Report> = live
             .values()
             .map(|l| {
-                (l.id.clone(), Report { body: l.body.clone(), ..report(&l.id, l.name.clone().as_str()) })
+                (
+                    l.id.clone(),
+                    Report { body: l.body.clone(), ..report(&l.id, l.name.clone().as_str()) },
+                )
             })
             .collect();
         save(&tmp, &scan, &reports).unwrap();
@@ -1870,10 +1864,7 @@ mod tests {
             .map(|l| (l.id.clone(), Report { body: l.body.clone(), ..report(&l.id, &l.name) }))
             .collect();
         let f = &files["gate.rs"];
-        reports.insert(
-            f.id.clone(),
-            Report { body: f.body.clone(), ..report(&f.id, "gate.rs") },
-        );
+        reports.insert(f.id.clone(), Report { body: f.body.clone(), ..report(&f.id, "gate.rs") });
 
         let tmp = std::env::temp_dir().join(format!("sanity-fileread-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
@@ -1896,10 +1887,7 @@ mod tests {
     /// A reformat must not expire a repo's worth of honest readings.
     #[test]
     fn hash_ignores_formatting() {
-        assert_eq!(
-            body_hash("if x {\n    go();\n}"),
-            body_hash("if x {\n        go();\n    }")
-        );
+        assert_eq!(body_hash("if x {\n    go();\n}"), body_hash("if x {\n        go();\n    }"));
         assert_ne!(body_hash("go()"), body_hash("stop()"));
     }
 
@@ -2052,7 +2040,8 @@ mod tests {
             .iter()
             .flat_map(|f| f.children.iter())
             .map(|n| {
-                let r = Report { body: n.body.clone().unwrap_or_default(), ..report(&n.id, "a thing") };
+                let r =
+                    Report { body: n.body.clone().unwrap_or_default(), ..report(&n.id, "a thing") };
                 (n.id.clone(), r)
             })
             .collect();
@@ -2106,7 +2095,10 @@ mod tests {
             .map(|n| {
                 // The hash the server stamps on a report: whatever the scan says the
                 // body was at the moment the reading was handed out.
-                let r = Report { body: n.body.clone().unwrap_or_default(), ..report(&n.id, "surprising thing") };
+                let r = Report {
+                    body: n.body.clone().unwrap_or_default(),
+                    ..report(&n.id, "surprising thing")
+                };
                 (n.id.clone(), r)
             })
             .collect();
@@ -2143,5 +2135,4 @@ mod tests {
         assert_eq!(shard_of("justfile"), "root");
         assert_eq!(shard_file("src-tauri"), "src-tauri.md");
     }
-
 }

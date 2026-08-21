@@ -232,10 +232,8 @@ mod tests {
     }
 
     fn table(files: &[(&str, Vec<FuncDef>)]) -> Links {
-        let views: Vec<FileView<'_>> = files
-            .iter()
-            .map(|(path, funcs)| FileView { path, lang: Lang::Rust, funcs })
-            .collect();
+        let views: Vec<FileView<'_>> =
+            files.iter().map(|(path, funcs)| FileView { path, lang: Lang::Rust, funcs }).collect();
         let wiring = crate::edges::wire(&views);
         let copies = crate::clones::find(&views);
         Links::build(&views, &wiring, &copies)

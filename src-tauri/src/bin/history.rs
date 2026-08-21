@@ -44,10 +44,7 @@ fn main() {
     let tick = |p: Progress| {
         if p.total > 0 {
             let pct = 100.0 * p.done as f32 / p.total as f32;
-            eprint!(
-                "\r{:<22} {:>9} / {:<9} {:>5.1}%   ",
-                p.phase, p.done, p.total, pct
-            );
+            eprint!("\r{:<22} {:>9} / {:<9} {:>5.1}%   ", p.phase, p.done, p.total, pct);
         } else if p.done > 0 {
             // A count with no denominator — see `log_shas`, where buying one would mean
             // doing the same revwalk twice. It still says "working", which is the job.
@@ -129,10 +126,8 @@ fn main() {
             e.0 += 1;
             e.1 += loc;
         }
-        let mut rows: Vec<(&String, usize, u32)> = per
-            .iter()
-            .map(|(p, (n, l))| (&hist.paths[*p as usize], *n, *l))
-            .collect();
+        let mut rows: Vec<(&String, usize, u32)> =
+            per.iter().map(|(p, (n, l))| (&hist.paths[*p as usize], *n, *l)).collect();
         rows.sort_by_key(|(_, n, _)| std::cmp::Reverse(*n));
         println!("\n  functions alive at HEAD, by file");
         for (path, n, l) in rows {

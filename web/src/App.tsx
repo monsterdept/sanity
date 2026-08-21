@@ -35,14 +35,15 @@ import {
   type Scan,
   type Upgrade,
 } from './lib/api'
+import { frameTree, headSizes, onHistoryProgress, scanHistory, warmHistory } from './lib/history'
 import {
-  frameTree,
-  headSizes,
-  onHistoryProgress,
-  scanHistory,
-  warmHistory,
-} from './lib/history'
-import { Deltas, Funcs, baseWatermark, historyScoped, historyTables, type Tables } from './lib/timeline'
+  Deltas,
+  Funcs,
+  baseWatermark,
+  historyScoped,
+  historyTables,
+  type Tables,
+} from './lib/timeline'
 import { Sunburst } from './components/Sunburst'
 import type { Staged } from './lib/movie'
 import { forgetMonster } from './lib/monster'
@@ -52,13 +53,7 @@ import { CommitLog } from './components/CommitLog'
 import { HistoryBar } from './components/HistoryBar'
 import { Crumbs } from './components/Crumbs'
 import { TopRow } from './components/shell/TopRow'
-import {
-  legendFor,
-  MODE_LABEL,
-  rankCategories,
-  ageSpanOf,
-  type ColorMode,
-} from './lib/colorMode'
+import { legendFor, MODE_LABEL, rankCategories, ageSpanOf, type ColorMode } from './lib/colorMode'
 import { dismissSplash } from './lib/splash'
 import { mark, marked } from './lib/stopwatch'
 import { loadTheme, saveTheme, watchSystemTheme, type Theme } from './lib/theme'
@@ -325,11 +320,15 @@ export default function App() {
   // Appearance is a menu, not a panel — see `build_menu`. Rust emits the choice; the
   // preference and its persistence stay here, and the menu's checkmarks are told what
   // they should read rather than being trusted to remember.
-  useEffect(() => onSetTheme((t) => {
-    const next = t as Theme
-    setTheme(next)
-    saveTheme(next)
-  }), [])
+  useEffect(
+    () =>
+      onSetTheme((t) => {
+        const next = t as Theme
+        setTheme(next)
+        saveTheme(next)
+      }),
+    [],
+  )
   useEffect(() => {
     void syncThemeMenu(theme)
   }, [theme])
@@ -466,8 +465,7 @@ export default function App() {
         // own comment. Set after `setProjects` so the two land in one render and an empty
         // repo list does not flash the gate before the loading line.
         setProjectsLoaded(true)
-        const revOf = (key: string | null) =>
-          list.projects.find((p) => p.key === key)?.scanned ?? 0
+        const revOf = (key: string | null) => list.projects.find((p) => p.key === key)?.scanned ?? 0
 
         // AN AGENT OPENED SOMETHING NEW. This is the inversion, and the only case that
         // overrules what you are looking at. Compared against `followed` rather than against
@@ -701,7 +699,11 @@ export default function App() {
       setLive((prev) => {
         if (prev.size === next.size) {
           let same = true
-          for (const id of next) if (!prev.has(id)) { same = false; break }
+          for (const id of next)
+            if (!prev.has(id)) {
+              same = false
+              break
+            }
           if (same) return prev
         }
         return next
@@ -712,7 +714,6 @@ export default function App() {
       clearInterval(timer)
     }
   }, [])
-
 
   // File → Open used to raise a folder picker. Opening by hand is gone — a project arrives
   // only when an agent calls `sanity_open` — so the menu item now opens the one thing that
@@ -850,16 +851,21 @@ export default function App() {
             cliStatus().then((c) =>
               setCliLink(
                 c.is_this_app
-                  // No backticks. They are Markdown in a string that is rendered as HTML,
-                  // so they arrive as literal punctuation — and the convention they come
-                  // from is one a reader of this dialog has no reason to know.
-                  ? {
+                  ? // No backticks. They are Markdown in a string that is rendered as HTML,
+                    // so they arrive as literal punctuation — and the convention they come
+                    // from is one a reader of this dialog has no reason to know.
+                    {
                       text: 'Installed. The sanity command now runs this app, at',
                       path: c.resolved ?? undefined,
                     }
                   : c.resolved
-                    ? { text: 'Linked, but your shell still runs another build first:', path: c.resolved }
-                    : { text: 'Linked, but no shell can find it yet — add its directory to your PATH.' },
+                    ? {
+                        text: 'Linked, but your shell still runs another build first:',
+                        path: c.resolved,
+                      }
+                    : {
+                        text: 'Linked, but no shell can find it yet — add its directory to your PATH.',
+                      },
               ),
             ),
           )
@@ -1146,7 +1152,18 @@ export default function App() {
     // period, in the middle of a replay, for a string that had not changed.
     // `loaded` is a dependency because the frame it builds depends on how much of the story
     // has arrived: the same index folds to a fuller picture once the block holding it lands.
-    [historyOn, history, historyKey, activeKey, histIndex, loaded, activeProject?.name, drilled, staged, paneSide],
+    [
+      historyOn,
+      history,
+      historyKey,
+      activeKey,
+      histIndex,
+      loaded,
+      activeProject?.name,
+      drilled,
+      staged,
+      paneSide,
+    ],
   )
 
   /** What the replay sorts its rings by: every path's size at HEAD — see `headSizes`.
@@ -1156,9 +1173,7 @@ export default function App() {
    *  that should agree come apart. */
   const headOrder = useMemo(
     () =>
-      historyOn && history && historyKey === activeKey && scan
-        ? headSizes(scan.root)
-        : undefined,
+      historyOn && history && historyKey === activeKey && scan ? headSizes(scan.root) : undefined,
     [historyOn, history, historyKey, activeKey, scan],
   )
 
@@ -1598,7 +1613,6 @@ export default function App() {
     [tree],
   )
 
-
   /** The selected project when it is still being rescanned by the startup restore, so the
    *  pane can show its progress instead of the copy for someone who has no projects. */
   const loadingProject = useMemo(
@@ -1768,10 +1782,7 @@ export default function App() {
    *  the outline lands on something too small to see. Drilling to the file it lives in makes
    *  the same wedge a band — but only if the selection survives the trip, or you arrive
    *  somewhere correct with nothing marked. */
-  const showIn = useCallback(
-    (n: Node) => setStack(tree && n.id === tree.id ? [] : [n.id]),
-    [tree],
-  )
+  const showIn = useCallback((n: Node) => setStack(tree && n.id === tree.id ? [] : [n.id]), [tree])
 
   /** Where a `→` in the panel is pointing, until the tree can answer it.
    *
@@ -1924,25 +1935,25 @@ export default function App() {
           }}
         />
         <div className="flex min-w-0 flex-1 flex-col">
-        <TopRow>
-          {focus && (
-            <div className="flex items-center gap-2">
-              {/* Disabled rather than hidden while the replay is up. The switcher is the
+          <TopRow>
+            {focus && (
+              <div className="flex items-center gap-2">
+                {/* Disabled rather than hidden while the replay is up. The switcher is the
                   window's statement of what color means, and removing it would leave the
                   rings recolored with nothing on screen saying by what. Grayed, with the
                   reason in the tooltip, it still answers the question. */}
-              <ModeSwitcher mode={viewMode} onMode={setMode} disabled={historyOn} />
-              <HistoryToggle
-                on={historyOn}
-                busy={historyBusy}
-                traced={(activeProject?.replayed ?? 0) > 0}
-                onToggle={toggleHistory}
-              />
-            </div>
-          )}
-        </TopRow>
-        <main className="relative flex min-w-0 flex-1 flex-col border-l border-t border-[var(--border)] bg-[var(--background)]">
-          {/* Inside the content column, not spanning the window above the chrome.
+                <ModeSwitcher mode={viewMode} onMode={setMode} disabled={historyOn} />
+                <HistoryToggle
+                  on={historyOn}
+                  busy={historyBusy}
+                  traced={(activeProject?.replayed ?? 0) > 0}
+                  onToggle={toggleHistory}
+                />
+              </div>
+            )}
+          </TopRow>
+          <main className="relative flex min-w-0 flex-1 flex-col border-l border-t border-[var(--border)] bg-[var(--background)]">
+            {/* Inside the content column, not spanning the window above the chrome.
               Up there it took row 0 for itself — and row 0 belongs to the overlay
               titlebar, whose traffic lights float over the webview at a fixed inset that
               each element occupying that row has to reserve for itself. The strip
@@ -1950,123 +1961,123 @@ export default function App() {
               them, so "Reading the repo…" rendered beneath the buttons. It also shoved
               the whole shell down by its own height every time a scan started. Below
               TopRow it can do neither. */}
-          {tree && focus && <Crumbs trail={trail} onGo={goTo} onUp={goUp} />}
+            {tree && focus && <Crumbs trail={trail} onGo={goTo} onUp={goUp} />}
 
-          <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-            {/* **The export's ground goes here, not on the document.** A recording is a copy
+            <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+              {/* **The export's ground goes here, not on the document.** A recording is a copy
                 of the map on screen, so a light file wants a light map — and putting that on
                 `<html>` turned the whole app light in front of somebody who had asked for a
                 file. The palettes are custom properties and custom properties inherit, so
                 one class on the pane dresses everything the map paints with and nothing
                 else. See `Staged`, and the `.light` selector in `index.css`. */}
-            <div
-              className={`relative z-10 h-full bg-[var(--background)]${staged ? ` ${staged.ground}` : ''}`}
-            >
-            {error ? (
-              <div className="flex h-full items-center justify-center p-6">
-                <p className="max-w-[40ch] text-center text-sm text-[var(--destructive)]">
-                  {error}
-                </p>
+              <div
+                className={`relative z-10 h-full bg-[var(--background)]${staged ? ` ${staged.ground}` : ''}`}
+              >
+                {error ? (
+                  <div className="flex h-full items-center justify-center p-6">
+                    <p className="max-w-[40ch] text-center text-sm text-[var(--destructive)]">
+                      {error}
+                    </p>
+                  </div>
+                ) : historyEmpty ? (
+                  <div className="flex h-full items-center justify-center p-6">
+                    <p className="max-w-[40ch] text-center text-sm text-[var(--muted-foreground)]">
+                      No git history here, so there is nothing to replay. The map beside this is
+                      still the repo as it stands.
+                    </p>
+                  </div>
+                ) : focus ? (
+                  // A file is no longer a different view. It used to be `FileStack`, a vertical
+                  // column reached by a hard cut — the argument being that a file is a sequence
+                  // and the ring is a set, which is true and was never the whole of it: the
+                  // wedge ALREADY holds a treemap of the file, so what the column really did
+                  // was throw away the picture you had just clicked and draw a second one. The
+                  // rings now unroll that same tiling into the pane instead. See `unroll.ts`.
+                  <Sunburst
+                    root={focus}
+                    selected={selected}
+                    mode={viewMode}
+                    ranks={ranks}
+                    // The age ramp spans the REPO, not a fixed year — so it comes from the
+                    // whole tree even when the view is drilled into one directory. Scoping it
+                    // to `focus` would make a wedge change color on the way in, which is the
+                    // one thing drilling must not do.
+                    ageSpan={ageSpan}
+                    // **Never into a replay**, and this is the creature's argument running the
+                    // other way. A lease says a reader is opening THIS function right now, and
+                    // the marker is keyed by path — `path` for the file, `path#name` for the
+                    // function — so on a frame from 2019 it lights whatever happens to sit at
+                    // that path in 2019, which is frequently a different function and sometimes
+                    // one that has nothing to do with the work. That is a measurement stamped
+                    // onto code nobody measured, the same sin as a stale reading keeping its
+                    // colour, and it reached a person as black wedges flashing through an
+                    // exported movie of a repo's first year.
+                    //
+                    // Keyed on `replaying` rather than `historyOn` for the reason the lens and
+                    // the legend are: the request comes a few hundred milliseconds before the
+                    // first frame, and until that frame exists the live map is still on screen,
+                    // where the marks are about exactly the wedges they are sitting on.
+                    reading={replaying ? undefined : readingNow}
+                    // **Through the replay too.** It was held back on the grounds that a run is a
+                    // fact about the repo as it is NOW, and a creature working away over a frame
+                    // from 2019 would be the claim a replayed temperature would be. That reads
+                    // the creature as a reading, and it is not one: it is the app's own pulse,
+                    // and it is doing the same thing in History that it does anywhere else —
+                    // being awake because somebody is here. What must not travel back in time is
+                    // a MEASUREMENT, which is why the lens switcher greys out. Nothing in the
+                    // creature's three states says anything about the code on screen.
+                    mascot={mascot}
+                    // Only the replay. A commit landing is a change the viewer asked to watch,
+                    // so it should move; a rescan or a landed reading changes the live map under
+                    // somebody who is reading it, and sliding the wedges there would animate a
+                    // measurement arriving rather than a story advancing.
+                    morph={replaying}
+                    density={staged?.px ?? null}
+                    onSide={setPaneSide}
+                    sortBy={headOrder}
+                    onSelect={pick}
+                    onClear={clearPick}
+                    onDrill={drill}
+                    onUp={goUp}
+                  />
+                ) : awaiting && shapeRoot ? (
+                  // The scan is still running and the map is already worth looking at. See
+                  // `lib/shape.ts` — this is the same picture, drawn from what the parse has
+                  // found so far, with no reading on any wedge.
+                  <Sunburst
+                    root={shapeRoot}
+                    selected={null}
+                    mode={viewMode}
+                    sortBy={shapeSort}
+                    // Eased, not snapped. The rings are gaining wedges several times a second
+                    // and a repo that jumps on every batch reads as a glitch; the same
+                    // argument the replay makes, for the same reason — see `morph`.
+                    morph
+                    // Where the scan has got to — see `live`. The same prop a run uses for its
+                    // leases, because it is the same claim about a wedge, and the two phases
+                    // never overlap.
+                    reading={live}
+                    mascot={mascot}
+                    onSelect={noop}
+                    onClear={noop}
+                    onDrill={noop}
+                  />
+                ) : awaiting ? (
+                  // There are projects, and none of them has a tree on screen yet. The empty
+                  // pane's copy tells you how to open a project — advice for someone with none,
+                  // addressed to someone who has three and is waiting on one. Show the wait.
+                  <ProgressPane label={`Reading ${awaiting.name}…`} progress={awaitingProgress} />
+                ) : !projectsLoaded ? (
+                  // Not "no projects" — "not asked yet". Blank on purpose: the splash is still
+                  // over this, and anything written here is a screen nobody asked for between
+                  // the wordmark and the answer.
+                  <div className="h-full" />
+                ) : (
+                  <Empty onAdd={addProject} />
+                )}
               </div>
-            ) : historyEmpty ? (
-              <div className="flex h-full items-center justify-center p-6">
-                <p className="max-w-[40ch] text-center text-sm text-[var(--muted-foreground)]">
-                  No git history here, so there is nothing to replay. The map beside this
-                  is still the repo as it stands.
-                </p>
-              </div>
-            ) : focus ? (
-              // A file is no longer a different view. It used to be `FileStack`, a vertical
-              // column reached by a hard cut — the argument being that a file is a sequence
-              // and the ring is a set, which is true and was never the whole of it: the
-              // wedge ALREADY holds a treemap of the file, so what the column really did
-              // was throw away the picture you had just clicked and draw a second one. The
-              // rings now unroll that same tiling into the pane instead. See `unroll.ts`.
-              <Sunburst
-                root={focus}
-                selected={selected}
-                mode={viewMode}
-                ranks={ranks}
-                // The age ramp spans the REPO, not a fixed year — so it comes from the
-                // whole tree even when the view is drilled into one directory. Scoping it
-                // to `focus` would make a wedge change color on the way in, which is the
-                // one thing drilling must not do.
-                ageSpan={ageSpan}
-                // **Never into a replay**, and this is the creature's argument running the
-                // other way. A lease says a reader is opening THIS function right now, and
-                // the marker is keyed by path — `path` for the file, `path#name` for the
-                // function — so on a frame from 2019 it lights whatever happens to sit at
-                // that path in 2019, which is frequently a different function and sometimes
-                // one that has nothing to do with the work. That is a measurement stamped
-                // onto code nobody measured, the same sin as a stale reading keeping its
-                // colour, and it reached a person as black wedges flashing through an
-                // exported movie of a repo's first year.
-                //
-                // Keyed on `replaying` rather than `historyOn` for the reason the lens and
-                // the legend are: the request comes a few hundred milliseconds before the
-                // first frame, and until that frame exists the live map is still on screen,
-                // where the marks are about exactly the wedges they are sitting on.
-                reading={replaying ? undefined : readingNow}
-                // **Through the replay too.** It was held back on the grounds that a run is a
-                // fact about the repo as it is NOW, and a creature working away over a frame
-                // from 2019 would be the claim a replayed temperature would be. That reads
-                // the creature as a reading, and it is not one: it is the app's own pulse,
-                // and it is doing the same thing in History that it does anywhere else —
-                // being awake because somebody is here. What must not travel back in time is
-                // a MEASUREMENT, which is why the lens switcher greys out. Nothing in the
-                // creature's three states says anything about the code on screen.
-                mascot={mascot}
-                // Only the replay. A commit landing is a change the viewer asked to watch,
-                // so it should move; a rescan or a landed reading changes the live map under
-                // somebody who is reading it, and sliding the wedges there would animate a
-                // measurement arriving rather than a story advancing.
-                morph={replaying}
-                density={staged?.px ?? null}
-                onSide={setPaneSide}
-                sortBy={headOrder}
-                onSelect={pick}
-                onClear={clearPick}
-                onDrill={drill}
-                onUp={goUp}
-              />
-            ) : awaiting && shapeRoot ? (
-              // The scan is still running and the map is already worth looking at. See
-              // `lib/shape.ts` — this is the same picture, drawn from what the parse has
-              // found so far, with no reading on any wedge.
-              <Sunburst
-                root={shapeRoot}
-                selected={null}
-                mode={viewMode}
-                sortBy={shapeSort}
-                // Eased, not snapped. The rings are gaining wedges several times a second
-                // and a repo that jumps on every batch reads as a glitch; the same
-                // argument the replay makes, for the same reason — see `morph`.
-                morph
-                // Where the scan has got to — see `live`. The same prop a run uses for its
-                // leases, because it is the same claim about a wedge, and the two phases
-                // never overlap.
-                reading={live}
-                mascot={mascot}
-                onSelect={noop}
-                onClear={noop}
-                onDrill={noop}
-              />
-            ) : awaiting ? (
-              // There are projects, and none of them has a tree on screen yet. The empty
-              // pane's copy tells you how to open a project — advice for someone with none,
-              // addressed to someone who has three and is waiting on one. Show the wait.
-              <ProgressPane label={`Reading ${awaiting.name}…`} progress={awaitingProgress} />
-            ) : !projectsLoaded ? (
-              // Not "no projects" — "not asked yet". Blank on purpose: the splash is still
-              // over this, and anything written here is a screen nobody asked for between
-              // the wordmark and the answer.
-              <div className="h-full" />
-            ) : (
-              <Empty onAdd={addProject} />
-            )}
-            </div>
 
-            {/* The scan, over the map it is drawing, in the legend's corner.
+              {/* The scan, over the map it is drawing, in the legend's corner.
                 It sat top centre, on the argument that a caption belongs over its picture —
                 which put it on the one edge the eye is drawn to and made a temporary thing
                 the most prominent element on screen. The corners are where this window
@@ -2078,85 +2089,85 @@ export default function App() {
                 makes, held here too because this element is a sibling of the branch rather
                 than inside it: a strip over a FINISHED map would be describing a scan of some
                 other repo, which is precisely the confusion the shape's ownership fixed. */}
-            {awaitingProgress && shapeRoot && !focus && (
-              <div className="absolute bottom-2 right-2 z-20">
-                <ProgressStrip progress={awaitingProgress} />
-              </div>
-            )}
+              {awaitingProgress && shapeRoot && !focus && (
+                <div className="absolute bottom-2 right-2 z-20">
+                  <ProgressStrip progress={awaitingProgress} />
+                </div>
+              )}
 
-            {/* Floated over the graph rather than stacked under it. The rings are a
+              {/* Floated over the graph rather than stacked under it. The rings are a
                 circle in a rectangle, so the corners and the top strip are dead space
                 the picture never uses — putting the controls there costs the chart
                 nothing and buys back a whole row of window height. */}
-            {focus && focus.kind !== 'file' && (
-              <div className="absolute bottom-2 right-2 z-20">
-                <ColorLegend
-                  mode={viewMode}
-                  history={replaying}
-                  // From `focus`, like the ranks it has to agree with — a legend naming
-                  // eight authors the rings in front of you do not contain is annotating a
-                  // picture nobody is looking at. The comment below said this before the
-                  // code did: it was true of the counts and not of the categories, which
-                  // came from the whole scan.
-                  categories={focus ? legendFor(focus, viewMode) : []}
-                  // Counted from `focus`, not the whole scan: drilled into one
-                  // directory, the legend has to describe the rings in front of you or
-                  // it is annotating a picture nobody is looking at.
-                  {...countPending(focus)}
-                />
-              </div>
-            )}
-          </div>
+              {focus && focus.kind !== 'file' && (
+                <div className="absolute bottom-2 right-2 z-20">
+                  <ColorLegend
+                    mode={viewMode}
+                    history={replaying}
+                    // From `focus`, like the ranks it has to agree with — a legend naming
+                    // eight authors the rings in front of you do not contain is annotating a
+                    // picture nobody is looking at. The comment below said this before the
+                    // code did: it was true of the counts and not of the categories, which
+                    // came from the whole scan.
+                    categories={focus ? legendFor(focus, viewMode) : []}
+                    // Counted from `focus`, not the whole scan: drilled into one
+                    // directory, the legend has to describe the rings in front of you or
+                    // it is annotating a picture nobody is looking at.
+                    {...countPending(focus)}
+                  />
+                </div>
+              )}
+            </div>
 
-          {/* Under the map, not floated over it. The legend is an annotation and can live
+            {/* Under the map, not floated over it. The legend is an annotation and can live
               in a corner; the transport is the control the whole view is about, and the
               scrub bar needs the full width or it cannot address the commits it draws. */}
-          {historyOn && history && historyKey === activeKey && history.tables.commits > 0 && (
-            <HistoryBar
-              frames={frames}
-              index={histIndex}
-              // The transport addresses the whole timeline and can only DRAW what has
-              // arrived. Advancing past the run asks for the next block and holds the
-              // playhead where it is until it lands, which on a repo whose story fits in one
-              // block never happens at all.
-              onIndex={(i) => {
-                const held = history
-                if (held && i >= held.deltas.have()) {
-                  void held.deltas.ensure(i, setLoaded).then(() => setLoaded(held.deltas.have()))
-                  setHistIndex(Math.min(i, held.deltas.have() - 1))
-                  return
-                }
-                setHistIndex(i)
-              }}
-              playing={playing}
-              onPlaying={setPlaying}
-              duration={duration}
-              onDuration={setDuration}
-              name={scope || (activeProject?.name ?? 'history')}
-              // What an exported movie is captioned with: the repo, as the world knows it,
-              // and where in it the replay is standing. Both go to the caption; `name`
-              // above is the FILENAME, which wants the drilled path and not the owner.
-              slug={remote ?? activeProject?.name ?? 'repo'}
-              scope={scope}
-              onStage={setStaged}
-              // The whole timeline, for an export — the transport's own `onIndex` fetches
-              // the block under the playhead and returns, which is right for watching and
-              // useless to a recorder that must not stall mid-file.
-              ensure={async (i) => {
-                const held = history
-                if (!held) return
-                await held.deltas.ensure(i, setLoaded)
-                setLoaded(held.deltas.have())
-              }}
-              // The commit's own date, for the timeline in an exported movie. Null before
-              // the window: the opening state is everything the truncated commits built and
-              // has no date it can honestly carry — the same reason those functions draw
-              // uncoloured. `ensure` has already been awaited by then, so the block holding
-              // it is here.
-              dateOf={(i) => (i < 0 ? null : (history?.deltas.at(i)?.ts ?? null))}
-            />
-          )}
-        </main>
+            {historyOn && history && historyKey === activeKey && history.tables.commits > 0 && (
+              <HistoryBar
+                frames={frames}
+                index={histIndex}
+                // The transport addresses the whole timeline and can only DRAW what has
+                // arrived. Advancing past the run asks for the next block and holds the
+                // playhead where it is until it lands, which on a repo whose story fits in one
+                // block never happens at all.
+                onIndex={(i) => {
+                  const held = history
+                  if (held && i >= held.deltas.have()) {
+                    void held.deltas.ensure(i, setLoaded).then(() => setLoaded(held.deltas.have()))
+                    setHistIndex(Math.min(i, held.deltas.have() - 1))
+                    return
+                  }
+                  setHistIndex(i)
+                }}
+                playing={playing}
+                onPlaying={setPlaying}
+                duration={duration}
+                onDuration={setDuration}
+                name={scope || (activeProject?.name ?? 'history')}
+                // What an exported movie is captioned with: the repo, as the world knows it,
+                // and where in it the replay is standing. Both go to the caption; `name`
+                // above is the FILENAME, which wants the drilled path and not the owner.
+                slug={remote ?? activeProject?.name ?? 'repo'}
+                scope={scope}
+                onStage={setStaged}
+                // The whole timeline, for an export — the transport's own `onIndex` fetches
+                // the block under the playhead and returns, which is right for watching and
+                // useless to a recorder that must not stall mid-file.
+                ensure={async (i) => {
+                  const held = history
+                  if (!held) return
+                  await held.deltas.ensure(i, setLoaded)
+                  setLoaded(held.deltas.have())
+                }}
+                // The commit's own date, for the timeline in an exported movie. Null before
+                // the window: the opening state is everything the truncated commits built and
+                // has no date it can honestly carry — the same reason those functions draw
+                // uncoloured. `ensure` has already been awaited by then, so the block holding
+                // it is here.
+                dateOf={(i) => (i < 0 ? null : (history?.deltas.at(i)?.ts ?? null))}
+              />
+            )}
+          </main>
         </div>
 
         <aside className="w-[290px] shrink-0 border-l border-[var(--border)] bg-[var(--card)]">
@@ -2164,41 +2175,45 @@ export default function App() {
               answers "what am I looking at", and during a replay that answer is the
               commit, not whichever wedge the pointer last brushed. */}
           {historyOn && history && historyKey === activeKey ? (
-          <CommitLog
-            repoKey={activeKey}
-            repoPath={repoPath}
-            tables={history.tables}
-            frames={frames}
-            scope={scope}
-            index={histIndex}
-            playing={playing}
-            onIndex={scrubTo}
-            name={scope || (activeProject?.name ?? 'History')}
-            repo={repoPath}
-            loc={focus?.loc ?? 0}
-            functions={activeProject?.functions ?? 0}
-          />
+            <CommitLog
+              repoKey={activeKey}
+              repoPath={repoPath}
+              tables={history.tables}
+              frames={frames}
+              scope={scope}
+              index={histIndex}
+              playing={playing}
+              onIndex={scrubTo}
+              name={scope || (activeProject?.name ?? 'History')}
+              repo={repoPath}
+              loc={focus?.loc ?? 0}
+              functions={activeProject?.functions ?? 0}
+            />
           ) : (
-          <Detail
-            node={selected}
-            // What the summary covers when nothing is picked: the subtree on screen, not
-            // the repo, so drilling in re-counts rather than repeating a number the
-            // sidebar already shows for the whole project.
-            focus={focus}
-            title={focus && tree && focus.id === tree.id ? (activeProject?.name ?? focus.name) : focus?.name}
-            repo={repoPath}
-            model={scan?.stats.model ?? null}
-            mode={viewMode}
-            ranks={ranks}
-            ageSpan={ageSpan}
-            onSelect={setPicked}
-            onDrill={drill}
-            owners={owners}
-            onShowIn={showIn}
-            repoKey={activeKey}
-            replaying={replaying}
-            onJump={jumpTo}
-          />
+            <Detail
+              node={selected}
+              // What the summary covers when nothing is picked: the subtree on screen, not
+              // the repo, so drilling in re-counts rather than repeating a number the
+              // sidebar already shows for the whole project.
+              focus={focus}
+              title={
+                focus && tree && focus.id === tree.id
+                  ? (activeProject?.name ?? focus.name)
+                  : focus?.name
+              }
+              repo={repoPath}
+              model={scan?.stats.model ?? null}
+              mode={viewMode}
+              ranks={ranks}
+              ageSpan={ageSpan}
+              onSelect={setPicked}
+              onDrill={drill}
+              owners={owners}
+              onShowIn={showIn}
+              repoKey={activeKey}
+              replaying={replaying}
+              onJump={jumpTo}
+            />
           )}
         </aside>
       </div>
@@ -2217,12 +2232,14 @@ export default function App() {
             className="flex w-full max-w-md flex-col gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-5"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="text-[15px] font-semibold">That folder holds {bigFolder.holds} repos</div>
+            <div className="text-[15px] font-semibold">
+              That folder holds {bigFolder.holds} repos
+            </div>
             <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
               <code>{bigFolder.path}</code> contains {bigFolder.names.join(', ')}
-              {bigFolder.holds > bigFolder.names.length ? ' and others' : ''}. Scanning it
-              reads all of them — several minutes, and one map of unrelated code. Adding one
-              of the repos inside it is usually what you want.
+              {bigFolder.holds > bigFolder.names.length ? ' and others' : ''}. Scanning it reads all
+              of them — several minutes, and one map of unrelated code. Adding one of the repos
+              inside it is usually what you want.
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -2276,11 +2293,7 @@ export default function App() {
         (() => {
           const p = projects.find((x) => x.key === readFor)
           return p ? (
-            <ReadDialog
-              project={p}
-              onStarted={refreshProjects}
-              onClose={() => setReadFor(null)}
-            />
+            <ReadDialog project={p} onStarted={refreshProjects} onClose={() => setReadFor(null)} />
           ) : null
         })()}
 
@@ -2316,7 +2329,6 @@ export default function App() {
           </div>
         </div>
       )}
-
     </div>
   )
 }
@@ -2442,13 +2454,7 @@ function ProgressStrip({ progress }: { progress: Progress }) {
 
 /** The same wait, on an empty pane rather than over a map you can already read. Centered
  *  and wider because there is nothing else on the screen to be beside. */
-function ProgressPane({
-  progress,
-  label,
-}: {
-  progress: Progress | null
-  label?: string
-}) {
+function ProgressPane({ progress, label }: { progress: Progress | null; label?: string }) {
   const { pct, eta } = useProgress(progress)
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3">
@@ -2565,7 +2571,9 @@ function Empty({ onAdd }: { onAdd: () => void }) {
   const have = found.filter((h) => h.installed).map((h) => h.id)
   const checked = found.length > 0
   /** What the CLI link attempt said: nothing yet, in flight, the result, or the error. */
-  const [linking, setLinking] = useState<null | 'working' | string | { path: string; on_path: boolean }>(null)
+  const [linking, setLinking] = useState<
+    null | 'working' | string | { path: string; on_path: boolean }
+  >(null)
   /** What `sanity` means in a terminal. Null until asked, so the card shows neither state
    *  rather than flashing the wrong one. */
   const [cli, setCli] = useState<CliState | null>(null)
@@ -2580,7 +2588,10 @@ function Empty({ onAdd }: { onAdd: () => void }) {
       <div className="flex w-full max-w-[54ch] flex-col items-center gap-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-8 py-9">
         <h2
           className="font-display text-[26px] font-normal leading-none text-[var(--foreground)]"
-          style={{ fontFamily: "'LINE Seed JP', ui-sans-serif, system-ui", letterSpacing: '-0.06em' }}
+          style={{
+            fontFamily: "'LINE Seed JP', ui-sans-serif, system-ui",
+            letterSpacing: '-0.06em',
+          }}
         >
           Read your first project
         </h2>
@@ -2595,9 +2606,9 @@ function Empty({ onAdd }: { onAdd: () => void }) {
             thing that can be CHECKED rather than explained, so the card checks it. */}
         <div className="flex w-full max-w-[44ch] flex-col gap-4">
           <p className="text-sm leading-relaxed text-[var(--muted-foreground)]">
-            Add a repo and Sanity scans it. Expose more detail by using your coding agent as
-            a fleet of readers, each in its own process, to rate the predictability and
-            legibility of each of your files and functions.
+            Add a repo and Sanity scans it. Expose more detail by using your coding agent as a fleet
+            of readers, each in its own process, to rate the predictability and legibility of each
+            of your files and functions.
           </p>
 
           <button
@@ -2627,8 +2638,8 @@ function Empty({ onAdd }: { onAdd: () => void }) {
                 </>
               ) : (
                 <>
-                  You will need <code>claude</code> or <code>codex</code> installed and
-                  signed in — Sanity reads by running one of them.
+                  You will need <code>claude</code> or <code>codex</code> installed and signed in —
+                  Sanity reads by running one of them.
                 </>
               )}
             </p>
@@ -2637,8 +2648,8 @@ function Empty({ onAdd }: { onAdd: () => void }) {
           {/* Demoted, deliberately. It used to be step one; it is now a second way to press
               a button that is already on screen. */}
           <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
-            You can also start a read from a terminal with <code>sanity check</code>, and
-            watch it there. The backend spawns the same readers, no window required.
+            You can also start a read from a terminal with <code>sanity check</code>, and watch it
+            there. The backend spawns the same readers, no window required.
           </p>
 
           {/* **The one thing a DMG cannot do for you.** Homebrew puts `sanity` on PATH with
@@ -2713,5 +2724,3 @@ function Empty({ onAdd }: { onAdd: () => void }) {
     </div>
   )
 }
-
-

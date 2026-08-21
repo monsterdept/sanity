@@ -1008,7 +1008,8 @@ export function bucketsFor(
       } else if (mode === 'churn') {
         // Same gate `colorFor` uses, so a wedge the map left gray is not given a band here.
         if (s && s.ageDays !== null) {
-          const band = CHURN_BANDS.find((b) => s.commits >= b.min) ?? CHURN_BANDS[CHURN_BANDS.length - 1]
+          const band =
+            CHURN_BANDS.find((b) => s.commits >= b.min) ?? CHURN_BANDS[CHURN_BANDS.length - 1]
           put(band.label, band.label, '', n, s.churn)
         } else {
           put(UNKNOWN, 'no git history', 'var(--unanalyzed)', n)

@@ -40,7 +40,6 @@
 //! Its cost was one decode step per token of every body scored, which is why `min_lines`
 //! exists on the trait and why the whole thing wanted a persistent cache.
 
-
 pub struct Item<'a> {
     pub name: &'a str,
     pub signature: &'a str,
@@ -123,7 +122,6 @@ impl SurpriseModel for HeuristicModel {
     }
 }
 
-
 /// A place in the body the model did not see coming, and what it expected instead.
 ///
 /// This is the contrastive summary, and it costs nothing extra: forced decoding already
@@ -152,10 +150,7 @@ pub struct Reading {
 
 impl Reading {
     pub fn plain(surprise: f32) -> Reading {
-        Reading {
-            surprise,
-            hotspots: Vec::new(),
-        }
+        Reading { surprise, hotspots: Vec::new() }
     }
 }
 
@@ -173,8 +168,6 @@ pub(crate) fn calibrate_surprisal(bits: f32) -> f32 {
     const UNEXPECTED: f32 = 4.0;
     ((bits - PREDICTABLE) / (UNEXPECTED - PREDICTABLE)).clamp(0.0, 1.0)
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -201,5 +194,4 @@ mod tests {
         };
         assert_eq!(HeuristicModel.surprise(&item, 0.73).surprise, 0.73);
     }
-
 }

@@ -108,9 +108,7 @@ export function CodeBlock({
 
   return (
     <>
-      {caveat && (
-        <p className="mb-1 text-[10px] leading-snug text-[var(--warning)]">{caveat}</p>
-      )}
+      {caveat && <p className="mb-1 text-[10px] leading-snug text-[var(--warning)]">{caveat}</p>}
       {/* The button sits ON the box rather than beside it: the box is the whole width of the
           pane and a control in the row above would be a second row of chrome per snippet.
           Quiet, never absent — it came up to full on hover from nothing at all, which is an

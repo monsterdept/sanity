@@ -209,8 +209,7 @@ export interface Node {
 export function pruneExcluded(node: Node): Node {
   if (node.kind === 'func') return node
   const children = node.children.filter((c) => !c.excluded).map(pruneExcluded)
-  const loc =
-    node.kind === 'file' ? node.loc : children.reduce((t, c) => t + c.loc, 0)
+  const loc = node.kind === 'file' ? node.loc : children.reduce((t, c) => t + c.loc, 0)
   return { ...node, children, loc }
 }
 
@@ -428,8 +427,6 @@ export function agentActivity(): Promise<AgentActivity> {
   }))
 }
 
-
-
 /** Pick a repo and hand it to Sanity.
  *
  *  Resolves to the chosen path, or null if the picker was dismissed. Rejects with a
@@ -602,10 +599,6 @@ export function stopCheck(key: string): Promise<void> {
   return invoke<void>('stop_check', { key })
 }
 
-
-
-
-
 /** How much there is to read in a project: its functions AND its files.
  *
  *  One helper because the sum is a claim, and three call sites each adding two fields is
@@ -769,10 +762,7 @@ export function openCodeWindow(repo: string, relPath: string): Promise<void> {
  *  the same two seconds wherever you went, because it was paced by the size of the repo
  *  rather than of the directory. A path the tree does not hold is simply absent from the
  *  answer. */
-export async function fileFunctions(
-  key: string,
-  paths: string[],
-): Promise<Map<string, Node[]>> {
+export async function fileFunctions(key: string, paths: string[]): Promise<Map<string, Node[]>> {
   const wire = await invoke<Record<string, WireNode[]>>('file_functions', { key, paths })
   return new Map(Object.entries(wire).map(([path, fns]) => [path, fns.map(toNode)]))
 }
@@ -1014,7 +1004,12 @@ export function isReportStale(r: AgentReport, node: Node): boolean {
 /** Exported so the summary can paint a grade with the ramp the map paints it with. The
  *  spacing is deliberately uneven — see `HEAT_WORDS` — so a panel that re-derived its own
  *  swatches from an even 0/⅓/⅔/1 would show four colors the map never uses. */
-export const GRADE_SURPRISE: Record<Grade, number> = { full: 0.08, most: 0.3, some: 0.62, none: 0.92 }
+export const GRADE_SURPRISE: Record<Grade, number> = {
+  full: 0.08,
+  most: 0.3,
+  some: 0.62,
+  none: 0.92,
+}
 const GRADE_DOCUMENTED: Record<Grade, number> = { full: 0.95, most: 0.7, some: 0.35, none: 0 }
 
 /** The same four steps as the GAP they leave — what the Docs lens paints.
@@ -1468,10 +1463,6 @@ export function summarize(root: Node): RepoSummary {
   return s
 }
 
-
-
-
-
 export async function scanRepo(path: string): Promise<Scan> {
   const w = await invoke<WireScan>('scan_repo', { req: { path } })
   return toScan(w)
@@ -1492,8 +1483,6 @@ function toScan(w: WireScan): Scan {
     },
   }
 }
-
-
 
 export interface Upgrade {
   surprise: number
@@ -1547,79 +1536,80 @@ export function applyScores(root: Node, scores: Map<string, Upgrade>): Node {
  * waited for the final tree.
  */
 function reaggregate(node: Node, children: Node[]): Node {
-    let w = 0
-    let surprise = 0
-    let documented = 0
-    let churn = 0
-    let hot = 0
-    let analyzed = 0
-    let age: number | null = null
-    let touched: number | null = null
-    /** The strongest instrument anything under here was measured with. */
-    let src: Score['source'] = 'proxy'
-    for (const c of children) {
-      if (!c.score) continue
-      const cw = Math.max(c.loc, 1)
-      w += cw
-      surprise += c.score.surprise * cw
-      documented += c.score.documented * cw
-      churn += c.score.churn * cw
-      if (c.kind === 'func') {
-        if (c.score.source === 'model' || c.score.source === 'agent') {
-          analyzed += cw
-          if (temperature(c.score) > HOT) hot += cw
-        }
-      } else {
-        const ca = c.score.analyzedShare * cw
-        analyzed += ca
-        hot += c.score.hotShare * ca
+  let w = 0
+  let surprise = 0
+  let documented = 0
+  let churn = 0
+  let hot = 0
+  let analyzed = 0
+  let age: number | null = null
+  let touched: number | null = null
+  /** The strongest instrument anything under here was measured with. */
+  let src: Score['source'] = 'proxy'
+  for (const c of children) {
+    if (!c.score) continue
+    const cw = Math.max(c.loc, 1)
+    w += cw
+    surprise += c.score.surprise * cw
+    documented += c.score.documented * cw
+    churn += c.score.churn * cw
+    if (c.kind === 'func') {
+      if (c.score.source === 'model' || c.score.source === 'agent') {
+        analyzed += cw
+        if (temperature(c.score) > HOT) hot += cw
       }
-      if (c.score.ageDays !== null) {
-        age = age === null ? c.score.ageDays : Math.max(age, c.score.ageDays)
-      }
-      // ...and was last touched when the most recent thing in it was. This was hardcoded
-      // `null` below, which is the same bug Rust's `aggregate` already fixed and this
-      // copy never got: any subtree an agent reported on was re-aggregated here, lost its
-      // last-touched date, and went gray in Age mode. The most-read directory in the repo
-      // was the one that looked least measured.
-      if (c.score.lastTouchedDays !== null) {
-        touched = touched === null ? c.score.lastTouchedDays : Math.min(touched, c.score.lastTouchedDays)
-      }
-      // An aggregate is measured by the best instrument that reached anything inside it.
-      // Hardcoding `proxy` made a directory built entirely from agent readings report
-      // "heuristic (no model)" — the one misstatement the panel is not allowed to make,
-      // in the row that exists to prevent it.
-      if (c.score.source === 'agent') src = 'agent'
-      else if (c.score.source === 'model' && src === 'proxy') src = 'model'
+    } else {
+      const ca = c.score.analyzedShare * cw
+      analyzed += ca
+      hot += c.score.hotShare * ca
     }
-    return {
-      ...node,
-      children,
-      score:
-        w > 0
-          ? {
-              surprise: surprise / w,
-              documented: documented / w,
-              churn: churn / w,
-              ageDays: age,
-              // Commits are NOT recomputed here: a directory has no single commit count
-              // and summing children double-counts a commit that touched twelve files.
-              // Rust fills it from the git log pass, which is the only place that still
-              // knows the distinct set — so carry that value rather than zeroing it, or
-              // every re-aggregated directory reports zero commits while its churn bar
-              // sits at 72.
-              commits: node.score?.commits ?? 0,
-              // Carried for the same reason and with the same danger: a directory's total
-              // counts a commit once, and summing children would count it once per file.
-              allCommits: node.score?.allCommits ?? null,
-              lastTouchedDays: touched,
-              provenance: 'source',
-              hotShare: analyzed > 0 ? hot / analyzed : 0,
-              source: src,
-              analyzedShare: analyzed / w,
-            }
-          : node.score,
+    if (c.score.ageDays !== null) {
+      age = age === null ? c.score.ageDays : Math.max(age, c.score.ageDays)
     }
+    // ...and was last touched when the most recent thing in it was. This was hardcoded
+    // `null` below, which is the same bug Rust's `aggregate` already fixed and this
+    // copy never got: any subtree an agent reported on was re-aggregated here, lost its
+    // last-touched date, and went gray in Age mode. The most-read directory in the repo
+    // was the one that looked least measured.
+    if (c.score.lastTouchedDays !== null) {
+      touched =
+        touched === null ? c.score.lastTouchedDays : Math.min(touched, c.score.lastTouchedDays)
+    }
+    // An aggregate is measured by the best instrument that reached anything inside it.
+    // Hardcoding `proxy` made a directory built entirely from agent readings report
+    // "heuristic (no model)" — the one misstatement the panel is not allowed to make,
+    // in the row that exists to prevent it.
+    if (c.score.source === 'agent') src = 'agent'
+    else if (c.score.source === 'model' && src === 'proxy') src = 'model'
+  }
+  return {
+    ...node,
+    children,
+    score:
+      w > 0
+        ? {
+            surprise: surprise / w,
+            documented: documented / w,
+            churn: churn / w,
+            ageDays: age,
+            // Commits are NOT recomputed here: a directory has no single commit count
+            // and summing children double-counts a commit that touched twelve files.
+            // Rust fills it from the git log pass, which is the only place that still
+            // knows the distinct set — so carry that value rather than zeroing it, or
+            // every re-aggregated directory reports zero commits while its churn bar
+            // sits at 72.
+            commits: node.score?.commits ?? 0,
+            // Carried for the same reason and with the same danger: a directory's total
+            // counts a commit once, and summing children would count it once per file.
+            allCommits: node.score?.allCommits ?? null,
+            lastTouchedDays: touched,
+            provenance: 'source',
+            hotShare: analyzed > 0 ? hot / analyzed : 0,
+            source: src,
+            analyzedShare: analyzed / w,
+          }
+        : node.score,
+  }
 }
 
 /** Stop the replay that is running. What it reached is kept and can be resumed — see
@@ -1706,8 +1696,6 @@ export function temperature(s: Score | null): number {
   if (!s) return 0
   return Math.max(0, Math.min(1, s.surprise))
 }
-
-
 
 /**
  * Why *this* wedge got *that* verdict, in facts about this code.

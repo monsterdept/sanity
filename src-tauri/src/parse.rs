@@ -238,9 +238,7 @@ fn func_kinds(lang: Lang) -> &'static [&'static str] {
         Lang::GdScript => &["function_definition"],
         // The C-family shader languages parse exactly like C, declarator chain and all.
         Lang::Glsl | Lang::Hlsl | Lang::Slang | Lang::GdShader => &["function_definition"],
-        Lang::Solidity => {
-            &["function_definition", "constructor_definition", "modifier_definition"]
-        }
+        Lang::Solidity => &["function_definition", "constructor_definition", "modifier_definition"],
         Lang::Starlark | Lang::Julia | Lang::Perl | Lang::Zsh | Lang::Jq | Lang::Groovy => {
             &["function_definition"]
         }
@@ -468,9 +466,8 @@ fn owner_of(node: TsNode, lang: Lang, src: &str) -> Option<String> {
             // `impl Foo` and `impl Trait for Foo` both name the owner through `type`; a
             // class or trait names it through `name`. Asking for the wrong one first
             // costs nothing and means neither language needs a branch here.
-            if let Some(named) = parent
-                .child_by_field_name("name")
-                .or_else(|| parent.child_by_field_name("type"))
+            if let Some(named) =
+                parent.child_by_field_name("name").or_else(|| parent.child_by_field_name("type"))
             {
                 chain.push(text(named, src).trim().to_string());
             }
@@ -500,17 +497,9 @@ fn python_docstring(body: TsNode, src: &str) -> Option<String> {
         }
         i += 1;
     };
-    let expr = if first.kind() == "expression_statement" {
-        first.named_child(0)?
-    } else {
-        first
-    };
-    (expr.kind() == "string").then(|| {
-        text(expr, src)
-            .trim_matches(|c| c == '"' || c == '\'')
-            .trim()
-            .to_string()
-    })
+    let expr = if first.kind() == "expression_statement" { first.named_child(0)? } else { first };
+    (expr.kind() == "string")
+        .then(|| text(expr, src).trim_matches(|c| c == '"' || c == '\'').trim().to_string())
 }
 
 fn strip_comment_markers(raw: &str) -> String {
@@ -656,9 +645,8 @@ pub fn file_doc(lang: Lang, src: &str) -> Option<String> {
                 }
                 // The first real declaration. A comment run touching it is ITS doc — see
                 // `leading_doc` — and must not also be handed over as the file's.
-                attached_last = runs
-                    .last()
-                    .is_some_and(|(_, end)| end + 1 >= child.start_position().row);
+                attached_last =
+                    runs.last().is_some_and(|(_, end)| end + 1 >= child.start_position().row);
                 break;
             }
             if !open_run.is_empty() {
@@ -807,9 +795,9 @@ fn accepts(node: TsNode, lang: Lang, kinds: &[&str], src: &str) -> bool {
         Lang::FSharp => first_of_kind(node, "function_declaration_left").is_some(),
         // `add <- function(a) {}` — accept the assignment only when what is bound is a
         // function, exactly as `declarator_is_function` does for `const f = () => {}`.
-        Lang::R => node
-            .child_by_field_name("rhs")
-            .is_some_and(|v| v.kind() == "function_definition"),
+        Lang::R => {
+            node.child_by_field_name("rhs").is_some_and(|v| v.kind() == "function_definition")
+        }
         Lang::Nix => node
             .child_by_field_name("expression")
             .is_some_and(|v| v.kind() == "function_expression"),
@@ -828,9 +816,9 @@ fn accepts(node: TsNode, lang: Lang, kinds: &[&str], src: &str) -> bool {
         }
         // A Prolog `clause` is a rule (`head :- body`) or a bare fact. A fact has no body
         // to measure, so only rules are chunks.
-        Lang::Prolog => node
-            .child_by_field_name("term")
-            .is_some_and(|t| t.kind() == "binary_operation"),
+        Lang::Prolog => {
+            node.child_by_field_name("term").is_some_and(|t| t.kind() == "binary_operation")
+        }
         _ => true,
     }
 }
@@ -903,9 +891,7 @@ fn name_node<'a>(node: TsNode<'a>, lang: Lang) -> Option<TsNode<'a>> {
         // asking for it by field name returns nothing and every Elixir file parses as
         // empty.
         Lang::Elixir => {
-            let args = node
-                .children(&mut node.walk())
-                .find(|c| c.kind() == "arguments")?;
+            let args = node.children(&mut node.walk()).find(|c| c.kind() == "arguments")?;
             let first = args.named_child(0)?;
             first.child_by_field_name("target").or(Some(first))
         }
@@ -944,8 +930,9 @@ fn name_node<'a>(node: TsNode<'a>, lang: Lang) -> Option<TsNode<'a>> {
         Lang::Ada => first_of_kind(node, "procedure_specification")
             .or_else(|| first_of_kind(node, "function_specification"))?
             .child_by_field_name("name"),
-        Lang::Vhdl => first_of_kind(node, "function_specification")?
-            .child_by_field_name("function"),
+        Lang::Vhdl => {
+            first_of_kind(node, "function_specification")?.child_by_field_name("function")
+        }
         Lang::Pascal => first_of_kind(node, "declProc")?.child_by_field_name("name"),
         Lang::Elm => first_of_kind(node, "function_declaration_left")?.named_child(0),
         // `function(add a)` — CMake's name is simply the first argument.
@@ -978,23 +965,11 @@ fn body_node<'a>(node: TsNode<'a>, lang: Lang) -> Option<TsNode<'a>> {
     match lang {
         // These bind the function one level down — the name is on the node, the body is
         // inside whatever the name was bound TO.
-        Lang::R => {
-            return node
-                .child_by_field_name("rhs")?
-                .child_by_field_name("body")
-        }
-        Lang::Nix => {
-            return node
-                .child_by_field_name("expression")?
-                .child_by_field_name("body")
-        }
+        Lang::R => return node.child_by_field_name("rhs")?.child_by_field_name("body"),
+        Lang::Nix => return node.child_by_field_name("expression")?.child_by_field_name("body"),
         Lang::Odin => return first_of_kind(first_of_kind(node, "procedure")?, "block"),
         // A Prolog rule is `head :- body`; the body is the right operand.
-        Lang::Prolog => {
-            return node
-                .child_by_field_name("term")?
-                .child_by_field_name("right")
-        }
+        Lang::Prolog => return node.child_by_field_name("term")?.child_by_field_name("right"),
         // Godot's shader grammar spells the field `block` where C spells it `body`.
         Lang::GdShader => return node.child_by_field_name("block"),
         _ => {}
@@ -1018,11 +993,7 @@ fn body_node<'a>(node: TsNode<'a>, lang: Lang) -> Option<TsNode<'a>> {
         // field lookup above misses it and it has to be matched by name.
         Lang::Cmake => "body",
         // `const Foo = () => {}` hangs the body off the initializer, not the declarator.
-        _ => {
-            return node
-                .child_by_field_name("value")
-                .and_then(|v| v.child_by_field_name("body"))
-        }
+        _ => return node.child_by_field_name("value").and_then(|v| v.child_by_field_name("body")),
     };
     node.children(&mut node.walk()).find(|c| c.kind() == kind)
 }
@@ -1069,9 +1040,9 @@ fn header_end(node: TsNode, lang: Lang) -> Option<usize> {
                 .or_else(|| node.child_by_field_name("parameters"))
                 .or_else(|| node.child_by_field_name("name")),
         ),
-        Lang::Verilog | Lang::SystemVerilog => end_of(
-            first_of_kind(node, "tf_port_list").or_else(|| name_node(node, lang)),
-        ),
+        Lang::Verilog | Lang::SystemVerilog => {
+            end_of(first_of_kind(node, "tf_port_list").or_else(|| name_node(node, lang)))
+        }
         Lang::OCamlLex => end_of(node.child_by_field_name("name")),
         // `(define (add a) body...)` — the header is the name-and-parameters list.
         Lang::Scheme | Lang::Racket => end_of(node.named_child(1)),
@@ -1287,10 +1258,9 @@ fn call_sites(lang: Lang) -> &'static [(&'static str, Option<&'static str>)] {
         // `field_expression` (`s->c()`) and `qualified_identifier` (`std::make_unique<T>()`)
         // are both reached by following fields — see `callee_name`.
         Lang::C | Lang::Cpp => &[("call_expression", Some("function"))],
-        Lang::Java => &[
-            ("method_invocation", Some("name")),
-            ("object_creation_expression", Some("type")),
-        ],
+        Lang::Java => {
+            &[("method_invocation", Some("name")), ("object_creation_expression", Some("type"))]
+        }
         Lang::CSharp => &[
             ("invocation_expression", Some("function")),
             ("object_creation_expression", Some("type")),
@@ -1315,10 +1285,9 @@ fn call_sites(lang: Lang) -> &'static [(&'static str, Option<&'static str>)] {
             &[("call_expression", Some("function"))]
         }
         // QML's grammar is JavaScript's below the object layer, so a call is a call.
-        Lang::Qml => &[
-            ("call_expression", Some("function")),
-            ("new_expression", Some("constructor")),
-        ],
+        Lang::Qml => {
+            &[("call_expression", Some("function")), ("new_expression", Some("constructor"))]
+        }
         Lang::Cfml => &[("call_expression", Some("function"))],
         Lang::Luau => &[("function_call", Some("name"))],
         // A shell script cannot tell calling a function it defines from running `grep`, and
@@ -1330,10 +1299,9 @@ fn call_sites(lang: Lang) -> &'static [(&'static str, Option<&'static str>)] {
         Lang::Elixir => &[("call", Some("target"))],
         // A keyword message repeats `method` once per selector part, so `[x c:1 d:2]` is
         // recorded against `c`. The first part is what a reader would name it by.
-        Lang::ObjC => &[
-            ("call_expression", Some("function")),
-            ("message_expression", Some("method")),
-        ],
+        Lang::ObjC => {
+            &[("call_expression", Some("function")), ("message_expression", Some("method"))]
+        }
         Lang::Haskell => &[("apply", Some("function"))],
         Lang::Elm => &[("function_call_expr", Some("target"))],
         Lang::R => &[("call", Some("function"))],
@@ -1341,10 +1309,9 @@ fn call_sites(lang: Lang) -> &'static [(&'static str, Option<&'static str>)] {
         // see `skip_fields`.
         Lang::Julia => &[("call_expression", None)],
         Lang::Erlang => &[("call", Some("expr"))],
-        Lang::Groovy => &[
-            ("method_invocation", Some("name")),
-            ("object_creation_expression", Some("type")),
-        ],
+        Lang::Groovy => {
+            &[("method_invocation", Some("name")), ("object_creation_expression", Some("type"))]
+        }
         Lang::Gleam => &[("function_call", Some("function"))],
         Lang::Odin => &[("call_expression", Some("function"))],
         // Perl distinguishes `b()`, `b 1` and `&b()` at the top and shares one bareword node
@@ -1364,19 +1331,13 @@ fn call_sites(lang: Lang) -> &'static [(&'static str, Option<&'static str>)] {
         // would be recorded as a call to `T`. A wrong edge is worse than a missing one.
         Lang::PowerShell => &[("command", Some("command_name"))],
         Lang::Pascal => &[("exprCall", Some("entity"))],
-        Lang::Ada => &[
-            ("procedure_call_statement", Some("name")),
-            ("function_call", Some("name")),
-        ],
+        Lang::Ada => &[("procedure_call_statement", Some("name")), ("function_call", Some("name"))],
         Lang::Starlark => &[("call", Some("function"))],
         Lang::Nix => &[("apply_expression", Some("function"))],
         // `c(1)` is a call or an array read and Fortran's grammar cannot tell either; the
         // resolver's own filter decides it, and an array sharing a name with a function in
         // the same repo is the residue.
-        Lang::Fortran => &[
-            ("subroutine_call", Some("subroutine")),
-            ("call_expression", None),
-        ],
+        Lang::Fortran => &[("subroutine_call", Some("subroutine")), ("call_expression", None)],
         // Every command, because CMake cannot tell one it defined from `message` — the same
         // filter the shells lean on.
         Lang::Cmake => &[("normal_command", None)],
@@ -1430,7 +1391,8 @@ fn skip_fields(lang: Lang) -> &'static [&'static str] {
 /// C++ repo would have every smart-pointer construction recorded as a call to whatever type
 /// it holds. Following `name` through `qualified_identifier` and then through
 /// `template_function` yields `make_unique`, which is the thing being called.
-const CALLEE_FIELDS: &[&str] = &["name", "field", "property", "method", "attribute", "member", "suffix"];
+const CALLEE_FIELDS: &[&str] =
+    &["name", "field", "property", "method", "attribute", "member", "suffix"];
 
 /// How many wrappers deep to chase a callee before giving up. A generous ceiling on a
 /// structure that is three or four deep in the worst real case; it exists so a pathological
@@ -1674,104 +1636,53 @@ mod tests {
         assert_eq!(calls(Lang::Hlsl, "void a(){ b(); }"), ["b"]);
         assert_eq!(calls(Lang::Slang, "void a(){ b(); }"), ["b"]);
         assert_eq!(
-            calls(
-                Lang::Qml,
-                "Item {\n  function a(){ b(); x.c(); new D(); }\n}\n"
-            ),
+            calls(Lang::Qml, "Item {\n  function a(){ b(); x.c(); new D(); }\n}\n"),
             ["b", "c", "D"]
         );
         assert_eq!(calls(Lang::Cfml, "function a(){ b(); x.c(); }"), ["b", "c"]);
-        assert_eq!(
-            calls(Lang::Luau, "function a() b() x.c() y:d() end"),
-            ["b", "c", "d"]
-        );
+        assert_eq!(calls(Lang::Luau, "function a() b() x.c() y:d() end"), ["b", "c", "d"]);
         assert_eq!(calls(Lang::Shell, "a() {\n  b\n  c arg\n}\n"), ["b", "c"]);
         assert_eq!(calls(Lang::Zsh, "a() {\n  b\n  c arg\n}\n"), ["b", "c"]);
         // `def` itself is a call, and the function node is the one place it must not count.
+        assert_eq!(calls(Lang::Elixir, "def a do\n  b()\n  X.c()\nend\n"), ["b", "c"]);
         assert_eq!(
-            calls(Lang::Elixir, "def a do\n  b()\n  X.c()\nend\n"),
-            ["b", "c"]
-        );
-        assert_eq!(
-            calls(
-                Lang::ObjC,
-                "@implementation K\n- (void)a { b(); [x c:1 d:2]; }\n@end\n"
-            ),
+            calls(Lang::ObjC, "@implementation K\n- (void)a { b(); [x c:1 d:2]; }\n@end\n"),
             ["b", "c"]
         );
         assert_eq!(calls(Lang::Haskell, "a x = b (M.c x)\n"), ["b", "c"]);
         assert_eq!(calls(Lang::Elm, "a = b (c 1)\n"), ["b", "c"]);
-        assert_eq!(
-            calls(Lang::R, "a <- function() { b(); x$c() }\n"),
-            ["b", "c"]
-        );
+        assert_eq!(calls(Lang::R, "a <- function() { b(); x$c() }\n"), ["b", "c"]);
         // The signature is a call expression, so `a` must not appear in its own list.
-        assert_eq!(
-            calls(Lang::Julia, "function a(x)\n  b()\n  X.c()\nend\n"),
-            ["b", "c"]
-        );
+        assert_eq!(calls(Lang::Julia, "function a(x)\n  b()\n  X.c()\nend\n"), ["b", "c"]);
         assert_eq!(calls(Lang::Erlang, "a() -> b(), x:c().\n"), ["b", "c"]);
-        assert_eq!(
-            calls(Lang::Groovy, "def a() { b(); x.c(); new D() }\n"),
-            ["b", "c", "D"]
-        );
+        assert_eq!(calls(Lang::Groovy, "def a() { b(); x.c(); new D() }\n"), ["b", "c", "D"]);
         assert_eq!(calls(Lang::Gleam, "fn a() { b() c.d() }\n"), ["b", "d"]);
-        assert_eq!(
-            calls(Lang::Odin, "a :: proc() { b(); x.c() }\n"),
-            ["b", "c"]
-        );
-        assert_eq!(
-            calls(Lang::Perl, "sub a { b(); c 1; $x->d(); &e(); }\n"),
-            ["b", "c", "d", "e"]
-        );
+        assert_eq!(calls(Lang::Odin, "a :: proc() { b(); x.c() }\n"), ["b", "c"]);
+        assert_eq!(calls(Lang::Perl, "sub a { b(); c 1; $x->d(); &e(); }\n"), ["b", "c", "d", "e"]);
         assert_eq!(calls(Lang::D, "void a(){ b(); x.c(); }\n"), ["b", "c"]);
         assert_eq!(
-            calls(
-                Lang::Solidity,
-                "contract K { function a() public { b(); x.c(); } }\n"
-            ),
+            calls(Lang::Solidity, "contract K { function a() public { b(); x.c(); } }\n"),
             ["b", "c"]
         );
-        assert_eq!(
-            calls(Lang::FSharp, "let a () =\n    b ()\n    x.c ()\n"),
-            ["b", "c"]
-        );
+        assert_eq!(calls(Lang::FSharp, "let a () =\n    b ()\n    x.c ()\n"), ["b", "c"]);
         assert_eq!(calls(Lang::OCaml, "let a x = b (M.c x)\n"), ["b", "c"]);
         assert_eq!(
-            calls(
-                Lang::VisualBasic,
-                "Class K\n Sub A()\n  B()\n  x.C()\n End Sub\nEnd Class\n"
-            ),
+            calls(Lang::VisualBasic, "Class K\n Sub A()\n  B()\n  x.C()\n End Sub\nEnd Class\n"),
             ["B", "C"]
         );
+        assert_eq!(calls(Lang::PowerShell, "function a {\n  b\n  c 1\n}\n"), ["b", "c"]);
         assert_eq!(
-            calls(Lang::PowerShell, "function a {\n  b\n  c 1\n}\n"),
+            calls(Lang::Pascal, "procedure a;\nbegin\n  b();\n  x.c();\nend;\n"),
             ["b", "c"]
         );
         assert_eq!(
-            calls(
-                Lang::Pascal,
-                "procedure a;\nbegin\n  b();\n  x.c();\nend;\n"
-            ),
-            ["b", "c"]
-        );
-        assert_eq!(
-            calls(
-                Lang::Ada,
-                "procedure A is\nbegin\n  B;\n  X := C (1);\nend A;\n"
-            ),
+            calls(Lang::Ada, "procedure A is\nbegin\n  B;\n  X := C (1);\nend A;\n"),
             ["B", "C"]
         );
-        assert_eq!(
-            calls(Lang::Starlark, "def a():\n  b()\n  x.c()\n"),
-            ["b", "c"]
-        );
+        assert_eq!(calls(Lang::Starlark, "def a():\n  b()\n  x.c()\n"), ["b", "c"]);
         assert_eq!(calls(Lang::Nix, "{ a = x: b (c x); }\n"), ["b", "c"]);
         assert_eq!(
-            calls(
-                Lang::Fortran,
-                "subroutine a()\n  call b()\n  x = c(1)\nend subroutine\n"
-            ),
+            calls(Lang::Fortran, "subroutine a()\n  call b()\n  x = c(1)\nend subroutine\n"),
             ["b", "c"]
         );
         // The lisps: the definition form is the function node and cannot count as a call,
@@ -1779,18 +1690,9 @@ mod tests {
         assert_eq!(calls(Lang::Clojure, "(defn a [] (b) (x/c))\n"), ["b", "c"]);
         assert_eq!(calls(Lang::Scheme, "(define (a) (b) (c 1))\n"), ["b", "c"]);
         assert_eq!(calls(Lang::Racket, "(define (a) (b) (c 1))\n"), ["b", "c"]);
-        assert_eq!(
-            calls(Lang::CommonLisp, "(defun a (x)\n  (b)\n  (c 1))\n"),
-            ["b", "c"]
-        );
-        assert_eq!(
-            calls(Lang::Elisp, "(defun a (x y)\n  (b)\n  (c 1))\n"),
-            ["b", "c"]
-        );
-        assert_eq!(
-            calls(Lang::Cmake, "function(a)\n  b()\n  c(1)\nendfunction()\n"),
-            ["b", "c"]
-        );
+        assert_eq!(calls(Lang::CommonLisp, "(defun a (x)\n  (b)\n  (c 1))\n"), ["b", "c"]);
+        assert_eq!(calls(Lang::Elisp, "(defun a (x y)\n  (b)\n  (c 1))\n"), ["b", "c"]);
+        assert_eq!(calls(Lang::Cmake, "function(a)\n  b()\n  c(1)\nendfunction()\n"), ["b", "c"]);
         assert_eq!(calls(Lang::Prolog, "a(X) :- b(X), c(X, 1).\n"), ["b", "c"]);
     }
 
@@ -1888,10 +1790,7 @@ mod tests {
     }
 
     fn names(lang: Lang, src: &str) -> Vec<String> {
-        parse_functions(lang, src)
-            .into_iter()
-            .map(|f| f.name)
-            .collect()
+        parse_functions(lang, src).into_iter().map(|f| f.name).collect()
     }
 
     #[test]
@@ -1942,19 +1841,17 @@ class Store {
         assert!(got.contains(&"load".to_string()), "got {got:?}");
         assert!(!got.contains(&"NOT_A_FUNCTION".to_string()), "got {got:?}");
 
-        let panel = parse_functions(Lang::Tsx, src)
-            .into_iter()
-            .find(|f| f.name == "Panel")
-            .unwrap();
+        let panel =
+            parse_functions(Lang::Tsx, src).into_iter().find(|f| f.name == "Panel").unwrap();
         assert_eq!(panel.doc.as_deref(), Some("The component."));
     }
 
     /// Rust says which comments are the module's own, so nothing has to be guessed.
 
-
     #[test]
     fn rust_module_docs_are_the_file_doc() {
-        let src = "//! The gate module.\n//! Opens and closes.\n\n/// Opens it.\npub fn open() {}\n";
+        let src =
+            "//! The gate module.\n//! Opens and closes.\n\n/// Opens it.\npub fn open() {}\n";
         assert_eq!(
             file_doc(Lang::Rust, src).as_deref(),
             Some("The gate module.\nOpens and closes.")
@@ -1978,7 +1875,8 @@ class Store {
     /// and describing none of them.
     #[test]
     fn a_license_header_is_not_documentation() {
-        let src = "// Copyright 2019 Someone\n// Licensed under the Apache License.\n\nfunc go() {}\n";
+        let src =
+            "// Copyright 2019 Someone\n// Licensed under the Apache License.\n\nfunc go() {}\n";
         assert_eq!(file_doc(Lang::Go, src), None);
     }
 
@@ -2116,10 +2014,7 @@ fn free_standing() -> u8 { 0 }
             Some("Store".into())
         );
         // Go hangs its receiver off the function itself, and `*S` is the same answer as `S`.
-        assert_eq!(
-            owner(Lang::Go, "func (s *S) Load() error { return nil }\n"),
-            Some("S".into())
-        );
+        assert_eq!(owner(Lang::Go, "func (s *S) Load() error { return nil }\n"), Some("S".into()));
         // A generic receiver names the type, never its type parameter. Taking the last
         // identifier run returned `T` here, so every method on a generic type was
         // attributed to `T` — and the doc comment claimed otherwise, which is how it was
@@ -2151,9 +2046,12 @@ fn free_standing() -> u8 { 0 }
 
         // One level is still one level — no trailing path where there is no nesting.
         assert_eq!(
-            parse_functions(Lang::Python, "class Suggester:\n    def next(self):\n        return 1\n")[0]
-                .owner
-                .as_deref(),
+            parse_functions(
+                Lang::Python,
+                "class Suggester:\n    def next(self):\n        return 1\n"
+            )[0]
+            .owner
+            .as_deref(),
             Some("Suggester")
         );
     }
@@ -2190,7 +2088,9 @@ fn free_standing() -> u8 { 0 }
                 // never walked and a test that put it there passed against the recursion
                 // it was written to catch.
                 let chain = vec!["1"; 50_000].join(" | ");
-                let src = format!("static const int table[] = {{ {chain} }};\nint after(void) {{ return 0; }}\n");
+                let src = format!(
+                    "static const int table[] = {{ {chain} }};\nint after(void) {{ return 0; }}\n"
+                );
                 parse_functions(Lang::C, &src)
             })
             .unwrap()
@@ -2233,11 +2133,7 @@ class SentenceSuggester {
         let by = |n: &str| fns.iter().find(|f| f.name == n).expect(n).clone();
 
         assert_eq!(by("init").doc, None, "an undocumented init has no docs, not its owner's");
-        assert_eq!(
-            by("untouched").doc,
-            None,
-            "nor does an undocumented method one level down"
-        );
+        assert_eq!(by("untouched").doc, None, "nor does an undocumented method one level down");
         // The ones that really are documented still are.
         assert!(by("next").doc.unwrap().contains("next suggestion"));
     }
@@ -2294,15 +2190,7 @@ private:
         let names: Vec<&str> = fns.iter().map(|f| f.name.as_str()).collect();
         assert_eq!(
             names,
-            vec![
-                "Val",
-                "store",
-                "operator T() const",
-                "operator=",
-                "setWhite",
-                "step",
-                "reset"
-            ]
+            vec!["Val", "store", "operator T() const", "operator=", "setWhite", "step", "reset"]
         );
 
         // Not the namespace, and not a data member. The constructor `Val(T x) : v(x) {}`
@@ -2515,4 +2403,3 @@ extension Thing {
         assert_eq!(fns.len(), 1);
     }
 }
-

@@ -286,11 +286,13 @@ fn resolve(
     if same_family.is_empty() {
         return Vec::new();
     }
-    let here: Vec<Site> = same_family.iter().filter(|(_, _, s)| s.0 == file).map(|(_, _, s)| *s).collect();
+    let here: Vec<Site> =
+        same_family.iter().filter(|(_, _, s)| s.0 == file).map(|(_, _, s)| *s).collect();
     if !here.is_empty() {
         return here;
     }
-    let near: Vec<Site> = same_family.iter().filter(|(_, d, _)| *d == dir).map(|(_, _, s)| *s).collect();
+    let near: Vec<Site> =
+        same_family.iter().filter(|(_, d, _)| *d == dir).map(|(_, _, s)| *s).collect();
     if !near.is_empty() {
         return near;
     }
@@ -321,10 +323,8 @@ mod tests {
 
     /// `wire` over a fixed set of files, so a test reads as the repo it describes.
     fn wired(files: &[(&str, Lang, Vec<FuncDef>)]) -> Wiring {
-        let views: Vec<FileView<'_>> = files
-            .iter()
-            .map(|(p, l, f)| FileView { path: p, lang: *l, funcs: f })
-            .collect();
+        let views: Vec<FileView<'_>> =
+            files.iter().map(|(p, l, f)| FileView { path: p, lang: *l, funcs: f }).collect();
         wire(&views)
     }
 
@@ -449,11 +449,8 @@ mod tests {
     /// A mutual pair is one neighbour each, not two.
     #[test]
     fn a_mutual_pair_counts_once_from_each_side() {
-        let w = wired(&[(
-            "a.rs",
-            Lang::Rust,
-            vec![def("ping", &["pong"]), def("pong", &["ping"])],
-        )]);
+        let w =
+            wired(&[("a.rs", Lang::Rust, vec![def("ping", &["pong"]), def("pong", &["ping"])])]);
         assert_eq!(w.at(0, 0).unwrap().incident, 1);
         assert_eq!(w.at(0, 1).unwrap().incident, 1);
     }

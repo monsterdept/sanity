@@ -275,70 +275,75 @@ export function CodeView({
         onScroll={() => setScrollTick((n) => n + 1)}
         className="absolute inset-y-0 left-0 right-[74px] overflow-auto"
       >
-      <table className="w-max min-w-full border-collapse font-mono text-[11.5px] leading-[1.55]">
-        <tbody>
-          {lines.map((line, i) => {
-            const n = i + 1
-            const owner = owners.get(n)
-            const analyzed = owner ? isAnalyzed(owner) : false
-            const heat = owner && analyzed ? paintHeat(owner) : null
-            const isSel = owner != null && selected?.id === owner.id
-            const isFirst = owner != null && owner.line === n
-            return (
-              <tr
-                key={n}
-                data-line={n}
-                onClick={() => owner && onSelect(owner)}
-                className={owner ? 'cursor-pointer' : undefined}
-                // The reading, as a wash behind the whole chunk.
-                //
-                // Background and text are different channels, so this doesn't fight the
-                // syntax colors the way tinting the code itself would — and at a fixed
-                // 16% the ramp carries the value while the text stays at full contrast.
-                // Fixed rather than scaled by heat: fading the alpha with the reading
-                // would encode the same number twice, and the cool end would disappear
-                // instead of saying "measured, and cold".
-                style={{
-                  background: isSel
-                    ? 'color-mix(in oklch, var(--accent) 22%, transparent)'
-                    : heat !== null
-                      ? `color-mix(in oklch, ${heatColor(heat)} 16%, transparent)`
-                      : undefined,
-                }}
-              >
-                {/* The gutter keeps its full-strength bar. The wash behind the code is
+        <table className="w-max min-w-full border-collapse font-mono text-[11.5px] leading-[1.55]">
+          <tbody>
+            {lines.map((line, i) => {
+              const n = i + 1
+              const owner = owners.get(n)
+              const analyzed = owner ? isAnalyzed(owner) : false
+              const heat = owner && analyzed ? paintHeat(owner) : null
+              const isSel = owner != null && selected?.id === owner.id
+              const isFirst = owner != null && owner.line === n
+              return (
+                <tr
+                  key={n}
+                  data-line={n}
+                  onClick={() => owner && onSelect(owner)}
+                  className={owner ? 'cursor-pointer' : undefined}
+                  // The reading, as a wash behind the whole chunk.
+                  //
+                  // Background and text are different channels, so this doesn't fight the
+                  // syntax colors the way tinting the code itself would — and at a fixed
+                  // 16% the ramp carries the value while the text stays at full contrast.
+                  // Fixed rather than scaled by heat: fading the alpha with the reading
+                  // would encode the same number twice, and the cool end would disappear
+                  // instead of saying "measured, and cold".
+                  style={{
+                    background: isSel
+                      ? 'color-mix(in oklch, var(--accent) 22%, transparent)'
+                      : heat !== null
+                        ? `color-mix(in oklch, ${heatColor(heat)} 16%, transparent)`
+                        : undefined,
+                  }}
+                >
+                  {/* The gutter keeps its full-strength bar. The wash behind the code is
                     deliberately too faint to compare wedge to wedge; this is the edge
                     you can actually scan down. */}
-                <td
-                  className="w-[3px] p-0"
-                  style={{
-                    background: heat !== null ? heatColor(heat) : owner ? 'var(--unanalyzed)' : 'transparent',
-                  }}
-                />
-                <td className="select-none px-2 text-right align-top text-[var(--muted-foreground)] opacity-50 tabular-nums">
-                  {n}
-                </td>
-                <td className="w-full whitespace-pre pr-4 align-top">
-                  {tokenize(line).map((t, j) => (
-                    <span key={j} className={t.cls}>
-                      {t.text}
-                    </span>
-                  ))}
-                  {/* Only the unmeasured case still says anything in words. A number on
+                  <td
+                    className="w-[3px] p-0"
+                    style={{
+                      background:
+                        heat !== null
+                          ? heatColor(heat)
+                          : owner
+                            ? 'var(--unanalyzed)'
+                            : 'transparent',
+                    }}
+                  />
+                  <td className="select-none px-2 text-right align-top text-[var(--muted-foreground)] opacity-50 tabular-nums">
+                    {n}
+                  </td>
+                  <td className="w-full whitespace-pre pr-4 align-top">
+                    {tokenize(line).map((t, j) => (
+                      <span key={j} className={t.cls}>
+                        {t.text}
+                      </span>
+                    ))}
+                    {/* Only the unmeasured case still says anything in words. A number on
                       every function was noise once the wash carries it — but "nobody has
                       looked at this" is not a temperature, and no shade of the ramp can
                       state it. */}
-                  {isFirst && !analyzed && (
-                    <span className="ml-3 select-none text-[10px] italic text-[var(--muted-foreground)]">
-                      not measured
-                    </span>
-                  )}
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+                    {isFirst && !analyzed && (
+                      <span className="ml-3 select-none text-[10px] italic text-[var(--muted-foreground)]">
+                        not measured
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
       <Minimap
         lines={lines}

@@ -120,12 +120,7 @@ impl Cache {
                 model: model.to_string(),
                 entries: HashMap::new(),
             });
-        Cache {
-            path,
-            model: model.to_string(),
-            inner: Mutex::new(stored),
-            dirty: Mutex::new(0),
-        }
+        Cache { path, model: model.to_string(), inner: Mutex::new(stored), dirty: Mutex::new(0) }
     }
 
     /// One file per (repo, model).
@@ -152,10 +147,7 @@ impl Cache {
             .entries
             .get(&key.0)
             .filter(|e| e.body_hash == key.1)
-            .map(|e| Reading {
-                surprise: e.surprise,
-                hotspots: e.hotspots.clone(),
-            })
+            .map(|e| Reading { surprise: e.surprise, hotspots: e.hotspots.clone() })
     }
 
     pub fn put(&self, key: &(String, u64), reading: &Reading) {
@@ -304,17 +296,14 @@ mod tests {
             model: "old-model".into(),
             entries: HashMap::from([(
                 "src/a.rs#run".to_string(),
-                Entry {
-                    body_hash: 1,
-                    surprise: 0.9,
-                    hotspots: Vec::new(),
-                },
+                Entry { body_hash: 1, surprise: 0.9, hotspots: Vec::new() },
             )]),
         };
         let path = dir.path().join("c.json");
         std::fs::write(&path, serde_json::to_string(&stored).unwrap()).unwrap();
 
-        let loaded: Stored = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let loaded: Stored =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         // The filter `open` applies: a different model means a different instrument.
         assert!(loaded.model != "new-model");
     }

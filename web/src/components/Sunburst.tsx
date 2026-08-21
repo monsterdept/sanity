@@ -466,9 +466,7 @@ function SunburstView({
     if (!el) return
     const ro = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect
-      setBox((prev) =>
-        prev.w === width && prev.h === height ? prev : { w: width, h: height },
-      )
+      setBox((prev) => (prev.w === width && prev.h === height ? prev : { w: width, h: height }))
     })
     ro.observe(el)
     return () => ro.disconnect()
@@ -647,10 +645,7 @@ function SunburstView({
    *  `FileZoom` unrolls its tiling into the pane instead, which is the same cells this
    *  pass would have drawn, projected out of the wedge they were already in. So the
    *  full-circle special case stays gone: there is no ring to be full. */
-  const fileWedges = useMemo<Wedge[]>(
-    () => wedges.filter((w) => w.node.kind === 'file'),
-    [wedges],
-  )
+  const fileWedges = useMemo<Wedge[]>(() => wedges.filter((w) => w.node.kind === 'file'), [wedges])
 
   /** How far through the level change we are, 0..1. `1` means nothing is moving.
    *
@@ -734,7 +729,6 @@ function SunburstView({
    *  two axes differently through `xMidYMid` and oval them. The larger dimension decides,
    *  so nothing is cropped. */
 
-
   /** Ring thickness follows the depth actually present, so a shallow project fills the
    *  canvas instead of drawing three rings and a lot of empty paper.
    *
@@ -759,7 +753,8 @@ function SunburstView({
    *  of hundred wedges sixty times a second is work with no output. */
   const fills = useMemo(() => {
     const m = new Map<string, ReturnType<typeof colorFor>>()
-    for (const w of wedges) if (w.node.kind !== 'func') m.set(w.node.id, colorFor(w.node, mode, ranks, ageSpan))
+    for (const w of wedges)
+      if (w.node.kind !== 'func') m.set(w.node.id, colorFor(w.node, mode, ranks, ageSpan))
     return m
   }, [wedges, mode, ranks, ageSpan])
 
@@ -863,9 +858,7 @@ function SunburstView({
     // its way out, then dropped. The clicked wedge is excluded: it has somewhere better
     // to be.
     leaving.current = prevWedges.current
-      .filter(
-        (w) => !target.has(w.node.id) && was.has(w.node.id) && w.node.id !== root.id,
-      )
+      .filter((w) => !target.has(w.node.id) && was.has(w.node.id) && w.node.id !== root.id)
       .map((w) => ({
         node: w.node,
         depth: w.depth,
@@ -1059,10 +1052,7 @@ function SunburstView({
    *  one. Interpolated together with the wedges, so the zoom and the movement are one
    *  thing rather than two that happen to overlap. */
   /** Which wedges will hang a name outside themselves. */
-  const fileIds = useMemo(
-    () => new Set(fileWedges.map((w) => w.node.id)),
-    [fileWedges],
-  )
+  const fileIds = useMemo(() => new Set(fileWedges.map((w) => w.node.id)), [fileWedges])
 
   /** Where a file's functions get tiled, or null when its wedge has no room to tile them
    *  at all. Extracted because there are two callers and they must not disagree: the
@@ -1133,49 +1123,46 @@ function SunburstView({
       if (birth || touch) escalated.set(n.id, flashPaint(birth ? 'birth' : 'touch'))
     }
   }
-  const viewTo = useMemo(
-    () => {
-      // An open file is fitted to the FAN it is opening into, not to a ring's extent —
-      // and to where it is GOING, so the box travels with the cells instead of snapping on
-      // the frame the movement ends. `extentOf` already folds the hub in, which is exactly
-      // right here: the fan's core IS the hub.
-      const fan = root.kind === 'file' ? fanOf(fileFrom.current, paneAspect) : null
-      // **A replay is fitted to the composition it will BECOME, not to the frame on screen.**
-      // The fit is measured off what is drawn, which is right for a map somebody is reading
-      // and wrong for a story: commit one is an empty repo, so the extent is the hub alone
-      // and the hub is blown up to fill the pane — a creature the size of a dinner plate,
-      // and then a map that pumps in and out for the next nine hundred commits as the
-      // outermost ring comes and goes. Nothing in that motion is about the code; it is the
-      // camera reacting to it.
-      //
-      // Pinned to the nominal circle instead, so the rings grow into a frame that holds
-      // still and the hub stays exactly where the playhead found it. The label band is
-      // included because file names hang outside their wedge and a fixed box cannot notice
-      // that it has clipped one.
-      if (morph && !fan) {
-        const reach = R_OUTER + LABEL_GAP + LABEL_BAND
-        return viewFor({ x0: -reach, x1: reach, y0: -reach, y1: reach }, MARGIN, CHROME_BOTTOM)
-      }
-      // File wedges are handed to the fit GROWN by the label ring they hang a name off.
-      // Without it the box is fitted to the wedges alone and the outermost names sit in
-      // whatever `MARGIN` happens to leave — which is a crop that depends on the repo.
-      // Only files that could actually HOLD a rim name reserve the band for one.
-      //
-      // Growing every file wedge meant a hairline reserved 24 units of label ring it will
-      // never use — invisible, because no name fits there, and the fit has no way to know
-      // that the extent it is being handed is mostly empty reservation. On a composition
-      // with one long thin wedge that is the whole asymmetry: the box was fitted to a
-      // sliver plus a label that was never drawn.
-      const grown = [...target.entries()].map(([id, g]) =>
-        fileIds.has(id) && (g.a1 - g.a0) * g.r1 >= RIM_MIN_ARC
-          ? { ...g, r1: g.r1 + LABEL_GAP + LABEL_BAND }
-          : g,
-      )
-      const geos = fan ? [arcOf(fan)] : grown
-      return viewFor(extentOf(geos, R_INNER), MARGIN, CHROME_BOTTOM)
-    },
-    [target, root.kind, root.id, paneAspect, fileIds, morph],
-  )
+  const viewTo = useMemo(() => {
+    // An open file is fitted to the FAN it is opening into, not to a ring's extent —
+    // and to where it is GOING, so the box travels with the cells instead of snapping on
+    // the frame the movement ends. `extentOf` already folds the hub in, which is exactly
+    // right here: the fan's core IS the hub.
+    const fan = root.kind === 'file' ? fanOf(fileFrom.current, paneAspect) : null
+    // **A replay is fitted to the composition it will BECOME, not to the frame on screen.**
+    // The fit is measured off what is drawn, which is right for a map somebody is reading
+    // and wrong for a story: commit one is an empty repo, so the extent is the hub alone
+    // and the hub is blown up to fill the pane — a creature the size of a dinner plate,
+    // and then a map that pumps in and out for the next nine hundred commits as the
+    // outermost ring comes and goes. Nothing in that motion is about the code; it is the
+    // camera reacting to it.
+    //
+    // Pinned to the nominal circle instead, so the rings grow into a frame that holds
+    // still and the hub stays exactly where the playhead found it. The label band is
+    // included because file names hang outside their wedge and a fixed box cannot notice
+    // that it has clipped one.
+    if (morph && !fan) {
+      const reach = R_OUTER + LABEL_GAP + LABEL_BAND
+      return viewFor({ x0: -reach, x1: reach, y0: -reach, y1: reach }, MARGIN, CHROME_BOTTOM)
+    }
+    // File wedges are handed to the fit GROWN by the label ring they hang a name off.
+    // Without it the box is fitted to the wedges alone and the outermost names sit in
+    // whatever `MARGIN` happens to leave — which is a crop that depends on the repo.
+    // Only files that could actually HOLD a rim name reserve the band for one.
+    //
+    // Growing every file wedge meant a hairline reserved 24 units of label ring it will
+    // never use — invisible, because no name fits there, and the fit has no way to know
+    // that the extent it is being handed is mostly empty reservation. On a composition
+    // with one long thin wedge that is the whole asymmetry: the box was fitted to a
+    // sliver plus a label that was never drawn.
+    const grown = [...target.entries()].map(([id, g]) =>
+      fileIds.has(id) && (g.a1 - g.a0) * g.r1 >= RIM_MIN_ARC
+        ? { ...g, r1: g.r1 + LABEL_GAP + LABEL_BAND }
+        : g,
+    )
+    const geos = fan ? [arcOf(fan)] : grown
+    return viewFor(extentOf(geos, R_INNER), MARGIN, CHROME_BOTTOM)
+  }, [target, root.kind, root.id, paneAspect, fileIds, morph])
   const viewFrom = useRef(viewTo)
   const viewNow = useRef(viewTo)
   if (startedRun.current !== run) {
@@ -1324,234 +1311,245 @@ function SunburstView({
             )
           })}
         <g ref={art} style={moving ? { pointerEvents: 'none' } : undefined}>
-        {/* The directory you opened, shrinking into the middle it is about to be.
+          {/* The directory you opened, shrinking into the middle it is about to be.
             Inside the fitted group, because it IS the arriving level's own hub and the box
             should be drawn around where it lands. Painted before everything else so it
             passes under the hub disc: it does not need to fade out, it is covered by the
             thing it turned into, which is what "became the core" should look like. */}
-        {moving && coring.current && (() => {
-          const g = lerpGeo(coring.current.from, coring.current.to, e)
-          const c = colorFor(coring.current.node, mode, ranks, ageSpan)
-          return (
-            <g>
-              <path
-                d={arcPath(g.a0, g.a1, g.r0, g.r1)}
-                fill="var(--structure)"
-                fillOpacity={1}
-                stroke="var(--background)"
-                strokeWidth={CUT.dir}
-              />
-              {dirRim(coring.current.node, c, g)}
-            </g>
-          )
-        })()}
-        {/* An open file: its own tiling, unrolled out of the wedge it came from.
+          {moving &&
+            coring.current &&
+            (() => {
+              const g = lerpGeo(coring.current.from, coring.current.to, e)
+              const c = colorFor(coring.current.node, mode, ranks, ageSpan)
+              return (
+                <g>
+                  <path
+                    d={arcPath(g.a0, g.a1, g.r0, g.r1)}
+                    fill="var(--structure)"
+                    fillOpacity={1}
+                    stroke="var(--background)"
+                    strokeWidth={CUT.dir}
+                  />
+                  {dirRim(coring.current.node, c, g)}
+                </g>
+              )
+            })()}
+          {/* An open file: its own tiling, unrolled out of the wedge it came from.
             It REPLACES the rings rather than joining them, because a file's contents are
             not an enclosure of further enclosures — they are the cells that were already
             inside its wedge, and there is no second level for a ring to describe. The
             `leaving` group above still runs, so the level being left flies outward around
             this as it opens. See `FileZoom`. */}
-        {/* The file being closed, rolling back into its wedge. Drawn inside the fitted
+          {/* The file being closed, rolling back into its wedge. Drawn inside the fitted
             group and before the arriving rings, so the level you are returning to comes up
             over it rather than under — the reverse of `leaving`, which flies outward past
             the rim and is drawn first for the same reason. */}
-        {moving && fileLeaving.current && (
-          <g style={{ pointerEvents: 'none' }}>
+          {moving && fileLeaving.current && (
+            <g style={{ pointerEvents: 'none' }}>
+              <FileZoom
+                root={fileLeaving.current.node}
+                // Backwards. `t` always runs 0→1 for the level arriving; what is LEAVING has
+                // to read that as 1→0, or the file would unroll again on its way out.
+                t={1 - e}
+                from={fileLeaving.current.from}
+                unitsPerPx={unitsPerPx}
+                paneAspect={paneAspect}
+                selected={null}
+                mode={mode}
+                ranks={ranks}
+                ageSpan={ageSpan}
+                minPatchArea={minPatchArea}
+                onSelect={() => {}}
+                onDrill={() => {}}
+                onHover={() => {}}
+                settled={false}
+              />
+            </g>
+          )}
+          {root.kind === 'file' && (
             <FileZoom
-              root={fileLeaving.current.node}
-              // Backwards. `t` always runs 0→1 for the level arriving; what is LEAVING has
-              // to read that as 1→0, or the file would unroll again on its way out.
-              t={1 - e}
-              from={fileLeaving.current.from}
+              root={root}
+              t={e}
+              from={fileFrom.current}
               unitsPerPx={unitsPerPx}
               paneAspect={paneAspect}
-              selected={null}
+              selected={selected}
               mode={mode}
               ranks={ranks}
               ageSpan={ageSpan}
               minPatchArea={minPatchArea}
-              onSelect={() => {}}
-              onDrill={() => {}}
-              onHover={() => {}}
-              settled={false}
+              onSelect={onSelect}
+              onDrill={onDrill}
+              onHover={setHoverNode}
             />
-          </g>
-        )}
-        {root.kind === 'file' && (
-          <FileZoom
-            root={root}
-            t={e}
-            from={fileFrom.current}
-            unitsPerPx={unitsPerPx}
-            paneAspect={paneAspect}
-            selected={selected}
-            mode={mode}
-            ranks={ranks}
-            ageSpan={ageSpan}
-            minPatchArea={minPatchArea}
-            onSelect={onSelect}
-            onDrill={onDrill}
-            onHover={setHoverNode}
-          />
-        )}
-        {/* Arcs first, dots after, so a dot is never buried under the ring it belongs to. */}
-        {root.kind !== 'file' && wedges
-          .filter((w) => w.node.kind !== 'func')
-          .map((w) => {
-          // Directories get the full gap and a visible rule; files sit tighter to the
-          // functions they contain, so the eye groups file-with-contents rather than
-          // file-with-neighboring-directory.
-          // Geometry comes from `geo`, which is the settled position when nothing is
-          // moving and a point on the way there when something is. One source, so the
-          // moving picture and the still one cannot disagree.
-          const g = geo(w.node.id)
-          const { a0, a1, r0, r1 } = g
-          // Directories used to be hard-nulled here, and that made `HEAT_BY_KIND.dir`
-          // dead code: the damping is applied as `fillOpacity` on a color, so a wedge
-          // with no color at all could never be damped, only blanked. Turning that
-          // constant up did nothing, which is a bad way for a policy to be stated twice.
-          //
-          // It also blanked directories in EVERY mode, while `heatShare` carves out an
-          // explicit exception for the other four — a directory's churn, age, owner and
-          // language are the same measurement over more code, so a gray inner ring there
-          // is a hole rather than restraint. That exception was unreachable.
-          //
-          // One mechanism now: `colorFor` decides WHAT a wedge means, `heatShare` decides
-          // how loudly its level says it.
-          // The wedge's own reading, or an event from below that has nowhere else to be
-          // drawn — see `escalated`. Its own comes first: a directory that is flashing its
-          // own arrival is already saying the loudest thing it has to say.
-          const c = fills.get(w.node.id) ?? escalated.get(w.node.id) ?? null
-          // A directory's reading goes on its rim, not through it — `DIR_RIM_PX`. What is
-          // left here is the plate, which is structure and takes the structural neutral,
-          // exactly as an unread directory always did.
-          const plate = w.node.kind === 'dir' ? null : c
-          // Agent verdicts and model surprisal are different instruments and must be
-          // told apart at a glance. Hue is spoken for — it is the reading itself — so the
-          // distinction goes on the outline.
+          )}
+          {/* Arcs first, dots after, so a dot is never buried under the ring it belongs to. */}
+          {root.kind !== 'file' &&
+            wedges
+              .filter((w) => w.node.kind !== 'func')
+              .map((w) => {
+                // Directories get the full gap and a visible rule; files sit tighter to the
+                // functions they contain, so the eye groups file-with-contents rather than
+                // file-with-neighboring-directory.
+                // Geometry comes from `geo`, which is the settled position when nothing is
+                // moving and a point on the way there when something is. One source, so the
+                // moving picture and the still one cannot disagree.
+                const g = geo(w.node.id)
+                const { a0, a1, r0, r1 } = g
+                // Directories used to be hard-nulled here, and that made `HEAT_BY_KIND.dir`
+                // dead code: the damping is applied as `fillOpacity` on a color, so a wedge
+                // with no color at all could never be damped, only blanked. Turning that
+                // constant up did nothing, which is a bad way for a policy to be stated twice.
+                //
+                // It also blanked directories in EVERY mode, while `heatShare` carves out an
+                // explicit exception for the other four — a directory's churn, age, owner and
+                // language are the same measurement over more code, so a gray inner ring there
+                // is a hole rather than restraint. That exception was unreachable.
+                //
+                // One mechanism now: `colorFor` decides WHAT a wedge means, `heatShare` decides
+                // how loudly its level says it.
+                // The wedge's own reading, or an event from below that has nowhere else to be
+                // drawn — see `escalated`. Its own comes first: a directory that is flashing its
+                // own arrival is already saying the loudest thing it has to say.
+                const c = fills.get(w.node.id) ?? escalated.get(w.node.id) ?? null
+                // A directory's reading goes on its rim, not through it — `DIR_RIM_PX`. What is
+                // left here is the plate, which is structure and takes the structural neutral,
+                // exactly as an unread directory always did.
+                const plate = w.node.kind === 'dir' ? null : c
+                // Agent verdicts and model surprisal are different instruments and must be
+                // told apart at a glance. Hue is spoken for — it is the reading itself — so the
+                // distinction goes on the outline.
 
-          const isSel = selected?.id === w.node.id
-          const isHover = hover?.node.id === w.node.id
-          const foldable = w.node.kind === 'dir' && w.node.children.length > 0
-          const isFolded = foldable && collapsed.has(w.node.id)
-          if (isSel) selMark = { d: arcPath(a0, a1, r0, r1), a0, a1, r0, kind: w.node.kind, width: 2 }
-          else if (isHover) hoverMark = { d: arcPath(a0, a1, r0, r1), width: 1.6 }
-          // Deepest wins: the file that holds the selection beats the directory that holds
-          // the file, because a narrower answer to "where is it" is a better one.
-          if (selTrail?.has(w.node.id) && (!selCoarse || w.depth > selCoarse.depth)) {
-            selCoarse = { d: arcPath(a0, a1, r0, r1), a0, a1, r0, kind: w.node.kind, depth: w.depth, width: 1.4 }
-          }
-          const isReading = pulsing?.has(w.node.id) ?? false
-          return (
-            <g key={w.node.id}>
-            {/* An invisible target, wider than the thing it selects.
+                const isSel = selected?.id === w.node.id
+                const isHover = hover?.node.id === w.node.id
+                const foldable = w.node.kind === 'dir' && w.node.children.length > 0
+                const isFolded = foldable && collapsed.has(w.node.id)
+                if (isSel)
+                  selMark = { d: arcPath(a0, a1, r0, r1), a0, a1, r0, kind: w.node.kind, width: 2 }
+                else if (isHover) hoverMark = { d: arcPath(a0, a1, r0, r1), width: 1.6 }
+                // Deepest wins: the file that holds the selection beats the directory that holds
+                // the file, because a narrower answer to "where is it" is a better one.
+                if (selTrail?.has(w.node.id) && (!selCoarse || w.depth > selCoarse.depth)) {
+                  selCoarse = {
+                    d: arcPath(a0, a1, r0, r1),
+                    a0,
+                    a1,
+                    r0,
+                    kind: w.node.kind,
+                    depth: w.depth,
+                    width: 1.4,
+                  }
+                }
+                const isReading = pulsing?.has(w.node.id) ?? false
+                return (
+                  <g key={w.node.id}>
+                    {/* An invisible target, wider than the thing it selects.
                 A file's own visible area is the rim its functions do not cover — about
                 three pixels, which is a coin-flip to hit and the reason selecting a file
                 meant several tries. This spans the whole band plus half the gutter on
                 either side, drawn UNDER the functions so they still take their own
                 clicks. Nothing about the picture changes; only the part of it that
                 answers the mouse. */}
-            {w.node.kind === 'file' && (
-              <path
-                d={arcPath(a0, a1, r0 - RING_GAP * 0.5, r0 + band)}
-                fill="transparent"
-                onMouseEnter={() => setHoverNode(w.node)}
-                onMouseLeave={() => setHoverNode((n) => (n?.id === w.node.id ? null : n))}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onSelect(w.node)
-                }}
-                onDoubleClick={(e) => {
-                  e.stopPropagation()
-                  onDrill(w.node)
-                }}
-              />
-            )}
-            <path
-              className="wedge"
-              // A file occupies exactly ONE band, like a directory. Its functions are
-              // inset inside that band, so the file's own fill shows as a rim around
-              // them — the containment is drawn, not implied by adjacency.
-              d={arcPath(a0, a1, r0, r1)}
-              // Unanalyzed wedges take the neutral, not the ramp — see `isAnalyzed`.
-              // A folded directory is drawn a shade heavier than an open one, so the
-              // ring that ends at it reads as packed rather than as genuinely empty.
-              fill={
-                plate
-                  ? plate.fill
-                  : isFolded
-                    ? 'color-mix(in oklch, var(--structure) 78%, var(--foreground))'
-                    : 'var(--structure)'
-              }
-              fillOpacity={
-                isSel || isHover
-                  ? 0.95
-                  : plate
-                    ? heatShare(w.node.kind, mode)
-                    : w.node.kind === 'dir'
-                      ? 1
-                      : 0.5
-              }
-              // Directories, files and functions are three different kinds of thing and
-              // used to be drawn identically, which made the rings read as one
-              // undifferentiated mass. Stroke carries the distinction rather than hue,
-              // because hue is spoken for — it is the entire message of the chart.
-              // Hover gets the same outline treatment as selection, one step quieter:
-              // brightening the fill alone was ambiguous on a ring of already-bright
-              // wedges, so the thing under the cursor now states its own boundary.
-              //
-              // Everything else is separated by a CUT, not a line: the stroke is the
-              // background color, so what you see is the gap between two plates. The
-              // drawn foreground outline directories used to carry was the brightest
-              // thing on screen, and it sat around the level whose reading is the
-              // quietest — the eye went to structure instead of to heat.
-              stroke="var(--background)"
-              strokeWidth={w.node.kind === 'dir' ? CUT.dir : CUT.file}
-              onMouseEnter={() => setHoverNode(w.node)}
-              onMouseLeave={() => setHoverNode((n) => (n?.id === w.node.id ? null : n))}
-              onClick={(e) => {
-                e.stopPropagation()
-                // Option-click folds a directory shut — the cheap way to get a subtree
-                // out of the picture without leaving the level you are on. On a modifier
-                // rather than a plain click so selecting still does exactly one thing,
-                // and Option rather than Command because Option-click is already the
-                // disclosure gesture on this platform; Command-click means "open
-                // elsewhere" nearly everywhere else.
-                if (e.altKey && foldable) {
-                  setCollapsed((prev) => {
-                    const next = new Set(prev)
-                    if (!next.delete(w.node.id)) next.add(w.node.id)
-                    return next
-                  })
-                  return
-                }
-                onSelect(w.node)
-              }}
-              onDoubleClick={() => onDrill(w.node)}
-            >
-            </path>
-            {/* The reading itself, on the edge the directory shares with its contents. */}
-            {dirRim(w.node, c, g)}
-            {/* Out with a reader: a white pulse over the wedge.
+                    {w.node.kind === 'file' && (
+                      <path
+                        d={arcPath(a0, a1, r0 - RING_GAP * 0.5, r0 + band)}
+                        fill="transparent"
+                        onMouseEnter={() => setHoverNode(w.node)}
+                        onMouseLeave={() => setHoverNode((n) => (n?.id === w.node.id ? null : n))}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onSelect(w.node)
+                        }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation()
+                          onDrill(w.node)
+                        }}
+                      />
+                    )}
+                    <path
+                      className="wedge"
+                      // A file occupies exactly ONE band, like a directory. Its functions are
+                      // inset inside that band, so the file's own fill shows as a rim around
+                      // them — the containment is drawn, not implied by adjacency.
+                      d={arcPath(a0, a1, r0, r1)}
+                      // Unanalyzed wedges take the neutral, not the ramp — see `isAnalyzed`.
+                      // A folded directory is drawn a shade heavier than an open one, so the
+                      // ring that ends at it reads as packed rather than as genuinely empty.
+                      fill={
+                        plate
+                          ? plate.fill
+                          : isFolded
+                            ? 'color-mix(in oklch, var(--structure) 78%, var(--foreground))'
+                            : 'var(--structure)'
+                      }
+                      fillOpacity={
+                        isSel || isHover
+                          ? 0.95
+                          : plate
+                            ? heatShare(w.node.kind, mode)
+                            : w.node.kind === 'dir'
+                              ? 1
+                              : 0.5
+                      }
+                      // Directories, files and functions are three different kinds of thing and
+                      // used to be drawn identically, which made the rings read as one
+                      // undifferentiated mass. Stroke carries the distinction rather than hue,
+                      // because hue is spoken for — it is the entire message of the chart.
+                      // Hover gets the same outline treatment as selection, one step quieter:
+                      // brightening the fill alone was ambiguous on a ring of already-bright
+                      // wedges, so the thing under the cursor now states its own boundary.
+                      //
+                      // Everything else is separated by a CUT, not a line: the stroke is the
+                      // background color, so what you see is the gap between two plates. The
+                      // drawn foreground outline directories used to carry was the brightest
+                      // thing on screen, and it sat around the level whose reading is the
+                      // quietest — the eye went to structure instead of to heat.
+                      stroke="var(--background)"
+                      strokeWidth={w.node.kind === 'dir' ? CUT.dir : CUT.file}
+                      onMouseEnter={() => setHoverNode(w.node)}
+                      onMouseLeave={() => setHoverNode((n) => (n?.id === w.node.id ? null : n))}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        // Option-click folds a directory shut — the cheap way to get a subtree
+                        // out of the picture without leaving the level you are on. On a modifier
+                        // rather than a plain click so selecting still does exactly one thing,
+                        // and Option rather than Command because Option-click is already the
+                        // disclosure gesture on this platform; Command-click means "open
+                        // elsewhere" nearly everywhere else.
+                        if (e.altKey && foldable) {
+                          setCollapsed((prev) => {
+                            const next = new Set(prev)
+                            if (!next.delete(w.node.id)) next.add(w.node.id)
+                            return next
+                          })
+                          return
+                        }
+                        onSelect(w.node)
+                      }}
+                      onDoubleClick={() => onDrill(w.node)}
+                    ></path>
+                    {/* The reading itself, on the edge the directory shares with its contents. */}
+                    {dirRim(w.node, c, g)}
+                    {/* Out with a reader: a white pulse over the wedge.
                 **After the wedge, not before it.** SVG paints in document order, so the
                 first version of this drew the marker and then painted the wedge's own
                 opaque fill straight over it — present in the DOM, animating, and invisible
                 on every frame. Its own path so the wedge's fill, opacity and stroke are
                 untouched: a run must not change what the map SAYS, only show where it is
                 working. `pointer-events: none` because it covers the clickable path. */}
-            {isReading && (
-              <path
-                className="wedge-reading"
-                d={arcPath(a0, a1, r0, r1)}
-                fill="var(--foreground)"
-                pointerEvents="none"
-              />
-            )}
-            </g>
-          )
-        })}
+                    {isReading && (
+                      <path
+                        className="wedge-reading"
+                        d={arcPath(a0, a1, r0, r1)}
+                        fill="var(--foreground)"
+                        pointerEvents="none"
+                      />
+                    )}
+                  </g>
+                )
+              })}
 
-        {/* Functions tiled INSIDE their file's wedge — see `tileFunctions`. Containment
+          {/* Functions tiled INSIDE their file's wedge — see `tileFunctions`. Containment
             is structural here rather than implied, which is what a separate outer ring
             could never give, and the tiling is what lets a big file actually show what is
             in it instead of rolling most of it into one patch.
@@ -1564,94 +1562,99 @@ function SunburstView({
             means the moving part is the part that answers "where am I", and the detail
             resolves into place as the movement ends — which is also the moment it becomes
             worth reading. */}
-        {/* Mounted once, when the rings have stopped, and faded in by CSS.
+          {/* Mounted once, when the rings have stopped, and faded in by CSS.
             NOT rendered per frame with an interpolated opacity, which is what this was
             first: `tileFunctions` then ran across every file on every frame of the second
             half of the transition — a few thousand patches re-tiled ten times over, which
             is precisely the cost the whole design is arranged to avoid. Opacity is the one
             thing CSS can animate here for free, so it does. */}
-        <g className="patches-in" key={`patches-${root.id}`}>
-        {(moving ? [] : fileWedges)
-          .map((w) => {
-            // Inside the file's OWN band — (depth - 1) — not the one beyond it. Inset
-            // on both radii so the file's fill reads as a rim on the inside and outside
-            // edges too, not just the angular sides.
-            // **From `geo`, not from the wedge.** The tiling used to be laid out straight
-            // off the layout's own angles, which is the wedge's FINAL position — fine while
-            // the only thing that moved was a level change, because patches are not drawn
-            // during one. Once the rings can ease toward a shape that changed under them,
-            // a file's functions laid out at the target while its wedge is still on its way
-            // there are functions hanging outside their own file. One source for both.
-            // Inside the file's OWN band — (depth - 1) — not the one beyond it, inset on
-            // both radii so the file's fill reads as a rim on the inside and outside edges
-            // too, and angularly so it frames its own functions on both sides. All of that
-            // is `tilingOf`, which also answers whether there is room at all:
-            //
-            // Too small to say anything: draw the file solid instead. The test is AREA —
-            // the arc floor that used to carry it alone was written for a radial stack,
-            // where a file's whole angular width WAS one slice; tiling spends both
-            // dimensions, so a wedge can be narrow and still hold plenty, and the old rule
-            // was silencing files that had the room. Four patches rather than one, because
-            // a wedge with room for a single patch draws its own roll-up over its own area
-            // and says nothing the file's fill was not already saying. The file keeps its
-            // own fill and its own hover, and drilling in still shows every function it
-            // has; `layout` culls wedges below `MIN_ANGLE` on the same reasoning, and this
-            // is that rule one level further in, where the wedges are not culled but their
-            // CONTENTS cannot be drawn.
-            //
-            // **From `geo`, not from the wedge.** The tiling used to be laid out straight
-            // off the layout's own angles, which is the wedge's FINAL position — fine while
-            // the only thing that moved was a level change, because patches are not drawn
-            // during one. Once the rings can ease toward a shape that changed under them,
-            // a file's functions laid out at the target while its wedge is still on its way
-            // there are functions hanging outside their own file. One source for both.
-            const tile = tilingOf(geo(w.node.id))
-            if (!tile) return null
-            const { r0, r1, fa0, fa1 } = tile
-            return tileFunctions(w.node.children, r0, r1, fa0, fa1, { minPatchArea }).map((slot) => {
-              const c = colorFor(slot.node, mode, ranks, ageSpan)
-              const isSel = selected?.id === slot.node.id
-              const isHover = hover?.node.id === slot.node.id
-              const d = arcPath(slot.a0, slot.a1, slot.r0, slot.r1)
-              if (isSel) selMark = { d, a0: slot.a0, a1: slot.a1, r0: slot.r0, kind: 'func', width: 1.6 }
-              else if (isHover) hoverMark = { d, width: 1.2 }
-              return (
-                <g key={slot.node.id}>
-                <path
-                  // The pulse is a CLASS, not a prop: `opacity` animated in CSS is
-                  // compositor-only, so hundreds of these cost nothing per frame — which is
-                  // the bar anything decorative has to clear in this app.
-                  className={clsx(
-                    'wedge',
-                    mode === 'traps' && trapOf(slot.node.agent) && !slot.node.agentStale && 'trap-pulse',
-                    // The same breath for the same reason — copies are 1–8% of a repo, which
-                    // is the density where a colour alone means hunting. See `--clone`.
-                    mode === 'clones' && slot.node.cloneSize != null && 'trap-pulse',
-                  )}
-                  d={d}
-                  fill={c ? c.fill : 'var(--unanalyzed)'}
-                  fillOpacity={isSel || isHover ? 1 : c ? 0.92 : 0.4}
-                  // No per-wedge source mark. It existed to tell agent verdicts from
-                  // model ones, but with MCP as the primary mode everything is
-                  // agent-judged — a mark on every item is stripes, not information. The
-                  // detail panel names the instrument for the one wedge you asked about.
-                  stroke="var(--background)"
-                  strokeWidth={CUT.func}
-                  onMouseEnter={() => setHoverNode(slot.node)}
-                  onMouseLeave={() => setHoverNode((n) => (n?.id === slot.node.id ? null : n))}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onSelect(slot.node)
-                  }}
-                  // Same gesture as a directory, one level further: double-clicking a
-                  // function opens the file it lives in, at the function.
-                  onDoubleClick={(e) => {
-                    e.stopPropagation()
-                    onDrill(slot.node)
-                  }}
-                >
-                </path>
-                {/* Drawn over the wedge, deaf to the mouse so the wedge underneath keeps
+          <g className="patches-in" key={`patches-${root.id}`}>
+            {(moving ? [] : fileWedges).map((w) => {
+              // Inside the file's OWN band — (depth - 1) — not the one beyond it. Inset
+              // on both radii so the file's fill reads as a rim on the inside and outside
+              // edges too, not just the angular sides.
+              // **From `geo`, not from the wedge.** The tiling used to be laid out straight
+              // off the layout's own angles, which is the wedge's FINAL position — fine while
+              // the only thing that moved was a level change, because patches are not drawn
+              // during one. Once the rings can ease toward a shape that changed under them,
+              // a file's functions laid out at the target while its wedge is still on its way
+              // there are functions hanging outside their own file. One source for both.
+              // Inside the file's OWN band — (depth - 1) — not the one beyond it, inset on
+              // both radii so the file's fill reads as a rim on the inside and outside edges
+              // too, and angularly so it frames its own functions on both sides. All of that
+              // is `tilingOf`, which also answers whether there is room at all:
+              //
+              // Too small to say anything: draw the file solid instead. The test is AREA —
+              // the arc floor that used to carry it alone was written for a radial stack,
+              // where a file's whole angular width WAS one slice; tiling spends both
+              // dimensions, so a wedge can be narrow and still hold plenty, and the old rule
+              // was silencing files that had the room. Four patches rather than one, because
+              // a wedge with room for a single patch draws its own roll-up over its own area
+              // and says nothing the file's fill was not already saying. The file keeps its
+              // own fill and its own hover, and drilling in still shows every function it
+              // has; `layout` culls wedges below `MIN_ANGLE` on the same reasoning, and this
+              // is that rule one level further in, where the wedges are not culled but their
+              // CONTENTS cannot be drawn.
+              //
+              // **From `geo`, not from the wedge.** The tiling used to be laid out straight
+              // off the layout's own angles, which is the wedge's FINAL position — fine while
+              // the only thing that moved was a level change, because patches are not drawn
+              // during one. Once the rings can ease toward a shape that changed under them,
+              // a file's functions laid out at the target while its wedge is still on its way
+              // there are functions hanging outside their own file. One source for both.
+              const tile = tilingOf(geo(w.node.id))
+              if (!tile) return null
+              const { r0, r1, fa0, fa1 } = tile
+              return tileFunctions(w.node.children, r0, r1, fa0, fa1, { minPatchArea }).map(
+                (slot) => {
+                  const c = colorFor(slot.node, mode, ranks, ageSpan)
+                  const isSel = selected?.id === slot.node.id
+                  const isHover = hover?.node.id === slot.node.id
+                  const d = arcPath(slot.a0, slot.a1, slot.r0, slot.r1)
+                  if (isSel)
+                    selMark = { d, a0: slot.a0, a1: slot.a1, r0: slot.r0, kind: 'func', width: 1.6 }
+                  else if (isHover) hoverMark = { d, width: 1.2 }
+                  return (
+                    <g key={slot.node.id}>
+                      <path
+                        // The pulse is a CLASS, not a prop: `opacity` animated in CSS is
+                        // compositor-only, so hundreds of these cost nothing per frame — which is
+                        // the bar anything decorative has to clear in this app.
+                        className={clsx(
+                          'wedge',
+                          mode === 'traps' &&
+                            trapOf(slot.node.agent) &&
+                            !slot.node.agentStale &&
+                            'trap-pulse',
+                          // The same breath for the same reason — copies are 1–8% of a repo, which
+                          // is the density where a colour alone means hunting. See `--clone`.
+                          mode === 'clones' && slot.node.cloneSize != null && 'trap-pulse',
+                        )}
+                        d={d}
+                        fill={c ? c.fill : 'var(--unanalyzed)'}
+                        fillOpacity={isSel || isHover ? 1 : c ? 0.92 : 0.4}
+                        // No per-wedge source mark. It existed to tell agent verdicts from
+                        // model ones, but with MCP as the primary mode everything is
+                        // agent-judged — a mark on every item is stripes, not information. The
+                        // detail panel names the instrument for the one wedge you asked about.
+                        stroke="var(--background)"
+                        strokeWidth={CUT.func}
+                        onMouseEnter={() => setHoverNode(slot.node)}
+                        onMouseLeave={() =>
+                          setHoverNode((n) => (n?.id === slot.node.id ? null : n))
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onSelect(slot.node)
+                        }}
+                        // Same gesture as a directory, one level further: double-clicking a
+                        // function opens the file it lives in, at the function.
+                        onDoubleClick={(e) => {
+                          e.stopPropagation()
+                          onDrill(slot.node)
+                        }}
+                      ></path>
+                      {/* Drawn over the wedge, deaf to the mouse so the wedge underneath keeps
                     every gesture. The wedge itself has already fallen back to the proxy
                     color — `applyAgentReports` drops a stale reading's score — so
                     without this the only sign a function was ever read would be in the
@@ -1666,22 +1669,23 @@ function SunburstView({
                     was edited is not in doubt. It read as damage to the layer underneath,
                     which is the same sin as a stale reading keeping its color, pointed the
                     other way. */}
-                {paintsFromReadings(mode) && slot.node.agentStale && (
-                  <path
-                    className="pointer-events-none"
-                    d={d}
-                    fill="url(#stale-hatch)"
-                  />
-                )}
-                {/* Out with a reader — the same marker the file wedges take, applied one
+                      {paintsFromReadings(mode) && slot.node.agentStale && (
+                        <path className="pointer-events-none" d={d} fill="url(#stale-hatch)" />
+                      )}
+                      {/* Out with a reader — the same marker the file wedges take, applied one
                     level in. Both are needed: a file reading pulses the file's band, and a
                     function reading has to pulse the patch, because the patches are drawn
                     ON TOP of their file's wedge and would otherwise hide the very mark
                     that says where the work is. */}
-                {pulsing?.has(slot.node.id) && (
-                  <path className="wedge-reading" d={d} pointerEvents="none" fill="var(--foreground)" />
-                )}
-                {/* A roll-up is drawn like a function and is the largest patch in its
+                      {pulsing?.has(slot.node.id) && (
+                        <path
+                          className="wedge-reading"
+                          d={d}
+                          pointerEvents="none"
+                          fill="var(--foreground)"
+                        />
+                      )}
+                      {/* A roll-up is drawn like a function and is the largest patch in its
                     file, so at any real size it reads as one enormous cold function
                     rather than as the hundreds it stands for. The dots say otherwise —
                     see `RollupDots`.
@@ -1693,40 +1697,36 @@ function SunburstView({
                     nobody was going to read those as one big function anyway. Measured
                     across depths and file sizes, the two populations fall either side of
                     ten pixels with nothing in between. */}
-                {slot.node.rest !== undefined &&
-                  unitsPerPx !== null &&
-                  Math.min(
-                    (slot.a1 - slot.a0) * ((slot.r0 + slot.r1) / 2),
-                    slot.r1 - slot.r0,
-                  ) /
-                    unitsPerPx >=
-                    ROLLUP_TEXTURE_PX && (
-                    <>
-                      {/* Keyed on the FILE, not the roll-up's own node. The aggregate is
+                      {slot.node.rest !== undefined &&
+                        unitsPerPx !== null &&
+                        Math.min(
+                          (slot.a1 - slot.a0) * ((slot.r0 + slot.r1) / 2),
+                          slot.r1 - slot.r0,
+                        ) /
+                          unitsPerPx >=
+                          ROLLUP_TEXTURE_PX && (
+                          <>
+                            {/* Keyed on the FILE, not the roll-up's own node. The aggregate is
                           synthetic and its id is minted from the path, so it is stable per
                           file and there is exactly one roll-up in a file's wedge. */}
-                      <RollupDots
-                        id={dotsId(w.node.path)}
-                        angle={(slot.a0 + slot.a1) / 2}
-                        // The patch's own middle, so the lattice is centered on it rather
-                        // than on the hub. Mid-angle at mid-radius: not the true centroid
-                        // of an annular sector, which sits a little outward of it, but the
-                        // dots are a texture and the difference is under a tile.
-                        cx={
-                          ((slot.r0 + slot.r1) / 2) * Math.sin((slot.a0 + slot.a1) / 2)
-                        }
-                        cy={
-                          -((slot.r0 + slot.r1) / 2) * Math.cos((slot.a0 + slot.a1) / 2)
-                        }
-                      />
-                      <path
-                        className="pointer-events-none"
-                        d={d}
-                        fill={`url(#${dotsId(w.node.path)})`}
-                      />
-                    </>
-                  )}
-                {/* And its name, if the patch can hold one.
+                            <RollupDots
+                              id={dotsId(w.node.path)}
+                              angle={(slot.a0 + slot.a1) / 2}
+                              // The patch's own middle, so the lattice is centered on it rather
+                              // than on the hub. Mid-angle at mid-radius: not the true centroid
+                              // of an annular sector, which sits a little outward of it, but the
+                              // dots are a texture and the difference is under a tile.
+                              cx={((slot.r0 + slot.r1) / 2) * Math.sin((slot.a0 + slot.a1) / 2)}
+                              cy={-((slot.r0 + slot.r1) / 2) * Math.cos((slot.a0 + slot.a1) / 2)}
+                            />
+                            <path
+                              className="pointer-events-none"
+                              d={d}
+                              fill={`url(#${dotsId(w.node.path)})`}
+                            />
+                          </>
+                        )}
+                      {/* And its name, if the patch can hold one.
                     The old rule was that functions are never labeled here, on the grounds
                     that they are laid out angularly by `layout` but DRAWN tiled inside
                     their file's band — so a name placed from the layout angle lands nowhere
@@ -1738,32 +1738,32 @@ function SunburstView({
                     The fan's tight bend, not the ring's generous one. These are treemap
                     cells that happen to sit in a band; there is no ring for a curve to
                     belong to at this scale — see `DEFAULT_BEND`. */}
-                {(() => {
-                  const at = fitLabel(slot, slot.node.name, {
-                    weight: WEIGHT,
-                    max: FUNC_MAX,
-                    maxBend: FUNC_BEND,
-                  })
-                  return at ? (
-                    <WedgeLabel
-                      id={`fn-${slot.node.id}`}
-                      at={at}
-                      // The patch this name is standing ON decides the ink — see `ink.ts`.
-                      // An unread patch is `--unanalyzed` at 0.4, which is nearly the
-                      // ground, so it keeps the chrome's own foreground.
-                      fill={c ? c.ink : CHROME_INK}
-                      opacity={at.clipped ? 0.6 : 0.85}
-                    />
-                  ) : null
-                })()}
-                </g>
+                      {(() => {
+                        const at = fitLabel(slot, slot.node.name, {
+                          weight: WEIGHT,
+                          max: FUNC_MAX,
+                          maxBend: FUNC_BEND,
+                        })
+                        return at ? (
+                          <WedgeLabel
+                            id={`fn-${slot.node.id}`}
+                            at={at}
+                            // The patch this name is standing ON decides the ink — see `ink.ts`.
+                            // An unread patch is `--unanalyzed` at 0.4, which is nearly the
+                            // ground, so it keeps the chrome's own foreground.
+                            fill={c ? c.ink : CHROME_INK}
+                            opacity={at.clipped ? 0.6 : 0.85}
+                          />
+                        ) : null
+                      })()}
+                    </g>
+                  )
+                },
               )
-            })
-          })}
+            })}
+          </g>
 
-        </g>
-
-        {/* Labels last, so they sit above every wedge.
+          {/* Labels last, so they sit above every wedge.
             Both kinds are here — directories inside their plate, files curled just outside
             theirs — because they compete for the same ground and the one rule that decides
             them has to see both.
@@ -1772,147 +1772,145 @@ function SunburstView({
             `layout` but DRAWN tiled inside their file's band, so a name placed from the
             layout angle lands nowhere near the patch it names. The fan labels them, where
             they have room to be read. */}
-        {(moving ? [] : wedges)
-          .filter((w) => w.node.kind === 'dir' || w.node.kind === 'file')
-          .map((w) => {
-            // Fixed to where the wedge is THIS frame, like everything else. A label left at
-            // its settled angle while its wedge travels is text sitting on a neighboring
-            // directory for the length of the transition.
-            const g = geo(w.node.id)
-            const isDir = w.node.kind === 'dir'
-            // A directory is a structural plate with nothing behind it, so its name sits in
-            // the middle of it.
-            //
-            // A file is the opposite: its band is its own function tiling, and a name
-            // printed over that is printed over the data it names. Files were therefore not
-            // labeled at all. What they have instead is the one thing nothing else on the
-            // ring has — a file is the outermost structural level, so the ground just past
-            // its rim belongs to nobody. The name goes THERE, curled around the outside,
-            // where it costs the tiling nothing.
-            //
-            // A rim name is confined to its OWN wedge's angular slice, inset on both
-            // sides. Beyond the rim there is no plate to hold it, so the only thing
-            // separating one file's name from the next is the wedge each belongs to —
-            // without the inset, adjacent names run together into a single unreadable
-            // band, which is what `command.rs browse.rs event_loop.rs app.rs` had become.
-            // The inset is what makes the gap between two names visibly a gap.
-            const pad = (g.a1 - g.a0) * RIM_INSET
-            const cell = isDir
-              ? plateOf(g)
-              : {
-                  a0: g.a0 + pad,
-                  a1: g.a1 - pad,
-                  r0: g.r1 + LABEL_GAP,
-                  r1: g.r1 + LABEL_GAP + LABEL_BAND,
-                }
-            const at = fitLabel(cell, w.node.name, {
-              weight: WEIGHT,
-              // Off the cell's OWN depth, not off `band`. The two were the same thing
-              // while a directory's name had the whole ring to sit in; now the band takes
-              // the top of it, and sizing to the ring would set a name too big for the
-              // room actually left under it.
-              max: isDir
-                ? Math.max(11, Math.min(17, (cell.r1 - cell.r0) * 0.34))
-                : FILE_MAX,
-              // Arc only out here. The rim band is a thin annulus and whatever lies past it
-              // belongs to somebody else, so a radial run leaves this file's territory on
-              // its first character.
-              only: isDir ? undefined : 'arc',
-            })
-            if (!at) return null
-            return (
-              // Hidden outright while the ring moves, rather than faded per frame. A name is
-              // read, not glanced at, and text re-fitting its arc every frame is unreadable
-              // anyway — so it would cost a `<defs>` and a textPath per wedge per frame to
-              // render something nobody can use.
-              <WedgeLabel
-                key={`l-${w.node.id}`}
-                id={`lp-${w.node.id}`}
-                at={at}
-                // A directory's name sits ON its plate, so the plate picks the ink — and at
-                // the plate's own opacity, because under Surprise it is damped to 0.6 and
-                // what the eye gets is the stop composited over the pane. An unanalyzed
-                // plate is `--structure`, a near-background neutral, and takes the chrome's
-                // foreground: background-on-background is why these went invisible the
-                // moment the plates stopped being outlined in white.
-                //
-                // A FILE's name is not on anything. It hangs off the rim, past the outermost
-                // ring, on ground that belongs to nobody — so the ground's own ink is the
-                // right one, and it is set quieter than the structure it labels.
-                // A directory's plate is now always the structural neutral — its reading
-                // moved to the rim (`DIR_RIM_PX`) — so the ink that used to be derived
-                // from the plate's own stop is the chrome's, which is what an unread
-                // plate already took. One case where there were two.
-                fill={CHROME_INK}
-                opacity={(isDir ? 0.9 : 0.62) * (at.clipped ? 0.72 : 1)}
-              />
-            )
-          })}
+          {(moving ? [] : wedges)
+            .filter((w) => w.node.kind === 'dir' || w.node.kind === 'file')
+            .map((w) => {
+              // Fixed to where the wedge is THIS frame, like everything else. A label left at
+              // its settled angle while its wedge travels is text sitting on a neighboring
+              // directory for the length of the transition.
+              const g = geo(w.node.id)
+              const isDir = w.node.kind === 'dir'
+              // A directory is a structural plate with nothing behind it, so its name sits in
+              // the middle of it.
+              //
+              // A file is the opposite: its band is its own function tiling, and a name
+              // printed over that is printed over the data it names. Files were therefore not
+              // labeled at all. What they have instead is the one thing nothing else on the
+              // ring has — a file is the outermost structural level, so the ground just past
+              // its rim belongs to nobody. The name goes THERE, curled around the outside,
+              // where it costs the tiling nothing.
+              //
+              // A rim name is confined to its OWN wedge's angular slice, inset on both
+              // sides. Beyond the rim there is no plate to hold it, so the only thing
+              // separating one file's name from the next is the wedge each belongs to —
+              // without the inset, adjacent names run together into a single unreadable
+              // band, which is what `command.rs browse.rs event_loop.rs app.rs` had become.
+              // The inset is what makes the gap between two names visibly a gap.
+              const pad = (g.a1 - g.a0) * RIM_INSET
+              const cell = isDir
+                ? plateOf(g)
+                : {
+                    a0: g.a0 + pad,
+                    a1: g.a1 - pad,
+                    r0: g.r1 + LABEL_GAP,
+                    r1: g.r1 + LABEL_GAP + LABEL_BAND,
+                  }
+              const at = fitLabel(cell, w.node.name, {
+                weight: WEIGHT,
+                // Off the cell's OWN depth, not off `band`. The two were the same thing
+                // while a directory's name had the whole ring to sit in; now the band takes
+                // the top of it, and sizing to the ring would set a name too big for the
+                // room actually left under it.
+                max: isDir ? Math.max(11, Math.min(17, (cell.r1 - cell.r0) * 0.34)) : FILE_MAX,
+                // Arc only out here. The rim band is a thin annulus and whatever lies past it
+                // belongs to somebody else, so a radial run leaves this file's territory on
+                // its first character.
+                only: isDir ? undefined : 'arc',
+              })
+              if (!at) return null
+              return (
+                // Hidden outright while the ring moves, rather than faded per frame. A name is
+                // read, not glanced at, and text re-fitting its arc every frame is unreadable
+                // anyway — so it would cost a `<defs>` and a textPath per wedge per frame to
+                // render something nobody can use.
+                <WedgeLabel
+                  key={`l-${w.node.id}`}
+                  id={`lp-${w.node.id}`}
+                  at={at}
+                  // A directory's name sits ON its plate, so the plate picks the ink — and at
+                  // the plate's own opacity, because under Surprise it is damped to 0.6 and
+                  // what the eye gets is the stop composited over the pane. An unanalyzed
+                  // plate is `--structure`, a near-background neutral, and takes the chrome's
+                  // foreground: background-on-background is why these went invisible the
+                  // moment the plates stopped being outlined in white.
+                  //
+                  // A FILE's name is not on anything. It hangs off the rim, past the outermost
+                  // ring, on ground that belongs to nobody — so the ground's own ink is the
+                  // right one, and it is set quieter than the structure it labels.
+                  // A directory's plate is now always the structural neutral — its reading
+                  // moved to the rim (`DIR_RIM_PX`) — so the ink that used to be derived
+                  // from the plate's own stop is the chrome's, which is what an unread
+                  // plate already took. One case where there were two.
+                  fill={CHROME_INK}
+                  opacity={(isDir ? 0.9 : 0.62) * (at.clipped ? 0.72 : 1)}
+                />
+              )
+            })}
 
-        {/* Evaluated after both wedge passes, so both marks are already set — and drawn
+          {/* Evaluated after both wedge passes, so both marks are already set — and drawn
             after them, so no sibling's fill can eat half their width. Hover first, so a
             wedge that is somehow both keeps the heavier selection stroke on top. */}
-        {hoverMark && (
-          <path
-            className="pointer-events-none"
-            d={(hoverMark as { d: string }).d}
-            fill="none"
-            stroke="var(--foreground)"
-            strokeWidth={(hoverMark as { width: number }).width}
-          />
-        )}
-        {/* **The selection is drawn by taking everything ELSE away.**
-         *
-         *  It was an outline: a foreground stroke with a background halo under it, sized up
-         *  from the wedge so a two-pixel function patch had a mark bigger than itself. It did
-         *  not work, and the reason is that an outline competes on the same terms as the
-         *  picture it is drawn over — a ring of four thousand wedges is already all edges, and
-         *  one more edge somewhere in it is a thing you have to FIND. Making it heavier only
-         *  made it a heavier thing to find.
-         *
-         *  Dimming inverts that. Nothing is added to the picture; the rest of the picture is
-         *  removed, and what is left is the only thing at full strength on the screen. It
-         *  cannot be missed at any wedge size, which is the property the outline never had at
-         *  the size that matters — the sliver you arrive at from the panel's list.
-         *
-         *  A MASK rather than a redraw of the selected wedge on top of the veil. A redraw
-         *  needs the wedge's fill, opacity, cut and pulse class restated in a second place,
-         *  and the second copy is the one that goes wrong the next time any of them moves.
-         *  Punching a hole leaves the original wedge showing through, painted once.
-         *
-         *  The veil sits inside the wedge group, so it dims the labels with them — a bright
-         *  name on a dimmed ring is the same competition one layer up — and stops short of the
-         *  hub, the legend and the tooltip, which are chrome rather than picture. */}
-        {(selMark || selCoarse) && (
-          /* **One path with a hole in it, not a mask.**
+          {hoverMark && (
+            <path
+              className="pointer-events-none"
+              d={(hoverMark as { d: string }).d}
+              fill="none"
+              stroke="var(--foreground)"
+              strokeWidth={(hoverMark as { width: number }).width}
+            />
+          )}
+          {/* **The selection is drawn by taking everything ELSE away.**
            *
-           *  It was a full-screen rect masked by a second copy of the wedge, and a mask is a
-           *  compositing operation: the renderer rasterizes its content to a luminance buffer
-           *  and multiplies through it. The geometry was never approximate — the hole has
-           *  always been `arcPath`, the same call the wedge itself is drawn from — but the
-           *  buffer is where a two-pixel patch loses its edges, and this app renders in
-           *  WKWebView, where that step is the softest.
+           *  It was an outline: a foreground stroke with a background halo under it, sized up
+           *  from the wedge so a two-pixel function patch had a mark bigger than itself. It did
+           *  not work, and the reason is that an outline competes on the same terms as the
+           *  picture it is drawn over — a ring of four thousand wedges is already all edges, and
+           *  one more edge somewhere in it is a thing you have to FIND. Making it heavier only
+           *  made it a heavier thing to find.
            *
-           *  We have the shape already, so the hole can be geometry the whole way down:
-           *  `evenodd` over one subpath inside another leaves the inner one unfilled. Same
-           *  picture, no intermediate buffer, no generated id to keep unique across the second
-           *  map an export stages. */
-          <path
-            className="pointer-events-none"
-            d={
-              `M ${-1e5} ${-1e5} H ${1e5} V ${1e5} H ${-1e5} Z ` +
-              /* A directory gets the SECTOR; a file and a function get their own wedge.
+           *  Dimming inverts that. Nothing is added to the picture; the rest of the picture is
+           *  removed, and what is left is the only thing at full strength on the screen. It
+           *  cannot be missed at any wedge size, which is the property the outline never had at
+           *  the size that matters — the sliver you arrive at from the panel's list.
+           *
+           *  A MASK rather than a redraw of the selected wedge on top of the veil. A redraw
+           *  needs the wedge's fill, opacity, cut and pulse class restated in a second place,
+           *  and the second copy is the one that goes wrong the next time any of them moves.
+           *  Punching a hole leaves the original wedge showing through, painted once.
+           *
+           *  The veil sits inside the wedge group, so it dims the labels with them — a bright
+           *  name on a dimmed ring is the same competition one layer up — and stops short of the
+           *  hub, the legend and the tooltip, which are chrome rather than picture. */}
+          {(selMark || selCoarse) && (
+            /* **One path with a hole in it, not a mask.**
+             *
+             *  It was a full-screen rect masked by a second copy of the wedge, and a mask is a
+             *  compositing operation: the renderer rasterizes its content to a luminance buffer
+             *  and multiplies through it. The geometry was never approximate — the hole has
+             *  always been `arcPath`, the same call the wedge itself is drawn from — but the
+             *  buffer is where a two-pixel patch loses its edges, and this app renders in
+             *  WKWebView, where that step is the softest.
+             *
+             *  We have the shape already, so the hole can be geometry the whole way down:
+             *  `evenodd` over one subpath inside another leaves the inner one unfilled. Same
+             *  picture, no intermediate buffer, no generated id to keep unique across the second
+             *  map an export stages. */
+            <path
+              className="pointer-events-none"
+              d={
+                `M ${-1e5} ${-1e5} H ${1e5} V ${1e5} H ${-1e5} Z ` +
+                /* A directory gets the SECTOR; a file and a function get their own wedge.
                  See `SECTOR` for why that is not one rule. */
-              ((m) => (m.kind === 'dir' ? arcPath(m.a0, m.a1, m.r0, SECTOR) : m.d))(
-                (selMark ?? selCoarse) as unknown as Mark,
-              )
-            }
-            fillRule="evenodd"
-            fill="var(--background)"
-            opacity={DIM}
-          />
-        )}
-        {/* **And the outline comes back, because dimming alone cannot serve a two-pixel
+                ((m) => (m.kind === 'dir' ? arcPath(m.a0, m.a1, m.r0, SECTOR) : m.d))(
+                  (selMark ?? selCoarse) as unknown as Mark,
+                )
+              }
+              fillRule="evenodd"
+              fill="var(--background)"
+              opacity={DIM}
+            />
+          )}
+          {/* **And the outline comes back, because dimming alone cannot serve a two-pixel
             patch.** A function is often a sliver, and at that size a lit sliver and a veiled
             one are a few pixels of slightly different colour — the spotlight tells you which
             NEIGHBOURHOOD to look in and then leaves you hunting inside it.
@@ -1920,29 +1918,29 @@ function SunburstView({
             already all edges, so one more edge was a thing to find. The veil removes exactly
             that competition, which is what makes the same mark work now. No halo under it any
             more — the dimmed picture is the halo. */}
-        {selMark && (
-          <path
-            className="pointer-events-none"
-            d={(selMark as Mark).d}
-            fill="none"
-            stroke="var(--foreground)"
-            strokeWidth={(selMark as Mark).width}
-          />
-        )}
-        {/* Only when the selection itself was not drawn — see `selCoarse`. The hole is its
+          {selMark && (
+            <path
+              className="pointer-events-none"
+              d={(selMark as Mark).d}
+              fill="none"
+              stroke="var(--foreground)"
+              strokeWidth={(selMark as Mark).width}
+            />
+          )}
+          {/* Only when the selection itself was not drawn — see `selCoarse`. The hole is its
             deepest drawn ancestor, so the map says "in here"; the dashes stay, because a
             container standing in for its contents must not read as the thing itself. */}
-        {!selMark && selCoarse && (
-          <path
-            d={(selCoarse as { d: string }).d}
-            fill="none"
-            stroke="var(--foreground)"
-            strokeWidth={1.4}
-            strokeDasharray="4 3"
-            strokeOpacity={0.7}
-            className="pointer-events-none"
-          />
-        )}
+          {!selMark && selCoarse && (
+            <path
+              d={(selCoarse as { d: string }).d}
+              fill="none"
+              stroke="var(--foreground)"
+              strokeWidth={1.4}
+              strokeDasharray="4 3"
+              strokeOpacity={0.7}
+              className="pointer-events-none"
+            />
+          )}
         </g>
 
         {/* The hub is the way back out: double-click it to go up a level, the mirror of
@@ -1957,17 +1955,24 @@ function SunburstView({
             the core, so the affordance the rest of the app uses is simply still there and
             the special case is gone with the rectangle that required it. */}
         <g
-          onDoubleClick={onUp ? (ev) => { ev.stopPropagation(); onUp() } : undefined}
+          onDoubleClick={
+            onUp
+              ? (ev) => {
+                  ev.stopPropagation()
+                  onUp()
+                }
+              : undefined
+          }
           style={onUp ? { cursor: 'zoom-out' } : undefined}
         >
-        <circle r={R_INNER - 4} fill="var(--card)" stroke="var(--border)" />
-        {onUp && <title>Double-click to go up a level</title>}
-        {/* The disc is solid throughout — it is what the directory you clicked is turning
+          <circle r={R_INNER - 4} fill="var(--card)" stroke="var(--border)" />
+          {onUp && <title>Double-click to go up a level</title>}
+          {/* The disc is solid throughout — it is what the directory you clicked is turning
             INTO, so it has to be there to be turned into. Its label is not: swapping the
             name on the first frame would announce the destination before the thing that is
             traveling has arrived. It fades up with the rest of the detail. */}
-        <g className="patches-in" key={`hub-${root.id}`}>
-        {/* Sized to the hub rather than fixed: a long repo name at a fixed size either
+          <g className="patches-in" key={`hub-${root.id}`}>
+            {/* Sized to the hub rather than fixed: a long repo name at a fixed size either
             overflows the circle or gets truncated to nothing useful. Shrinking to fit
             keeps the whole name, which is the one label that must always be readable.
 
@@ -1979,7 +1984,7 @@ function SunburstView({
             be drawn. Elided from the middle, keeping the extension, for the reason `elide`
             gives: the tail is the answer. The full name is a hover away and is already in
             the crumbs and the panel. */}
-        {/* The label face, the same one every name on the map is drawn in — see `FAMILY`.
+            {/* The label face, the same one every name on the map is drawn in — see `FAMILY`.
             The hub was the one name in the chart still set in the UI's system stack, which
             made the middle of the picture a different typeface from everything around it
             while naming the same kind of thing. Imported rather than restated, because the
@@ -1990,7 +1995,7 @@ function SunburstView({
             label: it was 600, and a semibold hub in the middle of a chart of regular-weight
             names read as emphasis rather than as the center. Size and position already say
             which one this is. */}
-        {/* **The disc holds one thing, and the creature is it.**
+            {/* **The disc holds one thing, and the creature is it.**
             It held three: a name repeated verbatim in the breadcrumb an inch above and again
             in the panel's header, a line count the panel also states, and the one fact
             nothing else on screen carries — what the readers are doing. Two of those were
@@ -1999,20 +2004,20 @@ function SunburstView({
             one every wedge points at.
             The name survives where the creature does not — the history replay has no run to
             depict, and a hub with neither would be a blank disc in the middle of the story. */}
-        {!mascot && (
-          <text
-            textAnchor="middle"
-            y={4}
-            fontFamily={FAMILY}
-            fontSize={Math.max(9, Math.min(15, 150 / Math.max(hubName.length, 5)))}
-            fill="var(--foreground)"
-            fontWeight={WEIGHT}
-          >
-            {hubName !== root.name && <title>{root.name}</title>}
-            {hubName}
-          </text>
-        )}
-        </g>
+            {!mascot && (
+              <text
+                textAnchor="middle"
+                y={4}
+                fontFamily={FAMILY}
+                fontSize={Math.max(9, Math.min(15, 150 / Math.max(hubName.length, 5)))}
+                fill="var(--foreground)"
+                fontWeight={WEIGHT}
+              >
+                {hubName !== root.name && <title>{root.name}</title>}
+                {hubName}
+              </text>
+            )}
+          </g>
         </g>
       </svg>
 
@@ -2049,7 +2054,14 @@ function SunburstView({
             visibility: 'hidden',
             cursor: onUp ? 'zoom-out' : undefined,
           }}
-          onDoubleClick={onUp ? (ev) => { ev.stopPropagation(); onUp() } : undefined}
+          onDoubleClick={
+            onUp
+              ? (ev) => {
+                  ev.stopPropagation()
+                  onUp()
+                }
+              : undefined
+          }
         >
           <AgentMascot
             size={HUB_MASCOT}
@@ -2079,7 +2091,6 @@ function SunburstView({
           folded={hover.node.kind === 'dir' ? collapsed.has(hover.node.id) : undefined}
         />
       )}
-
 
       {(hidden.files + hidden.dirs > 0 || collapsed.size > 0) && (
         /* Never let the picture imply it showed everything.

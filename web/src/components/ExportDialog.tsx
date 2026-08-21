@@ -69,7 +69,11 @@ function lasting(seconds: number): string {
 /** A filename somebody will recognise a week later, out of a repo name that may have
  *  spaces, slashes or nothing in it at all. */
 function suggest(name: string): string {
-  const stem = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  const stem = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
   return `${stem || 'history'}-history.mp4`
 }
 
@@ -237,8 +241,8 @@ export function ExportDialog({
         <div>
           <div className="text-[15px] font-semibold">Export the replay</div>
           <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
-            {frames.length.toLocaleString()} commit{frames.length === 1 ? '' : 's'}, as a
-            16:9 MP4 of the map, captioned <span className="mono">{slug}</span>.
+            {frames.length.toLocaleString()} commit{frames.length === 1 ? '' : 's'}, as a 16:9 MP4
+            of the map, captioned <span className="mono">{slug}</span>.
           </p>
         </div>
 
@@ -316,8 +320,8 @@ export function ExportDialog({
             </p>
             {at && at.done > 0 && (
               <p className="mono mt-1 text-[10px] text-[var(--muted-foreground)]">
-                fetch {ms(at.cost.fetch)} · fold {ms(at.cost.fold)} · raster{' '}
-                {ms(at.cost.raster)} · draw {ms(at.cost.draw)} · encode {ms(at.cost.encode)}
+                fetch {ms(at.cost.fetch)} · fold {ms(at.cost.fold)} · raster {ms(at.cost.raster)} ·
+                draw {ms(at.cost.draw)} · encode {ms(at.cost.encode)}
               </p>
             )}
           </div>
@@ -328,8 +332,8 @@ export function ExportDialog({
             every time is a sentence nobody reads teaching nobody anything. */}
         {codec && codec !== 'avc' && (
           <p className="text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-            Encoded as {CODEC_NAME[codec]} — H.264 does not reach {frameOf(size).width} ×{' '}
-            {size} on this machine. Plays in QuickTime, Safari and the editors; not everywhere H.264 does.
+            Encoded as {CODEC_NAME[codec]} — H.264 does not reach {frameOf(size).width} × {size} on
+            this machine. Plays in QuickTime, Safari and the editors; not everywhere H.264 does.
           </p>
         )}
         {saved && (

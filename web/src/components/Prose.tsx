@@ -100,12 +100,31 @@ export function CopyButton({ text, title }: { text: string; title: string }) {
     >
       {done ? (
         <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden>
-          <path d="M2.5 6.4 4.8 8.8 9.5 3.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+          <path
+            d="M2.5 6.4 4.8 8.8 9.5 3.4"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
       ) : (
         <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden>
-          <rect x="1.2" y="1.2" width="6.6" height="6.6" rx="1.2" stroke="currentColor" strokeWidth="1.1" />
-          <path d="M4.2 10.8h5.4a1.2 1.2 0 0 0 1.2-1.2V4.2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+          <rect
+            x="1.2"
+            y="1.2"
+            width="6.6"
+            height="6.6"
+            rx="1.2"
+            stroke="currentColor"
+            strokeWidth="1.1"
+          />
+          <path
+            d="M4.2 10.8h5.4a1.2 1.2 0 0 0 1.2-1.2V4.2"
+            stroke="currentColor"
+            strokeWidth="1.1"
+            strokeLinecap="round"
+          />
         </svg>
       )}
     </button>

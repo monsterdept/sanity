@@ -30,8 +30,8 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 /// One project sanity is displaying.
 ///
@@ -306,18 +306,12 @@ impl AppState {
                     .iter()
                     .find(|k| &k.key == key)
                     .and_then(|k| k.harness.clone()),
-                model: index
-                    .projects
-                    .iter()
-                    .find(|k| &k.key == key)
-                    .and_then(|k| k.model.clone()),
+                model: index.projects.iter().find(|k| &k.key == key).and_then(|k| k.model.clone()),
             })
             .collect();
         // Anything on disk this session has not loaded is carried through untouched. Live
         // entries win on key, so a project that IS loaded is updated rather than doubled.
-        index
-            .projects
-            .retain(|known| !self.projects.contains_key(&known.key));
+        index.projects.retain(|known| !self.projects.contains_key(&known.key));
         index.projects.extend(live);
         // `active` is this session's, and only when it has one: a restore that has not yet
         // reached the project the last session was looking at must not blank the record of
@@ -397,10 +391,7 @@ impl AppState {
     ///
     /// Returns whether the view actually moved, so the caller can say which happened.
     pub fn focus(&mut self, key: &str, asked: bool) -> bool {
-        let vacant = self
-            .active
-            .as_ref()
-            .is_none_or(|k| !self.projects.contains_key(k));
+        let vacant = self.active.as_ref().is_none_or(|k| !self.projects.contains_key(k));
         if !asked && !vacant {
             return false;
         }
@@ -439,10 +430,7 @@ impl AppState {
     /// It remains a fallback and not a mechanism. A shim that handled `sanity_open` sends
     /// its key on every call and never comes through here.
     fn most_recent(&self) -> Option<String> {
-        self.projects
-            .iter()
-            .max_by_key(|(_, p)| p.touched)
-            .map(|(key, _)| key.clone())
+        self.projects.iter().max_by_key(|(_, p)| p.touched).map(|(key, _)| key.clone())
     }
 
     /// Which project a call belongs to.
@@ -513,12 +501,8 @@ impl AppState {
                 return Some(k.to_string());
             }
         }
-        let mut found: Vec<&String> = self
-            .projects
-            .iter()
-            .filter(|(_, p)| holds(p))
-            .map(|(k, _)| k)
-            .collect();
+        let mut found: Vec<&String> =
+            self.projects.iter().filter(|(_, p)| holds(p)).map(|(k, _)| k).collect();
         // Sorted, because a HashMap's order is not one: two repos that both hold an id
         // must not resolve differently between two calls. Ties break toward the most
         // recently opened, which is the closest thing to an intent we have left.
@@ -644,10 +628,7 @@ fn save_reports(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> 
 
 /// Canonicalised so `.`, `~/x/` and `/x` are one project rather than three.
 pub fn project_key(path: &Path) -> String {
-    std::fs::canonicalize(path)
-        .unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy()
-        .to_string()
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()).to_string_lossy().to_string()
 }
 
 pub type Shared = Arc<Mutex<AppState>>;
@@ -1217,17 +1198,12 @@ impl Report {
     /// a cold reader predicted this function, found the override, and pointed out that the
     /// TypeScript mirror `reportGrades` documents both rules while this one documents one.
     pub fn grades(&self) -> (Grade, Option<Grade>) {
-        let predicted = self
-            .predicted
-            .unwrap_or(if self.surprised { Grade::None } else { Grade::Full });
+        let predicted =
+            self.predicted.unwrap_or(if self.surprised { Grade::None } else { Grade::Full });
         // A doc the code already implies is not documentation, whatever grade it was
         // given — this is the provenance rule, applied at the point of use so no caller
         // can forget it.
-        let documented = if self.derivable {
-            Some(Grade::None)
-        } else {
-            self.documented
-        };
+        let documented = if self.derivable { Some(Grade::None) } else { self.documented };
         (predicted, documented)
     }
 }
@@ -1257,12 +1233,8 @@ const PEER_WINDOW: usize = 20;
 /// in a file gets twenty below it rather than ten of nothing and ten below.
 fn neighbors(names: &[String], i: usize) -> (Vec<String>, usize) {
     if names.len() <= PEER_WINDOW + 1 {
-        let peers: Vec<String> = names
-            .iter()
-            .enumerate()
-            .filter(|(k, _)| *k != i)
-            .map(|(_, n)| n.clone())
-            .collect();
+        let peers: Vec<String> =
+            names.iter().enumerate().filter(|(k, _)| *k != i).map(|(_, n)| n.clone()).collect();
         return (peers, 0);
     }
     let half = PEER_WINDOW / 2;
@@ -1331,10 +1303,7 @@ fn collect_tasks(
             }
             None => (false, false),
         };
-        if leased
-            .get(&node.id)
-            .is_some_and(|t| t.elapsed() < LEASE)
-        {
+        if leased.get(&node.id).is_some_and(|t| t.elapsed() < LEASE) {
             return;
         }
         // Stale readings outrank everything unread. Code somebody bothered to assess and
@@ -1361,9 +1330,7 @@ fn collect_tasks(
                 id: node.id.clone(),
                 path: node.path.clone(),
                 line: node.line.unwrap_or(0),
-                end_line: node
-                    .end_line
-                    .unwrap_or_else(|| node.line.unwrap_or(0) + node.loc),
+                end_line: node.end_line.unwrap_or_else(|| node.line.unwrap_or(0) + node.loc),
                 name: node.name.clone(),
                 owner: node.owner.clone(),
                 signature: node.signature.clone().unwrap_or_default(),
@@ -1457,11 +1424,8 @@ fn collect_tasks(
         // what a person scrolling past would see, and the findings this field actually
         // produces — a test whose name promises more than its neighbors deliver — come
         // from that adjacency, not from an alphabetical census.
-        let names: Vec<String> = node
-            .children
-            .iter()
-            .map(|c| qualify(&c.name, c.owner.as_deref(), c.lang))
-            .collect();
+        let names: Vec<String> =
+            node.children.iter().map(|c| qualify(&c.name, c.owner.as_deref(), c.lang)).collect();
         // AFTER the file's own task, which already carries the complete list and must not
         // have it replaced by a function's window.
         let before = out.len();
@@ -1684,25 +1648,25 @@ fn priming_note(repo: &Path) -> Option<String> {
 /// Every part of that chain behaved correctly. The only place the mismatch was knowable was
 /// here, where both halves are in one process and neither was being asked.
 fn contract_note(sent: Option<&str>) -> Option<String> {
- let mine = crate::mcp::contract_fingerprint();
- match sent {
- Some(f) if f == mine => None,
- Some(_) => Some(
- "Your MCP server is serving a DIFFERENT tool contract from this backend. It \
+    let mine = crate::mcp::contract_fingerprint();
+    match sent {
+        Some(f) if f == mine => None,
+        Some(_) => Some(
+            "Your MCP server is serving a DIFFERENT tool contract from this backend. It \
              was almost certainly started before the binary was rebuilt, and `tools/list` \
              is answered from its own process image — so readers are being offered an \
              older schema and will silently omit any field it does not know about. \
              Restart or reconnect the sanity MCP server before assessing; readings taken \
              now may be missing fields nobody will notice are absent."
- .to_string(),
- ),
- None => Some(
- "Your MCP server predates the contract check and may be serving an older \
+                .to_string(),
+        ),
+        None => Some(
+            "Your MCP server predates the contract check and may be serving an older \
              schema than this backend. If it has been running since before the last \
              rebuild, restart or reconnect it before assessing."
- .to_string(),
- ),
- }
+                .to_string(),
+        ),
+    }
 }
 
 /// The instruction handed back on every open.
@@ -1802,7 +1766,8 @@ readings whose code has since changed, and those are handed out first.";
 /// substitution — "EXACTLY SEVEN THINGS" needs a spelling table for a string that is
 /// already priced per reading.
 pub fn reader_prompt(n: usize) -> String {
-    format!("\
+    format!(
+        "\
   You are reading a codebase you have never seen, and you are assessing EXACTLY {n} \
   THINGS, ONE AT A TIME. Repeat this {n} times: call sanity_next with no arguments and \
   it hands you exactly one — usually a function, occasionally a whole file, which carries \
@@ -1832,7 +1797,8 @@ pub fn reader_prompt(n: usize) -> String {
   findings, and seeing them makes everything you say afterwards worthless. If a tool \
   errors, read the message: connection failures \
   are usually transient, so wait and retry the same call a few times rather than \
-  inventing a prerequisite or running the tools as shell commands.")
+  inventing a prerequisite or running the tools as shell commands."
+    )
 }
 
 /// Open a repo, and add it to what Sanity is holding.
@@ -1861,16 +1827,10 @@ pub fn reader_prompt(n: usize) -> String {
 /// Returning the candidates rather than picking is the same instinct as `.sanityignore`
 /// having no defaults: the mechanism is here, the judgement is the human's, and an agent's
 /// job is to put the list in front of them.
-fn resolve_open(
-    state: &Shared,
-    asked: Option<&str>,
-) -> Result<PathBuf, serde_json::Value> {
+fn resolve_open(state: &Shared, asked: Option<&str>) -> Result<PathBuf, serde_json::Value> {
     let known = crate::reports::load_index().projects;
     let candidates = || -> Vec<serde_json::Value> {
-        known
-            .iter()
-            .map(|k| serde_json::json!({ "name": k.name, "path": k.repo }))
-            .collect()
+        known.iter().map(|k| serde_json::json!({ "name": k.name, "path": k.repo })).collect()
     };
     if let Some(p) = asked {
         let path = PathBuf::from(p);
@@ -2023,10 +1983,8 @@ async fn open_project(
     };
     settled(&state);
 
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| key.clone());
+    let name =
+        path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| key.clone());
     let (functions, excluded) = count_funcs(&scan);
     // Files are readings too, and this response is what the protocol tells an orchestrator
     // to size the job from — so it has to be the whole job, not the function half of it.
@@ -2209,11 +2167,7 @@ fn work_left(project: &Project) -> WorkLeft {
         })
         .collect();
     outstanding.sort_by_key(|(_, age)| std::cmp::Reverse(*age));
-    WorkLeft {
-        remaining: unread.len(),
-        in_flight: outstanding.len(),
-        outstanding,
-    }
+    WorkLeft { remaining: unread.len(), in_flight: outstanding.len(), outstanding }
 }
 
 /// Readings whose code has changed under them.
@@ -2427,7 +2381,11 @@ fn count_files(scan: &Scan) -> (usize, usize) {
 /// reader nothing about anything it is going to predict.
 fn shape_of(scan: &Scan) -> Vec<serde_json::Value> {
     let mut by_dir: std::collections::BTreeMap<String, (usize, usize)> = Default::default();
-    fn walk(node: &Node, out: bool, by_dir: &mut std::collections::BTreeMap<String, (usize, usize)>) {
+    fn walk(
+        node: &Node,
+        out: bool,
+        by_dir: &mut std::collections::BTreeMap<String, (usize, usize)>,
+    ) {
         let out = out || node.excluded;
         if node.kind == NodeKind::Func {
             let top = node.path.split('/').next().unwrap_or(".").to_string();
@@ -2650,7 +2608,9 @@ fn resync_changed(project: &mut Project) -> usize {
     });
     let moved: Vec<String> = seen
         .into_iter()
-        .filter(|(path, m)| project.file_marks.insert(path.clone(), *m).is_some_and(|was| was != *m))
+        .filter(|(path, m)| {
+            project.file_marks.insert(path.clone(), *m).is_some_and(|was| was != *m)
+        })
         .map(|(path, _)| path)
         .collect();
     if moved.is_empty() {
@@ -2683,9 +2643,7 @@ fn spread_across_files(
     n: usize,
 ) -> Vec<Task> {
     let (fresh, resting): (Vec<_>, Vec<_>) = tasks.into_iter().partition(|(_, t)| {
-        recent
-            .get(&t.path)
-            .is_none_or(|at| now.duration_since(*at) > FILE_REST)
+        recent.get(&t.path).is_none_or(|at| now.duration_since(*at) > FILE_REST)
     });
     interleave_by_file(if fresh.is_empty() { resting } else { fresh }, n)
 }
@@ -2706,13 +2664,7 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
     resync_changed(project);
 
     let mut tasks: Vec<(f32, Task)> = Vec::new();
-    collect_tasks(
-        &project.scan.root,
-        &project.reports,
-        &project.leased,
-        None,
-        &mut tasks,
-    );
+    collect_tasks(&project.scan.root, &project.reports, &project.leased, None, &mut tasks);
     let now = Instant::now();
     let handed = spread_across_files(tasks, &project.recent_files, now, p.n);
 
@@ -2822,13 +2774,7 @@ pub fn reading_curve(state: &Shared, key: &str) -> Vec<u32> {
         return Vec::new();
     };
     let mut tasks: Vec<(f32, Task)> = Vec::new();
-    collect_tasks(
-        &project.scan.root,
-        &project.reports,
-        &HashMap::new(),
-        None,
-        &mut tasks,
-    );
+    collect_tasks(&project.scan.root, &project.reports, &HashMap::new(), None, &mut tasks);
     let all = tasks.len();
     let order = spread_across_files(tasks, &HashMap::new(), Instant::now(), all);
     let mut out = Vec::with_capacity(order.len().div_ceil(BATCH));
@@ -2891,9 +2837,9 @@ pub fn start_run(state: &Shared, req: CheckRequest) -> serde_json::Value {
             //
             // `live` is the backend's count of processes it has not reaped, so this covers
             // both halves and clears itself as they exit.
-            p.run
-                .as_ref()
-                .is_some_and(|r| r.ended.is_none() || r.live.load(std::sync::atomic::Ordering::Relaxed) > 0),
+            p.run.as_ref().is_some_and(|r| {
+                r.ended.is_none() || r.live.load(std::sync::atomic::Ordering::Relaxed) > 0
+            }),
         )
     };
     // One wave per project. Two would double every reader's chance of being handed work
@@ -2961,12 +2907,7 @@ pub fn start_run(state: &Shared, req: CheckRequest) -> serde_json::Value {
         .model
         .clone()
         .filter(|m| !m.trim().is_empty())
-        .or_else(|| {
-            lock(state)
-                .projects
-                .get(&key)
-                .and_then(|p| suggested_model(p, &key))
-        })
+        .or_else(|| lock(state).projects.get(&key).and_then(|p| suggested_model(p, &key)))
         .unwrap_or_default();
     let width = req.readers.unwrap_or(DEFAULT_READERS).clamp(1, 32);
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -3181,13 +3122,7 @@ async fn run_wave(
         let mut handles = Vec::new();
         for _ in 0..wave {
             let mut cmd = crate::harness::reader_command(
-                harness,
-                &exe,
-                &backend,
-                &key,
-                &model,
-                &prompt,
-                &away,
+                harness, &exe, &backend, &key, &model, &prompt, &away,
             );
             let stop = stop.clone();
             let live = live.clone();
@@ -3283,8 +3218,7 @@ async fn run_wave(
                 // right, since a rejected `--model` looks identical from here. The readers'
                 // own output is kept now (`Run::failures`), so the summary states what
                 // happened and the evidence answers why.
-                break "Three waves in a row finished without a successful reading."
-                    .to_string();
+                break "Three waves in a row finished without a successful reading.".to_string();
             }
         } else {
             barren = 0;
@@ -3437,9 +3371,7 @@ fn recent_model(p: &Project) -> Option<String> {
 /// preference does not — see `recent_model` for why it reads what the last run ASKED for
 /// rather than what its readers said they were.
 pub fn suggested_model(p: &Project, key: &str) -> Option<String> {
-    recent_model(p)
-        .or_else(|| one_model(p))
-        .or_else(|| crate::reports::model_for(key))
+    recent_model(p).or_else(|| one_model(p)).or_else(|| crate::reports::model_for(key))
 }
 
 fn model_tally(p: &Project) -> Vec<ModelCount> {
@@ -3578,11 +3510,7 @@ async fn reveal(
         return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
     };
     project.last_agent = Some(Instant::now());
-    if project
-        .leased
-        .get(&req.id)
-        .is_none_or(|t| t.elapsed() >= LEASE)
-    {
+    if project.leased.get(&req.id).is_none_or(|t| t.elapsed() >= LEASE) {
         state.ping("sanity_error");
         return Json(serde_json::json!({
             "ok": false,
@@ -3641,10 +3569,7 @@ async fn reveal(
     // first prediction standing. A reader that could revise this after reading would be
     // grading itself against a prediction it wrote with the answer in front of it, which
     // is the whole thing this call exists to prevent.
-    project
-        .predictions
-        .entry(req.id.clone())
-        .or_insert_with(|| req.expected.clone());
+    project.predictions.entry(req.id.clone()).or_insert_with(|| req.expected.clone());
     state.ping("sanity_reveal");
     Json(serde_json::json!({
         "ok": true,
@@ -3726,14 +3651,8 @@ fn mangled(r: &Report) -> Option<&'static str> {
     // tag it lives in cannot be prose about code. `<parameter name=` catches the rest of
     // the payload trailing behind it.
     const LEAK: [&str; 2] = ["</parameter>", "<parameter name="];
-    for (name, text) in [
-        ("expected", &r.expected),
-        ("found", &r.found),
-        ("note", &r.note),
-    ] {
-        if LEAK.iter().any(|m| text.contains(m))
-            || text.contains(&format!("</{name}>"))
-        {
+    for (name, text) in [("expected", &r.expected), ("found", &r.found), ("note", &r.note)] {
+        if LEAK.iter().any(|m| text.contains(m)) || text.contains(&format!("</{name}>")) {
             return Some(name);
         }
     }
@@ -3922,11 +3841,7 @@ async fn report(
     // must not depend on the app exiting cleanly to survive.
     let write_error = save_reports(&project.repo, &project.scan, &project.reports).err();
 
-    let WorkLeft {
-        remaining,
-        in_flight,
-        ..
-    } = work_left(project);
+    let WorkLeft { remaining, in_flight, .. } = work_left(project);
     // Where it actually landed. `/open` and `/status` have said this all along and this
     // did not, so the one endpoint that WRITES was the one that would not tell you which
     // repo it had written to. A reader worked it out from the order of magnitude of
@@ -4045,11 +3960,7 @@ async fn status(
             // The loop's termination condition, so a driving agent can ask "is there
             // work left" without having to infer it from a report response it may never
             // have seen — subagent tool results do not reach the parent.
-            let WorkLeft {
-                remaining,
-                in_flight,
-                outstanding,
-            } = work_left(p);
+            let WorkLeft { remaining, in_flight, outstanding } = work_left(p);
             let stale = count_stale(&p.scan, &p.reports);
             // Oldest first and capped, because this is a diagnostic and the whole list of
             // a stalled wave says nothing the first few do not. `in_flight` above is the
@@ -4256,8 +4167,7 @@ impl Tally {
         // the orchestrator's copy of the answer disagreeing with the human's — the same
         // split `assessed` was fixed for, where the optimistic number was the one making
         // decisions.
-        self.legible
-            .add(r.legible.filter(|_| crate::assessment::legible_current(r.spec)));
+        self.legible.add(r.legible.filter(|_| crate::assessment::legible_current(r.spec)));
         // Same rule as `legible` above: an answer to a superseded question is not counted.
         // It matters more here than there, because this number is the one somebody acts on
         // — an aggregate that kept counting old traps would send a maintainer looking for
@@ -4365,11 +4275,7 @@ pub fn aggregate_of(scan: &Scan, reports: &HashMap<String, Report>) -> Aggregate
         agg.by_model
             // Attribution is self-declared and may be missing; a blank gets its own
             // bucket rather than being folded in with the models that did say.
-            .entry(if r.model.is_empty() {
-                "unattributed".into()
-            } else {
-                r.model.clone()
-            })
+            .entry(if r.model.is_empty() { "unattributed".into() } else { r.model.clone() })
             .or_default()
             .add(r);
         // Three buckets and not two: "no instructions in this repo" and "instructions the
@@ -4416,7 +4322,10 @@ pub struct SummaryParams {
 /// Stale readings are excluded and counted separately, like everywhere else — a summary
 /// that averaged in readings of code that has since changed would be describing a repo
 /// that no longer exists.
-async fn summary(State(state): State<Shared>, Query(p): Query<SummaryParams>) -> Json<serde_json::Value> {
+async fn summary(
+    State(state): State<Shared>,
+    Query(p): Query<SummaryParams>,
+) -> Json<serde_json::Value> {
     let mut state = lock(&state);
     state.ping("sanity_summary");
     let key = state.for_client(p.project.as_deref());
@@ -4694,11 +4603,8 @@ impl ProjectList {
         // nothing it does not, so the counts stay zero behind `loading` rather than being
         // guessed. Skipped once the real project lands, so a row never appears twice.
         projects.extend(
-            state
-                .restoring
-                .iter()
-                .filter(|known| !state.projects.contains_key(&known.key))
-                .map(|known| {
+            state.restoring.iter().filter(|known| !state.projects.contains_key(&known.key)).map(
+                |known| {
                     let progress = state
                         .restoring_progress
                         .get(&known.key)
@@ -4744,7 +4650,8 @@ impl ProjectList {
                         read_phase: progress.phase,
                         read_unit: progress.unit,
                     }
-                }),
+                },
+            ),
         );
         // Most recently touched first, unless somebody has arranged the list — see
         // `KnownProjects::order`. Arranged rows come first in the order they were put in;
@@ -4755,10 +4662,7 @@ impl ProjectList {
             let at = order.iter().position(|k| *k == p.key);
             (at.is_some(), at.unwrap_or(0), std::cmp::Reverse(p.touched))
         });
-        ProjectList {
-            active: state.active.clone(),
-            projects,
-        }
+        ProjectList { active: state.active.clone(), projects }
     }
 }
 
@@ -5293,9 +5197,8 @@ pub fn restore(
                 (k, n)
             })
             .collect();
-        let (big, small): (Vec<_>, Vec<_>) = sized
-            .into_iter()
-            .partition(|(_, n)| *n > BIG_REPO_FILES);
+        let (big, small): (Vec<_>, Vec<_>) =
+            sized.into_iter().partition(|(_, n)| *n > BIG_REPO_FILES);
         let (big, small): (Vec<_>, Vec<_>) = (
             big.into_iter().map(|(k, _)| k).collect(),
             small.into_iter().map(|(k, _)| k).collect(),
@@ -5324,11 +5227,7 @@ pub fn restore(
         // wrong project is recoverable with a click; landing on nothing looks like the
         // restore failed.
         if s.active.as_ref().is_none_or(|k| !s.projects.contains_key(k)) {
-            s.active = s
-                .projects
-                .iter()
-                .max_by_key(|(_, p)| p.touched)
-                .map(|(key, _)| key.clone());
+            s.active = s.projects.iter().max_by_key(|(_, p)| p.touched).map(|(key, _)| key.clone());
         }
         // One write, now that the list is whole and cannot be a truncation of itself.
         s.persist();
@@ -5531,7 +5430,8 @@ pub(crate) mod tests {
         file.path = "src/a.rs".into();
         let mut root = crate::model::Node::dir("", "");
         let mut done: HashMap<String, Report> = HashMap::new();
-        for (i, name) in ["stale_one", "unread_one", "dated_one", "current_one"].iter().enumerate() {
+        for (i, name) in ["stale_one", "unread_one", "dated_one", "current_one"].iter().enumerate()
+        {
             let mut n = crate::model::Node::dir("src/a.rs", name);
             n.kind = NodeKind::Func;
             n.id = format!("src/a.rs#{name}");
@@ -5625,8 +5525,12 @@ pub(crate) mod tests {
     fn a_file_edited_before_the_first_handout_is_still_re_cut() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.rs");
-        std::fs::write(&path, "fn first() {}
-fn second() { println!(\"2\"); }\n").unwrap();
+        std::fs::write(
+            &path,
+            "fn first() {}
+fn second() { println!(\"2\"); }\n",
+        )
+        .unwrap();
         let mut p = project_of(dir.path());
 
         // The edit lands before anything is handed out — no `resync_changed` has run.
@@ -5636,7 +5540,11 @@ fn second() { println!(\"2\"); }\n").unwrap();
         )
         .unwrap();
 
-        assert_eq!(resync_changed(&mut p), 1, "the file moved before the first look and was not re-cut");
+        assert_eq!(
+            resync_changed(&mut p),
+            1,
+            "the file moved before the first look and was not re-cut"
+        );
 
         let mut line = None;
         p.scan.root.visit(&mut |n| {
@@ -5690,9 +5598,8 @@ fn second() { println!(\"2\"); }\n").unwrap();
             ("/fresh", None),
             ("/ceph", Some(120_000)),
         ]);
-        let (big, small): (Vec<_>, Vec<_>) = all
-            .into_iter()
-            .partition(|k| k.files.is_some_and(|n| n > BIG_REPO_FILES));
+        let (big, small): (Vec<_>, Vec<_>) =
+            all.into_iter().partition(|k| k.files.is_some_and(|n| n > BIG_REPO_FILES));
 
         let keys = |v: &[crate::reports::KnownProject]| {
             v.iter().map(|k| k.key.clone()).collect::<Vec<_>>()
@@ -5854,8 +5761,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::var_os("SANITY_DATA_DIR");
         unsafe { std::env::set_var("SANITY_DATA_DIR", dir.path()) };
-        *HOME_THREAD.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(std::thread::current().id());
+        *HOME_THREAD.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::thread::current().id());
         DataHome { _guard: guard, _dir: dir, prev }
     }
 
@@ -5878,7 +5784,11 @@ fn second() { println!(\"2\"); }\n").unwrap();
         // Superseded: the file names the app, and the departing daemon is 999.
         write(1234);
         release_endpoint(999);
-        assert_eq!(read_endpoint().map(|e| e.pid), Some(1234), "took the successor's claim with it");
+        assert_eq!(
+            read_endpoint().map(|e| e.pid),
+            Some(1234),
+            "took the successor's claim with it"
+        );
 
         // Idling out: the file still names me, so it goes.
         release_endpoint(1234);
@@ -5922,20 +5832,17 @@ fn second() { println!(\"2\"); }\n").unwrap();
         // One out with a reader: counted, itemised, and by its id.
         p.leased.insert(ids[0].clone(), Instant::now());
         let w = work_left(&p);
-        assert_eq!(w.remaining, 3, "a lease is not a reading; remaining holds (two functions and their file)");
+        assert_eq!(
+            w.remaining, 3,
+            "a lease is not a reading; remaining holds (two functions and their file)"
+        );
         assert_eq!(w.in_flight, 1);
         assert_eq!(w.outstanding.len(), w.in_flight);
         assert_eq!(w.outstanding[0].0, ids[0]);
 
         // A lease left over a function that has since been read explains nothing. It must
         // drop out of both numbers rather than keep claiming a reader is busy on it.
-        p.reports.insert(
-            ids[0].clone(),
-            Report {
-                id: ids[0].clone(),
-                ..Report::blank()
-            },
-        );
+        p.reports.insert(ids[0].clone(), Report { id: ids[0].clone(), ..Report::blank() });
         let w = work_left(&p);
         assert_eq!(w.remaining, 2, "one function read; its twin and their file are left");
         assert_eq!(w.in_flight, 0, "the reading landed; the stale lease is moot");
@@ -6149,7 +6056,8 @@ fn second() { println!(\"2\"); }\n").unwrap();
         // The queue works from the narrowed set.
         let mut out = Vec::new();
         collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, &mut out);
-        let names: Vec<String> = out.into_iter().filter(|(_, t)| !t.file).map(|(_, t)| t.name).collect();
+        let names: Vec<String> =
+            out.into_iter().filter(|(_, t)| !t.file).map(|(_, t)| t.name).collect();
         assert_eq!(names, vec!["one"], "excluded functions are never handed out");
 
         // And the shape a reader would use to propose one still shows both halves, or it
@@ -6184,7 +6092,10 @@ fn second() { println!(\"2\"); }\n").unwrap();
         });
         assert_eq!(ids.len(), 2);
         for (id, body) in &ids {
-            p.reports.insert(id.clone(), Report { id: id.clone(), body: body.clone(), ..Report::blank() });
+            p.reports.insert(
+                id.clone(),
+                Report { id: id.clone(), body: body.clone(), ..Report::blank() },
+            );
         }
         assert_eq!(assessed(&p), 2, "two live readings");
 
@@ -6192,11 +6103,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
         std::fs::write(&path, "fn open() { println!(\"1\"); }\n").unwrap();
         let rescanned = project_of(dir.path());
         p.scan = rescanned.scan;
-        assert_eq!(
-            assessed(&p),
-            1,
-            "the survivor counts; the orphan is history, not coverage"
-        );
+        assert_eq!(assessed(&p), 1, "the survivor counts; the orphan is history, not coverage");
     }
 
     /// A file is handed out as its own reading, with the header and the whole list.
@@ -6234,8 +6141,10 @@ fn second() { println!(\"2\"); }\n").unwrap();
         });
         assert_eq!(ids.len(), 2, "twins are separate readings");
         for (id, body) in &ids {
-            p.reports
-                .insert(id.clone(), Report { id: id.clone(), body: body.clone(), ..Report::blank() });
+            p.reports.insert(
+                id.clone(),
+                Report { id: id.clone(), body: body.clone(), ..Report::blank() },
+            );
         }
 
         // The FIRST twin goes. The survivor slides into its ordinal.
@@ -6450,7 +6359,8 @@ fn second() { println!(\"2\"); }\n").unwrap();
     fn a_function_that_is_gone_stops_being_offered() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.rs");
-        std::fs::write(&path, "fn keep() { println!(\"1\"); }\nfn go() { println!(\"2\"); }\n").unwrap();
+        std::fs::write(&path, "fn keep() { println!(\"1\"); }\nfn go() { println!(\"2\"); }\n")
+            .unwrap();
         let mut p = project_of(dir.path());
         assert_eq!(resync_changed(&mut p), 0);
 
@@ -6548,11 +6458,9 @@ fn second() { println!(\"2\"); }\n").unwrap();
         state.touch("/mine");
         let shared: Shared = Arc::new(Mutex::new(state));
 
-        let Json(out) = status(
-            State(shared.clone()),
-            Query(StatusParams { project: Some("/mine".into()) }),
-        )
-        .await;
+        let Json(out) =
+            status(State(shared.clone()), Query(StatusParams { project: Some("/mine".into()) }))
+                .await;
         assert_eq!(out["project"], "mine", "status followed the window, not the caller");
         assert!(out["repo"].as_str().unwrap().contains(mine.path().to_str().unwrap()));
 
@@ -6588,7 +6496,10 @@ fn second() { println!(\"2\"); }\n").unwrap();
                 return t;
             }
         }
-        panic!("the fixture never handed out a {} task", if want_file { "file" } else { "function" });
+        panic!(
+            "the fixture never handed out a {} task",
+            if want_file { "file" } else { "function" }
+        );
     }
 
     /// The source comes from the server, bounded to the extent that will be graded.
@@ -6628,10 +6539,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
         // function it has not predicted yet, which is the read-ahead the ordering exists
         // to prevent.
         let other = if task.name == "one" { "SECRET" } else { "\"1\"" };
-        assert!(
-            !src.contains(other),
-            "reveal leaked a sibling's body into the handout:\n{src}"
-        );
+        assert!(!src.contains(other), "reveal leaked a sibling's body into the handout:\n{src}");
     }
 
     /// A second reveal serves the same source and leaves the first prediction standing.
@@ -6764,10 +6672,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
         assert_eq!(out["whole_file"], true);
         let src = out["source"].as_str().unwrap();
         assert!(src.contains("//! A header."), "the header was cut off:\n{src}");
-        assert!(
-            src.contains("// TRAILING"),
-            "the file was sliced to its last declaration:\n{src}"
-        );
+        assert!(src.contains("// TRAILING"), "the file was sliced to its last declaration:\n{src}");
     }
 
     /// A caller with no path is told what the human has added, and nothing is invented.
@@ -6812,8 +6717,12 @@ fn second() { println!(\"2\"); }\n").unwrap();
         crate::reports::save_index(&index);
         let err = resolve_open(&state, None).expect_err("two candidates is a question");
         assert_eq!(err["ok"], false);
-        let listed: Vec<&str> =
-            err["projects"].as_array().unwrap().iter().map(|p| p["path"].as_str().unwrap()).collect();
+        let listed: Vec<&str> = err["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["path"].as_str().unwrap())
+            .collect();
         assert_eq!(listed, vec!["/a", "/b"], "the human was not shown the choice");
     }
 
@@ -6842,7 +6751,8 @@ fn second() { println!(\"2\"); }\n").unwrap();
         });
 
         assert_eq!(resolve_open(&state, Some("/added")).unwrap(), PathBuf::from("/added"));
-        let err = resolve_open(&state, Some("/somewhere-else")).expect_err("an unadded path opened");
+        let err =
+            resolve_open(&state, Some("/somewhere-else")).expect_err("an unadded path opened");
         assert_eq!(err["ok"], false);
         assert!(
             err["error"].as_str().unwrap().contains("/somewhere-else"),
@@ -6871,10 +6781,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
         detached(async move {
             let _ = tx.send(());
         });
-        assert!(
-            rx.recv_timeout(Duration::from_secs(5)).is_ok(),
-            "the future never ran"
-        );
+        assert!(rx.recv_timeout(Duration::from_secs(5)).is_ok(), "the future never ran");
     }
 
     /// And it still works from inside one, which is the axum handler's case.
@@ -6940,14 +6847,11 @@ fn second() { println!(\"2\"); }\n").unwrap();
 
         // An id out of `theirs`, taken from its own scan so it is the real thing.
         let mut theirs_id = String::new();
-        state.projects["/theirs"]
-            .scan
-            .root
-            .visit(&mut |n| {
-                if n.kind == crate::model::NodeKind::Func {
-                    theirs_id = n.id.clone();
-                }
-            });
+        state.projects["/theirs"].scan.root.visit(&mut |n| {
+            if n.kind == crate::model::NodeKind::Func {
+                theirs_id = n.id.clone();
+            }
+        });
         assert!(!theirs_id.is_empty(), "the fixture must hold a function");
 
         // The caller's key says `/mine` — the ambient state a sibling reader moved. The
@@ -6958,10 +6862,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
             "a reading followed the caller's key into a repo that has never heard of it"
         );
         // Agreement changes nothing, which is every call in the single-repo case.
-        assert_eq!(
-            state.owner_of(&theirs_id, Some("/theirs")).as_deref(),
-            Some("/theirs")
-        );
+        assert_eq!(state.owner_of(&theirs_id, Some("/theirs")).as_deref(), Some("/theirs"));
         // And keyless — the case every subagent is actually in.
         assert_eq!(state.owner_of(&theirs_id, None).as_deref(), Some("/theirs"));
     }
@@ -6993,10 +6894,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
             .unwrap()
             .leased
             .insert("a.rs@99#nothing".into(), Instant::now());
-        assert_eq!(
-            state.owner_of("a.rs@99#nothing", None).as_deref(),
-            Some("/loaded")
-        );
+        assert_eq!(state.owner_of("a.rs@99#nothing", None).as_deref(), Some("/loaded"));
     }
 
     /// Spreading has to survive between calls, not just within one handout.
@@ -7075,9 +6973,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
     /// still hand out work rather than starving.
     #[test]
     fn queue_falls_back_when_one_file_remains() {
-        let ranked = (0..4)
-            .map(|i| (0.5, task("only.rs", &format!("f{i}"))))
-            .collect();
+        let ranked = (0..4).map(|i| (0.5, task("only.rs", &format!("f{i}")))).collect();
         let handed = interleave_by_file(ranked, 3);
         assert_eq!(handed.len(), 3);
     }
@@ -7229,8 +7125,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
     #[test]
     fn a_report_carrying_its_own_tool_call_is_refused() {
         let leaked = Report {
-            found: "…outside the scroll area.</found> <parameter name=\"predicted\">most"
-                .into(),
+            found: "…outside the scroll area.</found> <parameter name=\"predicted\">most".into(),
             ..Report::blank()
         };
         assert_eq!(mangled(&leaked), Some("found"));
@@ -7273,10 +7168,7 @@ fn second() { println!(\"2\"); }\n").unwrap();
         assert_eq!(complete.grades().0, Grade::Most);
 
         // One grade short of complete is the case the guard exists for, leak and all.
-        let lost_a_grade = Report {
-            predicted: None,
-            ..complete.clone()
-        };
+        let lost_a_grade = Report { predicted: None, ..complete.clone() };
         assert_eq!(mangled(&lost_a_grade), Some("found"));
     }
 }

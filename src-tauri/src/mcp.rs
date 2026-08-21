@@ -302,10 +302,8 @@ fn decode(r: reqwest::blocking::Response) -> Result<Value, RetryableError> {
 
 fn get(path: &str) -> Result<Value, String> {
     with_retry(|base| {
-        let r = client()?
-            .get(format!("{base}{path}"))
-            .send()
-            .map_err(|_| RetryableError::Transient)?;
+        let r =
+            client()?.get(format!("{base}{path}")).send().map_err(|_| RetryableError::Transient)?;
         decode(r)
     })
 }
@@ -638,10 +636,7 @@ fn call(name: &str, args: &Value) -> Result<Value, String> {
             // Null rather than an empty string when the caller gave no path. Absent means
             // "tell me which repo the human has added"; an empty string is a path that
             // matches nothing, and would be refused instead of answered.
-            let asked = args
-                .get("path")
-                .and_then(|v| v.as_str())
-                .filter(|p| !p.trim().is_empty());
+            let asked = args.get("path").and_then(|v| v.as_str()).filter(|p| !p.trim().is_empty());
             let out = post(
                 "/open",
                 json!({
@@ -759,11 +754,15 @@ pub fn run() {
                 let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let args = params.get("arguments").cloned().unwrap_or(json!({}));
                 match call(name, &args) {
-                    Ok(v) => json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] }),
+                    Ok(v) => {
+                        json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })
+                    }
                     // Errors come back as tool CONTENT rather than transport errors, so
                     // the model can read and act on them ("start the app first") instead
                     // of seeing an opaque failure.
-                    Err(e) => json!({ "content": [{ "type": "text", "text": format!("error: {e}") }], "isError": true }),
+                    Err(e) => {
+                        json!({ "content": [{ "type": "text", "text": format!("error: {e}") }], "isError": true })
+                    }
                 }
             }
             _ => {
@@ -786,11 +785,7 @@ mod tests {
     use super::*;
 
     fn names(v: &Value) -> Vec<String> {
-        v.as_array()
-            .unwrap()
-            .iter()
-            .map(|t| t["name"].as_str().unwrap().to_string())
-            .collect()
+        v.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect()
     }
 
     /// The two surfaces are disjoint, and together they are the whole contract.
@@ -842,10 +837,7 @@ mod tests {
     #[test]
     fn every_advertised_tool_is_dispatchable() {
         for name in names(&all_tools()) {
-            assert!(
-                dispatches(&name),
-                "{name} is advertised but `call` has no arm for it"
-            );
+            assert!(dispatches(&name), "{name} is advertised but `call` has no arm for it");
         }
     }
 

@@ -56,10 +56,7 @@ fn big(n: usize) -> String {
 }
 
 fn main() {
-    let path = std::env::args()
-        .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
+    let path = std::env::args().nth(1).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
 
     // ── The fixed prefix: what every reader loads before it sees any code ──────────
 
@@ -80,9 +77,7 @@ fn main() {
     let subagent = agentapi::reader_prompt(agentapi::default_batch());
 
     println!("\nMCP TOKEN BUDGET — {}", path.display());
-    println!(
-        "  estimated at {CHARS_PER_TOKEN} chars/token — read the ratios, not the digits\n"
-    );
+    println!("  estimated at {CHARS_PER_TOKEN} chars/token — read the ratios, not the digits\n");
 
     println!("PER READER, FIXED — loaded by every subagent before it reads anything.");
     println!("  Identical across readers, so it should cache; if it does not, this is");

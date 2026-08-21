@@ -35,8 +35,8 @@
 //! is what lets a reading land without invalidating anything. A repo whose readings changed
 //! keeps its cached tree and gets its colours from the store, as it always did.
 
-use crate::scan::Scan;
 use crate::scan::Fidelity;
+use crate::scan::Scan;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -231,8 +231,7 @@ fn head_of(repo: &Path) -> String {
 /// The stored tree, if it describes this repo as it stands.
 pub fn load(repo: &Path, signature: u64) -> Option<Scan> {
     let bytes = std::fs::read(path_for(repo)?).ok()?;
-    let (cached, _): (Cached, usize) =
-        bincode::serde::decode_from_slice(&bytes, config()).ok()?;
+    let (cached, _): (Cached, usize) = bincode::serde::decode_from_slice(&bytes, config()).ok()?;
     let mut scan =
         (cached.version == VERSION && cached.signature == signature).then_some(cached.scan)?;
     // The neighbour table, from beside it and under the same signature. Its absence is not a
@@ -292,7 +291,11 @@ pub fn save(repo: &Path, signature: u64, scan: &Scan) {
             version: VERSION,
             signature,
             parse: crate::parse::PARSE_VERSION,
-            scan: Scan { root: scan.root.slim(), stats: scan.stats.clone(), links: Default::default() },
+            scan: Scan {
+                root: scan.root.slim(),
+                stats: scan.stats.clone(),
+                links: Default::default(),
+            },
         },
         config(),
     ) else {

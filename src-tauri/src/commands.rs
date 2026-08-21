@@ -100,10 +100,8 @@ pub async fn scan_repo(
                 s.restoring_progress.insert(progress_key.clone(), p.clone());
             }
             // Named, like the shape batches beside it — see `scan::Tick`.
-            let _ = app.emit(
-                "scan-progress",
-                crate::scan::Tick { project: &progress_key, progress: &p },
-            );
+            let _ = app
+                .emit("scan-progress", crate::scan::Tick { project: &progress_key, progress: &p });
         };
         // Per-function scores go out as they land so the sunburst colors in live. The
         // full tree still returns at the end — the stream is an accelerant, not the
@@ -137,10 +135,8 @@ pub async fn scan_repo(
         // and stay grey: a scan in progress has no reading to show, and the tree the scan
         // returns replaces this one whole.
         let shape = |files: &[crate::scan::ShapeFile]| {
-            let _ = app.emit(
-                "scan-shape",
-                crate::scan::ShapeBatch { project: &progress_key, files },
-            );
+            let _ =
+                app.emit("scan-shape", crate::scan::ShapeBatch { project: &progress_key, files });
         };
         scan::scan(
             &root,
@@ -208,7 +204,6 @@ pub async fn scan_repo(
     // functions when it has somewhere to draw them.
     scanned.map(|s| Scan { root: s.root.slim(), stats: s.stats, links: s.links })
 }
-
 
 /// Replay one repo's history, commit by commit.
 ///
@@ -311,12 +306,8 @@ pub fn history_log(
 pub fn repo_remote(path: String) -> Option<String> {
     let repo = PathBuf::from(path);
     let git = |args: &[&str]| -> Option<String> {
-        let out = std::process::Command::new("git")
-            .arg("-C")
-            .arg(&repo)
-            .args(args)
-            .output()
-            .ok()?;
+        let out =
+            std::process::Command::new("git").arg("-C").arg(&repo).args(args).output().ok()?;
         if !out.status.success() {
             return None;
         }
@@ -364,11 +355,7 @@ pub fn history_deltas(path: String, from: usize, count: usize) -> Vec<serde_json
 
 /// Functions `[from, from + count)` — see `history::funcs` for why a prefix is enough.
 #[tauri::command]
-pub fn history_funcs(
-    path: String,
-    from: usize,
-    count: usize,
-) -> Vec<crate::history::HistoryFunc> {
+pub fn history_funcs(path: String, from: usize, count: usize) -> Vec<crate::history::HistoryFunc> {
     crate::history::funcs(&PathBuf::from(path), from, count)
 }
 
@@ -404,13 +391,9 @@ pub async fn warm_history(path: String) -> bool {
 pub async fn read_source(repo: String, rel_path: String) -> Result<String, String> {
     const MAX_BYTES: u64 = 2 * 1024 * 1024;
     tauri::async_runtime::spawn_blocking(move || {
-        let root = PathBuf::from(&repo)
-            .canonicalize()
-            .map_err(|e| format!("repo unreadable: {e}"))?;
-        let full = root
-            .join(&rel_path)
-            .canonicalize()
-            .map_err(|e| format!("no such file: {e}"))?;
+        let root =
+            PathBuf::from(&repo).canonicalize().map_err(|e| format!("repo unreadable: {e}"))?;
+        let full = root.join(&rel_path).canonicalize().map_err(|e| format!("no such file: {e}"))?;
         if !full.starts_with(&root) {
             return Err("outside the open repo".into());
         }
@@ -434,7 +417,11 @@ pub async fn read_source(repo: String, rel_path: String) -> Result<String, Strin
 /// Labels are derived from the path and sanitised: Tauri labels must be unique and
 /// allow only a restricted character set, and a path contains neither guarantee.
 #[tauri::command]
-pub fn open_code_window(app: tauri::AppHandle, repo: String, rel_path: String) -> Result<(), String> {
+pub fn open_code_window(
+    app: tauri::AppHandle,
+    repo: String,
+    rel_path: String,
+) -> Result<(), String> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
 
     let label: String = format!("code-{rel_path}")
@@ -554,9 +541,7 @@ pub struct AgentActivity {
 }
 
 #[tauri::command]
-pub fn agent_activity(
-    state: tauri::State<'_, crate::agentapi::Shared>,
-) -> AgentActivity {
+pub fn agent_activity(state: tauri::State<'_, crate::agentapi::Shared>) -> AgentActivity {
     const IDLE_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
     let s = crate::agentapi::lock(&state);
     AgentActivity {
@@ -577,24 +562,23 @@ pub fn agent_activity(
 /// click anywhere. That is the whole point of the inversion: the session that knows which
 /// repo you are in should be the thing that decides what is on screen.
 #[tauri::command]
-pub fn projects(
-    state: tauri::State<'_, crate::agentapi::Shared>,
-) -> crate::agentapi::ProjectList {
+pub fn projects(state: tauri::State<'_, crate::agentapi::Shared>) -> crate::agentapi::ProjectList {
     crate::agentapi::ProjectList::from_state(&crate::agentapi::lock(&state))
 }
 
 /// The full scored tree for one project, fetched when the window switches to it.
 #[tauri::command]
-pub fn project_scan(
-    state: tauri::State<'_, crate::agentapi::Shared>,
-    key: String,
-) -> Option<Scan> {
+pub fn project_scan(state: tauri::State<'_, crate::agentapi::Shared>, key: String) -> Option<Scan> {
     // **Without the functions.** See `Node::slim`: ceph's tree is 75MB of JSON, almost all
     // of it functions the map cannot draw, and the window spent five seconds parsing it
     // before anything appeared. A file's own ring arrives when something asks for it.
     let mut s = crate::agentapi::lock(&state);
     if let Some(p) = s.projects.get(&key) {
-        return Some(Scan { root: p.scan.root.slim(), stats: p.scan.stats.clone(), links: p.scan.links.clone() });
+        return Some(Scan {
+            root: p.scan.root.slim(),
+            stats: p.scan.stats.clone(),
+            links: p.scan.links.clone(),
+        });
     }
     // Not loaded, and somebody is looking at it: scan this one next — see `AppState::wanted`.
     // This command is what the window calls when it switches project, which makes it the one
@@ -620,11 +604,7 @@ pub fn project_scan(
     // saves. Dropping the guard to take it for writing would also let the real project land
     // in between, and answering with the cache after that is answering with the older thing.
     drop(s);
-    let repo = crate::reports::load_index()
-        .projects
-        .into_iter()
-        .find(|p| p.key == key)?
-        .repo;
+    let repo = crate::reports::load_index().projects.into_iter().find(|p| p.key == key)?.repo;
     crate::treecache::stale(&PathBuf::from(repo))
 }
 
@@ -1308,13 +1288,7 @@ pub fn start_check(
 ) -> serde_json::Value {
     crate::agentapi::start_run(
         &state,
-        crate::agentapi::CheckRequest {
-            project: Some(key),
-            harness: None,
-            model,
-            readers,
-            limit,
-        },
+        crate::agentapi::CheckRequest { project: Some(key), harness: None, model, readers, limit },
     )
 }
 

@@ -101,7 +101,9 @@ function petals(): string {
   for (let i = 0; i <= steps; i++) {
     const th = (i / steps) * Math.PI * 2
     const r = A * Math.pow(Math.abs(Math.cos(K * th)), 1 / P)
-    d.push(`${i === 0 ? 'M' : 'L'} ${(r * Math.cos(th)).toFixed(2)} ${(r * Math.sin(th)).toFixed(2)}`)
+    d.push(
+      `${i === 0 ? 'M' : 'L'} ${(r * Math.cos(th)).toFixed(2)} ${(r * Math.sin(th)).toFixed(2)}`,
+    )
   }
   return d.join(' ') + ' Z'
 }
@@ -122,7 +124,13 @@ const SEEDS = seedHead()
 function Flower({ s = 1 }: { s?: number }) {
   return (
     <g transform={`scale(${s})`}>
-      <path d={PETALS} fill="currentColor" fillOpacity={0.16} stroke="currentColor" strokeWidth={0.6} />
+      <path
+        d={PETALS}
+        fill="currentColor"
+        fillOpacity={0.16}
+        stroke="currentColor"
+        strokeWidth={0.6}
+      />
       {/* The same curve at 45%. A rose scaled about the origin is exactly a rose — `r` is
           linear in `a` — so this is the outline's own shape, not a second drawing to keep in
           step with it. */}
@@ -235,7 +243,7 @@ export function Bloom({ className = '' }: { className?: string }) {
             it just marches in skewed diagonals, and the eye reads a straight thing set down
             badly. Irregularity has to come from the motifs, which is what their own rotations
             are for. */}
-          <pattern id="bloom" width={T} height={H} patternUnits="userSpaceOnUse">
+        <pattern id="bloom" width={T} height={H} patternUnits="userSpaceOnUse">
           {OFFSETS.map((dx) =>
             OFFSETS.map((dy) => (
               <g key={`${dx},${dy}`} transform={`translate(${dx * T} ${dy * H})`}>

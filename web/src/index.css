@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 /* Sanity's surface, sharing the warm-beige chrome of the sibling projects (tally /
  * slooth / Sewcrates / Fussy) so a block lifted from one drops into another. The
@@ -360,7 +360,6 @@
   --cat-7: #966c81;
   --cat-8: #c89abc;
 
-
   --unanalyzed: #b3aca3;
   /* Outlines wedges an AGENT judged, so they are distinguishable from model-scored ones
    * without touching hue — hue is the reading. Off the ramp entirely, and off the rose
@@ -431,13 +430,22 @@
   --structure: #38342f;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   margin: 0;
   background: var(--background);
   color: var(--foreground);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -521,7 +529,7 @@ textarea,
 }
 
 .mono {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 }
 
 /* Chrome surface — shared with the sibling projects so a block lifted from one drops
@@ -603,7 +611,9 @@ textarea,
  * every frame of a zoom, which on a repo with a few thousand functions drops the
  * animation to single-digit fps. */
 .wedge {
-  transition: fill-opacity 120ms ease, stroke 120ms ease;
+  transition:
+    fill-opacity 120ms ease,
+    stroke 120ms ease;
   cursor: pointer;
 }
 
@@ -633,13 +643,21 @@ textarea,
  * Keyed on the root in the markup, so changing level replays this rather than leaving the
  * new level's detail already faded up from the last one. */
 @keyframes patches-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
-.patches-in { animation: patches-in 180ms ease-out both; }
+.patches-in {
+  animation: patches-in 180ms ease-out both;
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .patches-in { animation: none; }
+  .patches-in {
+    animation: none;
+  }
 }
 
 /* The walk, before there is anything to count.
@@ -650,8 +668,12 @@ textarea,
  * term runs out of evidence: say undecided rather than pick a number. It becomes a real
  * fraction the moment `scan-progress` supplies one. */
 @keyframes track-sweep {
-  from { transform: translateX(-100%); }
-  to   { transform: translateX(400%); }
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(400%);
+  }
 }
 /* Linear, deliberately. An ease-in-out decelerates into each end and accelerates out of
  * it, which on a repeating one-way travel reads as the segment bouncing back and forth
@@ -664,7 +686,11 @@ textarea,
 
 @media (prefers-reduced-motion: reduce) {
   /* Still visibly not-idle, without the travel. */
-  .track-sweep { animation: none; width: 100%; opacity: 0.45; }
+  .track-sweep {
+    animation: none;
+    width: 100%;
+    opacity: 0.45;
+  }
 }
 
 /* ── Code view tokens ─────────────────────────────────────────────────────────
@@ -677,12 +703,26 @@ textarea,
  * Nothing here touches the ramp hues. Comments deliberately sit near the muted text
  * color, because a comment is the one token the metric has an opinion about and it
  * should read as prose rather than as code. */
-.tok-plain { color: var(--foreground); }
-.tok-punct { color: color-mix(in oklch, var(--foreground) 62%, transparent); }
-.tok-comment { color: var(--muted-foreground); font-style: italic; }
-.tok-string { color: color-mix(in oklch, var(--accent) 78%, var(--foreground)); }
-.tok-key { color: var(--accent); font-weight: 600; }
-.tok-num { color: color-mix(in oklch, var(--accent-dim) 70%, var(--foreground)); }
+.tok-plain {
+  color: var(--foreground);
+}
+.tok-punct {
+  color: color-mix(in oklch, var(--foreground) 62%, transparent);
+}
+.tok-comment {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.tok-string {
+  color: color-mix(in oklch, var(--accent) 78%, var(--foreground));
+}
+.tok-key {
+  color: var(--accent);
+  font-weight: 600;
+}
+.tok-num {
+  color: color-mix(in oklch, var(--accent-dim) 70%, var(--foreground));
+}
 
 /* A trap breathes, so the eye finds it without hunting.
  *
@@ -703,8 +743,13 @@ textarea,
  * on screen together, and a second keyframe block would be a second thing to keep in step
  * with the reduced-motion rule below. */
 @keyframes trap-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
 }
 
 .trap-pulse {
@@ -712,7 +757,9 @@ textarea,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .trap-pulse { animation: none; }
+  .trap-pulse {
+    animation: none;
+  }
 }
 
 /* A wedge out with a reader.
@@ -734,8 +781,13 @@ textarea,
  * movement. Removing it entirely would leave a run with nothing on the map at all, which
  * is the one thing this element exists to prevent. */
 @keyframes wedge-reading {
-  0%, 100% { opacity: 0.06; }
-  50% { opacity: 0.4; }
+  0%,
+  100% {
+    opacity: 0.06;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 .wedge-reading {
@@ -743,7 +795,10 @@ textarea,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .wedge-reading { animation: none; opacity: 0.22; }
+  .wedge-reading {
+    animation: none;
+    opacity: 0.22;
+  }
 }
 
 /* A project with readers out, in the sidebar list.
@@ -752,8 +807,13 @@ textarea,
  * wedge whose color is the measurement and must not drown it, while this is a 11px glyph
  * that has to be noticeable from the corner of the eye on a row nobody is looking at. */
 @keyframes reading-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.25; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
 }
 
 .reading-pulse {
@@ -761,7 +821,10 @@ textarea,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .reading-pulse { animation: none; opacity: 1; }
+  .reading-pulse {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 /* Work in flight, along the bottom edge of a project row.
@@ -774,8 +837,12 @@ textarea,
  * A transform, so it composites and costs nothing per frame on a list that is always on
  * screen — the same bar every animation in this app has to clear. */
 @keyframes reading-sweep {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(400%); }
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(400%);
+  }
 }
 
 .reading-sweep {
@@ -783,7 +850,10 @@ textarea,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .reading-sweep { animation: none; transform: translateX(150%); }
+  .reading-sweep {
+    animation: none;
+    transform: translateX(150%);
+  }
 }
 
 /** The head of a code tile — the name and path above a snippet.

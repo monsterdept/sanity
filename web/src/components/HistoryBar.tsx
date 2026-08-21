@@ -29,7 +29,6 @@ const DURATIONS = [180, 60, 30, 10, 3]
  *  index, so a step of forty is as correct as forty steps of one. */
 export const MAX_FPS = 30
 
-
 function pace(total: number): string {
   if (total >= 60) return `${Math.round(total / 60)}m`
   return `${total}s`

@@ -67,24 +67,25 @@ impl LocalModel {
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
 
         std::thread::spawn(move || {
-            let loaded = (|| -> anyhow::Result<(LlamaContext<'static>,)> {
-                let backend: &'static LlamaBackend = Box::leak(Box::new(LlamaBackend::init()?));
-                // Leaked to 'static because `LlamaContext<'a>` borrows its model, and a
-                // struct holding both is self-referential. The app loads one model and
-                // keeps it until exit; leaking says that plainly instead of pretending to
-                // manage a lifetime that never ends.
-                let model: &'static LlamaModel = Box::leak(Box::new(
-                    LlamaModel::load_from_file(backend, &path, &LlamaModelParams::default())?,
-                ));
-                let n = (MAX_TOKENS + 64) as u32;
-                let ctx = model.new_context(
-                    backend,
-                    LlamaContextParams::default()
-                        .with_n_ctx(std::num::NonZeroU32::new(n))
-                        .with_n_batch(n),
-                )?;
-                Ok((ctx,))
-            })();
+            let loaded =
+                (|| -> anyhow::Result<(LlamaContext<'static>,)> {
+                    let backend: &'static LlamaBackend = Box::leak(Box::new(LlamaBackend::init()?));
+                    // Leaked to 'static because `LlamaContext<'a>` borrows its model, and a
+                    // struct holding both is self-referential. The app loads one model and
+                    // keeps it until exit; leaking says that plainly instead of pretending to
+                    // manage a lifetime that never ends.
+                    let model: &'static LlamaModel = Box::leak(Box::new(
+                        LlamaModel::load_from_file(backend, &path, &LlamaModelParams::default())?,
+                    ));
+                    let n = (MAX_TOKENS + 64) as u32;
+                    let ctx = model.new_context(
+                        backend,
+                        LlamaContextParams::default()
+                            .with_n_ctx(std::num::NonZeroU32::new(n))
+                            .with_n_batch(n),
+                    )?;
+                    Ok((ctx,))
+                })();
 
             let mut ctx = match loaded {
                 Ok((c,)) => {
@@ -103,10 +104,9 @@ impl LocalModel {
         });
 
         match ready_rx.recv() {
-            Ok(Ok(())) => Ok(LocalModel {
-                label: format!("local · {label}"),
-                jobs: Mutex::new(tx),
-            }),
+            Ok(Ok(())) => {
+                Ok(LocalModel { label: format!("local · {label}"), jobs: Mutex::new(tx) })
+            }
             Ok(Err(e)) => Err(anyhow::anyhow!(e)),
             Err(_) => Err(anyhow::anyhow!("model loader thread died")),
         }
@@ -120,11 +120,7 @@ impl LocalModel {
     /// arrived at it the hard way.
     fn surprisal(&self, prefix: &str, body: &str) -> Option<f32> {
         let (reply_tx, reply_rx) = mpsc::channel();
-        self.jobs
-            .lock()
-            .ok()?
-            .send(((prefix.to_string(), body.to_string()), reply_tx))
-            .ok()?;
+        self.jobs.lock().ok()?.send(((prefix.to_string(), body.to_string()), reply_tx)).ok()?;
         reply_rx.recv().ok()?
     }
 }

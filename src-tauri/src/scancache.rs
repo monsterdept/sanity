@@ -388,7 +388,12 @@ impl ScanCache {
     /// Both conditions, not either. The hash alone misses revert-and-reapply; the oid
     /// alone misses an uncommitted edit, which is the state a repo is in precisely when
     /// somebody reopens it.
-    pub fn cached_blame(&self, rel_path: &str, hash: u64, last_commit: Option<&str>) -> Option<FileBlame> {
+    pub fn cached_blame(
+        &self,
+        rel_path: &str,
+        hash: u64,
+        last_commit: Option<&str>,
+    ) -> Option<FileBlame> {
         let held = self.store();
         let inner = held.as_ref()?;
         let e = inner.entries.get(rel_path)?;
@@ -459,7 +464,7 @@ impl ScanCache {
     pub fn retain(&self, live: &std::collections::HashSet<String>) {
         let dropped = {
             let mut held = self.store();
-        let Some(inner) = held.as_mut() else { return };
+            let Some(inner) = held.as_mut() else { return };
             let before = inner.entries.len();
             inner.entries.retain(|k, _| live.contains(k));
             before != inner.entries.len()
@@ -552,8 +557,10 @@ impl ScanCache {
 /// that a reader has to apply the lines in order, and that removals need a rewrite — both
 /// cheap next to serialising hundreds of megabytes on a timer.
 fn header_line(s: &Stored) -> String {
-    serde_json::to_string(&serde_json::json!({ "version": s.version, "parse": s.parse, "head": s.head }))
-        .unwrap_or_default()
+    serde_json::to_string(
+        &serde_json::json!({ "version": s.version, "parse": s.parse, "head": s.head }),
+    )
+    .unwrap_or_default()
         + "\n"
 }
 
@@ -701,7 +708,8 @@ mod tests {
             blame_commit: ANCIENT.into(),
         };
         let v: serde_json::Value = serde_json::to_value(&e).expect("Entry serialises");
-        let mut keys: Vec<&str> = v.as_object().expect("an object").keys().map(|k| k.as_str()).collect();
+        let mut keys: Vec<&str> =
+            v.as_object().expect("an object").keys().map(|k| k.as_str()).collect();
         keys.sort_unstable();
         assert_eq!(
             keys,
@@ -725,8 +733,7 @@ mod tests {
         // field added to `FuncDef` loads from a stale entry exactly as silently. `shape` was
         // the first one: without a bump, every repo with a warm cache would have reported
         // zero clones, correctly according to the file it read and wrongly about the code.
-        let f: serde_json::Value =
-            serde_json::to_value(&e.funcs[0]).expect("FuncDef serialises");
+        let f: serde_json::Value = serde_json::to_value(&e.funcs[0]).expect("FuncDef serialises");
         let mut fkeys: Vec<&str> =
             f.as_object().expect("an object").keys().map(|k| k.as_str()).collect();
         fkeys.sort_unstable();
@@ -804,9 +811,8 @@ mod tests {
             Some(p) => format!(r#"{{"version":{v},"parse":{p},"head":"abc"}}"#),
             None => format!(r#"{{"version":{v},"head":"abc"}}"#),
         };
-        let live = |s: &Stored| {
-            s.version == FORMAT_VERSION && s.parse == crate::parse::PARSE_VERSION
-        };
+        let live =
+            |s: &Stored| s.version == FORMAT_VERSION && s.parse == crate::parse::PARSE_VERSION;
 
         assert!(
             live(&entries(&header(FORMAT_VERSION, Some(crate::parse::PARSE_VERSION)))),
@@ -905,16 +911,22 @@ mod tests {
         for name in ["b.rs", "c.rs", "d.rs"] {
             let p = repo.path().join(name);
             fs::write(&p, "fn one() {}").unwrap();
-            let Look::Miss { ident, .. } = cache.look(name, &p, None) else {
-                panic!("miss")
-            };
+            let Look::Miss { ident, .. } = cache.look(name, &p, None) else { panic!("miss") };
             cache.put_parse(name, &ident, Lang::Rust, &[func("one")], None, "head");
             cache.save();
         }
 
         let lines = fs::read_to_string(&path).unwrap().lines().count();
         assert_eq!(lines, 5, "expected a header and one line per file, got {lines}");
-        assert_eq!(ScanCache::open(repo.path()).store().as_ref().expect("a store is read on first use").entries.len(), 4);
+        assert_eq!(
+            ScanCache::open(repo.path())
+                .store()
+                .as_ref()
+                .expect("a store is read on first use")
+                .entries
+                .len(),
+            4
+        );
     }
 
     /// A write killed halfway costs that one entry, not the whole cache.

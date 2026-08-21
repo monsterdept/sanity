@@ -205,7 +205,6 @@ pub struct KnownProjects {
     pub order: Vec<String>,
 }
 
-
 /// Where sanity keeps its own files — the project index, the endpoint file, the score
 /// cache. One resolver because there is one directory, and because the tests need to be
 /// able to point it somewhere disposable.

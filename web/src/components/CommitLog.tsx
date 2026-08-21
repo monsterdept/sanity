@@ -400,46 +400,46 @@ export function CommitLog({
            still draw it; nothing in the replayed window ever touched it, and saying that
            is better than an empty pane that reads as a failure. */
         <p className="px-4 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-          Nothing in this window touched {scope || 'the repo'} — it was already here when
-          the replay starts.
+          Nothing in this window touched {scope || 'the repo'} — it was already here when the replay
+          starts.
         </p>
       ) : (
-      <div
-        ref={scroller}
-        onScroll={(e) => {
-          const top = e.currentTarget.scrollTop
-          // Quantised to the row: a pixel of scroll cannot change which rows exist, and
-          // re-rendering on every pixel would undo the saving this window exists for.
-          setView((v) =>
-            Math.floor(v.top / ROW_H) === Math.floor(top / ROW_H) ? v : { ...v, top },
-          )
-        }}
-        className="relative min-h-0 flex-1 overflow-y-auto"
-      >
-        {/* The list, and over it the two things that move. Both are transformed rather
+        <div
+          ref={scroller}
+          onScroll={(e) => {
+            const top = e.currentTarget.scrollTop
+            // Quantised to the row: a pixel of scroll cannot change which rows exist, and
+            // re-rendering on every pixel would undo the saving this window exists for.
+            setView((v) =>
+              Math.floor(v.top / ROW_H) === Math.floor(top / ROW_H) ? v : { ...v, top },
+            )
+          }}
+          className="relative min-h-0 flex-1 overflow-y-auto"
+        >
+          {/* The list, and over it the two things that move. Both are transformed rather
             than re-laid-out, so following the playhead costs a compositor frame and no
             React work at all. */}
-        {/* Full height whatever is rendered inside it, so the scrollbar describes the whole
+          {/* Full height whatever is rendered inside it, so the scrollbar describes the whole
             log and `scrollTop` arithmetic — the playhead-following effect above, and this
             window itself — keeps meaning what it meant. */}
-        <div className="relative" style={{ height: frames.length * ROW_H }}>
-          <div style={{ transform: `translateY(${first * ROW_H}px)` }}>
-            {frames.slice(first, last).map((real, i) => {
-              const at = first + i
-              return (
-                <Row
-                  key={real}
-                  c={pages.current.get(Math.floor(at / PAGE))?.[at % PAGE]}
-                  real={real}
-                  selected={at === pos}
-                  onPick={pick}
-                  onOpen={open}
-                />
-              )
-            })}
-          </div>
+          <div className="relative" style={{ height: frames.length * ROW_H }}>
+            <div style={{ transform: `translateY(${first * ROW_H}px)` }}>
+              {frames.slice(first, last).map((real, i) => {
+                const at = first + i
+                return (
+                  <Row
+                    key={real}
+                    c={pages.current.get(Math.floor(at / PAGE))?.[at % PAGE]}
+                    real={real}
+                    selected={at === pos}
+                    onPick={pick}
+                    onOpen={open}
+                  />
+                )
+              })}
+            </div>
 
-          {/* Everything still to come, dimmed by one element rather than by a style on
+            {/* Everything still to come, dimmed by one element rather than by a style on
               each row. Over the rows, because dimming text means covering it — and
               therefore not eating their clicks.
               
@@ -449,16 +449,16 @@ export function CommitLog({
               the scroll extent, so the pane grew a screenful of dead space that got longer
               the further the replay ran. Height and offset from the same arithmetic, so
               the covered region is exactly the commits still to come. */}
-          <div
-            className="pointer-events-none absolute inset-x-0 top-0 z-20 bg-[var(--card)]"
-            style={{
-              height: Math.max(0, frames.length - pos - 1) * ROW_H,
-              transform: `translateY(${(pos + 1) * ROW_H}px)`,
-              opacity: 0.62,
-            }}
-          />
+            <div
+              className="pointer-events-none absolute inset-x-0 top-0 z-20 bg-[var(--card)]"
+              style={{
+                height: Math.max(0, frames.length - pos - 1) * ROW_H,
+                transform: `translateY(${(pos + 1) * ROW_H}px)`,
+                opacity: 0.62,
+              }}
+            />
+          </div>
         </div>
-      </div>
       )}
       {card && <CommitCard repoKey={repoKey} sha={card} onClose={() => setCard(null)} />}
     </div>

@@ -327,10 +327,12 @@ class Shot {
     const onGlass = canvas.getBoundingClientRect()
     if (boxRect.width <= 0 || boxRect.height <= 0) return
     const drawn = box * s * (onGlass.width / boxRect.width)
-    const dx = ((onGlass.x + onGlass.width / 2 - (boxRect.x + boxRect.width / 2)) /
-      boxRect.width) * box * s
-    const dy = ((onGlass.y + onGlass.height / 2 - (boxRect.y + boxRect.height / 2)) /
-      boxRect.height) * box * s
+    const dx =
+      ((onGlass.x + onGlass.width / 2 - (boxRect.x + boxRect.width / 2)) / boxRect.width) * box * s
+    const dy =
+      ((onGlass.y + onGlass.height / 2 - (boxRect.y + boxRect.height / 2)) / boxRect.height) *
+      box *
+      s
 
     // `preserveDrawingBuffer` is on in the bundle, which is what makes reading the canvas
     // back outside its own animation frame give the picture rather than a cleared buffer.
@@ -615,9 +617,7 @@ function within<T>(work: Promise<T>, limit: number, whenNot: string): Promise<T>
  *  Two frames rather than one: the first is the one the state change is rendered into, and
  *  reading in it can catch the tree the commit is replacing. */
 function settle(): Promise<void> {
-  return new Promise((done) =>
-    requestAnimationFrame(() => requestAnimationFrame(() => done())),
-  )
+  return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())))
 }
 
 /**
@@ -705,10 +705,7 @@ export const CANCELLED = 'cancelled'
  * components, and it is what an export looks like when it stops dead seven frames in with
  * every stage reporting single-digit milliseconds. Realtime mode emits per frame.
  */
-function settings(
-  quality: InstanceType<typeof import('mediabunny').Quality>,
-  codec: Codec,
-) {
+function settings(quality: InstanceType<typeof import('mediabunny').Quality>, codec: Codec) {
   return { codec, quality, latencyMode: 'realtime' as const }
 }
 
@@ -918,9 +915,7 @@ export async function record(o: Recording): Promise<Uint8Array> {
       left:
         done > 0
           ? ((total - done) *
-              (cost.encode +
-                cost.draw +
-                (drawn / done) * (cost.fetch + cost.fold + cost.raster))) /
+              (cost.encode + cost.draw + (drawn / done) * (cost.fetch + cost.fold + cost.raster))) /
             1000
           : null,
     })

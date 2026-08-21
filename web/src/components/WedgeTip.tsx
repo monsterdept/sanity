@@ -163,9 +163,7 @@ export function WedgeTip({
               matters there is the directory immediately containing this one. */}
           {parts.length > 0 &&
             `${elide(parts.join('/'), Math.max(6, FITS_SMALL - 1 - own.length))}/`}
-          <span className="font-semibold text-[var(--foreground)]">
-            {elide(own, FITS_SMALL)}
-          </span>
+          <span className="font-semibold text-[var(--foreground)]">{elide(own, FITS_SMALL)}</span>
         </p>
       )}
 
@@ -181,32 +179,32 @@ export function WedgeTip({
           a row with a size that never shrinks left them elided to `50% und…`. A number
           nobody can read the units of is worse than one more line on the card. */}
       {!saysNothing(n, mode) && (
-      <div className="flex items-baseline gap-1.5">
-        {/* Hatched when the reading has expired, the same 45° rule the wedge and the key
+        <div className="flex items-baseline gap-1.5">
+          {/* Hatched when the reading has expired, the same 45° rule the wedge and the key
             both wear. The swatch's whole job is to be the color you are pointing at, and a
             flat square beside the word `stale` described a wedge that is not on screen —
             the one on screen is hatched. Reproduced in CSS rather than reaching into the
             SVG's <defs>: it only has to look alike, but it does have to STAY alike, so the
             angle and the pitch are `#stale-hatch`'s. */}
-        <span
-          className="h-2.5 w-2.5 shrink-0 translate-y-px rounded-[2px]"
-          style={{
-            background: !unread && c ? c.fill : 'var(--unanalyzed)',
-            backgroundImage: expired
-              ? 'repeating-linear-gradient(45deg, var(--foreground) 0 1.2px, transparent 1.2px 4px)'
-              : undefined,
-          }}
-        />
-        {/* A stale wedge says `stale`, not `not measured yet`. Both are absences of a
+          <span
+            className="h-2.5 w-2.5 shrink-0 translate-y-px rounded-[2px]"
+            style={{
+              background: !unread && c ? c.fill : 'var(--unanalyzed)',
+              backgroundImage: expired
+                ? 'repeating-linear-gradient(45deg, var(--foreground) 0 1.2px, transparent 1.2px 4px)'
+                : undefined,
+            }}
+          />
+          {/* A stale wedge says `stale`, not `not measured yet`. Both are absences of a
             CURRENT reading and the wedge falls back to the proxy for either, but they are
             not the same absence: one has never been looked at, the other was read and the
             code moved out from under it. Saying "not measured yet" over a hatched wedge
             contradicted the sentence directly beneath it, which was explaining why the
             reading no longer counts. */}
-        <span className="truncate text-[11px]">
-          {expired ? 'stale' : unread || !c ? 'not measured yet' : c.label}
-        </span>
-      </div>
+          <span className="truncate text-[11px]">
+            {expired ? 'stale' : unread || !c ? 'not measured yet' : c.label}
+          </span>
+        </div>
       )}
       {/* Its own line, under the reading rather than beside it — the quiet half, and the
           one that never changes with the lens. */}

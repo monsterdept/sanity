@@ -90,13 +90,7 @@ export function Gauge({
             the value arc, so at 5% documented the picture was dominated by the part that is
             not the reading — a big gray horseshoe with a nub on it. Thinner and dimmer: the
             track is the scale, the arc is the answer. */}
-        <path
-          d={arc}
-          fill="none"
-          stroke="var(--border)"
-          strokeWidth={4}
-          strokeLinecap="round"
-        />
+        <path d={arc} fill="none" stroke="var(--border)" strokeWidth={4} strokeLinecap="round" />
         {!unread && (
           <path
             d={arc}
@@ -142,4 +136,3 @@ export function Gauge({
     </div>
   )
 }
-

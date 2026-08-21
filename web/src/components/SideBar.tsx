@@ -126,9 +126,7 @@ export function SideBar({
   // The poll is ignored while a gesture is in progress: a list that reorders itself under a
   // moving pointer is a list you cannot aim at.
   const shown = drag
-    ? (drag.order
-        .map((k) => projects.find((p) => p.key === k))
-        .filter(Boolean) as ProjectSummary[])
+    ? (drag.order.map((k) => projects.find((p) => p.key === k)).filter(Boolean) as ProjectSummary[])
     : projects
 
   /** Follow the pointer while a row is held, and commit when it is let go.
@@ -268,57 +266,57 @@ export function SideBar({
         {shown.map((p, i) => (
           <Fragment key={p.key}>
             {drag?.moved && drag.at === i && <DropLine />}
-          <ProjectItem
-            key={p.key}
-            dragging={drag?.moved === true && drag.key === p.key}
-            onGrab={(e) => {
-              if (e.button !== 0 || !nav.current) return
-              const rows = [...nav.current.children].map((el) => {
-                const r = el.getBoundingClientRect()
-                return { top: r.top, bottom: r.bottom }
-              })
-              const mine = rows[i]
-              live.current = { y: e.clientY }
-              setDrag({
-                key: p.key,
-                order: shown.map((row) => row.key),
-                slots: rows,
-                from: i,
-                at: i,
-                offset: e.clientY - mine.top,
-                height: mine.bottom - mine.top,
-                width: nav.current.clientWidth - 16,
-                // Not a drag until it has moved — see the threshold in the effect. A click
-                // that jitters by a pixel is still a click, and this row's whole job is to be
-                // clicked.
-                moved: false,
-              })
-            }}
-            project={p}
-            active={p.key === active}
-            replay={p.key === replayKey ? replay : null}
-            // Another repo is being walked, so this one cannot start. The control is not
-            // offered rather than offered and refused.
-            blocked={replayKey !== null && replayKey !== p.key}
-            onError={onError}
-            onReplay={(fresh) => onReplay(p.key, fresh)}
-            onRead={() => onRead(p.key)}
-            onFailure={() => setFailureFor(p.key)}
-            onClick={() => {
-              if (dropped.current) {
-                dropped.current = false
-                return
-              }
-              onSelect(p.key)
-            }}
-            onContextMenu={(e) => {
-              // Ours instead of WebKit's, which offers Reload and Inspect Element — a
-              // developer menu shipped to everybody, on a row where the obvious gesture
-              // means something else entirely.
-              e.preventDefault()
-              setMenu({ key: p.key, x: e.clientX, y: e.clientY })
-            }}
-          />
+            <ProjectItem
+              key={p.key}
+              dragging={drag?.moved === true && drag.key === p.key}
+              onGrab={(e) => {
+                if (e.button !== 0 || !nav.current) return
+                const rows = [...nav.current.children].map((el) => {
+                  const r = el.getBoundingClientRect()
+                  return { top: r.top, bottom: r.bottom }
+                })
+                const mine = rows[i]
+                live.current = { y: e.clientY }
+                setDrag({
+                  key: p.key,
+                  order: shown.map((row) => row.key),
+                  slots: rows,
+                  from: i,
+                  at: i,
+                  offset: e.clientY - mine.top,
+                  height: mine.bottom - mine.top,
+                  width: nav.current.clientWidth - 16,
+                  // Not a drag until it has moved — see the threshold in the effect. A click
+                  // that jitters by a pixel is still a click, and this row's whole job is to be
+                  // clicked.
+                  moved: false,
+                })
+              }}
+              project={p}
+              active={p.key === active}
+              replay={p.key === replayKey ? replay : null}
+              // Another repo is being walked, so this one cannot start. The control is not
+              // offered rather than offered and refused.
+              blocked={replayKey !== null && replayKey !== p.key}
+              onError={onError}
+              onReplay={(fresh) => onReplay(p.key, fresh)}
+              onRead={() => onRead(p.key)}
+              onFailure={() => setFailureFor(p.key)}
+              onClick={() => {
+                if (dropped.current) {
+                  dropped.current = false
+                  return
+                }
+                onSelect(p.key)
+              }}
+              onContextMenu={(e) => {
+                // Ours instead of WebKit's, which offers Reload and Inspect Element — a
+                // developer menu shipped to everybody, on a row where the obvious gesture
+                // means something else entirely.
+                e.preventDefault()
+                setMenu({ key: p.key, x: e.clientX, y: e.clientY })
+              }}
+            />
           </Fragment>
         ))}
         {/* The last gap has no row after it to hang off. */}
@@ -455,8 +453,8 @@ export function SideBar({
             <div>
               <div className="text-[15px] font-semibold">Read failed · {failing.name}</div>
               <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
-                {failing.run?.ended ?? 'No readings landed.'} Please check your agent
-                configuration. Output can be found below.
+                {failing.run?.ended ?? 'No readings landed.'} Please check your agent configuration.
+                Output can be found below.
               </p>
             </div>
             {/* Monospace and scrollable, because it is a transcript. Wrapped rather than
@@ -486,7 +484,6 @@ export function SideBar({
     </aside>
   )
 }
-
 
 /** Where the held row will land.
  *
@@ -645,15 +642,15 @@ function ProjectItem({
   const state: { text: string; tint: string } | null = project.loading
     ? { text: 'Scanning', tint: 'var(--accent)' }
     : stopping
-        ? { text: `${run?.live ?? 0} exiting`, tint: 'var(--accent)' }
-        : running
-          ? // Failures are named rather than folded into "started". A misconfigured agent
-            // exits instantly, so a run with nothing landing looks merely slow — this is the
-            // one number that tells the two apart.
-            { text: `${run!.spawned} reading`, tint: 'var(--accent)' }
-          : failed
-            ? { text: 'Read failed', tint: 'var(--warning)' }
-            : null
+      ? { text: `${run?.live ?? 0} exiting`, tint: 'var(--accent)' }
+      : running
+        ? // Failures are named rather than folded into "started". A misconfigured agent
+          // exits instantly, so a run with nothing landing looks merely slow — this is the
+          // one number that tells the two apart.
+          { text: `${run!.spawned} reading`, tint: 'var(--accent)' }
+        : failed
+          ? { text: 'Read failed', tint: 'var(--warning)' }
+          : null
 
   /** Commits nobody has replayed yet.
    *
@@ -787,7 +784,8 @@ function ProjectItem({
           where it was only provenance. A progress bar is a progress bar: accent, here and in
           the movie export's timeline and the export dialog's own bar. The second line above
           says which fraction it is, in words. */}
-      {(walking !== null || (!project.loading && total > 0 && project.assessed > 0 && !settled)) && (
+      {(walking !== null ||
+        (!project.loading && total > 0 && project.assessed > 0 && !settled)) && (
         <span
           aria-hidden
           className="absolute bottom-0 left-0 h-[6px] rounded-full"
@@ -811,12 +809,14 @@ function ProjectItem({
           at any coverage, and it sits under the fill rather than replacing it, so "how far
           along" and "working right now" stay two separate readings. */}
       {reading && (
-        <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[6px] overflow-hidden">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-[6px] overflow-hidden"
+        >
           <span
             className="reading-sweep absolute inset-y-0 w-1/4"
             style={{
-              background:
-                'linear-gradient(90deg, transparent, var(--accent), transparent)',
+              background: 'linear-gradient(90deg, transparent, var(--accent), transparent)',
             }}
           />
         </span>
@@ -829,7 +829,9 @@ function ProjectItem({
           `93% read`, `3 reading`. Reading DOWN the column, this line alone answers "what is
           the state of my projects", which is the question the list exists for. */}
       <div className="relative flex w-full items-center gap-2">
-        <span className={clsx('shrink-0 text-[11px] opacity-70', reading && 'reading-pulse')}>◍</span>
+        <span className={clsx('shrink-0 text-[11px] opacity-70', reading && 'reading-pulse')}>
+          ◍
+        </span>
         <span className="mono min-w-0 flex-1 truncate">{project.name}</span>
         {state && (
           <span
@@ -892,7 +894,7 @@ function ProjectItem({
                     // cannot say is how much is left, and it does not pretend to.
                     replay.done > 0
                     ? `${compact(replay.done)} ${replay.unit || 'read'}`
-                    : (replay.phase || 'starting…')
+                    : replay.phase || 'starting…'
                   : // **The unit comes from the phase, because two phases count now.**
                     // Reading the log counts commits off a pipe and the walk counts commits
                     // parsed; both are a fraction of the same total and they are nothing
@@ -957,7 +959,10 @@ function ProjectItem({
               <div
                 className="h-full rounded-full transition-[width] duration-300"
                 style={{
-                  width: replay.total > 0 ? `${Math.min(100, (replay.done / replay.total) * 100)}%` : '100%',
+                  width:
+                    replay.total > 0
+                      ? `${Math.min(100, (replay.done / replay.total) * 100)}%`
+                      : '100%',
                   background: 'var(--accent)',
                 }}
               />
@@ -975,7 +980,9 @@ function ProjectItem({
           `119k unread` and `Read` are a sentence, and putting the button on the name's line
           made it a decoration of the title. */}
       <div className="relative flex min-h-[16px] w-full items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-[10px] tabular-nums opacity-55">{detail}</span>
+        <span className="min-w-0 flex-1 truncate text-[10px] tabular-nums opacity-55">
+          {detail}
+        </span>
 
         {/* The transcript, beside the row that says a run failed. */}
         {failed && open && (
@@ -1026,7 +1033,6 @@ function ProjectItem({
           </button>
         )}
       </div>
-
     </div>
   )
 }

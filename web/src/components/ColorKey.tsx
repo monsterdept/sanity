@@ -6,7 +6,9 @@ import {
   OTHER_LABEL,
   SLOTS,
   slotColor,
-  type ColorMode, paintsFromReadings } from '../lib/colorMode'
+  type ColorMode,
+  paintsFromReadings,
+} from '../lib/colorMode'
 import { heatColor, type Ramp } from '../lib/api'
 
 /** The legend follows the mode. A heat ramp under a categorical encoding would be a
@@ -100,10 +102,7 @@ function Legend({
       <div className="flex items-center gap-3">
         {CALLER_KEY.map(([fill, label]) => (
           <span key={label} className="flex items-center gap-1.5">
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-              style={{ background: fill }}
-            />
+            <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ background: fill }} />
             <span className="text-[10px] text-[var(--muted-foreground)]">{label}</span>
           </span>
         ))}
@@ -127,10 +126,7 @@ function Legend({
           ['var(--unanalyzed)', 'too small'],
         ].map(([fill, label]) => (
           <span key={label} className="flex items-center gap-1.5">
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-              style={{ background: fill }}
-            />
+            <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ background: fill }} />
             <span className="text-[10px] text-[var(--muted-foreground)]">{label}</span>
           </span>
         ))}
@@ -143,10 +139,7 @@ function Legend({
       <div className="flex items-center gap-3">
         {REACH_KEY.map(([fill, label]) => (
           <span key={label} className="flex items-center gap-1.5">
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-              style={{ background: fill }}
-            />
+            <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ background: fill }} />
             <span className="text-[10px] text-[var(--muted-foreground)]">{label}</span>
           </span>
         ))}

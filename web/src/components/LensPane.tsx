@@ -91,9 +91,9 @@ export function LensPane({
     return (
       <Block label="Replaying">
         <Absent>
-          The map is showing a past commit. Everything this pane measures — the reading, the
-          docs, the wiring, the blame — is about the code as it is now, so there is nothing
-          here that would be true of this frame. Leave History to see it.
+          The map is showing a past commit. Everything this pane measures — the reading, the docs,
+          the wiring, the blame — is about the code as it is now, so there is nothing here that
+          would be true of this frame. Leave History to see it.
         </Absent>
       </Block>
     )
@@ -127,9 +127,7 @@ export function LensPane({
     case 'docs':
       return <DocsSection node={node} report={r} stale={stale} />
     case 'traps':
-      return (
-        <TrapsSection node={node} repoKey={repoKey} siblings={siblings} onJump={onJump} />
-      )
+      return <TrapsSection node={node} repoKey={repoKey} siblings={siblings} onJump={onJump} />
     case 'callers':
     case 'reach':
     case 'clones':
@@ -139,14 +137,7 @@ export function LensPane({
     case 'blame':
     case 'churn':
     case 'age':
-      return (
-        <HistorySection
-          node={node}
-          mode={mode}
-          repoKey={repoKey}
-          ranks={ranks}
-        />
-      )
+      return <HistorySection node={node} mode={mode} repoKey={repoKey} ranks={ranks} />
   }
 }
 
@@ -252,8 +243,7 @@ function Ladder({
             <span
               className="h-2 w-2 shrink-0 translate-y-px rounded-[2px]"
               style={{
-                background:
-                  legend || (on && !dated) ? heatColor(at[g], ramp) : 'var(--secondary)',
+                background: legend || (on && !dated) ? heatColor(at[g], ramp) : 'var(--secondary)',
                 outline: on ? '1px solid var(--muted-foreground)' : undefined,
               }}
             />
@@ -285,8 +275,8 @@ function StaleNote() {
   return (
     <p className="mb-2 rounded-[var(--radius-sm)] border border-[var(--warning)] px-2 py-1.5 text-[11px] leading-snug text-[var(--muted-foreground)]">
       <span className="font-semibold uppercase tracking-wide text-[var(--warning)]">Stale</span> —
-      this code has changed since it was read, so what follows describes a body that is no
-      longer here. It is kept as history and colors nothing.
+      this code has changed since it was read, so what follows describes a body that is no longer
+      here. It is kept as history and colors nothing.
     </p>
   )
 }
@@ -553,8 +543,8 @@ function SurpriseSection({ node }: { node: Node }) {
     return (
       <Block label="Surprise">
         <Absent>
-          Nobody has read this yet. Readings come from an agent working through the repo over
-          MCP — point one at this project and it will fill in.
+          Nobody has read this yet. Readings come from an agent working through the repo over MCP —
+          point one at this project and it will fill in.
         </Absent>
       </Block>
     )
@@ -586,8 +576,8 @@ function SurpriseSection({ node }: { node: Node }) {
         />
         {!r.predicted && (
           <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
-            Banked before the grades existed, when a reading recorded only surprised-or-not —
-            so this is one of the two ENDS of the scale, never a middle rung somebody chose.
+            Banked before the grades existed, when a reading recorded only surprised-or-not — so
+            this is one of the two ENDS of the scale, never a middle rung somebody chose.
           </p>
         )}
         <Passage label="Expected" text={r.expected} hint="Copy what the reader expected" />
@@ -640,15 +630,7 @@ function SurpriseSection({ node }: { node: Node }) {
  *  absolutely positioned it would sit on top of the first line at exactly the width where the
  *  pane is narrowest. What goes on the clipboard is the agent's own markdown — see
  *  `CopyButton`. */
-export function Passage({
-  label,
-  text,
-  hint,
-}: {
-  label: string
-  text: string
-  hint: string
-}) {
+export function Passage({ label, text, hint }: { label: string; text: string; hint: string }) {
   return (
     <div>
       <div className="mb-0.5 flex items-center gap-2 text-[var(--muted-foreground)]">
@@ -677,7 +659,9 @@ function NoteBox({ note, trapped }: { note: string; trapped: boolean }) {
           "careful", and neither says which of the two kinds of box this is. */}
       <div
         className="flex items-center gap-1.5 px-2 py-1"
-        style={trapped ? { background: 'var(--trap)', color: PAPER } : { color: 'var(--foreground)' }}
+        style={
+          trapped ? { background: 'var(--trap)', color: PAPER } : { color: 'var(--foreground)' }
+        }
       >
         <span aria-hidden className="text-[11px] leading-none">
           ⚠
@@ -732,8 +716,8 @@ function LegibleKey() {
         legend
       />
       <p className="mt-2 text-[11px] leading-snug text-[var(--muted-foreground)]">
-        Graded per function by the reader after it opened the body. A file carries no grade of
-        its own — the breakdown below is its functions', with each one named.
+        Graded per function by the reader after it opened the body. A file carries no grade of its
+        own — the breakdown below is its functions', with each one named.
       </p>
     </Block>
   )
@@ -758,8 +742,8 @@ function LegibleSection({ report, stale }: { report?: AgentReport; stale: boolea
     return (
       <Block label="Legibility">
         <Absent>
-          Nobody has read this yet. Legibility is graded by the reader after it opens the body,
-          so it arrives with the reading and never without one.
+          Nobody has read this yet. Legibility is graded by the reader after it opens the body, so
+          it arrives with the reading and never without one.
         </Absent>
       </Block>
     )
@@ -767,17 +751,14 @@ function LegibleSection({ report, stale }: { report?: AgentReport; stale: boolea
   const current = legibleOf(report)
   const dated = report.legibleDated === true
   return (
-    <Block
-      label="Legibility"
-      aside={current && !stale ? LEGIBLE_WORDS[current] : undefined}
-    >
+    <Block label="Legibility" aside={current && !stale ? LEGIBLE_WORDS[current] : undefined}>
       {stale && <StaleNote />}
       {dated && (
         <p className="mb-2 text-[11px] leading-snug text-[var(--muted-foreground)]">
           This grade answers a question that has since been rewritten, so it no longer colors
-          anything or counts anywhere. It is kept below as history. The axis refills on an
-          ordinary re-read — there is no pass that asks this question on its own, because a
-          reader that only ever opens the body is a different instrument.
+          anything or counts anywhere. It is kept below as history. The axis refills on an ordinary
+          re-read — there is no pass that asks this question on its own, because a reader that only
+          ever opens the body is a different instrument.
         </p>
       )}
       <Ladder
@@ -790,8 +771,8 @@ function LegibleSection({ report, stale }: { report?: AgentReport; stale: boolea
       />
       {!report.legible && (
         <p className="mt-2 text-[11px] leading-snug text-[var(--muted-foreground)]">
-          This reading carries no legibility grade — it was banked before the axis existed.
-          Absent is no opinion, never a grade.
+          This reading carries no legibility grade — it was banked before the axis existed. Absent
+          is no opinion, never a grade.
         </p>
       )}
       <div className="mt-3">
@@ -859,8 +840,8 @@ function DocsSection({
         />
       ) : (
         <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
-          Ungraded — nobody has read this, so there is no judgement of whether the words below
-          match the code they describe.
+          Ungraded — nobody has read this, so there is no judgement of whether the words below match
+          the code they describe.
         </p>
       )}
       {derivable && (
@@ -869,9 +850,9 @@ function DocsSection({
             Derivable
           </span>{' '}
           — the reader judged that this says nothing it could not have worked out from the code
-          alone, so it counts as <span className="mono">none</span> whatever grade it was
-          given. Documentation a model could regenerate from the body explains nothing that was
-          not already there.
+          alone, so it counts as <span className="mono">none</span> whatever grade it was given.
+          Documentation a model could regenerate from the body explains nothing that was not already
+          there.
         </p>
       )}
       <div className="mt-3">
@@ -897,8 +878,8 @@ function DocsSection({
           />
         ) : (
           <Absent>
-            Nothing is attached to this. Whatever it does, the next person has to get from the
-            body — which is exactly what the reader above it had to do.
+            Nothing is attached to this. Whatever it does, the next person has to get from the body
+            — which is exactly what the reader above it had to do.
           </Absent>
         )}
       </div>
@@ -956,9 +937,9 @@ function TrapsSection({
           </Absent>
         ) : r.trapDated ? (
           <Absent>
-            The reader answered an earlier version of this question, which has since narrowed.
-            A narrowing can only take answers away, so the yes it gave is expired and the axis
-            is grey until this is read again — it is not a no.
+            The reader answered an earlier version of this question, which has since narrowed. A
+            narrowing can only take answers away, so the yes it gave is expired and the axis is grey
+            until this is read again — it is not a no.
           </Absent>
         ) : (
           <Absent>
@@ -1065,8 +1046,8 @@ function WiringSection({
     return (
       <Block label={label}>
         <Absent>
-          The scan holds no function at this position — it may have moved since. It comes back
-          on the next scan.
+          The scan holds no function at this position — it may have moved since. It comes back on
+          the next scan.
         </Absent>
       </Block>
     )
@@ -1077,9 +1058,9 @@ function WiringSection({
       return (
         <Block label="Clones">
           <Absent>
-            This body is too short to compare. An empty list here says nothing about whether it
-            is unique — the floor is there so a repo does not report four thousand three-line
-            accessors as copies of each other.
+            This body is too short to compare. An empty list here says nothing about whether it is
+            unique — the floor is there so a repo does not report four thousand three-line accessors
+            as copies of each other.
           </Absent>
         </Block>
       )
@@ -1147,8 +1128,8 @@ function WiringSection({
     >
       {!related.wired ? (
         <Absent>
-          This language's call shape has never been parsed, so nothing was looked for. That is
-          not the same as nothing calling it — see the gray on the map.
+          This language's call shape has never been parsed, so nothing was looked for. That is not
+          the same as nothing calling it — see the gray on the map.
         </Absent>
       ) : list.length === 0 ? (
         <Absent>
@@ -1208,8 +1189,8 @@ function LanguageSection({ node }: { node: Node }) {
     <Block label="Language" aside={node.lang ?? undefined}>
       {!node.lang ? (
         <Absent>
-          No grammar claims this extension, so nothing here was parsed. A file with no language
-          has no functions to draw and no calls to resolve.
+          No grammar claims this extension, so nothing here was parsed. A file with no language has
+          no functions to draw and no calls to resolve.
         </Absent>
       ) : (
         <>
@@ -1220,8 +1201,8 @@ function LanguageSection({ node }: { node: Node }) {
           )}
           {gaps.length === 0 ? (
             <p className="mt-2 text-[11px] leading-snug text-[var(--muted-foreground)]">
-              Fully supported: functions, calls, copies and history are all measured for{' '}
-              {node.lang} here.
+              Fully supported: functions, calls, copies and history are all measured for {node.lang}{' '}
+              here.
             </p>
           ) : (
             <div className="mt-2 space-y-1.5">
@@ -1318,8 +1299,8 @@ function HistorySection({
       <Block label={label}>
         <Absent>
           Git has nothing for these lines — an untracked file, a repo with no history, or a file
-          that has moved since the scan. Churn and Age degrade to "no history" on the map for
-          the same reason.
+          that has moved since the scan. Churn and Age degrade to "no history" on the map for the
+          same reason.
         </Absent>
       </Block>
     )
@@ -1351,48 +1332,51 @@ function HistorySection({
           on the FUNCTION, where there is no breakdown to duplicate and the lines being
           attributed are the ones on screen. */}
       {node.kind !== 'func' ? null : (
-      <>
-      <Block
-        label="Lines by author"
-        hint={HINT}
-        aside={`${history.authors.length} ${history.authors.length === 1 ? 'person' : 'people'}`}
-      >
-        {history.authors.map((a) => (
-          <div key={a.author} className="mb-1 flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-[11px]" style={{ fontFamily: FAMILY }}>
-              {a.author}
-            </span>
-            <span className="h-[6px] w-[70px] shrink-0 overflow-hidden rounded-[2px] bg-[var(--secondary)]">
-              <span
-                className="block h-full rounded-[2px]"
-                style={{
-                  width: `${Math.max(3, (a.lines / history.lines) * 100)}%`,
-                  // Their own slot, which is the colour their wedges are wearing three inches
-                  // to the left. Beyond the palette everything is `OTHER`, exactly as on the
-                  // ring — an author off the end of the legend is off the end here too.
-                  background: slotColor(ranks?.get(a.author) ?? Number.MAX_SAFE_INTEGER),
-                }}
-              />
-            </span>
-            <span className="mono w-[54px] shrink-0 text-right text-[10px] tabular-nums text-[var(--muted-foreground)]">
-              {a.lines} / {history.lines}
-            </span>
-          </div>
-        ))}
-      </Block>
-      {/* **The surviving half, said as what it is.** These are the commits with lines still
+        <>
+          <Block
+            label="Lines by author"
+            hint={HINT}
+            aside={`${history.authors.length} ${history.authors.length === 1 ? 'person' : 'people'}`}
+          >
+            {history.authors.map((a) => (
+              <div key={a.author} className="mb-1 flex items-center gap-2">
+                <span
+                  className="min-w-0 flex-1 truncate text-[11px]"
+                  style={{ fontFamily: FAMILY }}
+                >
+                  {a.author}
+                </span>
+                <span className="h-[6px] w-[70px] shrink-0 overflow-hidden rounded-[2px] bg-[var(--secondary)]">
+                  <span
+                    className="block h-full rounded-[2px]"
+                    style={{
+                      width: `${Math.max(3, (a.lines / history.lines) * 100)}%`,
+                      // Their own slot, which is the colour their wedges are wearing three inches
+                      // to the left. Beyond the palette everything is `OTHER`, exactly as on the
+                      // ring — an author off the end of the legend is off the end here too.
+                      background: slotColor(ranks?.get(a.author) ?? Number.MAX_SAFE_INTEGER),
+                    }}
+                  />
+                </span>
+                <span className="mono w-[54px] shrink-0 text-right text-[10px] tabular-nums text-[var(--muted-foreground)]">
+                  {a.lines} / {history.lines}
+                </span>
+              </div>
+            ))}
+          </Block>
+          {/* **The surviving half, said as what it is.** These are the commits with lines still
           here, which is a subset of the history Age draws — the heading names the population
           so the two lenses cannot be read as disagreeing about a count. */}
-      <Block
-        label="Where these lines came from"
-        hint={HINT}
-        aside={`${history.touches.length} of ${history.changes.length}`}
-      >
-        {history.touches.map((t) => (
-          <Touch key={t.commit + t.when} t={t} repoKey={repoKey} />
-        ))}
-      </Block>
-      </>
+          <Block
+            label="Where these lines came from"
+            hint={HINT}
+            aside={`${history.touches.length} of ${history.changes.length}`}
+          >
+            {history.touches.map((t) => (
+              <Touch key={t.commit + t.when} t={t} repoKey={repoKey} />
+            ))}
+          </Block>
+        </>
       )}
     </>
   )
@@ -1586,15 +1570,7 @@ function ExpandIcon({ title, onClick }: { title: string; onClick: () => void }) 
 }
 
 /** One commit, as a row with a way into it. */
-function Touch({
-  t,
-  bright,
-  repoKey,
-}: {
-  t: TouchRow
-  bright?: boolean
-  repoKey: string | null
-}) {
+function Touch({ t, bright, repoKey }: { t: TouchRow; bright?: boolean; repoKey: string | null }) {
   const [open, setOpen] = useState(false)
   // `uncommitted` is git's word for the working tree — there is nothing to show, so the row
   // offers nothing rather than a modal that would come back empty.
@@ -1702,15 +1678,7 @@ const MIN_CHURN_WEEKS = 6
  *
  * Vertical because the pane is 260px wide and a year across is three pixels a week.
  */
-function ChurnSection({
-  node,
-  history,
-  hint,
-}: {
-  node: Node
-  history: LineHistory
-  hint: string
-}) {
+function ChurnSection({ node, history, hint }: { node: Node; history: LineHistory; hint: string }) {
   // The grid scrolls to the pane's bottom, less the summary that has to stay under it — which
   // is measured, because that sentence is one line on most functions and three on a renamed
   // one in a dirty worktree. A constant there left a band of empty pane below the calendar.
@@ -1724,9 +1692,8 @@ function ChurnSection({
     return (
       <Block label={label} hint={hint}>
         <Absent>
-          No commit in this history changed these lines. On a tracked file that means the range
-          is not in HEAD — code written since the last commit, or a scan the file has moved
-          under.
+          No commit in this history changed these lines. On a tracked file that means the range is
+          not in HEAD — code written since the last commit, or a scan the file has moved under.
         </Absent>
       </Block>
     )

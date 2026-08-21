@@ -4,16 +4,7 @@ import { clsx } from '../lib/cn'
 import { colorFor, type ColorMode, paintsFromReadings } from '../lib/colorMode'
 import { CHROME_INK } from '../lib/ink'
 import { arcPath, tileFunctions, type Slot } from '../lib/sunburst'
-import {
-  arcOf,
-  center,
-  fanFor,
-  lerpSector,
-  place,
-  room,
-  type Arc,
-  type Sector,
-} from '../lib/fan'
+import { arcOf, center, fanFor, lerpSector, place, room, type Arc, type Sector } from '../lib/fan'
 import { RollupDots, dotsId, ROLLUP_TEXTURE_PX } from './RollupDots'
 import { WedgeLabel } from './WedgeLabel'
 import { fitLabel } from '../lib/label'
@@ -205,11 +196,7 @@ export function FileZoom({
               Math.min(size.w, size.h) / unitsPerPx >= ROLLUP_TEXTURE_PX && (
                 <>
                   <RollupDots id={dotsId(root.path)} angle={mid.a} cx={mid.x} cy={mid.y} />
-                  <path
-                    className="pointer-events-none"
-                    d={d}
-                    fill={`url(#${dotsId(root.path)})`}
-                  />
+                  <path className="pointer-events-none" d={d} fill={`url(#${dotsId(root.path)})`} />
                 </>
               )}
           </g>

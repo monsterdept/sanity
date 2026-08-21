@@ -5,14 +5,7 @@ import { elide } from '../lib/text'
 import { FAMILY } from '../lib/labelStyle'
 import { LensPane } from './LensPane'
 import { Counts } from './Counts'
-import {
-  isAnalyzed,
-  readingWords,
-  wedgeHeat,
-  type Node,
-  trapOf,
-} from '../lib/api'
-
+import { isAnalyzed, readingWords, wedgeHeat, type Node, trapOf } from '../lib/api'
 
 /** What the list ranks by, per mode — the same quantity the ring is colored by. */
 function rank(n: Node, mode: ColorMode): number {
@@ -382,46 +375,46 @@ export function Detail({
           two ran together. `Block` drops its own top border when it is first (`first:`), so
           there is still exactly one line there and it is now the one that cannot move. */}
       <div className="shrink-0 border-b border-[var(--border)] px-4 pb-3 pt-4">
-      {/* No bottom margin: the path's own `mt-0.5` is the whole gap, which pulls the name and
+        {/* No bottom margin: the path's own `mt-0.5` is the whole gap, which pulls the name and
           the thing it names into one block and leaves the `mt-2` above the counts as the only
           real break in the header. Two groups, not three lines — the same spacing the repo and
           history headers get, where a name and its path were never further apart than a path
           and its totals. */}
-      <div className="flex items-center gap-2">
-        {/* No swatch. It was the wedge's own color repeated beside its name, and the lens
+        <div className="flex items-center gap-2">
+          {/* No swatch. It was the wedge's own color repeated beside its name, and the lens
             section below already says that — in words, on the scale the reading actually
             has. Two encodings of one number, the smaller of which cannot be read. */}
-        {/* The label face, not the monospace one — see `FAMILY`. A name is a NAME here, the
+          {/* The label face, not the monospace one — see `FAMILY`. A name is a NAME here, the
             same one the wedge is wearing three inches to the left, and setting it in the
             code face made the panel read as a listing of source rather than as a caption on
             the picture. Monospace stays where alignment is doing work: line counts, hashes,
             the code view. */}
-        <h2 className="truncate text-sm font-semibold" style={{ fontFamily: FAMILY }}>
-          {node.name}
-        </h2>
-        {/* No kind badge. `FILE` and `DIRECTORY` beside the name said what the name and
+          <h2 className="truncate text-sm font-semibold" style={{ fontFamily: FAMILY }}>
+            {node.name}
+          </h2>
+          {/* No kind badge. `FILE` and `DIRECTORY` beside the name said what the name and
             the path under it already say — `history.rs` under `src-tauri / src` is not
             something anyone mistakes for a directory — and it took the eye first, being the
             only outlined thing in the header. The distinction it defended is real for
             FUNCTIONS, and those are told apart by what the pane holds: a function's panel
             has a reading and prose in it, a container's has a breakdown and a list. */}
-        {/* In the header, beside the name.
+          {/* In the header, beside the name.
             A trap is the one thing here that is not a measurement on a scale — it is a
             warning about this specific function, and it was reachable only by finding the
             same function again in the notes list. Beside the name is where it is unmissable,
             and it is the same badge the list uses so the two read as one fact. */}
-        {trapped && (
-          <span
-            className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-            style={{ background: 'var(--trap)', color: 'var(--card)' }}
-            title="A reader said something here will bite whoever edits it next."
-          >
-            trap
-          </span>
-        )}
-      </div>
-      {pathLine}
-      {/* The same line every other pane opens with, minus the one figure a function cannot
+          {trapped && (
+            <span
+              className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+              style={{ background: 'var(--trap)', color: 'var(--card)' }}
+              title="A reader said something here will bite whoever edits it next."
+            >
+              trap
+            </span>
+          )}
+        </div>
+        {pathLine}
+        {/* The same line every other pane opens with, minus the one figure a function cannot
           have — see `Counts`.
 
           **It replaced a rank row rather than joining one.** `FunctionRanks` printed these
@@ -431,8 +424,7 @@ export function Detail({
           about a function whose actual reading is one scroll below. The counts are what the
           header is for; where this one sits in the repo's distribution is a question the map
           answers by drawing it. */}
-      <Counts node={node} />
-
+        <Counts node={node} />
       </div>
 
       {/* `min-h-0` because a flex child's default `min-height:auto` refuses to shrink
@@ -440,7 +432,7 @@ export function Detail({
           scroll the shell instead of this. `contain` keeps a flick at either end from
           chaining out to whatever is behind the panel. */}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 [overscroll-behavior:contain]">
-      {/* **One section, and it follows the tabs.** Everything above this qualifies every
+        {/* **One section, and it follows the tabs.** Everything above this qualifies every
           lens; this is the pane's answer to the one the map is under — see `LensPane`, which
           holds all eleven and the argument for each.
 
@@ -449,28 +441,28 @@ export function Detail({
           got you "this has not yet been analyzed" — true about a reading nobody had asked
           for, and beside the point under a lens that reads git. Each section says what its
           own absence is; that is the rule they are all written to. */}
-      {!s ? (
-        <p className="pt-3 text-xs text-[var(--muted-foreground)]">Not scored.</p>
-      ) : (
-        <LensPane
+        {!s ? (
+          <p className="pt-3 text-xs text-[var(--muted-foreground)]">Not scored.</p>
+        ) : (
+          <LensPane
+            node={node}
+            mode={mode}
+            repoKey={repoKey ?? null}
+            replaying={replaying}
+            siblings={siblings}
+            ranks={ranks}
+            onJump={onJump}
+          />
+        )}
+
+        <Contents
           node={node}
           mode={mode}
-          repoKey={repoKey ?? null}
-          replaying={replaying}
-          siblings={siblings}
           ranks={ranks}
-          onJump={onJump}
+          ageSpan={ageSpan}
+          onSelect={onSelect}
+          onDrill={onDrill}
         />
-      )}
-
-      <Contents
-        node={node}
-        mode={mode}
-        ranks={ranks}
-        ageSpan={ageSpan}
-        onSelect={onSelect}
-        onDrill={onDrill}
-      />
       </div>
 
       {/* Pinned to the bottom, a flex sibling of the scroller rather than the last thing

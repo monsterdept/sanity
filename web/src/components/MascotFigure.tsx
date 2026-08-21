@@ -119,7 +119,6 @@ const STIR_AFTER_MS = 8000
  *  a reading earns: noticing you is not news about the repo. */
 const STIRRED: MascotAnimation[] = ['lookAround', 'headTilt', 'wiggle', 'stretch']
 
-
 /** How often the gaze is re-pushed at the creature while there is something to watch.
  *
  *  Not an animation rate — the engine pursues the point smoothly on its own, so this only
@@ -325,7 +324,6 @@ export default function MascotFigure({
     // would keep resetting the glance to its first target.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [(gaze ?? []).map((d) => `${d.x},${d.y}`).join(';')])
-
 
   // **Moving the mouse anywhere in the window wakes it.** The bundle sleeps on its own idle
   // clock, which is the right behaviour for a window nobody is at — and the wrong one for a

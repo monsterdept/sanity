@@ -119,10 +119,7 @@ impl History {
 
     /// Who last committed to this file.
     pub fn last_author_of(&self, path: &str) -> Option<String> {
-        self.files
-            .get(path)
-            .map(|h| h.last_author.clone())
-            .filter(|a| !a.is_empty())
+        self.files.get(path).map(|h| h.last_author.clone()).filter(|a| !a.is_empty())
     }
 
     /// How long ago the oldest commit touching this file landed.
@@ -143,10 +140,7 @@ impl History {
     /// wholesale. Nothing there needs revisiting; there is simply one fewer way to be
     /// absent.
     pub fn last_commit_of(&self, path: &str) -> Option<&str> {
-        self.files
-            .get(path)
-            .map(|h| h.last_commit.as_str())
-            .filter(|c| !c.is_empty())
+        self.files.get(path).map(|h| h.last_commit.as_str()).filter(|c| !c.is_empty())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -303,10 +297,7 @@ mod tests {
     #[test]
     fn a_commit_touching_three_files_counts_once_for_their_directory() {
         let now = 1_000 * DAY;
-        let log = format!(
-            "\u{1}{}\u{2}Ada\nsrc/a.rs\nsrc/b.rs\nsrc/c.rs\n",
-            now - 2 * DAY
-        );
+        let log = format!("\u{1}{}\u{2}Ada\nsrc/a.rs\nsrc/b.rs\nsrc/c.rs\n", now - 2 * DAY);
         let h = parse_log(&log, now);
         assert_eq!(h.commits_of("src/a.rs"), 1);
         assert_eq!(h.commits_of("src"), 1, "one commit, not three");

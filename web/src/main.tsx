@@ -22,9 +22,7 @@ const code = params.get('code')
 const repo = params.get('repo')
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    {code && repo ? <CodeWindow repo={repo} relPath={code} /> : <App />}
-  </StrictMode>,
+  <StrictMode>{code && repo ? <CodeWindow repo={repo} relPath={code} /> : <App />}</StrictMode>,
 )
 
 // Take the splash down once there is something behind it — and "something" is not the

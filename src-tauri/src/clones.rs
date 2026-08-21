@@ -189,7 +189,11 @@ fn gamma(items: &[u32]) -> u32 {
         let src = "fn a(&self) -> u32 { self.x }\nfn b(&self) -> u32 { self.y }\n";
         let funcs = parse_functions(Lang::Rust, src);
         assert_eq!(funcs.len(), 2);
-        assert!(funcs.iter().all(|f| f.shape.is_none()), "under {} tokens", crate::parse::MIN_SHAPE_TOKENS);
+        assert!(
+            funcs.iter().all(|f| f.shape.is_none()),
+            "under {} tokens",
+            crate::parse::MIN_SHAPE_TOKENS
+        );
         let files = [FileView { path: "a.rs", lang: Lang::Rust, funcs: &funcs }];
         assert_eq!(find(&files).cloned(), 0);
     }

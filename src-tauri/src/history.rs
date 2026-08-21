@@ -170,10 +170,7 @@ pub struct HistoryScan {
 
 /// Language for a repo path, or `None` if this is not a file the parser reads.
 fn lang_of(path: &str) -> Option<Lang> {
-    if path
-        .split('/')
-        .any(|c| VENDORED.contains(&c))
-    {
+    if path.split('/').any(|c| VENDORED.contains(&c)) {
         return None;
     }
     let ext = path.rsplit_once('.')?.1;
@@ -314,10 +311,8 @@ fn functions_of(path: &str, lang: Lang, src: &str) -> FileState {
     parse::parse_functions(lang, src)
         .into_iter()
         .map(|f| {
-            let slot = seen
-                .entry((f.owner.clone(), f.name.clone()))
-                .and_modify(|n| *n += 1)
-                .or_insert(1);
+            let slot =
+                seen.entry((f.owner.clone(), f.name.clone())).and_modify(|n| *n += 1).or_insert(1);
             let ord = *slot;
             let owned = f.owner.clone().unwrap_or_default();
             let key = format!("{path}#{owned}::{}#{ord}", f.name);
@@ -612,11 +607,7 @@ fn absorb(list: &mut Vec<RawCommit>, line: &str) -> bool {
 /// Every source blob in one commit's tree — the opening state, when history is longer
 /// than the window.
 fn tree_of(repo: &Path, sha: &str) -> Vec<(String, String)> {
-    let Ok(out) = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(["ls-tree", "-r", sha])
-        .output()
+    let Ok(out) = Command::new("git").arg("-C").arg(repo).args(["ls-tree", "-r", sha]).output()
     else {
         return Vec::new();
     };
@@ -710,10 +701,7 @@ const PARSE_CHUNK: usize = 128;
 fn pool() -> Option<&'static rayon::ThreadPool> {
     static POOL: std::sync::OnceLock<Option<rayon::ThreadPool>> = std::sync::OnceLock::new();
     POOL.get_or_init(|| {
-        rayon::ThreadPoolBuilder::new()
-            .thread_name(|i| format!("trace-{i}"))
-            .build()
-            .ok()
+        rayon::ThreadPoolBuilder::new().thread_name(|i| format!("trace-{i}")).build().ok()
     })
     .as_ref()
 }
@@ -761,12 +749,7 @@ fn parse_batch(
     // is the first half of it and parsing them is the second.
     let mut out: Vec<(String, FileState)> = Vec::with_capacity(sources.len());
     for (i, chunk) in sources.chunks_mut(PARSE_CHUNK).enumerate() {
-        progress(Progress::counting(
-            "parsing files",
-            "files",
-            total + i * PARSE_CHUNK,
-            total * 2,
-        ));
+        progress(Progress::counting("parsing files", "files", total + i * PARSE_CHUNK, total * 2));
         let done: Vec<(String, FileState)> = on_pool(|| {
             chunk
                 .par_iter_mut()
@@ -871,16 +854,19 @@ impl Replayer {
         }
         let i = self.out.paths.len() as u32;
         self.out.paths.push(p.to_string());
-        self.out
-            .langs
-            .push(lang_of(p).map(|l| l.label().to_string()).unwrap_or_default());
+        self.out.langs.push(lang_of(p).map(|l| l.label().to_string()).unwrap_or_default());
         self.paths.insert(p.to_string(), i);
         i
     }
 
     /// Parse a whole tree into the opening state — everything the commits before the
     /// window built.
-    fn seed(&mut self, blobs: &mut Blobs, tree: Vec<(String, String)>, progress: &dyn Fn(Progress)) {
+    fn seed(
+        &mut self,
+        blobs: &mut Blobs,
+        tree: Vec<(String, String)>,
+        progress: &dyn Fn(Progress),
+    ) {
         for (path, state_of) in parse_batch(blobs, tree, progress) {
             let pi = self.path_idx(&path);
             for f in &state_of {
@@ -950,8 +936,7 @@ impl Replayer {
             let pi = self.path_idx(&path);
             frame.files.push(pi);
             let prev = self.state.get(&path).cloned().unwrap_or_default();
-            let was: BTreeMap<&str, &FuncAt> =
-                prev.iter().map(|f| (f.key.as_str(), f)).collect();
+            let was: BTreeMap<&str, &FuncAt> = prev.iter().map(|f| (f.key.as_str(), f)).collect();
             for f in &next {
                 let fi = self.funcs.intern(pi, f);
                 // **Only what this commit actually changed.** A commit arrives as a set of
@@ -1283,12 +1268,7 @@ impl Carry {
 }
 
 /// Carry a cached scan forward, or say why not.
-fn extend(
-    repo: &Path,
-    cached: HistoryScan,
-    limit: usize,
-    progress: &dyn Fn(Progress),
-) -> Carry {
+fn extend(repo: &Path, cached: HistoryScan, limit: usize, progress: &dyn Fn(Progress)) -> Carry {
     if cached.head.is_empty() || !is_ancestor(repo, &cached.head) {
         // A rebase, an amend, or a checkout of another branch. The stored frames describe
         // commits that are no longer on the path to HEAD, and appending to them would
@@ -1346,12 +1326,7 @@ fn extend(
                 break 'walk;
             }
             r.apply(&mut blobs, commit, &ready);
-            progress(Progress::counting(
-                "replaying",
-                "traced",
-                banked + w * WINDOW + n + 1,
-                total,
-            ));
+            progress(Progress::counting("replaying", "traced", banked + w * WINDOW + n + 1, total));
             checkpoint.maybe(repo, limit, || r.snapshot());
         }
     }
@@ -1472,7 +1447,6 @@ fn log_shas(
     let _ = child.wait();
     (!gave_up).then_some(shas)
 }
-
 
 /// Is `sha` still on the path to HEAD?
 fn is_ancestor(repo: &Path, sha: &str) -> bool {
@@ -1653,7 +1627,14 @@ mod tests {
             vec![
                 // Wire names, not field names — this struct renames to camelCase, and the
                 // wire is what a stored timeline is actually keyed by.
-                "base", "baseTs", "commits", "funcs", "head", "langs", "paths", "truncated",
+                "base",
+                "baseTs",
+                "commits",
+                "funcs",
+                "head",
+                "langs",
+                "paths",
+                "truncated",
             ],
             "the stored timeline's fields changed — bump CACHE_VERSION, then update this list"
         );
@@ -1726,10 +1707,7 @@ mod tests {
             4,
             "the banked timeline survived a walk that applied nothing"
         );
-        assert_eq!(
-            load_cache(dir.path(), ALL_COMMITS).map(|s| s.commits.len()),
-            Some(4),
-        );
+        assert_eq!(load_cache(dir.path(), ALL_COMMITS).map(|s| s.commits.len()), Some(4),);
     }
 
     /// **Stopping is checked, because "it can be stopped" is the claim, not the code.**
@@ -1776,20 +1754,14 @@ mod tests {
     fn repo_with(n: usize) -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
         let git = |args: &[&str]| {
-            Command::new("git")
-                .arg("-C")
-                .arg(dir.path())
-                .args(args)
-                .output()
-                .expect("git runs");
+            Command::new("git").arg("-C").arg(dir.path()).args(args).output().expect("git runs");
         };
         git(&["init", "-q"]);
         git(&["config", "user.email", "t@example.com"]);
         git(&["config", "user.name", "T"]);
         for i in 0..n {
-            let body: String = (0..=i)
-                .map(|k| format!("fn f{k}() -> u32 {{\n    {k}\n}}\n"))
-                .collect();
+            let body: String =
+                (0..=i).map(|k| format!("fn f{k}() -> u32 {{\n    {k}\n}}\n")).collect();
             std::fs::write(dir.path().join("src.rs"), body).expect("writes");
             git(&["add", "-A"]);
             git(&["commit", "-q", "-m", &format!("commit {i}")]);
@@ -1875,7 +1847,8 @@ mod tests {
         assert_eq!(cached.commits.len(), 3);
 
         // One more commit, exactly as a working day produces.
-        std::fs::write(dir.path().join("src.rs"), "fn only() -> u32 {\n    9\n}\n").expect("writes");
+        std::fs::write(dir.path().join("src.rs"), "fn only() -> u32 {\n    9\n}\n")
+            .expect("writes");
         for args in [vec!["add", "-A"], vec!["commit", "-q", "-m", "four"]] {
             Command::new("git").arg("-C").arg(dir.path()).args(&args).output().expect("git runs");
         }
@@ -1894,7 +1867,8 @@ mod tests {
         let cached = read(dir.path(), 2, &|_| {});
         assert_eq!(cached.truncated, 1);
 
-        std::fs::write(dir.path().join("src.rs"), "fn only() -> u32 {\n    9\n}\n").expect("writes");
+        std::fs::write(dir.path().join("src.rs"), "fn only() -> u32 {\n    9\n}\n")
+            .expect("writes");
         for args in [vec!["add", "-A"], vec!["commit", "-q", "-m", "four"]] {
             Command::new("git").arg("-C").arg(dir.path()).args(&args).output().expect("git runs");
         }
@@ -2037,9 +2011,9 @@ pub fn tables(repo: &Path) -> Option<Tables> {
             .paths
             .iter()
             .map(|p| {
-                scope.as_ref().is_some_and(|g| {
-                    g.matched_path_or_any_parents(Path::new(p), false).is_ignore()
-                })
+                scope
+                    .as_ref()
+                    .is_some_and(|g| g.matched_path_or_any_parents(Path::new(p), false).is_ignore())
             })
             .collect(),
         paths: s.paths.clone(),
@@ -2064,10 +2038,8 @@ pub fn tables(repo: &Path) -> Option<Tables> {
 ///
 /// Short reads at the end rather than an error, for the same reason `log` gives.
 pub fn funcs(repo: &Path, from: usize, count: usize) -> Vec<HistoryFunc> {
-    with_loaded(repo, |s| {
-        s.funcs.iter().skip(from).take(count).cloned().collect()
-    })
-    .unwrap_or_default()
+    with_loaded(repo, |s| s.funcs.iter().skip(from).take(count).cloned().collect())
+        .unwrap_or_default()
 }
 
 /// `count` log rows from `offset`, of the commits in `scope`.
