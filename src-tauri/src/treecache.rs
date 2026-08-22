@@ -331,19 +331,41 @@ mod tests {
     /// means a field added to one and not the other compiles, encodes, and produces a file the
     /// reader silently rejects — a repo whose neighbour lists quietly never load. Cheaper to
     /// assert than to notice.
+    ///
+    /// **Populated, and every byte accounted for.** It round-tripped `Links::default()` — an
+    /// empty table, whose encoding is a run of zero-length collections — so the only thing it
+    /// could prove was that the two records agree about a value with nothing in it. And
+    /// `decode_from_slice` returns what it consumed rather than insisting on the whole buffer,
+    /// so a trailing field on the writing side alone would leave bytes unread and still decode
+    /// "fine". Contents in, contents out, and the length checked.
     #[test]
     fn the_borrowed_links_record_decodes_as_the_owned_one() {
-        let links = crate::links::Links::default();
+        use crate::links::tests::{func, table};
+        let links = table(&[
+            (
+                "src/a.rs",
+                vec![func("caller", 1, &["callee"], Some(7)), func("callee", 20, &[], None)],
+            ),
+            ("src/b.rs", vec![func("twin", 1, &[], Some(7))]),
+        ]);
+        assert!(!links.is_empty(), "the fixture has to have something in it");
+
         let bytes = bincode::serde::encode_to_vec(
             super::CachedLinksRef { version: super::VERSION, signature: 7, links: &links },
             super::config(),
         )
         .expect("encodes");
-        let (back, _): (super::CachedLinks, usize) =
+        let (back, read): (super::CachedLinks, usize) =
             bincode::serde::decode_from_slice(&bytes, super::config()).expect("decodes");
         assert_eq!(back.version, super::VERSION);
         assert_eq!(back.signature, 7);
-        assert!(back.links.is_empty());
+        assert_eq!(
+            read,
+            bytes.len(),
+            "the owned record consumed every byte the borrowed one wrote — a field on one side \
+             only would leave a tail behind and still decode"
+        );
+        assert_eq!(back.links.len(), links.len(), "and the same functions came back");
     }
 
     /// What the drawable half costs to read, against the whole tree. Ignored: a measurement,

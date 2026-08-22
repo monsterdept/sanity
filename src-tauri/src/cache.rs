@@ -290,21 +290,54 @@ mod tests {
 
     #[test]
     fn a_cache_written_by_another_model_is_dropped_not_merged() {
-        let dir = tempfile::tempdir().unwrap();
-        let stored = Stored {
-            version: FORMAT_VERSION,
+        // **It never called `open`.** This planted a file, read it back with plain serde and
+        // asserted `"old-model" != "new-model"` — true by construction, and green with the
+        // filter in `open` deleted. A test named for a rule has to run the rule.
+        let _home = crate::agentapi::tests::data_home();
+        let repo = std::path::Path::new("/repo/under/test");
+        let plant = |model: &str| {
+            let stored = Stored {
+                version: FORMAT_VERSION,
+                model: model.into(),
+                entries: HashMap::from([(
+                    "src/a.rs#run".to_string(),
+                    Entry { body_hash: 1, surprise: 0.9, hotspots: Vec::new() },
+                )]),
+            };
+            let path = Cache::path_for(repo, model).expect("a data dir");
+            std::fs::write(&path, serde_json::to_string(&stored).unwrap()).unwrap();
+        };
+        let key = ("src/a.rs#run".to_string(), 1u64);
+
+        plant("old-model");
+        assert!(
+            Cache::open(repo, "old-model").get(&key).is_some(),
+            "its own model reads its own file, or the rest of this proves nothing"
+        );
+
+        // The same entry, reached by a different instrument. One file per (repo, model), so
+        // this is the case where the filename collides only if `path_for` stops keying on the
+        // model — which is the other half of the same rule.
+        assert!(
+            Cache::open(repo, "new-model").get(&key).is_none(),
+            "a score from another model is dropped, never merged"
+        );
+
+        // And an older FORMAT_VERSION under the RIGHT model, which is the second clause of
+        // the filter and the one no name comparison can stand in for.
+        let stale = Stored {
+            version: FORMAT_VERSION - 1,
             model: "old-model".into(),
             entries: HashMap::from([(
                 "src/a.rs#run".to_string(),
                 Entry { body_hash: 1, surprise: 0.9, hotspots: Vec::new() },
             )]),
         };
-        let path = dir.path().join("c.json");
-        std::fs::write(&path, serde_json::to_string(&stored).unwrap()).unwrap();
-
-        let loaded: Stored =
-            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        // The filter `open` applies: a different model means a different instrument.
-        assert!(loaded.model != "new-model");
+        let path = Cache::path_for(repo, "old-model").expect("a data dir");
+        std::fs::write(&path, serde_json::to_string(&stale).unwrap()).unwrap();
+        assert!(
+            Cache::open(repo, "old-model").get(&key).is_none(),
+            "an older format is dropped by the same filter"
+        );
     }
 }

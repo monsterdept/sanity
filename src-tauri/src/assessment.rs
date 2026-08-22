@@ -641,6 +641,14 @@ fn live_files(scan: &Scan) -> BTreeMap<String, Live> {
 /// A reading with no hash predates this store and is taken at its word — the alternative
 /// is declaring every migrated reading stale on first open, which would present a repo's
 /// entire history of careful work as expired.
+///
+/// **A function that is GONE is not stale here, and that is a division of labour rather than
+/// an oversight.** `node_body` of `None` means nothing in today's scan matches this reading,
+/// so there is no body to compare against and no answer this function can honestly give;
+/// staleness is "the code moved under a reading", and a reading with no code is a different
+/// question. Deletion is handled where it can be acted on — a function that is gone stops
+/// being offered as work, which `a_function_that_is_gone_stops_being_offered` pins — so read
+/// on its own, `false` here means "not stale", never "still current".
 pub fn is_stale(report: &Report, node_body: Option<&str>) -> bool {
     match (report.body.as_str(), node_body) {
         ("", _) => false,

@@ -1393,10 +1393,17 @@ const WARM_MAX: usize = 2_000;
 /// everything. It also runs on `warm`, which fires when a project with a partial timeline
 /// comes on screen.
 ///
-/// **`None` means it gave up, and that is not the same as an empty list.** A short list read
-/// as data is the dangerous outcome: the position check below would find the stored head
-/// missing, call it a rewritten history, and replay a repo from nothing. Callers that cannot
-/// tell the two apart would trade a stopped resume for a full walk.
+/// **`None` means the log could not be read, and that is not the same as an empty list.** A
+/// short list read as data is the dangerous outcome: the position check below would find the
+/// stored head missing, call it a rewritten history, and replay a repo from nothing. Callers
+/// that cannot tell the two apart would trade a stopped resume for a full walk.
+///
+/// **A git that would not start used to answer `Some(vec![])`, which is that hazard by the
+/// front door.** It read as "a repo with no commits", so a resume took the branch above,
+/// declared the history rewritten, and replayed from nothing — the precise outcome the
+/// paragraph above exists to prevent, reachable without anybody pressing Cancel. A failure to
+/// spawn and a cancel are different events and neither is data; an empty repo is data, and it
+/// still answers `Some(vec![])` because git ran and said so.
 fn log_shas(
     repo: &Path,
     progress: &dyn Fn(Progress),
@@ -1409,11 +1416,12 @@ fn log_shas(
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn();
-    let Ok(mut child) = spawned else { return Some(Vec::new()) };
+    // Could not run git, or could not reach its output: no answer, rather than an empty one.
+    let Ok(mut child) = spawned else { return None };
     let Some(out) = child.stdout.take() else {
         let _ = child.kill();
         let _ = child.wait();
-        return Some(Vec::new());
+        return None;
     };
 
     let mut shas: Vec<String> = Vec::new();

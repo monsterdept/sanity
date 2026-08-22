@@ -162,6 +162,12 @@ pub fn note_size(key: &str, files: usize) {
 ///
 /// `None` leaves a field alone rather than clearing it, so setting one does not silently
 /// forget the other — the window sets both at once and the CLI sets one at a time.
+///
+/// **`name` and `repo` are used only when the entry is CREATED**, on the same rule `remember`
+/// states: an entry that is already there is left as it is, so recording a harness cannot
+/// quietly rewrite what a project is called or where it points. Nothing renames a project
+/// today; if something ever does, it belongs in its own function rather than as a side effect
+/// of this one, or setting a model would be a rename nobody asked for.
 pub fn set_reader(key: &str, repo: &str, name: &str, harness: Option<&str>, model: Option<&str>) {
     let mut index = load_index();
     if index.projects.iter().all(|p| p.key != key) {

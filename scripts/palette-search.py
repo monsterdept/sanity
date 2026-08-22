@@ -276,7 +276,12 @@ def ramp(hue):
 
 
 def margins(hues):
-    """(worst cold pair, worst hot pair, worst cold-vs-neutral, worst hot-vs-trap)."""
+    """Six worst-case contrasts, in the order the tuple unpacks.
+
+    (cold pair, hot pair, cold-vs-neutral, hot-vs-trap, any-vs-structure, any-vs-mark).
+    It named the first four for a while, and a caller unpacking by the docstring was two
+    short — the two it left out are the ones the floors below actually reject on.
+    """
     ramps = {k: ramp(h) for k, h in hues.items()}
     keys = list(ramps)
     cold = min(

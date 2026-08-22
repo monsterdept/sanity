@@ -212,12 +212,12 @@ impl Links {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::model::Lang;
     use crate::parse::FuncDef;
 
-    fn func(name: &str, line: u32, calls: &[&str], shape: Option<u64>) -> FuncDef {
+    pub(crate) fn func(name: &str, line: u32, calls: &[&str], shape: Option<u64>) -> FuncDef {
         FuncDef {
             name: name.to_string(),
             signature: String::new(),
@@ -231,7 +231,7 @@ mod tests {
         }
     }
 
-    fn table(files: &[(&str, Vec<FuncDef>)]) -> Links {
+    pub(crate) fn table(files: &[(&str, Vec<FuncDef>)]) -> Links {
         let views: Vec<FileView<'_>> =
             files.iter().map(|(path, funcs)| FileView { path, lang: Lang::Rust, funcs }).collect();
         let wiring = crate::edges::wire(&views);

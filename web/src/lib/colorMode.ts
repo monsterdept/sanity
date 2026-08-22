@@ -198,6 +198,13 @@ export const REACH_KEY: [string, string][] = [...REACH_BANDS]
 
 /** The band a count falls in. Never called with `null`: an unresolved language is an
  *  absence, and an absence is grey rather than a band. */
+/** The first band `n` reaches, which requires `bands` to run DESCENDING by `min`.
+ *
+ *  `find` returns the first match, so on an ascending list every number matches the smallest
+ *  band and the answer is wrong for everything except the bottom rung — silently, since a band
+ *  is a label and a colour rather than something with a checkable value. The three tables here
+ *  are written high-to-low and a fourth must be too; this is the sentence that says so, because
+ *  nothing in the type can. */
 function bandOf<T extends { min: number }>(bands: T[], n: number): T {
   return bands.find((b) => n >= b.min) ?? bands[bands.length - 1]
 }
