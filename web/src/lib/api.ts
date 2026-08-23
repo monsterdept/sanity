@@ -643,6 +643,14 @@ export interface ProjectSummary {
   commits: number
   /** Commits already replayed and stored. `commits - replayed` is the story left to read. */
   replayed: number
+  /** Where this repo's trace has got to, when one is running — from the process doing it.
+   *
+   *  **The window is not the owner of a walk and cannot be trusted to remember one.** This
+   *  was React state, so a reload — every save under `just dev` — left a running trace
+   *  invisible: the row offered `Trace` again over a repo already using ten cores, and the
+   *  count beside it froze. Backend-reported, so a reloaded window, a second window and a
+   *  headless `serve` all say the same thing. Null when nothing is walking it. */
+  tracing: Progress | null
   /** Which agent reads this repo. Machine-local — which CLI you have is a fact about this
    *  laptop, not about the repo. Null until somebody chooses. */
   harness: string | null

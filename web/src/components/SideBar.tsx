@@ -60,6 +60,14 @@ export function SideBar({
    *  the window owns the one place failures are said out loud. */
   onError: (message: string) => void
 }) {
+  /** The repo the BACKEND says it is walking, if any.
+   *
+   *  One at a time is enforced where the walk lives (`history::Tracing`), so this is a fact
+   *  rather than this window's recollection of a button it may not have pressed. It is what
+   *  hides `Trace` on the other rows — the old `replayKey` could only see runs this window
+   *  had started, which is exactly the state a reload destroys. */
+  const tracingKey = projects.find((p) => p.tracing)?.key ?? null
+
   /**
    * The list as it is being dragged: which row is moving, the arrangement so far, and the
    * slots it is moving through.
@@ -294,10 +302,21 @@ export function SideBar({
               }}
               project={p}
               active={p.key === active}
-              replay={p.key === replayKey ? replay : null}
+              // **The backend's report wins, and the window's own is the first tick only.**
+              // `p.tracing` comes from the process doing the walk, so it survives a reload
+              // and is visible to a second window; the local one arrives before the first
+              // poll can and is what makes the press feel answered. Neither alone is right:
+              // local-only was the bug (a reload hid a running walk), and backend-only would
+              // put a second of nothing between the press and the first tick.
+              replay={p.tracing ?? (p.key === replayKey ? replay : null)}
               // Another repo is being walked, so this one cannot start. The control is not
-              // offered rather than offered and refused.
-              blocked={replayKey !== null && replayKey !== p.key}
+              // offered rather than offered and refused. Any repo the BACKEND reports as
+              // tracing counts, not just the one this window started — that is the whole
+              // difference between a guard and a hint.
+              blocked={
+                (tracingKey !== null && tracingKey !== p.key) ||
+                (replayKey !== null && replayKey !== p.key)
+              }
               onError={onError}
               onReplay={(fresh) => onReplay(p.key, fresh)}
               onRead={() => onRead(p.key)}

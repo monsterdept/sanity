@@ -26,7 +26,7 @@ use crate::parse;
 use crate::scan::Progress;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -1337,6 +1337,69 @@ fn extend(repo: &Path, cached: HistoryScan, limit: usize, progress: &dyn Fn(Prog
     Carry::Grew(r.finish())
 }
 
+/// Which repos are being traced right now, and how far each has got.
+///
+/// **A walk is owned by the process doing it, not by the window that asked.** "One walk at a
+/// time" and the progress line both lived in React state — `busyKey` and a `replay` object —
+/// so a webview reload dropped every trace of a run that carried on underneath: the row went
+/// back to offering `Trace`, and pressing it would have started a second walk over the same
+/// repo. Two walks do not each take half the time; they take twice, neither finishes, and the
+/// progress events (which carry no repo) count into one bar. That guard cannot live in a
+/// window — a reload, a second window and `sanity serve` all get past it — so it lives here,
+/// beside the thing it guards, in the process that is doing the work.
+///
+/// Keyed by the repo path a caller asked about, because that is what the caller has.
+static TRACING: std::sync::Mutex<Option<HashMap<PathBuf, Progress>>> = std::sync::Mutex::new(None);
+
+/// What a repo's walk has reached, or `None` when nothing is walking it.
+///
+/// Read on every project poll, so it takes the lock briefly and copies. A poisoned lock is
+/// recovered from rather than honoured, on the same rule `agentapi::lock` follows: this map
+/// holds a progress number, and refusing to answer forever because one thread panicked while
+/// updating one would make the sidebar permanently wrong about work that is still running.
+pub fn tracing(repo: &Path) -> Option<Progress> {
+    let map = TRACING.lock().unwrap_or_else(|e| e.into_inner());
+    map.as_ref()?.get(repo).cloned()
+}
+
+/// Claim a repo for a walk, or find out somebody else has it.
+///
+/// The claim is released by dropping the guard, which happens on the normal path, on a
+/// cancel, and on a panic — the reason it is a guard rather than a pair of calls. A walk that
+/// died leaving its claim behind would make the row say "tracing" forever and refuse every
+/// retry, which is worse than the bug this replaces.
+pub struct Tracing(PathBuf);
+
+impl Tracing {
+    /// `None` when this repo is already being walked. The caller must not start a second.
+    pub fn claim(repo: &Path) -> Option<Tracing> {
+        let mut map = TRACING.lock().unwrap_or_else(|e| e.into_inner());
+        let map = map.get_or_insert_with(HashMap::new);
+        if map.contains_key(repo) {
+            return None;
+        }
+        map.insert(repo.to_path_buf(), Progress::phase("starting…"));
+        Some(Tracing(repo.to_path_buf()))
+    }
+
+    /// Record where the walk has got to, for anything that asks between now and the next tick.
+    pub fn at(&self, p: &Progress) {
+        let mut map = TRACING.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(map) = map.as_mut() {
+            map.insert(self.0.clone(), p.clone());
+        }
+    }
+}
+
+impl Drop for Tracing {
+    fn drop(&mut self) {
+        let mut map = TRACING.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(map) = map.as_mut() {
+            map.remove(&self.0);
+        }
+    }
+}
+
 /// Bring an EXISTING timeline up to date, and never build a new one.
 ///
 /// The distinction is the whole point. A first replay is a minute of parsing on a large
@@ -1924,6 +1987,39 @@ mod tests {
         assert!(lang_of("node_modules/react/index.js").is_none());
         assert!(lang_of("web/src/main.tsx").is_some());
         assert!(lang_of("README.md").is_none());
+    }
+
+    /// The claim is the guard, so it has to refuse a twin and it has to let go.
+    ///
+    /// **The failure it replaces was a guard that could not be enforced.** "One walk at a
+    /// time" lived in the window as `busyKey`, which a reload clears while the walk carries
+    /// on — so the row offered `Trace` over a repo already being walked and a press would
+    /// have started a second. What matters here is the pair: a second claim is refused, and a
+    /// claim that goes out of scope releases, or the first crashed walk would lock the repo
+    /// out of tracing until the app restarted.
+    #[test]
+    fn one_walk_at_a_time_and_the_claim_lets_go() {
+        let repo = std::path::Path::new("/repo/being/walked");
+        let other = std::path::Path::new("/repo/next/door");
+        assert!(tracing(repo).is_none(), "nothing is walking it yet");
+
+        let claim = Tracing::claim(repo).expect("the first claim takes it");
+        assert!(Tracing::claim(repo).is_none(), "the second is refused");
+        assert!(
+            Tracing::claim(other).is_some(),
+            "another repo is another walk — the guard is per repo, not a global mutex"
+        );
+
+        // What anything asking between two ticks is told, which is the point of recording it
+        // here rather than only emitting it at the window.
+        claim.at(&Progress::counting("tracing", "traced", 7, 100));
+        let seen = tracing(repo).expect("it reports where the walk is");
+        assert_eq!((seen.done, seen.total), (7, 100));
+        assert_eq!(seen.unit, "traced");
+
+        drop(claim);
+        assert!(tracing(repo).is_none(), "dropping the claim releases the repo");
+        assert!(Tracing::claim(repo).is_some(), "so the next walk can take it");
     }
 }
 

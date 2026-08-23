@@ -4476,6 +4476,16 @@ pub struct ProjectSummary {
     /// Commits already replayed and stored — see [`crate::history::banked`]. The difference
     /// is what a replay has left to do.
     pub replayed: usize,
+    /// Where this repo's trace has got to, when one is running — see [`crate::history::tracing`].
+    ///
+    /// **The window used to be the only thing that knew, which meant a reload made a running
+    /// walk invisible.** The row went back to offering `Trace` over a repo with ten cores
+    /// already on it, the count beside the button froze at whatever it was when the run
+    /// started, and pressing it would have started a second walk. The walk is the backend's,
+    /// so its progress is reported the same way `run` is: from the process doing the work, on
+    /// the list the sidebar already polls, so any window — reloaded, second, or opened an hour
+    /// later — sees the same thing.
+    pub tracing: Option<crate::scan::Progress>,
     pub stale: usize,
     pub touched: u64,
     /// An agent has called about this project recently. Per project, so two sessions
@@ -4580,6 +4590,7 @@ impl ProjectList {
                     // Read from a four-byte sidecar rather than from the timeline itself,
                     // which on a large repo is hundreds of megabytes — see `history::banked`.
                     replayed: crate::history::banked(&p.repo, crate::history::ALL_COMMITS),
+                    tracing: crate::history::tracing(&p.repo),
                     reading: p
                         .leased
                         .iter()
@@ -4640,6 +4651,7 @@ impl ProjectList {
                         unread_lines: 0,
                         commits: 0,
                         replayed: 0,
+                        tracing: None,
                         reading: Vec::new(),
                         stale: 0,
                         touched: known.touched,

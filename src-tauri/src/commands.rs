@@ -242,7 +242,7 @@ pub async fn scan_history(
         return Err(format!("{path} is not a directory"));
     }
     let limit = limit.unwrap_or(crate::history::ALL_COMMITS);
-    tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || -> Result<usize, String> {
         if fresh == Some(true) {
             crate::history::forget(&root, limit);
         }
@@ -251,9 +251,26 @@ pub async fn scan_history(
         // parsed all of it to draw one frame. It asks for what it needs now — see
         // `history_tables` and the two window commands below it.
         if trace != Some(true) {
-            return crate::history::stored(&root, limit).map(|s| s.commits.len()).unwrap_or(0);
+            return Ok(crate::history::stored(&root, limit).map(|s| s.commits.len()).unwrap_or(0));
         }
+        // **The claim is the guard, and it is taken here rather than asked for by the
+        // window.** A second walk over one repo is not half the speed each, it is twice the
+        // time each and neither finishes — and the caller that would start one is a window
+        // that has forgotten the first, which is a reload away at any moment. Refused with a
+        // sentence rather than silently joined: the row has a Cancel on it, and "your press
+        // did nothing because something you cannot see is already running" is exactly the
+        // shape of message this app owes somebody.
+        let Some(claim) = crate::history::Tracing::claim(&root) else {
+            return Err(format!(
+                "{} is already being traced — the row shows how far along it is",
+                root.display()
+            ));
+        };
         let emit = |p: Progress| {
+            // Recorded before it is emitted, so anything that asks between two ticks gets
+            // the same answer the event carried. The window's copy is a convenience; this
+            // one is what a reloaded window, a second window and the sidebar all read.
+            claim.at(&p);
             let _ = app.emit("history-progress", p);
         };
         // **Rate-limited, because the trace now reports per commit from its first second.**
@@ -261,10 +278,10 @@ pub async fn scan_history(
         // on a large repo is millions of events crossing to the webview from the thread doing
         // the work. See `scan::throttled`, which never drops a phase change or a final tick.
         let emit = crate::scan::throttled(&emit);
-        crate::history::read_cached(&root, limit, &emit).commits.len()
+        Ok(crate::history::read_cached(&root, limit, &emit).commits.len())
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?
 }
 
 /// The tables a timeline is drawn from — paths, languages, functions, the opening state.

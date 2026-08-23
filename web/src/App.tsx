@@ -117,6 +117,13 @@ function sameIds(a?: string[], b?: string[]): boolean {
   return x.length === y.length && x.every((id, i) => id === y[i])
 }
 
+/** Two progress reports, or two absences. `null` and a report are never the same thing: that
+ *  transition is a trace starting or ending, which is the moment the row has to redraw. */
+function sameProgress(a?: Progress | null, b?: Progress | null): boolean {
+  if (!a || !b) return !a && !b
+  return a.done === b.done && a.total === b.total && a.phase === b.phase && a.unit === b.unit
+}
+
 function sameProjects(a: ProjectSummary[], b: ProjectSummary[]): boolean {
   if (a.length !== b.length) return false
   return a.every((p, i) => {
@@ -155,6 +162,15 @@ function sameProjects(a: ProjectSummary[], b: ProjectSummary[]): boolean {
         q.banked_models?.map((m) => `${m.model}:${m.readings}`),
       ) &&
       p.unread_lines === q.unread_lines &&
+      // **The trace line is made of these three and the comparator could not see any of
+      // them.** So while a walk ran, every poll fetched a fresh `replayed` and this said
+      // "same", the array was dropped, and the row kept the number from whenever some other
+      // field last moved — ceph read `81k commits to trace` with 68k already banked. The
+      // comment above about every forgotten field being a stale reading was written two
+      // fields too early.
+      p.commits === q.commits &&
+      p.replayed === q.replayed &&
+      sameProgress(p.tracing, q.tracing) &&
       // Compared, not ignored. The map pulses these, so a change here has to reach the
       // frontend — and a field the poll drops out of the comparison is a highlight that
       // freezes on whatever was in flight the last time some OTHER number moved.
