@@ -36,9 +36,9 @@ export type ColorMode =
   | 'legible'
   | 'docs'
   | 'traps'
+  | 'clones'
   | 'callers'
   | 'reach'
-  | 'clones'
   | 'language'
   | 'blame'
   | 'churn'
@@ -64,24 +64,28 @@ export type ColorMode =
  * The mode KEY stays `legible`, matching `Report.legible` — the wire field and the committed
  * store both say `legible: full`, and renaming the display word must never reach them.
  *
- * The three lenses painted from a reader's report lead, because Surprise is what the app is
- * for. `language` divides them from the git-derived three: it is the only lens painted from
- * neither a reading nor a commit, which makes it the seam rather than an orphan on the end.
+ * The FOUR lenses painted from a reader's report lead, because Surprise is what the app is
+ * for and Traps is read out of the same report — three grades and a mark, contiguous, so the
+ * part of the row that costs a reading is one run rather than two with the wiring in between.
+ * Clones travels with Traps because the two behave alike on the map. `language` divides all of
+ * that from the git-derived three: it is the only lens painted from neither a reading nor a
+ * commit, which makes it the seam rather than an orphan on the end.
  */
 export const MODE_LABEL: Record<ColorMode, string> = {
   surprise: 'Surprise',
   legible: 'Legibility',
   docs: 'Docs',
-  callers: 'Callers',
-  reach: 'Reach',
-  // **Between the wiring pair and Clones, and the row's order is an argument.** It was
-  // fourth, grouped with the three lenses a reader's report paints — which is what it is
-  // made of, and not what it is FOR. Read left to right the strip now runs: what reading
-  // this code was like, then how it is wired, then the two flashpoint lenses that mark
-  // individual functions to go and look at. Traps and Clones are the pair that behave
-  // alike — a mark, no ramp, no roll-up, a breathing wedge — so they sit together.
+  // **The two flashpoint lenses sit next to the reading ones, and the wiring pair follows.**
+  // Traps and Clones behave alike — a mark, no ramp, no roll-up, a breathing wedge — so they
+  // travel together wherever they go; what moved is which side of Callers and Reach they sit
+  // on. Read left to right the strip runs: what reading this code was like, then the marks
+  // saying go and look at THIS, then how it is wired, then the seam, then a widening window
+  // of time. The four lenses a reader's report paints are now contiguous, which is the
+  // grouping somebody scanning the row is most likely to be looking for.
   traps: 'Traps',
   clones: 'Clones',
+  callers: 'Callers',
+  reach: 'Reach',
   language: 'Language',
   blame: 'Blame',
   churn: 'Churn',
