@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-380 of 380 read · 68 surprising
+381 of 381 read · 70 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -17,12 +17,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/App.tsx
 
-### the file itself — QUIRKY
-- spec 3 · read at `5a23e59e794c` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:54:23Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: The top-level React application component and its handful of tightly-coupled helpers/subcomponents: it owns global state (selected project, scan/run status, current node selection) and renders the overall page shell — sunburst/tree view plus a progress UI (ProgressTrack/ProgressStrip/ProgressPane) for an in-flight run and a HistoryToggle. It polls or subscribes to the backend for project/run updates, using shallow-equality helpers (sameRun, sameIds, sameProjects, readingSignature) to avoid re-rendering when polled data hasn't meaningfully changed.
-- found: Root component of a Tauri desktop app visualizing a codebase as a sunburst colored by lenses (surprise/age/authorship/etc). Owns ~25 useState hooks/refs covering scan/tree state, agent readings, project list/selection, per-project drill-stack+lens views banked in a Map, a full git-history replay mode (tables/deltas/scrub/playback), first-scan assembling-shape streaming, live-scan progress, and several modal/dialog states; renders SideBar+TopRow+Sunburst+overlays+aside detail/commit-log panel+modals; polls the Tauri backend on multiple intervals (projects, reports/activity) and batches high-frequency event-listener updates (scores/shapes/function-rings) into refs flushed on short timers to avoid per-event re-renders; helper equality checks (sameRun/sameIds/sameProjects/readingSignature) prevent redundant re-renders from polling.
-- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
-- note: Missed the scope of the history/replay subsystem and the batched-flush-timer architecture (400ms/300ms/120ms drains) entirely — both are large, deliberately-engineered parts of the file with regression-fix comments attached (e.g. StrictMode double-invoking updaters zeroing out a batch).
+### the file itself — QUIRKY — TANGLED
+- spec 3 · read at `5024301ecc25` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:40:46Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: The single monolithic root of the web frontend: the main App component plus small pure equality helpers (sameRun, sameIds, sameProgress, sameProjects) used to diff polled state and avoid spurious re-renders, and a cluster of progress-UI subcomponents (ProgressTrack, ProgressStrip, ProgressPane, HistoryToggle, phaseLine, Empty) that render per-project scan/read progress (files, functions, git-blame tracing) driven by a useProgress polling hook.
+- found: The root component of a Tauri desktop app that scans codebases into a sunburst visualization; App() itself is a huge component with dozens of hooks managing tree state, drill-in stack, color lenses, per-project view caches, a first-class history/replay mode with scrubbable timeline, add-project/CLI-linking flows, and multiple differently-cadenced polling intervals, plus imports many presentational subcomponents it doesn't define. My prediction correctly identified the equality-helper cluster and the progress-UI components but drastically underestimated the file's scope (no router, everything is hook-driven state in one file) and invented a useProgress hook that isn't clearly what I described.
+- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+- note: No file header comment exists; the file's own inline comments are unusually narrative, documenting specific historical bugs (stale closures, StrictMode double-invoke, polling identity vs field comparison) rather than API-style docs.
 
 ### `noop`
 - spec 3 · read at `f3e401aaede9` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:00:49Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -43,12 +43,18 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly as predicted: nullish-coalesces both to [], compares length, then every element by index.
 - predicted: full · documented: some · derivable: no · legible: full · trap: no
 
-### `sameProjects`
-- spec 3 · read at `00fe71533864` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:38:38Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A structural-equality check used to decide whether a freshly polled project list actually differs from the current one, so React state isn't replaced with a value that's equal but a new reference (avoiding pointless re-renders). It compares array lengths, then for each index compares the relevant ProjectSummary fields (key, name, maybe run status via the `sameRun` peer), returning false as soon as it finds a difference and true if everything matches.
-- found: Field-by-field structural equality across ~20 ProjectSummary fields (identity, counts, scan/read progress including phase/unit, harness/model settings including banked models via sameIds, reading and run state via sameIds/sameRun), used to avoid replacing poll state with an equal-but-new-reference value; each comment explains why a specific field can't be dropped from the comparison without causing a stale UI.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: Underestimated scope — expected a handful of identity fields, not a near-exhaustive comparison of ~20 fields each defended by its own comment about what breaks if omitted.
+### `sameProgress`
+- spec 3 · read at `6839b955bd59` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:28Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A shallow-equality check for Progress objects used to decide whether a UI update is needed. Returns true if both are null/undefined, false if only one is, and otherwise compares the relevant fields (e.g. phase, count/total) for equality to avoid needless re-renders.
+- found: Returns true if both null/undefined, false if only one is, otherwise compares done/total/phase/unit fields for equality.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `sameProjects` — QUIRKY
+- spec 3 · read at `2614b0e33f66` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:00Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Compares two arrays of ProjectSummary for equality: checks length first, then iterates comparing each project's key summary fields (id, and likely a few others like status or counts) rather than full deep equality, used to detect whether project list state actually changed to avoid unnecessary re-renders.
+- found: An exhaustive field-by-field equality check across ~25 ProjectSummary fields (not just a few), including nested comparisons via sameIds/sameProgress/sameRun for arrays and sub-objects, with inline comments documenting three specific past bugs where omitting a field from this comparator caused stale UI (phase, harness/model, and replayed commit counts).
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+- note: The comments already document why this list must stay exhaustive; the risk for an editor is adding a new ProjectSummary field and forgetting to add it here.
 
 ### `findById`
 - spec 2 · read at `977918682157` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:17:34Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -867,12 +873,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Much larger and richer than predicted: SideBar renders the project list with a custom pointer-event-based (not HTML5) drag-reorder system with a ghost row and DropLine gap indicator, a right-click context menu (re-trace history, new mascot, remove), a failure-transcript overlay, and per-row (ProjectItem) two-level status display covering scan progress, read backlog, run state (reading/stopping/failed), and a separate 'history trace/replay' sub-feature with its own progress bar and cancel — far more state and features than the simple list+DnD I predicted.
 - predicted: some · documented: none · derivable: no · legible: not judged · trap: no
 
-### `SideBar` — TANGLED
-- spec 3 · read at `f446a09f6c0d` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:37:34Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Renders the full-height left column: a scrollable list of `projects`, each rendered via the `ProjectItem` peer component (highlighting `active`/replaying rows and wiring onSelect/onRead/onForget/onRemintMascot/onReplay/onError callbacks), plus an "add project" button that calls `onAdd`. It likely supports drag-and-drop reordering of the project list, using `DropLine` to show where a dragged item would land, and manages local state for which row is being dragged/hovered plus any open per-row menu.
-- found: Renders the project list via ProjectItem rows plus an add button, with custom pointer-event-based (not HTML5) drag-to-reorder using a ghost element positioned via imperative transform writes for performance and a DropLine to show the landing gap, a right-click context menu per row (re-trace, remint mascot, remove), and a failure-transcript overlay dialog for a run that produced no readings.
-- predicted: most · documented: some · derivable: no · legible: some · trap: no
-- note: Missed the failure-transcript overlay entirely and the specific reason for pointer events over HTML5 drag-and-drop (Tauri webview swallows dragover on macOS).
+### `SideBar` — QUIRKY — TANGLED
+- spec 3 · read at `f535f4d72bce` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:04Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Renders a full-height scrollable list of ProjectItem rows from `projects`, highlighting the one matching `active`. Supports drag-and-drop reordering using DropLine as an insertion indicator between rows. Wires per-row actions (read, forget, remint mascot, replay) and a top "+" add button, with any action failures reported up via onError rather than shown inline.
+- found: Renders the sidebar list of ProjectItem rows, with an add button and empty state. Implements custom pointer-event-based (not HTML5) drag-and-drop reordering with a DropLine insertion indicator and a ghost row following the pointer, because Tauri's webview swallows native HTML5 dragover events. Also handles a right-click context menu (re-trace history, remint mascot, remove from list) and a per-project failure transcript overlay opened via onFailure, in addition to wiring the various row callbacks.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
 
 ### `DropLine` — QUIRKY
 - spec 3 · read at `7cf9ac969254` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:47:17Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -1461,12 +1466,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: I hedged by including 'clones' as a maybe, but it's not part of the wiring set — clones apparently has its own gray-means-something-else story.
 
-### `bandOf` — TRAP
-- spec 3 · read at `470e1ad727be` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T05:05:10Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Takes an array of bands each with a `min` threshold (sorted ascending) and a count `n`, and returns the band whose `min` is the largest one ≤ n — effectively finding the highest threshold the value has crossed, likely implemented via findLast/reverse iteration, defaulting to the first band if none match.
-- found: Assumes bands are sorted descending by min; returns the first band whose min is <= n, falling back to the last (lowest) band if none match. Same end effect as "largest min <= n" but only if the caller supplies bands in descending order.
-- predicted: most · documented: some · derivable: no · legible: full · trap: yes
-- note: Correctness depends entirely on callers passing `bands` pre-sorted descending by `min` — nothing in this function enforces or checks that ordering, so a band list passed ascending would silently return wrong bands.
+### `bandOf`
+- spec 3 · read at `01d8530090da` · commit `758c706` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:04:27Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Returns bands.find(b => n >= b.min), relying on bands being sorted descending by min so the first band whose threshold n meets or exceeds is the correct (highest applicable) one. No fallback/default handling since docs say it's never called with an unresolved value.
+- found: Returns the first band whose min the value n meets or exceeds (relying on descending sort order), falling back to the last band in the array if none match.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: I missed the fallback-to-last-band clause (?? bands[bands.length - 1]), which the docs don't call out either.
 
 ### `calledShare`
 - spec 3 · read at `b789829a7561` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T05:05:10Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded

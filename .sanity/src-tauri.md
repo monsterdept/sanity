@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-794 of 794 read · 128 surprising
+799 of 799 read · 126 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -494,11 +494,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: A comment flags a past bug where this endpoint and /status computed 'assessed' from different definitions (agg.total.readings counts functions only vs. a broader count) and disagreed by 63 — worth checking both stay aligned if either is touched.
 
 ### `from_state` — QUIRKY — TANGLED
-- spec 3 · read at `30230f5dc37a` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:48:42Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: `ProjectList::from_state` likely iterates over the repos/projects tracked in `AppState` and builds a `ProjectList` containing one entry per project (key, path, display name, maybe status/health), summarizing what the app currently has loaded for the agent-facing API to enumerate.
-- found: Builds a full ProjectSummary per loaded project (working/live status, harness/model, function/file counts, run progress, banked models, assessed/stale/unread-line counts, replay progress, in-flight readings), then appends placeholder zeroed summaries for projects still being restored (from state.restoring, skipping ones already loaded), and finally sorts the combined list by a saved manual order falling back to most-recently-touched.
-- predicted: some · documented: none · derivable: no · legible: some · trap: no
-- note: Far more state is aggregated here than the signature/peers suggested — it merges live project state with a separate on-disk reports index (for harness/model) and a separate restoring/loading queue, all under careful staleness/ordering rules explained only in inline comments.
+- spec 3 · read at `4e7a63ea133e` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:04Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over the projects tracked in AppState and, for each, gathers summary info (counts/aggregate grade/tally, maybe run status) into a per-project entry, collecting them all into a ProjectList snapshot suitable for a listing/dashboard endpoint.
+- found: Builds the full ProjectList by reading a reports index once (for harness/model per project), mapping each live AppState project into a ProjectSummary with many derived fields (staleness, counts, run status, working/reading state, banked model tallies, replay/tracing info), then appends placeholder rows for projects still being restored (zeroed counts, loading:true), and finally sorts everything by a user-arranged order falling back to most-recently-touched.
+- predicted: some · documented: none · derivable: yes · legible: some · trap: no
 
 ### `health`
 - spec 2 · read at `3e18f26fffcc` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:05:12Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -1086,12 +1085,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: Got the filtering and keying right but expected the Live payload to carry staleness metadata like a hash/mtime; instead it carries id/name/body with line and ord zeroed out, presumably placeholders since a file itself has no line/ord the way a function declaration would.
 
-### `is_stale` — QUIRKY — TRAP
-- spec 3 · read at `cbdbbaa52183` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:58:42Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Returns false (not stale) when report.body is None, since a hash-less reading predates the hashing scheme and is trusted as-is; otherwise compares report's stored body hash against node_body and returns true if they differ (or if node_body is None, meaning the code disappeared).
-- found: Three-way match: empty recorded body (pre-hash migration) is never stale; a recorded hash compared against a present node_body is stale iff they differ; but when node_body is None (the function/file is gone from the current scan) it also returns false, i.e. NOT stale — the opposite of what I predicted.
-- predicted: some · documented: some · derivable: no · legible: full · trap: yes
-- note: The `(_, None) => false` branch means a reading for code that has disappeared is reported as still-fresh by is_stale alone; nothing here documents that deletion must be handled by a separate check elsewhere (peers suggest `a_function_that_is_gone_stops_being_offered` covers it), so a future caller of just this function could wrongly treat a deleted function's old reading as current.
+### `is_stale`
+- spec 3 · read at `7ca9fbcd88b9` · commit `758c706` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:04:25Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: If node_body is None (function no longer found) or report has no stored hash, returns false. Otherwise hashes node_body and compares it against the report's stored hash, returning true (stale) if they differ.
+- found: Matches predicted logic exactly, but it stores/compares the raw body string directly rather than a hash of it — I assumed hashing.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `row` — QUIRKY
 - spec 2 · read at `6f5e58cf55bc` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:25:44Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1726,12 +1724,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Puts one entry into an ephemeral cache, calls flush (a no-op for ephemeral caches), and asserts len()==1 — i.e. flush doesn't lose or fail on data with no backing file, rather than explicitly checking the filesystem.
 - predicted: some · documented: none · derivable: no · legible: full · trap: no
 
-### `a_cache_written_by_another_model_is_dropped_not_merged` — QUIRKY — TRAP
-- spec 3 · read at `e50d2c707eca` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:48:03Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: This test writes a cache file to disk tagged with one model's identifier, then opens/loads it while requesting a different model, and asserts the result is an empty cache (via len()/is_empty() or a get miss) rather than the old entries being merged in or an error being thrown.
-- found: Writes a Stored cache file tagged with model "old-model" to a temp dir, reloads it via serde, and asserts loaded.model != "new-model" — a trivially-true string comparison. It never actually calls Cache::open with a different model to exercise the drop-not-merge behavior the test name claims to verify.
-- predicted: some · documented: none · derivable: no · legible: full · trap: yes
-- note: The test name promises verification of Cache::open's model-mismatch filtering, but the body never calls Cache::open — it only checks a string literal inequality that is true by construction, so this test cannot fail even if the drop-on-mismatch logic in `open` were deleted or broken.
+### `a_cache_written_by_another_model_is_dropped_not_merged`
+- spec 3 · read at `c28377d0945f` · commit `758c706` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:04:19Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A test verifying cache isolation between models: it writes/puts entries into a cache opened under one model name, flushes to disk, then opens the same cache file/path under a different model name and asserts the previously written entries are NOT present (dropped rather than merged) — i.e., Cache::open discards content belonging to another model instead of merging it into the new in-memory cache.
+- found: A test that plants a cache file directly (bypassing Cache::open) under "old-model", confirms opening under the same model reads it back, then confirms opening under a different model name drops the entry (not merged), and finally confirms a stale FORMAT_VERSION under the correct model is also dropped by the same filter in Cache::open.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ## src-tauri/src/churn.rs
 
@@ -2223,12 +2220,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: some · derivable: no · legible: most · trap: no
 - note: The extensive inline comments explain historical bugs/design rationale (e.g., the 323MB wrong-directory incident, restoring-state race) that aren't derivable from code alone but are valuable context.
 
-### `scan_history`
-- spec 3 · read at `ff5afabb518b` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T04:51:34Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A Tauri async command that resolves the repo path, and depending on fresh/trace either just returns the already-banked commit count from cache, or spawns blocking work (spawn_blocking) to walk new commits with tree-sitter re-parsing, emitting progress events through `app` along the way, caching results, and returning the total commit count processed. `fresh` clears the stored timeline first.
-- found: Validates the path is a directory, then spawns blocking work: optionally forgets the stored timeline (fresh), then either returns the cached commit count (trace not set) or walks/re-parses new commits with throttled progress events emitted to the frontend, returning the count only (not the full timeline, for size reasons).
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The parameter-level doc comments carry essential rationale (why two flags, why count-not-timeline, why throttled emit) that the signature alone wouldn't convey.
+### `scan_history` — QUIRKY
+- spec 3 · read at `0a84dbcc23aa` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:07Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This command resolves the repo path to a cache slug, then depending on `fresh`/`trace` either reads the cached history file, wipes it and starts fresh, or extends the existing trace with new commits since last run. The actual heavy lifting (tree-sitter parsing of each commit's changed files) is dispatched to a blocking thread (e.g. via spawn_blocking) to avoid stalling the async runtime, and the function returns the count of commits processed, converting any internal errors into a String for the Tauri boundary.
+- found: Validates the path, spawns blocking work: if fresh, forgets the cached history; if trace isn't requested, just returns the count of already-stored commits (cheap); if trace is requested, it takes an exclusive "claim" lock (refusing with an error string if another trace is already running on this repo), sets up a throttled progress-emitter that records claim state before emitting the Tauri event, and runs the actual cached history walk, returning the resulting commit count.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: Missed the concurrency guard (Tracing::claim) and the progress-throttling/event-emission machinery entirely — those aren't hinted at by the signature or top doc.
 
 ### `history_tables`
 - spec 3 · read at `944124f67494` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:59:23Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -2993,11 +2990,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/history.rs
 
 ### the file itself
-- spec 3 · read at `018b874f45e8` · commit `9f5abcc` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-21T22:50:43Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Implements a Replayer that walks a repo's git log commit-by-commit and reconstructs, for each commit, the shape of the codebase (functions, files, line counts) as it existed then — replaying the sunburst's structural rings backward through history rather than scoring "now". Includes a git-log/diff parser (plain edits, renames, copies, deletions), an interning layer for function identities across renames (Funcs, key_of), a disk cache with checkpoints so long histories don't need full re-walks (Blobs, cache_path, save_cache, Checkpoint), and cancellation support for interrupting a long replay — with unit tests validating that cached/extended replays match full ones and that surprise/temperature scores are deliberately NOT carried back into old snapshots.
-- found: Implements a git-history replayer that walks a repo's commits oldest-first via streamed `git log --raw`, reconstructing per-commit function/file state as deltas against a running HistoryScan (not full snapshots), using a persistent `git cat-file --batch` process plus a parallel parse pool to only reparse changed files, interning function identity across renames to hash-diff bodies, and a disk cache with time-budgeted checkpoints so interrupted/resumed walks only replay new commits. Missed: the file's second half is a separate paged query API (Tables, LogRow, funcs/log/deltas/scoped) that serves slices of an already-computed timeline to the frontend without shipping the whole payload, plus significant performance engineering (streamed reads, dedicated rayon pool, prefetch batching, WARM_MAX-bounded topup) that the prediction underweighted.
-- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
-- note: Header doc explains the replay design's rationale (surprise not replayed, only changed files reparsed) well but says nothing about the caching/resume/checkpoint machinery or the windowed-serving query API, both large fractions of the file.
+- spec 3 · read at `38b3deed83a1` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:40:43Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This file implements the git-history replay engine behind the "how did the map get like this" view: it walks `git log` commit by commit (streamed or batched), parses raw diff lines to track file/function adds, renames, moves, copies, and deletions, interning blobs and functions along the way. A `Replayer` type folds each commit into a running snapshot (seed/apply/fold/finish/snapshot), supports checkpointing, cancellation, and resuming from a cached/banked timeline stored on disk (load_cache/save_cache/cache_path/meta_path), so re-opening the app doesn't require re-walking the whole history. The bottom of the file is a large test suite asserting specific diff-parsing and replay-correctness properties (rename vs copy vs delete semantics, cancellation safety, cache/extend equivalence, language detection for vendored paths).
+- found: Git-history replay engine: streams git log/cat-file, parses raw diffs into HistoryScan/HistoryCommit deltas via a Replayer (seed/apply/fold/resume/snapshot), interns functions via Funcs, checkpoints and caches to disk (Checkpoint, cache_path/load_cache/save_cache/bank), incrementally extends cached timelines with ancestry checks (Carry/extend/is_ancestor), guards single-walk-at-a-time via Tracing, and exposes a windowed query API (Tables/tables/funcs/log/scoped/deltas/touches) for the frontend to page through large histories, plus ~20 tests.
+- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
+- note: Header doc explains the parsing/recency design philosophy well but says nothing about checkpointing, caching, resume/extend, the tracing guard, or the windowed-serving API, all of which are large parts of the file.
 
 ### `key_of`
 - spec 2 · read at `19a1795e6717` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:26:14Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -3222,18 +3219,42 @@ What this is and how to add to it: [README.md](README.md)
 - found: Validates the cached scan's head is still an ancestor of HEAD and that its recorded position in the log matches the actual sha at that index; if the log fetch was cancelled or nothing new happened, returns Carry::Same; if too many new commits, mismatched position, or no blobs, returns Carry::Refused; otherwise replays the new commits window-by-window with prefetching and periodic checkpointing, folds, and returns Carry::Grew.
 - predicted: some · documented: some · derivable: no · legible: most · trap: no
 
+### `tracing`
+- spec 3 · read at `d167270bd003` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:24Z · by ross@rossturk.com · warm reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Locks the same TRACING map, using unwrap_or_else(|e| e.into_inner()) to recover from poisoning, looks up repo, and returns a cloned Progress value (or None if absent), releasing the lock quickly since it just copies out.
+- found: Locks TRACING (recovering from poison), and returns a cloned Progress for repo if the map exists and contains it, else None.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `claim`
+- spec 3 · read at `987a89048995` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:15Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Checks a shared/global registry (likely a Mutex<HashSet<PathBuf>> or similar) of repos currently being traced; if the repo is already present it returns None, otherwise it inserts the repo and returns Some(Tracing { .. }), an RAII guard whose Drop impl removes the repo from the registry when the walk ends.
+- found: Locks a global TRACING map (PathBuf -> Progress); if the repo key already exists returns None (another walk in progress), otherwise inserts a starting Progress and returns Some(Tracing(repo)) as an RAII guard.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `at`
+- spec 3 · read at `97d1166af14c` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:18Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Stores the given Progress snapshot into a shared/interior-mutable field on Tracing (e.g. a Mutex or lock), so that other code polling the tracing state between ticks can see the current replay progress. Simple setter, no branching.
+- found: Locks a global static TRACING map (handling lock poisoning), and if tracing is currently active (map is Some), inserts/updates the Progress keyed by self's identifier (self.0), so tracing is a global on/off registry rather than a per-instance field.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `drop` #2
+- spec 3 · read at `0f88126d39fa` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:19Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This is Drop for Tracing, the RAII guard returned by Tracing::claim. On drop it removes the repo's entry from whatever global registry (likely a Mutex<HashSet<PathBuf>> or similar) marks it as "currently being traced," so that a subsequent claim() call for the same repo succeeds again — releasing the lock whether the trace finished normally or the task was aborted/panicked.
+- found: Locks the global TRACING registry (poison-tolerant via into_inner) and removes this repo's key from it, releasing the claim so a future Tracing::claim can succeed.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
 ### `warm` — QUIRKY
 - spec 3 · read at `0949b5e0acb5` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T04:52:18Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
 - expected: warm checks whether a timeline for repo already exists on disk (via stored/load_cache); if not, it returns false immediately without building one. If one exists, it finds the commits since the timeline's last recorded position (via log_shas/is_ancestor), replays/extends the timeline forward through those commits up to limit, saves the updated cache, and returns true.
 - found: Returns false fast if there's no cache path or no existing cached timeline file. Otherwise cheaply computes how many commits the cache is behind HEAD (via log_shas count minus banked count) and bails (false) if that's more than WARM_MAX — refusing to silently resume a large unfinished trace. Only if the gap is small does it call read_cached to actually top up the timeline and return true.
 - predicted: some · documented: full · derivable: no · legible: full · trap: no
 
-### `log_shas` — QUIRKY — TRAP
-- spec 3 · read at `b207b7b3c767` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T04:52:32Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Spawns `git log --reverse --format=%H` as a streamed child process, reads shas line by line, calling progress periodically and checking stop() to allow cancellation mid-read. Collects shas into a Vec<String>; returns None (rather than an empty vec) if the git process fails or is interrupted, so callers can distinguish "gave up" from "genuinely empty repo."
-- found: Spawns `git log --no-merges --reverse --root --format=%H HEAD`, streams stdout line by line collecting shas, checking stop() and emitting progress every 1024 lines (no percentage, just a count). Spawn or stdout-pipe failure returns Some(Vec::new()) — not None — while None is reserved specifically for a stop() interruption mid-read.
-- predicted: some · documented: most · derivable: no · legible: most · trap: yes
-- note: None vs Some(empty) is inverted from the intuitive reading: process/spawn failure silently yields an empty success, while only a user-triggered stop() yields the 'gave up' None that callers must not mistake for a genuinely empty repo.
+### `log_shas`
+- spec 3 · read at `c9c4de753c0d` · commit `758c706` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:04:23Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Spawns `git log --reverse --format=%H` (or similar) as a subprocess, streams stdout line-by-line collecting commit shas into a Vec, calling `progress` periodically and checking `stop()` to allow interruption. Returns `None` only if the git process fails to spawn/start (distinct from an empty but successful run, which returns `Some(vec![])`).
+- found: Spawns `git log --no-merges --reverse --root --format=%H HEAD`, streams stdout line-by-line into a Vec<String>, reporting progress every 1024 shas and checking stop() at the same cadence. Returns None if the process fails to spawn, if stdout can't be captured, or if stop() fired mid-read (gave_up); otherwise returns Some(shas) even if empty.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: Missed that stop()-triggered cancellation also returns None (matching the doc's care about None vs Some(vec![]) semantics), not just spawn failure.
 
 ### `is_ancestor`
 - spec 2 · read at `bb2d9c040a16` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:06:36Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -3388,6 +3409,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: I predicted it tested a commit-processing path but it directly tests the lang_of helper with plain strings, and also checks README.md returns None which I hadn't anticipated.
 
+### `one_walk_at_a_time_and_the_claim_lets_go`
+- spec 3 · read at `42355061d853` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:33Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Test function exercising the tracing claim guard: claims a repo once (succeeds), attempts a second claim for the same repo while the first guard is still held (expects refusal/None), then drops the first guard and claims again to confirm it now succeeds — verifying both the mutual-exclusion and the release-on-drop behavior.
+- found: Test confirms the claim guard is per-repo (a second repo can claim independently while the first is held), verifies claim/refuse/drop/re-claim semantics, and also checks that progress recorded via claim.at() is visible through tracing() while the claim is held.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
 ### `with_loaded`
 - spec 3 · read at `6447ae5e3a8a` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:54:13Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
 - expected: Checks a cached/loaded HistoryScan (thread-local or static cache keyed by repo path) — if the cached timeline matches `repo`, reuses it; otherwise loads/builds a new one for that repo. Calls `f` with a reference to that HistoryScan and returns Some(result), or None if no timeline could be loaded/built for that repo.
@@ -3474,11 +3501,10 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/links.rs
 
 ### the file itself
-- spec 3 · read at `800ef3794166` · commit `d92c31f` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:30:46Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: A Rust module defining a `Links` lookup table (struct with build/at/reference/len/is_empty methods) that is built once, keyed by function location, from the repo-wide caller/callee edges and clone-group data computed elsewhere (crate::edges, crate::clones). For each function it stores enough detail — actual caller/callee names, clone twins, etc. — to answer "which fourteen callers" rather than just a count, and it exposes a `neighbours` function to fetch that detail for a given (path, line). The rest of the file is unit tests (sentence-named) covering edge cases: unparsed languages producing absence rather than zero, clone groups excluding the function itself, short bodies being flagged as unshaped, and lines with no function returning absent/null.
-- found: A Links lookup table built once from FileView/Wiring/Copies (repo-wide edges and clone groups), storing per-function Entry rows and id-based caller/calls/clone-group maps, exposed via `at(path, line) -> Option<Related>` giving named Ref lists (never bare counts) plus `wired`/`comparable` flags to distinguish real absence from unparsed/incomparable. Rest of file is #[cfg(test)] unit tests plus one #[ignore] real-repo measurement test named `neighbours`.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: I assumed `neighbours` (a peer name) was a public accessor function; it's actually the ignored measurement test's name — peer names in the listing aren't reliably 'API surface'.
+- spec 3 · read at `a529ee72768c` · commit `758c706` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:04:36Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: links.rs defines a Links lookup table built once alongside the caller/clone-count "wedges" — it precomputes, per function, the actual lists of callers/callees and clone-siblings (not just counts) by consuming crate::edges and crate::clones output, so the UI panel can answer "which fourteen callers" on click. It exposes Links::build, Links::at/reference for lookup, len/is_empty, and includes unit tests encoding edge cases (unparsed language not zero, clone group excludes self, too-short bodies flagged, absent line numbers).
+- found: A cached lookup table, built once alongside the scan tree, mapping each function to its actual callers/callees/clone-siblings (not just counts) so the UI panel can drill into "which fourteen callers" without a repo-wide reparse. Distinguishes `wired: false` (language not parsed for calls) from an empty list, and `comparable: false` (body too short to clone-compare) from an empty clone list; keyed by (path, start-line) since node ids would orphan on edits.
+- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
 
 ### `build`
 - spec 3 · read at `e5cce837558a` · commit `d92c31f` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:22:23Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -4401,12 +4427,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: Doc explains WHY this exists (walk-time recording vs scan-completion) well but not the unchanged-value short-circuit, a minor implementation detail.
 
-### `set_reader` — TRAP
-- spec 3 · read at `63ea11ca29ae` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:37:25Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Loads the project index, finds or creates the entry for `repo` (keyed by `key`), sets its display `name`, and for `harness`/`model` only overwrites the stored field when the corresponding Option is Some — leaving it untouched when None so a single-field update from the CLI doesn't clobber the other. Finally saves the index back to disk.
-- found: Loads the index, inserts a new project entry (with the given name) if `key` isn't already present, then finds the entry by key and overwrites harness/model only where the Option is Some, leaving the other alone — but `name` is only ever set at creation time, never updated on an existing entry, then saves.
-- predicted: most · documented: full · derivable: no · legible: full · trap: yes
-- note: Calling set_reader on an already-known key with a different `name` silently does nothing to the stored name — only harness/model get updated on existing entries, so a caller expecting this to also rename an existing project will be surprised.
+### `set_reader`
+- spec 3 · read at `e8d5e9ca01bf` · commit `758c706` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:04:17Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Loads the project index, finds the entry for `key` or inserts a new one (using `name` and `repo` only on creation). Then updates the entry's harness field if `harness` is Some, and its model field if `model` is Some, leaving the existing value otherwise. Finally saves the index back to disk.
+- found: Exactly as predicted: creates a new project entry if key not found (using name/repo only then), then updates harness/model fields only when Some, then saves.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `data_dir`
 - spec 2 · read at `304076d2f901` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:51:08Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -5082,12 +5107,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Writes not one but three separate cache files (full tree, a slim drawable version, and a links table) each via bincode-encode to a .tmp file then atomic rename, each step silently bailing on error via let-else, with the slim file written before links because of read-order safety and links skipped entirely when empty.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 
-### `the_borrowed_links_record_decodes_as_the_owned_one` — TRAP
-- spec 3 · read at `91e653ba8242` · commit `d92c31f` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:29:37Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A test that constructs a borrowed-style links record, serializes it, then deserializes those bytes into the owned struct type, and asserts the resulting fields match — a round-trip compatibility check so that adding a field to only one struct would fail this test rather than silently corrupting cache files.
-- found: A unit test that bincode-encodes a CachedLinksRef (borrowed) wrapping a default Links, then bincode-decodes those bytes as the owned CachedLinks type, and asserts version/signature/links round-trip correctly — guarding the two structs' wire compatibility.
-- predicted: most · documented: most · derivable: no · legible: full · trap: yes
-- note: The trap (field added to one struct but not the other silently corrupting cache files) is exactly what the docstring already warns about, so it's not an unwarned trap in the strict sense — but the test only covers a default/empty Links value, so it wouldn't catch a field-count mismatch that still happens to decode without error for non-empty data.
+### `the_borrowed_links_record_decodes_as_the_owned_one`
+- spec 3 · read at `5740965ff842` · commit `758c706` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:04:23Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This test creates a default owned Links struct, encodes it with bincode into a buffer, then decodes it using the borrowed record type, checking that the decode consumes the entire buffer (asserting the returned consumed-length equals buffer length) and that the resulting borrowed struct equals a default borrowed instance — proving the two struct layouts encode/decode identically for the empty-table case.
+- found: Builds a populated Links fixture, encodes it via the borrowed CachedLinksRef, decodes it back as the owned CachedLinks, and asserts version/signature round-trip, that decode consumed every byte (proving no field mismatch left a silent tail), and that the same number of functions came back.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `halves`
 - spec 3 · read at `43820175ad5a` · commit `443bab0` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T00:59:17Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded

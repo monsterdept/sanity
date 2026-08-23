@@ -1,6 +1,6 @@
 # scripts — sanity assessment
 
-28 of 28 read · 3 surprising
+28 of 28 read · 2 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -168,12 +168,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
 - note: The file_doc describes the module's purpose well but the docs list for this specific function was empty — coverage came from the file_doc, not per-function docs.
 
-### `margins` — QUIRKY — TRAP
-- spec 3 · read at `b678801a8838` · commit `0ce57c0` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T02:12:34Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Takes a set of candidate lens hues, builds ramps for each and runs them through `simulate` (likely a colorblindness/appearance simulation under different conditions like "cold"/"hot" viewing), then uses `ciede2000` via `worst` to compute the four worst-case pairwise distances named in the doc line — worst cold pair, worst hot pair, worst cold-vs-neutral, worst hot-vs-trap — returning them as a tuple used as the optimization objective for the palette search.
-- found: Builds a ramp per hue, then computes the minimum pairwise `plain` distance between ramp endpoints (index 0 = cold stop, index 4 = hot stop) across all hue pairs for cold and hot margins, plus minimum distances from ramp endpoints/full ramps to NEUTRAL, TRAP, STRUCTURE, and MARK reference colors. Returns a 6-tuple, not the 4-tuple the docstring names.
-- predicted: some · documented: some · derivable: no · legible: full · trap: yes
-- note: The one-line docstring names only 4 of the 6 returned values (vs_struct and vs_mark are undocumented) — a caller unpacking by the docstring alone would be short two values.
+### `margins`
+- spec 3 · read at `d602b3c0d81a` · commit `758c706` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:04:22Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: margins(hues) takes a candidate hue assignment for the ramps and computes the six worst-case contrast margins described in the docstring — generating each ramp and running pairwise comparisons (via ciede2000/simulate) between cold/hot/neutral/trap/structure/mark colors, returning the minimum (worst) margin found for each of the six categories as a tuple, for use by an outer search/optimizer to accept or reject a hue set.
+- found: Builds a ramp per hue, then computes six worst-case (minimum) CIEDE2000-based contrast margins: closest cold-stop pair, closest hot-stop pair, worst ramp-vs-neutral, worst ramp-vs-trap, worst any-stop-vs-structure, worst any-stop-vs-mark — returned as a 6-tuple.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `legal`
 - spec 3 · read at `1eca3c487558` · commit `0ce57c0` · read by claude-sonnet-5 · via claude · when 2026-08-19T02:12:40Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
