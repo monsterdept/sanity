@@ -936,8 +936,8 @@ img{max-width:100%; display:block}
       <figure class="self">
         <!-- FILL: what it is, in the habitat's own voice. Four sentences at most.
              Say what it does, then the one thing about it that is unusual. -->
-        <p>Sanity is a code visualizer and explorer. It draws the structure of a project as a radial map you can drill into, ring by ring, to study an entire repo or a single function. Code segments can be colored by age, churn, language, or owner.</p>
-        <p>But they can also be colored by <em>surprise</em>: how accurately a coding agent predicts a function's contents from its name, signature, location, neighbors, and docs.</p>
+        <p>Sanity is a code visualizer and explorer. It draws the structure of a project as a radial map you can drill into, ring by ring, to study an entire repo or a single function. Eleven lenses recolor the same rings: age, churn, owner and language, what calls a function and what it reaches, which bodies are duplicated, and how well any of it is documented. It also replays a repository commit by commit, and will record that as a movie.</p>
+        <p>But the rings can also be colored by <em>surprise</em>: how accurately a coding agent predicts a function's contents from its name, signature, location, neighbors, and docs. Honest documentation lowers it and stale documentation raises it, because the docs reach the reader before the code does.</p>
         <figcaption><b>Exhibit C</b>Description</figcaption>
       </figure>
       <!-- href and label are rewritten to the visitor's platform on load;
@@ -984,7 +984,7 @@ img{max-width:100%; display:block}
       </div>
       <div>
         <span class="lbl">The other twist</span>
-        <p>Honest docs <b>lower</b> surprise, while bad ones make it worse. Improve them, then rescan to see if your code has become friendlier.</p>
+        <p>A reader that has just predicted a function also reports its <b>traps</b>: the ordering assumption nothing enforces, the silent failure, whatever will bite whoever edits it next. <b>Clones</b> marks the bodies that appear more than once. Neither shades the map — they light the wedges worth opening.</p>
       </div>
     </div>
     </div>
@@ -1112,15 +1112,17 @@ img{max-width:100%; display:block}
             <th scope="row">Monsterpower</th>
             <td>
               <!-- Monsterpower: whether the habitat needs a model to work at all. -->
-              <span class="line">Age, churn, language and owner views require no model.</span>
-              <span class="line">The surprise view is incomplete without MCP-driven analysis.</span>
+              <span class="line">Age, churn, owner, language, callers, reach, clones and the replay need no model.</span>
+              <span class="line">Surprise, legibility, docs and traps are what a reader reports; those four wait on a pass.</span>
             </td>
           </tr>
           <tr>
-            <th scope="row">Verified MCP hosts</th>
+            <th scope="row">Readers</th>
             <td>
-              <span class="line">Claude Code · Claude Desktop · Cursor · Windsurf · Codex</span>
-              <span class="line">Any MCP host that works over stdio</span>
+              <!-- Sanity spawns these itself, one process per reader, outside the repo. The
+                   MCP line is the other direction: a session driving or reporting on a pass. -->
+              <span class="line">Spawns <span class="pill">claude</span>, <span class="pill">codex</span>, <span class="pill">opencode</span> or <span class="pill">agy</span> — whichever is installed and signed in.</span>
+              <span class="line">Any MCP host over stdio can open a project and read the result.</span>
             </td>
           </tr>
           <tr>
