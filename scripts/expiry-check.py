@@ -199,10 +199,10 @@ def main():
     )
     if neutral:
         print()
-        print("    EXPIRES NOTHING — the parse is declared output-neutral since version")
-        print(f"    {stable_since(at(later, 'src-tauri/src/parse.rs'))}, so every cache drops and every repo re-parses")
-        print("    once. No committed reading goes stale: identical bytes through an")
-        print("    identical parser hash identically.")
+        since = stable_since(at(later, "src-tauri/src/parse.rs"))
+        print(f"    EXPIRES NOTHING — the parse is declared output-neutral since version {since},")
+        print("    so caches drop and every repo re-parses once. No committed reading goes")
+        print("    stale: identical bytes through an identical parser hash identically.")
         return 0
 
     print()
