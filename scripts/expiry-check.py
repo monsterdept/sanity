@@ -113,6 +113,19 @@ def shape(text):
     return (" ".join(body.split()), kept)
 
 
+def stable_since(src):
+    """The oldest PARSE_VERSION whose output matches the current one — see the constant.
+
+    Absent is the pessimistic answer: a very large number, which no released-from version can
+    be at or above, so an undeclared bump is reported as possibly expiring readings. Silence
+    must never be read as "this one is free".
+    """
+    if src is None:
+        return 1 << 30
+    m = re.search(r"const PARSE_OUTPUT_STABLE_SINCE: u32 = (\d+)", src)
+    return int(m.group(1)) if m else 1 << 30
+
+
 def version_of(src, name):
     """The integer a `const NAME: u32 = N;` is set to. Absent is 0 — see `SPEC`."""
     if src is None:
@@ -172,6 +185,25 @@ def main():
         print("    or doc-stack change) or SPEC (a change to what readers were asked), or")
         print("    convince yourself the change cannot alter output and say why here.")
         return 1
+
+    # **The third outcome, and the one that was being reported as the second.** A
+    # PARSE_VERSION bump on its own drops caches and re-parses; readings expire only when the
+    # text a reader was handed moves. Whoever bumped it says which, in `PARSE_OUTPUT_STABLE_
+    # SINCE`, and the claim is checked against the version being released FROM rather than
+    # taken at face value — a declaration left behind by a later real change does not cover it.
+    parse_before = version_of(at(prev, "src-tauri/src/parse.rs"), "PARSE_VERSION")
+    neutral = (
+        moved
+        and not any(m.startswith("SPEC") for m in moved)
+        and stable_since(at(later, "src-tauri/src/parse.rs")) <= parse_before
+    )
+    if neutral:
+        print()
+        print("    EXPIRES NOTHING — the parse is declared output-neutral since version")
+        print(f"    {stable_since(at(later, 'src-tauri/src/parse.rs'))}, so every cache drops and every repo re-parses")
+        print("    once. No committed reading goes stale: identical bytes through an")
+        print("    identical parser hash identically.")
+        return 0
 
     print()
     print("    EXPIRES READINGS. This is a normal outcome and a deliberate one — but the")

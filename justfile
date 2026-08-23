@@ -227,7 +227,17 @@ release version:
     # $tag` is useful even though the GitHub release body is generated. The expiry verdict
     # goes FIRST: it is the only line in here that costs the reader an afternoon.
     prev=$(git describe --tags --abbrev=0 2>/dev/null || true)
-    if grep -q "EXPIRES READINGS" <<<"$expiry"; then
+    if grep -q "output-neutral" <<<"$expiry"; then
+        # **A bump that drops caches is not a bump that expires readings, and the note used to
+        # say the second over the first.** `PARSE_VERSION` moving means every cache re-parses;
+        # a reading only goes stale when the TEXT a reader was handed moves, which identical
+        # bytes through an identical parser cannot do. Declared in `PARSE_OUTPUT_STABLE_SINCE`
+        # by whoever made the change, checked by the gate against the version being released
+        # from, and worded here — nobody reads a release note to be told their corpus is fine,
+        # but the one who reads it to find out why their corpus expired deserves the truth.
+        warning=$(printf 'Caches drop and every repo re-parses once. NO committed reading expires.')
+        warning="$warning"$'\n\n'
+    elif grep -q "EXPIRES READINGS" <<<"$expiry"; then
         # **What it costs depends on WHICH version moved, and saying the wrong one is worse
         # than saying nothing.** A parse or hash-input change expires whole readings: they go
         # stale and want re-reading. A SPEC bump does not — it dates one AXIS, so `predicted`

@@ -191,6 +191,28 @@ fn language(lang: Lang) -> tree_sitter::Language {
 /// text is untouched, so `reading_hash` does not move.
 pub const PARSE_VERSION: u32 = 4;
 
+/// The oldest [`PARSE_VERSION`] whose parse OUTPUT is identical to this one's.
+///
+/// **A bump means "drop the caches", which is not the same as "re-read the repo", and only a
+/// person can tell the two apart.** Dropping a cache costs a re-parse — seconds. Expiring a
+/// reading costs somebody an afternoon of readers, and it happens only when the TEXT handed to
+/// a reader moves: `reading_hash` collapses whitespace, so identical bytes through an identical
+/// parser hash identically no matter what this number says. `just expiry` cannot decide it,
+/// deliberately — a gate that could reason its way to "inert" would be a compiler — so the
+/// claim is made here, in the diff, by whoever made the change, and the release note is worded
+/// from it.
+///
+/// Read as: parse output has not changed since version N. The release compares it against the
+/// version at the PREVIOUS TAG, so a run of output-neutral bumps composes without anyone having
+/// to restate it, and a real parse change is declared by leaving this where it is.
+///
+/// **Silence is the pessimistic answer.** Absent or newer than the released-from version, the
+/// note says readings may be stale — the wrong direction to be wrong in is telling somebody
+/// their corpus is fine when it is not.
+///
+/// 3 because 3 → 4 was `cargo fmt` wrapping one match arm of `header_end` in braces.
+pub const PARSE_OUTPUT_STABLE_SINCE: u32 = 3;
+
 /// Node kinds that count as "a function with a body someone wrote".
 ///
 /// Bare `arrow_function` / `function_expression` are deliberately absent for the JS
