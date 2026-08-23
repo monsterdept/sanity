@@ -52,9 +52,12 @@ use std::time::{Duration, Instant};
 /// argument on the command both still bound it, and a bounded run still reports `truncated`
 /// rather than quietly starting in the middle.
 ///
-/// Deliberately NOT matched to `churn::MAX_COMMITS` any more. That one bounds a 90-day
-/// window's worth of counting, where the oldest commits genuinely change nothing; this one
-/// bounds a story, where they are the beginning of it.
+/// Deliberately unbounded. `churn.rs` used to cap its walk at five thousand commits, and this
+/// was written to say why a story cannot take that cap: counting a 90-day window can drop the
+/// oldest commits because they change nothing, while the beginning of a story IS the oldest
+/// commits. That cap has since gone for a related reason — a capped total is a longer window
+/// with no label on it — so churn walks whole now too, and the two agree by accident of
+/// arriving at the same answer separately.
 pub const ALL_COMMITS: usize = usize::MAX;
 
 /// Blobs above this are the same vendored bundles and generated clients `scan` refuses,

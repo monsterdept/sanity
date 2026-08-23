@@ -424,9 +424,10 @@ When a field is added to `Report`, add it to the schema in the same commit.
   `protocol`, `next_step` and `note` reach the one session that asked, at the moment it
   matters, instead of every reader that never will. That is the argument `PROTOCOL` was
   already written down for; it just was not being applied to its neighbours.
-- **`PROTOCOL` and `READER_PROMPT` are two constants because they are priced
-  differently.** One goes to an orchestrator once; the other is multiplied by the function
-  count. `just tokens` first located the boundary by searching for a heading, the heading
+- **`PROTOCOL` and `reader_prompt` are two things because they are priced differently.**
+  One goes to an orchestrator once; the other is multiplied by the function count. The second
+  is a function rather than a constant, taking the batch size, so the number in the ask and
+  the number a wave is sized by cannot be two numbers. `just tokens` first located the boundary by searching for a heading, the heading
   was reworded an hour later, and it silently billed every reader for both halves. A
   boundary worth measuring is worth making structural.
 - **A scan is a photograph; the repo is not standing still. Re-cut before handing out.**
@@ -826,13 +827,17 @@ dials, ranks, the provenance footer — qualifies every lens and never moves.
   sentences are worth printing about a function, where unread, dated and looked-and-found-
   nothing are three states of one question a reader was asked, and on a file they spend a
   section saying there is nothing here.
-  **It scrolls only when it has to, and the cap is MEASURED rather than guessed.** A fixed cap
+  **It scrolls only when it has to, and BOTH ends of the cap are measured.** A fixed cap
   clipped ten commits into a 220px box with half the pane empty beneath it — a scrollbar
   offered instead of the space that was already there. `calc(100vh - 360px)` replaced it and
   was the same mistake one level up: 360 is a guess at the name, path and counts above, and
-  the path wraps to two lines on a deep directory, so it is wrong by a row on half the repo and Oldest lands mid-pane with a scrollbar. The
-  element is asked for its own top instead, against the window's bottom, less the row that has
-  to stay under it. And the summary sentence that was pinned at the foot went
+  the path wraps to two lines on a deep directory, so it is wrong by a row on half the repo and Oldest lands mid-pane with a scrollbar.
+  Asking the element for its own top fixed that half and left the other half a guess — a
+  hand-written constant for what sits below, and `window.innerHeight` for a pane that ends
+  above the window — which came back as a band of empty pane under the churn calendar, the
+  very symptom this paragraph is about. `useFitToPane` asks the box for its top, the SCROLLING
+  ANCESTOR for its bottom, and the element that has to stay under it for its own height; the
+  calendar and the lifespan take the same hook. And the summary sentence that was pinned at the foot went
   with it: the two ends are already on screen and dated, which is the same fact in the place
   you were looking. `onFooter` and the slot it filled are gone rather than kept for later; an
   unused mechanism is a thing the next person has to work out the purpose of.
@@ -840,12 +845,18 @@ dials, ranks, the provenance footer — qualifies every lens and never moves.
   birthday — blame reports the last commit to touch each line, so a rewrite resets it" is the
   reason this lens cannot promise a birthday, and printed in the pane it is a lecture under
   everything anybody looks at. The pinned line is for the ANSWER; the reason is a `title` away.
-  **Its bottom is a FLOOR, not a birthday, and the ceiling is a different number.** Blame can
-  only see the oldest surviving line, which a rewrite resets. `churn::age_of` — already on the
-  file's node, free with the scan — is the honest upper bound, and it is shown ONLY when it
-  actually bounds: that function does not follow renames and stops at `MAX_COMMITS`, so a moved
-  file can report an age younger than the lines in it, and printing "the ceiling" under a
-  larger floor is the panel contradicting itself.
+  **Its bottom is the first commit that CHANGED these lines, which is not a birthday either.**
+  It used to be blame's oldest surviving line — a floor a rewrite resets — and that is now the
+  Blame lens's number rather than this one's: the timeline draws `changes`, so its far end is
+  where `git log -L` ran out, and the walk goes THROUGH a rewrite into whatever text stood here
+  before. Different limit, same honesty: neither end is a birth date.
+  **No ceiling is drawn, and the second number that was going to be one is on Churn instead.**
+  `churn::age_of` was the candidate — free with the scan, an upper bound — and it is not
+  rendered anywhere; what the pane shows now is the file's own first commit, under the
+  CALENDAR, and only where it is older than the walk's far end. The reason to be careful about
+  a ceiling stands and has moved with it: a path's own log does not follow renames, so on a
+  moved file it reports something NEWER than the lines in it, and printing that under a larger
+  floor is the panel contradicting itself.
   **On a FILE, Blame is the last commit and nothing else.** `Summary` already breaks a
   container down by author, with each author's functions listed under them, so the per-line
   sections printed a second coarser copy directly above the real one and the pane said AUTHORS
@@ -859,9 +870,10 @@ dials, ranks, the provenance footer — qualifies every lens and never moves.
   **The calendar is by FUNCTION, and it used to be by file.** A file's commits under a heading
   naming the file, in a pane opened on one function, is a picture that cannot tell that file's
   forty functions apart and therefore says nothing about the one that was clicked. It is
-  `blame::range_churn` — `git log -L`, which follows the range back through every diff instead
+  `blame::line_history` — `git log -L`, which follows the range back through every diff instead
   of holding it still, so a commit that inserted lines above the function moves the range
-  rather than counting as a change to it, and a rename is crossed without being reported.
+  rather than counting as a change to it, and a crossed rename is named on the row it was
+  crossed at.
   The cost argument `churn.rs` makes is about a whole SCAN — thousands of processes — and does
   not reach one range somebody clicked: measured on ceph, 2.2s against 0.8s for the `git blame
   -L` the same click already pays for.
@@ -916,9 +928,11 @@ dials, ranks, the provenance footer — qualifies every lens and never moves.
   endpoints drifting apart.
 - **There are two commit counts and they are different questions. Every place that prints
   one has to say which.** A file's `Score.commits` is commits in the 90-day window — a RATE.
-  A function's is how many distinct commits its current lines TRACE BACK TO, because blame
-  is all a per-function answer can be built from and a real window there is `git log -L`, a
-  process apiece. `blame.rs` has said so since it was written and asked the UI not to present
+  A function's is how many distinct commits its current lines TRACE BACK TO, because a scan
+  cannot afford anything else: the honest per-function history is `git log -L`, a process
+  apiece, which is fine on a click and impossible across ten thousand functions. The panel
+  DOES run it on a click (`blame::line_history`), so the refusal is about scan scale and
+  nothing else — do not read it as a rule against the walk. `blame.rs` has said so since it was written and asked the UI not to present
   them as one number; the UI printed `in 90d` over both for months. Measured on ceph's
   `Monitor.cc:100-200`: 27 commits behind those lines, 2 commits touching that file in ninety
   days. They are told apart by `Node.kind` and by nothing else, which is why it stays ONE
@@ -1289,7 +1303,11 @@ second metric, and the line between those is the whole design.
   while being hashed against something else. A declared expiry prints what it costs and
   proceeds, because improving the metric is the job; what it must not do is arrive at a
   user as a coverage number that dropped. It compares each watched function's own SOURCE
-  TEXT rather than whether its file changed — `parse.rs` and `assessment.rs` move constantly
+  TEXT — twice: literally, and again with layout normalised away, so a formatter that only
+  rewraps a watched function is REPORTED (`reflowed: parse.rs::file_doc`) and does not fail
+  the release, which is the same argument one step further in. String and char literals are
+  held out of that normalisation and compared exactly, because whitespace inside a literal is
+  content and can reach a reader through `file_doc`. It compares the function rather than whether its file changed — `parse.rs` and `assessment.rs` move constantly
   for unrelated reasons, and a gate that cries wolf every release is one people learn to
   skip. It was checked against the change that made it necessary: `just expiry 16b3bba~1
   16b3bba` fails.

@@ -51,10 +51,15 @@
 //! commit to touch the file, which `churn::read` already knows — it walks
 //! `git log --name-only` for the churn window regardless, so this costs nothing to collect.
 //!
-//! A file whose last touch is older than `churn::MAX_COMMITS` has no oid in that walk. It
-//! is cached under [`ANCIENT`] rather than left uncacheable: a file untouched in five
-//! thousand commits cannot have its blame changed by anything short of a rewritten history,
-//! and a rewritten history drops the blame half wholesale (see [`ScanCache::open`]).
+//! A file with no oid in that walk — git has never seen it — is cached under [`ANCIENT`]
+//! rather than left uncacheable: a file nothing in the history touches cannot have its blame
+//! changed by anything short of a rewritten history, and a rewritten history drops the blame
+//! half wholesale (see [`ScanCache::open`]).
+//!
+//! It used to mean something narrower. `churn::MAX_COMMITS` capped that walk at five thousand
+//! commits, so a file untouched for longer simply fell off the end and landed here too; the
+//! cap is gone — the walk is whole, because a capped TOTAL is a longer window with no label
+//! on it — and this case is now only the untracked one.
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
