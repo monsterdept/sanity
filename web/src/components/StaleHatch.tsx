@@ -19,6 +19,28 @@
 export function StaleHatch() {
   return (
     <defs>
+      {/* **Too large for a reading to be taken over it at all.**
+       *
+       *  A different statement from the hatch below, so a different texture: stale means a
+       *  reading expired and a fresh one will replace it, this means no run will ever reach
+       *  this wedge — `agentapi::READ_CEILING`. Drawn as a cross rather than a rotation of
+       *  the same lines, because two hatches at two angles are read as one hatch by anyone
+       *  not comparing them side by side.
+       *
+       *  It must not read as UNREAD either, which is what it looked like before: grey is
+       *  "nobody has got to this yet", and eighteen readings in this corpus were fabricated
+       *  by readers who could not accept that answer. A wedge nobody can read is a finding
+       *  about the code — usually the most accreted code in the repo — and the map says so.
+       */}
+      <pattern id="unreadable-hatch" width={7} height={7} patternUnits="userSpaceOnUse">
+        <rect width={7} height={7} fill="none" />
+        <path
+          d="M0 0 L7 7 M7 0 L0 7"
+          stroke="var(--foreground)"
+          strokeWidth={1}
+          strokeOpacity={0.5}
+        />
+      </pattern>
       <pattern
         id="stale-hatch"
         width={6}

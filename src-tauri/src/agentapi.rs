@@ -81,6 +81,19 @@ pub struct Project {
     /// before the bytes leave it, and a second `reveal` for the same id cannot revise it.
     /// Cleared when the reading lands.
     pub predictions: HashMap<String, String>,
+    /// Which parts of each body actually went out, for bodies served in more than one.
+    ///
+    /// **The half of this that does not depend on a reader choosing to be honest.** Eighteen
+    /// readings in this corpus were graded against bodies their readers never received, and
+    /// every one of them said so in a `note` that nothing aggregates — so the store holds
+    /// them at `predicted: most`, indistinguishable from a real reading unless somebody
+    /// reads the prose. Rules addressed to a model have now been improvised around four
+    /// times here; this is a fact the server owns, so `report` can refuse rather than ask.
+    ///
+    /// Keyed like `predictions` and cleared with them when the reading lands. A body that
+    /// fits in one part is not recorded at all — there is nothing a reader could have
+    /// missed, and an entry per reading would be a map the size of the queue.
+    pub revealed: HashMap<String, Revealed>,
     /// The wave of readers Sanity is running against this repo, if it is running one.
     pub run: Option<Run>,
     /// The last few functions to go out and come back, newest last.
@@ -398,6 +411,24 @@ impl AppState {
         self.active = Some(key.to_string());
         self.persist();
         true
+    }
+
+    /// Somebody is looking at this project now.
+    ///
+    /// **It focuses and does not `touch`, which is the whole of it being a selection rather
+    /// than an open**, and it is a method so there is one place that says so. It lived in
+    /// `commands::select_project` as two calls, and the `touch` cost two things at once: the
+    /// sidebar is ordered most-recently-touched-first, so every click moved that row to the
+    /// top — a list that rearranges itself as you use it, which is what drag-to-arrange
+    /// exists to answer — and it broke the invariant [`Self::for_client`] rests on, that
+    /// nothing but an open bumps `touched`. With a click bumping it, looking at a second repo
+    /// silently changed where a keyless shim would write its readings.
+    ///
+    /// A test can call this; it cannot call a `#[tauri::command]` taking `tauri::State`. That
+    /// is most of the reason it is here rather than there — a rule enforced only inside a
+    /// command is a rule with no test on it.
+    pub fn select(&mut self, key: &str) {
+        self.focus(key, true);
     }
 
     /// Record a call. `tool` is the tool name, optionally suffixed with the outcome —
@@ -925,6 +956,27 @@ pub struct Report {
     pub expected: String,
     /// What it actually found.
     pub found: String,
+    /// How many parts the body was served in, when it took more than one.
+    ///
+    /// **Evidence that a large body actually arrived, kept because asking did not work.**
+    /// Eighteen readings in this corpus were graded against bodies their readers never
+    /// received; every one recorded the fact in a `note` and graded anyway, and all
+    /// eighteen landed on the same flattering rung. So this is stamped server-side from
+    /// [`Project::revealed`], beside `body`, `by` and `at`, on the standing rule that a
+    /// field whose job is to be checkable later cannot be self-certified.
+    ///
+    /// **Absence is what makes the old readings expire, and it is not a migration.** A body
+    /// over [`PART_BYTES`] can only be served in parts, so an honest reading of one carries
+    /// a count here; a reading of the same body with nothing here was taken when `reveal`
+    /// still handed the whole thing over in one response, which is exactly the population
+    /// that could not receive it. `is_stale` reads the pair — see there. Nothing rewrites
+    /// the store and nothing is deleted: the readings expire, re-queue, and are replaced by
+    /// re-reading, which is the only mechanism this codebase has for a changed input.
+    ///
+    /// `None` on the overwhelming majority of readings, which are one part and have nothing
+    /// to prove. It renders only when present, on the same rule as every other absence here.
+    #[serde(default)]
+    pub paged: Option<usize>,
     /// Whether the body diverged from the expectation in a way that matters.
     ///
     /// Superseded by `predicted`. Kept, and defaulted, so reports written before the
@@ -1161,6 +1213,7 @@ impl Report {
             id: String::new(),
             expected: String::new(),
             found: String::new(),
+            paged: None,
             asked: String::new(),
             harness: String::new(),
             when: String::new(),
@@ -1275,7 +1328,24 @@ fn collect_tasks(
     file_doc: Option<&str>,
     out: &mut Vec<(f32, Task)>,
 ) {
+    // Past the ceiling this node yields no task, on the `Node::excluded` rule below: still
+    // parsed, still drawn, never handed to a reader and never in the denominator. The
+    // difference is who decided — `.sanityignore` is the human's judgement about scope, this
+    // is a fact about what a reader can hold — so the two absences stay apart on the map and
+    // are counted separately. Merging them would let a tool's limitation read as somebody's
+    // deliberate exclusion.
+    //
+    // **This node only, never its subtree.** What the ceiling catches is nearly always a
+    // FILE, because a file task is served whole — 856KB is the largest in the corpus against
+    // a 177KB largest function — and almost every function inside such a file is perfectly
+    // readable. Returning here rather than skipping one task would take a god-file's four
+    // hundred functions out of the queue along with it, which is the coverage hole this
+    // release is closing, dug from the other end.
+    let oversize = node.unreadable();
     if node.kind == NodeKind::Func {
+        if oversize {
+            return;
+        }
         // A reading only excuses a function while it still describes it. Once the body
         // moves, the reading is evidence about code that no longer exists and the
         // function is unread again — which is what makes "update my sanity assessment"
@@ -1294,7 +1364,7 @@ fn collect_tasks(
         // as one that did, looking comparable. What this buys is a place in the queue.
         let (stale, dated) = match done.get(&node.id) {
             Some(prior) => {
-                let stale = crate::assessment::is_stale(prior, node.body.as_deref());
+                let stale = crate::assessment::is_stale(prior, node.body.as_deref(), node.bytes);
                 let dated = crate::assessment::dated_axis(prior);
                 if !stale && !dated {
                     return;
@@ -1364,12 +1434,15 @@ fn collect_tasks(
         // same way as the function branch above so the two cannot drift on what "done"
         // means — a stale reading is not done, it is first in line.
         let queue_file = match done.get(&node.id) {
-            Some(prior) => crate::assessment::is_stale(prior, node.body.as_deref()),
+            Some(prior) => crate::assessment::is_stale(prior, node.body.as_deref(), node.bytes),
             None => true,
         } && leased.get(&node.id).is_none_or(|t| t.elapsed() >= LEASE)
             // A file with nothing in it has no declarations to describe, so there is no
             // reading to take: the header would be graded against an empty surface.
-            && !node.children.is_empty();
+            && !node.children.is_empty()
+            // Too large to serve whole. Its functions carry on below regardless — see the
+            // note at the top of this function about which half of the subtree this costs.
+            && !oversize;
         if queue_file {
             let stale = done.contains_key(&node.id);
             // Below every function of its own file and above nothing: a file reading is
@@ -1779,6 +1852,10 @@ pub fn reader_prompt(n: usize) -> String {
   Your prediction is recorded when you ask for the source, and asking again returns the \
   same code and changes nothing. So write it before you call, and write what you actually \
   expect rather than something safe.\n\n\
+  A LARGE BODY ARRIVES IN PARTS. The reply says `part N of M`; call sanity_reveal again \
+  with the next `part` until you hold all of them, then report. If you cannot get them \
+  all, say so to the human and take no reading — do not grade from what you have, and do \
+  not go and fetch the rest another way.\n\n\
   Do not ask for more than one at a time. One handout is one function on purpose: a \
   reader given several at once has read every signature, owner and peer list in the batch \
   before it predicts the first, and it costs no less. Set `position` to 1 through {n} in \
@@ -1985,10 +2062,10 @@ async fn open_project(
 
     let name =
         path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| key.clone());
-    let (functions, excluded) = count_funcs(&scan);
+    let Counts { kept: functions, excluded, oversize } = count_funcs(&scan);
     // Files are readings too, and this response is what the protocol tells an orchestrator
     // to size the job from — so it has to be the whole job, not the function half of it.
-    let (files, _) = count_files(&scan);
+    let files = count_files(&scan);
     let shape = shape_of(&scan);
 
     let mut s = lock(&state);
@@ -2059,12 +2136,17 @@ async fn open_project(
         // whatever they need that an endpoint lacks belongs in the endpoint, or there are
         // two implementations of one answer and the unwatched one goes wrong.
         "agent_docs": crate::assessment::agent_docs(&probe_path),
-        "functions": functions, "files": files, "assessed": assessed,
+        "functions": functions, "files": files.kept, "assessed": assessed,
         // Both, always. `functions` is what a full pass costs and what a percentage
         // divides by; `excluded` is what somebody decided is not this assessment's
         // business. A denominator quietly narrowed months ago is how a map ends up
         // claiming completeness over a subset.
         "excluded": excluded,
+        // Beside `excluded` and never folded into it. Both are functions no run will
+        // reach, and the reasons are opposite: `excluded` is somebody's `.sanityignore`,
+        // this is code too large for a reader to hold (`READ_CEILING`). Reported as one
+        // number they would read as a decision the repo made about itself.
+        "oversize": oversize,
         // The repo by top-level directory, so a reader can propose a `.sanityignore` with
         // numbers instead of a guess. Nobody shipping this tool can know which of these
         // directories is worth a reading; somebody who has just read the repo can ask.
@@ -2205,7 +2287,7 @@ fn count_stale(scan: &Scan, reports: &HashMap<String, Report>) -> usize {
     // subtracts this from `reports.len()`, which holds every kind.
     each_unit(scan, &mut |node| {
         if let Some(r) = reports.get(&node.id) {
-            if crate::assessment::is_stale(r, node.body.as_deref()) {
+            if crate::assessment::is_stale(r, node.body.as_deref(), node.bytes) {
                 n += 1;
             }
         }
@@ -2233,7 +2315,7 @@ fn assessed(project: &Project) -> usize {
     let mut n = 0;
     each_unit(&project.scan, &mut |node| {
         if let Some(r) = project.reports.get(&node.id) {
-            if !crate::assessment::is_stale(r, node.body.as_deref()) {
+            if !crate::assessment::is_stale(r, node.body.as_deref(), node.bytes) {
                 n += 1;
             }
         }
@@ -2253,29 +2335,34 @@ pub struct OfflineCounts {
     pub functions: usize,
     pub files: usize,
     pub excluded: usize,
+    /// Units past [`READ_CEILING`] — see [`Counts::oversize`]. Its own number beside
+    /// `excluded`, because a reader limit and somebody's `.sanityignore` are opposite
+    /// reasons for the same absence and only one of them is anybody's decision.
+    pub oversize: usize,
     pub assessed: usize,
     pub remaining: usize,
     pub stale: usize,
 }
 
 pub fn offline_counts(scan: &Scan, reports: &HashMap<String, Report>) -> OfflineCounts {
-    let (functions, excluded) = count_funcs(scan);
+    let Counts { kept: functions, excluded, oversize } = count_funcs(scan);
     let mut unread = Vec::new();
     collect_tasks(&scan.root, reports, &HashMap::new(), None, &mut unread);
     let mut assessed = 0;
     each_unit(scan, &mut |node| {
         if let Some(r) = reports.get(&node.id) {
-            if !crate::assessment::is_stale(r, node.body.as_deref()) {
+            if !crate::assessment::is_stale(r, node.body.as_deref(), node.bytes) {
                 assessed += 1;
             }
         }
     });
     OfflineCounts {
         functions,
+        oversize,
         // Beside `functions`, never folded into it — see `count_files`. A file with
         // declarations is its own reading, so it is in `assessed` and in `remaining`, and a
         // denominator that leaves it out reports more read than there is to read.
-        files: count_files(scan).0,
+        files: count_files(scan).kept,
         excluded,
         assessed,
         remaining: unread.len(),
@@ -2307,7 +2394,7 @@ fn unread_lines(project: &Project) -> usize {
             let read = project
                 .reports
                 .get(&node.id)
-                .is_some_and(|r| !crate::assessment::is_stale(r, node.body.as_deref()));
+                .is_some_and(|r| !crate::assessment::is_stale(r, node.body.as_deref(), node.bytes));
             if !read {
                 *n += node.loc as usize;
             }
@@ -2327,20 +2414,49 @@ fn unread_lines(project: &Project) -> usize {
 /// 2,140 excluded" are the same repo and different claims, and a percentage divided by
 /// the first while the queue works from the second is the instrument overstating itself
 /// — the same failure as counting leased work as done.
-fn count_funcs(scan: &Scan) -> (usize, usize) {
-    fn walk(node: &Node, out_of_scope: bool, kept: &mut usize, dropped: &mut usize) {
+fn count_funcs(scan: &Scan) -> Counts {
+    fn walk(node: &Node, out_of_scope: bool, c: &mut Counts) {
         let out_of_scope = out_of_scope || node.excluded;
         if node.kind == NodeKind::Func {
-            *(if out_of_scope { dropped } else { kept }) += 1;
+            // Scope is asked FIRST, so a function that is both reads as excluded. A human
+            // took it out of the assessment either way, and reporting it under a heading
+            // about tool limits would invite somebody to go and fix a size that nobody is
+            // waiting on.
+            *(if out_of_scope {
+                &mut c.excluded
+            } else if node.unreadable() {
+                &mut c.oversize
+            } else {
+                &mut c.kept
+            }) += 1;
             return;
         }
-        for c in &node.children {
-            walk(c, out_of_scope, kept, dropped);
+        for ch in &node.children {
+            walk(ch, out_of_scope, c);
         }
     }
-    let (mut kept, mut dropped) = (0, 0);
-    walk(&scan.root, false, &mut kept, &mut dropped);
-    (kept, dropped)
+    let mut c = Counts::default();
+    walk(&scan.root, false, &mut c);
+    c
+}
+
+/// What a scan holds, split by whether a reading can be taken of it.
+///
+/// **Three numbers because there are three reasons, and a coverage figure that merges any
+/// two of them is an instrument overstating itself.** `kept` is the denominator — what a run
+/// can actually finish. `excluded` is somebody's `.sanityignore`. `oversize` is past
+/// [`READ_CEILING`], which is a fact about readers rather than a judgement about the code,
+/// and it is reported separately for exactly that reason: folded into `excluded` it would
+/// read as a decision a human made, and folded into `kept` it would be a denominator no run
+/// can ever reach.
+#[derive(Default, Clone, Copy)]
+struct Counts {
+    /// In scope and readable. The only one that belongs in a denominator.
+    kept: usize,
+    /// Set aside by `.sanityignore` — see [`Node::excluded`].
+    excluded: usize,
+    /// Too large for a reading to be taken over — see [`Node::unreadable`].
+    oversize: usize,
 }
 
 /// Files that are their own reading, and files `.sanityignore` set aside.
@@ -2353,22 +2469,32 @@ fn count_funcs(scan: &Scan) -> (usize, usize) {
 ///
 /// A file with no declarations is not counted, matching `collect_tasks` and `live_files`:
 /// there is nothing for its header to be graded against, so it is never handed out.
-fn count_files(scan: &Scan) -> (usize, usize) {
-    fn walk(node: &Node, out_of_scope: bool, kept: &mut usize, dropped: &mut usize) {
+fn count_files(scan: &Scan) -> Counts {
+    fn walk(node: &Node, out_of_scope: bool, c: &mut Counts) {
         let out_of_scope = out_of_scope || node.excluded;
         if node.kind == NodeKind::File {
             if !node.children.is_empty() {
-                *(if out_of_scope { dropped } else { kept }) += 1;
+                // A file task is revealed WHOLE, so the ceiling reaches files long before it
+                // reaches functions — the largest function in the corpus is 177KB and the
+                // file holding it is 856KB. Its functions are counted normally by
+                // `count_funcs`; it is only the header reading that cannot be taken.
+                *(if out_of_scope {
+                    &mut c.excluded
+                } else if node.unreadable() {
+                    &mut c.oversize
+                } else {
+                    &mut c.kept
+                }) += 1;
             }
             return;
         }
-        for c in &node.children {
-            walk(c, out_of_scope, kept, dropped);
+        for ch in &node.children {
+            walk(ch, out_of_scope, c);
         }
     }
-    let (mut kept, mut dropped) = (0, 0);
-    walk(&scan.root, false, &mut kept, &mut dropped);
-    (kept, dropped)
+    let mut c = Counts::default();
+    walk(&scan.root, false, &mut c);
+    c
 }
 
 /// The repo's shape by top-level directory, so an agent can propose a `.sanityignore`
@@ -2745,6 +2871,67 @@ const DEFAULT_READERS: usize = 5;
 /// found. Fifteen might be fine. Moving it is a decision about the instrument, taken here,
 /// with what it does to the existing corpus in mind.
 const BATCH: usize = 10;
+
+/// The most source `reveal` will put in one response.
+///
+/// **A tool result has a size and nothing was checking it.** `reveal` served whatever the
+/// extent came to, in one JSON string, and above a harness's output cap that arrives at the
+/// reader truncated or not at all. Eighteen readings in this corpus were taken through that
+/// wall — sixteen in one repo — and their notes say what a reader does when it hits one:
+/// *"used a subagent to slice the oversized reveal output"*, *"sampled via grep against the
+/// saved output file"*, *"Confirmed structurally via grep (134 pub fn, 18 pub struct …)
+/// rather than reading the whole 465KB body"*. Every one of those is a reader leaving the
+/// handout, which [`reader_prompt`] forbids in as many words. They all graded anyway, and
+/// all eighteen graded `predicted: most` — not one refused, which is not eighteen readers
+/// exercising judgement but the shape of a reader that could not check.
+///
+/// Which way it bends the map is the part that makes this a metric bug rather than an
+/// ergonomic one. A reader that cannot see the body predicts from the signature, the peers
+/// and the docs — and "predictable from surrounding context" is exactly what this instrument
+/// reports as *boilerplate*. So the failure does not add noise, it adds COLD, and it does so
+/// on the largest and most accreted code in the repo, which is where the map is supposed to
+/// be loudest.
+///
+/// **The number comes from the reader's harness, never from a corpus.** Sizing it to the
+/// code we happen to have would set a constant that is wrong the first time somebody reads
+/// with a different agent — the cap belongs to the instrument, not to the subject. The
+/// tightest we know of is Claude Code's ~25,000 tokens; source runs 3–4 bytes to the token,
+/// so 32KB is ~10,700 tokens at the pessimistic end, better than 2× headroom for the JSON
+/// envelope and for a harness that is stricter than the one this was measured against.
+pub const PART_BYTES: usize = 32_000;
+
+/// The extent past which a reading cannot be taken, because it does not fit.
+///
+/// Paging defeats the per-CALL cap. It does nothing about the reader's own context, and past
+/// some size the body cannot be held at all — so the task leaves the queue and the wedge says
+/// so, on the [`Node::excluded`] precedent: never queued, never in the denominator, still
+/// parsed and still drawn. What it must not do is read as UNREAD, which means "nobody has got
+/// to it yet" about something no run will ever reach.
+///
+/// **It is a limit, not a budget, and the first version confused the two.** That one was
+/// 128KB, sized as "more than a reader should hold ALONGSIDE the other nine functions in its
+/// batch" — a judgement about comfort dressed up as a constraint. Measured against real
+/// stores it refused 2 file readings in this repo and 38 in tonepoet, including this repo's
+/// own `App.tsx`, and file readings are where it lands because a file task is served whole.
+/// Taking a repo's largest files permanently off the map to spare a reader a crowded context
+/// is the coverage hole this release exists to close, dug from the other end.
+///
+/// So the line is drawn where the body stops FITTING: ~175k tokens at the pessimistic 3
+/// bytes/token, against the 200k context the readers in use have. Below it a reader may have
+/// an uncomfortable batch; above it there is no arrangement that works. Measured across both
+/// stores, 1,222 and 17,500 units: p99 is 58KB and 22KB, so this sits far out on a very thin
+/// tail — it refuses **nothing** in this repo, and 5 files in tonepoet, every one over 500KB.
+///
+/// **What it does NOT guard, and cannot.** [`Project::revealed`] records which parts were
+/// SERVED, not which were retained — a reader that fetched everything and then had its
+/// context compacted looks identical to one that held it all. That hole widens the closer a
+/// body sits to this line, and nothing here can see it. `report`'s refusal is the guard that
+/// works; this only rules out the arithmetically impossible.
+///
+/// It is a standing claim about readers in the same way the calibration band is a standing
+/// claim about code, and it moves on the same terms: evidence, not taste. A context window
+/// that grows moves this number.
+pub const READ_CEILING: usize = 524_288;
 
 /// The default batch, for callers outside this module that need to price one.
 pub fn default_batch() -> usize {
@@ -3272,6 +3459,11 @@ impl Project {
             leased: prev.map(|p| p.leased.clone()).unwrap_or_default(),
             recent_files: prev.map(|p| p.recent_files.clone()).unwrap_or_default(),
             predictions: prev.map(|p| p.predictions.clone()).unwrap_or_default(),
+            // Survives a rescan for the same reason the predictions do, and for a sharper
+            // one: a reader holding parts 1 and 2 of a body when the tree is rebuilt would
+            // otherwise have its record wiped, and `report` would then accept a reading it
+            // has no evidence was made against the whole body. Losing this fails OPEN.
+            revealed: prev.map(|p| p.revealed.clone()).unwrap_or_default(),
             run: prev.and_then(|p| p.run.clone()),
             events: prev.map(|p| p.events.clone()).unwrap_or_default(),
             touched: prev.map(|p| p.touched).unwrap_or(0),
@@ -3450,6 +3642,60 @@ fn assessed_now(state: &Shared, key: &str) -> usize {
     lock(state).projects.get(key).map(assessed).unwrap_or(0)
 }
 
+/// A body served in parts, and which of them the reader has actually taken.
+///
+/// See [`Project::revealed`] for why the server keeps this rather than asking.
+#[derive(Clone, Debug)]
+pub struct Revealed {
+    /// How many parts this body was cut into.
+    pub parts: usize,
+    /// Which ones went out. A set rather than a high-water mark: a reader may fetch them in
+    /// any order, and "got 1 and 3" has to be distinguishable from "got 1, 2 and 3" —
+    /// treating the highest as proof of everything below it is the same mistake as gating a
+    /// destructive step on a write returning `Ok`.
+    pub seen: std::collections::BTreeSet<usize>,
+}
+
+impl Revealed {
+    /// Every part accounted for.
+    fn whole(&self) -> bool {
+        self.seen.len() >= self.parts
+    }
+
+    /// The parts still owed, for an error that says what to do.
+    fn missing(&self) -> Vec<usize> {
+        (1..=self.parts).filter(|p| !self.seen.contains(p)).collect()
+    }
+}
+
+/// Cut served source into parts, each no larger than [`PART_BYTES`].
+///
+/// On line boundaries, and `split_inclusive` keeps the separators, so concatenating the
+/// parts reproduces the source byte for byte — which is the property the reader is promised
+/// and `a_paged_body_reassembles_to_the_original` pins.
+///
+/// A single line longer than the budget goes out on its own rather than looping forever.
+/// That is honest code with a long line: the scan refuses minified files outright
+/// (`MINIFIED_LINE_BYTES`), so a bundle never reaches here.
+fn parts_of(source: &str) -> Vec<&str> {
+    if source.len() <= PART_BYTES {
+        return vec![source];
+    }
+    let mut out = Vec::new();
+    let (mut start, mut end) = (0usize, 0usize);
+    for line in source.split_inclusive('\n') {
+        if end > start && end - start + line.len() > PART_BYTES {
+            out.push(&source[start..end]);
+            start = end;
+        }
+        end += line.len();
+    }
+    if end > start {
+        out.push(&source[start..end]);
+    }
+    out
+}
+
 /// A request for the source of one task, and the prediction it is being traded for.
 #[derive(Deserialize)]
 pub struct RevealRequest {
@@ -3459,6 +3705,14 @@ pub struct RevealRequest {
     id: String,
     /// What the reader expects the body to do. Recorded before any bytes go back.
     expected: String,
+    /// Which part of the body to send, 1-based. Absent means the first.
+    ///
+    /// Defaulted rather than required so the call a reader makes for an ordinary function is
+    /// exactly the call it made before — most bodies are one part, and paying for a
+    /// paging argument on every reading to serve the few that are not is the same trade
+    /// [`PROTOCOL`] refuses elsewhere. The response says when there is more.
+    #[serde(default)]
+    part: Option<usize>,
 }
 
 /// Hand over the source of one task, once its prediction is on record.
@@ -3531,10 +3785,34 @@ async fn reveal(
                 n.line.unwrap_or(1),
                 n.end_line.unwrap_or_else(|| n.line.unwrap_or(1) + n.loc),
                 n.kind == NodeKind::File,
+                n.bytes,
             ));
         }
     });
-    let Some((path, line, end_line, whole_file)) = found else {
+    // Above the ceiling nothing is served, and the refusal is the same fact the queue and
+    // the map are already working from — `Node::bytes`, one number, so the wedge cannot say
+    // readable while this says no. It should not be reachable: `collect_tasks` does not hand
+    // these out. It is here because a lease can outlive a rescan that grew a function past
+    // the line, and because the alternative to refusing is what used to happen.
+    if let Some((_, _, _, _, Some(bytes))) = found {
+        if bytes as usize > READ_CEILING {
+            state.ping("sanity_error");
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": format!(
+                    "`{}` is {}KB, past the {}KB a reading can be taken over. No source was sent.",
+                    req.id,
+                    bytes / 1024,
+                    READ_CEILING / 1024,
+                ),
+                "hint": "This is not something to work around — do not open the repo, grep it, \
+                         or spawn a subagent to slice it, and do not report a grade for it. \
+                         The map marks it as too large to read, which is a finding about the \
+                         code rather than a gap in coverage. Call sanity_next for other work.",
+            }));
+        }
+    }
+    let Some((path, line, end_line, whole_file, _)) = found else {
         state.ping("sanity_error");
         return Json(serde_json::json!({
             "ok": false,
@@ -3568,18 +3846,55 @@ async fn reveal(
     // `or_insert`: a second reveal for the same id serves the same bytes and leaves the
     // first prediction standing. A reader that could revise this after reading would be
     // grading itself against a prediction it wrote with the answer in front of it, which
-    // is the whole thing this call exists to prevent.
+    // is the whole thing this call exists to prevent. Fetching part 2 is a second call, so
+    // this has to survive one — the prediction is the price of the BODY, not of a slice.
     project.predictions.entry(req.id.clone()).or_insert_with(|| req.expected.clone());
+
+    let cut = parts_of(&source);
+    let parts = cut.len();
+    // Out of range reads as the last part rather than erroring: a reader that miscounts
+    // gets the end of the body, which is recoverable, instead of a failure it will try to
+    // work around. Zero is the same clamp from the other side — `part: 0` is a 1-based
+    // index written by something counting from nought.
+    let part = req.part.unwrap_or(1).clamp(1, parts);
+    if parts > 1 {
+        let seen = project.revealed.entry(req.id.clone()).or_insert_with(|| Revealed {
+            parts,
+            seen: std::collections::BTreeSet::new(),
+        });
+        // Re-cut on every call, so a file edited mid-reading changes the count. Trusting the
+        // stored one would let a body that grew past a part boundary report itself complete
+        // on the parts of a shorter version.
+        seen.parts = parts;
+        seen.seen.insert(part);
+    }
     state.ping("sanity_reveal");
-    Json(serde_json::json!({
+    let mut out = serde_json::json!({
         "ok": true,
         "id": req.id,
         "path": path,
         "line": line,
         "end_line": end_line,
         "whole_file": whole_file,
-        "source": source,
-    }))
+        "part": part,
+        "parts": parts,
+        "source": cut[part - 1],
+    });
+    // Said in the RESPONSE rather than in the schema, on the standing rule that a tool
+    // description is multiplied by every reading while this reaches only the readings that
+    // are actually in parts. It has to be unmissable: the failure it replaces is a reader
+    // deciding on its own that it has enough, and eighteen of them did.
+    if parts > 1 {
+        let next = part % parts + 1;
+        out["next_step"] = serde_json::json!(format!(
+            "This is part {part} of {parts}. You have NOT seen the whole body yet. Call \
+             sanity_reveal again for the same id with `part: {next}`, and keep going until \
+             you hold all {parts}. Do not report until you do — a report with parts missing \
+             is refused, and grading from a partial body is the one thing this call exists \
+             to prevent. Do not open the repo, grep it, or spawn a subagent to get the rest."
+        ));
+    }
+    Json(out)
 }
 
 /// A reading, plus which project it belongs to.
@@ -3757,6 +4072,42 @@ async fn report(
         return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
     };
     project.last_agent = Some(Instant::now());
+    // A body served in parts, with parts still owed. Refused — the reader graded something
+    // it never fully saw, which is the failure this whole path exists to close, and it is
+    // the one form of it the server can prove rather than ask about.
+    //
+    // Before the lease is released, deliberately: the work stays out with this reader so it
+    // can fetch what it is missing and send the same reading again. Dropping the lease would
+    // put the function back in the queue and make the refusal cost a reading rather than a
+    // round trip. Refused rather than downgraded, on the `trap_without_note` rule — clearing
+    // a reader's grades to tidy the store is not ours to do, and there is nothing here to
+    // salvage anyway: a grade from a partial body is not a weaker measurement, it is a
+    // measurement of something else.
+    if let Some(seen) = project.revealed.get(&r.id) {
+        if !seen.whole() {
+            let missing = seen.missing();
+            let (parts, have) = (seen.parts, seen.seen.len());
+            state.refused += 1;
+            state.ping("sanity_error");
+            return Json(serde_json::json!({
+                "ok": false,
+                "saved": false,
+                "error": format!(
+                    "This body was served in {parts} parts and you have taken {have}. \
+                     Nothing was saved.",
+                ),
+                "hint": format!(
+                    "Call sanity_reveal for the same id with `part` set to each of {missing:?}, \
+                     read them, then send this reading again — your prediction is already \
+                     recorded and re-reading cannot change it. Do not grade from what you \
+                     have: eighteen readings in this corpus were written against bodies \
+                     their readers never finished, and every one of them landed on the same \
+                     flattering grade. If the rest genuinely cannot be fetched, say so to \
+                     the human and stop rather than reporting.",
+                ),
+            }));
+        }
+    }
     project.leased.remove(&r.id);
     // The prediction as it stood BEFORE the body was served — see `Project::predictions`.
     // Taken here rather than accepted from the report, on the same rule as `body` and `at`
@@ -3767,6 +4118,14 @@ async fn report(
     // readings would discard work over a field it was never given the chance to record.
     // What it cannot do is OVERWRITE a stored one.
     let promised = project.predictions.remove(&r.id);
+    // Cleared with the prediction, and only once the reading is past the guard above: a
+    // reading that got this far held every part, so the record has done its job. Left
+    // behind it would refuse the next honest re-read of the same function after a rescan.
+    //
+    // Taken before it is dropped, and stamped rather than accepted: this is the evidence
+    // the body was received whole, and the party it is evidence against is the caller. See
+    // `Report::paged`.
+    let paged = project.revealed.remove(&r.id).map(|v| v.parts);
 
     // Provenance is stamped here, not accepted from the caller. The body hash is the
     // field a future reader checks this reading against, so it has to come from the same
@@ -3800,6 +4159,10 @@ async fn report(
     // and that claim is exactly what the field exists to test. This build asked, so this
     // build stamps.
     r.spec = crate::assessment::SPEC;
+    // Stamped, never accepted — see `Report::paged`. A reader that could set this would be
+    // certifying that it had received the body it is about to grade, which is the one claim
+    // this field exists to check.
+    r.paged = paged;
     // And cleared, for the same reason it is stamped rather than accepted. It is a
     // conclusion this build draws on the way out, never a claim a reader gets to make on
     // the way in — a reader that sent `legibleDated: false` would otherwise be voting on
@@ -3944,8 +4307,8 @@ async fn status(
             serde_json::json!({
                 "name": p.name,
                 "repo": p.repo.to_string_lossy(),
-                "functions": count_funcs(&p.scan).0,
-                "files": count_files(&p.scan).0,
+                "functions": count_funcs(&p.scan).kept,
+                "files": count_files(&p.scan).kept,
                 "assessed": assessed(p),
             })
         })
@@ -3973,7 +4336,7 @@ async fn status(
                 .collect();
             // One walk. Both halves came from separate calls on adjacent lines, so the
             // whole tree was counted twice to answer one question.
-            let (functions, excluded) = count_funcs(&p.scan);
+            let Counts { kept: functions, excluded, oversize } = count_funcs(&p.scan);
             Json(serde_json::json!({
                 "open": true,
                 // Named `project`, not `active`: this answer is about the caller's repo,
@@ -3994,8 +4357,13 @@ async fn status(
                 // reports more read than there is to read. `sanity status` did: 812
                 // functions, 821 read. The same arithmetic the sidebar's `150/631` came
                 // from, arriving through the endpoint instead.
-                "files": count_files(&p.scan).0,
+                "files": count_files(&p.scan).kept,
                 "excluded": excluded,
+                // Beside `excluded` and never folded into it. Both are functions no run will
+                // reach, and the reasons are opposite: `excluded` is somebody's `.sanityignore`,
+                // this is code too large for a reader to hold (`READ_CEILING`). Reported as one
+                // number they would read as a decision the repo made about itself.
+                "oversize": oversize,
                 // Not scoped to this repo — see `AppState::refused`. Named for what it
                 // counts so a driving session cannot read it as "reports outstanding".
                 "refused_reports": refused,
@@ -4267,7 +4635,7 @@ pub fn aggregate_of(scan: &Scan, reports: &HashMap<String, Report>) -> Aggregate
         let Some(r) = reports.get(&node.id) else {
             return;
         };
-        if crate::assessment::is_stale(r, node.body.as_deref()) {
+        if crate::assessment::is_stale(r, node.body.as_deref(), node.bytes) {
             agg.stale += 1;
             return;
         }
@@ -4338,7 +4706,7 @@ async fn summary(
 
     let agg = aggregate(project);
     let WorkLeft { remaining, .. } = work_left(project);
-    let (functions, excluded) = count_funcs(&project.scan);
+    let Counts { kept: functions, excluded, oversize } = count_funcs(&project.scan);
     Json(serde_json::json!({
         "open": true,
         // The header this feeds is shared with `/status`, so the fields it reads have to
@@ -4352,8 +4720,13 @@ async fn summary(
         "functions": functions,
         // Beside `functions`, because `assessed` counts file headers too — see the same
         // field on `/status`.
-        "files": count_files(&project.scan).0,
+        "files": count_files(&project.scan).kept,
         "excluded": excluded,
+        // Beside `excluded` and never folded into it. Both are functions no run will
+        // reach, and the reasons are opposite: `excluded` is somebody's `.sanityignore`,
+        // this is code too large for a reader to hold (`READ_CEILING`). Reported as one
+        // number they would read as a decision the repo made about itself.
+        "oversize": oversize,
         "assessed": assessed(project),
         "stale": count_stale(&project.scan, &project.reports),
         "remaining": remaining,
@@ -4411,6 +4784,11 @@ pub struct ProjectSummary {
     /// it — the sidebar's `81/377` is a claim about coverage, and a denominator that
     /// silently shrank is the same lie as a reading that outlived its code.
     pub excluded: usize,
+    /// Functions and files too large for a reading to be taken over — see
+    /// [`Node::unreadable`]. Out of the denominator like `excluded` and counted apart from
+    /// it: the sidebar must not say a repo is fully read while holding work no run can
+    /// reach, and it must not report a tool's limit as a choice somebody made.
+    pub oversize: usize,
     /// Which agent reads this repo, as `sanity init` or the window recorded it.
     ///
     /// Machine-local — see `KnownProject::harness`. Which CLI is installed is a fact about
@@ -4534,8 +4912,8 @@ impl ProjectList {
             .iter()
             .map(|(key, p)| {
                 let stale = count_stale(&p.scan, &p.reports);
-                let (functions, excluded) = count_funcs(&p.scan);
-                let (files, _) = count_files(&p.scan);
+                let Counts { kept: functions, excluded, oversize } = count_funcs(&p.scan);
+                let files = count_files(&p.scan).kept;
                 ProjectSummary {
                     // Same window as `agent_activity`: a reader predicting, opening a
                     // file and writing a report goes quiet for tens of seconds inside one
@@ -4560,6 +4938,7 @@ impl ProjectList {
                     files,
                     scanned: p.scanned,
                     excluded,
+                    oversize,
                     harness: harnesses.get(key).cloned(),
                     model: models.get(key).cloned(),
                     banked_harness: one_harness(p),
@@ -4635,6 +5014,7 @@ impl ProjectList {
                         // the first real scan is a change from it.
                         scanned: 0,
                         excluded: 0,
+                        oversize: 0,
                         // Configured settings survive a restore in progress — they come
                         // from the index, which is the thing being restored FROM.
                         harness: known.harness.clone(),
@@ -5055,6 +5435,7 @@ fn drain(
                 leased: HashMap::new(),
                 recent_files: HashMap::new(),
                 predictions: HashMap::new(),
+                revealed: HashMap::new(),
                 run: None,
                 events: Default::default(),
                 file_marks: marks,
@@ -5410,6 +5791,7 @@ pub(crate) mod tests {
             leased: HashMap::new(),
             recent_files: HashMap::new(),
             predictions: HashMap::new(),
+            revealed: HashMap::new(),
             run: None,
             events: Default::default(),
             file_marks: marks,
@@ -6055,12 +6437,12 @@ fn second() { println!(\"2\"); }\n",
         // With no `.sanityignore`, everything is in scope. No defaults, ever — a shipped
         // default excluding tests would have deleted the best finding of a whole run.
         let p = project_of(dir.path());
-        assert_eq!(count_funcs(&p.scan), (3, 0));
+        assert_eq!((count_funcs(&p.scan).kept, count_funcs(&p.scan).excluded), (3, 0));
 
         std::fs::write(dir.path().join(".sanityignore"), "tests/\n").unwrap();
         let p = project_of(dir.path());
         assert_eq!(
-            count_funcs(&p.scan),
+            (count_funcs(&p.scan).kept, count_funcs(&p.scan).excluded),
             (1, 2),
             "in scope and set aside are both reported, never one silently"
         );
@@ -6169,7 +6551,7 @@ fn second() { println!(\"2\"); }\n",
                 let stale = p
                     .reports
                     .get(&n.id)
-                    .is_some_and(|r| crate::assessment::is_stale(r, n.body.as_deref()));
+                    .is_some_and(|r| crate::assessment::is_stale(r, n.body.as_deref(), n.bytes));
                 left.push((n.id.clone(), stale));
             }
         });
@@ -6541,6 +6923,7 @@ fn second() { println!(\"2\"); }\n",
                 project: Some("/p".into()),
                 id: task.id.clone(),
                 expected: "prints something".into(),
+                part: None,
             }),
         )
         .await;
@@ -6552,6 +6935,174 @@ fn second() { println!(\"2\"); }\n",
         // to prevent.
         let other = if task.name == "one" { "SECRET" } else { "\"1\"" };
         assert!(!src.contains(other), "reveal leaked a sibling's body into the handout:\n{src}");
+    }
+
+    /// Past the ceiling a function leaves the queue, is counted apart, and is refused.
+    ///
+    /// Three places have to agree — the queue, the count and `reveal` — or the map offers
+    /// work that cannot be done, or states a gap while the queue quietly keeps serving it.
+    /// And `oversize` is its own number rather than folded into `excluded`: one is a fact
+    /// about readers, the other is somebody's `.sanityignore`, and merging them would let a
+    /// tool's limitation read as a decision a human made.
+    #[tokio::test]
+    async fn an_oversize_function_leaves_the_queue_and_is_counted_apart() {
+        let _data = data_home();
+        let dir = tempfile::tempdir().unwrap();
+        // One function past READ_CEILING, one ordinary one beside it in the same file. The
+        // small one is the test: a file holding something unreadable must not lose its
+        // readable functions along with it.
+        let huge: String =
+            (0..READ_CEILING / 20 + 1000).map(|i| format!("    let x{i} = {i};\n")).collect();
+        std::fs::write(
+            dir.path().join("a.rs"),
+            format!("fn small() {{\n    println!(\"1\");\n}}\n\nfn huge() {{\n{huge}}}\n"),
+        )
+        .unwrap();
+        let mut state = AppState::default();
+        state.projects.insert("/p".into(), project_of(dir.path()));
+        state.touch("/p");
+        let shared: Shared = Arc::new(Mutex::new(state));
+
+        {
+            let s = lock(&shared);
+            let p = &s.projects["/p"];
+            let counts = count_funcs(&p.scan);
+            assert_eq!(counts.oversize, 1, "the huge function was not counted as oversize");
+            assert_eq!(counts.kept, 1, "the readable function did not survive its neighbour");
+            assert_eq!(counts.excluded, 0, "a reader limit was reported as an exclusion");
+        }
+
+        // Everything the queue will ever hand out, leases ignored.
+        let mut names = Vec::new();
+        for _ in 0..8 {
+            let Json(handed) = queue(
+                State(shared.clone()),
+                Query(QueueParams { n: 4, project: Some("/p".into()) }),
+            )
+            .await;
+            if handed.is_empty() {
+                break;
+            }
+            names.extend(handed.into_iter().map(|t| t.name));
+        }
+        assert!(names.contains(&"small".to_string()), "the readable function was not queued");
+        assert!(!names.contains(&"huge".to_string()), "an unreadable function was handed out");
+    }
+
+    /// A body too large for one response is cut into parts that reassemble exactly.
+    ///
+    /// The reader is promised the extent it will be graded against. Paging is only
+    /// admissible because it does not change that: concatenating the parts has to be the
+    /// same bytes the old single-response call would have sent, or the map is grading
+    /// against something nobody can reconstruct.
+    #[test]
+    fn a_paged_body_reassembles_to_the_original() {
+        // Longer than one part and not a multiple of it, so the last part is a remainder.
+        let body: String = (0..4000).map(|i| format!("    line {i} of the body\n")).collect();
+        assert!(body.len() > PART_BYTES * 2, "fixture is not large enough to page");
+
+        let cut = parts_of(&body);
+        assert!(cut.len() >= 3, "expected several parts, got {}", cut.len());
+        assert_eq!(cut.concat(), body, "the parts do not reassemble to the body");
+        for (i, p) in cut.iter().enumerate() {
+            assert!(p.len() <= PART_BYTES, "part {} is {} bytes, over the cap", i + 1, p.len());
+        }
+        // On line boundaries: a part that ends mid-token would hand the reader code that
+        // does not parse, and two of them would look like a syntax error in the repo.
+        for p in cut.iter().take(cut.len() - 1) {
+            assert!(p.ends_with('\n'), "a part was cut mid-line");
+        }
+    }
+
+    /// A body that fits stays one part, and says so.
+    ///
+    /// The common reading must not pay for this. `parts: 1` with no `next_step` is what
+    /// almost every function returns, and a reader should not learn a paging protocol to
+    /// read four lines.
+    #[test]
+    fn a_small_body_is_served_whole_in_one_part() {
+        let body = "fn one() {\n    println!(\"1\");\n}\n";
+        let cut = parts_of(body);
+        assert_eq!(cut.len(), 1);
+        assert_eq!(cut[0], body);
+    }
+
+    /// A report is refused while any part of its body is still outstanding.
+    ///
+    /// **The half that does not depend on a reader choosing to be honest.** Eighteen
+    /// readings in this corpus were graded against bodies their readers never received, and
+    /// every one of them said so in a `note` nothing aggregates while grading anyway. The
+    /// rule was already written down for readers; readers improvised around it. This is the
+    /// server refusing on evidence it owns.
+    #[tokio::test]
+    async fn a_report_with_parts_outstanding_is_refused() {
+        let _data = data_home();
+        let dir = tempfile::tempdir().unwrap();
+        // One function large enough to page, so the reader gets part 1 of several.
+        let body: String = (0..3000).map(|i| format!("    let x{i} = {i};\n")).collect();
+        std::fs::write(dir.path().join("a.rs"), format!("fn big() {{\n{body}}}\n")).unwrap();
+        let mut state = AppState::default();
+        state.projects.insert("/p".into(), project_of(dir.path()));
+        state.touch("/p");
+        let shared: Shared = Arc::new(Mutex::new(state));
+
+        let task = lease_kind(&shared, "/p", false).await;
+        let Json(first) = reveal(
+            State(shared.clone()),
+            Json(RevealRequest {
+                project: Some("/p".into()),
+                id: task.id.clone(),
+                expected: "assigns a lot of variables".into(),
+                part: None,
+            }),
+        )
+        .await;
+        assert_eq!(first["ok"], true, "{first}");
+        let parts = first["parts"].as_u64().expect("a part count");
+        assert!(parts > 1, "fixture did not page: {first}");
+        assert!(first["next_step"].is_string(), "a paged reply must say there is more");
+
+        let mut r = Report::blank();
+        r.id = task.id.clone();
+        r.found = "assigns a lot of variables".into();
+        r.predicted = Some(Grade::Full);
+        let Json(out) = report(
+            State(shared.clone()),
+            Json(ReportRequest { project: Some("/p".into()), report: r.clone() }),
+        )
+        .await;
+        assert_eq!(out["ok"], false, "a partial reading was accepted: {out}");
+        assert_eq!(out["saved"], false);
+
+        // The lease survives the refusal, so the reader can fetch the rest and send the
+        // same reading again. Dropping it would make a refusal cost a reading rather than
+        // a round trip, and the function would go back in the queue for somebody else.
+        for part in 2..=parts {
+            let Json(more) = reveal(
+                State(shared.clone()),
+                Json(RevealRequest {
+                    project: Some("/p".into()),
+                    id: task.id.clone(),
+                    expected: "a revision that must not land".into(),
+                    part: Some(part as usize),
+                }),
+            )
+            .await;
+            assert_eq!(more["ok"], true, "part {part} was refused: {more}");
+        }
+        let Json(out) = report(
+            State(shared.clone()),
+            Json(ReportRequest { project: Some("/p".into()), report: r }),
+        )
+        .await;
+        assert_eq!(out["ok"], true, "the completed reading was refused: {out}");
+        // Stamped from what the server served, never from the reader — and it is what makes
+        // this reading survive `is_stale`, where one without it would expire.
+        let saved = lock(&shared).projects["/p"].reports[&task.id].clone();
+        assert_eq!(saved.paged, Some(parts as usize), "the part count was not stamped");
+        // The prediction is still the one written before any bytes went out, across every
+        // one of those calls.
+        assert_eq!(saved.expected, "assigns a lot of variables");
     }
 
     /// A second reveal serves the same source and leaves the first prediction standing.
@@ -6579,7 +7130,7 @@ fn second() { println!(\"2\"); }\n",
             async move {
                 reveal(
                     State(shared),
-                    Json(RevealRequest { project: Some("/p".into()), id, expected }),
+                    Json(RevealRequest { project: Some("/p".into()), id, expected, part: None }),
                 )
                 .await
             }
@@ -6640,6 +7191,7 @@ fn second() { println!(\"2\"); }\n",
                 project: Some("/p".into()),
                 id: id.clone(),
                 expected: "anything".into(),
+                part: None,
             }),
         )
         .await;
@@ -6677,6 +7229,7 @@ fn second() { println!(\"2\"); }\n",
                 project: Some("/p".into()),
                 id: task.id,
                 expected: "a module".into(),
+                part: None,
             }),
         )
         .await;
@@ -6833,6 +7386,52 @@ fn second() { println!(\"2\"); }\n",
         );
         // Nothing asked for: the window's project is the honest default.
         assert_eq!(state.for_client(None).as_deref(), Some("/loaded"));
+    }
+
+    /// Looking at a project does not reorder the sidebar, and does not retarget a shim.
+    ///
+    /// The sidebar is ordered most-recently-touched-first, so while `select_project` called
+    /// `touch` every click moved that row to the top — a list that rearranges itself as you
+    /// use it, which is the objection drag-to-arrange exists to answer, arriving through the
+    /// one action nobody thinks of as arranging.
+    ///
+    /// The second assertion is the one with teeth. `for_client(None)` resolves to the most
+    /// recently OPENED project, and that is only sound while nothing but an open bumps
+    /// `touched` — so a click moving it meant looking at a second repo silently changed where
+    /// a keyless shim's readings would land. Both properties come off the same call, so they
+    /// are checked together rather than in two tests that could be fixed apart.
+    #[test]
+    fn looking_at_a_project_moves_neither_the_list_nor_the_routing() {
+        // `touch` and `focus` both persist — see `data_home`.
+        let _data = data_home();
+        let mine = tempfile::tempdir().unwrap();
+        std::fs::write(mine.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let theirs = tempfile::tempdir().unwrap();
+        std::fs::write(theirs.path().join("b.rs"), "fn two() { println!(\"2\"); }\n").unwrap();
+
+        let mut state = AppState::default();
+        state.projects.insert("/mine".into(), project_of(mine.path()));
+        state.projects.insert("/theirs".into(), project_of(theirs.path()));
+        // `/mine` opened last, so it is both the top of the list and where a keyless caller
+        // resolves. Only an open does this.
+        state.touch("/theirs");
+        state.touch("/mine");
+        let before: Vec<u64> =
+            ["/mine", "/theirs"].iter().map(|k| state.projects[*k].touched).collect();
+
+        // Now look at the other one, through the same call the sidebar click makes.
+        state.select("/theirs");
+
+        let after: Vec<u64> =
+            ["/mine", "/theirs"].iter().map(|k| state.projects[*k].touched).collect();
+        assert_eq!(before, after, "looking at a project reordered the sidebar");
+        assert_eq!(
+            state.for_client(None).as_deref(),
+            Some("/mine"),
+            "looking at a project retargeted a keyless caller's readings"
+        );
+        // And it still did its own job: a restart comes back to what was last selected.
+        assert_eq!(state.active.as_deref(), Some("/theirs"), "the view did not move");
     }
 
     /// A reading belongs to the queue that handed it out, not to the caller's ambient key.

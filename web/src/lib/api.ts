@@ -80,6 +80,16 @@ export interface Node {
    *  subtree the way `collect_tasks` inherits it: the flag lives on the file, and the
    *  functions under it are out of scope with it. */
   excluded: boolean
+  /** How many bytes a reader would be handed for this node, and `null` where nobody knows.
+   *
+   *  Bytes rather than lines because every limit a reader meets is counted in tokens, and
+   *  bytes are what converts. Past `READ_CEILING` no reading can be taken at all: the queue
+   *  skips it, `sanity_reveal` refuses it, and the map says so rather than leaving the wedge
+   *  looking merely unread — see `unreadable`.
+   *
+   *  `null` on a directory, which is never handed to a reader, and on a tree cached before
+   *  the field existed. Both mean "no answer", never "small". */
+  bytes: number | null
   /** Who last committed to this file. */
   lastAuthor: string | null
   /** The comment attached to this node: a function's own doc, or a FILE's module header.
@@ -310,6 +320,7 @@ interface WireNode {
   line?: number | null
   lang: string | null
   end_line?: number | null
+  bytes?: number | null
   excluded?: boolean
   last_author: string | null
   doc?: string | null
@@ -350,6 +361,27 @@ interface WireScan {
   }
 }
 
+/** The extent above which no reading can be taken — `agentapi::READ_CEILING`.
+ *
+ *  **Duplicated from Rust on purpose, and the two have to move together**, the way
+ *  `MINIFIED_LINE_BYTES` and `VENDORED` are duplicated into `history.rs`. The alternative is
+ *  a round trip to be told a constant, on every wedge, to answer a question the browser
+ *  already has the number for. If they drift, the map offers work the queue will not hand
+ *  out — or marks as unreadable something a reader is at that moment reading.
+ */
+export const READ_CEILING = 524_288
+
+/** Too large for a reading to be taken over it at all.
+ *
+ *  One helper so the wedge, the tooltip and the panel cannot disagree — the same reason
+ *  `legibleOf` exists. An unknown extent is READABLE: `null` is a directory or a tree cached
+ *  before the field existed, and treating that as "too large" would grey out a whole repo
+ *  and call it a finding.
+ */
+export function unreadable(node: { bytes: number | null }): boolean {
+  return node.bytes !== null && node.bytes > READ_CEILING
+}
+
 function toNode(w: WireNode): Node {
   return {
     id: w.id,
@@ -359,6 +391,7 @@ function toNode(w: WireNode): Node {
     loc: w.loc,
     line: w.line ?? null,
     endLine: w.end_line ?? null,
+    bytes: w.bytes ?? null,
     lang: w.lang ?? null,
     excluded: w.excluded ?? false,
     lastAuthor: w.last_author ?? null,

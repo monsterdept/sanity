@@ -502,6 +502,12 @@ fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
                     // than a gap — see `SPEC`. A garbled number takes the same road: what
                     // it cannot be is quietly promoted to current.
                     r.spec = v.trim().parse().unwrap_or(0);
+                } else if let Some(v) = seg.strip_prefix("served in ") {
+                    // A garbled count reads as absent, which expires the reading rather
+                    // than promoting it — the same road `spec` takes, and the safe
+                    // direction: this field's absence is what marks a body nobody proved
+                    // arrived.
+                    r.paged = v.split_whitespace().next().and_then(|n| n.parse().ok());
                 } else if let Some(v) = seg.strip_prefix("read at ") {
                     r.body = v.trim().trim_matches('`').to_string();
                 } else if let Some(v) = seg.strip_prefix("commit ") {
@@ -568,14 +574,25 @@ struct Live {
     /// Which same-named function in this file this is, counting from zero in line order.
     ord: usize,
     body: String,
+    /// What a reader would be handed for it — see [`crate::model::Node::bytes`]. Carried so
+    /// the store's own render expires a reading on exactly the terms the queue does; two
+    /// definitions of "still current" is how a README ends up claiming a coverage its own
+    /// shards contradict.
+    bytes: Option<u32>,
 }
 
 /// Every function in the scan, keyed by its durable [`key_of`].
 ///
 /// Ordinals are assigned in line order within each file, so they have to be worked out
 /// over the whole file at once rather than as each node is visited.
+/// One function as the walk meets it: line, name, id, body hash, extent.
+///
+/// Named because the ordinals have to be assigned over a whole file at once, so the walk
+/// collects before it can key anything — see [`live_funcs`].
+type Seen = (u32, String, String, String, Option<u32>);
+
 fn live_funcs(scan: &Scan) -> BTreeMap<String, Live> {
-    let mut by_file: BTreeMap<String, Vec<(u32, String, String, String)>> = BTreeMap::new();
+    let mut by_file: BTreeMap<String, Vec<Seen>> = BTreeMap::new();
     scan.root.visit(&mut |n| {
         if n.kind != NodeKind::Func {
             return;
@@ -585,6 +602,7 @@ fn live_funcs(scan: &Scan) -> BTreeMap<String, Live> {
             n.name.clone(),
             n.id.clone(),
             n.body.clone().unwrap_or_default(),
+            n.bytes,
         ));
     });
 
@@ -594,13 +612,13 @@ fn live_funcs(scan: &Scan) -> BTreeMap<String, Live> {
         // scans of unchanged code never disagree about which twin is which.
         funcs.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.2.cmp(&b.2)));
         let mut seen: HashMap<String, usize> = HashMap::new();
-        for (line, name, id, body) in funcs {
+        for (line, name, id, body, bytes) in funcs {
             let ord = seen.entry(name.clone()).or_insert(0);
             let this = *ord;
             *ord += 1;
             out.insert(
                 key_of(&path, &name, this),
-                Live { id, path: path.clone(), name, line, ord: this, body },
+                Live { id, path: path.clone(), name, line, ord: this, body, bytes },
             );
         }
     }
@@ -630,6 +648,7 @@ fn live_files(scan: &Scan) -> BTreeMap<String, Live> {
                 line: 0,
                 ord: 0,
                 body: n.body.clone().unwrap_or_default(),
+                bytes: n.bytes,
             },
         );
     });
@@ -649,7 +668,27 @@ fn live_files(scan: &Scan) -> BTreeMap<String, Live> {
 /// question. Deletion is handled where it can be acted on — a function that is gone stops
 /// being offered as work, which `a_function_that_is_gone_stops_being_offered` pins — so read
 /// on its own, `false` here means "not stale", never "still current".
-pub fn is_stale(report: &Report, node_body: Option<&str>) -> bool {
+pub fn is_stale(report: &Report, node_body: Option<&str>, extent: Option<u32>) -> bool {
+    // **A body too large to have been served whole, from a reading with no record of having
+    // taken it in parts.** Until `reveal` paged, an extent over `PART_BYTES` was put on the
+    // wire in one response and arrived at the reader truncated or not at all — and readers
+    // did not stop. Eighteen readings in this corpus were graded that way, every one noting
+    // the fact in prose nothing aggregates, and every one landing on the same flattering
+    // rung. They are expired here rather than swept once, which makes this an invariant
+    // instead of a migration: the store is never rewritten, nothing is deleted, and a
+    // reading of a large body is simply not current unless it carries the evidence.
+    //
+    // Asked BEFORE the hash, because it is the stronger claim. A reading whose body has not
+    // moved is normally current; this one is not, and for a reason the hash cannot see —
+    // the hash covers what the reader was SUPPOSED to be given, and this covers whether it
+    // got it. Same shape as the `file_doc` bug: inputs a reading claims and never received.
+    //
+    // An unknown extent is not stale, matching `Node::unreadable`: `None` here is a tree
+    // cached before the extent existed, and expiring a repo's whole corpus on a missing
+    // field would be the worst reading of it available.
+    if extent.is_some_and(|b| b as usize > crate::agentapi::PART_BYTES) && report.paged.is_none() {
+        return true;
+    }
     match (report.body.as_str(), node_body) {
         ("", _) => false,
         (recorded, Some(now)) => recorded != now,
@@ -736,7 +775,7 @@ fn compile(scan: &Scan, reports: &HashMap<String, Report>) -> Vec<Compiled> {
                 ord: l.ord,
                 is_file,
                 report: r,
-                stale: is_stale(r, Some(l.body.as_str())),
+                stale: is_stale(r, Some(l.body.as_str()), l.bytes),
             },
         );
     }
@@ -1017,6 +1056,13 @@ fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) 
     // was recorded".
     if r.spec > 0 {
         meta.push(format!("spec {}", r.spec));
+    }
+    // Only when the body took more than one response. On the overwhelming majority of
+    // readings there is nothing to prove and nothing is printed, on the same rule as every
+    // other absence on this line — and its absence on a LARGE body is the whole signal, so
+    // printing `served in 1 part` everywhere would bury the one case worth seeing.
+    if let Some(n) = r.paged {
+        meta.push(format!("served in {n} parts"));
     }
     if !r.body.is_empty() {
         meta.push(format!("read at `{}`", r.body));
@@ -1850,7 +1896,7 @@ mod tests {
         let back = load(&tmp, &scan);
         assert_eq!(back.len(), 3, "every reading came back to its own function");
         for l in live.values() {
-            assert!(!is_stale(&back[&l.id], Some(l.body.as_str())), "{} is not stale", l.id);
+            assert!(!is_stale(&back[&l.id], Some(l.body.as_str()), None), "{} is not stale", l.id);
         }
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -1888,7 +1934,7 @@ mod tests {
         let back = load(&tmp, &scan);
         assert_eq!(back.len(), 3, "two functions and their file all came back");
         assert!(back.contains_key("gate.rs"), "the file's reading is keyed by its path");
-        assert!(!is_stale(&back["gate.rs"], f.body.as_str().into()));
+        assert!(!is_stale(&back["gate.rs"], f.body.as_str().into(), None));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -1958,11 +2004,43 @@ mod tests {
     #[test]
     fn stale_when_the_body_moves() {
         let r = report("src/a.rs#foo@1", "");
-        assert!(!is_stale(&r, Some("aabbccddeeff")));
-        assert!(is_stale(&r, Some("000000000000")));
+        assert!(!is_stale(&r, Some("aabbccddeeff"), None));
+        assert!(is_stale(&r, Some("000000000000"), None));
         // A migrated reading with no recorded hash is taken at its word.
         let old = Report { body: String::new(), ..r };
-        assert!(!is_stale(&old, Some("000000000000")));
+        assert!(!is_stale(&old, Some("000000000000"), None));
+    }
+
+    /// A reading of a body too large to have been served whole, with nothing saying it
+    /// arrived in parts, is expired however well its hash matches.
+    ///
+    /// **This is what clears the eighteen readings that were graded against bodies nobody
+    /// received.** Before `reveal` paged, an extent over `PART_BYTES` went out in one
+    /// response and reached the reader truncated or not at all; the readings came back
+    /// confident anyway, all eighteen on the same flattering rung, with the fact recorded
+    /// only in prose. There is no sweep and no migrator — the store is never rewritten, and
+    /// a translator over it is the thing that once destroyed a project's readings. What
+    /// there is instead is an invariant: a large body's reading is current only while it
+    /// carries the evidence, so the old ones re-queue and are replaced by re-reading.
+    #[test]
+    fn a_large_body_read_without_paging_is_expired() {
+        let hash = body_hash("fn big() {}");
+        let r = Report { body: hash.clone(), ..report("src/a.rs#big@1", "") };
+        let big = Some(crate::agentapi::PART_BYTES as u32 + 1);
+        let small = Some(crate::agentapi::PART_BYTES as u32 - 1);
+
+        // The hash matches in every one of these. The extent and the record are the only
+        // things moving.
+        assert!(!is_stale(&r, Some(&hash), small), "a small body is unaffected");
+        assert!(is_stale(&r, Some(&hash), big), "a large body with no paging record stands");
+
+        let served = Report { paged: Some(4), ..r.clone() };
+        assert!(!is_stale(&served, Some(&hash), big), "a reading that took its parts expired");
+
+        // An unknown extent is not stale: `None` is a tree cached before the extent
+        // existed, and expiring every corpus on a missing field is the worst reading of it
+        // available. Which way to fail is the point of the assertion.
+        assert!(!is_stale(&r, Some(&hash), None), "an unknown extent expired a reading");
     }
 
     /// A hand-merged file will have damage in it. One broken entry must not cost the
@@ -2130,9 +2208,9 @@ mod tests {
         // to be the thing this resolution had to survive. What still has to hold is the
         // distinction the move was hiding: same body, still current; changed body, expired.
         let walk = back.get("src-tauri/src/scan.rs#walk").unwrap();
-        assert!(!is_stale(walk, Some(&body_hash("fn walk() {}"))), "unchanged body, still current");
+        assert!(!is_stale(walk, Some(&body_hash("fn walk() {}")), None), "unchanged body, still current");
         let app = back.get("web/src/app.jsx#App").unwrap();
-        assert!(is_stale(app, Some(&body_hash("return <span/>"))), "body changed, reading expired");
+        assert!(is_stale(app, Some(&body_hash("return <span/>")), None), "body changed, reading expired");
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

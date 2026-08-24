@@ -438,12 +438,19 @@ fn reader_tools() -> Value {
         },
         {
             "name": "sanity_reveal",
-            "description": "Get the source of the function sanity_next just handed you, in exchange for your prediction. Send `expected` — what you think the body does, written BEFORE this call — and you get back exactly that function's lines, or the whole file for a file task. Do not open the repo yourself: what comes back is the extent the reading is graded against, re-cut against the file as it is now. Your prediction is recorded here and cannot be revised afterwards, so write it first; calling again returns the same source and changes nothing.",
+            // The paging clause is the one addition here that is priced per reading and
+            // earns it. Eighteen readings in this corpus were graded against bodies that
+            // never arrived, and every reader that hit the wall improvised — grep, a
+            // subagent, the saved tool output — rather than stopping. `report` refuses
+            // those now, and a reader meeting the rule here rather than in the refusal
+            // spends one call instead of a wasted reading. See `agentapi::PART_BYTES`.
+            "description": "Get the source of the function sanity_next just handed you, in exchange for your prediction. Send `expected` — what you think the body does, written BEFORE this call — and you get back exactly that function's lines, or the whole file for a file task. Do not open the repo yourself: what comes back is the extent the reading is graded against, re-cut against the file as it is now. Your prediction is recorded here and cannot be revised afterwards, so write it first; re-reading changes nothing. A large body arrives in numbered parts — the reply says `part N of M`. Fetch every part before you report: a report sent with parts outstanding is refused, and grading from a body you have only partly seen is the one thing this call exists to prevent.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "id": { "type": "string", "description": "The id from sanity_next." },
-                    "expected": { "type": "string", "description": "What you predict the body does, in two or three sentences. Written before this call." }
+                    "expected": { "type": "string", "description": "What you predict the body does, in two or three sentences. Written before this call." },
+                    "part": { "type": "number", "description": "Which part to fetch, 1-based. Omit it for the first; the reply says whether there are more." }
                 },
                 "required": ["id", "expected"]
             }

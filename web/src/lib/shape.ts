@@ -50,6 +50,7 @@ function dirNode(path: string, name: string, kind: 'dir' | 'file'): Node {
     loc: 0,
     line: null,
     endLine: null,
+    bytes: null,
     lang: null,
     excluded: false,
     lastAuthor: null,

@@ -63,7 +63,13 @@ use std::path::{Path, PathBuf};
 ///    4 and for the same reason — it is an `Option`, so a version-5 tree would load and
 ///    report `None` for every path, and a repo with a warm cache would have quietly gone on
 ///    printing nothing where the count belongs.
-const VERSION: u32 = 6;
+/// 7: `Node` gained `bytes`, the extent a reader would be handed. Same rule again, and here
+///    the defaulted `None` is the dangerous direction rather than merely an empty one: the
+///    queue skips what is too large to read and the map says so, both off this field, so a
+///    version-6 tree would report every node as having no extent — and an unknown extent
+///    that read as a small one would put the god-files straight back in the queue to be
+///    served whole, which is the failure this release exists to close.
+const VERSION: u32 = 7;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

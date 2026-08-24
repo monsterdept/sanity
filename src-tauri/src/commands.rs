@@ -1175,11 +1175,23 @@ pub fn cli_status() -> CliState {
 /// choosing a project in your own window is exactly the claim on the view that `focus`
 /// exists to record, so quitting with sanity selected and coming back to ceph was the app
 /// forgetting the last thing it was told.
+/// **It does not `touch`, and that is the whole of it being a selection rather than an
+/// open.** It used to, so every click moved the row to the top of the sidebar: the list is
+/// ordered most-recently-touched-first, and a list that rearranges itself as you use it is
+/// one you have to re-read every time — the same objection the drag-to-arrange gesture was
+/// added for, arriving through the one action nobody would think of as arranging.
+///
+/// The invariant it was quietly breaking is written down at [`AppState::for_client`]: a
+/// keyless caller resolves to the most recently OPENED project, and that is only sound
+/// because "every open bumps `touched`, nothing else does, and no view moves it." A click in
+/// the sidebar is a view move. With it bumping `touched`, looking at a second repo silently
+/// retargeted where a shim with no project key would send its readings.
+///
+/// Nothing is lost by dropping it: [`AppState::focus`] sets `active` and persists on its own,
+/// which is what a restore comes back to.
 #[tauri::command]
 pub fn select_project(state: tauri::State<'_, crate::agentapi::Shared>, key: String) {
-    let mut s = crate::agentapi::lock(&state);
-    s.touch(&key);
-    s.focus(&key, true);
+    crate::agentapi::lock(&state).select(&key);
 }
 
 /// Put the sidebar in this order, and remember it.

@@ -455,6 +455,29 @@ pub struct Node {
     /// anything sits between them.
     #[serde(default)]
     pub end_line: Option<u32>,
+    /// How many BYTES a reader would be handed for this node, if it were revealed.
+    ///
+    /// Lines are what a wedge is drawn from; bytes are what a tool result has to carry, and
+    /// the two part company badly on exactly the code this matters for. Every cap a reader
+    /// meets — its harness's MCP output limit, its own context — is counted in tokens, and
+    /// the only thing the server can cheaply convert to tokens is bytes.
+    ///
+    /// **It is a property of the reader, never of the repo**, which is why the thresholds it
+    /// is compared against ([`crate::agentapi::PART_BYTES`], [`crate::agentapi::READ_CEILING`])
+    /// are derived from harness caps and context windows rather than measured on a corpus.
+    /// Sizing them to the code we happen to have would set a constant that is wrong the first
+    /// time somebody reads with a different agent.
+    ///
+    /// For a function, its signature plus its body — what `reveal` slices out of the file.
+    /// For a file, the file's own length, because a file task is revealed whole. `None` on a
+    /// directory, which is never handed to a reader.
+    ///
+    /// Free to carry: the signature and body are already in `scancache`, and a file's length
+    /// is `Ident::len`, which the cache gates on either way. Adding it moved
+    /// [`crate::treecache::VERSION`] — a tree cached by the old version has no extent on any
+    /// node, and a missing extent must not read as a small one.
+    #[serde(default)]
+    pub bytes: Option<u32>,
     pub lang: Option<Lang>,
     /// Who last committed to this file.
     ///
@@ -619,6 +642,10 @@ impl Node {
             owner: None,
             body: None,
             end_line: None,
+            // A directory is never handed to a reader, so it has no extent to serve. `None`
+            // is the honest answer rather than the sum of what is under it — that number
+            // would be real and would mean nothing, since no reading is ever taken of it.
+            bytes: None,
             score: None,
             hotspots: Vec::new(),
             callers: None,
@@ -761,6 +788,24 @@ impl Node {
         }
     }
 
+    /// Too large for a reading to be taken over it at all — see
+    /// [`crate::agentapi::READ_CEILING`].
+    ///
+    /// **One definition, because three places have to agree.** The queue skips these, the
+    /// map says so on the wedge, and `reveal` refuses them; if any two of those disagreed
+    /// the map would offer work that cannot be done, or state a gap while the queue quietly
+    /// kept serving it. It is a method rather than a stored flag on the same rule that keeps
+    /// `resolvable` derived — a second field that is always implied by the first is an
+    /// invitation for the two to drift.
+    ///
+    /// An unknown extent is READABLE. A tree cached before `bytes` existed reports `None` on
+    /// every node, and defaulting that to "too large" would empty the queue of a whole repo
+    /// and call it a finding. [`crate::treecache::VERSION`] moved so it does not arise, and
+    /// this is which way to fail if it ever does.
+    pub fn unreadable(&self) -> bool {
+        self.bytes.is_some_and(|b| b as usize > crate::agentapi::READ_CEILING)
+    }
+
     /// Depth-first walk, parents before children.
     pub fn visit<'a>(&'a self, f: &mut impl FnMut(&'a Node)) {
         f(self);
@@ -797,6 +842,11 @@ impl Node {
             loc: self.loc,
             line: self.line,
             end_line: self.end_line,
+            // Survives slimming. A FILE carries its own extent and a file task is served
+            // whole, so this is exactly the node whose reading the ceiling most often
+            // refuses — the largest in the corpus so far is 856KB — and the wedge has to be
+            // able to say so before anybody asks for its ring.
+            bytes: self.bytes,
             lang: self.lang,
             last_author: self.last_author.clone(),
             doc: self.doc.clone(),

@@ -1,6 +1,7 @@
 import { Summary } from './Summary'
 import { Bloom } from './Bloom'
 import { colorFor, paintsFromReadings, type ColorMode } from '../lib/colorMode'
+import { READ_CEILING, unreadable } from '../lib/api'
 import { elide } from '../lib/text'
 import { FAMILY } from '../lib/labelStyle'
 import { LensPane } from './LensPane'
@@ -60,6 +61,15 @@ function measure(n: Node, mode: ColorMode): string | null {
 
 /** Where the numbers above came from, in one sentence. */
 function provenance(node: Node, model: string | null): string {
+  // Asked before `Not read yet`, which would be true and would be the wrong sentence: this
+  // one is not waiting its turn in a queue it will never be in. Naming the size and the
+  // limit rather than just refusing, because the next question is always "how far over" and
+  // the answer decides whether this is a god-function worth splitting or a generated file
+  // worth a `.sanityignore` line. See `unreadable`.
+  if (unreadable(node)) {
+    const kb = Math.round((node.bytes ?? 0) / 1024)
+    return `Too large to read — ${kb}KB, past the ${Math.round(READ_CEILING / 1024)}KB a reader is asked to hold. No reading will be taken.`
+  }
   if (!isAnalyzed(node)) {
     return 'Not read yet'
   }

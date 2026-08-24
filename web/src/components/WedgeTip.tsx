@@ -1,5 +1,6 @@
 import { isAnalyzed, type Node } from '../lib/api'
 import { colorFor, paintsFromReadings, saysNothing, type ColorMode } from '../lib/colorMode'
+import { unreadable } from '../lib/api'
 import { elide } from '../lib/text'
 
 /** Characters that fit on one line of the tooltip, at its two type sizes.
@@ -80,6 +81,12 @@ export function WedgeTip({
   /** Stale is a property of a reading too, so it marks nothing on a lens that has none. The
    *  same gate the wedge's own hatch takes. */
   const expired = fromReading && n.agentStale === true
+  /** **"Not measured yet" is wrong here in the other direction.** Unread means nobody has
+   *  got to this one; this wedge is past `READ_CEILING` and no run ever will, which is a
+   *  different sentence and a finding rather than a gap. Asked before `unread`, because the
+   *  node is genuinely unanalyzed and would otherwise take that label — which is exactly the
+   *  answer eighteen readers in this corpus refused to accept before inventing a reading. */
+  const tooBig = fromReading && unreadable(n)
   // The whole path, with the node's own segment picked out — showing the name and
   // then the path again repeated the last word on every hover.
   //
@@ -202,7 +209,13 @@ export function WedgeTip({
             contradicted the sentence directly beneath it, which was explaining why the
             reading no longer counts. */}
           <span className="truncate text-[11px]">
-            {expired ? 'stale' : unread || !c ? 'not measured yet' : c.label}
+            {expired
+              ? 'stale'
+              : tooBig
+                ? 'too large to read'
+                : unread || !c
+                  ? 'not measured yet'
+                  : c.label}
           </span>
         </div>
       )}

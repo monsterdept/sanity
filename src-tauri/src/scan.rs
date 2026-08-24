@@ -490,6 +490,13 @@ struct ParsedFile {
     /// FNV of the file's bytes, carried out of the parse so the blame pass can ask the
     /// cache about this exact content without stat-ing or reading the file a second time.
     hash: u64,
+    /// The file's length in bytes, from the same [`Ident`] the hash came out of.
+    ///
+    /// It reaches the file node's `bytes`, which is what decides whether a FILE task can be
+    /// served — a file reading is revealed whole, so its extent is the whole file, and the
+    /// largest one in the corpus so far is 856KB. Carried rather than measured because the
+    /// cache gates on it either way: it is free on a hit and free on a miss.
+    len: u64,
     /// Matched by `.sanityignore` — parsed and drawn, but never handed to a reader and
     /// never in the denominator. See [`scope_of`].
     excluded: bool,
@@ -593,9 +600,9 @@ fn parse_file(
     // just took out of scope.
     let excluded = scope.is_some_and(|s| s.matched_path_or_any_parents(path, false).is_ignore());
 
-    let (funcs, file_doc, head, hash) = match cache.look(&rel_path, path, None) {
+    let (funcs, file_doc, head, hash, len) = match cache.look(&rel_path, path, None) {
         Look::Unreadable => return None,
-        Look::Hit(hit) => (hit.funcs, hit.file_doc, hit.head, hit.ident.hash),
+        Look::Hit(hit) => (hit.funcs, hit.file_doc, hit.head, hit.ident.hash, hit.ident.len),
         Look::Miss { src, ident } => {
             if src.lines().any(|l| l.len() > MINIFIED_LINE_BYTES) {
                 return None;
@@ -610,7 +617,7 @@ fn parse_file(
             let file_doc = parse::file_doc(lang, &src);
             let head = src.lines().take(CONTEXT_HEAD_LINES).collect::<Vec<_>>().join("\n");
             cache.put_parse(&rel_path, &ident, lang, &funcs, file_doc.as_deref(), &head);
-            (funcs, file_doc, head, ident.hash)
+            (funcs, file_doc, head, ident.hash, ident.len)
         }
     };
     let prints = print(&funcs);
@@ -622,6 +629,7 @@ fn parse_file(
         prints,
         head,
         hash,
+        len,
         // Parsed even when excluded, rather than skipped in the walk. Scanning is seconds
         // and readers are millions of tokens, so the cheap thing is to know exactly how
         // much was set aside and say so. An exclusion nobody can count is how a map claims
@@ -810,6 +818,13 @@ fn score_dir(
                             &func.body,
                         )),
                         end_line: Some(func.end_line),
+                        // Signature plus body — the extent `reveal` cuts out of the file.
+                        // Not `loc`: a 3,711-line function is 177KB and a 3,711-line one of
+                        // single-token lines is a tenth of that, and it is the bytes that
+                        // have to fit through a tool result. See `Node::bytes`.
+                        bytes: Some(
+                            (func.signature.len() + func.body.len()).try_into().unwrap_or(u32::MAX),
+                        ),
                         path: file.rel_path.clone(),
                         loc: func.loc(),
                         line: Some(func.start_line),
@@ -893,6 +908,10 @@ fn score_dir(
                         &file_surface(&file.funcs),
                     )),
                     end_line: None,
+                    // The whole file, because that is what a file task is served. Its own
+                    // length rather than the sum of its functions': the header, the imports
+                    // and everything between the declarations all reach the reader too.
+                    bytes: Some(file.len.try_into().unwrap_or(u32::MAX)),
                     path: file.rel_path.clone(),
                     loc: 0, // filled by aggregate()
                     line: None,
@@ -1739,6 +1758,7 @@ mod tests {
             prints: Vec::new(),
             head: String::new(),
             hash: 0,
+            len: 0,
             excluded: false,
         };
 
@@ -1834,3 +1854,7 @@ mod tests {
         assert_eq!(s.root.loc, 0);
     }
 }
+
+
+
+

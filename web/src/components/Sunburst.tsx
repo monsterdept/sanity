@@ -2,6 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'rea
 import { trapOf, type AgentCall, type Node } from '../lib/api'
 import { clsx } from '../lib/cn'
 import { colorFor, flashPaint, type ColorMode, paintsFromReadings } from '../lib/colorMode'
+import { unreadable } from '../lib/api'
 import { CHROME_INK } from '../lib/ink'
 import { arcPath, layout, tileFunctions, type Wedge } from '../lib/sunburst'
 import { FileZoom, fanOf } from './FileZoom'
@@ -1671,6 +1672,19 @@ function SunburstView({
                     other way. */}
                       {paintsFromReadings(mode) && slot.node.agentStale && (
                         <path className="pointer-events-none" d={d} fill="url(#stale-hatch)" />
+                      )}
+                      {/* Too large for any reading — see `unreadable`. Drawn on the same
+                    lenses as the stale hatch and for the mirrored reason: it is a fact
+                    about whether a READING can exist, so it belongs where readings are
+                    the encoding and nowhere else. Under Blame this wedge has an author
+                    like any other, and marking it there would call a fact about our own
+                    limits a defect in somebody's code. */}
+                      {paintsFromReadings(mode) && unreadable(slot.node) && (
+                        <path
+                          className="pointer-events-none"
+                          d={d}
+                          fill="url(#unreadable-hatch)"
+                        />
                       )}
                       {/* Out with a reader — the same marker the file wedges take, applied one
                     level in. Both are needed: a file reading pulses the file's band, and a

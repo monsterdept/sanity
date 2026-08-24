@@ -333,6 +333,7 @@ function aggregate(fns: Node[], filePath: string): Node {
     loc,
     line: null,
     endLine: null,
+    bytes: null,
     lang: first.lang,
     // Not inherited from the members: the flag sits on the FILE node, and this stand-in
     // hangs under that same file, so it is out of scope exactly when its parent is.
