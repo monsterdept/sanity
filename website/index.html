@@ -936,7 +936,7 @@ img{max-width:100%; display:block}
       <figure class="self">
         <!-- FILL: what it is, in the habitat's own voice. Four sentences at most.
              Say what it does, then the one thing about it that is unusual. -->
-        <p>Sanity is a code visualizer and explorer. It draws the structure of a project as a radial map you can drill into, ring by ring, to study an entire repo or a single function. Eleven lenses recolor the same rings: age, churn, owner and language, what calls a function and what it reaches, which bodies are duplicated, and how well any of it is documented. It also replays a repository commit by commit, and will record that as a movie.</p>
+        <p>Sanity is a code visualizer and explorer. It draws the structure of a project as a radial map you can drill into, ring by ring, to study an entire repo or a single function. Eleven lenses recolor the same rings: age, churn, owner and language, what calls a function and what it reaches, which bodies are duplicated, and how well any of it is documented. It also replays a repository commit by commit, and can export that replay as a movie.</p>
         <p>But the rings can also be colored by <em>surprise</em>: how accurately a coding agent predicts a function's contents from its name, signature, location, neighbors, and docs. Honest documentation lowers it and stale documentation raises it, because the docs reach the reader before the code does.</p>
         <figcaption><b>Exhibit C</b>Description</figcaption>
       </figure>
@@ -984,7 +984,7 @@ img{max-width:100%; display:block}
       </div>
       <div>
         <span class="lbl">The other twist</span>
-        <p>Readers also report <b>traps</b>: the assumption nothing enforces, the silent failure, whatever bites the next person. <b>Clones</b> marks the bodies that repeat.</p>
+        <p>Readers also report <b>traps</b>: hazards the code does not warn about. <b>Clones</b> marks functions whose bodies are duplicated.</p>
       </div>
     </div>
     </div>
@@ -998,12 +998,12 @@ img{max-width:100%; display:block}
       <div class="strip">
         <button class="plate" type="button">
           <img src="./assets/screenshot.png"
-               data-cap="The whole instrument. Width is line count, colour is what a reader could not predict, and the panel sorts the repo into the four grades — 315 mundane against nine obscure, with 79 not yet read."
+               data-cap="Width is line count; color is what a reader could not predict. The panel sorts the repo into four grades: 315 mundane, nine obscure, 79 not read yet."
                alt="The full map of a repository: rings of directories, files and functions, with the repo's readings broken down by grade in the panel.">
         </button>
         <button class="plate" type="button">
           <img src="./assets/plate-reading.png"
-               data-cap="One function's reading. The prediction was written before the body was served, so a correct guess is evidence too — this one missed, and the panel keeps both halves."
+               data-cap="One function&#39;s reading: the prediction, recorded before the body was served, and what was actually there. Both are kept, because a correct prediction is what makes a cold wedge trustworthy."
                alt="An agent's reading of one function: the four grades, what it expected, and what it found.">
         </button>
         <button class="plate" type="button">
@@ -1013,27 +1013,27 @@ img{max-width:100%; display:block}
         </button>
         <button class="plate" type="button">
           <img src="./assets/plate-traps.png"
-               data-cap="The other twist. A reader that has just predicted this component reports what will bite whoever edits it next: priming done during render on purpose, with no test that would catch its removal."
+               data-cap="A trap on SunburstView: priming that runs during render rather than in an effect, deliberately, and no test would catch its removal. Reported by the reader that had just predicted the function."
                alt="The Traps lens: one wedge marked, and the reader's note about it in the panel.">
         </button>
         <button class="plate" type="button">
           <img src="./assets/plate-clones.png"
-               data-cap="Two functions, one body. one_harness and one_model differ by the field they read; the lens marks both and prints them one above the other rather than making you go and look."
+               data-cap="Two functions, one body. one_harness and one_model differ only in the field they read; the lens prints both, so neither file has to be opened to compare them."
                alt="The Clones lens: a function and its clone, each with its source, side by side in the panel.">
         </button>
         <button class="plate" type="button">
           <img src="./assets/plate-history.png"
-               data-cap="The repo replayed, commit by commit. Green is what that commit touched, and every commit in the log addresses a frame."
+               data-cap="The repo replayed, commit by commit. Green marks what the commit under the playhead changed; the log beside it jumps to any of them."
                alt="History mode: the map part-way through a replay, with the commit log beside it and the transport underneath.">
         </button>
         <button class="plate" type="button">
           <img src="./assets/plate-history-dark.png"
-               data-cap="The same replay, after dark. The transport sets a duration rather than a rate, so a minute of this repo and a minute of a hundred-thousand-commit one are both a minute."
+               data-cap="The same replay after dark. The transport sets a duration rather than a rate, so a long history and a short one each take the time you asked for."
                alt="History mode in the dark theme, mid-replay.">
         </button>
         <button class="plate" type="button">
           <img src="./assets/plate-commit.png"
-               data-cap="Every row that names a commit opens it: the message, the files, and what it did to each — without leaving the map."
+               data-cap="Every row that names a commit opens it: the message and the files it touched, without leaving the map."
                alt="A commit opened over the map: its message and the files it touched, with line counts.">
         </button>
       </div>
@@ -1135,7 +1135,7 @@ img{max-width:100%; display:block}
             <td>
               <!-- What an agent may do unattended, and what waits for a human. -->
               <span class="line">Agents may open a project, ask for work, read your files, and report what they found.</span>
-              <span class="line">Nothing writes to your code. Sanity only ever reads it, and writes its findings.</span>
+              <span class="line">Sanity never writes to your source. The one thing it writes is the readings, as Markdown in <span class="pill">.sanity/</span>.</span>
             </td>
           </tr>
         </tbody>
