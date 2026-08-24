@@ -910,7 +910,7 @@ author-time 900
             "the path's log cannot see past the rename that gave it this name"
         );
         assert!(
-            !(first < c.changes[1].when - 86_400),
+            first >= c.changes[1].when - 86_400,
             "so the pane's older-file sentence stays silent here"
         );
 
