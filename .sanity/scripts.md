@@ -1,6 +1,6 @@
 # scripts — sanity assessment
 
-28 of 28 read · 2 surprising
+29 of 29 read · 2 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -18,11 +18,11 @@ What this is and how to add to it: [README.md](README.md)
 ## scripts/expiry-check.py
 
 ### the file itself
-- spec 3 · read at `123d91fa4b30` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:48:42Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: CI script that detects whether a release would invalidate cached readings. It diffs current code against a previous git ref (via `at`), extracts the source of specific functions like `reading_hash`, the parser, and the prompt/question text (via `function_text`/`shape`), compares their hashes/shapes across versions (`version_of`), and in `main` fails/warns if those inputs changed without a corresponding version bump in the cache format.
-- found: CLI tool comparing watched function source text (reading_hash inputs like body_hash, parse doc-stack functions, file_surface) between two git refs; if their text changed but no version const (PARSE_VERSION/SPEC) was bumped, exits 1 with an UNDECLARED EXPIRY error. Also normalizes away pure whitespace/formatting reflow (collapsing everything but string/char literals) so cosmetic changes are reported but not treated as a failure.
+- spec 3 · read at `b07a3a6b2534` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:54:35Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A CI/dev script that determines whether committed readings in .sanity/ are now stale relative to the current code. It walks git history/diffs (via functions like `at`, `version_of`, `stable_since`) to recompute the inputs that feed `reading_hash` — function text, shape, doc — for each cached reading, compares them to what's currently on disk, and reports (via `main`) which readings need a re-read because their underlying inputs moved, versus which are still valid.
+- found: Compares specific "watched" functions (by name, extracted via regex) and version constants (PARSE_VERSION, SPEC) between two git refs. Reports one of three outcomes: EXPIRES NOTHING (nothing watched changed, or the parse is declared output-neutral since a stable version), EXPIRES READINGS (a version was deliberately bumped), or UNDECLARED (a watched function's text changed but no version moved — the actual bug this script exists to catch). It also normalizes away pure formatting/whitespace changes (via a `shape` function that collapses layout but preserves string/char literals) so a `cargo fmt` pass doesn't falsely trigger expiry.
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: The whitespace-vs-literal 'shape' normalization is a subtle but load-bearing detail not guessable from names/peers alone.
+- note: The docstring is unusually complete — it explains not just what the script checks but the historical incidents (file_doc silently added without version bump, cargo fmt false-triggering) that justify each design decision.
 
 ### `at`
 - spec 2 · read at `41b52f38dccc` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:44:25Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -43,6 +43,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Normalizes source text into a (normalized_string, literals_tuple) pair: literals are extracted verbatim via regex into `kept`, replaced with a placeholder in the body, then whitespace adjacent to punctuation is stripped entirely (not just collapsed) while whitespace between word characters is collapsed to a single space. Returns None if input is None.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
+### `stable_since`
+- spec 3 · read at `3e9487c51fa6` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:58:47Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Searches the given source text (likely the Rust file defining PARSE_VERSION) with a regex for a comment/marker near the constant declaration indicating the oldest version whose parse output is known to match the current one, and returns that integer. If no such marker is found, returns a very large sentinel integer (e.g. sys.maxsize) so an undeclared/missing annotation is treated pessimistically as "possibly expiring everything" rather than "safe".
+- found: Regex-searches the given source text for a `const PARSE_OUTPUT_STABLE_SINCE: u32 = N` declaration and returns N as an int; returns a huge sentinel (1<<30) if src is None or the constant isn't found, so a missing/undeclared value reads as everything-might-be-expired rather than nothing-is.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: Predicted a generic "comment marker" rather than a specific named constant, but the sentinel/pessimism behavior was exactly as documented.
+
 ### `version_of`
 - spec 2 · read at `7fb9eb7a5d80` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:47:34Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
 - expected: Uses a regex to find `const {name}: u32 = N;` in the source text `src` and returns N as an int; returns 0 if no match is found (absent = 0, per the docstring).
@@ -50,11 +57,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `main`
-- spec 3 · read at `24e4d7b6d35c` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:43:43Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Parses CLI args (likely two git refs to compare), runs a diff to check whether files affecting reading_hash inputs, the parser, or the question text changed between the two revisions, then checks whether the version constant was bumped accordingly (via version_of). Exits non-zero with an error message if semantics changed without a version bump, otherwise exits cleanly — acting as a CI gate.
-- found: Defaults prev to the last git tag if not given, later defaults to HEAD. For each watched function it diffs text between the two revisions, splitting changes into 'reflowed' (same shape, cosmetic) vs 'changed' (real). It also checks whether version constants (PARSE_VERSION, SPEC) were bumped. If functions changed but no version moved, it prints an UNDECLARED EXPIRY error and returns 1 (CI failure); if versions moved it prints EXPIRES READINGS and returns 0 with guidance to note it in release notes; if nothing changed it returns 0 saying nothing expires.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The file_doc explains the motivating incident (file_doc added without version bump) which matches exactly what this function guards against.
+- spec 3 · read at `c57373188b8c` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T19:41:06Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: main() orchestrates the expiry check: it parses CLI args (probably git refs, or defaults to comparing the working tree against the last committed version), then for each function/file tracked by the version-checking system it computes shape/function_text at old and new versions via at/version_of, compares whether the meaningful inputs to reading_hash changed without a version bump (the file_doc bug case), and prints a report before exiting with a non-zero status if any mismatch is found — making this runnable as a CI gate.
+- found: Compares a previous git tag (or given ref) against HEAD (or given ref). For each watched function it diffs the text; if changed only in layout it's logged as "reflowed" (non-failing), if changed in substance it's added to `changed`. Separately it checks whether declared VERSIONS constants (like PARSE_VERSION, SPEC) moved between the two refs. If substance changed but no version was bumped, it fails (exit 1) — the "undeclared expiry" case the file exists to catch. If PARSE_VERSION moved but is declared output-stable since a version at-or-before the prior release (via stable_since vs parse_before), it treats it as neutral (caches drop, no readings actually expire). Otherwise it reports readings as legitimately expiring and exits 0.
+- predicted: most · documented: none · derivable: no · legible: most · trap: no
 
 ## scripts/make-icon.py
 
