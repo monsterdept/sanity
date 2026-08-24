@@ -1232,7 +1232,16 @@ img{max-width:100%; display:block}
               <p>Ask before the first pass, unless the human has already said. The reader <em>is</em> the scale: a smaller model is surprised by more, so its readings are not comparable with what is already banked, and a repo read by two models is one map on two scales with nothing on screen saying which wedge is which.</p>
 <pre><span class="c"># claude and sonnet are one example; name whichever agent and model the human chose</span>
 sanity init --harness claude --model sonnet</pre>
-              <p>Run it in the repository, or give it a path. <span class="pill">--harness</span> takes <span class="pill">claude</span>, <span class="pill">codex</span>, <span class="pill">opencode</span> or <span class="pill">agy</span>, and <span class="pill">--model</span> takes any model id that agent can reach.</p>
+              <p>Run it in the repository, or give it a path. <span class="pill">--harness</span> takes <span class="pill">claude</span>, <span class="pill">codex</span>, <span class="pill">opencode</span> or <span class="pill">agy</span>, and <span class="pill">--model</span> takes any model id that agent can reach. If the repo has been read before, match what is already there rather than choosing afresh — <span class="pill">sanity summary</span> prints the split by model, and a corpus with two names in it is the thing to raise with the human before adding a third.</p>
+            </li>
+            <li>
+              <strong>Say what a full pass costs, before you start one.</strong>
+              <p>A reader takes about 23,000 tokens to enter and about 3,000 per function, and it reads ten functions, so budget roughly <b>5,300 tokens per function</b>. A thousand-function repository is therefore about five million tokens. <span class="pill">sanity status</span> says how many segments still need reading. Put that number in front of the human and let them decide how far to go; do not spawn a full pass on a large repository because you were asked to "set it up".</p>
+<pre>sanity check --limit 50      <span class="c"># stop after this many readings; a reader does ten, so ten is the step</span></pre>
+            </li>
+            <li>
+              <strong>Scope the repository first, if some of it is not worth reading.</strong>
+              <p>A <span class="pill">.sanityignore</span> at the repository root sets slices aside: they are still drawn, and they leave the denominator, so coverage stops counting them. <b>There are no defaults, and tests are not automatically noise</b> — whether a directory is worth reading is a judgement about this codebase, and Sanity does not have it. What you can do is make the decision cheap: bring the human the functions-per-directory numbers and a proposal. The file is theirs to write.</p>
             </li>
             <li>
               <strong>Start the pass with <span class="pill">sanity check</span>, or the human presses Read.</strong>
@@ -1241,12 +1250,27 @@ sanity init --harness claude --model sonnet</pre>
 sanity check --readers 8     <span class="c"># how many at once</span>
 sanity check --limit 50      <span class="c"># stop after this many readings</span>
 sanity check --detach        <span class="c"># start it and return</span></pre>
-              <p>Report from <span class="pill">sanity status</span> and <span class="pill">sanity summary</span> rather than from anything you remember. If Sanity is registered as an MCP server (<span class="pill">sanity mcp</span>), the same three answers arrive as <span class="pill">sanity_open</span>, <span class="pill">sanity_status</span> and <span class="pill">sanity_summary</span>.</p>
+              <p>Stopping costs nothing but the readings in flight: what has landed is written as it lands, and asking again resumes rather than restarting.</p>
+            </li>
+            <li>
+              <strong>Commit <span class="pill">.sanity/</span>.</strong>
+              <p>The readings belong beside the code they describe, in the same commit as the work that changed it where you can manage it. Do not add the directory to <span class="pill">.gitignore</span>, and do not hand-edit what is in it: every entry records the model, the agent, the person and the body hash it was taken against, and an edited one is a measurement nobody took.</p>
+            </li>
+            <li>
+              <strong>Re-read after the code moves.</strong>
+              <p>Each reading is tied to the body it was made against, so editing a function marks its reading stale rather than silently keeping it. <span class="pill">sanity check</span> queues stale work ahead of unread work, so the same command keeps an assessment current. A release that changes what readers are asked, or how a body is cut, says so in its notes; a coverage number that drops after an upgrade is that, not a bug.</p>
+            </li>
+            <li>
+              <strong>Report from the tools, never from memory.</strong>
+              <p><span class="pill">sanity status</span> is progress and what is left; <span class="pill">sanity summary</span> is the findings — the grade spread, how many readings were cold, traps identified, the split by model. It is deliberately repo-wide: there is no per-file breakdown, because a summary that named files would be the readings themselves, and those are for the human to read in <span class="pill">.sanity/</span> or on the map. If Sanity is registered as an MCP server (<span class="pill">sanity mcp</span>), the same answers arrive as <span class="pill">sanity_open</span>, <span class="pill">sanity_status</span> and <span class="pill">sanity_summary</span>.</p>
+            </li>
+            <li>
+              <strong>Two things a human is likely to ask you about.</strong>
+              <p><b>"Sanity is using all my CPU."</b> Almost certainly a trace: the History replay walks every commit and re-parses what each one touched, which saturates the machine and takes an hour on a very large repository. It only ever starts from the Trace button on a project row, one repository at a time, and that row carries its progress and a Cancel that keeps whatever has been walked so far.</p>
+              <p><b>"It says it cannot reach Sanity."</b> The errors distinguish the two cases and each says what to do: not running at all means start it — any of these commands will — while unreachable means transient, and the call should simply be retried.</p>
             </li>
           </ol>
-          <!-- The gate: what the agent may do alone, and what waits for a
-               human. Every habitat has one; say yours plainly. -->
-          <p class="gate"><b>Trust boundary:</b> You may start a pass and report what it found. You may not take readings, because that is what the spawned readers are for, and a reading of yours would be worth nothing. You cannot change the code either: Sanity never writes to the source it is looking at, so nothing done here can edit the human’s work. The one thing it writes into the repository is the readings themselves, as Markdown under <span class="pill">.sanity/</span>, to be committed alongside the code they describe.</p>
+          <p class="gate"><b>Trust boundary:</b> You may start a pass and report what it found. You may not take readings, because that is what the spawned readers are for, and a reading of yours would be worth nothing. Do not read <span class="pill">.sanity/</span> to answer questions either — <span class="pill">sanity summary</span> exists so you do not have to, and a session that has read the last reader's findings cannot be trusted to spawn the next one. You cannot change the code: Sanity never writes to the source it is looking at, so nothing done here can edit the human’s work. The one thing it writes into the repository is the readings themselves, as Markdown under <span class="pill">.sanity/</span>, to be committed alongside the code they describe.</p>
         </div>
       </div>
     </div>
