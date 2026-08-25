@@ -315,7 +315,7 @@ export default function App() {
   // One geometry, five encodings. The sunburst was never the thing worth swapping out —
   // what changes the question is what the color MEANS, and the same rings answer five
   // different ones depending on that.
-  const [mode, setMode] = useState<ColorMode>('language')
+  const [mode, setMode] = useState<ColorMode>('surprise')
 
   /** What each project was last looking at, so coming back to one is coming back.
    *
@@ -431,7 +431,12 @@ export default function App() {
   const switchTo = useCallback((from: string | null, to: string | null) => {
     if (from) views.current.set(from, { ...view.current })
     const v = to ? views.current.get(to) : undefined
-    setMode(v?.mode ?? 'language')
+    // **A project you have not opened this session inherits the lens you are on**, rather
+    // than resetting to a default. Switching repos is a change of subject, not a change of
+    // question: somebody comparing two codebases under Docs wants Docs on both. Where the
+    // new repo cannot answer it — no readings yet — `locks` falls back for the duration and
+    // the preference survives to be restored when it can.
+    setMode(v?.mode ?? view.current.mode)
     setStack(v?.stack ?? [])
     setPicked(null)
   }, [])
@@ -1351,12 +1356,6 @@ export default function App() {
    *  age and language and could always have painted them. What a replay can and cannot
    *  show is `REPLAY`, one lens at a time; what it does about the ones it cannot is say so
    *  in the map rather than change what you are standing in. */
-  // **A staged export overrides it, for the length of the recording.** The file is a copy of
-  // what is on screen, so choosing a lens in the export dialog means changing the map — the
-  // same bargain the ground and the density already make. It goes back when the dialog closes,
-  // because `staged` does.
-  const viewMode: ColorMode = staged?.mode ?? mode
-
   /** Which lenses have nothing in them, and what would change that — see `Locked`.
    *
    *  **A lens with nothing to show is locked, not shown empty.** The first shape of this was
@@ -1396,14 +1395,19 @@ export default function App() {
     return out
   }, [replaying, tree, activeProject])
 
-  /** Never stand in a locked lens. A project switch can lock the one you were in — the repo
-   *  you just opened has no readings, or no git — and leaving the selection there would show
-   *  a map painted by nothing under a tab that cannot be pressed to leave. Language is the
-   *  fallback for the same reason it is the default: it needs no reading, no history and no
-   *  wiring, so it is the one lens that always has something to say. */
-  useEffect(() => {
-    if (locks[mode]) setMode('language')
-  }, [locks, mode])
+  /** What the map is actually painted with.
+   *
+   *  **The lens you chose, unless this repo cannot answer it — and choosing does not change
+   *  your choice.** The fallback used to be an effect that called `setMode('language')`, which
+   *  worked once and then lost the preference: open an unread project and Surprise was gone
+   *  for good, so every project after it opened on Language too. Derived instead, the
+   *  preference survives being unanswerable — switch to a repo with readings, or finish a
+   *  pass on this one, and the lens you picked comes back on its own.
+   *
+   *  A staged export overrides both, for the length of a recording: the file is a copy of
+   *  what is on screen, so choosing a lens there means changing the map. It goes back when
+   *  the dialog closes, because `staged` does. */
+  const viewMode: ColorMode = staged?.mode ?? (locks[mode] ? 'language' : mode)
 
   // The wedge the sunburst is currently rooted at, resolved by id every render so a
   // rescan keeps the user where they were rather than throwing them back to the top.
@@ -1478,11 +1482,16 @@ export default function App() {
       const i = e.key === '0' ? 9 : e.key === '-' ? 10 : Number(e.key) - 1
       if (!Number.isInteger(i) || i < 0 || i >= modes.length) return
       e.preventDefault()
+      // A locked lens is not selectable in the strip, so it is not selectable here either:
+      // a control disabled in one place and live on the keyboard is not disabled.
+      if (locks[modes[i]]) return
       setMode(modes[i])
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [historyOn, toggleHistory])
+    // `locks` is read inside, so the handler has to be rebuilt when it moves — a listener
+    // closed over last render's locks would let ⌘1 into a lens the strip has since locked.
+  }, [historyOn, toggleHistory, locks])
 
   /** Ask for the rings the map is about to draw.
    *
