@@ -71,6 +71,60 @@ export type ColorMode =
  * that from the git-derived three: it is the only lens painted from neither a reading nor a
  * commit, which makes it the seam rather than an orphan on the end.
  */
+/** What each lens can say about a PAST commit, which is not the same question as what it
+ *  can say about the code in front of you.
+ *
+ *  **History used to be a twelfth lens and is really a second axis.** Entering a replay
+ *  forced the map to `age` and greyed the whole switcher, which was true of the four lenses
+ *  a reading paints and a blunt instrument for the rest: a frame knows perfectly well how
+ *  much churn a function had in 2019 and what language it was written in.
+ *
+ *  Three answers, and only one of them is about effort:
+ *
+ *  - `live` — the frame already carries it. `frameTree` folds `churn`, `ageDays`,
+ *    `lastTouchedDays` and `commits` per frame, and each function node keeps its `lang`, so
+ *    these paint from the frame's own numbers rather than from today's scan.
+ *  - `cost` — derivable, unbuilt. Blame needs the author of the commit that last touched
+ *    each function: the frame knows WHICH commit and the log knows who, but the log is paged
+ *    and the node carries `lastAuthor: null`. Callers and Reach need the wiring recomputed
+ *    per frame, and Clones a repo-wide comparison per frame — both on a delta stream that
+ *    was fought down from 20.9MB to 1.0MB on ceph. Refuse until somebody asks.
+ *  - `never` — a reading measures the body as it stands TODAY. Painting a 2019 frame with it
+ *    would be the map claiming a measurement nobody took, which is the same rule that makes
+ *    a stale reading drop its colour rather than keep it.
+ *
+ *  The `never` four are exactly the four that need a reading pass at all. That boundary shows
+ *  up twice in this app and it is the same boundary both times. */
+export const REPLAY: Record<ColorMode, 'live' | 'cost' | 'never'> = {
+  surprise: 'never',
+  legible: 'never',
+  docs: 'never',
+  traps: 'never',
+  clones: 'cost',
+  callers: 'cost',
+  reach: 'cost',
+  language: 'live',
+  blame: 'cost',
+  churn: 'live',
+  age: 'live',
+}
+
+/** Why this lens has no colours in a replay, in the words the tab and the map both use.
+ *
+ *  One sentence per KIND rather than per lens: the reason a reading cannot be replayed is
+ *  the same reason four times, and writing it four ways would make it read as four
+ *  different limitations. */
+export function replayNote(mode: ColorMode): string | null {
+  switch (REPLAY[mode]) {
+    case 'live':
+      return null
+    case 'cost':
+      return `${MODE_LABEL[mode]} is not replayed: it would have to be recomputed at every commit, and the timeline does not carry it.`
+    case 'never':
+      return `${MODE_LABEL[mode]} is not replayed: a reading measures the code as it stands now, and stamping it onto an older commit would claim a measurement nobody took.`
+  }
+}
+
 export const MODE_LABEL: Record<ColorMode, string> = {
   surprise: 'Surprise',
   legible: 'Legibility',
@@ -537,12 +591,17 @@ export function colorFor(
 ): (Paint & { label: string }) | null {
   const s = node.score
 
-  // **A replay is grey, whatever the switcher says, and the one event it paints is an
-  // arrival.** This sits above every mode rather than inside the pinned one, because the
-  // rule is about the SCORES: a history frame's score carries no reading and no scale worth
-  // drawing — see the note on `history.ts` for the three encodings that were tried here and
-  // what each of them turned out to be saying. A wedge flashes on the commit it first
-  // appears in, fades over `flashWindow`, and then sits at the ground with everything else.
+  // **The events come first, and then the lens paints — if it is one a frame can paint.**
+  // This used to end the story: a replay was grey whatever the switcher said, on the rule
+  // that a frame's score carries no reading and no scale worth drawing. Half of that was
+  // right and is still enforced, in `REPLAY`: nothing a reader graded can be stamped onto an
+  // older commit. The other half was a blunt instrument. `frameTree` folds `churn`,
+  // `ageDays` and `lastTouchedDays` per frame and keeps each function's `lang`, so those
+  // lenses have real numbers for the commit under the playhead and were being thrown away.
+  //
+  // A wedge still flashes on the commit it first appears in, fades over `flashWindow`, and
+  // then — instead of sitting at the ground — takes whatever colour the lens gives it in
+  // that frame. The flash outranks the lens because it is the thing that just happened.
   if (s?.provenance === 'history') {
     // Arrival first, and it is not a tie-break so much as the whole point: the commit that
     // creates a function also touches it, so a wedge that has just been born qualifies for
@@ -552,7 +611,9 @@ export function colorFor(
     // against a near-yellow lime — rather than by diluting this one toward the ground,
     // which was tried at 45% and then 55% and produced an event nobody could see.
     if (s.edited != null) return flash('--touch', 'changed')
-    return null
+    // Not this lens, not in a replay: the wedge stays at the ground and the map says why —
+    // see `LensGap`. Falling through instead would paint a past commit with today's answer.
+    if (REPLAY[mode] !== 'live') return null
   }
 
   if (mode === 'surprise') {

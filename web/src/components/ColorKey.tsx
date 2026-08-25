@@ -8,6 +8,8 @@ import {
   slotColor,
   type ColorMode,
   paintsFromReadings,
+  REPLAY,
+  replayNote,
 } from '../lib/colorMode'
 import { heatColor, type Ramp } from '../lib/api'
 
@@ -22,28 +24,38 @@ function Legend({
   categories: string[]
   history?: boolean
 }) {
-  // A replay paints one event and nothing else, so its key has one entry. Showing the age
-  // ramp here while every wedge on screen is grey would be the legend describing a lens the
-  // map is not using — see `colorFor` for why a frame is uncoloured.
+  // **The events, and the lens as well when the lens is painting.** A replay used to key one
+  // thing — arrival and edit — because the map was forced to `age` and the switcher greyed.
+  // A frame carries its own churn, age and language, so the key now says both: what the
+  // flashes mean, and what the colour underneath them is. A lens the replay cannot paint
+  // (see `REPLAY`) leaves the wedges uncoloured, and its half of the key goes with them.
   if (history) {
+    const events = [
+      ['--birth', 'new'],
+      ['--touch', 'changed'],
+    ].map(([token, word]) => (
+      // Squares, like the trap key below and for the same reason: these are events a wedge
+      // either had or did not, not positions on a scale. Arrival leads, because it is the
+      // loud one and the order on the key should match the order the eye picks them out in.
+      <span key={token} className="flex items-center gap-1">
+        <span
+          className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+          style={{ background: `var(${token})` }}
+        />
+        <span className="text-[10px] text-[var(--muted-foreground)]">{word}</span>
+      </span>
+    ))
+    if (REPLAY[mode] !== 'live') return <div className="flex items-center gap-2.5">{events}</div>
     return (
       <div className="flex items-center gap-2.5">
-        {/* Squares, like the trap key below and for the same reason: these are events a
-            wedge either had or did not, not positions on a scale. Arrival leads, because
-            it is the loud one and the order on the key should match the order the eye
-            picks them out in. */}
-        {[
-          ['--birth', 'new'],
-          ['--touch', 'changed'],
-        ].map(([token, word]) => (
-          <span key={token} className="flex items-center gap-1">
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-              style={{ background: `var(${token})` }}
-            />
-            <span className="text-[10px] text-[var(--muted-foreground)]">{word}</span>
-          </span>
-        ))}
+        <Legend mode={mode} categories={categories} />
+        {/* A hairline, because these are two keys for one picture rather than one key with
+            six entries: above the rule is what the colour means, below it what a flash does. */}
+        <span
+          className="h-3 w-px shrink-0"
+          style={{ background: 'color-mix(in oklch, var(--foreground) 20%, transparent)' }}
+        />
+        {events}
       </div>
     )
   }
@@ -215,17 +227,18 @@ const shortcut = (i: number) => (i < 9 ? `${i + 1}` : i === 9 ? '0' : i === 10 ?
 export function ModeSwitcher({
   mode,
   onMode,
-  disabled = false,
+  replaying = false,
 }: {
   mode: ColorMode
   onMode: (m: ColorMode) => void
-  /** Grayed out, but still showing which encoding is in force.
+  /** A replay is on screen, so each lens answers for itself — see `REPLAY`.
    *
-   *  History mode sets this. There the color is not a choice: a temperature is a reading
-   *  taken against today's code, and four of the five lenses would be claiming a
-   *  measurement of a commit nobody took it against. Hiding the control instead would
-   *  leave the rings recolored with nothing on screen saying by what. */
-  disabled?: boolean
+   *  **It used to disable the whole control.** That was right about the four lenses a
+   *  reading paints and wrong about the rest: a frame knows what churn a function had in
+   *  2019 and what language it was written in, and greying those out said the timeline
+   *  could not answer a question it answers per frame. Nothing is disabled now; a lens the
+   *  replay cannot paint is dimmed, stays clickable, and says why in the map. */
+  replaying?: boolean
 }) {
   return (
     // A segmented control: one recessed track, segments inside it, and the selection as
@@ -237,26 +250,29 @@ export function ModeSwitcher({
       role="tablist"
       className="flex items-center gap-0.5 rounded-full p-[3px]"
       style={{
-        opacity: disabled ? 0.55 : 1,
+        opacity: 1,
         background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
         boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
       }}
     >
       {(Object.keys(MODE_LABEL) as ColorMode[]).map((k, i) => {
         const on = mode === k
+        // Dimmed rather than disabled: the lens is still a place you can stand, and what it
+        // has to say there — why a replay cannot paint it — is said in the map rather than
+        // by a control that refuses to be pressed.
+        const unpaintable = replaying && REPLAY[k] !== 'live'
         return (
           <button
             key={k}
             role="tab"
             aria-selected={on}
-            onClick={() => !disabled && onMode(k)}
-            disabled={disabled}
+            onClick={() => onMode(k)}
             // The shortcut rides in the tooltip rather than on the chip. Five chips with
             // a dim "⌘3" beside each label is a row of keyboard documentation where the
             // control itself should be — discoverable once, noise every time after.
             title={
-              disabled
-                ? 'A trace is uncoloured — a past commit has no reading, and nothing in the commit stream stood in for one'
+              unpaintable
+                ? (replayNote(k) ?? '')
                 : `${MODE_HINT[k]}${shortcut(i) ? `  (⌘${shortcut(i)})` : ''}`
             }
             className="rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
@@ -264,6 +280,9 @@ export function ModeSwitcher({
               background: on ? 'var(--accent)' : 'transparent',
               color: on ? 'var(--accent-foreground)' : 'var(--muted-foreground)',
               fontWeight: on ? 600 : 400,
+              // The selected lens keeps full weight even where the replay cannot paint it,
+              // because the row still has to say which one you are standing in.
+              opacity: unpaintable && !on ? 0.45 : 1,
               // Only the chosen one lifts. A shadow on every segment would make the
               // track read as five buttons rather than one control with a position.
               boxShadow: on ? '0 1px 2px rgb(0 0 0 / 0.25)' : undefined,

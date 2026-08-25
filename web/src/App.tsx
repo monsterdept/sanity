@@ -45,6 +45,7 @@ import {
   type Tables,
 } from './lib/timeline'
 import { Sunburst } from './components/Sunburst'
+import { LensGap } from './components/LensGap'
 import type { Staged } from './lib/movie'
 import { forgetMonster } from './lib/monster'
 import { onScanShape, shapeTree, type ShapeFile } from './lib/shape'
@@ -53,7 +54,16 @@ import { CommitLog } from './components/CommitLog'
 import { HistoryBar } from './components/HistoryBar'
 import { Crumbs } from './components/Crumbs'
 import { TopRow } from './components/shell/TopRow'
-import { legendFor, MODE_LABEL, rankCategories, ageSpanOf, type ColorMode } from './lib/colorMode'
+import {
+  legendFor,
+  MODE_LABEL,
+  paintsFromReadings,
+  paintsFromWiring,
+  rankCategories,
+  REPLAY,
+  ageSpanOf,
+  type ColorMode,
+} from './lib/colorMode'
 import { dismissSplash } from './lib/splash'
 import { mark, marked } from './lib/stopwatch'
 import { loadTheme, saveTheme, watchSystemTheme, type Theme } from './lib/theme'
@@ -1330,9 +1340,35 @@ export default function App() {
    *  Keyed on the frame existing, all of it happens once. */
   const replaying = historyOn && histRoot !== null
 
-  /** Pinned while the replay is on screen. See `historyOn` — the encoding is not a
-   *  preference here, it is the only thing the evidence supports. */
-  const viewMode: ColorMode = replaying ? 'age' : mode
+  /** The lens, replaying or not. **It used to be pinned to `age` while a replay was on
+   *  screen**, and the switcher greyed with it — right about the four lenses a reading
+   *  paints, and a blunt instrument for the rest, because a frame carries its own churn,
+   *  age and language and could always have painted them. What a replay can and cannot
+   *  show is `REPLAY`, one lens at a time; what it does about the ones it cannot is say so
+   *  in the map rather than change what you are standing in. */
+  const viewMode: ColorMode = mode
+
+  /** Which absence, if any, the map is showing right now — see `LensGap`.
+   *
+   *  Decided here rather than in the component so there is one place that knows the order
+   *  the questions are asked in. A replay's limit comes first because it is true whatever
+   *  the repo holds: a lens that cannot be replayed cannot be replayed on a fully-read repo
+   *  either. Readings next, because that is the one a person can act on. The structural
+   *  absences last, since they are facts about the repo rather than about the work done to
+   *  it, and the panel says them per wedge as well.
+   */
+  const gap = useMemo((): 'unread' | 'nogit' | 'unwired' | 'replay' | null => {
+    if (replaying) return REPLAY[mode] === 'live' ? null : 'replay'
+    if (!tree) return null
+    if (paintsFromReadings(mode)) return (activeProject?.assessed ?? 0) > 0 ? null : 'unread'
+    // The REPO's answer, not the wedge's: the panel already says which of these a single
+    // function lacks, and a banner that appeared and vanished as you drilled would be
+    // reporting on the click rather than on the repo.
+    if (paintsFromWiring(mode)) return tree.resolvable === null ? 'unwired' : null
+    if (mode === 'blame' || mode === 'churn' || mode === 'age')
+      return tree.score?.ageDays === null ? 'nogit' : null
+    return null
+  }, [replaying, mode, tree, activeProject])
 
   // The wedge the sunburst is currently rooted at, resolved by id every render so a
   // rescan keeps the user where they were rather than throwing them back to the top.
@@ -1958,7 +1994,7 @@ export default function App() {
                   window's statement of what color means, and removing it would leave the
                   rings recolored with nothing on screen saying by what. Grayed, with the
                   reason in the tooltip, it still answers the question. */}
-                <ModeSwitcher mode={viewMode} onMode={setMode} disabled={historyOn} />
+                <ModeSwitcher mode={viewMode} onMode={setMode} replaying={replaying} />
                 <HistoryToggle
                   on={historyOn}
                   busy={historyBusy}
@@ -2109,6 +2145,19 @@ export default function App() {
                 <div className="absolute bottom-2 right-2 z-20">
                   <ProgressStrip progress={awaitingProgress} />
                 </div>
+              )}
+
+              {/* **What the lens has no colours for, said over the picture that does work.**
+                A grey ring with nothing on screen explaining it is the app's oldest silence:
+                the map looks broken, and the control that would fix it is in another panel.
+                See `LensGap` for why three absences became two. */}
+              {gap && focus && (
+                <LensGap
+                  mode={viewMode}
+                  kind={gap}
+                  functions={(activeProject?.functions ?? 0) + (activeProject?.files ?? 0)}
+                  onRead={activeKey ? () => setReadFor(activeKey) : undefined}
+                />
               )}
 
               {/* Floated over the graph rather than stacked under it. The rings are a
