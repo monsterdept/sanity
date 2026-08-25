@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-387 of 387 read · 76 surprising
+388 of 388 read · 77 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -536,10 +536,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/HistoryBar.tsx
 
 ### the file itself
-- spec 3 · read at `1b807f0ee571` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:19:33Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Renders the replay timeline UI: a horizontal scrubber/playhead bar the user drags or plays through to move index/since across history frames, with play/pause controls and a pace helper providing easing/speed logic for animated playback. Likely also renders birth/edit flash event markers along the bar since those were noted as belonging beside the playhead rather than the legend. No header doc.
-- found: The transport: play/pause button, a range-input scrub bar, duration-preset buttons (pace() formats seconds/minutes), the birth/changed legend markers as predicted, plus a requestAnimationFrame-driven clock (duration is total playback time not a rate, with MAX_FPS-capped skipping), full keyboard support (space to toggle, arrows to step, shift for 10-commit strides), and an export-to-movie button that opens ExportDialog.
+- spec 3 · read at `61052eb17d6f` · commit `38c2756` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:33:42Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A React component rendering a scrubber/timeline bar UI for replaying commit history (paired with the Rust history replay backend) — showing progress through commits with play/pause controls; pace and speed are helper functions computing playback timing/animation speed for the scrubbing/replay animation.
+- found: A transport bar component (play/pause, scrub range input, duration-preset buttons, export button/dialog, keyboard shortcuts) driving replay of a repo's commit history; requestAnimationFrame-based clock advances a fractional cursor at a rate computed from a chosen total DURATION (not a commits/sec rate) so playback time is repo-size-independent, plus pace/speed label helpers for the duration buttons.
 - predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: The file has no top-level file docstring in the `docs` field returned, but the code itself carries extensive inline doc comments explaining every design decision (duration-not-rate, ref-based fractional cursor, RAF vs setInterval, stop-not-wrap, keyboard scoping) — richer documentation than most files, just not exposed as a file header.
 
 ### `pace` — QUIRKY
 - spec 2 · read at `f97e230c1fec` · commit `ba429b4` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T20:51:49Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -547,12 +548,18 @@ What this is and how to add to it: [README.md](README.md)
 - found: Formats a duration in seconds as a short string: minutes rounded with 'm' suffix if >= 60 seconds, otherwise raw seconds with 's' suffix. Not actually a "pace" label like slow/fast — it's a duration formatter, likely misnamed relative to what I expected.
 - predicted: some · documented: none · derivable: yes · legible: full · trap: no
 
-### `HistoryBar` — QUIRKY — TANGLED
-- spec 3 · read at `6cb177c39a58` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:17:50Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A bottom-anchored transport bar rendering a play/pause button and a scrub slider spanning `frames`, driving `index`/`onIndex` and `playing`/`onPlaying`, using the `pace` helper to advance the current frame over `duration` seconds during playback via an interval/rAF loop. It likely also has an export trigger that calls `ensure` before invoking `onStage` with a Staged layout, passing `mode`/`keyFor`/`slug`/`scope`/`name`/`dateOf` through to an export dialog. Per the docs, it does NOT render the secondary caption row (hash/subject/date) since that duplicated the log view.
-- found: Renders play/pause button, scrub range input, a small new/changed color legend, duration-preset buttons (via `pace`), and an export button that opens ExportDialog. Playback uses a requestAnimationFrame clock with fractional-cursor/emitted refs to convert elapsed time into scoped-frame position at a constant per-scope rate, restarting from the beginning if replaying after the end and stopping (not looping) at the end. A keydown effect wires space to play/pause and arrow keys (with shift for a 10-commit stride) to step the playhead, guarded against firing while the export dialog is open or a range input has focus.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
-- note: Docs on the props/component describe historical design rationale (why the caption row was removed, why RAF not setInterval) rather than current API contract; useful context but not a spec of behavior.
+### `speed` — QUIRKY
+- spec 3 · read at `2ffb530ecac5` · commit `38c2756` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:33:48Z · by ross@rossturk.com · warm reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Computes `total / STANDARD` to get the multiple, then formats it — showing one decimal place only when the value isn't a whole number (e.g. `0.3x` vs `1x`), returning a string with an `x` suffix.
+- found: Computes STANDARD/total (inverted from my guess — a shorter duration means a faster/larger multiple), then formats with one decimal via toFixed if x<1, else rounds to a whole number, appending 'x'.
+- predicted: some · documented: full · derivable: no · legible: full · trap: no
+
+### `HistoryBar` — QUIRKY
+- spec 3 · read at `980e3f54b4eb` · commit `38c2756` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:33:36Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Renders a full-width bottom strip with a scrub/slider control over `frames` and play/pause transport controls, driven by a duration-based animation loop that advances `index` while `playing` (possibly using peers `pace`/`speed` for timing). Also shows a second row with the current commit's hash, subject, ordinal, date, and function count, and hosts/triggers an export dialog using `ensure`, `onStage`, `mode`, and `keyFor` to build a movie export.
+- found: Renders the transport strip: play/pause button with rewind-on-replay-when-finished logic, a range-input scrub bar over scoped `frames`, duration-preset buttons (pace/speed), and an export button that opens ExportDialog. Playback uses a requestAnimationFrame clock driven by elapsed time (not per-tick fixed steps) with a ref-based fractional cursor to stay smooth at slow rates, plus global keyboard handling for space (toggle) and arrow keys (step, with shift for a 10-commit stride), carefully guarding against double-handling when the range input or export dialog has focus/control. No second metadata row is actually rendered — the docs describe a row that was apparently removed.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The top-level docs describe a second metadata row (hash/subject/ordinal/date/function count) that isn't present in the current code — it reads as a historical rationale for a past change, not a description of the current component.
 
 ## web/src/components/LensPane.tsx
 

@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-817 of 817 read · 137 surprising
+819 of 819 read · 137 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -3060,11 +3060,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/history.rs
 
 ### the file itself
-- spec 3 · served in 4 parts · read at `fac9ca24a111` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:19:50Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: The Tauri backend engine that walks git log history commit-by-commit, incrementally builds a per-commit "delta" timeline (functions born/touched/removed, keyed via interning through Funcs/Blobs), caches that timeline to disk (Checkpoint/bank/save_cache/load_cache) so re-opening a repo doesn't require a full re-walk, supports cancelling/resuming a long walk (Replayer fold/apply/snapshot/cancel) and extending a cached timeline forward when new commits land, and exposes a small query API (tables, funcs, log, touches, scoped, deltas) for the frontend's replay UI. Includes a large embedded test suite asserting caching/resume/consistency invariants (named as full sentences describing the property).
-- found: Confirmed: git-log-based commit-by-commit replay engine with incremental per-file reparsing (not full-tree scans), function/reading interning, disk caching with versioning and extend-forward-from-cache logic, cancel/resume via a Replayer that can checkpoint mid-walk, a per-repo tracing-claim guard against concurrent walks, and a windowed query API (tables/funcs/log/scoped/deltas) that serves only the slice the frontend currently needs rather than the whole timeline. Also includes streaming git subprocess management (long-lived `git cat-file --batch`, streamed `git log --raw`), a dedicated rayon thread pool to avoid starving/being starved by the live scan, and an extensive test module encoding invariants as sentence-named tests.
-- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
-- note: Missed from prediction: the batched/windowed parallel parsing architecture (prefetch/parse_batch/PARSE_CHUNK/dedicated rayon pool), the .sanity/ reading-shard folding into frames, the tracing-claim concurrency guard, and the deliberate paging API design to avoid shipping tens of MB per open — all substantial parts of the file's actual weight.
+- spec 3 · served in 4 parts · read at `a15a0ae748a2` · commit `38c2756` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:34:04Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A Rust module implementing commit-by-commit git history replay to power a "history" view of the app's function/file map. It parses git log/diff output into commits, folds each commit into an accumulating snapshot (functions, blobs, tree) via a Replayer, caches/banks the resulting timeline to disk so it can be incrementally extended rather than fully rebuilt, supports cancelling an in-progress walk via a claim/tracing mechanism enforcing one walk at a time, handles language detection and path/shard bookkeeping, and includes an extensive inline test suite covering renames, copies, deletions, cache extension, and cancellation edge cases.
+- found: The core matched my prediction: streams `git log --raw` into RawCommits, replays them one at a time via a Replayer that folds each commit into an accumulating parsed-function state (carrying forward file state so only changed files are re-parsed), joins committed .sanity/ readings into frames by key, checkpoints/caches the timeline to disk so later opens extend rather than rebuild (with ancestry/version checks to refuse and fall back to a full replay), and guards one-walk-per-repo via a Tracing claim, plus a large test suite. What I missed entirely: a whole second half of the file (~150 lines) serving the loaded timeline to the frontend in paged windows — Tables, LogRow, funcs(), log(), scoped(), deltas() — deliberately avoiding shipping the whole multi-megabyte timeline at once.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: The file has two clearly separable responsibilities (replay/cache engine, and windowed serving to the UI) separated by a comment banner; a peer list alone doesn't signal that split since both halves' function names look similar in kind.
 
 ### `key_of`
 - spec 2 · read at `19a1795e6717` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:26:14Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -3097,11 +3097,17 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `read` — QUIRKY
-- spec 3 · read at `4b11abeacd7b` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:34Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Looks up the git blob for `sha` (likely via git2's Repository/Odb, since owner is `Blobs`), checks if it's binary (e.g. git2's `is_binary()`) or exceeds a size cap meant to exclude non-code blobs, and returns `None` in either case. Otherwise converts the blob's bytes to a String (probably via `String::from_utf8_lossy`) and returns `Some(text)`. May cache the lookup since it takes `&mut self`.
-- found: Talks to a long-lived `git cat-file --batch`-style subprocess over stdin/stdout pipes: writes the sha, reads the header line to get kind/size, bails to None for non-blob kinds, then unconditionally reads exactly `size+1` bytes off stdout (draining the payload even when it will be discarded) before checking the size cap and returning the UTF-8 text.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
-- note: The payload must always be read off the pipe even when the result will be None (oversized or wrong kind) — skipping the drain desyncs every subsequent read by one blob, silently misattributing later files' functions; this isn't a git2 API call, it's a hand-rolled batch-pipe protocol.
+- spec 3 · read at `09c3d1d73042` · commit `38c2756` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:33:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the blob's text by sha, checking an internal cache first; on a miss, fetches raw bytes from git via a pool/backend, checks for binary content or a size limit, decodes to UTF-8 String, caches it, and returns None if missing/binary/too large.
+- found: A one-line delegation to read_within(sha, MAX_BLOB_BYTES) — all the actual cache/fetch/decode logic I predicted lives in that other function, not here.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: The docstring describes the overall behavior (cache, binary/size checks) but that logic is entirely in read_within; this function is just a size-limit default wrapper.
+
+### `read_within` — QUIRKY
+- spec 3 · read at `8ecf25d98cc5` · commit `38c2756` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:33:44Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the blob by `sha` (likely delegating to or sharing logic with `Blobs::read`), checks its size against `cap`, and returns None if it exceeds the cap (or fails to decode as UTF-8), otherwise returns Some(content) as a String. This lets callers like shard reads impose a size ceiling different from the default max blob size.
+- found: Writes the sha to a `git cat-file --batch`-style subprocess pipe, reads the response header (oid, kind, size), returns None if not a blob, always drains the full payload from the pipe to keep it in sync for future reads, then returns None if size exceeds cap, otherwise returns the payload as a UTF-8 String.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
 
 ### `drop` — OBSCURE
 - spec 3 · read at `af7d03b498b1` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:56:14Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -3208,10 +3214,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `seed` — QUIRKY
-- spec 3 · read at `b750812a1f04` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:18:12Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Takes a full tree listing of (path, blob-sha) pairs representing the state right before the replay window begins, reads and parses each blob (likely via parse_batch/Blobs, reporting progress), and populates the Replayer's internal per-path function state with this baseline so subsequent commit folds can apply diffs on top of it rather than starting from nothing.
-- found: Splits the tree's (path, sha) pairs into ordinary sources and "shard" paths (some coverage/reading data), parses the sources via parse_batch to intern functions and seed per-path state plus a base-lines list, then folds the shard blobs last (after functions exist to join against) via fold_shard, treating every entry as a first arrival with nothing to retire.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- spec 3 · read at `af4c175fd895` · commit `38c2756` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:33:30Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over the (path, blob_hash) pairs in `tree`, and for each one parses/loads the blob content (via `blobs`) and inserts the resulting parsed representation into the Replayer's internal state (e.g. path index / file map) so it reflects the tree as of the start of the replay window. Calls `progress` periodically to report how far seeding has gotten, since this could be a large tree.
+- found: Partitions the tree into shard files vs source files. Parses sources in a batch, interning each parsed function into the path/func index and pushing base locations, storing per-path parsed state. Then reads each shard blob and folds it into read-coverage state via fold_shard — shards are processed after sources specifically so their entries can join against already-known functions, with nothing to retire since this is the initial seed.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
 
 ### `fold_shard`
 - spec 3 · read at `ef05ba6660bb` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:20:08Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -3219,11 +3225,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Parses the shard text (or nothing if deleted) into packed readings, diffs against the previously carried map for that shard path, pushes (func_index, packed) for changed entries into `read` and func_index for dropped entries into `unread` (looking up indices via funcs.by_reading, skipping unjoined keys), and replaces the carried state — but only stores it back if the new set is non-empty.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `apply` — QUIRKY — TANGLED
-- spec 3 · read at `9a96b1e10d61` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:18:24Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Updates the replayer's internal tree state for one commit: applies the parsed file adds/removes/modifications to update path index and LOC counts, records this commit's id/date on the touched nodes (for appeared/edited, but not surprise, since that isn't replayed), and then appends a new frame — a snapshot of the tree/state at this point — to the replayer's frame list.
-- found: Builds a HistoryCommit frame: retires renamed/deleted paths first, folds any `.sanity/` shard changes into read/unread lists, resolves each changed file's parsed function state (from the prefetch batch or parsing directly), diffs by function key+hash against the previous state to record only actually-changed functions in `set` and removed ones in `del`, updates path state, then sorts/dedups touched files and pushes the frame onto the replayer's commit list.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+### `apply` — TANGLED
+- spec 3 · read at `d479567f19e6` · commit `38c2756` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:33:35Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Applies the file changes recorded in `commit` (using pre-parsed data from `ready`) to the replayer's internal tree/path state — updating or inserting blobs into `blobs` for added/modified files and removing entries for deleted ones. After mutating the tree, it builds a new frame (a snapshot of the tree/map state at this point in history) and appends it to the replayer's list of frames, likely also advancing some counter or index tracking progress through the commit sequence.
+- found: Builds a HistoryCommit frame for this commit: retires deleted/renamed paths first (removing their functions), folds any .sanity/ shard changes in this commit into read/unread lists, re-parses changed files (using prefetch results or a fallback parse), diffs new vs old functions BY KEY (hash comparison) to populate `set` (changed/new functions) and `del` (removed functions), updates self.state, then dedups touched files and pushes the frame onto self.out.commits while updating self.out.head.
+- predicted: most · documented: none · derivable: yes · legible: some · trap: no
+- note: Comment block documents a known subtlety: `set` means every function whose hash changed in a touched file, not a line-level diff — worth flagging to future readers of `frame.set`.
 
 ### `fold`
 - spec 2 · read at `0df155ab1a9f` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:42:00Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -3503,6 +3510,13 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Test function exercising the tracing claim guard: claims a repo once (succeeds), attempts a second claim for the same repo while the first guard is still held (expects refusal/None), then drops the first guard and claims again to confirm it now succeeds — verifying both the mutual-exclusion and the release-on-drop behavior.
 - found: Test confirms the claim guard is per-repo (a second repo can claim independently while the first is held), verifies claim/refuse/drop/re-claim semantics, and also checks that progress recorded via claim.at() is visible through tracing() while the claim is held.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `a_shard_is_read_past_the_size_a_source_file_is_refused_at`
+- spec 3 · read at `a5c8e52a7ced` · commit `38c2756` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:33:48Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A test that builds a repo/commit containing a .sanity/ shard blob larger than MAX_BLOB_BYTES (the cap normally applied to source files), replays it through the Replayer, and asserts the shard's contents were still folded into read/unread (i.e. not silently dropped/refused) — proving shards bypass the source size cap, unlike an ordinary oversized source file which would be refused.
+- found: Creates a temp git repo with one source commit and a second commit adding a .sanity/ shard padded (with filler function-reading entries) past MAX_BLOB_BYTES; replays it via `read`, and asserts exactly one read entry landed and it names the one real function ('one') — confirming the shard's real entry was parsed despite the file exceeding the source blob size cap.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: The doc explains WHY this matters (a real VectorLand 1.7MB shard bug) which is not derivable from the test code itself.
 
 ### `a_committed_reading_lands_on_the_function_it_describes`
 - spec 3 · read at `3d7d674c1534` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:31Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
