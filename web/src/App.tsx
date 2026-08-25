@@ -1698,6 +1698,13 @@ export default function App() {
    *  A movie needed no key while every replay was the age ramp with two flashes; it needs one
    *  now that a recording can be any lens the replay paints, because a Blame film is sixteen
    *  colours with nothing saying whose. */
+  /** The live one, so a caller holding this across frames sees the current tree.
+   *
+   *  **An export holds it for the length of a recording.** `record` takes the callback once
+   *  and asks it again at every commit; a plain `useCallback` closes over the tree it was
+   *  built with, so every frame of a twenty-minute film would carry the key of the frame the
+   *  dialog opened on. The ref is what makes "ask again" mean "ask about now". */
+  const keyNow = useRef<(m: ColorMode) => MovieKey | null>(() => null)
   const keyFor = useCallback(
     (m: ColorMode): MovieKey | null => {
       const at = focus ?? tree
@@ -1735,6 +1742,9 @@ export default function App() {
     },
     [focus, tree, authorRank],
   )
+  keyNow.current = keyFor
+  /** Stable across renders, and current when called — see `keyNow`. */
+  const keyLive = useCallback((m: ColorMode) => keyNow.current(m), [])
 
   /** The repo's own span for the age ramp. Never consulted during a replay: a frame's
    *  colour is a flare measured in commits, not a position on this scale — see
@@ -2322,7 +2332,7 @@ export default function App() {
                 scope={scope}
                 onStage={setStaged}
                 mode={viewMode}
-                keyFor={keyFor}
+                keyFor={keyLive}
                 // The whole timeline, for an export — the transport's own `onIndex` fetches
                 // the block under the playhead and returns, which is right for watching and
                 // useless to a recorder that must not stall mid-file.

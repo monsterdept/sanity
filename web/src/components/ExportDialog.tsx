@@ -208,7 +208,9 @@ export function ExportDialog({
         ...frameOf(size),
         title: slug,
         scope,
-        legend: keyFor(lens),
+        // A thunk, not a value: the cast grows as the replay runs and the key follows it,
+        // the same way the one on screen does. See `Recording.legend`.
+        legend: () => keyFor(lens),
         setIndex: onIndex,
         ensure,
         dateOf,

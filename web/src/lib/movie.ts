@@ -233,8 +233,8 @@ class Shot {
     private title: string,
     /** The directory the replay is scoped to, or `''`. */
     private scope: string,
-    /** The lens key, or null for a lens with no key to give. See `MovieKey`. */
-    private key: MovieKey | null,
+    /** The lens key, asked for at every rebuild. See `MovieKey`. */
+    private keyOf: () => MovieKey | null,
   ) {
     this.style = style
     this.map = mapRect(w, h)
@@ -512,7 +512,7 @@ class Shot {
    *  caller has the same information one click away in the app.
    */
   private legend(): void {
-    const key = this.key
+    const key = this.keyOf()
     if (!key) return
     const { left, room } = this.column()
     if (room < this.h * 0.2) return
@@ -790,9 +790,18 @@ export interface Recording {
   height: number
   /** The repo as the world knows it — `owner/name` where there is a remote. */
   title: string
-  /** The key drawn in the caption column — see `MovieKey`. Absent draws nothing, which is
-   *  what a movie of a lens with no key to give (a mark, not a scale) should do. */
-  legend?: MovieKey | null
+  /** The key drawn in the caption column, asked for again at every commit — see `MovieKey`.
+   *
+   *  **A function rather than a value, because the key is not a constant.** On screen it is
+   *  recomputed per frame: a replay's cast grows as the story runs, so the names beside the
+   *  map at commit 900 are not the names at commit 40, and `+N more` moves with them. Taken
+   *  once at the start, a movie would carry the key of whatever frame the export dialog
+   *  happened to open on and be wrong about every other one — most visibly at the beginning,
+   *  where a film of a repo's first commits would name people who had not arrived yet.
+   *
+   *  Called on rebuild, which is per COMMIT rather than per frame: the base canvas is only
+   *  redrawn when the playhead moves to a new commit, and the key is drawn into it. */
+  legend?: (() => MovieKey | null) | null
   /** The directory the replay is scoped to, or `''` for the whole repo. Set on its own line
    *  under the repo, because a movie of one subtree is a different film from a movie of the
    *  repo and the caption is where that gets said. */
@@ -1011,7 +1020,7 @@ export async function record(o: Recording): Promise<Uint8Array> {
     (await faceCss()) + varCss(svg),
     o.title,
     o.scope,
-    o.legend ?? null,
+    o.legend ?? (() => null),
   )
   const output = new Output({ format: new Mp4OutputFormat(), target: new BufferTarget() })
   const source = new CanvasSource(shot.target, encoding)
