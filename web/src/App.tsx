@@ -1642,11 +1642,52 @@ export default function App() {
    *  the same person may take a different slot, or arrive from `other`. That is the right
    *  trade — the palette is eight slots deep against repos with thousands of authors, so a
    *  stable colour was never on offer past the top eight anyway, and what it bought was a
-   *  drilled view coloured for somewhere else. */
+   *  drilled view coloured for somewhere else.
+   *
+   *  **A frame of a replay is not a drill, and that distinction is the memo below.** Both
+   *  hand this a different tree; only one of them is a different QUESTION. */
+  /** The slot order, held still while the playhead moves.
+   *
+   *  **A replay rebuilds the tree thirty times a second, and ranking it per frame recoloured
+   *  the cast.** Slots are assigned by size, so a person who wrote the third-most code at
+   *  commit 900 and the fifth-most at commit 950 changed colour halfway through the story —
+   *  and Blame became a light show about the ranking rather than a picture of who wrote what.
+   *
+   *  Two different questions, and they were being answered with one memo. Drilling asks for a
+   *  fresh ranking: the whole point of standing inside `src/mon` is that its authors get the
+   *  eight slots rather than the repo's. Moving through TIME asks for the opposite — the same
+   *  person, the same colour, from the first frame to the last.
+   *
+   *  So the order is keyed on the scope and the lens, seeded once from the tree as it stands
+   *  TODAY, and only ever appended to. Seeding from today rather than from the opening frame
+   *  is what makes a replay's colours match the live map you left, and it hands the good slots
+   *  to the people who actually wrote the code rather than to whoever happened to commit first.
+   *  Somebody who has since left the repo is not in that seed and joins at the end, which is
+   *  the honest place for them: the palette is eight deep and they are not in today's eight. */
+  const heldRanks = useRef<{ key: string; order: Map<string, number> } | null>(null)
   const ranks = useMemo(() => {
     const at = focus ?? tree
-    return at ? rankCategories(at, viewMode) : undefined
-  }, [focus, tree, viewMode])
+    if (!at) return undefined
+    const fresh = rankCategories(at, viewMode)
+    if (!replaying) return fresh
+    // Same scope, same lens: keep the order and append anyone new.
+    const key = `${viewMode}|${focus?.id ?? ''}`
+    let held = heldRanks.current
+    if (!held || held.key !== key) {
+      // The live counterpart of what is on screen, so the seed is today's ranking of this
+      // subtree. `filled` is the repo as it stands; the frame's node is the fallback for a
+      // path that no longer exists at HEAD, where today has no opinion to seed from.
+      const live = filled && focus ? findById(filled, focus.id) : filled
+      held = { key, order: rankCategories(live ?? at, viewMode) }
+      heldRanks.current = held
+    }
+    const order = new Map(held.order)
+    let next = order.size
+    for (const name of fresh.keys()) if (!order.has(name)) order.set(name, next++)
+    // Written back so the next frame appends after these rather than renumbering them.
+    held.order = order
+    return order
+  }, [focus, tree, viewMode, replaying, filled])
   /** The repo's own span for the age ramp. Never consulted during a replay: a frame's
    *  colour is a flare measured in commits, not a position on this scale — see
    *  `Score.recency`. */
