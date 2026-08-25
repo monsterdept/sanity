@@ -535,17 +535,23 @@ class Shot {
     // **Between the two pinned blocks.** The title and its timeline are at the top of the
     // column and the byline at the foot, so the key gets the middle and can be any height
     // that fits there without moving either of them.
+    // **The two gaps are one number.** `head` is the baseline of the date under the title and
+    // `foot` is the byline's, so the key hangs between two fixed lines — and rather than being
+    // pinned to the top of that band with the slack piling up underneath, it is centred in it
+    // by BASELINE. The distance from the date to `BLAME` then equals the distance from the
+    // last name to `charted by`, whatever the cast happens to be.
     const big = Math.max(11, Math.round(this.h * 0.026))
     const head = this.rule
       ? this.rule.base +
         Math.round(big * 2.6) +
         Math.max(2, Math.round(this.h * 0.004)) +
-        Math.round(big * 1.7) +
-        Math.round(big * 2.4)
+        Math.round(big * 1.7)
       : Math.round(this.h * PAD * 1.6)
-    const foot = this.h - Math.round(this.h * PAD * 1.6) - Math.round(big * 2.2)
+    const foot = this.h - Math.round(this.h * PAD * 1.6)
     const space = foot - head
-    const fits = Math.max(0, Math.floor(space / row) - 1)
+    // One row of slack at each end is the least this can look like a block rather than a
+    // list that ran into the byline; below that there is no room for a key at all.
+    const fits = Math.max(0, Math.floor(space / row) - 3)
     if (fits < 2) return
     // **Columns, because the margin is wide and the space under the caption is not.** One
     // column fits five of sixteen authors on a 4K frame; the same key in three columns fits
@@ -558,7 +564,11 @@ class Shot {
     const shown = key.ramp ? key.entries : key.entries.slice(0, capacity)
     const more = key.more + (key.entries.length - shown.length)
     const perCol = cols > 1 ? Math.ceil((shown.length + (more > 0 ? 1 : 0)) / cols) : shown.length
-    let y = head + row
+    // Baselines: the title, then one per row. `gap` is what makes the two ends match — see
+    // above; it can never be less than a row, or the key would crowd the line it sits under.
+    const bodyRows = cols > 1 ? perCol : shown.length + (more > 0 ? 1 : 0)
+    const gap = Math.max(row, Math.round((space - bodyRows * row) / 2))
+    let y = head + gap
 
     const fore = ink(this.svg, '--foreground') || '#111'
     const muted = ink(this.svg, '--muted-foreground') || fore
@@ -566,7 +576,8 @@ class Shot {
     c.textBaseline = 'alphabetic'
     c.font = `700 ${small}px ${FAMILY}`
     c.fillStyle = muted
-    c.fillText(key.title.toUpperCase(), left, y - row)
+    c.fillText(key.title.toUpperCase(), left, y)
+    y += row
 
     if (key.ramp) {
       // The stops as they are, not a smoothed gradient: the ramp has five and the map paints
