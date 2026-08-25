@@ -2214,7 +2214,6 @@ export default function App() {
                 <div className="absolute bottom-2 right-2 z-20">
                   <ColorLegend
                     mode={viewMode}
-                    history={replaying}
                     // From `focus`, like the ranks it has to agree with — a legend naming
                     // eight authors the rings in front of you do not contain is annotating a
                     // picture nobody is looking at. The comment below said this before the

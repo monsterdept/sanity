@@ -242,6 +242,27 @@ export function HistoryBar({
           aria-label="commit"
         />
 
+        {/* **The two events, beside the playhead they belong to.** They lived in the colour
+            legend, which was right while a replay painted nothing else and wrong the moment
+            the lenses started painting frames: two swatches landed in the middle of sixteen
+            author names, in a box already sitting over the map. What `new` and `changed` are
+            about is the commit under the transport, not the encoding — so they key here, and
+            the legend went back to being about colour. */}
+        <div className="mr-1 flex shrink-0 items-center gap-2">
+          {[
+            ['--birth', 'new'],
+            ['--touch', 'changed'],
+          ].map(([token, word]) => (
+            <span key={token} className="flex items-center gap-1">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                style={{ background: `var(${token})` }}
+              />
+              <span className="text-[10px] text-[var(--muted-foreground)]">{word}</span>
+            </span>
+          ))}
+        </div>
+
         <div className="flex shrink-0 items-center gap-0.5">
           {DURATIONS.map((d) => (
             <button

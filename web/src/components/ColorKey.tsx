@@ -8,7 +8,6 @@ import {
   slotColor,
   type ColorMode,
   paintsFromReadings,
-  REPLAY,
 } from '../lib/colorMode'
 import { heatColor, type Ramp } from '../lib/api'
 
@@ -65,7 +64,6 @@ function Legend({
   mode,
   categories,
   ranks,
-  history = false,
 }: {
   mode: ColorMode
   categories: string[]
@@ -78,43 +76,14 @@ function Legend({
    *  opened with Hisham Muhammad against a blue dot and a mauve map. Same value, two answers,
    *  and the legend is the one a reader trusts. */
   ranks?: Map<string, number>
-  history?: boolean
 }) {
-  // **The events, and the lens as well when the lens is painting.** A replay used to key one
-  // thing — arrival and edit — because the map was forced to `age` and the switcher greyed.
-  // A frame carries its own churn, age and language, so the key now says both: what the
-  // flashes mean, and what the colour underneath them is. A lens the replay cannot paint
-  // (see `REPLAY`) leaves the wedges uncoloured, and its half of the key goes with them.
-  if (history) {
-    const events = [
-      ['--birth', 'new'],
-      ['--touch', 'changed'],
-    ].map(([token, word]) => (
-      // Squares, like the trap key below and for the same reason: these are events a wedge
-      // either had or did not, not positions on a scale. Arrival leads, because it is the
-      // loud one and the order on the key should match the order the eye picks them out in.
-      <span key={token} className="flex items-center gap-1">
-        <span
-          className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-          style={{ background: `var(${token})` }}
-        />
-        <span className="text-[10px] text-[var(--muted-foreground)]">{word}</span>
-      </span>
-    ))
-    if (REPLAY[mode] !== 'live') return <div className="flex items-center gap-2.5">{events}</div>
-    return (
-      <div className="flex items-center gap-2.5">
-        <Legend mode={mode} categories={categories} ranks={ranks} />
-        {/* A hairline, because these are two keys for one picture rather than one key with
-            six entries: above the rule is what the colour means, below it what a flash does. */}
-        <span
-          className="h-3 w-px shrink-0"
-          style={{ background: 'color-mix(in oklch, var(--foreground) 20%, transparent)' }}
-        />
-        {events}
-      </div>
-    )
-  }
+  // **The replay's two events are keyed on the TRANSPORT, not here.** They used to sit in
+  // this row behind a hairline, which was fine while a replay painted nothing else: the key
+  // had two entries. With the lenses painting frames and sixteen authors named, the two
+  // swatches landed in the middle of the cast — a row of people, then `new`, `changed`, then
+  // more people — and cost the width of two names in a box that is already over the map.
+  // They belong beside the playhead anyway: they are a fact about the commit under it rather
+  // than about the encoding. See `HistoryBar`.
   if (categories.length > 0) {
     // **In slot order, not in this frame's order.** With a held rank map the two can differ —
     // a person who is second today may be the only author in the frame on screen — and a
@@ -377,7 +346,6 @@ export function ColorLegend({
   mode,
   categories,
   ranks,
-  history = false,
   stale = 0,
   unread = 0,
 }: {
@@ -385,8 +353,6 @@ export function ColorLegend({
   categories: string[]
   /** The slot map the wedges use — see `Legend`. */
   ranks?: Map<string, number>
-  /** Replaying. The key then describes the flash rather than the pinned lens. */
-  history?: boolean
   /** Wedges drawn with the stale hatch. Each entry only appears when there are some —
    *  a legend entry for a texture that is nowhere on screen teaches the reader to
    *  ignore the legend. */
@@ -396,7 +362,7 @@ export function ColorLegend({
 }) {
   return (
     <div className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-2 py-1.5">
-      <Legend mode={mode} categories={categories} ranks={ranks} history={history} />
+      <Legend mode={mode} categories={categories} ranks={ranks} />
       {paintsFromReadings(mode) && (stale > 0 || unread > 0) && (
         /* The two things the ramp above cannot explain: a wedge can be hatched, or it can
            be uncolored. Both are absences of a reading rather than positions on the
