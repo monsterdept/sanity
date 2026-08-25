@@ -150,9 +150,13 @@
    * history to show through it, and an edit is a thing that happened to something that was
    * already there.
    *
-   * Measured, in WCAG contrast: light mode, `--birth` is 15.5 against paper and `--touch`
-   * 5.2, with 3.0 between the two; dark mode, 9.4 and 4.4 against `--unanalyzed`, with 2.1
-   * between them. Literal hex on both, not a `color-mix()`: `ink.ts` resolves a token by
+   * Measured, in WCAG contrast, and the two themes are deliberately the same weight rather
+   * than each taken to its own extreme. Light mode: `--birth` 9.7 against paper and `--touch`
+   * 3.8, with 2.6 between the two. Dark mode: 9.4 and 4.4 against `--unanalyzed`, with 2.1
+   * between them. Ink itself was the first light-mode value and read as a hole punched in the
+   * map — 15.5 against paper, half again as loud as anything the dark theme does, because the
+   * ground it has to beat is pale and ink overshoots it. The extreme is a DIRECTION here, not
+   * a literal endpoint. Literal hex on both, not a `color-mix()`: `ink.ts` resolves a token by
    * reading its computed value and only accepts `#rrggbb`, so a mix would return null and
    * every label on a flashed wedge would quietly fall back to the chrome ink.
    *
@@ -161,8 +165,8 @@
    * events), `--trap`'s pink with purple (loud, but spent the one colour this app teaches as
    * "this will bite you" on "this is new"), and the greens above (legible while a replay was
    * uncoloured, ambiguous the moment it was not). */
-  --birth: #1a1a1a;
-  --touch: #6b645d;
+  --birth: #403c37;
+  --touch: #807971;
   --warning: #bf965d;
   --success: #597244;
 
