@@ -1658,12 +1658,21 @@ export default function App() {
    *  eight slots rather than the repo's. Moving through TIME asks for the opposite — the same
    *  person, the same colour, from the first frame to the last.
    *
-   *  So the order is keyed on the scope and the lens, seeded once from the tree as it stands
-   *  TODAY, and only ever appended to. Seeding from today rather than from the opening frame
-   *  is what makes a replay's colours match the live map you left, and it hands the good slots
-   *  to the people who actually wrote the code rather than to whoever happened to commit first.
-   *  Somebody who has since left the repo is not in that seed and joins at the end, which is
-   *  the honest place for them: the palette is eight deep and they are not in today's eight. */
+   *  So the order is keyed on the scope and the lens, starts EMPTY, and is only ever appended
+   *  to: a person takes the next free slot the first time they appear, and keeps it for the
+   *  rest of the story. Which means a replay's slots are assigned by arrival rather than by
+   *  size, and that is the right order for a story — the first six people to touch a directory
+   *  get the first six colours, whatever they went on to write.
+   *
+   *  It cannot be seeded from today's ranking, which was the first attempt: the people who
+   *  open a repo's history are rarely its biggest authors by the end, so every early frame
+   *  came out past the palette and grey. The cost of arrival order is the mirror of that — an
+   *  author who arrives late is far down the list however much they eventually write — and it
+   *  is the cheaper of the two, because a replay is watched from the start.
+   *
+   *  It also means the live map and the replay can disagree about a person's colour. They are
+   *  answering different questions: one ranks by how much of the code is yours now, the other
+   *  by when you first touched it. */
   const heldRanks = useRef<{ key: string; order: Map<string, number> } | null>(null)
   const ranks = useMemo(() => {
     const at = focus ?? tree
@@ -1674,11 +1683,13 @@ export default function App() {
     const key = `${viewMode}|${focus?.id ?? ''}`
     let held = heldRanks.current
     if (!held || held.key !== key) {
-      // The live counterpart of what is on screen, so the seed is today's ranking of this
-      // subtree. `filled` is the repo as it stands; the frame's node is the fallback for a
-      // path that no longer exists at HEAD, where today has no opinion to seed from.
-      const live = filled && focus ? findById(filled, focus.id) : filled
-      held = { key, order: rankCategories(live ?? at, viewMode) }
+      // **Empty, and filled in the order people ARRIVE.** Seeding from today's ranking was
+      // the first attempt and it made the beginning of every story grey: ceph's `rgw` opens
+      // with six authors, all of them a long way down a list of thirty-nine, so all six were
+      // past the palette and the map drew `other (6)` over a directory six people had
+      // written. A replay's early frames are exactly where the cast is small enough to
+      // colour, and that was the moment it had nothing to say.
+      held = { key, order: new Map() }
       heldRanks.current = held
     }
     const order = new Map(held.order)
@@ -1687,7 +1698,7 @@ export default function App() {
     // Written back so the next frame appends after these rather than renumbering them.
     held.order = order
     return order
-  }, [focus, tree, viewMode, replaying, filled])
+  }, [focus, tree, viewMode, replaying])
   /** The repo's own span for the age ramp. Never consulted during a replay: a frame's
    *  colour is a flare measured in commits, not a position on this scale — see
    *  `Score.recency`. */
