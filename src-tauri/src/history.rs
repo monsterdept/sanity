@@ -695,7 +695,24 @@ const WINDOW: usize = 500;
 /// Deduplicated by `(path, blob)`: a file reverted inside the window, or two commits landing
 /// the same content, is read once. The blob text is dropped as soon as it is parsed, so what
 /// this holds is function lists rather than sources.
-fn prefetch(blobs: &mut Blobs, log: &[RawCommit], progress: &dyn Fn(Progress)) -> Parsed {
+///
+/// **`at` and `total` are the WALK's numbers, and this reports them unchanged.** `parse_batch`
+/// counts file versions against a total that belongs to one window — a few thousand — while
+/// the loop around it counts commits against the whole trace. Passed straight through, the two
+/// alternated on one progress line several times a second: `1,204 / 3,180 files`, then
+/// `61,003 / 122,791 traced`, then back. A bar whose denominator changes is not a bar, and on
+/// ceph it looked like the walk was losing ground.
+///
+/// So the fraction here stays where the commits left it and only the PHASE moves. The bar
+/// holds still while a window's blobs are read, which is the truth: none of those commits are
+/// folded yet, and the word says what is happening in the meantime.
+fn prefetch(
+    blobs: &mut Blobs,
+    log: &[RawCommit],
+    at: usize,
+    total: usize,
+    progress: &dyn Fn(Progress),
+) -> Parsed {
     let mut want: Vec<(String, String)> = Vec::new();
     let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
     for c in log {
@@ -711,7 +728,9 @@ fn prefetch(blobs: &mut Blobs, log: &[RawCommit], progress: &dyn Fn(Progress)) -
         }
     }
     let keys = want.clone();
-    parse_batch(blobs, want, progress)
+    // The phase word from the batch, the numbers from the walk.
+    let held = |p: Progress| progress(Progress::counting(&p.phase, "traced", at, total));
+    parse_batch(blobs, want, &held)
         .into_iter()
         .zip(keys)
         .map(|((_, state), (path, sha))| ((path, sha), state))
@@ -1274,7 +1293,7 @@ pub fn read(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> HistorySc
     // A window's file versions are read and parsed together, then its commits are applied
     // one at a time — see `WINDOW`. Frames stay per commit; only the parsing is batched.
     'walk: for (w, window) in log.chunks(WINDOW).enumerate() {
-        let ready = prefetch(&mut blobs, window, progress);
+        let ready = prefetch(&mut blobs, window, w * WINDOW + 2, total, progress);
         for (n, commit) in window.iter().enumerate() {
             if cancelled() {
                 break 'walk;
@@ -1451,7 +1470,7 @@ fn extend(repo: &Path, cached: HistoryScan, limit: usize, progress: &dyn Fn(Prog
     let mut r = Replayer::resume(cached);
     let total = banked + log.len();
     'walk: for (w, window) in log.chunks(WINDOW).enumerate() {
-        let ready = prefetch(&mut blobs, window, progress);
+        let ready = prefetch(&mut blobs, window, banked + w * WINDOW, total, progress);
         for (n, commit) in window.iter().enumerate() {
             if cancelled() {
                 break 'walk;
@@ -2221,6 +2240,55 @@ mod tests {
         let scan = read(dir.path(), ALL_COMMITS, &|_| {});
         let gone: Vec<_> = scan.commits.iter().flat_map(|c| c.unread.clone()).collect();
         assert_eq!(gone.len(), 1, "the reading is retired by the commit that deleted it");
+    }
+
+    /// One bar, one denominator, and it only ever climbs.
+    ///
+    /// **The walk reports two different things and used to put both on the same line.**
+    /// `parse_batch` counts file versions against a total that belongs to one window;
+    /// the loop counts commits against the whole trace. Passed straight through they
+    /// alternated several times a second — `1,204 / 3,180 files`, then `61,003 / 122,791
+    /// traced`, then back — which on a large repo reads as a walk losing ground.
+    #[test]
+    fn a_trace_reports_one_denominator_and_never_goes_backwards() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .output()
+                .expect("git runs");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "ada@example.com"]);
+        git(&["config", "user.name", "Ada"]);
+        for i in 0..8 {
+            std::fs::write(dir.path().join(format!("f{i}.rs")), format!("fn f{i}() {{ {i} }}\n"))
+                .expect("writes");
+            git(&["add", "-A"]);
+            git(&["commit", "-q", "-m", &format!("commit {i}")]);
+        }
+
+        let seen = std::sync::Mutex::new(Vec::new());
+        let _ = read(dir.path(), ALL_COMMITS, &|p: Progress| {
+            if p.total > 0 {
+                seen.lock().unwrap().push((p.phase.clone(), p.done, p.total));
+            }
+        });
+        let seen = seen.into_inner().unwrap();
+
+        // The log read is its own phase with its own count — a distinct step, not an
+        // alternation. Everything from the walk itself shares one total.
+        let walk: Vec<_> = seen.iter().filter(|(phase, ..)| phase != "reading the log").collect();
+        assert!(!walk.is_empty(), "the walk reported something");
+        let totals: std::collections::BTreeSet<usize> = walk.iter().map(|(_, _, t)| *t).collect();
+        assert_eq!(totals.len(), 1, "one denominator for the whole walk, got {totals:?}");
+        let mut last = 0;
+        for (phase, done, _) in &walk {
+            assert!(*done >= last, "progress went backwards at {phase}: {done} after {last}");
+            last = *done;
+        }
     }
 }
 
