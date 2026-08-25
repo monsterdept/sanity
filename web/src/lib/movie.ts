@@ -520,12 +520,32 @@ class Shot {
     const small = Math.max(10, Math.round(this.h * 0.022))
     const row = Math.round(small * 1.7)
     const box = Math.round(small * 0.8)
-    const rows = key.ramp ? 2 : key.entries.length + (key.more > 0 ? 1 : 0)
-    const height = row * (rows + 1)
+    // **Fitted to the space rather than tested against it.** The first version measured the
+    // whole key and returned if it would not fit, which on a 4K frame with sixteen authors
+    // meant it never drew at all: seventeen rows is fourteen hundred pixels and the caption
+    // is centred in the middle of the column. A key that names ten of sixteen is a key; a key
+    // that names none because it could not name all is a bug, and it looked exactly like the
+    // feature being missing.
     const pad = Math.round(this.h * PAD)
+    // Below the caption block: the rule, the date under it and the signature under that.
+    const floor = this.rule ? this.rule.base + this.ruleDrop() + row : pad
+    const space = this.h - pad - floor
+    const fits = Math.max(0, Math.floor(space / row) - 1)
+    if (fits < 2) return
+    // **Columns, because the margin is wide and the space under the caption is not.** One
+    // column fits five of sixteen authors on a 4K frame; the same key in three columns fits
+    // all of them, in a margin that is a thousand pixels across and otherwise empty.
+    c.font = `400 ${small}px ${FAMILY}`
+    const widest = key.entries.reduce((w, e) => Math.max(w, c.measureText(e.label).width), 0)
+    const colW = Math.round(box * 1.6 + widest + small * 1.4)
+    const cols = key.ramp ? 1 : Math.max(1, Math.min(Math.floor(room / colW), 4))
+    const capacity = fits * cols
+    const shown = key.ramp ? key.entries : key.entries.slice(0, capacity)
+    const more = key.more + (key.entries.length - shown.length)
+    const perCol = cols > 1 ? Math.ceil((shown.length + (more > 0 ? 1 : 0)) / cols) : shown.length
+    const rows = key.ramp ? 2 : Math.min(fits, perCol) + (cols > 1 ? 0 : more > 0 ? 1 : 0)
+    const height = row * (rows + 1)
     let y = this.h - pad - height
-    // The caption is centred; if the key would climb into it, it is the key that gives way.
-    if (this.rule && y < this.rule.base + row) return
 
     const fore = ink(this.svg, '--foreground') || '#111'
     const muted = ink(this.svg, '--muted-foreground') || fore
@@ -557,16 +577,26 @@ class Shot {
     }
 
     c.font = `400 ${small}px ${FAMILY}`
-    for (const e of key.entries) {
+    const top = y
+    shown.forEach((e, i) => {
+      const col = Math.floor(i / perCol)
+      const x = left + col * colW
+      const ry = top + (i % perCol) * row
       c.fillStyle = ink(this.svg, e.token) || muted
-      c.fillRect(left, y - box, box, box)
+      c.fillRect(x, ry - box, box, box)
       c.fillStyle = fore
-      c.fillText(e.label, left + Math.round(box * 1.6), y)
-      y += row
-    }
-    if (key.more > 0) {
+      c.fillText(e.label, x + Math.round(box * 1.6), ry)
+    })
+    if (more > 0) {
+      // In the last column, under the names it is counting — never elided into silence.
+      const i = shown.length
+      const col = Math.min(cols - 1, Math.floor(i / perCol))
       c.fillStyle = muted
-      c.fillText(`+${key.more} more`, left + Math.round(box * 1.6), y)
+      c.fillText(
+        `+${more} more`,
+        left + col * colW + Math.round(box * 1.6),
+        top + (i % perCol) * row,
+      )
     }
   }
 
