@@ -299,8 +299,9 @@ class Shot {
       this.baseCtx.fillRect(0, 0, this.w, this.h)
       this.baseCtx.drawImage(img, this.map.x, this.map.y, this.map.side, this.map.side)
       this.caption()
-      this.legend()
       this.timeline()
+      this.legend()
+      this.signature()
     } finally {
       URL.revokeObjectURL(url)
     }
@@ -463,7 +464,12 @@ class Shot {
     // height of the fourth, and the empty half of the frame is the part people notice. The
     // signature is not in it: it is furniture at the foot of the frame, not part of what the
     // block is saying.
-    const top = Math.round((this.h - (eyebrow + size + toScope + this.ruleDrop())) / 2)
+    // **Top of the column, not the middle of it.** This margin holds three things — a title
+    // with its timeline, a key, and a byline — and they were laid out as one centred block
+    // with the key hung underneath, so the title drifted as the key grew and the byline sat
+    // between the two things it is not. Pinned top and bottom, the middle belongs to the key
+    // and it can be any height that fits there.
+    const top = Math.round(this.h * PAD * 1.6)
     const base = top + eyebrow + size
     const fore = ink(this.svg, '--foreground') || '#111'
     const muted = ink(this.svg, '--muted-foreground') || fore
@@ -526,10 +532,19 @@ class Shot {
     // is centred in the middle of the column. A key that names ten of sixteen is a key; a key
     // that names none because it could not name all is a bug, and it looked exactly like the
     // feature being missing.
-    const pad = Math.round(this.h * PAD)
-    // Below the caption block: the rule, the date under it and the signature under that.
-    const floor = this.rule ? this.rule.base + this.ruleDrop() + row : pad
-    const space = this.h - pad - floor
+    // **Between the two pinned blocks.** The title and its timeline are at the top of the
+    // column and the byline at the foot, so the key gets the middle and can be any height
+    // that fits there without moving either of them.
+    const big = Math.max(11, Math.round(this.h * 0.026))
+    const head = this.rule
+      ? this.rule.base +
+        Math.round(big * 2.6) +
+        Math.max(2, Math.round(this.h * 0.004)) +
+        Math.round(big * 1.7) +
+        Math.round(big * 2.4)
+      : Math.round(this.h * PAD * 1.6)
+    const foot = this.h - Math.round(this.h * PAD * 1.6) - Math.round(big * 2.2)
+    const space = foot - head
     const fits = Math.max(0, Math.floor(space / row) - 1)
     if (fits < 2) return
     // **Columns, because the margin is wide and the space under the caption is not.** One
@@ -543,9 +558,7 @@ class Shot {
     const shown = key.ramp ? key.entries : key.entries.slice(0, capacity)
     const more = key.more + (key.entries.length - shown.length)
     const perCol = cols > 1 ? Math.ceil((shown.length + (more > 0 ? 1 : 0)) / cols) : shown.length
-    const rows = key.ramp ? 2 : Math.min(fits, perCol) + (cols > 1 ? 0 : more > 0 ? 1 : 0)
-    const height = row * (rows + 1)
-    let y = this.h - pad - height
+    let y = head + row
 
     const fore = ink(this.svg, '--foreground') || '#111'
     const muted = ink(this.svg, '--muted-foreground') || fore
@@ -553,8 +566,7 @@ class Shot {
     c.textBaseline = 'alphabetic'
     c.font = `700 ${small}px ${FAMILY}`
     c.fillStyle = muted
-    c.fillText(key.title.toUpperCase(), left, y)
-    y += row
+    c.fillText(key.title.toUpperCase(), left, y - row)
 
     if (key.ramp) {
       // The stops as they are, not a smoothed gradient: the ramp has five and the map paints
@@ -577,11 +589,11 @@ class Shot {
     }
 
     c.font = `400 ${small}px ${FAMILY}`
-    const top = y
+    const first = y
     shown.forEach((e, i) => {
       const col = Math.floor(i / perCol)
       const x = left + col * colW
-      const ry = top + (i % perCol) * row
+      const ry = first + (i % perCol) * row
       c.fillStyle = ink(this.svg, e.token) || muted
       c.fillRect(x, ry - box, box, box)
       c.fillStyle = fore
@@ -595,14 +607,21 @@ class Shot {
       c.fillText(
         `+${more} more`,
         left + col * colW + Math.round(box * 1.6),
-        top + (i % perCol) * row,
+        first + (i % perCol) * row,
       )
     }
   }
 
-  private signature(left: number, base: number): void {
+  /** Whose instrument drew this, at the foot of the column.
+   *
+   *  **Bottom-aligned, because it is the last thing rather than the next thing.** It hung a
+   *  fixed distance under the date, which made it the middle of three blocks and left the key
+   *  — the part somebody reads the map with — below the byline. */
+  private signature(): void {
+    const { left } = this.column()
     const c = this.baseCtx
     const small = Math.max(11, Math.round(this.h * 0.026))
+    const base = this.h - Math.round(this.h * PAD * 1.6)
     c.textAlign = 'left'
     c.textBaseline = 'alphabetic'
     c.font = `400 ${small}px ${FAMILY}`
@@ -612,19 +631,6 @@ class Shot {
 
   /** Where the caption ended, so the timeline can line up with it rather than recompute it. */
   private rule: { left: number; right: number; base: number } | null = null
-
-  /** How far the timeline and the signature under it reach below the caption's last
-   *  baseline. One definition, because the caption centres the block by it and `timeline`
-   *  draws inside it. */
-  private ruleDrop(): number {
-    const small = Math.max(11, Math.round(this.h * 0.026))
-    return (
-      Math.round(small * 2.6) +
-      Math.max(2, Math.round(this.h * 0.004)) +
-      Math.round(small * 1.7) +
-      Math.round(small * 3.2)
-    )
-  }
 
   /**
    * Where in the story this frame stands: a rule with the passed part filled, the commit's
@@ -675,10 +681,8 @@ class Shot {
       y + thick + Math.round(small * 1.7),
     )
     c.textAlign = 'left'
-    // Set apart from the dates above it: the timeline row and this are two different kinds
-    // of statement — where the playhead is, and who drew the thing — and at one line's
-    // leading they read as a three-line list where the last item is the odd one out.
-    this.signature(r.left, y + thick + Math.round(small * 1.7) + Math.round(small * 3.2))
+    // The byline is not drawn here any more: it is pinned to the foot of the column, under
+    // the key rather than above it. See `signature`.
   }
 }
 
