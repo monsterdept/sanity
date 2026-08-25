@@ -2084,6 +2084,7 @@ export default function App() {
                     // somebody who is reading it, and sliding the wedges there would animate a
                     // measurement arriving rather than a story advancing.
                     morph={replaying}
+                    replaying={replaying}
                     density={staged?.px ?? null}
                     onSide={setPaneSide}
                     sortBy={headOrder}

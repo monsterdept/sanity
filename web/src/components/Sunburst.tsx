@@ -380,6 +380,7 @@ function SunburstView({
   onUp,
   mascot,
   morph,
+  replaying = false,
   sortBy,
   density,
   onSide,
@@ -415,6 +416,12 @@ function SunburstView({
    *  reading changes wedges too, and sliding them under somebody who is reading the map is
    *  a different decision from smoothing a replay they asked to watch. */
   morph?: boolean
+  /** A replay is on screen, so a function with no reading AT THIS COMMIT is drawn as unread
+   *  rather than as nothing — see where the hatch is applied. Separate from `morph`, which
+   *  happens to be true at the same times: one is about easing geometry and this is about
+   *  what an absent reading means, and a prop that means two things is one that gets passed
+   *  for the wrong reason later. */
+  replaying?: boolean
   /** Lay the map out as though the pane were this many pixels across.
    *
    *  **What "more detail" means, in one number.** Every threshold that decides whether a
@@ -1686,6 +1693,25 @@ function SunburstView({
                           fill="url(#unreadable-hatch)"
                         />
                       )}
+                      {/* **In a replay, NOT YET READ is drawn rather than left blank.** The
+                    frames carry the readings the repo held at each commit, so under these
+                    three lenses a function without one is a fact about that moment — nobody
+                    had looked yet — and the whole point of folding the shards is watching
+                    that hatch clear as the story runs. Traps is left out: there, an absence
+                    is already drawn as the structural neutral and hatching every unread
+                    wedge would cover a map whose finding is the handful that are marked. */}
+                      {replaying &&
+                        mode !== 'traps' &&
+                        paintsFromReadings(mode) &&
+                        slot.node.kind === 'func' &&
+                        !slot.node.agent && (
+                          <path
+                            className="pointer-events-none"
+                            d={d}
+                            fill="url(#stale-hatch)"
+                            opacity={0.5}
+                          />
+                        )}
                       {/* Out with a reader — the same marker the file wedges take, applied one
                     level in. Both are needed: a file reading pulses the file's band, and a
                     function reading has to pulse the patch, because the patches are drawn

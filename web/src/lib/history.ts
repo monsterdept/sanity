@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { Node, Progress, Score } from './api'
+import { GRADE_DOCUMENTED, GRADE_SURPRISE } from './api'
+import type { AgentReport, Grade, Node, Progress, Score } from './api'
 import type { Deltas, Tables } from './timeline'
 
 /**
@@ -48,6 +49,9 @@ export interface HistoryCommit {
   /** `[func index, lines]` for everything this commit introduced or rewrote. */
   set: [number, number][]
   del: number[]
+  /** `[func index, packed grades]` — the readings this commit wrote. See `Delta.read`. */
+  read?: [number, number][]
+  unread?: number[]
   /** Files touched, including ones whose functions all kept their size — the glow is the
    *  story, and a rewrite that changes no line count is still a rewrite. */
   files: number[]
@@ -184,6 +188,15 @@ interface Frame {
   hits: Map<number, number[]>
   /** path index → who committed to it last. */
   author: Map<number, string>
+  /** func index → the reading this repo held for it AT this commit, packed.
+   *
+   *  **`.sanity/` is committed, so the readings are in the history like any other file.**
+   *  What a frame paints under Surprise, Legibility, Docs or Traps is therefore what the repo
+   *  KNEW about itself then — not today's grade stamped onto an older commit, which is the
+   *  thing that is still forbidden. A function missing from this map has not been read yet as
+   *  of this frame, which is a fact worth drawing rather than a hole: watching it fill in is
+   *  the point of folding these at all. See `assessment::packed` for the layout. */
+  graded: Map<number, number>
   /** The frame's own "now". */
   ts: number
   /** Which commit this frame stands at; -1 is the opening state. */
@@ -197,6 +210,7 @@ function opening(hist: Tables): Frame {
     lines: 0,
     order: [],
     touched: new Map(),
+    graded: new Map(),
     bornAt: new Map(),
     born: new Map(),
     editedAt: new Map(),
@@ -209,6 +223,10 @@ function opening(hist: Tables): Frame {
     ts: hist.baseTs,
     at: -1,
   }
+  // The readings that came with the truncated prefix. Unlike a touch date, a reading from
+  // before the window is not a claim about when anything happened — it is what the repo knew
+  // at the moment the story starts, which is exactly what the opening frame should show.
+  for (const [f, packed] of hist.baseRead ?? []) frame.graded.set(f, packed)
   for (const [f, loc] of hist.base) {
     frame.loc.set(f, loc)
     frame.lines += loc
@@ -343,8 +361,11 @@ function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): void {
       frame.born.delete(f)
       frame.bornAt.delete(f)
       frame.editedAt.delete(f)
+      frame.graded.delete(f)
       frame.hits.delete(f)
     }
+    for (const [f, packed] of c.read ?? []) frame.graded.set(f, packed)
+    for (const f of c.unread ?? []) frame.graded.delete(f)
     for (const p of c.files) frame.author.set(p, c.author)
   }
   frame.at = Math.min(to, hist.commits - 1)
@@ -415,12 +436,47 @@ function inStep(at: number, since: number, index: number): boolean {
   return at > since && at <= index
 }
 
+/** One grade out of a packed reading — see `assessment::packed`. `undefined` is absent. */
+const GRADES: (Grade | undefined)[] = [undefined, 'none', 'some', 'most', 'full']
+function gradeAt(packed: number, shift: number): Grade | undefined {
+  return GRADES[(packed >> shift) & 7]
+}
+
+/** The reading this frame holds for a function, in the shape the map already reads.
+ *
+ *  **A synthesised report, not a stored one.** What crosses the wire is four answers packed
+ *  into two bytes; what `colorFor` asks for is `legibleOf(node.agent)` and `trapOf`, which
+ *  want an object. Building that object here rather than widening the wire keeps the timeline
+ *  small — a real `AgentReport` carries the prose, the provenance and the model, which is a
+ *  megabyte a shard and every version of it.
+ *
+ *  The dated flags are false because the packing already applied them: `packed` drops a
+ *  superseded axis at the Rust end, so an absent grade here means "not asked, or asked under
+ *  a question that has since moved", and both draw the same way — unread.
+ *
+ *  Mutated in place like everything else in a frame. See the pooling note above.
+ */
+function readingInto(into: AgentReport | null, packed: number): AgentReport {
+  const r = into ?? ({ legibleDated: false, trapDated: false } as AgentReport)
+  r.predicted = gradeAt(packed, 0)
+  r.documented = gradeAt(packed, 3)
+  r.legible = gradeAt(packed, 6)
+  r.trap = ((packed >> 9) & 1) === 1
+  return r
+}
+
 /** A function's score as of one frame, written into `into` when there is one to reuse.
  *
  *  Every field it cannot honestly fill is left at the value that means "no claim":
  *  surprise stays 0 with `analyzedShare` 0, which is exactly what `isAnalyzed` refuses to
  *  color. */
-function scoreInto(into: Score | null, frame: Frame, f: number, since: number): Score {
+function scoreInto(
+  into: Score | null,
+  frame: Frame,
+  f: number,
+  since: number,
+  packed: number | undefined,
+): Score {
   const touched = frame.touched.get(f)
   const at = frame.bornAt.get(f)
   const edit = frame.editedAt.get(f)
@@ -448,6 +504,20 @@ function scoreInto(into: Score | null, frame: Frame, f: number, since: number): 
   s.ageDays = born === undefined ? null : daysBetween(frame.ts, born)
   s.lastTouchedDays = touched === undefined ? null : daysBetween(frame.ts, touched)
   s.commits = commits
+  // **What the repo knew about this function at this commit.** Absent is the common case
+  // early in a story and it is a finding rather than a hole — `analyzedShare` of 0 is what
+  // `isAnalyzed` refuses to colour, so an unread function draws as unread and the map fills
+  // in as the readings land.
+  const predicted = packed === undefined ? undefined : gradeAt(packed, 0)
+  const documented = packed === undefined ? undefined : gradeAt(packed, 3)
+  s.surprise = predicted ? GRADE_SURPRISE[predicted] : 0
+  s.documented = documented ? GRADE_DOCUMENTED[documented] : 0
+  s.analyzedShare = predicted ? 1 : 0
+  s.hotShare = predicted ? GRADE_SURPRISE[predicted] : 0
+  // `isAnalyzed` asks a FUNCTION for its source rather than for a share, so a frame that
+  // holds a reading has to say where it came from — left at `proxy` the wedge would carry a
+  // grade and refuse to draw it.
+  s.source = predicted ? 'agent' : 'proxy'
   // Written every time, including to null: these Score objects are POOLED and reused frame
   // to frame, so a field left alone keeps the last function's answer.
   s.appeared = at !== undefined && inStep(at, since, frame.at) ? 1 : null
@@ -483,6 +553,14 @@ function aggregate(node: Node, appearedOf: (id: string) => number | null): void 
   let age: number | null = null
   let touched: number | null = null
   let commits = 0
+  // **Two reading roll-ups, because two lenses ask a container for a number rather than
+  // walking it.** Legibility and Docs answer a directory by walking its children for their
+  // grades, which a frame's nodes now carry; Surprise asks the container itself, via
+  // `hotShare`, and `isAnalyzed` gates on `analyzedShare`. Both are LOC-weighted, the same
+  // way the live scan rolls them up in Rust — a directory half of whose lines nobody has
+  // read is half analysed, not unanalysed.
+  let hot = 0
+  let readLines = 0
   for (const c of node.children) {
     const s = c.score
     if (!s) continue
@@ -491,6 +569,8 @@ function aggregate(node: Node, appearedOf: (id: string) => number | null): void 
     // this file through `node.loc` above, which is what keeps a file the size it is
     // whatever its inside looks like.
     if (c.rest !== undefined) continue
+    hot += (s.hotShare ?? 0) * c.loc
+    readLines += (s.analyzedShare ?? 0) * c.loc
     const cw = Math.max(c.loc, 1)
     w += cw
     churn += s.churn * cw
@@ -512,9 +592,9 @@ function aggregate(node: Node, appearedOf: (id: string) => number | null): void 
     lastTouchedDays: touched,
     commits,
     provenance: 'history',
-    hotShare: 0,
+    hotShare: node.loc > 0 ? hot / node.loc : 0,
     source: 'proxy',
-    analyzedShare: 0,
+    analyzedShare: node.loc > 0 ? readLines / node.loc : 0,
     // **Never rolled up.** A container flashes on its OWN arrival and on nothing else, so
     // this is filled from the frame's own record of when this path first existed — see
     // `enter`. Rolled up from the children it meant that adding one function lit its file,
@@ -830,7 +910,12 @@ export function frameTree(
     // a fresh allocation wearing a cache's clothes.
     node.loc = loc
     node.lastAuthor = frame.author.get(def.path) ?? null
-    node.score = scoreInto(node.score, frame, f, since)
+    const packed = frame.graded.get(f)
+    node.score = scoreInto(node.score, frame, f, since, packed)
+    // The reading itself, for the two lenses that read it as a report rather than as a
+    // number. Cleared when this frame has none, or a pooled node keeps the last one's.
+    node.agent = packed === undefined ? undefined : readingInto(node.agent ?? null, packed)
+    node.agentStale = false
     file.children.push(node)
   }
 

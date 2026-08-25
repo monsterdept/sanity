@@ -115,6 +115,25 @@ fn key_of(path: &str, f: &HistoryFunc) -> String {
     format!("{path}#{owner}::{}#{}", f.name, f.ord)
 }
 
+/// A `.sanity/` shard: the Markdown a repo's readings are committed as.
+///
+/// The index (`README.md`) is a shard by this test and holds no entries, so it folds to an
+/// empty map and costs one parse of a small file per commit that touches it. Naming it here
+/// to exclude it would be a second place that knows the store's shape.
+fn is_shard(path: &str) -> bool {
+    path.starts_with(".sanity/") && path.ends_with(".md")
+}
+
+/// The key `.sanity/` files this function under — `assessment::key_of` in the walk's terms.
+///
+/// **Ord is one-based here and zero-based there**, and the first twin has no suffix at all,
+/// so the arithmetic is not decorative: getting it wrong silently files every second `init`
+/// in a Swift file under the first one's reading, which is the failure `key_of` was written
+/// against in the first place.
+fn reading_key(path: &str, f: &FuncAt) -> String {
+    crate::assessment::key_of(path, &f.name, f.ord.saturating_sub(1) as usize)
+}
+
 /// One commit, as the difference it made to the picture.
 ///
 /// A delta rather than a snapshot. Snapshots are the obvious encoding and they are
@@ -134,6 +153,18 @@ pub struct HistoryCommit {
     pub set: Vec<(u32, u32)>,
     /// Functions this commit removed.
     pub del: Vec<u32>,
+    /// Readings this commit wrote or changed, as `(func index, packed grades)`.
+    ///
+    /// **`.sanity/` is committed, so a repo's readings are in its history like anything
+    /// else.** A frame can therefore paint what the repo KNEW about itself at that commit,
+    /// which is a different question from what we know now and the reason the four reading
+    /// lenses stopped being classed as unreplayable. See [`crate::assessment::packed`].
+    #[serde(default)]
+    pub read: Vec<(u32, u16)>,
+    /// Functions whose reading this commit removed — a shard deleted, or an entry dropped
+    /// out of one because the function was gone by then.
+    #[serde(default)]
+    pub unread: Vec<u32>,
     /// Files this commit touched, as indices into `paths`.
     ///
     /// Not derivable from `set`/`del`: a commit can rewrite a function's body without
@@ -157,6 +188,10 @@ pub struct HistoryScan {
     pub funcs: Vec<HistoryFunc>,
     /// The state before the first frame — everything the truncated commits built.
     pub base: Vec<(u32, u32)>,
+    /// The readings as they stood at that point, for the same reason `base` exists: a
+    /// timeline that opens mid-story has to open with what the repo already knew.
+    #[serde(default)]
+    pub base_read: Vec<(u32, u16)>,
     /// When that state was reached, so the opening frame's ages have a "now" of their
     /// own rather than inheriting today's.
     pub base_ts: i64,
@@ -284,11 +319,19 @@ type FileState = Vec<FuncAt>;
 #[derive(Default)]
 struct Funcs {
     index: BTreeMap<String, u32>,
+    /// The same functions under the key a READING is filed by — `assessment::key_of`.
+    ///
+    /// Two key formats for one function, and this is the join between them. The walk keys by
+    /// `path#owner::name#ord` because it has to tell twins apart across commits and an owner
+    /// is part of that identity; `.sanity/` keys by `path#name` with a `#2`, `#3` suffix for
+    /// the second and third twin, because that is what a person reads in a shard. Neither is
+    /// wrong and neither can be dropped, so the map is built as functions are interned.
+    by_reading: BTreeMap<String, u32>,
     list: Vec<HistoryFunc>,
 }
 
 impl Funcs {
-    fn intern(&mut self, path_idx: u32, f: &FuncAt) -> u32 {
+    fn intern(&mut self, path_idx: u32, path: &str, f: &FuncAt) -> u32 {
         if let Some(i) = self.index.get(&f.key) {
             return *i;
         }
@@ -300,6 +343,7 @@ impl Funcs {
             ord: f.ord,
         });
         self.index.insert(f.key.clone(), i);
+        self.by_reading.insert(reading_key(path, f), i);
         i
     }
 }
@@ -783,6 +827,13 @@ struct Replayer {
     /// Live parse state, carried forward across commits. This is what makes the walk
     /// linear in file *versions* rather than in commits × files.
     state: BTreeMap<String, FileState>,
+    /// The readings as of the commit just applied: shard path → reading key → packed grades.
+    ///
+    /// **Carried forward for the same reason `state` is.** A commit that edits one shard
+    /// tells you nothing about the other three, and re-reading all of them per commit would
+    /// be the quadratic thing this module exists to avoid. Kept per SHARD rather than merged,
+    /// so a deleted shard can retire exactly its own entries.
+    shards: BTreeMap<String, BTreeMap<String, u16>>,
     out: HistoryScan,
 }
 
@@ -792,7 +843,9 @@ impl Replayer {
             paths: BTreeMap::new(),
             funcs: Funcs::default(),
             state: BTreeMap::new(),
+            shards: BTreeMap::new(),
             out: HistoryScan {
+                base_read: Vec::new(),
                 paths: Vec::new(),
                 langs: Vec::new(),
                 funcs: Vec::new(),
@@ -870,13 +923,69 @@ impl Replayer {
         tree: Vec<(String, String)>,
         progress: &dyn Fn(Progress),
     ) {
-        for (path, state_of) in parse_batch(blobs, tree, progress) {
+        // The shards are held back and folded LAST, for the one reason that matters: a
+        // reading joins to a function by key, and the functions have to exist to be joined
+        // to. Folded first, every entry in every shard would be skipped as unknown and the
+        // opening frame would claim a repo that had never read itself.
+        let (shards, sources): (Vec<_>, Vec<_>) =
+            tree.into_iter().partition(|(path, _)| is_shard(path));
+        for (path, state_of) in parse_batch(blobs, sources, progress) {
             let pi = self.path_idx(&path);
             for f in &state_of {
-                let fi = self.funcs.intern(pi, f);
+                let fi = self.funcs.intern(pi, &path, f);
                 self.out.base.push((fi, f.loc));
             }
             self.state.insert(path, state_of);
+        }
+        for (path, sha) in shards {
+            let text = blobs.read(&sha);
+            let mut read = Vec::new();
+            // Nothing to retire in a seed: this is the first thing the walk has heard of
+            // any of these shards, so every entry it can join is an arrival.
+            let mut unread = Vec::new();
+            self.fold_shard(&path, text.as_deref(), &mut read, &mut unread);
+            self.out.base_read.extend(read);
+        }
+    }
+
+    /// Fold one version of one `.sanity/` shard into the carried reading state.
+    ///
+    /// Returns what changed for the caller to put on the frame: entries whose packed grades
+    /// moved, and entries this version dropped. A shard the walk cannot join to a function —
+    /// a reading for code that was excluded, or that this timeline never interned — is
+    /// skipped rather than counted, because there is no wedge for it to paint.
+    fn fold_shard(
+        &mut self,
+        path: &str,
+        text: Option<&str>,
+        read: &mut Vec<(u32, u16)>,
+        unread: &mut Vec<u32>,
+    ) {
+        let mut next: BTreeMap<String, u16> = BTreeMap::new();
+        if let Some(text) = text {
+            let mut reports = std::collections::HashMap::new();
+            crate::assessment::parse_shard(text, &mut reports);
+            for (key, r) in &reports {
+                next.insert(key.clone(), crate::assessment::packed(r));
+            }
+        }
+        let prev = self.shards.remove(path).unwrap_or_default();
+        for (key, packed) in &next {
+            if prev.get(key) != Some(packed) {
+                if let Some(fi) = self.funcs.by_reading.get(key) {
+                    read.push((*fi, *packed));
+                }
+            }
+        }
+        for key in prev.keys() {
+            if !next.contains_key(key) {
+                if let Some(fi) = self.funcs.by_reading.get(key) {
+                    unread.push(*fi);
+                }
+            }
+        }
+        if !next.is_empty() {
+            self.shards.insert(path.to_string(), next);
         }
     }
 
@@ -890,6 +999,8 @@ impl Replayer {
             subject: commit.subject.clone(),
             set: Vec::new(),
             del: Vec::new(),
+            read: Vec::new(),
+            unread: Vec::new(),
             files: Vec::new(),
         };
 
@@ -913,6 +1024,23 @@ impl Replayer {
                     frame.del.push(*fi);
                 }
             }
+        }
+
+        // **The readings this commit wrote, folded before the code below it.** `.sanity/` is
+        // in the history like any other file, so a shard arrives as an ordinary change and
+        // the frame can carry what the repo knew about itself at this commit. Ordered before
+        // the source parse only so a shard and the code it describes landing in one commit
+        // report in the order a person would read them.
+        for c in &commit.changes {
+            if !is_shard(&c.path) {
+                continue;
+            }
+            let text = c.sha.as_ref().and_then(|sha| blobs.read(sha));
+            let mut read = Vec::new();
+            let mut unread = Vec::new();
+            self.fold_shard(&c.path, text.as_deref(), &mut read, &mut unread);
+            frame.read.extend(read);
+            frame.unread.extend(unread);
         }
 
         // Taken from the window's batch, and parsed here only if it is somehow missing —
@@ -941,7 +1069,7 @@ impl Replayer {
             let prev = self.state.get(&path).cloned().unwrap_or_default();
             let was: BTreeMap<&str, &FuncAt> = prev.iter().map(|f| (f.key.as_str(), f)).collect();
             for f in &next {
-                let fi = self.funcs.intern(pi, f);
+                let fi = self.funcs.intern(pi, &path, f);
                 // **Only what this commit actually changed.** A commit arrives as a set of
                 // changed FILES, and the whole file is re-parsed to diff it — so the
                 // obvious thing, and what this did, is to emit every function the new parse
@@ -1559,7 +1687,14 @@ fn is_ancestor(repo: &Path, sha: &str) -> bool {
 /// different claim. A stored timeline is EXTENDED rather than rebuilt, so without a bump an
 /// old cache would keep replaying whole-file flashes for its old commits and land sparse
 /// ones on the end: one timeline telling the story two ways, which is worse than the bug.
-const CACHE_VERSION: u32 = 4;
+///
+/// 5 because a frame now carries the readings the repo held at that commit — `read` and
+/// `unread`, folded out of `.sanity/`. Both are `#[serde(default)]`, which is exactly why
+/// the number has to move: a stored timeline would load with empty vectors and replay as a
+/// repo that had never read itself, and being EXTENDED rather than rebuilt it would then
+/// append real ones on the end. One timeline telling the story two ways, which is the same
+/// failure the bump to 3 is written up for and the same one `scancache` learned the hard way.
+const CACHE_VERSION: u32 = 5;
 
 #[derive(Serialize, Deserialize)]
 struct Cached {
@@ -1687,6 +1822,7 @@ mod tests {
             langs: vec!["Rust".into()],
             funcs: Vec::new(),
             base: Vec::new(),
+            base_read: Vec::new(),
             base_ts: 0,
             commits: Vec::new(),
             head: "abc".into(),
@@ -1702,6 +1838,7 @@ mod tests {
                 // Wire names, not field names — this struct renames to camelCase, and the
                 // wire is what a stored timeline is actually keyed by.
                 "base",
+                "baseRead",
                 "baseTs",
                 "commits",
                 "funcs",
@@ -2021,6 +2158,73 @@ mod tests {
         assert!(tracing(repo).is_none(), "dropping the claim releases the repo");
         assert!(Tracing::claim(repo).is_some(), "so the next walk can take it");
     }
+
+    /// The readings a repo committed are part of its history, and the walk has to join them
+    /// to the functions it interned — by a key in a different format from its own.
+    ///
+    /// **The join is the part that can silently do nothing.** `.sanity/` files a function
+    /// under `path#name`, with `#2` and `#3` for the second and third twin; the walk keys by
+    /// `path#owner::name#ord` with ord from one. Get the translation wrong and every entry is
+    /// skipped as unknown, which looks exactly like a repo that has never read itself — no
+    /// error, no missing frame, just a replay that stays grey forever.
+    #[test]
+    fn a_committed_reading_lands_on_the_function_it_describes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .output()
+                .expect("git runs");
+        };
+        let write = |name: &str, text: &str| {
+            let p = dir.path().join(name);
+            std::fs::create_dir_all(p.parent().expect("has a parent")).expect("mkdir");
+            std::fs::write(p, text).expect("writes");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "ada@example.com"]);
+        git(&["config", "user.name", "Ada"]);
+        write("a.rs", "fn one() {\n    x\n}\n\nfn two() {\n    y\n}\n");
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "the code"]);
+
+        // One reading, in the shape `assessment::render` writes and `parse_shard` reads.
+        write(
+            ".sanity/README.md",
+            "# Sanity assessment\n\n| area | read |\n|---|---|\n",
+        );
+        write(
+            ".sanity/a.md",
+            // The `##` heading is the file every entry beneath it belongs to. Without it
+            // `parse_shard` has no path to key against and skips the lot — silently, which
+            // is exactly the failure this test is here to catch.
+            "## `a.rs`\n\n### `one`\n- spec 3 · read by claude-sonnet-5 · cold reading\n- expected: something\n- found: something else\n- predicted: some · documented: full · derivable: no · legible: most · trap: no\n",
+        );
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "a reading"]);
+
+        let scan = read(dir.path(), ALL_COMMITS, &|_| {});
+        let landed: Vec<_> = scan.commits.iter().flat_map(|c| c.read.clone()).collect();
+        assert_eq!(landed.len(), 1, "one reading, joined to one function");
+        let (fi, packed) = landed[0];
+        assert_eq!(scan.funcs[fi as usize].name, "one", "and to the RIGHT function");
+        // predicted `some` is 2, documented `full` is 4, legible `most` is 3, no trap.
+        assert_eq!(packed & 7, 2);
+        assert_eq!((packed >> 3) & 7, 4);
+        assert_eq!((packed >> 6) & 7, 3);
+        assert_eq!((packed >> 9) & 1, 0);
+
+        // And it retires with the shard, or a deleted assessment would leave the map
+        // painted from readings that are no longer in the repo.
+        std::fs::remove_file(dir.path().join(".sanity/a.md")).expect("removes");
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "dropped"]);
+        let scan = read(dir.path(), ALL_COMMITS, &|_| {});
+        let gone: Vec<_> = scan.commits.iter().flat_map(|c| c.unread.clone()).collect();
+        assert_eq!(gone.len(), 1, "the reading is retired by the commit that deleted it");
+    }
 }
 
 // ── Serving a timeline in windows ────────────────────────────────────────────────────────
@@ -2072,6 +2276,8 @@ pub struct Tables {
     /// reference them — see `funcs` below.
     pub func_count: usize,
     pub base: Vec<(u32, u32)>,
+    /// The readings the repo already held at the opening frame — see `HistoryScan::base_read`.
+    pub base_read: Vec<(u32, u16)>,
     pub base_ts: i64,
     pub head: String,
     pub truncated: usize,
@@ -2127,6 +2333,7 @@ pub fn tables(repo: &Path) -> Option<Tables> {
         langs: s.langs.clone(),
         func_count: s.funcs.len(),
         base: s.base.clone(),
+        base_read: s.base_read.clone(),
         base_ts: s.base_ts,
         head: s.head.clone(),
         truncated: s.truncated,
@@ -2227,6 +2434,11 @@ pub fn deltas(repo: &Path, from: usize, count: usize) -> Vec<serde_json::Value> 
                     "author": c.author,
                     "set": c.set,
                     "del": c.del,
+                    // Omitted when empty rather than sent as `[]`: most commits touch no
+                    // shard, and two empty arrays per commit is a few hundred kilobytes of
+                    // nothing on a repo with a hundred thousand of them.
+                    "read": c.read,
+                    "unread": c.unread,
                     "files": c.files,
                 })
             })

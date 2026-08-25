@@ -96,21 +96,20 @@ export type ColorMode =
  *  The four lenses a reading paints were classed as impossible on the rule that a reading
  *  measures the body as it stands, so stamping it onto an older commit claims a measurement
  *  nobody took. That rule is real and it is about TODAY's readings. It says nothing about the
- *  readings that existed at the commit being drawn — and `.sanity/` is committed, so those
- *  are in the history like everything else. A frame could paint what the repo knew about
- *  itself at that commit, which is a different question from what we know now and a better
- *  one than grey. The walk already carries file state forward and re-parses what each commit
- *  touched; the shards are files it does not fold. So: unbuilt, like the other four, and the
- *  note says which kind of unbuilt.
+ *  readings that existed at the commit being drawn — and `.sanity/` is committed, so those are
+ *  in the history like everything else. They are folded now: `history.rs` parses each version
+ *  of each shard as it walks, joins it to the interned functions by `assessment::key_of`, and
+ *  puts the grades on the frame. What a replay paints under these four is what the repo KNEW
+ *  about itself at that commit, and watching it fill in is the point.
  *
- *  What survives of the old rule is the thing it was written for: `applyAgentReports` drops a
- *  stale reading's colour rather than keeping it, and no frame is ever painted with a reading
- *  taken against a body it does not hold. */
+ *  What survives of the old rule is the thing it was written for: no frame is painted with a
+ *  reading taken against a body it does not hold, and a superseded axis is dropped by
+ *  `packed` at the Rust end rather than shown as current. */
 export const REPLAY: Record<ColorMode, 'live' | 'cost'> = {
-  surprise: 'cost',
-  legible: 'cost',
-  docs: 'cost',
-  traps: 'cost',
+  surprise: 'live',
+  legible: 'live',
+  docs: 'live',
+  traps: 'live',
   clones: 'cost',
   callers: 'cost',
   reach: 'cost',
@@ -122,14 +121,11 @@ export const REPLAY: Record<ColorMode, 'live' | 'cost'> = {
 
 /** Why this lens has no colours in a replay, in the words the tab and the map both use.
  *
- *  Two sentences, because there are two reasons and they are not the same size. A lens off
- *  the parse or the log would have to be recomputed at every commit. A lens off a reading
- *  would not: the readings are already in git, one shard per area, and what is missing is
- *  the fold — which is worth saying plainly rather than hiding behind the other sentence. */
+ *  One sentence, because one reason is left. It said two for a day: a lens off the parse has
+ *  to be recomputed per commit, while a lens off a reading only needed the shards folding —
+ *  and saying that out loud is what got them folded. */
 export function replayNote(mode: ColorMode): string | null {
   if (REPLAY[mode] === 'live') return null
-  if (paintsFromReadings(mode))
-    return `${MODE_LABEL[mode]} is not replayed yet. The readings are committed in .sanity/, so a frame could show what this repo knew about itself at that commit — the timeline does not fold them.`
   return `${MODE_LABEL[mode]} is not replayed: it would have to be recomputed at every commit, and the timeline does not carry it.`
 }
 

@@ -1051,7 +1051,15 @@ export const GRADE_SURPRISE: Record<Grade, number> = {
   some: 0.62,
   none: 0.92,
 }
-const GRADE_DOCUMENTED: Record<Grade, number> = { full: 0.95, most: 0.7, some: 0.35, none: 0 }
+/** Exported for the replay, which builds the same numbers out of a packed reading rather
+ *  than out of a report — see `readingInto`. Two copies of this table would be two scales
+ *  for one lens, with the frame and the live map disagreeing about the same grade. */
+export const GRADE_DOCUMENTED: Record<Grade, number> = {
+  full: 0.95,
+  most: 0.7,
+  some: 0.35,
+  none: 0,
+}
 
 /** The same four steps as the GAP they leave — what the Docs lens paints.
  *

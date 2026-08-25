@@ -55,6 +55,11 @@ export interface Tables {
    *  guarantees that every index the loaded deltas can name is already in it. */
   funcs: HistoryFunc[]
   base: [number, number][]
+  /** The readings the repo already held when the window opens — see `Frame.graded`.
+   *
+   *  Absent on a truncated timeline whose prefix contains no `.sanity/`, which is most
+   *  repos and every repo before the first pass. */
+  baseRead?: [number, number][]
   baseTs: number
   head: string
   truncated: number
@@ -79,6 +84,13 @@ export interface Delta {
   author: string
   set: [number, number][]
   del: number[]
+  /** `[func index, packed grades]` for the readings this commit wrote — see
+   *  `assessment::packed`. Absent on a commit that touched no shard, which is most of them,
+   *  and on any timeline stored before the fold existed (those are refused by
+   *  `CACHE_VERSION` rather than read as "never read itself"). */
+  read?: [number, number][]
+  /** Functions whose reading this commit dropped. */
+  unread?: number[]
   files: number[]
 }
 

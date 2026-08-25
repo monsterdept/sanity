@@ -178,6 +178,40 @@ pub fn trap_current(spec: u32) -> bool {
 /// nobody ever did — the same conflation the shard counter is written against. `trap` is
 /// narrower still: a `false` from an older spec survives, because every rewriting of that
 /// question has taken things out of it and a narrowing cannot turn a no into a yes.
+/// One reading as four small numbers, for a frame of the replay.
+///
+/// **The map needs the grades and nothing else.** A `Report` carries the prose, the
+/// provenance, the model and the body hash — a megabyte an area on a repo this size, and
+/// the timeline would be carrying every version of it. What paints a wedge is four answers,
+/// so four answers is what crosses the wire: three grades at three bits each and the trap
+/// flag, packed into one `u16` per function per commit that changed it.
+///
+/// `0` is absent, and absent is not `none`: a reader who graded a function `none` said
+/// something, and a function nobody has read yet has not been spoken about at all. The
+/// replay draws the second as unread, which is the whole point of folding these — you can
+/// watch a repo learn about itself.
+///
+/// The two override rules travel with it, because a wedge painted from raw fields would
+/// disagree with the same wedge on the live map: `grades()` applies `derivable` forcing
+/// `documented` to none, and a superseded axis is dropped exactly as `legible_of` and
+/// `trap_of` drop it — a reading taken under an older `SPEC` answers a question that is not
+/// the one being asked, whichever end of the timeline it is on.
+pub fn packed(r: &crate::agentapi::Report) -> u16 {
+    fn g(v: Option<crate::agentapi::Grade>) -> u16 {
+        match v {
+            None => 0,
+            Some(crate::agentapi::Grade::None) => 1,
+            Some(crate::agentapi::Grade::Some) => 2,
+            Some(crate::agentapi::Grade::Most) => 3,
+            Some(crate::agentapi::Grade::Full) => 4,
+        }
+    }
+    let (predicted, documented) = r.grades();
+    let legible = if legible_current(r.spec) { r.legible } else { None };
+    let trap = r.trap && trap_current(r.spec);
+    g(Some(predicted)) | (g(documented) << 3) | (g(legible) << 6) | (u16::from(trap) << 9)
+}
+
 pub fn dated_axis(r: &crate::agentapi::Report) -> bool {
     (r.legible.is_some() && !legible_current(r.spec)) || (r.trap && !trap_current(r.spec))
 }
@@ -428,7 +462,7 @@ fn read_all(dir: &Path) -> HashMap<String, Report> {
 /// malformed bullet would throw away everyone else's work to punish one typo. An
 /// unrecognized line is skipped, and an entry missing its `expected`/`found` is dropped
 /// on its own.
-fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
+pub(crate) fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
     let mut file = String::new();
     let mut cur: Option<(String, Report)> = None;
 
