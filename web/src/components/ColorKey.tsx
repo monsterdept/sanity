@@ -64,10 +64,20 @@ export interface Locked {
 function Legend({
   mode,
   categories,
+  ranks,
   history = false,
 }: {
   mode: ColorMode
   categories: string[]
+  /** Category → slot, the SAME map the wedges are painted from — see `rankCategories`.
+   *
+   *  **The legend used to colour by its own position in this list**, which agreed with the
+   *  map only because both were built from `legendFor` in the same order. A replay broke that
+   *  the moment the slot order stopped being rebuilt per frame: the map kept a person's colour
+   *  through the story, the legend renumbered from whoever was present in THAT frame, and htop
+   *  opened with Hisham Muhammad against a blue dot and a mauve map. Same value, two answers,
+   *  and the legend is the one a reader trusts. */
+  ranks?: Map<string, number>
   history?: boolean
 }) {
   // **The events, and the lens as well when the lens is painting.** A replay used to key one
@@ -94,7 +104,7 @@ function Legend({
     if (REPLAY[mode] !== 'live') return <div className="flex items-center gap-2.5">{events}</div>
     return (
       <div className="flex items-center gap-2.5">
-        <Legend mode={mode} categories={categories} />
+        <Legend mode={mode} categories={categories} ranks={ranks} />
         {/* A hairline, because these are two keys for one picture rather than one key with
             six entries: above the rule is what the colour means, below it what a flash does. */}
         <span
@@ -106,22 +116,33 @@ function Legend({
     )
   }
   if (categories.length > 0) {
+    // **In slot order, not in this frame's order.** With a held rank map the two can differ —
+    // a person who is second today may be the only author in the frame on screen — and a
+    // legend sorted by anything else would hand the top swatch to whoever the frame happened
+    // to list first. Anyone past the palette is counted as `other` rather than named, since
+    // they share the one neutral and naming them would imply they are distinguishable.
+    const named = categories
+      .filter((c) => (ranks?.get(c) ?? categories.indexOf(c)) < SLOTS)
+      .sort((a, b) => (ranks?.get(a) ?? 0) - (ranks?.get(b) ?? 0))
     return (
       <div className="flex max-w-[300px] flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
         {/* Only the slots that have their own color are named individually. Listing
             the rest would imply they are distinguishable on screen, and they are not —
             they all share the "Other" neutral. */}
-        {categories.slice(0, SLOTS).map((c, i) => (
+        {named.map((c) => (
           <span key={c} className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full" style={{ background: slotColor(i) }} />
+            <span
+              className="h-2 w-2 rounded-full"
+              style={{ background: slotColor(ranks?.get(c) ?? categories.indexOf(c)) }}
+            />
             <span className="text-[10px] text-[var(--muted-foreground)]">{c}</span>
           </span>
         ))}
-        {categories.length > SLOTS && (
+        {categories.length > named.length && (
           <span className="flex items-center gap-1">
             <span className="h-2 w-2 rounded-full" style={{ background: 'var(--structure)' }} />
             <span className="text-[10px] text-[var(--muted-foreground)]">
-              {OTHER_LABEL} ({categories.length - SLOTS})
+              {OTHER_LABEL} ({categories.length - named.length})
             </span>
           </span>
         )}
@@ -348,12 +369,15 @@ export function ModeSwitcher({
 export function ColorLegend({
   mode,
   categories,
+  ranks,
   history = false,
   stale = 0,
   unread = 0,
 }: {
   mode: ColorMode
   categories: string[]
+  /** The slot map the wedges use — see `Legend`. */
+  ranks?: Map<string, number>
   /** Replaying. The key then describes the flash rather than the pinned lens. */
   history?: boolean
   /** Wedges drawn with the stale hatch. Each entry only appears when there are some —
@@ -365,7 +389,7 @@ export function ColorLegend({
 }) {
   return (
     <div className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-2 py-1.5">
-      <Legend mode={mode} categories={categories} history={history} />
+      <Legend mode={mode} categories={categories} ranks={ranks} history={history} />
       {paintsFromReadings(mode) && (stale > 0 || unread > 0) && (
         /* The two things the ramp above cannot explain: a wedge can be hatched, or it can
            be uncolored. Both are absences of a reading rather than positions on the

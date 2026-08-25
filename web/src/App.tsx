@@ -2230,6 +2230,10 @@ export default function App() {
                     // code did: it was true of the counts and not of the categories, which
                     // came from the whole scan.
                     categories={focus ? legendFor(focus, viewMode) : []}
+                    // The same map the wedges take their slots from, or the key and the
+                    // picture disagree the moment the two orders diverge — which a held
+                    // rank order during a replay guarantees they will.
+                    ranks={ranks}
                     // Counted from `focus`, not the whole scan: drilled into one
                     // directory, the legend has to describe the rings in front of you or
                     // it is annotating a picture nobody is looking at.
