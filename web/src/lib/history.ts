@@ -188,6 +188,20 @@ interface Frame {
   hits: Map<number, number[]>
   /** path index → who committed to it last. */
   author: Map<number, string>
+  /** func index → who last committed a change to THAT function.
+   *
+   *  **The file's author was standing in for this and is a different answer.** A commit that
+   *  edits one function in a file of forty makes its author the last committer of all forty,
+   *  which on a shared file is wrong about thirty-nine of them. The walk already knows which
+   *  functions each commit changed — that is what `set` means — so the finer answer costs one
+   *  map and no extra wire.
+   *
+   *  Still not what the live Blame lens means: that one is per LINE, folded up from
+   *  `git blame`, so a function whose body is mostly mine and whose last tweak was yours reads
+   *  as mine there and as yours here. Replaying per-line authorship would mean blaming every
+   *  version of every file, which is the trade `blame.rs` refuses for churn. The tab says which
+   *  question it is answering. */
+  funcAuthor: Map<number, string>
   /** func index → the reading this repo held for it AT this commit, packed.
    *
    *  **`.sanity/` is committed, so the readings are in the history like any other file.**
@@ -211,6 +225,7 @@ function opening(hist: Tables): Frame {
     order: [],
     touched: new Map(),
     graded: new Map(),
+    funcAuthor: new Map(),
     bornAt: new Map(),
     born: new Map(),
     editedAt: new Map(),
@@ -335,6 +350,7 @@ function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): void {
       frame.lines += loc - (frame.loc.get(f) ?? 0)
       frame.loc.set(f, loc)
       frame.touched.set(f, c.ts)
+      frame.funcAuthor.set(f, c.author)
       frame.editedAt.set(f, i)
       if (arrived) {
         insertSorted(frame.order, f)
@@ -361,6 +377,7 @@ function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): void {
       frame.born.delete(f)
       frame.bornAt.delete(f)
       frame.editedAt.delete(f)
+      frame.funcAuthor.delete(f)
       frame.graded.delete(f)
       frame.hits.delete(f)
     }
@@ -909,7 +926,11 @@ export function frameTree(
     // function, not of the moment — a pooled node that rewrote them every frame would be
     // a fresh allocation wearing a cache's clothes.
     node.loc = loc
-    node.lastAuthor = frame.author.get(def.path) ?? null
+    // **Its own last committer, or none.** Falling back to the file's would put an author on
+    // every function in a file somebody touched, which is the thing this replaced. A function
+    // from the truncated prefix has no author for the same reason it has no touch date: the
+    // commit that wrote it is outside the window, and the honest answer is that we do not know.
+    node.lastAuthor = frame.funcAuthor.get(f) ?? null
     const packed = frame.graded.get(f)
     node.score = scoreInto(node.score, frame, f, since, packed)
     // The reading itself, for the two lenses that read it as a report rather than as a

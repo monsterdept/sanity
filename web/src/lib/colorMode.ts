@@ -86,11 +86,18 @@ export type ColorMode =
  *  - `live` — the frame already carries it. `frameTree` folds `churn`, `ageDays`,
  *    `lastTouchedDays` and `commits` per frame, and each function node keeps its `lang`, so
  *    these paint from the frame's own numbers rather than from today's scan.
- *  - `cost` — derivable, unbuilt. Blame needs the author of the commit that last touched
- *    each function: the frame knows WHICH commit and the log knows who, but the log is paged
- *    and the node carries `lastAuthor: null`. Callers and Reach need the wiring recomputed
- *    per frame, and Clones a repo-wide comparison per frame — both on a delta stream that
- *    was fought down from 20.9MB to 1.0MB on ceph.
+ *  - `cost` — derivable, unbuilt. Callers and Reach need the call graph resolved per frame,
+ *    and resolution is repo-wide by nature: a name only resolves against every definition in
+ *    the repo, so the honest version is a live index with edges retracted and re-added as
+ *    files change, and then the per-frame COUNT changes have to reach the window on a delta
+ *    stream that was fought down from 20.9MB to 1.0MB on ceph. Clones is cheaper than that —
+ *    the parser already fingerprints every function and the fold would only have to count
+ *    shapes — but it is a column on the funcs table and a `CACHE_VERSION` bump, which is a
+ *    day rather than an afternoon.
+ *
+ *    Blame was in this list and is not any more: the frame already knew which commit last
+ *    changed each function and every delta already carried its author, so the answer was
+ *    sitting in the fold the whole time.
  *
  *  **There is no `never`, and there was one until somebody read the sentence it printed.**
  *  The four lenses a reading paints were classed as impossible on the rule that a reading
@@ -113,7 +120,7 @@ export const REPLAY: Record<ColorMode, 'live' | 'cost'> = {
   clones: 'cost',
   callers: 'cost',
   reach: 'cost',
-  blame: 'cost',
+  blame: 'live',
   language: 'live',
   churn: 'live',
   age: 'live',
