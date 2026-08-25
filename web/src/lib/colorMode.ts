@@ -320,7 +320,7 @@ function reachingShare(node: Node): number | null {
  * coverage saturated colors are unreadable.
  */
 /**
- * Eight slots, assigned by rank — biggest category first — and never cycled.
+ * Sixteen slots, assigned by rank — biggest category first — and never cycled.
  *
  * It was four, and four was a measured ceiling measured wrong: the number came from one
  * hand-picked set of eight colliding, which says nothing about what eight CAN do. Re-run
@@ -336,9 +336,22 @@ function reachingShare(node: Node): number | null {
  * so two categories can collide by luck no matter how few there are. That is what put rust
  * and python on near-identical browns.
  *
- * Everything past the eighth still folds into "Other" in the structural neutral: a ninth
- * hue costs 15% of the worst pair and keeps falling, and the tail is reachable by picking
- * it in the panel instead. A ninth series is never an invented hue.
+ * **Sixteen now, and the eight it grew from are unchanged.** A ninth hue does cost — the
+ * numbers are in `index.css`, 14.4 down to 8.8 across sixteen — and the earlier note said
+ * that was reason enough to stop. What changed the answer is the blame lens at repo scale:
+ * ceph's `rgw` is thirty-nine authors, so eight slots painted one directory in one colour
+ * and thirty-eight people in grey, and a replay made that the whole story rather than a
+ * corner of it. A worst pair of 8.8 across normal vision and all three dichromacies is a
+ * real colour; a shared neutral is not a colour at all.
+ *
+ * The nine-to-sixteen were SEARCHED the way one-to-eight were, inside the same muted band
+ * and against the neutrals and marks they sit beside — not generated off a hue wheel, which
+ * is the version that fails: golden-angle spacing scores 0.3 under dichromacy at this size,
+ * because a wheel folds to two poles and a generator cannot see it happen.
+ *
+ * Everything past the sixteenth still folds into "Other" in the structural neutral, and the
+ * tail is reachable by picking it in the panel instead. A seventeenth series is never an
+ * invented hue.
  */
 const CATEGORICAL = [
   'var(--cat-1)',
@@ -349,6 +362,14 @@ const CATEGORICAL = [
   'var(--cat-6)',
   'var(--cat-7)',
   'var(--cat-8)',
+  'var(--cat-9)',
+  'var(--cat-10)',
+  'var(--cat-11)',
+  'var(--cat-12)',
+  'var(--cat-13)',
+  'var(--cat-14)',
+  'var(--cat-15)',
+  'var(--cat-16)',
 ]
 export const OTHER = 'var(--structure)'
 export const OTHER_LABEL = 'other'

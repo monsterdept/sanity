@@ -125,7 +125,10 @@ function Legend({
       .filter((c) => (ranks?.get(c) ?? categories.indexOf(c)) < SLOTS)
       .sort((a, b) => (ranks?.get(a) ?? 0) - (ranks?.get(b) ?? 0))
     return (
-      <div className="flex max-w-[300px] flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
+      // Wider than it was, because the palette is twice as deep. Sixteen names at ceph's
+      // median of twelve characters is two per row at 300px and eight rows of key over the
+      // map; at 420 it is three per row and six rows, which is a caption rather than a panel.
+      <div className="flex max-w-[420px] flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
         {/* Only the slots that have their own color are named individually. Listing
             the rest would imply they are distinguishable on screen, and they are not —
             they all share the "Other" neutral. */}

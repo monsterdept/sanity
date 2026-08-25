@@ -364,6 +364,34 @@
   --cat-6: #7f946e;
   --cat-7: #966c81;
   --cat-8: #c89abc;
+  /* Slots nine to sixteen, added when the blame lens went to a replay and the first eight
+   * stopped being enough: ceph's `rgw` is thirty-nine authors, so a map that colours eight
+   * of them is a grey picture of a directory thirty-nine people wrote.
+   *
+   * **Searched, not generated, and that is the whole difference.** A golden-angle walk over
+   * the hue circle — the obvious way to get "infinite" colours — holds 11.7 at sixteen under
+   * normal vision and 0.3 under dichromacy: a wheel folds to two poles for a deuteranope and
+   * a generator cannot see that happening. The same greedy search that chose the first eight,
+   * run inside their own L and C band (0.48–0.76, 0.06–0.17) with the objective taken as the
+   * WORST of normal and all three dichromacies, holds 10.7 and 8.8.
+   *
+   * **They are in rank order, so the palette degrades by how many authors a repo has rather
+   * than all at once.** Worst pair across all four views: eight slots 14.4, ten 12.2, twelve
+   * 11.2, fourteen 9.7, sixteen 8.8. A repo with ten authors is barely worse off than one
+   * with eight, and the floor at sixteen is still above the 7.9 the four-slot palette this
+   * app shipped and validated managed at four.
+   *
+   * Each is also held clear of the neutrals and marks it can sit beside — `--unanalyzed` and
+   * `--structure` in both themes, `--trap`, `--clone`, and the replay's two flashes — because
+   * a slot that reads as "no data" or as "this will bite you" is worse than one more grey. */
+  --cat-9: #6bc6a5;
+  --cat-10: #9bbf72;
+  --cat-11: #9aacf7;
+  --cat-12: #7f4a66;
+  --cat-13: #8a75a8;
+  --cat-14: #847c41;
+  --cat-15: #635bcd;
+  --cat-16: #6fa597;
 
   --unanalyzed: #b3aca3;
   /* Outlines wedges an AGENT judged, so they are distinguishable from model-scored ones
