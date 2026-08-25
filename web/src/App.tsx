@@ -45,7 +45,6 @@ import {
   type Tables,
 } from './lib/timeline'
 import { Sunburst } from './components/Sunburst'
-import { LensGap } from './components/LensGap'
 import type { Staged } from './lib/movie'
 import { forgetMonster } from './lib/monster'
 import { onScanShape, shapeTree, type ShapeFile } from './lib/shape'
@@ -61,6 +60,7 @@ import {
   paintsFromWiring,
   rankCategories,
   REPLAY,
+  replayNote,
   ageSpanOf,
   type ColorMode,
 } from './lib/colorMode'
@@ -68,7 +68,7 @@ import { dismissSplash } from './lib/splash'
 import { mark, marked } from './lib/stopwatch'
 import { loadTheme, saveTheme, watchSystemTheme, type Theme } from './lib/theme'
 import { CodeView } from './components/CodeView'
-import { ColorLegend, ModeSwitcher } from './components/ColorKey'
+import { ColorLegend, Lock, ModeSwitcher, type Locked } from './components/ColorKey'
 import { Detail } from './components/Detail'
 import { SideBar } from './components/SideBar'
 import { Overlay } from './components/Overlay'
@@ -310,7 +310,7 @@ export default function App() {
   // One geometry, five encodings. The sunburst was never the thing worth swapping out —
   // what changes the question is what the color MEANS, and the same rings answer five
   // different ones depending on that.
-  const [mode, setMode] = useState<ColorMode>('surprise')
+  const [mode, setMode] = useState<ColorMode>('language')
 
   /** What each project was last looking at, so coming back to one is coming back.
    *
@@ -426,7 +426,7 @@ export default function App() {
   const switchTo = useCallback((from: string | null, to: string | null) => {
     if (from) views.current.set(from, { ...view.current })
     const v = to ? views.current.get(to) : undefined
-    setMode(v?.mode ?? 'surprise')
+    setMode(v?.mode ?? 'language')
     setStack(v?.stack ?? [])
     setPicked(null)
   }, [])
@@ -1348,27 +1348,53 @@ export default function App() {
    *  in the map rather than change what you are standing in. */
   const viewMode: ColorMode = mode
 
-  /** Which absence, if any, the map is showing right now — see `LensGap`.
+  /** Which lenses have nothing in them, and what would change that — see `Locked`.
    *
-   *  Decided here rather than in the component so there is one place that knows the order
-   *  the questions are asked in. A replay's limit comes first because it is true whatever
-   *  the repo holds: a lens that cannot be replayed cannot be replayed on a fully-read repo
-   *  either. Readings next, because that is the one a person can act on. The structural
-   *  absences last, since they are facts about the repo rather than about the work done to
-   *  it, and the panel says them per wedge as well.
+   *  **A lens with nothing to show is locked, not shown empty.** The first shape of this was
+   *  a dimmed tab and a banner over the map; the second was the switcher greyed wholesale
+   *  during a replay. Both made the user press something to find out. A lock is legible
+   *  before the click, and its colour says whether a button exists that opens it.
+   *
+   *  Decided here because the answers come from three places — the project's readings, the
+   *  repo's git history, this language's wiring — and the order matters: a replay's limits
+   *  are true whatever the repo holds, so they are asked first.
    */
-  const gap = useMemo((): 'unread' | 'nogit' | 'unwired' | 'replay' | null => {
-    if (replaying) return REPLAY[mode] === 'live' ? null : 'replay'
-    if (!tree) return null
-    if (paintsFromReadings(mode)) return (activeProject?.assessed ?? 0) > 0 ? null : 'unread'
-    // The REPO's answer, not the wedge's: the panel already says which of these a single
-    // function lacks, and a banner that appeared and vanished as you drilled would be
-    // reporting on the click rather than on the repo.
-    if (paintsFromWiring(mode)) return tree.resolvable === null ? 'unwired' : null
-    if (mode === 'blame' || mode === 'churn' || mode === 'age')
-      return tree.score?.ageDays === null ? 'nogit' : null
-    return null
-  }, [replaying, mode, tree, activeProject])
+  const locks = useMemo(() => {
+    const out: Partial<Record<ColorMode, Locked>> = {}
+    for (const m of Object.keys(MODE_LABEL) as ColorMode[]) {
+      if (replaying) {
+        if (REPLAY[m] !== 'live') out[m] = { why: replayNote(m) ?? '', keyed: false }
+        continue
+      }
+      if (!tree) continue
+      if (paintsFromReadings(m) && (activeProject?.assessed ?? 0) === 0) {
+        out[m] = {
+          why: 'No readings yet. Press Read on the project to fill Surprise, Legibility, Docs and Traps.',
+          keyed: true,
+        }
+      } else if (paintsFromWiring(m) && tree.resolvable === null) {
+        out[m] = {
+          why: `${MODE_LABEL[m]} needs this language's calls read off its grammar, which Sanity does not do for it. A guessed edge would be worse than a stated absence.`,
+          keyed: false,
+        }
+      } else if ((m === 'blame' || m === 'churn' || m === 'age') && tree.score?.ageDays === null) {
+        out[m] = {
+          why: `${MODE_LABEL[m]} reads git, and this folder has no history.`,
+          keyed: false,
+        }
+      }
+    }
+    return out
+  }, [replaying, tree, activeProject])
+
+  /** Never stand in a locked lens. A project switch can lock the one you were in — the repo
+   *  you just opened has no readings, or no git — and leaving the selection there would show
+   *  a map painted by nothing under a tab that cannot be pressed to leave. Language is the
+   *  fallback for the same reason it is the default: it needs no reading, no history and no
+   *  wiring, so it is the one lens that always has something to say. */
+  useEffect(() => {
+    if (locks[mode]) setMode('language')
+  }, [locks, mode])
 
   // The wedge the sunburst is currently rooted at, resolved by id every render so a
   // rescan keeps the user where they were rather than throwing them back to the top.
@@ -1994,7 +2020,7 @@ export default function App() {
                   window's statement of what color means, and removing it would leave the
                   rings recolored with nothing on screen saying by what. Grayed, with the
                   reason in the tooltip, it still answers the question. */}
-                <ModeSwitcher mode={viewMode} onMode={setMode} replaying={replaying} />
+                <ModeSwitcher mode={viewMode} onMode={setMode} locked={locks} />
                 <HistoryToggle
                   on={historyOn}
                   busy={historyBusy}
@@ -2146,19 +2172,6 @@ export default function App() {
                 <div className="absolute bottom-2 right-2 z-20">
                   <ProgressStrip progress={awaitingProgress} />
                 </div>
-              )}
-
-              {/* **What the lens has no colours for, said over the picture that does work.**
-                A grey ring with nothing on screen explaining it is the app's oldest silence:
-                the map looks broken, and the control that would fix it is in another panel.
-                See `LensGap` for why three absences became two. */}
-              {gap && focus && (
-                <LensGap
-                  mode={viewMode}
-                  kind={gap}
-                  functions={(activeProject?.functions ?? 0) + (activeProject?.files ?? 0)}
-                  onRead={activeKey ? () => setReadFor(activeKey) : undefined}
-                />
               )}
 
               {/* Floated over the graph rather than stacked under it. The rings are a
@@ -2583,7 +2596,7 @@ function HistoryToggle({
               ? 'No trace yet. Press Trace on the project to walk its commits.'
               : 'The repo commit by commit — colored by arrivals, not by surprise  (⌘+)'
       }
-      className="rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
+      className="flex items-center gap-1 rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
       style={{
         background: on ? 'var(--accent)' : 'color-mix(in oklch, var(--foreground) 8%, transparent)',
         color: on ? 'var(--accent-foreground)' : 'var(--muted-foreground)',
@@ -2592,6 +2605,10 @@ function HistoryToggle({
         boxShadow: on ? '0 1px 2px rgb(0 0 0 / 0.25)' : undefined,
       }}
     >
+      {/* The same padlock the lens tabs wear, keyed the same way: Trace opens this one, so
+          it takes the accent rather than the muted ink. A repo mid-trace is not locked — it
+          is busy, which the label already says. */}
+      {!on && !busy && !traced && <Lock keyed />}
       {busy ? 'Tracing…' : 'History'}
     </button>
   )

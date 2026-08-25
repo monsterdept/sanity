@@ -9,9 +9,55 @@ import {
   type ColorMode,
   paintsFromReadings,
   REPLAY,
-  replayNote,
 } from '../lib/colorMode'
 import { heatColor, type Ramp } from '../lib/api'
+
+/** A padlock, for a lens with nothing in it yet.
+ *
+ *  **Tinted to the control that opens it.** A lock whose key is a button three inches away is
+ *  only useful if you can tell WHICH button, so one that an action would open takes the
+ *  accent — the colour Read and Trace are painted in — and one that nothing can open stays in
+ *  the muted ink. The tooltip names the button either way; the colour is what makes the row
+ *  scannable without reading eleven tooltips.
+ *
+ *  (Read and Trace are both `--accent` today, so the hue says "a button in the sidebar" rather
+ *  than which of the two. Distinguishing them is a decision about those buttons, not this.) */
+export function Lock({ keyed }: { keyed: boolean }) {
+  return (
+    <svg
+      width="9"
+      height="9"
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden
+      style={{
+        color: keyed ? 'var(--accent)' : 'var(--muted-foreground)',
+        opacity: keyed ? 1 : 0.7,
+      }}
+    >
+      <rect x="2.5" y="5.5" width="7" height="5.5" rx="1.2" fill="currentColor" />
+      <path
+        d="M4.25 5.5V3.9a1.75 1.75 0 0 1 3.5 0v1.6"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+/** What a lens is waiting for, when it is waiting for something.
+ *
+ *  **A lens with nothing in it is locked rather than shown empty.** Dimmed-but-clickable was
+ *  the first shape and it asked the user to find out by pressing: the tab looked available,
+ *  the map went grey, and the control that would fix it was in another panel. A lock says the
+ *  same thing before the click and costs nothing to read. */
+export interface Locked {
+  /** What would open it, in a sentence, on the tab's own tooltip. */
+  why: string
+  /** Is there a control that opens it? Colours the lock — see `Lock`. */
+  keyed: boolean
+}
 
 /** The legend follows the mode. A heat ramp under a categorical encoding would be a
  *  lie — "owner" has no order, so showing a gradient would invent one. */
@@ -227,18 +273,19 @@ const shortcut = (i: number) => (i < 9 ? `${i + 1}` : i === 9 ? '0' : i === 10 ?
 export function ModeSwitcher({
   mode,
   onMode,
-  replaying = false,
+  locked = {},
 }: {
   mode: ColorMode
   onMode: (m: ColorMode) => void
-  /** A replay is on screen, so each lens answers for itself — see `REPLAY`.
+  /** Which lenses have nothing to show, and why — see `Locked`.
    *
-   *  **It used to disable the whole control.** That was right about the four lenses a
-   *  reading paints and wrong about the rest: a frame knows what churn a function had in
-   *  2019 and what language it was written in, and greying those out said the timeline
-   *  could not answer a question it answers per frame. Nothing is disabled now; a lens the
-   *  replay cannot paint is dimmed, stays clickable, and says why in the map. */
-  replaying?: boolean
+   *  **It used to disable the whole control during a replay, and then dim four tabs.** Both
+   *  were versions of the same evasion: the row said "not now" without saying what would
+   *  change it. Decided in `App`, because the answers come from three different places — the
+   *  project's readings, the repo's git, this language's wiring — and a control that went
+   *  looking for them would be the fourth place that knows.
+   */
+  locked?: Partial<Record<ColorMode, Locked>>
 }) {
   return (
     // A segmented control: one recessed track, segments inside it, and the selection as
@@ -260,21 +307,18 @@ export function ModeSwitcher({
         // Dimmed rather than disabled: the lens is still a place you can stand, and what it
         // has to say there — why a replay cannot paint it — is said in the map rather than
         // by a control that refuses to be pressed.
-        const unpaintable = replaying && REPLAY[k] !== 'live'
+        const lock = locked[k]
         return (
           <button
             key={k}
             role="tab"
             aria-selected={on}
-            onClick={() => onMode(k)}
+            onClick={() => !lock && onMode(k)}
+            disabled={!!lock}
             // The shortcut rides in the tooltip rather than on the chip. Five chips with
             // a dim "⌘3" beside each label is a row of keyboard documentation where the
             // control itself should be — discoverable once, noise every time after.
-            title={
-              unpaintable
-                ? (replayNote(k) ?? '')
-                : `${MODE_HINT[k]}${shortcut(i) ? `  (⌘${shortcut(i)})` : ''}`
-            }
+            title={lock ? lock.why : `${MODE_HINT[k]}${shortcut(i) ? `  (⌘${shortcut(i)})` : ''}`}
             className="rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
             style={{
               background: on ? 'var(--accent)' : 'transparent',
@@ -282,12 +326,16 @@ export function ModeSwitcher({
               fontWeight: on ? 600 : 400,
               // The selected lens keeps full weight even where the replay cannot paint it,
               // because the row still has to say which one you are standing in.
-              opacity: unpaintable && !on ? 0.45 : 1,
+              opacity: lock ? 0.55 : 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
               // Only the chosen one lifts. A shadow on every segment would make the
               // track read as five buttons rather than one control with a position.
               boxShadow: on ? '0 1px 2px rgb(0 0 0 / 0.25)' : undefined,
             }}
           >
+            {lock && <Lock keyed={lock.keyed} />}
             {MODE_LABEL[k]}
           </button>
         )

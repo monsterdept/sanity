@@ -2191,10 +2191,7 @@ mod tests {
         git(&["commit", "-q", "-m", "the code"]);
 
         // One reading, in the shape `assessment::render` writes and `parse_shard` reads.
-        write(
-            ".sanity/README.md",
-            "# Sanity assessment\n\n| area | read |\n|---|---|\n",
-        );
+        write(".sanity/README.md", "# Sanity assessment\n\n| area | read |\n|---|---|\n");
         write(
             ".sanity/a.md",
             // The `##` heading is the file every entry beneath it belongs to. Without it
