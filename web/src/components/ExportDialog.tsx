@@ -3,7 +3,8 @@ import { Choice, Field } from './Fields'
 import { Overlay } from './Overlay'
 import { saveMovie } from '../lib/api'
 import { CANCELLED, CODEC_NAME, FPS, mapSide, record, type Codec, type Tick } from '../lib/movie'
-import type { Staged } from '../lib/movie'
+import type { MovieKey, Staged } from '../lib/movie'
+import { MODE_LABEL, REPLAY, type ColorMode } from '../lib/colorMode'
 
 /**
  * How long the exported movie runs.
@@ -116,6 +117,8 @@ export function ExportDialog({
   ensure,
   dateOf,
   onStage,
+  mode,
+  keyFor,
   onClose,
 }: {
   /** The commits in scope, as the transport addresses them. A drilled-in directory exports
@@ -145,6 +148,11 @@ export function ExportDialog({
   /** Dress the map for the file being written — its size and its ground — or null to give
    *  the pane back. See `Staged`. */
   onStage: (stage: Staged | null) => void
+  /** The lens the map is showing, which the dialog opens on. */
+  mode: ColorMode
+  /** The key for a given lens, built by the window because it is the side that knows the
+   *  ranking — see `MovieKey`. */
+  keyFor: (mode: ColorMode) => MovieKey | null
   onClose: () => void
 }) {
   const [seconds, setSeconds] = useState(duration)
@@ -155,6 +163,9 @@ export function ExportDialog({
   const [ground, setGround] = useState<'light' | 'dark'>(() =>
     document.documentElement.classList.contains('dark') ? 'dark' : 'light',
   )
+  /** The lens the file is recorded in. Opens on what the map is showing — the recording is
+   *  of the picture in front of you, and changing it is a deliberate act. */
+  const [lens, setLens] = useState<ColorMode>(mode)
   const [phase, setPhase] = useState<'idle' | 'recording' | 'saving' | 'done'>('idle')
   const [at, setAt] = useState<Tick | null>(null)
   const [error, setError] = useState('')
@@ -189,7 +200,7 @@ export function ExportDialog({
       // The px is the map's own side inside the frame, not the frame's — every threshold
       // that decides whether a wedge is worth drawing is a pixel size, and the pixels the
       // map gets are the square part of a 16:9 picture with a margin round it.
-      onStage({ px: mapSide(size), ground })
+      onStage({ px: mapSide(size), ground, mode: lens })
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
       const bytes = await record({
         frames,
@@ -197,6 +208,7 @@ export function ExportDialog({
         ...frameOf(size),
         title: slug,
         scope,
+        legend: keyFor(lens),
         setIndex: onIndex,
         ensure,
         dateOf,
@@ -245,6 +257,28 @@ export function ExportDialog({
             of the map, captioned <span className="mono">{slug}</span>.
           </p>
         </div>
+
+        {/* **The lens the file is recorded in.** The export copies what is on screen, so
+            choosing one here changes the map for the length of the recording — the same
+            bargain the ground and the resolution already make, and the same reason: a movie
+            drawn by a second renderer nobody has checked against the first is a picture of a
+            map that does not exist. Only the lenses a replay can actually paint are offered;
+            the rest would record a grey film. */}
+        <Field label="Lens">
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(MODE_LABEL) as ColorMode[])
+              .filter((m) => REPLAY[m] === 'live')
+              .map((m) => (
+                <Choice
+                  key={m}
+                  on={lens === m}
+                  disabled={busy}
+                  onClick={() => setLens(m)}
+                  label={MODE_LABEL[m]}
+                />
+              ))}
+          </div>
+        </Field>
 
         <Field label="Length">
           <div className="flex flex-wrap gap-2">

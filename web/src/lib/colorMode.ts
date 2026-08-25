@@ -437,6 +437,35 @@ export const SLOTS = CATEGORICAL.length
  *  ask who one of them is is to click the wedge. */
 export const NAMED = 16
 
+/** The two ends of a ramped lens, in the words the key prints under it.
+ *
+ *  Exported because a movie needs the same words: an export burns its own key into the
+ *  caption column, and a second table there would be a second vocabulary — the failure this
+ *  one already had, when the key read `clear → unclear` while the rows beneath it said
+ *  something else. One table, two surfaces. */
+export const RAMP_ENDS: Partial<Record<ColorMode, [string, string]>> = {
+  surprise: ['mundane', 'obscure'],
+  // Same direction as heat: the bright end is the one you have to do something about.
+  legible: ['clean', 'unclear'],
+  // Named for the ends the ramp actually paints, and the bright one is an absence: this is
+  // the only lens whose input is the GAP. See the `--docs-*` ramp.
+  docs: ['covered', 'undocumented'],
+  churn: ['settled', 'churning'],
+  age: ['old', 'recent'],
+}
+
+/** Which ramp a lens walks, for anything drawing a key beside it.
+ *
+ *  The swatch has to walk the SAME ramp the wedges do, now that each reading owns a hue —
+ *  otherwise the key under a blue map is an amber gradient. */
+export function rampOf(mode: ColorMode): Ramp {
+  if (mode === 'churn') return 'churn'
+  if (mode === 'age') return 'age'
+  if (mode === 'legible') return 'legible'
+  if (mode === 'docs') return 'docs'
+  return 'heat'
+}
+
 /** The name git puts on a line that is in the working tree and not in a commit.
  *
  *  It arrives as an author string and it is not an author: it is a STATE, and treating it

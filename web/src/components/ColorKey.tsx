@@ -5,6 +5,8 @@ import {
   MODE_LABEL,
   OTHER_LABEL,
   NAMED,
+  RAMP_ENDS,
+  rampOf,
   slotColor,
   type ColorMode,
   paintsFromReadings,
@@ -202,32 +204,8 @@ function Legend({
     )
   }
 
-  const ends: Record<string, [string, string]> = {
-    // The row words this key sits above, not a fifth vocabulary: it read
-    // `clear → unclear` while the rows beneath said something else entirely, and now the
-    // rows say what `.sanity/` says.
-    surprise: ['mundane', 'obscure'],
-    // Same direction as heat: the bright end is the one you have to do something about.
-    legible: ['clean', 'unclear'],
-    // Named for the ends the ramp actually paints, and the bright one is an absence: this
-    // is the only lens whose input is the GAP. See the `--docs-*` ramp.
-    docs: ['covered', 'undocumented'],
-    churn: ['settled', 'churning'],
-    age: ['old', 'recent'],
-  }
-  const [lo, hi] = ends[mode] ?? ['', '']
-  // The swatch has to walk the SAME ramp the wedges do, now that each reading owns a
-  // hue — otherwise the key under a blue map is an amber gradient.
-  const ramp: Ramp =
-    mode === 'churn'
-      ? 'churn'
-      : mode === 'age'
-        ? 'age'
-        : mode === 'legible'
-          ? 'legible'
-          : mode === 'docs'
-            ? 'docs'
-            : 'heat'
+  const [lo, hi] = RAMP_ENDS[mode] ?? ['', '']
+  const ramp: Ramp = rampOf(mode)
   // Spans the widget rather than sitting in a fixed 96px well in the middle of it. The
   // ramp is the scale for the control directly above, and a short bar floating inside a
   // wider row read as two unrelated things stacked rather than one thing explaining the

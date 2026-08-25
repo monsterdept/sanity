@@ -61,6 +61,8 @@ export function HistoryBar({
   ensure,
   dateOf,
   onStage,
+  mode,
+  keyFor,
 }: {
   /** The commits in scope, as indices into `hist.commits`. Everything the transport
    *  addresses is a position in HERE; the map is still drawn at the real commit, because
@@ -90,6 +92,10 @@ export function HistoryBar({
   /** Lay the map out for a file of this many pixels, or null to go back to the pane — see
    *  `App`'s `staged`. */
   onStage: (stage: import('../lib/movie').Staged | null) => void
+  /** The lens on screen, and how to build a key for one — both handed straight to the export
+   *  dialog, which is the only thing here with an opinion about either. */
+  mode: import('../lib/colorMode').ColorMode
+  keyFor: (mode: import('../lib/colorMode').ColorMode) => import('../lib/movie').MovieKey | null
 }) {
   const [exporting, setExporting] = useState(false)
   const last = frames.length - 1
@@ -310,6 +316,8 @@ export function HistoryBar({
           slug={slug}
           scope={scope}
           duration={duration}
+          mode={mode}
+          keyFor={keyFor}
           ensure={ensure}
           dateOf={dateOf}
           onStage={onStage}

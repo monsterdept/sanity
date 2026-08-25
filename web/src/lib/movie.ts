@@ -1,5 +1,6 @@
 import { realOf } from './history'
 import { FAMILY } from './labelStyle'
+import type { ColorMode } from './colorMode'
 import { mascotClock } from './mascotClock'
 
 /**
@@ -79,6 +80,36 @@ export function mapRect(width: number, height: number) {
 export interface Staged {
   px: number
   ground: 'light' | 'dark'
+  /** The lens the file is being recorded in, when it is not the one on screen.
+   *
+   *  **The export records what is on screen, so choosing a lens means changing the map.** It
+   *  already changes the ground and the density for the length of a recording, and on the
+   *  same argument: a movie drawn by a second renderer nobody has checked against the first
+   *  is a picture of a map that does not exist. The pane goes back when the dialog closes. */
+  mode?: ColorMode
+}
+
+/** The key a movie carries, since a file has no chrome around it to put one in.
+ *
+ *  **A movie used to need no key.** Every replay was the age ramp with two event flashes, so
+ *  the picture explained itself. Now a recording can be any lens the replay can paint — and
+ *  a Blame movie is sixteen colours with nothing saying whose, which is a picture of a fact
+ *  rather than the fact. Built by the window, which is the side that knows the ranking, and
+ *  drawn into the caption column by `Frame.legend`.
+ *
+ *  Colours are custom-property NAMES rather than values: the caption is Canvas2D and resolves
+ *  them against the staged map, so the key comes out in the ground the file is written on
+ *  rather than the one the window happens to be wearing. */
+export interface MovieKey {
+  /** The lens, named as the switcher names it. */
+  title: string
+  /** Categorical lenses: a swatch and a name each, already in slot order. */
+  entries: { label: string; token: string }[]
+  /** How many the map has that this key does not name — printed as `+N more`, never elided
+   *  silently, on the same rule the repo slug follows. */
+  more: number
+  /** Ramped lenses: the stops, cold end first, with the words for each end. */
+  ramp: { tokens: string[]; ends: [string, string] } | null
 }
 
 /** The side the map is drawn at inside a frame of this height — what the sunburst lays
@@ -202,6 +233,8 @@ class Shot {
     private title: string,
     /** The directory the replay is scoped to, or `''`. */
     private scope: string,
+    /** The lens key, or null for a lens with no key to give. See `MovieKey`. */
+    private key: MovieKey | null,
   ) {
     this.style = style
     this.map = mapRect(w, h)
@@ -266,6 +299,7 @@ class Shot {
       this.baseCtx.fillRect(0, 0, this.w, this.h)
       this.baseCtx.drawImage(img, this.map.x, this.map.y, this.map.side, this.map.side)
       this.caption()
+      this.legend()
       this.timeline()
     } finally {
       URL.revokeObjectURL(url)
@@ -467,6 +501,75 @@ class Shot {
    * and it stays close enough to the rest to read as one composition — a frame-foot version
    * was tried and floated free of everything it belongs to.
    */
+  /** The lens key, at the foot of the caption column.
+   *
+   *  **Bottom-anchored rather than stacked under the caption**, which is vertically centred
+   *  and measured to the pixel: hanging a variable number of rows off it would move the
+   *  repo's name every time somebody exported a different lens. The corner is where this
+   *  window already keeps what it says ABOUT the map, and a file inherits that.
+   *
+   *  Drawn only if it fits. A key that overlaps the caption is worse than no key, and the
+   *  caller has the same information one click away in the app.
+   */
+  private legend(): void {
+    const key = this.key
+    if (!key) return
+    const { left, room } = this.column()
+    if (room < this.h * 0.2) return
+    const c = this.baseCtx
+    const small = Math.max(10, Math.round(this.h * 0.022))
+    const row = Math.round(small * 1.7)
+    const box = Math.round(small * 0.8)
+    const rows = key.ramp ? 2 : key.entries.length + (key.more > 0 ? 1 : 0)
+    const height = row * (rows + 1)
+    const pad = Math.round(this.h * PAD)
+    let y = this.h - pad - height
+    // The caption is centred; if the key would climb into it, it is the key that gives way.
+    if (this.rule && y < this.rule.base + row) return
+
+    const fore = ink(this.svg, '--foreground') || '#111'
+    const muted = ink(this.svg, '--muted-foreground') || fore
+    c.textAlign = 'left'
+    c.textBaseline = 'alphabetic'
+    c.font = `700 ${small}px ${FAMILY}`
+    c.fillStyle = muted
+    c.fillText(key.title.toUpperCase(), left, y)
+    y += row
+
+    if (key.ramp) {
+      // The stops as they are, not a smoothed gradient: the ramp has five and the map paints
+      // between them, so five swatches is the honest picture of the scale.
+      const w = Math.min(room, Math.round(small * 9))
+      const step = w / key.ramp.tokens.length
+      key.ramp.tokens.forEach((token: string, i: number) => {
+        c.fillStyle = ink(this.svg, token) || muted
+        c.fillRect(left + i * step, y - box, step, box)
+      })
+      y += row
+      c.font = `400 ${small}px ${FAMILY}`
+      c.fillStyle = muted
+      c.fillText(key.ramp.ends[0], left, y)
+      const hi = key.ramp.ends[1]
+      c.textAlign = 'right'
+      c.fillText(hi, left + w, y)
+      c.textAlign = 'left'
+      return
+    }
+
+    c.font = `400 ${small}px ${FAMILY}`
+    for (const e of key.entries) {
+      c.fillStyle = ink(this.svg, e.token) || muted
+      c.fillRect(left, y - box, box, box)
+      c.fillStyle = fore
+      c.fillText(e.label, left + Math.round(box * 1.6), y)
+      y += row
+    }
+    if (key.more > 0) {
+      c.fillStyle = muted
+      c.fillText(`+${key.more} more`, left + Math.round(box * 1.6), y)
+    }
+  }
+
   private signature(left: number, base: number): void {
     const c = this.baseCtx
     const small = Math.max(11, Math.round(this.h * 0.026))
@@ -657,6 +760,9 @@ export interface Recording {
   height: number
   /** The repo as the world knows it — `owner/name` where there is a remote. */
   title: string
+  /** The key drawn in the caption column — see `MovieKey`. Absent draws nothing, which is
+   *  what a movie of a lens with no key to give (a mark, not a scale) should do. */
+  legend?: MovieKey | null
   /** The directory the replay is scoped to, or `''` for the whole repo. Set on its own line
    *  under the repo, because a movie of one subtree is a different film from a movie of the
    *  repo and the caption is where that gets said. */
@@ -875,6 +981,7 @@ export async function record(o: Recording): Promise<Uint8Array> {
     (await faceCss()) + varCss(svg),
     o.title,
     o.scope,
+    o.legend ?? null,
   )
   const output = new Output({ format: new Mp4OutputFormat(), target: new BufferTarget() })
   const source = new CanvasSource(shot.target, encoding)

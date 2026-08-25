@@ -45,7 +45,7 @@ import {
   type Tables,
 } from './lib/timeline'
 import { Sunburst } from './components/Sunburst'
-import type { Staged } from './lib/movie'
+import type { MovieKey, Staged } from './lib/movie'
 import { forgetMonster } from './lib/monster'
 import { onScanShape, shapeTree, type ShapeFile } from './lib/shape'
 import type { MascotState } from './components/MascotFigure'
@@ -53,13 +53,18 @@ import { CommitLog } from './components/CommitLog'
 import { HistoryBar } from './components/HistoryBar'
 import { Crumbs } from './components/Crumbs'
 import { TopRow } from './components/shell/TopRow'
+import { rampStop } from './lib/api'
 import {
   legendFor,
   MODE_LABEL,
   paintsFromReadings,
   paintsFromWiring,
+  NAMED,
+  RAMP_ENDS,
+  rampOf,
   rankCategories,
   REPLAY,
+  slotColor,
   replayNote,
   ageSpanOf,
   type ColorMode,
@@ -1346,7 +1351,11 @@ export default function App() {
    *  age and language and could always have painted them. What a replay can and cannot
    *  show is `REPLAY`, one lens at a time; what it does about the ones it cannot is say so
    *  in the map rather than change what you are standing in. */
-  const viewMode: ColorMode = mode
+  // **A staged export overrides it, for the length of the recording.** The file is a copy of
+  // what is on screen, so choosing a lens in the export dialog means changing the map — the
+  // same bargain the ground and the density already make. It goes back when the dialog closes,
+  // because `staged` does.
+  const viewMode: ColorMode = staged?.mode ?? mode
 
   /** Which lenses have nothing in them, and what would change that — see `Locked`.
    *
@@ -1679,6 +1688,54 @@ export default function App() {
     if (viewMode === 'blame' && authorRank) return authorRank
     return rankCategories(at, viewMode)
   }, [focus, tree, viewMode, authorRank])
+  /** The key a movie carries, for whichever lens it is being recorded in.
+   *
+   *  **Built here because this is the side that knows the ranking.** `movie.ts` draws it into
+   *  the caption column and resolves the colours against the staged map, so what crosses is
+   *  custom-property NAMES and labels — never resolved values, which would come out in the
+   *  ground the window happens to be wearing rather than the one the file is written on.
+   *
+   *  A movie needed no key while every replay was the age ramp with two flashes; it needs one
+   *  now that a recording can be any lens the replay paints, because a Blame film is sixteen
+   *  colours with nothing saying whose. */
+  const keyFor = useCallback(
+    (m: ColorMode): MovieKey | null => {
+      const at = focus ?? tree
+      if (!at) return null
+      const ends = RAMP_ENDS[m]
+      if (ends) {
+        return {
+          title: MODE_LABEL[m],
+          entries: [],
+          more: 0,
+          // The stops themselves rather than a smoothed bar: the ramp has five and the map
+          // paints between them, so five swatches is the honest picture of the scale.
+          ramp: {
+            tokens: [0, 0.25, 0.5, 0.75, 1].map((t) => rampStop(t, rampOf(m))),
+            ends,
+          },
+        }
+      }
+      const cats = legendFor(at, m)
+      const slots = m === 'blame' && authorRank ? authorRank : rankCategories(at, m)
+      const named = cats
+        .filter((c) => (slots.get(c) ?? Number.MAX_SAFE_INTEGER) < NAMED)
+        .sort((a, b) => (slots.get(a) ?? 0) - (slots.get(b) ?? 0))
+      return {
+        title: MODE_LABEL[m],
+        entries: named.map((label) => ({
+          label,
+          token: slotColor(slots.get(label) ?? Number.MAX_SAFE_INTEGER)
+            .replace(/^var\(/, '')
+            .replace(/\)$/, ''),
+        })),
+        more: cats.length - named.length,
+        ramp: null,
+      }
+    },
+    [focus, tree, authorRank],
+  )
+
   /** The repo's own span for the age ramp. Never consulted during a replay: a frame's
    *  colour is a flare measured in commits, not a position on this scale — see
    *  `Score.recency`. */
@@ -2264,6 +2321,8 @@ export default function App() {
                 slug={remote ?? activeProject?.name ?? 'repo'}
                 scope={scope}
                 onStage={setStaged}
+                mode={viewMode}
+                keyFor={keyFor}
                 // The whole timeline, for an export — the transport's own `onIndex` fetches
                 // the block under the playhead and returns, which is right for watching and
                 // useless to a recorder that must not stall mid-file.
