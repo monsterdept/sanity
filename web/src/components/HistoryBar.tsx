@@ -17,7 +17,16 @@ import { posOf, realOf } from '../lib/history'
  * thousand a second, which is why the clock below steps by however many commits a frame is
  * worth rather than trying to draw them all.
  */
-const DURATIONS = [180, 60, 30, 10, 3]
+/** The standard playthrough, and what `1x` means.
+ *
+ *  **The control is still a DURATION and the label is a ratio of it.** A rate — commits per
+ *  second — cannot be right for two repos at once: eight a second is six seconds of this repo
+ *  and two minutes of ceph, so one button would mean "a glance" on one project and "go and
+ *  make coffee" on the next. What a person is choosing is how long they will watch, and
+ *  `1x`/`3x` says that in the vocabulary everybody already has for playback speed, where
+ *  `30s` and `3m` asked them to hold the repo's size in their head to compare two of them. */
+const STANDARD = 30
+const DURATIONS = [100, 30, 10, 6, 3]
 
 /** Commits per second the renderer will actually attempt.
  *
@@ -32,6 +41,15 @@ export const MAX_FPS = 30
 function pace(total: number): string {
   if (total >= 60) return `${Math.round(total / 60)}m`
   return `${total}s`
+}
+
+/** A duration as a multiple of the standard playthrough — see `STANDARD`.
+ *
+ *  Rounded to one decimal only where it needs one: `0.3x` earns its digit and `1x` does not,
+ *  and a row reading `1.0x 3.0x` is a row of numbers rather than a row of speeds. */
+function speed(total: number): string {
+  const x = STANDARD / total
+  return `${x < 1 ? x.toFixed(1) : Math.round(x)}x`
 }
 
 /**
@@ -248,32 +266,14 @@ export function HistoryBar({
           aria-label="commit"
         />
 
-        {/* **The two events, beside the playhead they belong to.** They lived in the colour
-            legend, which was right while a replay painted nothing else and wrong the moment
-            the lenses started painting frames: two swatches landed in the middle of sixteen
-            author names, in a box already sitting over the map. What `new` and `changed` are
-            about is the commit under the transport, not the encoding — so they key here, and
-            the legend went back to being about colour. */}
-        <div className="mr-1 flex shrink-0 items-center gap-2">
-          {[
-            ['--birth', 'new'],
-            ['--touch', 'changed'],
-          ].map(([token, word]) => (
-            <span key={token} className="flex items-center gap-1">
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-                style={{ background: `var(${token})` }}
-              />
-              <span className="text-[10px] text-[var(--muted-foreground)]">{word}</span>
-            </span>
-          ))}
-        </div>
-
         <div className="flex shrink-0 items-center gap-0.5">
           {DURATIONS.map((d) => (
             <button
               key={d}
               onClick={() => onDuration(d)}
+              // The seconds are the fact and the multiple is the label: somebody deciding
+              // whether to watch wants to know it is a hundred seconds, not that it is
+              // three times slower than something they have not seen yet.
               title={`Play the whole history in about ${pace(d)}`}
               className="mono rounded px-1.5 py-0.5 text-[10px] transition-colors"
               style={{
@@ -281,7 +281,7 @@ export function HistoryBar({
                 color: d === duration ? 'var(--foreground)' : 'var(--muted-foreground)',
               }}
             >
-              {pace(d)}
+              {speed(d)}
             </button>
           ))}
         </div>

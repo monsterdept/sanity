@@ -15,6 +15,10 @@ import { MODE_LABEL, REPLAY, type ColorMode } from '../lib/colorMode'
  * this dialog has to do with the "1m" they pressed a moment ago. It opens on whatever the
  * transport is set to, so the default answer is the one they already gave.
  */
+/** How long the FILE runs, in seconds — and here it stays a duration in both the value and
+ *  the label. The transport upstairs now speaks in multiples of a standard playthrough,
+ *  because somebody watching is choosing a speed; somebody writing a file is choosing its
+ *  length, and "3m" is the thing they will type into whatever they put it in. */
 const LENGTHS = [180, 60, 30, 10, 3]
 
 /**
