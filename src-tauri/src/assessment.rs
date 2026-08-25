@@ -2242,9 +2242,15 @@ mod tests {
         // to be the thing this resolution had to survive. What still has to hold is the
         // distinction the move was hiding: same body, still current; changed body, expired.
         let walk = back.get("src-tauri/src/scan.rs#walk").unwrap();
-        assert!(!is_stale(walk, Some(&body_hash("fn walk() {}")), None), "unchanged body, still current");
+        assert!(
+            !is_stale(walk, Some(&body_hash("fn walk() {}")), None),
+            "unchanged body, still current"
+        );
         let app = back.get("web/src/app.jsx#App").unwrap();
-        assert!(is_stale(app, Some(&body_hash("return <span/>")), None), "body changed, reading expired");
+        assert!(
+            is_stale(app, Some(&body_hash("return <span/>")), None),
+            "body changed, reading expired"
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

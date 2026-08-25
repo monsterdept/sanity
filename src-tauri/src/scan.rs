@@ -1854,7 +1854,3 @@ mod tests {
         assert_eq!(s.root.loc, 0);
     }
 }
-
-
-
-

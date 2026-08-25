@@ -3858,10 +3858,10 @@ async fn reveal(
     // index written by something counting from nought.
     let part = req.part.unwrap_or(1).clamp(1, parts);
     if parts > 1 {
-        let seen = project.revealed.entry(req.id.clone()).or_insert_with(|| Revealed {
-            parts,
-            seen: std::collections::BTreeSet::new(),
-        });
+        let seen = project
+            .revealed
+            .entry(req.id.clone())
+            .or_insert_with(|| Revealed { parts, seen: std::collections::BTreeSet::new() });
         // Re-cut on every call, so a file edited mid-reading changes the count. Trusting the
         // stored one would let a body that grew past a part boundary report itself complete
         // on the parts of a shorter version.

@@ -1687,11 +1687,7 @@ function SunburstView({
                     like any other, and marking it there would call a fact about our own
                     limits a defect in somebody's code. */}
                       {paintsFromReadings(mode) && unreadable(slot.node) && (
-                        <path
-                          className="pointer-events-none"
-                          d={d}
-                          fill="url(#unreadable-hatch)"
-                        />
+                        <path className="pointer-events-none" d={d} fill="url(#unreadable-hatch)" />
                       )}
                       {/* **In a replay, NOT YET READ is drawn rather than left blank.** The
                     frames carry the readings the repo held at each commit, so under these
