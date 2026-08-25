@@ -370,13 +370,72 @@ const CATEGORICAL = [
   'var(--cat-14)',
   'var(--cat-15)',
   'var(--cat-16)',
+  // Seventeen to sixty-four: the tail that lets a repo's people each have a colour rather
+  // than a place in a top table. See `index.css` for what the well measures out to.
+  'var(--cat-17)',
+  'var(--cat-18)',
+  'var(--cat-19)',
+  'var(--cat-20)',
+  'var(--cat-21)',
+  'var(--cat-22)',
+  'var(--cat-23)',
+  'var(--cat-24)',
+  'var(--cat-25)',
+  'var(--cat-26)',
+  'var(--cat-27)',
+  'var(--cat-28)',
+  'var(--cat-29)',
+  'var(--cat-30)',
+  'var(--cat-31)',
+  'var(--cat-32)',
+  'var(--cat-33)',
+  'var(--cat-34)',
+  'var(--cat-35)',
+  'var(--cat-36)',
+  'var(--cat-37)',
+  'var(--cat-38)',
+  'var(--cat-39)',
+  'var(--cat-40)',
+  'var(--cat-41)',
+  'var(--cat-42)',
+  'var(--cat-43)',
+  'var(--cat-44)',
+  'var(--cat-45)',
+  'var(--cat-46)',
+  'var(--cat-47)',
+  'var(--cat-48)',
+  'var(--cat-49)',
+  'var(--cat-50)',
+  'var(--cat-51)',
+  'var(--cat-52)',
+  'var(--cat-53)',
+  'var(--cat-54)',
+  'var(--cat-55)',
+  'var(--cat-56)',
+  'var(--cat-57)',
+  'var(--cat-58)',
+  'var(--cat-59)',
+  'var(--cat-60)',
+  'var(--cat-61)',
+  'var(--cat-62)',
+  'var(--cat-63)',
+  'var(--cat-64)',
 ]
 export const OTHER = 'var(--structure)'
 export const OTHER_LABEL = 'other'
-/** How many categories get a color of their own. Exported because the legend has to
- *  name exactly the ones that have one — it counted to four itself, and a legend with its
- *  own copy of the palette's size is a legend that can disagree with the map. */
+/** How many categories get a color of their own. Exported because the legend has to know
+ *  which ones have one — it counted to four itself once, and a legend with its own copy of
+ *  the palette's size is a legend that can disagree with the map. */
 export const SLOTS = CATEGORICAL.length
+
+/** How many the legend NAMES, which stopped being the same number when the palette went to
+ *  sixty-four.
+ *
+ *  A key is a caption: sixteen names at ceph's median author-name length is three per row and
+ *  six rows, and sixty-four would be a panel standing on the map. The other forty-eight still
+ *  have colours of their own — what they do not have is a place in the corner, and the way to
+ *  ask who one of them is is to click the wedge. */
+export const NAMED = 16
 
 /** The name git puts on a line that is in the working tree and not in a commit.
  *

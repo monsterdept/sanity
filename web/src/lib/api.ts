@@ -271,6 +271,17 @@ export interface ScanStats {
   /** Commits reachable from HEAD. 0 when there is no history — the header reads that as
    *  "say nothing" rather than as a repo with no commits. */
   commits: number
+  /** Everyone who has committed here, most commits first, capped at what the palette holds.
+   *
+   *  **This is the only thing that decides a person's colour.** Ranking authors by what they
+   *  hold in the view made the colour a property of the view: it changed when you drilled and
+   *  it changed frame to frame in a replay, so Blame animated its own ranking. One list per
+   *  repo means one colour per person — the live map and every frame of its history agree.
+   *
+   *  Empty from a backend that predates the field, where the window falls back to ranking
+   *  what is on screen: the old behaviour, which was wrong in a way somebody can see rather
+   *  than a blank map. */
+  authors: string[]
   model: string
 }
 
@@ -355,6 +366,7 @@ interface WireScan {
     functions: number
     without_history: boolean
     commits?: number
+    authors?: string[]
     model: string
     calls_resolved?: number
     calls_unresolved?: number
@@ -1526,6 +1538,7 @@ function toScan(w: WireScan): Scan {
       functions: w.stats.functions,
       withoutHistory: w.stats.without_history,
       commits: w.stats.commits ?? 0,
+      authors: w.stats.authors ?? [],
       model: w.stats.model,
       callsResolved: w.stats.calls_resolved,
       callsUnresolved: w.stats.calls_unresolved,

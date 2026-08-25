@@ -1646,59 +1646,39 @@ export default function App() {
    *
    *  **A frame of a replay is not a drill, and that distinction is the memo below.** Both
    *  hand this a different tree; only one of them is a different QUESTION. */
-  /** The slot order, held still while the playhead moves.
+  /** Category → colour slot.
    *
-   *  **A replay rebuilds the tree thirty times a second, and ranking it per frame recoloured
-   *  the cast.** Slots are assigned by size, so a person who wrote the third-most code at
-   *  commit 900 and the fifth-most at commit 950 changed colour halfway through the story —
-   *  and Blame became a light show about the ranking rather than a picture of who wrote what.
+   *  **An author's slot comes from the REPO, and everything else's from the view.** Those are
+   *  two different questions wearing one name. A language is a category of the picture in
+   *  front of you: six of them, ranked by how much of this directory they are, and the sixth
+   *  matters — rank it against what is on screen. A person is not a category, they are an
+   *  identity, and an identity that changes colour when you drill or when a replay advances
+   *  is not one.
    *
-   *  Two different questions, and they were being answered with one memo. Drilling asks for a
-   *  fresh ranking: the whole point of standing inside `src/mon` is that its authors get the
-   *  eight slots rather than the repo's. Moving through TIME asks for the opposite — the same
-   *  person, the same colour, from the first frame to the last.
+   *  Three rules were tried before this and each went grey somewhere. Ranking every frame
+   *  recoloured the cast as the story ran. Seeding from today's ranking made the opening grey,
+   *  because the people who start a repo are rarely its biggest authors by the end — ceph's
+   *  `rgw` opened on six authors and drew `other (6)`. Assigning by arrival made the ENDING
+   *  grey: the first sixteen held the palette forever and their lines are gone by 2026, so a
+   *  frame with seventy-three people on screen had none of them coloured.
    *
-   *  So the order is keyed on the scope and the lens, starts EMPTY, and is only ever appended
-   *  to: a person takes the next free slot the first time they appear, and keeps it for the
-   *  rest of the story. Which means a replay's slots are assigned by arrival rather than by
-   *  size, and that is the right order for a story — the first six people to touch a directory
-   *  get the first six colours, whatever they went on to write.
-   *
-   *  It cannot be seeded from today's ranking, which was the first attempt: the people who
-   *  open a repo's history are rarely its biggest authors by the end, so every early frame
-   *  came out past the palette and grey. The cost of arrival order is the mirror of that — an
-   *  author who arrives late is far down the list however much they eventually write — and it
-   *  is the cheaper of the two, because a replay is watched from the start.
-   *
-   *  It also means the live map and the replay can disagree about a person's colour. They are
-   *  answering different questions: one ranks by how much of the code is yours now, the other
-   *  by when you first touched it. */
-  const heldRanks = useRef<{ key: string; order: Map<string, number> } | null>(null)
+   *  All three were versions of the same mistake — deriving identity from whatever happened to
+   *  be visible. `stats.authors` is the whole repo's cast, ranked once over the whole log, and
+   *  a person's place in it does not depend on where the playhead is or which directory you
+   *  are standing in. Sixty-four of them have a colour; past that is `other`, which is the
+   *  honest end of the palette rather than the top of a table. */
+  const authorRank = useMemo(() => {
+    const list = scan?.stats.authors ?? []
+    return list.length > 0 ? new Map(list.map((name, i) => [name, i])) : null
+  }, [scan])
   const ranks = useMemo(() => {
     const at = focus ?? tree
     if (!at) return undefined
-    const fresh = rankCategories(at, viewMode)
-    if (!replaying) return fresh
-    // Same scope, same lens: keep the order and append anyone new.
-    const key = `${viewMode}|${focus?.id ?? ''}`
-    let held = heldRanks.current
-    if (!held || held.key !== key) {
-      // **Empty, and filled in the order people ARRIVE.** Seeding from today's ranking was
-      // the first attempt and it made the beginning of every story grey: ceph's `rgw` opens
-      // with six authors, all of them a long way down a list of thirty-nine, so all six were
-      // past the palette and the map drew `other (6)` over a directory six people had
-      // written. A replay's early frames are exactly where the cast is small enough to
-      // colour, and that was the moment it had nothing to say.
-      held = { key, order: new Map() }
-      heldRanks.current = held
-    }
-    const order = new Map(held.order)
-    let next = order.size
-    for (const name of fresh.keys()) if (!order.has(name)) order.set(name, next++)
-    // Written back so the next frame appends after these rather than renumbering them.
-    held.order = order
-    return order
-  }, [focus, tree, viewMode, replaying])
+    // The fallback is the old behaviour, for a backend too old to send the list: ranking what
+    // is on screen is wrong in a way somebody can see, where an empty map is not.
+    if (viewMode === 'blame' && authorRank) return authorRank
+    return rankCategories(at, viewMode)
+  }, [focus, tree, viewMode, authorRank])
   /** The repo's own span for the age ramp. Never consulted during a replay: a frame's
    *  colour is a flare measured in commits, not a position on this scale — see
    *  `Score.recency`. */

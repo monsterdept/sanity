@@ -81,9 +81,28 @@ pub struct FileHistory {
 #[derive(Debug, Default)]
 pub struct History {
     files: HashMap<String, FileHistory>,
+    /// Everyone who has ever committed here, most commits first.
+    ///
+    /// **A repo-wide, all-time ordering, because a person's colour has to be one colour.**
+    /// The Blame lens used to rank authors by how many lines they hold in whatever is on
+    /// screen, which is a fine answer to "who owns this directory" and a terrible identity: it
+    /// changed when you drilled, and during a replay it changed as the story ran, so the map
+    /// spent its time animating its own ranking. Ranked once over the whole log, a person's
+    /// slot is the same in every frame, in every subtree, and on the live map — see
+    /// `authorRank` in the window.
+    ///
+    /// Commits rather than lines, because this walk counts commits and a second pass over
+    /// `git log --numstat` to weigh them would cost more than the ordering is worth. What the
+    /// order decides is only who gets the better-separated end of the palette.
+    authors: Vec<String>,
 }
 
 impl History {
+    /// Everyone who has committed here, most commits first — see the field.
+    pub fn authors(&self) -> &[String] {
+        &self.authors
+    }
+
     /// Normalized 0..1 churn for a repo-relative path. See [`CHURN_SATURATION`] for why
     /// the scale is absolute rather than relative to the repo.
     pub fn churn_of(&self, path: &str) -> f32 {
@@ -258,6 +277,7 @@ fn flush_commit(
 /// the instrument is for: a doc that has drifted from its code reads hot, and says so.
 fn parse_log(text: &str, now: i64) -> History {
     let mut files: HashMap<String, FileHistory> = HashMap::new();
+    let mut by_author: HashMap<String, u32> = HashMap::new();
     let mut commit_ts: i64 = 0;
     let mut author = String::new();
     let mut oid = String::new();
@@ -274,6 +294,9 @@ fn parse_log(text: &str, now: i64) -> History {
             commit_ts = ts.trim().parse().unwrap_or(0);
             author = who.trim().to_string();
             oid = id.trim().to_string();
+            if !author.is_empty() {
+                *by_author.entry(author.clone()).or_default() += 1;
+            }
             continue;
         }
         let path = line.trim();
@@ -284,7 +307,11 @@ fn parse_log(text: &str, now: i64) -> History {
     }
     flush_commit(&mut files, commit_ts, now, &author, &oid, &mut touched);
 
-    History { files }
+    // Most commits first; ties by name so two people with the same count cannot swap places
+    // between two scans of the same repo and take each other's colour with them.
+    let mut authors: Vec<(String, u32)> = by_author.into_iter().collect();
+    authors.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    History { files, authors: authors.into_iter().map(|(name, _)| name).collect() }
 }
 
 #[cfg(test)]

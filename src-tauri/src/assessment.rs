@@ -2133,6 +2133,7 @@ mod tests {
                 files_scanned: 0,
                 files_skipped: 0,
                 functions: funcs.len(),
+                authors: Vec::new(),
                 without_history: true,
                 model: "test".into(),
                 calls_resolved: 0,

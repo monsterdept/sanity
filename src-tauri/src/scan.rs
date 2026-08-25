@@ -136,6 +136,14 @@ pub fn not_a_repo(path: &Path) -> String {
     )
 }
 
+/// How many authors the window can colour, and therefore how many are worth sending.
+///
+/// Matches `CATEGORICAL` in `colorMode.ts`. Two copies of one number, which is the shape this
+/// repo is careful about — but the alternative is the window asking Rust how long its own
+/// palette is, and the cost of them disagreeing is small and visible: a name past the end
+/// takes the same neutral as no name at all, which is what it would have taken anyway.
+pub const AUTHOR_SLOTS: usize = 64;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanStats {
     pub files_scanned: usize,
@@ -158,6 +166,18 @@ pub struct ScanStats {
     /// own — `git log --no-merges` is what the walk asks for, for that reason — so counting
     /// them here was measuring one thing and reporting it against another.
     pub commits: usize,
+    /// Everyone who has ever committed here, most commits first — see `churn::History`.
+    ///
+    /// **The window colours a person by their position in this list, and by nothing else.**
+    /// Ranking authors by what they hold in whatever is on screen made a person's colour a
+    /// property of the view: it changed when you drilled and it changed while a replay ran.
+    /// One list per repo means one colour per person, on the live map and in every frame of
+    /// its history.
+    ///
+    /// Capped at what the palette can actually hold plus a little slack — see `CATEGORICAL`.
+    /// A repo with five hundred authors has no five hundred distinguishable colours, and a
+    /// list that pretended otherwise would just be a longer tail of the same neutral.
+    pub authors: Vec<String>,
     pub model: String,
     /// Call sites that reached a definition in this repo, and ones that did not.
     ///
@@ -1437,6 +1457,8 @@ pub fn scan(
             files_skipped: total_found.saturating_sub(files_scanned),
             functions,
             without_history: history.is_empty(),
+            // Capped where the palette stops meaning anything — see `ScanStats::authors`.
+            authors: history.authors().iter().take(AUTHOR_SLOTS).cloned().collect(),
             commits: commit_count(root),
             model: model.label(),
             calls_resolved: wiring.resolved,

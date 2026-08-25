@@ -4,7 +4,7 @@ import {
   MODE_HINT,
   MODE_LABEL,
   OTHER_LABEL,
-  SLOTS,
+  NAMED,
   slotColor,
   type ColorMode,
   paintsFromReadings,
@@ -121,8 +121,12 @@ function Legend({
     // legend sorted by anything else would hand the top swatch to whoever the frame happened
     // to list first. Anyone past the palette is counted as `other` rather than named, since
     // they share the one neutral and naming them would imply they are distinguishable.
+    // **Named up to what a key can hold, coloured up to what the palette can.** The two used
+    // to be one number and the palette has since gone to sixty-four: a legend that named all
+    // of them would be six hundred pixels of names over the map, and a legend is a caption.
+    // Everyone past it still has their own colour — the panel says whose when you click.
     const named = categories
-      .filter((c) => (ranks?.get(c) ?? categories.indexOf(c)) < SLOTS)
+      .filter((c) => (ranks?.get(c) ?? categories.indexOf(c)) < NAMED)
       .sort((a, b) => (ranks?.get(a) ?? 0) - (ranks?.get(b) ?? 0))
     return (
       // Wider than it was, because the palette is twice as deep. Sixteen names at ceph's

@@ -392,6 +392,70 @@
   --cat-14: #847c41;
   --cat-15: #635bcd;
   --cat-16: #6fa597;
+  /* Seventeen to sixty-four. **A contributor is not a category, and that is why the palette
+   * has a tail at all.** The first sixteen are a ranked scale — biggest author first — which
+   * is the right shape for languages, where a repo has six of them and the sixth matters. It
+   * is the wrong shape for people: ceph's `rgw` is seventy-three authors and its whole repo is
+   * five hundred and seventy-four, so a ranked sixteen paints the map with a top table and
+   * calls everybody else the same colour. Every one of them wrote something.
+   *
+   * Same search, same band, run out to sixty-four: worst pair 10.4 under normal vision, which
+   * is four times the just-noticeable difference. That is the honest end of this well. Under
+   * dichromacy it is long gone — sixteen already sits at 8.8 and the tail is decorative there
+   * — so the rule this palette keeps past sixteen is the weaker one: a colour tells you two
+   * wedges are the same person or different people, and the panel tells you WHICH person.
+   *
+   * Sixty-four rather than "all of them" because colour three hundred is a lie: the volume
+   * does not hold it, and a map that claims to distinguish five hundred authors distinguishes
+   * none of them. Past this the tail is `other`, and it is reachable by picking a wedge. */
+  --cat-17: #f5714e;
+  --cat-18: #00c3f5;
+  --cat-19: #006f83;
+  --cat-20: #815200;
+  --cat-21: #c6b300;
+  --cat-22: #c33d53;
+  --cat-23: #348300;
+  --cat-24: #ca89fb;
+  --cat-25: #82574b;
+  --cat-26: #daa199;
+  --cat-27: #0060a4;
+  --cat-28: #00a859;
+  --cat-29: #ae6f43;
+  --cat-30: #0097aa;
+  --cat-31: #819800;
+  --cat-32: #b54ba0;
+  --cat-33: #00877a;
+  --cat-34: #daa574;
+  --cat-35: #00c9cf;
+  --cat-36: #b1736c;
+  --cat-37: #566600;
+  --cat-38: #b3a56a;
+  --cat-39: #fb882b;
+  --cat-40: #7f7ee4;
+  --cat-41: #695d35;
+  --cat-42: #5db1ff;
+  --cat-43: #a48b00;
+  --cat-44: #00844d;
+  --cat-45: #ff7c84;
+  --cat-46: #637498;
+  --cat-47: #9c99c2;
+  --cat-48: #893192;
+  --cat-49: #d24e3e;
+  --cat-50: #77a6bc;
+  --cat-51: #a28763;
+  --cat-52: #ca75bd;
+  --cat-53: #a42054;
+  --cat-54: #4fce74;
+  --cat-55: #548198;
+  --cat-56: #9b721c;
+  --cat-57: #a92229;
+  --cat-58: #a4c025;
+  --cat-59: #0098d0;
+  --cat-60: #c1587d;
+  --cat-61: #db640e;
+  --cat-62: #246a63;
+  --cat-63: #866848;
+  --cat-64: #dea71d;
 
   --unanalyzed: #b3aca3;
   /* Outlines wedges an AGENT judged, so they are distinguishable from model-scored ones
