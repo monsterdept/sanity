@@ -39,8 +39,8 @@ export type ColorMode =
   | 'clones'
   | 'callers'
   | 'reach'
-  | 'language'
   | 'blame'
+  | 'language'
   | 'churn'
   | 'age'
 
@@ -48,10 +48,12 @@ export type ColorMode =
  * The order on screen, and therefore the ⌘-digits — the switcher, its tooltips and the key
  * handler all read this one list, so there is nothing for them to drift from.
  *
- * **The right-hand end is a widening time window.** Blame is a point (who touched it last),
- * churn is a 90-day span, age is unbounded, and History — the mode past the end of the row —
- * is the whole timeline. Entering it is then a continuation of the gesture rather than a
- * mode change out of nowhere.
+ * **The right-hand end is a widening time window.** Churn is a 90-day span, age is unbounded,
+ * and History — past the end of the row — is the whole timeline. Entering it is then a
+ * continuation of the gesture rather than a mode change out of nowhere. Blame is a point in
+ * time as well (who touched each line last), but it is drawn like Language rather than like
+ * these two, and it sits with the lens it resembles rather than with the ones it neighbours
+ * in meaning.
  *
  * Named for the SUBJECT, and the color carries the direction. This tab was `Opacity` for a
  * while, on the rule that a lens should be named for its bright end — and that rule cost more
@@ -67,19 +69,19 @@ export type ColorMode =
  * The FOUR lenses painted from a reader's report lead, because Surprise is what the app is
  * for and Traps is read out of the same report — three grades and a mark, contiguous, so the
  * part of the row that costs a reading is one run rather than two with the wiring in between.
- * Clones travels with Traps because the two behave alike on the map. `language` divides all of
- * that from the git-derived three: it is the only lens painted from neither a reading nor a
- * commit, which makes it the seam rather than an orphan on the end.
+ * Clones travels with Traps because the two behave alike on the map. Then the two CATEGORICAL
+ * lenses sit together — Blame and Language are the pair with palette slots instead of a ramp,
+ * so a reader who has just learned that colour means owner meets the other lens that works
+ * the same way next — and the row closes on the widening time window: churn is ninety days,
+ * age is unbounded, History is the whole story.
  */
 /** What each lens can say about a PAST commit, which is not the same question as what it
  *  can say about the code in front of you.
  *
  *  **History used to be a twelfth lens and is really a second axis.** Entering a replay
- *  forced the map to `age` and greyed the whole switcher, which was true of the four lenses
- *  a reading paints and a blunt instrument for the rest: a frame knows perfectly well how
- *  much churn a function had in 2019 and what language it was written in.
- *
- *  Three answers, and only one of them is about effort:
+ *  forced the map to `age` and greyed the whole switcher, which was a blunt instrument: a
+ *  frame knows perfectly well how much churn a function had in 2019 and what language it was
+ *  written in.
  *
  *  - `live` — the frame already carries it. `frameTree` folds `churn`, `ageDays`,
  *    `lastTouchedDays` and `commits` per frame, and each function node keeps its `lang`, so
@@ -88,41 +90,47 @@ export type ColorMode =
  *    each function: the frame knows WHICH commit and the log knows who, but the log is paged
  *    and the node carries `lastAuthor: null`. Callers and Reach need the wiring recomputed
  *    per frame, and Clones a repo-wide comparison per frame — both on a delta stream that
- *    was fought down from 20.9MB to 1.0MB on ceph. Refuse until somebody asks.
- *  - `never` — a reading measures the body as it stands TODAY. Painting a 2019 frame with it
- *    would be the map claiming a measurement nobody took, which is the same rule that makes
- *    a stale reading drop its colour rather than keep it.
+ *    was fought down from 20.9MB to 1.0MB on ceph.
  *
- *  The `never` four are exactly the four that need a reading pass at all. That boundary shows
- *  up twice in this app and it is the same boundary both times. */
-export const REPLAY: Record<ColorMode, 'live' | 'cost' | 'never'> = {
-  surprise: 'never',
-  legible: 'never',
-  docs: 'never',
-  traps: 'never',
+ *  **There is no `never`, and there was one until somebody read the sentence it printed.**
+ *  The four lenses a reading paints were classed as impossible on the rule that a reading
+ *  measures the body as it stands, so stamping it onto an older commit claims a measurement
+ *  nobody took. That rule is real and it is about TODAY's readings. It says nothing about the
+ *  readings that existed at the commit being drawn — and `.sanity/` is committed, so those
+ *  are in the history like everything else. A frame could paint what the repo knew about
+ *  itself at that commit, which is a different question from what we know now and a better
+ *  one than grey. The walk already carries file state forward and re-parses what each commit
+ *  touched; the shards are files it does not fold. So: unbuilt, like the other four, and the
+ *  note says which kind of unbuilt.
+ *
+ *  What survives of the old rule is the thing it was written for: `applyAgentReports` drops a
+ *  stale reading's colour rather than keeping it, and no frame is ever painted with a reading
+ *  taken against a body it does not hold. */
+export const REPLAY: Record<ColorMode, 'live' | 'cost'> = {
+  surprise: 'cost',
+  legible: 'cost',
+  docs: 'cost',
+  traps: 'cost',
   clones: 'cost',
   callers: 'cost',
   reach: 'cost',
-  language: 'live',
   blame: 'cost',
+  language: 'live',
   churn: 'live',
   age: 'live',
 }
 
 /** Why this lens has no colours in a replay, in the words the tab and the map both use.
  *
- *  One sentence per KIND rather than per lens: the reason a reading cannot be replayed is
- *  the same reason four times, and writing it four ways would make it read as four
- *  different limitations. */
+ *  Two sentences, because there are two reasons and they are not the same size. A lens off
+ *  the parse or the log would have to be recomputed at every commit. A lens off a reading
+ *  would not: the readings are already in git, one shard per area, and what is missing is
+ *  the fold — which is worth saying plainly rather than hiding behind the other sentence. */
 export function replayNote(mode: ColorMode): string | null {
-  switch (REPLAY[mode]) {
-    case 'live':
-      return null
-    case 'cost':
-      return `${MODE_LABEL[mode]} is not replayed: it would have to be recomputed at every commit, and the timeline does not carry it.`
-    case 'never':
-      return `${MODE_LABEL[mode]} is not replayed: a reading measures the code as it stands now, and stamping it onto an older commit would claim a measurement nobody took.`
-  }
+  if (REPLAY[mode] === 'live') return null
+  if (paintsFromReadings(mode))
+    return `${MODE_LABEL[mode]} is not replayed yet. The readings are committed in .sanity/, so a frame could show what this repo knew about itself at that commit — the timeline does not fold them.`
+  return `${MODE_LABEL[mode]} is not replayed: it would have to be recomputed at every commit, and the timeline does not carry it.`
 }
 
 export const MODE_LABEL: Record<ColorMode, string> = {
@@ -140,8 +148,8 @@ export const MODE_LABEL: Record<ColorMode, string> = {
   clones: 'Clones',
   callers: 'Callers',
   reach: 'Reach',
-  language: 'Language',
   blame: 'Blame',
+  language: 'Language',
   churn: 'Churn',
   age: 'Age',
 }
@@ -593,11 +601,11 @@ export function colorFor(
 
   // **The events come first, and then the lens paints — if it is one a frame can paint.**
   // This used to end the story: a replay was grey whatever the switcher said, on the rule
-  // that a frame's score carries no reading and no scale worth drawing. Half of that was
-  // right and is still enforced, in `REPLAY`: nothing a reader graded can be stamped onto an
-  // older commit. The other half was a blunt instrument. `frameTree` folds `churn`,
-  // `ageDays` and `lastTouchedDays` per frame and keeps each function's `lang`, so those
-  // lenses have real numbers for the commit under the playhead and were being thrown away.
+  // that a frame's score carries no reading and no scale worth drawing. What the frame does
+  // carry is the point — `frameTree` folds `churn`, `ageDays` and `lastTouchedDays` per frame
+  // and keeps each function's `lang`, so those lenses have real numbers for the commit under
+  // the playhead and were being thrown away. What it does not carry is everything else, which
+  // is a fact about the fold rather than about the question — see `REPLAY`.
   //
   // A wedge still flashes on the commit it first appears in, fades over `flashWindow`, and
   // then — instead of sitting at the ground — takes whatever colour the lens gives it in
