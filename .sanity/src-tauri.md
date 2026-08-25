@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-810 of 817 read · 137 surprising · 1 stale
+817 of 817 read · 137 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -1031,6 +1031,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: spec >= TRAP_SINCE — a one-line comparison against a constant marking when the trap question was last redefined.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
+### `packed`
+- spec 3 · read at `ef75792ef708` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:20:17Z · by ross@rossturk.com · warm reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Packs a Report's four graded axes into one u16: predicted/documented/legible each as a 3-bit grade value (via a `g()` helper mapping None/Some/Most/Full to 0-4) at bit offsets 0, 3, 6, and the trap boolean at bit 9 — applying `grades()`'s derivable-forces-documented-to-none rule and gating legible/trap through legible_current/trap_current so a superseded-spec answer doesn't leak into the packed value.
+- found: Exactly as predicted: packs predicted/documented/legible as 3-bit grade values at offsets 0/3/6 and trap as a bit at offset 9, gating legible/trap through the current-spec checks and using grades() for the derivable override.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
 ### `dated_axis` — QUIRKY
 - spec 3 · read at `09495a3a8937` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:19:11Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
 - expected: Given a Report, returns whether its particular axis/field is one whose truth is tied to the code's CURRENT body — such that if the function changes underneath it, this reading can go stale — as opposed to axes recording something about the reader's process itself (e.g. which model made it) that don't depend on the code at all. Probably a match on some kind/axis enum on the Report, returning true for things like predicted/trap/legible and false for others.
@@ -1798,6 +1804,12 @@ What this is and how to add to it: [README.md](README.md)
 - expected: The git-history analysis module: runs a single git log pass (not one spawn per file) to parse commits, credits each commit to every touched file and rolls that up to every ancestor directory, exposing a History struct with per-path lookups (churn_of, age_of, last_touched_of, last_author_of, commits_of, total_commits_of, authors). Computes saturation/caps so one pathological file's commit count doesn't dominate the churn scale, and handles no-git-history gracefully (is_empty). Tests at the bottom verify aggregation and saturation.
 - found: One git log --name-only pass parsed once; credit() records per-path stats, flush_commit rolls each commit up to every ancestor directory (and the root, handled specially since the ancestor-walk loop misses it) counting once regardless of how many files in that dir it touched. History exposes churn_of/commits_of/total_commits_of/age_of/last_touched_of/last_author_of/last_commit_of/authors/is_empty exactly as predicted. Churn is normalized against an absolute CHURN_SATURATION constant (not repo-relative) specifically so one pathological file (e.g. a lockfile) saturates instead of squashing everything else's normalized churn. total_commits is deliberately unbounded/uncapped (walk used to cap at 5000) so it's a true lifetime count, distinct from the 90-day recent_commits window, with None reserved for paths git has never seen (vs 0 for seen-but-untouched-in-window).
 - predicted: full · documented: full · derivable: no · legible: not judged · trap: no
+
+### `authors`
+- spec 3 · read at `9112ed59253d` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:36Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Simple accessor returning &self.authors, a field on History populated during the single git log walk and already sorted by commit count descending, matching the doc "most commits first". No computation happens here.
+- found: Simple accessor: returns &self.authors.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `churn_of`
 - spec 3 · read at `a7307b69edc1` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:04:15Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -3047,20 +3059,30 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/history.rs
 
-### the file itself — STALE
-- spec 3 · served in 4 parts · read at `38b3deed83a1` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:55:08Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Implements a Replayer that walks git history commit-by-commit to reconstruct how the codebase's structure (files/functions, LOC) grew over time, parsing raw git log/diff output for edits, renames, copies and deletions while keeping same-named functions in a file distinct. It explicitly does not recompute surprise/temperature retroactively since that's a present-tense-only measurement. It supports incrementally extending a previously cached timeline (resume), on-disk caching with a schema-version guard against silently reading stale cache formats, cancellation that preserves partial/banked progress, and pooled/parallel reading of blobs or commits for performance.
-- found: Confirmed the core: a Replayer walks git log --raw commit by commit, re-parsing only changed files (carrying forward parsed state), builds delta frames (functions added/resized/deleted per commit) rather than snapshots, explicitly never recomputes surprise/temperature retroactively. It supports resume/extend against a cached HistoryScan keyed by commit position (not by reachability, since --reverse order isn't ancestry), refuses to extend across a rewritten history, checkpoints mid-walk with an adaptive interval so cancellation doesn't lose an hour of work, uses a CACHE_VERSION + parser-version guard, and uses a dedicated rayon thread pool to avoid starving/being starved by a concurrent scan. What I missed entirely: a whole second half of the file is a paginated serving layer (Tables/LogRow/funcs/log/scoped/deltas) that holds one loaded timeline in memory and answers small windowed queries for the frontend, deliberately never shipping the full multi-megabyte function table or per-commit file lists at once.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: The file's own module-doc and function-level comments are unusually thorough (almost essay-like) — documented:full and derivable:false because the WHY (specific measured costs, past incidents like the ceph slowdown) isn't recoverable from the code alone.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### the file itself
+- spec 3 · served in 4 parts · read at `fac9ca24a111` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:19:50Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: The Tauri backend engine that walks git log history commit-by-commit, incrementally builds a per-commit "delta" timeline (functions born/touched/removed, keyed via interning through Funcs/Blobs), caches that timeline to disk (Checkpoint/bank/save_cache/load_cache) so re-opening a repo doesn't require a full re-walk, supports cancelling/resuming a long walk (Replayer fold/apply/snapshot/cancel) and extending a cached timeline forward when new commits land, and exposes a small query API (tables, funcs, log, touches, scoped, deltas) for the frontend's replay UI. Includes a large embedded test suite asserting caching/resume/consistency invariants (named as full sentences describing the property).
+- found: Confirmed: git-log-based commit-by-commit replay engine with incremental per-file reparsing (not full-tree scans), function/reading interning, disk caching with versioning and extend-forward-from-cache logic, cancel/resume via a Replayer that can checkpoint mid-walk, a per-repo tracing-claim guard against concurrent walks, and a windowed query API (tables/funcs/log/scoped/deltas) that serves only the slice the frontend currently needs rather than the whole timeline. Also includes streaming git subprocess management (long-lived `git cat-file --batch`, streamed `git log --raw`), a dedicated rayon thread pool to avoid starving/being starved by the live scan, and an extensive test module encoding invariants as sentence-named tests.
+- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
+- note: Missed from prediction: the batched/windowed parallel parsing architecture (prefetch/parse_batch/PARSE_CHUNK/dedicated rayon pool), the .sanity/ reading-shard folding into frames, the tracing-claim concurrency guard, and the deliberate paging API design to avoid shipping tens of MB per open — all substantial parts of the file's actual weight.
 
 ### `key_of`
 - spec 2 · read at `19a1795e6717` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:26:14Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
 - expected: Builds an identity string from `path` and the function's name (and owner type if present on HistoryFunc), formatted like "path#owner::name" or "path#name", used as a stable diff key across commits.
 - found: Builds "path#owner::name#ord" — I had the shape right but missed the trailing ordinal (f.ord), which presumably disambiguates same-named overloads/shadows at the same path.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `is_shard`
+- spec 3 · read at `b6c768f76ab0` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:36Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether a given path string is inside the .sanity/ directory and has a .md extension, identifying it as one of the committed Markdown shards (including README.md, which counts too since the function doesn't special-case it).
+- found: Exactly as predicted: checks path starts with '.sanity/' and ends with '.md', no special-casing of README.md.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `reading_key`
+- spec 3 · read at `a654922fe394` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:29Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Builds a string key from `path` and `f` (name/ordinal) matching the format `key_of` uses, so a history reading can be matched to the same .sanity/ file entry. It converts f's one-based ordinal to zero-based (subtracting 1) before delegating to or replicating key_of's suffixing logic, with the first occurrence getting no suffix and later duplicates getting one based on the adjusted ordinal.
+- found: Delegates to crate::assessment::key_of(path, &f.name, f.ord.saturating_sub(1) as usize), converting the one-based FuncAt ordinal to key_of's zero-based expectation via saturating_sub to avoid underflow panics.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `lang_of` — QUIRKY
 - spec 2 · read at `addd3d34929a` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:08:08Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -3190,6 +3212,12 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Takes a full tree listing of (path, blob-sha) pairs representing the state right before the replay window begins, reads and parses each blob (likely via parse_batch/Blobs, reporting progress), and populates the Replayer's internal per-path function state with this baseline so subsequent commit folds can apply diffs on top of it rather than starting from nothing.
 - found: Splits the tree's (path, sha) pairs into ordinary sources and "shard" paths (some coverage/reading data), parses the sources via parse_batch to intern functions and seed per-path state plus a base-lines list, then folds the shard blobs last (after functions exist to join against) via fold_shard, treating every entry as a first arrival with nothing to retire.
 - predicted: some · documented: some · derivable: no · legible: most · trap: no
+
+### `fold_shard`
+- spec 3 · read at `ef05ba6660bb` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:20:08Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Parses the shard's text (None meaning the shard was deleted at this version) into its reading entries, joins each entry to an interned function via path/name lookup, and diffs against the reading state this Replayer already carries for that shard path: entries whose packed grade changed are pushed as (func_index, packed) into `read`, entries that dropped out (removed from this version or the shard deleted) are pushed as func_index into `unread`. Entries that cannot be joined to a known function (excluded path, or never interned) are silently skipped. Updates the carried state for this shard path to the new set before returning.
+- found: Parses the shard text (or nothing if deleted) into packed readings, diffs against the previously carried map for that shard path, pushes (func_index, packed) for changed entries into `read` and func_index for dropped entries into `unread` (looking up indices via funcs.by_reading, skipping unjoined keys), and replaces the carried state — but only stores it back if the new set is non-empty.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `apply` — QUIRKY — TANGLED
 - spec 3 · read at `9a96b1e10d61` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:18:24Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -3475,6 +3503,19 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Test function exercising the tracing claim guard: claims a repo once (succeeds), attempts a second claim for the same repo while the first guard is still held (expects refusal/None), then drops the first guard and claims again to confirm it now succeeds — verifying both the mutual-exclusion and the release-on-drop behavior.
 - found: Test confirms the claim guard is per-repo (a second repo can claim independently while the first is held), verifies claim/refuse/drop/re-claim semantics, and also checks that progress recorded via claim.at() is visible through tracing() while the claim is held.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `a_committed_reading_lands_on_the_function_it_describes`
+- spec 3 · read at `3d7d674c1534` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:31Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This is a test verifying the key-translation join described in the docs: it builds a repo with a function and a committed .sanity/ reading keyed as `path#name` (or `path#name#2` for a twin), runs the history walk which keys by `path#owner::name#ord`, and asserts the reading is correctly attached to the matching function's history entry rather than being silently dropped because of a key-format mismatch.
+- found: Integration test: builds a real git repo with one file/two functions, commits a .sanity/ shard with one reading for `one`, runs history::read, and asserts the reading joins to function `one` with correctly-packed predicted/documented/legible/trap bits. Then deletes the shard in a new commit and asserts the reading shows up as retired/unread in that commit — a part not covered by my prediction.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `a_trace_reports_one_denominator_and_never_goes_backwards`
+- spec 3 · read at `eaf638216cb5` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:04Z · by ross@rossturk.com · warm reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A test that creates a small temp repo with several commits, calls `read` while collecting all progress callbacks, and asserts that all progress reports (excluding the separate "reading the log" phase) share a single denominator (`total`) and that `done` never decreases across the sequence of reported progress — verifying the walk's progress reporting doesn't alternate between two different counters.
+- found: Builds an 8-commit temp repo, calls `read` collecting every progress callback with total>0, filters out the separate "reading the log" phase, then asserts there's exactly one distinct `total` across the remaining walk progress and that `done` never decreases across them.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: Already read this exact function in full during the earlier file-level task on history.rs, so this is a warm read rather than a cold prediction.
 
 ### `with_loaded`
 - spec 3 · read at `6447ae5e3a8a` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:54:13Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded

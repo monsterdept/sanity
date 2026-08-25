@@ -65,6 +65,22 @@ pub const ALL_COMMITS: usize = usize::MAX;
 /// picture by area while saying nothing.
 const MAX_BLOB_BYTES: u64 = 1_000_000;
 
+/// The same limit for a `.sanity/` shard, which is a different kind of file.
+///
+/// **The source cap refused a repo's own assessment and it took a whole lens with it.**
+/// `MAX_BLOB_BYTES` exists to keep vendored bundles out of the PICTURE — a megabyte of
+/// minified client would dominate the rings by area while saying nothing — and a shard is
+/// never drawn: it is read, joined to functions by key, and thrown away. VectorLand's
+/// `godot.md` is 1.7MB of honest readings, so every frame of its replay came out unread while
+/// the live map, which reads the same file off disk with no cap at all, showed a repo that had
+/// been read twice over. One number, two jobs, and the wrong half of it was in charge.
+///
+/// Still bounded, because a shard is text this process holds in memory and a corrupt or
+/// pathological file should not be able to ask for a gigabyte. Thirty-two megabytes is far
+/// past any real assessment: this repo's is 1.4MB at 1,204 readings, so the ceiling is
+/// roughly a repo of thirty thousand functions read end to end.
+const MAX_SHARD_BYTES: u64 = 32_000_000;
+
 /// A single line this long means minified or generated output — the same test `scan`
 /// applies, and it has to be the same test.
 ///
@@ -251,6 +267,11 @@ impl Blobs {
 
     /// The text of one blob, or `None` if it is missing, binary, or too big to be code.
     fn read(&mut self, sha: &str) -> Option<String> {
+        self.read_within(sha, MAX_BLOB_BYTES)
+    }
+
+    /// The same read, with the caller naming its own ceiling — see `MAX_SHARD_BYTES`.
+    fn read_within(&mut self, sha: &str, cap: u64) -> Option<String> {
         let pipe = self.stdin.as_mut()?;
         writeln!(pipe, "{sha}").ok()?;
         pipe.flush().ok()?;
@@ -272,7 +293,7 @@ impl Blobs {
         // silently attributes one file's functions to another.
         let mut buf = vec![0u8; size as usize + 1];
         self.stdout.read_exact(&mut buf).ok()?;
-        if size > MAX_BLOB_BYTES {
+        if size > cap {
             return None;
         }
         buf.pop();
@@ -957,7 +978,7 @@ impl Replayer {
             self.state.insert(path, state_of);
         }
         for (path, sha) in shards {
-            let text = blobs.read(&sha);
+            let text = blobs.read_within(&sha, MAX_SHARD_BYTES);
             let mut read = Vec::new();
             // Nothing to retire in a seed: this is the first thing the walk has heard of
             // any of these shards, so every entry it can join is an arrival.
@@ -1054,7 +1075,7 @@ impl Replayer {
             if !is_shard(&c.path) {
                 continue;
             }
-            let text = c.sha.as_ref().and_then(|sha| blobs.read(sha));
+            let text = c.sha.as_ref().and_then(|sha| blobs.read_within(sha, MAX_SHARD_BYTES));
             let mut read = Vec::new();
             let mut unread = Vec::new();
             self.fold_shard(&c.path, text.as_deref(), &mut read, &mut unread);
@@ -2176,6 +2197,57 @@ mod tests {
         drop(claim);
         assert!(tracing(repo).is_none(), "dropping the claim releases the repo");
         assert!(Tracing::claim(repo).is_some(), "so the next walk can take it");
+    }
+
+    /// A shard is read whatever its size, because it is not part of the picture.
+    ///
+    /// **The source cap took a whole lens with it.** `MAX_BLOB_BYTES` refuses a blob over a
+    /// megabyte so a vendored bundle cannot dominate the rings by area — and it was applied to
+    /// `.sanity/` too, which is never drawn. A real repo's assessment passes a megabyte at
+    /// about a thousand readings, so VectorLand's 1.7MB shard was refused, every frame of its
+    /// replay came out unread, and the live map beside it showed the same repo fully read.
+    #[test]
+    fn a_shard_is_read_past_the_size_a_source_file_is_refused_at() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .output()
+                .expect("git runs");
+        };
+        let write = |name: &str, text: &str| {
+            let p = dir.path().join(name);
+            std::fs::create_dir_all(p.parent().expect("has a parent")).expect("mkdir");
+            std::fs::write(p, text).expect("writes");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "ada@example.com"]);
+        git(&["config", "user.name", "Ada"]);
+        write("a.rs", "fn one() {\n    x\n}\n");
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "the code"]);
+
+        // One real entry, padded past `MAX_BLOB_BYTES` the way a repo's own readings pad it:
+        // with more readings. The padding is entries for functions this repo does not have,
+        // which is exactly what a shard holding another area's work looks like from here.
+        let mut shard = String::from("## `a.rs`\n\n### `one`\n- expected: a\n- found: b\n- predicted: some · documented: full · derivable: no · legible: most · trap: no\n");
+        let mut n = 0;
+        while shard.len() < (MAX_BLOB_BYTES as usize) + 50_000 {
+            n += 1;
+            shard.push_str(&format!(
+                "### `filler{n}`\n- expected: a\n- found: b\n- predicted: full · documented: full · derivable: no · legible: full · trap: no\n"
+            ));
+        }
+        write(".sanity/a.md", &shard);
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "a big assessment"]);
+
+        let scan = read(dir.path(), ALL_COMMITS, &|_| {});
+        let landed: Vec<_> = scan.commits.iter().flat_map(|c| c.read.clone()).collect();
+        assert_eq!(landed.len(), 1, "the one entry with a function behind it joined");
+        assert_eq!(scan.funcs[landed[0].0 as usize].name, "one");
     }
 
     /// The readings a repo committed are part of its history, and the walk has to join them

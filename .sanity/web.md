@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-381 of 387 read · 75 surprising · 3 stale
+387 of 387 read · 76 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -75,10 +75,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `App` — QUIRKY — TANGLED
-- spec 3 · served in 4 parts · read at `ff9d907d03a4` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:18:54Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: The root application component: owns top-level state for which project is open, scan/reading progress (via useProgress), the sunburst map's current node/selection, and history replay mode. It polls or subscribes to backend progress, renders the sidebar/log/progress strip, the map itself, and dialogs like ExportDialog and HistoryToggle, switching between an Empty state (no project loaded) and the full map/replay UI, and wires keyboard shortcuts and node-click handlers to drive navigation.
-- found: The root component: owns project/tree/selection/drill-stack/history-replay state, polls the backend for project list, agent activity, streamed scores, and scan-shape events (all batched to avoid over-rendering), lazily fetches per-file function rings, builds derived views (focus, trail, ranks, legend keys, locks per lens), handles keyboard shortcuts, and renders the sidebar, top row, sunburst/shape-assembling/progress panes, history transport, detail/commit-log panel, and several modal dialogs (big-folder confirm, CLI-install result, read dialog, code view).
+- spec 3 · served in 4 parts · read at `b0db7d2791a3` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:20:34Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: The root React component managing all top-level app state: selected project, scan/progress polling (via useProgress and IPC calls to the Tauri backend), drilled-in directory scope, history/replay mode toggle, and color mode. It renders and wires together the sunburst map, sidebar/log list, progress strip/pane, and history transport bar, using memoized comparisons (sameProjects/sameIds/sameProgress) to avoid unnecessary re-renders, and shows an Empty state when there's no project loaded.
+- found: Confirmed the core architecture (project/scan state, 1.5s project poll that follows whichever project an agent opened, per-project view memory via switchTo, history/replay fetch+scrub+export wiring, sunburst/sidebar/detail panel composition) but the function does vastly more than predicted: it manages an 'assembling map' drawn live from streamed shape/scan-progress events during a first scan, lazy per-file function-ring fetching batched and grafted into the tree without invalidating memoization, author-rank stability across drilling/replay, global Cmd+digit lens-switching shortcuks tied to per-lens 'locks', movie-export key/caption generation, breadcrumb/ancestry navigation independent of the click-stack, a code-view modal, CLI-install and big-folder confirmation dialogs, and splash-dismissal timing.
 - predicted: some · documented: none · derivable: yes · legible: some · trap: no
+- note: This is effectively the entire application's state machine in one 2274-line function; a function-level prediction can only capture the shape, not the dozens of hard-won synchronization fixes documented inline (StrictMode double-invoke bugs, poll/render race conditions, memo-defeating object identity issues).
 
 ### `useProgress`
 - spec 3 · read at `567112bc1bd9` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:35:05Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -285,6 +286,12 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Defines the lens-switcher UI and its legend: `ModeSwitcher` renders the row of color-mode buttons (with locked/disabled states and tooltips explaining why, via `Lock`), and `ColorLegend`/`Legend` render the corner legend showing categories or a ramp for the current lens. `shortcut` is a small helper that formats/labels the ⌘-digit keyboard shortcut for a given mode, matching the digit order used elsewhere in the app.
 - found: Defines Lock (padlock icon for locked lenses), Legend (mode-specific key rendering: categorical swatches, boolean trap swatch, banded callers/reach/clones keys, or a heat ramp), shortcut (keyboard digit label per lens), ModeSwitcher (the segmented lens-picker control with lock states/tooltips), and ColorLegend (boxes the Legend plus stale/unread swatch footnotes).
 - predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+
+### `Lock`
+- spec 3 · read at `25ba87ab593a` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:20:47Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Renders a small padlock SVG icon, colored with the accent color (matching the Read/Trace buttons) when `keyed` is true, or muted foreground color when false — a visual cue for whether pressing a nearby button would unlock this lens.
+- found: A tiny padlock SVG: fill/stroke color is accent (full opacity) when `keyed` is true, muted-foreground at 0.7 opacity otherwise. Exactly as predicted.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `Legend` — QUIRKY
 - spec 3 · read at `f304ed8f627b` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:19:01Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -1444,14 +1451,18 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/colorMode.ts
 
-### the file itself — STALE
-- spec 3 · served in 2 parts · read at `dccdd8882360` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:56:17Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Implements the mapping from a Node's various readings (surprise/temperature, churn, age, blame/author, wiring/call-graph reachability, documentation coverage, clones) to actual paint colors depending on the selected ColorMode, plus supporting machinery: age/heat ramps calibrated to the repo's span, categorical author/language colors, share-based calculations (called/reaching/doc/opaque share), flash colors for birth/touch events, and legend construction (buckets, rank categories, legend entries) so the sidebar legend matches what's drawn.
-- found: Confirmed the core: colorFor maps a Node + selected ColorMode (+ optional author/language ranks and repo age span) to a Paint+label, covering all 11 modes (surprise, legible, docs, traps, clones, callers, reach, language, blame, churn, age), with containers rolling up as a 'share' via helpers like opaqueShare/undocShare/calledShare/reachingShare, ramps calibrated per-repo (ageRamp, shareRamp), categorical author/language palettes ranked by line count (rankCategories/legendFor), and bucketsFor building the legend/panel breakdown that must stay in sync with the map. Also matched flashPaint for birth/touch replay events. What I underestimated: a top-of-function override that grays out normal mode entirely for history-replay frames (score.provenance === 'history'); a `saysNothing` helper distinguishing 'no reading exists for this question' from 'absence of a value'; two small dispatch helpers (paintsFromReadings/paintsFromWiring) that centralize which modes come from agent reports vs the call graph; and extensive, very deliberate sort-order rules per mode in bucketsFor/legend so the panel list always reads in the same direction the ramp does.
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: Every constant and branch carries a paragraph justifying a specific prior wrong version (fixed 366-day age span, hashed-not-ranked categorical colors, oklch vs oklab hue-arc color mixing bugs) — genuinely load-bearing context no future editor could reconstruct from the code alone.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### the file itself
+- spec 3 · served in 3 parts · read at `ac346544f31c` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:20:04Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: The core color-mode logic backing the sunburst: given a node and a ColorMode, computes the actual paint color (`colorFor`), covering all the lenses — surprise/legibility/docs/traps (from readings), blame/age/churn/language (from git/wiring), callers/reach/clones (from the call graph). It includes banding/ramp helpers (bandOf, rampOf, ageRamp, slotColor for categorical palettes), doc-coverage math (opaqueShare/docGrade/undocShare/saysNothing), replay-specific flash/notes for what a historical frame can and cannot paint (replayNote, flash/flashPaint), and legend support (rankCategories/legendFor/bucketsFor) plus classifiers (paintsFromReadings/paintsFromWiring) used elsewhere to lock lenses that have nothing to show.
+- found: Matches prediction closely: `colorFor` is the central per-node, per-mode color+label function covering all eleven lenses (with replay-flash priority for birth/touch events overriding the lens), backed by banding tables (caller/reach/churn/age/clone bands), a 64-slot categorical palette for blame/language, doc/legibility share roll-ups for containers, an age ramp normalized to the repo's own span, plus `bucketsFor`/`legendFor`/`rankCategories` for the panel breakdown and legend, and `paintsFromReadings`/`paintsFromWiring`/`saysNothing`/`REPLAY` classifiers used to lock/grey lenses elsewhere.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+
+### `replayNote`
+- spec 3 · read at `e4a707db5280` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:31Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Takes a ColorMode and returns a short explanatory string only for the mode representing "replay" (or when the mode is derived from a parse rather than a reading), explaining why colors are unavailable — something like "recomputed per commit" — and returns null for all other modes.
+- found: Returns null if REPLAY[mode] is 'live' (meaning the mode replays fine), otherwise returns a message using MODE_LABEL saying the mode isn't replayed because it would need recomputation at every commit and the timeline doesn't carry it.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The historical reasoning in the docstring (why it went from two sentences to one, shard folding) isn't visible in the code — it's institutional memory only preserved in the comment.
 
 ### `paintsFromReadings`
 - spec 2 · read at `09004cfe8323` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:03:27Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -1485,6 +1496,12 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Walks the leaf functions under this node, counts how many have a resolvable "away"/fan-out count greater than zero (i.e. call something else in the repo) versus how many have any resolvable away count at all, and returns the ratio reaching/total. Returns null if there are no functions with resolvable data underneath (e.g. an empty or all-unresolvable subtree).
 - found: Uses precomputed rollup fields on the node (resolvable and sinks) rather than walking children; returns null if resolvable is null/0, otherwise 1 - sinks/resolvable — the share of resolvable functions that are NOT sinks (i.e. reach out to something).
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `rampOf`
+- spec 3 · read at `ca6fc72b20a5` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A lookup/switch that maps a ColorMode value (e.g. 'age', 'author', 'calls') to the corresponding Ramp object/function used elsewhere for coloring, so legend swatches use the same ramp as the actual wedges/nodes for that mode.
+- found: A simple mapping from ColorMode to Ramp: churn/age/legible/docs map to same-named ramps, everything else (e.g. author/calls modes) falls back to 'heat' as a default ramp.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `isAuthor`
 - spec 2 · read at `9578a38649cd` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:04:36Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -1655,13 +1672,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/history.ts
 
-### the file itself — STALE
-- spec 3 · served in 2 parts · read at `3f95d900f520` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:59:04Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This file implements the "history" layer for a repo visualization feature — walking scan/git history over time and building per-frame directory/file tree snapshots (frameTree, dirNode, census, aggregate, collapse) so the UI can animate/replay how the codebase evolved over time. It maintains a sorted timeline of history frames (insertSorted/removeSorted, daysBetween, advance, replay) with async loading/progress reporting (scanHistory, warmHistory, onHistoryProgress), plus helper lookups for resolving paths/positions within that timeline (pathIndexOf, posOf, realOf, scopeOf, dirsOf).
-- found: Implements client-side commit-by-commit replay of a repo's history for a sunburst visualization: scanHistory/warmHistory/onHistoryProgress talk to the Rust backend to build/top-up a stored timeline; a Frame tracks live functions, per-file/dir presence counts and "birth"/"touch" commit indices; advance()/replay() fold commit deltas into a memoized Frame incrementally (never re-folding from scratch during forward playback) for performance on huge repos; frameTree() builds a pooled/mutated Node tree per frame (with LOC-based roll-up of thin functions into per-file "N+" stand-ins, directory collapsing, and score aggregation) so the UI can animate arrivals/edits as a colored "flash" exactly within the commit step just taken, deliberately never colouring surprise/documentation since those are readings of today's code, not the historical body.
+### the file itself
+- spec 3 · served in 2 parts · read at `ed2a0b16860c` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:19:52Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: The frontend engine behind the commit-replay feature: it calls into the Rust backend (scanHistory/warmHistory, with progress via onHistoryProgress) to get the raw replayed commit data, then maintains client-side state for stepping the playhead through it (enter/leave/advance/replay, insertSorted/removeSorted for the ordered commit list). It builds/updates the sunburst's tree representation frame by frame (frameTree, dirNode, aggregate, collapse, census, headSizes), applying scores/readings into it (scoreInto, readingInto, gradeAt), and handles directory scoping/drilling (scopeOf, dirsOf, pathIndexOf, posOf, realOf) plus small utilities like daysBetween for age display.
+- found: The frontend replay engine: fetches/warms timeline data from Rust (scanHistory/warmHistory), incrementally folds commit deltas into a mutable, memoized "Frame" (advance/replay, forward-only with backward rebuild from opening), and builds a pooled, per-frame sunburst tree (frameTree) with directory/file arrival tracking (enter/leave/census), a flash-only "birth"/"touch" color model instead of recency coloring, LOC-based thinning of thin functions into "rest" stand-in nodes to bound draw cost, LOC-weighted aggregate roll-ups mirroring the Rust scan, single-directory-chain collapsing matching the live tree shape, and scope/position helpers (scopeOf, pathIndexOf, posOf, realOf) for drilling and binary-searching commit positions.
 - predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: Missed from the name/peer list alone: heavy object pooling for GC pressure, the explicit rule that surprise/analysis lenses are never replayed (only committed readings + birth/touch flashes are shown), and the minLoc/scope-aware thinning that keeps a 90k-function replay drawable.
 
 ### `scanHistory`
 - spec 3 · read at `5cb544ec5c94` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:48:27Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -1755,6 +1771,18 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Returns whether index falls between since and at (e.g. index > since && index <= at), marking events that occurred during the commits the playhead just advanced through this frame/step.
 - found: Returns at > since && at <= index — checks we're moving forward and the event's index is at or ahead of the new playhead position, not a since/at bracket on index as I'd guessed.
 - predicted: some · documented: most · derivable: no · legible: most · trap: no
+
+### `gradeAt`
+- spec 3 · read at `770cd81e8c0d` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:39Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Extracts a small integer field from a bit-packed number at the given shift (e.g. (packed >> shift) & mask), then maps that value to a Grade via lookup array, returning undefined if the extracted value is 0 or otherwise indicates no grade.
+- found: Shifts packed right by shift, masks with 7 (3 bits), and indexes into GRADES array; returns undefined if out of range.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
+
+### `readingInto`
+- spec 3 · read at `ee59904f8a7b` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:40Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Unpacks the two-byte `packed` integer into an AgentReport-shaped object by extracting bitfields (predicted, documented, legible, trap) via shifts/masks, writing them into `into` if non-null (reusing it for pooling) or creating a new object otherwise, and setting the "dated" flags to false since packing already resolved superseded axes. Returns the populated object.
+- found: Unpacks `packed` bitfields into an AgentReport via gradeAt() calls for predicted/documented/legible and a direct bit test for trap, reusing `into` if given (setting legibleDated/trapDated false only on fresh creation) or allocating a new object with those dated flags false.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `scoreInto` — QUIRKY — TRAP
 - spec 3 · read at `3ac5169d04f5` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:18:07Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -1955,14 +1983,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/movie.ts
 
-### the file itself — STALE
-- spec 3 · served in 2 parts · read at `3a763ce44dd9` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:56:11Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A client-side tool that scripts a sequence of "shots" — camera-like framings of the sunburst UI — via a Shot class (target, draw, frame, caption, signature, timeline), captures canvas frames once the UI has settled (settle/within/probe/preflight), and records/encodes them into an animated movie (likely GIF or video) for demos or marketing, with CSS/color helper functions (ink, faceCss, varCss, background, mapRect, mapSide) to style captions and branding on each frame.
-- found: An MP4 export feature for the app's commit-history "replay" — it drives the sunburst through its own commit timeline (not different camera framings, as I guessed, but one continuous scrub through history), rasterizes each changed frame via a cloned/inlined SVG plus a composited WebGL mascot canvas, draws a caption (repo name/owner, scoped directory, timeline scrub bar, "charted by sanity.monster" signature) in Canvas2D, and encodes the whole thing with WebCodecs (via the `mediabunny` library) to H.264/H.265 with a preflight probe that empirically tests codec+resolution support before recording (because `canEncodeVideo` lies) and per-stage progress/cost reporting (fetch/fold/raster/draw/encode).
+### the file itself
+- spec 3 · served in 2 parts · read at `d862f458162f` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:19:59Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Implements the export-to-movie pipeline for HistoryBar/ExportDialog: a Shot class draws one frame of the replay onto an offscreen canvas (map/wedges, caption, legend, timeline, signature/watermark), reading CSS custom-property colors via varCss/ink/faceCss/background so the recording matches the live theme. Surrounding functions (settings, preflight, probe, record, encoded, base64) drive a MediaRecorder-style capture loop: checking codec/capability support, stepping through frames, recording them, producing a base64-encoded video blob for download.
+- found: Confirmed the core architecture: Shot rasterizes the live SVG per commit onto a base canvas (caption/legend/timeline/signature drawn in Canvas2D reading resolved CSS custom properties), then composites the WebGL mascot creature per output frame, and record() drives the frame loop, calling ensure/setIndex/settle to advance the app's own state before rastering. Missed the actual encoding stack: not MediaRecorder but the mediabunny library using WebCodecs directly, with an explicit preflight/probe step that tries H.264 then H.265 by actually encoding 10 blank frames (since canEncodeVideo lies), a within() timeout wrapper around every awaited step to detect encoder/decoder hangs, and detailed five-stage (fetch/fold/raster/draw/encode) progress/cost reporting. base64/encoded() is indeed for handing the finished MP4 bytes to Rust.
 - predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: My prediction imagined "shots" as multiple distinct camera framings; the reality is a single scrubbing playback of commit history, with `Shot` meaning one video export session rather than a montage — that's the one detail the name doesn't give away.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
 
 ### `mapRect`
 - spec 3 · read at `e7e68e2675f3` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:22:39Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -2051,6 +2076,12 @@ What this is and how to add to it: [README.md](README.md)
 - expected: A private method on the `Shot` class that draws a text caption (likely the repo/slug/scope name, and possibly the current date) onto the canvas at a fixed position using ctx.fillText, styled via CSS variables (see `varCss`/`faceCss` peers) — probably the title/header area of the exported movie frame, separate from `signature` and `timeline` which draw other overlay elements.
 - found: Draws the title block onto the canvas: splits `this.title` into owner/name, computes available room via `column()`, and dynamically shrinks font size to fit either an inline "owner name" layout or falls back to a stacked layout with owner above name — never eliding text, only shrinking it (with a hard floor). Also draws an optional scope (drilled path) line beneath the name, sized independently, and records the resulting bounding box in `this.rule` for later use (presumably by `timeline`/`signature`).
 - predicted: some · documented: none · derivable: yes · legible: some · trap: no
+
+### `legend` — QUIRKY — TANGLED
+- spec 3 · read at `08de76ed109f` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:37Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Draws the lens/legend key onto the canvas, anchored to the bottom of the caption column area rather than stacked dynamically under the caption. It measures the key content, checks whether it would overlap the caption block, and skips drawing entirely if there isn't room, computing position from the shot's existing layout (column/caption bounds) and calling a draw/text-rendering primitive for each row.
+- found: Draws a legend/key in the space between the title-date block and the byline, centered by baseline in that gap. It computes how many rows fit, lays entries out in up to 4 columns sized to the widest label, truncates with a "+N more" indicator if there isn't room for all entries, or (for a ramp-type key) draws a 5-swatch gradient bar with low/high end labels instead of a list.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
 
 ### `signature`
 - spec 3 · read at `5748c3e6361f` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:17:14Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
