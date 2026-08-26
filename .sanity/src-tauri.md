@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-909 of 909 read · 156 surprising
+912 of 912 read · 158 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -1944,10 +1944,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/churn.rs
 
 ### the file itself
-- spec 3 · served in 2 parts · read at `d4517d0506fa` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:59:38Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: This module computes the "stability axis" (age/churn/commit-count/last-author per path) from a single `git log --name-only`-style walk rather than one process spawn per file, folding the raw log into a History struct queried by path (age_of, churn_of, commits_of, last_author_of, etc.). It supports incremental refresh of a banked walk (only reading commits since the last-seen HEAD, detecting a rewritten/rebased history that forces a full rewalk rather than an extension), propagates each commit's credit up every touched file's ancestor directories so a directory's commit count reflects distinct commits rather than a sum over children, applies a churn saturation curve so one hot file doesn't dominate the normalization, and keeps a bounded time window (rewindow) so churn reflects recent activity rather than a repo's entire lifetime. It also has low-level git plumbing helpers (packed_objects, head_of, is_ancestor, commits_since, now_secs/days_since) and an extensive test suite pinning directory-credit accumulation, saturation, rewrite-detection, and the "no history" case for a non-repo directory.
-- found: Matches my prediction on the big picture: one streamed git log walk parsed into History (queried by path for age/churn/commits/last-author), Bank-based incremental refresh (rewrite detection via merge-base --is-ancestor forcing a full rewalk, else absorbing a bounded delta walk), directory credit propagated once per commit via flush_commit, and CHURN_SATURATION as a fixed absolute anchor (not repo-relative) so one pathological file can't squash the rest. I underestimated several things: it tracks BOTH a recent_commits (churn, moving 90-day window, recomputed every refresh via rewindow since the window can't be stored) and total_commits (lifetime size, genuinely incremental/additive) as two distinct axes; refresh does up to three separate walks (delta or full, then a window walk) whose progress ticks must accumulate monotonically across all of them rather than resetting per-walk; rate is self-measured per repo (not a corpus constant) and only banked past a minimum sample size; and there's a repo-wide author ranking (by commit count, ties broken by name) kept separately for stable color assignment. The extensive test suite pins exactly these: refresh-matches-whole, stopped-walks-never-banked, monotonic gauge across multiple walks, rewrite detection, per-directory commit dedup including the root, total-vs-recent distinction, saturation, and the non-repo case.
+- spec 3 · served in 2 parts · read at `85c2a9b0151f` · commit `6a8b7c4` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:50:38Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This file implements the "stability axis" (age/churn) of the analysis via a single `git log` pass, building a History of per-path/directory commit counts, ages, last-touched/author info, with directory credit propagating to ancestors. It supports incremental refresh/banking (delta walk vs full walk, detecting rewritten history to force a full re-walk), a windowed/saturating churn score to avoid runaway values from one pathological file, a progress-reporting callback, and tests validating incremental-vs-full equivalence and monotonic progress reporting.
+- found: Single-pass `git log` history module distinguishing total_commits (a SIZE, lifetime) from recent_commits/churn (a RATE, 90-day window) — two different questions from one walk, both needed since a cap used to conflate them. Builds History with directory-level ancestor crediting (once per commit, not per touched file), supports banking/refresh with three cases (no-bank/rewritten-history → full walk, HEAD moved → delta walk absorbed, unchanged+fresh → skip entirely via WINDOW_DRIFT), streams the git log pipe for progress ticks with a stop flag, saturates churn at an absolute anchor (not repo-relative) to prevent one generated file from squashing everything else's score, and includes extensive tests for incremental/full equivalence, monotonic progress, directory crediting, and edge cases.
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: I underestimated: didn't predict the total-vs-recent distinction, the streamed/interruptible git log with a stop flag, the WINDOW_DRIFT skip-entirely optimization, or the absolute (non-repo-relative) churn saturation rationale — all load-bearing design decisions spelled out at length in the doc comments.
 
 ### `authors`
 - spec 3 · read at `9112ed59253d` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:36Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -2019,12 +2020,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Spawns `git log --no-merges --format=%x01%ct%x02%an%x02%H --name-only` plus the given bounds, reads stdout in 64KB chunks (not Command::output()), counting \x01 bytes to call tick(seen) as it goes, and checks the stop flag each loop iteration — killing and reaping the child (to avoid EPIPE-triggered buffering and zombies) and returning Walked::Stopped if asked to stop. On successful completion it hands the collected text to parse_log(...) wrapped in Walked::Done; any spawn failure, missing stdout, read error, or non-success exit status collapses to an empty History rather than a partial one.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `refresh`
-- spec 3 · read at `6551d4f9610f` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:31Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Checks if there's a `banked` prior walk; if none, or if merge-base --is-ancestor shows the banked commit isn't an ancestor of HEAD (rewritten history), does a full walk from scratch. If HEAD has moved but history wasn't rewritten, does an incremental `<banked>..HEAD` walk and folds it into the existing Bank. If HEAD is unchanged, skips the walk entirely but still recomputes the rolling window (rewindow) since "ninety days ago" shifts with real time. Calls `tick` for progress and checks `stop` to allow cancellation, returning the updated Bank (or None if stopped/nothing to do).
-- found: Three-way branch on the banked state (rewritten/no-bank → full walk, HEAD moved → absorb a `<banked>..HEAD` delta, HEAD same → skip the delta walk) matches my prediction, but it always re-walks the recent window (`--since=N days ago`) regardless of whether HEAD moved, uses that to rewindow the history. It also tracks a walk-rate (commits/sec) over everything counted this call, banking it only if enough commits were walked (RATE_SAMPLE) to avoid banking a noisy timing from a short walk — used later to price future estimates.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: I incorrectly assumed the whole refresh could be skipped when HEAD is unchanged; only the delta walk is skipped — the window walk and rewindow always run. I also missed the rate-timing/RATE_SAMPLE bookkeeping entirely.
+### `refresh` — QUIRKY
+- spec 3 · read at `683643946ce5` · commit `6a8b7c4` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:50:26Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether a previous Bank exists and is still an ancestor of HEAD; if not (no bank or rewritten history), does a full walk from scratch. If the bank is valid but HEAD moved, does an incremental walk of banked..HEAD and absorbs those commits into the existing bank. If HEAD hasn't moved, returns the bank unchanged. Recomputes the 90-day window every time, checks `stop` for cancellation, and calls `tick` for progress. The returned bool likely indicates whether the bank changed.
+- found: Checks a freshness guard first (unchanged HEAD + within WINDOW_DRIFT) and returns the bank untouched with `false` if so, to avoid re-serializing a huge bank. Otherwise picks a full walk or an incremental `banked..HEAD` walk depending on ancestry, then ALWAYS also does a separate `--since=N days ago` window walk and calls `history.rewindow` on it regardless of which branch was taken. It tracks a running commit count across all walks for the tick callback, times the whole operation to bank a rate estimate (only if enough commits were counted), and returns None outright if any walk is stopped via the atomic flag.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: The always-present trailing window walk and rate-timing logic aren't hinted at by the doc's three-case framing, which reads as if the three branches are the whole story.
 
 ### `commits_since`
 - spec 3 · read at `b39018530e6e` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:50Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -2105,11 +2106,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: Simpler than expected: 'age re-dating' turns out to be just storing `now` once rather than recomputing per-file age fields here — ages are presumably derived lazily elsewhere from self.now.
 
-### `refreshed`
-- spec 3 · read at `60e25a3810b6` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:01:23Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A test helper that calls super::refresh with the given repo path, the optional banked state, a never-cancelling token, and a no-op progress callback, then unwraps the Result to return the Bank directly, saving each test from repeating that boilerplate.
-- found: Exactly as predicted: a thin test helper wrapping super::refresh with a never-cancel token and a no-op progress closure, unwrapping the Result to return Bank directly.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+### `refreshed` — OBSCURE
+- spec 3 · read at `2eaebdfde6cc` · commit `6a8b7c4` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:50:31Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Short dispatcher: if `banked` exists and its stamped HEAD is still current/an ancestor of the repo's HEAD, return it unchanged (no walk); otherwise perform a fresh git log walk (parse_log) or incrementally absorb new commits into the existing bank, returning the updated Bank.
+- found: A test-only helper that calls the real `refresh` function with a never-firing cancellation token and a no-op progress callback, unwraps the Result (expecting success since nothing can stop it), and returns just the Bank half of the tuple. The actual incremental-vs-full-walk logic lives in `refresh`, not here.
+- predicted: none · documented: none · derivable: yes · legible: full · trap: no
+- note: This is a test helper wrapping `refresh`; the doc block at the top of the file describes `refresh`'s design, not this function's, so it reads as documentation for the wrong symbol.
 
 ### `repo`
 - spec 3 · read at `cf1ff5a7d361` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:20:07Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -2129,6 +2131,19 @@ What this is and how to add to it: [README.md](README.md)
 - found: Full walk at commit 4, adds 3 more commits, then compares a refreshed-from-bank walk against a fresh full walk: same history shape, authors, head, and a specific total-commits-of check for the touched file (5 = 2 + 3).
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
+### `an_unchanged_repo_is_not_walked_again`
+- spec 3 · read at `45cb74def6e5` · commit `6a8b7c4` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:50:40Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Builds a test repo, creates a Bank with head matching current HEAD and a fresh taken_at timestamp, then calls refresh with a tick closure that asserts it is never invoked (proving no git walk happens). Asserts the returned tuple's bool is false (nothing changed) and that the bank/history returned matches what was passed in.
+- found: Confirms the freshness short-circuit: a bank matching HEAD with a fresh taken_at causes zero ticks and changed=false, with history intact. Then goes further and tests the flip side — a bank with taken_at=None (pre-stamp/stale) is treated as unknown and walked again, asserting changed=true.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Missed the second half of the test (stale/unstamped bank still gets walked) in my prediction — the doc only motivates the fresh-case behavior.
+
+### `a_new_commit_still_refreshes_a_stamped_bank`
+- spec 3 · read at `9f63cebf634f` · commit `6a8b7c4` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:50:27Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A test: it builds a temp repo, does an initial walk/refresh so the bank is stamped at the current HEAD, then makes a new commit and calls refresh again. It asserts the second refresh actually walks the new commit (updating history/counts) rather than being short-circuited by the "unchanged repo" fast path that a sibling test (an_unchanged_repo_is_not_walked_again) covers.
+- found: Builds a temp repo, does an initial refresh to bank it, commits a new change, then refreshes again and asserts changed==true, tick callback fired, and bank.head matches the new HEAD — confirming a stamped bank still gets walked when HEAD moves.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
 ### `a_stopped_walk_is_never_banked`
 - spec 3 · read at `a3e28b284de7` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:01:11Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: Constructs a History or walk result representing a Walked::Stopped (partial) git log outcome, feeds it into the absorb/banking path, and asserts that the resulting state is not marked complete/banked — e.g. a completeness flag remains false or the partial data is discarded/not trusted as the full history.
@@ -2136,11 +2151,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `the_gauge_only_ever_counts_upward`
-- spec 3 · read at `5e57fa7c3045` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:01:01Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This is a test verifying that a progress-reporting mechanism (likely involving an "onward" counter/callback) never reports a value lower than a previous one across refresh's up-to-three walks (delta, whole log, churn window). It probably sets up a repo/history, runs refresh while capturing progress values emitted at each walk, and asserts the sequence is non-decreasing (monotonic), catching the bug where each walk's internal counter resets to zero and would otherwise cause the overall reported progress to go backwards.
-- found: A test that banks an initial walk, adds 3 more commits, then calls refresh again with a progress callback collecting ticks. It asserts ticks are non-decreasing (monotonic) AND that the max tick equals 3 (delta commits) + window_commits — proving the count is carried across the delta and window walks rather than each walk restarting its own counter (which would still look monotonic but be wrong).
+- spec 3 · read at `465290a5490d` · commit `6a8b7c4` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:50:17Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Test that exercises refresh's progress reporting across its up to three walk phases (delta/whole log, then churn window), verifying reported progress ticks never decrease between phases thanks to an 'onward' offset that carries the previous phase's total forward instead of resetting to zero.
+- found: Sets up a repo, banks an initial refresh, adds 3 more commits, then re-refreshes while recording every progress tick via a callback. Asserts ticks are monotonically non-decreasing AND that the max equals 3 (the delta) + the window's commit count — proving counts are carried across walk phases as one running total rather than reported per-walk (which would still look monotonic but be wrong).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The doc explained the 'onward' motivation but not that the real assertion is the specific sum check, not just monotonicity.
+- note: The doc explains the 'onward' motivation well but doesn't mention the specific numeric assertion (3 + window_commits) that is the actual regression check — that's only in the code comment.
 
 ### `a_rewritten_history_is_walked_again_rather_than_extended`
 - spec 3 · read at `c10d44da6794` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:36Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -5528,9 +5543,9 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/trace.rs
 
 ### the file itself
-- spec 3 · served in 2 parts · read at `b084291fd4fa` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:59:17Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: This file owns the deferred, incremental git-history "trace" pass that was split out of scan.rs because git log/blame dominates scan cost on large repos. It defines the Depth enum (Untraced/Files/Lines, i.e. commit-log-only vs per-line blame) and the machinery to progressively deepen a scan's history to a target depth (deepen, depth1, depth2), each stage banked to an on-disk cache (bank_path, load_bank) so repeat opens are cheap. It provides an `estimate` function to price the remaining work (not the whole repo) so the UI can show a cost before a user commits to a trace, plus functions to apply the resulting per-file/per-line history data onto an already-built tree (apply, apply_to, apply_dir_history) so a trace can land on a map drawn before it existed. It includes unit tests (sentence-named) verifying the caching/pricing invariants and idempotency of applying a trace twice.
-- found: Matches my prediction closely: Depth enum (Untraced/Files/Lines), estimate() pricing remaining work from a bank or a cold count-objects bound, depth1/depth2/deepen for progressive walking with banking to disk, apply/apply_to/apply_dir_history for idempotently landing history onto an already-built tree (functions get their own blame-derived numbers with file-level fallback via FileTrace, containers get distinct commit counts since aggregate zeroes them), and Go/go() deciding whether files-depth can run unasked vs needing to ask for lines-depth (since per-file blame rate can't be predicted, only measured after a real pass). Tests pin: deferred-vs-inline trace equivalence, cache-based free re-lining, cost estimation pricing only what's missing (not the whole repo), cold-vs-warm estimate provenance, and apply()'s idempotency.
+- spec 3 · served in 2 parts · read at `db86a5f42003` · commit `6a8b7c4` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:50:37Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This file implements the git-blame/log enrichment layer that's deliberately decoupled from the fast tree-sitter scan (since blame dominates scan cost by ~100x). It defines a "bank" (versioned on-disk cache) of trace results, a "Depth" concept for how much git history to walk (trading cost for completeness/staleness), a FileTrace type carrying author/blame info per file, and apply/apply_to functions that fold this git data onto a map/scan that was built without it — plus tests asserting idempotence and correct cost pricing between cached vs freshly-derived data.
+- found: Exactly as predicted in shape: separates git-derived enrichment from the tree-sitter scan since git blame dominates cost, defines Depth (Untraced/Files/Lines) as a reading condition that travels with the map, a bincode-serialized versioned Bank cache, budget-based estimate()/go() functions that decide whether to trace automatically or ask, FileTrace/apply/apply_to that idempotently fold history+blame onto a scanned tree, and tests pinning that a deferred trace equals an inline one, that idempotence holds, and that cached answers are priced as remainder-only. Missed specifics: the budget/estimate cost-modeling machinery (COLD_RATE, BLAME_MS_PER_FILE, relines/go deciding whether to interrupt the user), and the progress-reporting/stop-token plumbing in deepen().
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
 
 ### `tag_str`
@@ -5566,24 +5581,31 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: I guessed a cached 'bank' lookup gates the decision; actually it's a live estimate() call each time, with the estimate itself carried in the Ask variant for the caller to display.
 
+### `bank_config`
+- spec 3 · read at `e227bdbb1fb5` · commit `6a8b7c4` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:50:37Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A one-liner that returns bincode's standard configuration (likely `bincode::config::standard()`), used consistently by both the encode and decode calls elsewhere in this file so the bank format stays compatible across reads and writes.
+- found: Returns bincode::config::standard() — a one-line shared config helper.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: The docs shown are the enclosing file_doc/comment above about bincode vs JSON tradeoffs, not documentation of this specific function.
+
 ### `bank_path`
-- spec 3 · read at `aff96f8c117a` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:28Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Computes the on-disk location of the "bank" file that persists what trace depth a given repo reached (referenced by load_bank and note_trace elsewhere), likely delegating to something like crate::reports::cache_slot("trace", repo, ...) similar to treecache::path_for, returning None if the repo has no resolvable cache directory.
-- found: Delegates to crate::reports::cache_slot("traces", repo, &format!("f{BANK_FORMAT}")), returning the path with a .json extension, or None if no cache slot resolves.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `eea7942a104b` · commit `6a8b7c4` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:50:17Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Builds the filesystem path to a cached "bank" file associated with a repo — likely joining the repo's .git directory (or a cache dir) with a fixed filename related to blame/trace caching data, returning None if the repo path is invalid or lacks a .git directory.
+- found: Delegates to crate::reports::cache_slot with namespace "traces" and a format-versioned filename (BANK_FORMAT), then forces the extension to .bin. Not tied to .git directly — it's a generic cache-slot lookup, presumably keyed by repo path elsewhere.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `depth1` — QUIRKY
-- spec 3 · read at `a2b7e219eba6` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:14Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Walks the full git commit history of the repo (likely via git2/gitoxide), iterating commits and diffing each against its parent(s) to determine which file paths were touched. For each path it accumulates stats: age (from first/earliest commit), churn (number of touching commits), commit count, and last author. It periodically checks the `stop` AtomicBool to allow cancellation (returning None if stopped), and calls `tick(n)` periodically to report progress against the pre-priced commit estimate. Returns Some(History) mapping paths to these accumulated stats when it completes normally.
-- found: depth1 doesn't do the git walk itself — it delegates that entirely to crate::churn::refresh(repo, load_bank(repo), stop, tick), which returns an updated bank (using the on-disk banked cache plus incremental commits since last look). depth1's own job is thin: call refresh, then persist the updated bank to a tmp file and atomically rename it into place (also pruning old report slots), and finally return bank.history. All the actual per-file age/churn/author computation and the stop/tick semantics live in churn::refresh, not here.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `5e62a4b71cd6` · commit `6a8b7c4` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:50:17Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This walks the repo's git log (first-parent depth) to build a History of per-file stats: age, churn count, commit count, and last author. It likely iterates commits from HEAD backward, updating a per-path map, calling `tick(n)` after each commit processed for progress reporting, and checking `stop` periodically to allow cancellation, returning None if stopped early. It's the "cold" full walk (as opposed to a bank-refresh which would only process new commits).
+- found: Loads the on-disk bank, delegates the actual git walk/incremental update to churn::refresh (which returns the updated bank plus a changed flag), and only if changed does it prune old report slots and persist the bank as bincode via atomic tmp-file write + rename. Returns Some(bank.history), or None if refresh signals it was stopped.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: The real walking logic is in churn::refresh, not here — depth1 is just load+delegate+conditionally-persist.
 
 ### `load_bank`
-- spec 3 · read at `5583135edfd9` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:12Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Computes the bank file path via bank_path(repo), then attempts to read and deserialize that file into a Bank struct, returning None if the file is missing or fails to parse/deserialize.
-- found: Gets bank path (itself optional, via bank_path(repo)?), records it as used via reports::mark_used side effect, then reads the file to string and deserializes as JSON into a Bank, collapsing any failure (missing path, missing file, bad JSON) into None via ? chaining.
+- spec 3 · read at `7b2b723d559f` · commit `6a8b7c4` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:50:16Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Resolves a cache/config path for the given repo (using bank_path/bank_config helpers), checks if a serialized Bank file exists there, reads and deserializes it (e.g. via serde/JSON), and returns None if the file is missing or fails to parse.
+- found: Resolves the bank path for the repo, reads the file, marks it used for report tracking, and decodes it with bincode using a shared config; returns None on any missing/unreadable/undecodable path with no fallback or format migration — the design intentionally recomputes rather than maintaining a second reader for old formats.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: I hadn't anticipated the mark_used side-effect call or that bank_path itself returns an Option.
 
 ### `depth2` — QUIRKY
 - spec 3 · read at `30b783f3074e` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:14Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
