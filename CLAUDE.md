@@ -183,6 +183,20 @@ runs unasked is the estimated WORK, never the size of the repo.
   git's newest-first order, which is what makes a delta foldable into a stored walk at all, and
   `a_refreshed_walk_matches_a_whole_one` is the test that keeps it honest. A rewritten history
   is walked again, on the same `merge-base --is-ancestor` test `history.rs` uses.
+  **And a second launch over an unchanged repo walks NOTHING.** The churn window is a rate over
+  ninety days, so it slides with the clock, and the walk that re-derives it ran on every open:
+  2.1s over 5,599 commits on kibana, 12.4s over 28,593 on nixpkgs, before serializing the result
+  back over the 142MB it was read from. With HEAD unchanged no commit has come IN — only a few
+  age out — so a bank stamped inside `WINDOW_DRIFT` (6h) is handed back and `refresh` reports
+  `changed: false` so the caller does not rewrite it. `taken_at` is an `Option` and deliberately
+  does NOT move `BANK_FORMAT`: absence reads as "unknown" and walks, which is what every launch
+  already did. That is the SAFE half of the `#[serde(default)]` hazard — the rule exists because
+  a default can read as a valid value and be believed, and a missing timestamp cannot.
+  **The bank is bincode, and that DOES move the format.** 142MB to 84MB, encode 3.66s to 0.36s
+  in a debug build. A refused bank is rewalked whole — 90s and 690,536 commits on nixpkgs, once
+  — rather than adopted: an adoption path was written, was genuinely safe (same `Bank`, two
+  serializers, nothing re-keyed), and was removed anyway, because a second reader has to be kept
+  correct forever to save one launch. Bump deliberately; the next one costs the same.
 - **Three lists feed the sidebar, and one project is one row.** Loaded, declined for cost
   (`awaiting`), and pending a scan (`restoring`) — any two of them naming a key put that repo on
   screen twice under one name, which is what pressing `Scan` on a declined kibana did: the
@@ -200,6 +214,21 @@ runs unasked is the estimated WORK, never the size of the repo.
   back traced; trace a SECOND repo, restart, and both are untraced, because touching the second
   rewrote the first one's record on the way past. A comment is not a field list, so
   `a_touch_cannot_erase_what_only_the_index_knows` asserts every one of them.
+- **`sameProjects` is the same rule one process over: a field IT forgets is a number frozen on
+  screen.** The 1.5s poll allocates fresh rows every tick, so the list is compared before it is
+  stored or a replay re-renders several thousand arcs on a fixed period. It was a hand-written
+  conjunction and it has now been wrong three times the same way — twice recorded in its own
+  comments, then for the whole trace at once: `tracing_history`, `trace_depth`, `trace_cost`,
+  `resolved`, `resolvable`, `behind` and `scan_cost` were all absent, so a running trace fetched
+  a fresh counter every tick, the comparator said "same", and the row showed the estimate it had
+  been offered before anybody pressed anything. The pill stayed pressed for the same reason: it
+  clears on the project object changing, and the object never changed.
+  So it is **not a list of fields.** It walks whatever keys the row HAS and compares each one;
+  only what needs more than `Object.is` is named, in `DEEPLY`. A field added to `ProjectSummary`
+  and forgotten is now compared by default — at worst one extra render — where before it froze.
+  **An exceptions list only works if the exceptions are all there**: `events` is a freshly
+  allocated array, never `Object.is`-equal to itself, and left out it would mark the list changed
+  on every tick forever, which is the periodic stutter from the other direction.
 - **An estimate prices what is LEFT, never the work in principle.** Made twice, one phase
   apart. A scan of a repo whose tree is cached is a decode and not a parse — kibana asked to be
   scanned at every launch on a fifteen-second estimate for a tenth of a second of decoding — so
@@ -302,6 +331,29 @@ runs unasked is the estimated WORK, never the size of the repo.
   0.35s — and a slow one looked ignored for a second and a half. Both read as a dead button, and
   the second gets pressed again. The pressed pill goes busy until any of the things the row is
   FOR moves: the depth, whether something is running, the scan counter, the coverage.
+  **Opacity is not a semantic channel, and using it as one is paid for in legibility.** The tile
+  had it saying four things — not pressable, pressed, not applicable, secondary — each of which
+  dims the LABEL to make a point about the CONTROL. Measured at 10px on `--card`: a finished
+  pill's word 3.92:1, a pressed one 3.61:1, the note line 3.70:1, the dash 2.15:1, against a bar
+  of 4.5. **None of it was the palette** — ink on the tile is 14.64:1 and ink on the marker's own
+  fill 6.89:1 — so no hex changed. The meanings move to channels that cost nothing (a border says
+  pressable, a tick says finished, a dash says the question does not arise) and what is left is
+  one measured token, `--note-ink`. `--muted-foreground` was the obvious candidate and fails at
+  3.17:1. A pressed pill dims its GAUGE, never its word.
+  **A finished phase is then the QUIETEST thing in the row, and briefly it was the loudest.**
+  Taking the blanket opacity off left a done pill drawn as a solid accent block with full-strength
+  ink — which is what a primary button looks like, beside two outlined ones that were the actual
+  work. A finished gauge carries no information: it is full by definition and the tick says so,
+  so it goes faint. Markers that are outstanding-but-unpressable keep the strong fill.
+  **The gauge is CHAMBERS, one per step, and their boundaries are not drawn.** The trace is three
+  depths at roughly 1:10:100 (ceph 6.5s / 206s / minutes), so a single bar at a third claims the
+  cheapest step is a third of the wait. Equal chambers keep the divider positions identical on
+  every row, which is what lets a list be compared at a glance; weighting by measured seconds
+  moves them per repo and makes the first chamber 2% wide on ceph. The boundaries were drawn for
+  a while and removed: the note line one row down already says which step is running, in words.
+  **One press buys the whole column.** `chaseTrace` walks scan → blame → replay, asking
+  `phasesOf` what comes next rather than re-deriving the ladder, and the guards are keyed per
+  PROJECT — a single slot made a chain on kibana silently swallow the press on every other row.
   **Two numbers that get divided must be counted in one place.** The Trace pill divided files
   blamed by the file count printed beside it, and those are counted differently — one is what a
   reader could be handed, the other is every file node the trace walked — so the fraction could
@@ -355,6 +407,21 @@ runs unasked is the estimated WORK, never the size of the repo.
   rate learns that, a constant is wrong in one of the two forever. A repo whose size is unknown
   is NOT refused: it is one walk from being known, and refusing leaves a row carrying a question
   with no way to answer it. What the budget is for is the case where the size is known and large.
+- **One repo must not take the whole blame pool, and the floor is per PROJECT, not a
+  percentage.** Blaming kibana is 59,008 files at ~38ms each; press Trace on a second repo and
+  its work went to the back of the same queue, so a 90-file repo — 3.4 seconds — sat behind
+  thirty-three minutes of somebody else's, and a starved pass is indistinguishable from a hung
+  one. **Sample before theorising: all nine rayon workers were asleep in `Command::output`**, so
+  the resource is a SUBPROCESS SLOT and not a core, which is why oversubscribing costs nothing.
+  `blame::slots` gives every project with work outstanding a floor of one slot and lets whoever
+  wants the rest have it (`allowance = max(1, total - others)`). A percentage does not scale —
+  a tenth of nine slots is ONE slot, shared by however many projects are waiting — and a flat
+  cap is unconditional, so a repo running alone would give up a ninth of the machine forever.
+  Nothing is preempted: slots turn over per file, about every 4ms. **Counting the WAITERS is the
+  half that is easy to omit** — a project parked holds nothing, so an incumbent looking only at
+  holders sees an empty field and takes back every slot it frees. Each pass also gets its own
+  rayon pool, because what starved the second repo first was the WORKERS: on a shared pool the
+  big repo occupies every thread and the newcomer's tasks are never scheduled to even ask.
 - **`behind` is the one state where a map is knowingly out of date.** The watcher takes the scan
   budget as well, so a large repo that moved is kept as it was, flagged, and offered a rescan —
   small repos are repaired within a tick and never reach it. The scan dial draws full and
@@ -1185,6 +1252,22 @@ second metric, and the line between those is the whole design.
   that frame's own date*, which is a fact about the commit stream and the only thing this
   module reads. Greyed rather than hidden: remove the switcher and the rings are recoloured
   with nothing on screen saying by what.
+- **A category's colour is held still while a replay runs and ranked where you stand when one
+  is not.** Those are two questions wearing one name. Replaying, a person is an IDENTITY, and
+  three rules were tried that each went grey somewhere: ranking every frame recoloured the cast
+  as it ran; seeding from today's ranking made the OPENING grey, because the people who start a
+  repo are rarely its biggest by the end (ceph's `rgw` drew `other (6)`); assigning by arrival
+  made the ENDING grey, the first sixteen holding the palette until their lines were gone. All
+  three derived identity from whatever happened to be visible, so a replay uses `stats.authors`,
+  ranked once over the whole log. **Live it is the opposite**: standing in one kibana directory,
+  its biggest authors are not the repo's, so the palette went to people with nothing on screen
+  and the wedges being asked about drew neutral. Ranked over the drill, which is the rule
+  `langRank` already followed — and drilling then recolours, which is the price.
+  **A legend may never invent a rank the map does not use.** It filled gaps from its own ordering
+  (`?? categories.indexOf(c)`), and `stats.authors` is CAPPED, so on a big repo it named eleven
+  people in eleven colours over a picture where every one of them was the shared neutral — the
+  key and the map disagreeing about the same wedge, with the key sounding more authoritative.
+  Unranked is `other`, which is what the movie key had always done one surface over.
 - **Nothing before the window makes a claim about its own age.** Functions folded into the
   opening frame have no touch date, so they draw uncoloured. Dating them to the edge of the
   window would open every truncated repo with the entire codebase flaring as though someone
@@ -1407,6 +1490,24 @@ second metric, and the line between those is the whole design.
   order — web build + `cargo test` + clippy `-D warnings`; passing ⟹ CI passes).
   `just scan <path>` is the headless scorer and the fastest way to test a change to the
   metric.
+- **Some rules cannot be regression-tested with threads. Pin the arithmetic instead.** The
+  standing rule is that a regression test must fail without its fix; two written this way did
+  not, and the reason generalises. A scheduling rule's discriminating moment — an incumbent one
+  slot short of the pool with somebody parked — cannot be staged, because a project only ever
+  WAITS when the pool is full, so the freed slot is a race and either outcome is legal with or
+  without the fix. The first attempt passed regardless; the second passed for the wrong reason
+  (the "incumbent is blocked" assertion held because the pool was simply full). So the rule
+  lives in `admits`/`contenders`, the same functions the running code calls, with two assertions
+  apiece — and the threaded test is kept, honestly labelled as covering only the plumbing
+  (registration, wakeup, drop-from-another-thread, clean unwind). **Break each half separately
+  and watch it go red**; if nothing does, the test is describing the fix rather than testing it.
+- **A proxy is not a measurement, and two cost a wrong conclusion each here.** Python's `json`
+  stood in for `serde_json` and put a 142MB parse at 1.5–2.0s where serde does it in 0.23s — off
+  by tenfold, in the direction that justified the change being considered. And `ps | grep "git
+  blame"` finds nothing while nine of them run, because the command is `git -C <path> blame`;
+  that one produced a confident "nothing is running" about a pass that was running flat out.
+  **Sample the process** (`sample <pid>`) rather than inferring from its children, and measure
+  the real implementation on the real file before deciding it is the bottleneck.
 - **Never launch the app yourself** — `just dev` opens a window; that's the human's to
   run. Verify with check/test/scan. `just cli <verb> <path>` is the headless half, and
   since `sanity check` is how a run starts it is now the more useful one.
