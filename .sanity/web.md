@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-388 of 388 read · 77 surprising
+391 of 406 read · 77 surprising · 1 stale
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -75,11 +75,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `App` — QUIRKY — TANGLED
-- spec 3 · served in 4 parts · read at `b0db7d2791a3` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:20:34Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: The root React component managing all top-level app state: selected project, scan/progress polling (via useProgress and IPC calls to the Tauri backend), drilled-in directory scope, history/replay mode toggle, and color mode. It renders and wires together the sunburst map, sidebar/log list, progress strip/pane, and history transport bar, using memoized comparisons (sameProjects/sameIds/sameProgress) to avoid unnecessary re-renders, and shows an Empty state when there's no project loaded.
-- found: Confirmed the core architecture (project/scan state, 1.5s project poll that follows whichever project an agent opened, per-project view memory via switchTo, history/replay fetch+scrub+export wiring, sunburst/sidebar/detail panel composition) but the function does vastly more than predicted: it manages an 'assembling map' drawn live from streamed shape/scan-progress events during a first scan, lazy per-file function-ring fetching batched and grafted into the tree without invalidating memoization, author-rank stability across drilling/replay, global Cmd+digit lens-switching shortcuks tied to per-lens 'locks', movie-export key/caption generation, breadcrumb/ancestry navigation independent of the click-stack, a code-view modal, CLI-install and big-folder confirmation dialogs, and splash-dismissal timing.
+- spec 3 · served in 5 parts · read at `1ef8a04adfec` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:39:20Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: The top-level React application component — wires together all global state (projects list, current scan/run, progress tracking, selected file/function, history), IPC calls to the Tauri backend, keyboard shortcuts, and renders the overall layout shell (sidebar, main content pane, progress strip/pane, history toggle, empty state) using the many hooks and subcomponents listed as peers. At 2420 lines it's the monolithic root component holding most of the app's orchestration logic.
+- found: The root App component: dozens of pieces of state and refs covering the active project, the live scan tree, streamed function readings, streamed parse "shape" (for drawing the map while a scan is still running), a live-progress marker set, a full git-history replay system (tables/deltas/frame-building/scrubbing/playback), color-mode/lens locking logic, keyboard shortcuts (Cmd+1..9/0/-/+), drill-in/selection/breadcrumb navigation, project add/forget/trace flows with confirmation dialogs for large repos, CLI-install dialog, and the final JSX layout wiring sidebar/top bar/sunburst map/detail panel/history transport/code-view modal together.
 - predicted: some · documented: none · derivable: yes · legible: some · trap: no
-- note: This is effectively the entire application's state machine in one 2274-line function; a function-level prediction can only capture the shape, not the dozens of hard-won synchronization fixes documented inline (StrictMode double-invoke bugs, poll/render race conditions, memo-defeating object identity issues).
+- note: Nearly every piece of state here has a load-bearing comment explaining a specific historical bug it fixes (stale closures, StrictMode double-invoke, re-render storms) — treat any 'simplification' of this component as high-risk without reading those comments first.
 
 ### `useProgress`
 - spec 3 · read at `567112bc1bd9` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:35:05Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -166,11 +166,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/Bloom.tsx
 
 ### the file itself
-- spec 2 · read at `60c22cf4f758` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:18:03Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Renders a decorative "empty state" field of mathematically-generated flowers filling an unused right pane. petals() builds an SVG path from the fattened rhodonea rose-curve formula (r = a·|cos(kθ)|^(1/P)); seedHead() draws the flower's center; Flower composes petals+seedHead (with randomized parameters like size/rotation/petal count/color); Leaf adds foliage; Tile arranges/repeats flowers across the pane in a scattered/tiled pattern; Bloom is the exported top-level component rendering the whole field.
-- found: Renders a p6m wallpaper-group pattern of flowers/leaves for the empty pane: petals() and seedHead() build a fattened rhodonea rose and Vogel phyllotaxis seed disc; Flower/Leaf compose them; Tile places large flowers at 6-fold lattice centers, smaller flowers at 3-fold centroids, and leaves at 2-fold edge midpoints per crystallographic symmetry (not random scatter); Bloom draws the tile nine times per repeat via an SVG pattern to avoid edge-clipping artifacts, deliberately without patternTransform rotation.
+- spec 3 · read at `1b7a639e9ad6` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:08:52Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Renders a decorative empty-state illustration — a scattered field of SVG flowers shown in the right pane when nothing is selected. Uses math helpers (petals, seedHead, leafPath) to generate rose-curve-based petal/leaf paths, small components (Flower, Leaf) built from those paths, a Tile component to lay out repeated/randomized flower instances, and a top-level Bloom component composing many tiles into the full scattered field.
+- found: Decorative empty-pane SVG: a rose-curve (rhodonea, fattened by fractional power) flower shape and a Vogel-phyllotaxis seed head compose into Flower/Leaf, placed on a p6m wallpaper-group hexagonal lattice (6-fold, 3-fold, 2-fold sites) in a Tile, drawn nine times at offsets to make SVG pattern clipping tile seamlessly, rendered as a repeating `<pattern>` fill via Bloom.
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: I predicted 'scattered'/randomized placement, but the actual placement is rigorously derived from p6m wallpaper-group symmetry centers — a much richer design than a random field, which the extensive doc comment explains in detail.
+- note: The header explains deep math/design rationale (crystallographic restriction, why 6 not 5 petals, why scattered not vined, the nine-copies tiling trick) that is essential to understanding the seemingly-arbitrary constant choices (K=3, T, lattice point arrays) and isn't recoverable from the code alone.
 
 ### `petals`
 - spec 3 · read at `4cb8082affa4` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:43:36Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -192,11 +192,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: I assumed petals()/seedHead() were called as functions; instead PETALS and SEEDS are precomputed module-level constants used directly, and the center is drawn as discrete seed circles rather than a single seedHead element.
 
 ### `Leaf`
-- spec 2 · read at `4bb9b5c8f261` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:42:58Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Renders an SVG path drawing a vesica piscis (lens) shape made of two arcs from two equal overlapping circles, each passing through the other's center, scaled by the `s` prop. Likely returns a <path> element with an arc-based `d` string, possibly filled green as a leaf.
-- found: Renders a scaled <g> containing a vesica-shaped path (two arcs of radius R between two points ±L on the x-axis) filled/stroked with currentColor at low opacity, plus a center line stroke as the leaf's spine.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Guessed "filled green" but it actually uses currentColor (inherits from parent), and I didn't anticipate the extra spine line down the middle.
+- spec 3 · read at `09b88f7e8082` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:38:51Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A small React component rendering a single decorative SVG leaf shape at a given scale `s`, likely reusing `leafPath` from its peers to generate the path data and applying a fill/stroke style consistent with the flower motif.
+- found: Renders a scaled SVG group containing a leaf outline path (from leafPath(L), semi-transparent fill + stroke, using currentColor) plus a straight midrib line down the center of the leaf.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `Tile` — QUIRKY
 - spec 2 · read at `1b3b535c7b4d` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:05:48Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -288,10 +287,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
 
 ### `Lock`
-- spec 3 · read at `25ba87ab593a` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:20:47Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Renders a small padlock SVG icon, colored with the accent color (matching the Read/Trace buttons) when `keyed` is true, or muted foreground color when false — a visual cue for whether pressing a nearby button would unlock this lens.
-- found: A tiny padlock SVG: fill/stroke color is accent (full opacity) when `keyed` is true, muted-foreground at 0.7 opacity otherwise. Exactly as predicted.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `8aa591169d42` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:38:39Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Renders a small padlock icon/SVG whose color is conditional on the `keyed` boolean — accent color when true (some button could open it), muted ink otherwise — with a tooltip naming the button.
+- found: Renders a tiny padlock SVG (rect body + arc shackle), aria-hidden, with color and opacity set based on `keyed` — accent/full opacity when true, muted/0.7 opacity when false. No tooltip is present; that lives elsewhere per the docs.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Docs mention a tooltip naming the button, but that's on a parent/sibling component, not this SVG itself.
 
 ### `Legend` — QUIRKY
 - spec 3 · read at `f304ed8f627b` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:19:01Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -305,12 +305,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Ternary chain returning bare key string ('1'..'9', '0', '-') for index 0-10, null beyond — same logic I predicted but the ⌘ symbol is not part of the returned string, presumably added by the caller.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `ModeSwitcher`
-- spec 3 · read at `a22e75e31ea4` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:17:23Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Renders a row of tab buttons, one per ColorMode, highlighting the active `mode` and calling onMode(m) on click. For modes present in `locked`, it disables that tab, shows a Lock icon, and uses the Locked reason as a tooltip explaining why that lens has nothing to show. Probably also displays a keyboard shortcut hint per tab via the `shortcut` helper.
-- found: Renders a segmented tablist control, one button per ColorMode, with the active mode raised/highlighted. Locked modes get a Lock icon, disabled+guarded click, dimmed opacity, and the lock reason as tooltip instead of the normal hint+shortcut tooltip.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Shortcut hints appear only inside the title tooltip, not as visible text on the chip — a detail not guessable from the signature alone.
+### `ModeSwitcher` — TANGLED — TRAP
+- spec 3 · read at `e4e9a18bec7f` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:39:50Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Renders a row of tabs/buttons, one per ColorMode, highlighting the active `mode` and calling `onMode` on click. For modes present in `locked`, it renders a Lock icon and disables the tab (or shows a tooltip) explaining why that lens has nothing to show, rather than just graying it out silently. Probably also shows keyboard shortcut hints via the `shortcut` helper.
+- found: Renders a segmented-control tablist, one tab per ColorMode, highlighting the active one and calling onMode on click; locked modes show a Lock glyph inset in the padding, a `title` tooltip explaining why, and are dimmed to 0.55 opacity — matching my prediction closely, including the shortcut-in-tooltip detail.
+- predicted: most · documented: full · derivable: no · legible: some · trap: yes
+- note: The comment says a locked tab is "dimmed rather than disabled" (still a place you can stand) but the code also sets `disabled={!!lock}` on the button, which actually blocks focus/click via the native attribute — comment and behavior disagree on whether it's truly clickable.
 
 ### `ColorLegend`
 - spec 3 · read at `11c63768d866` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:18:29Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -790,6 +790,14 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: Docs describe the stopPropagation half of the contract as if it belonged to this function; it's actually the caller's responsibility, not code in this function.
 
+## web/src/components/Phases.tsx
+
+### `phasesOf` — QUIRKY
+- spec 3 · read at `7463633564a4` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:54Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Builds the three Phase objects (scan, trace, read) for a project row from its ProjectSummary fields, picking each pill's label/progress/disabled state by distinguishing cases that look similar but aren't (no git history vs untraced, in-progress vs declined, stale/behind map vs never-scanned) — returning an array of three Phase descriptors the Phases component renders as pills. `replayBlocked` likely disables or relabels the read/agent-replay pill when true.
+- found: Builds scan/trace/read Phase objects. Scan: shows cost estimate, or live progress while loading (with a "Stop" action), or "Rescan" if behind, or a done summary. Trace is delegated entirely to a separate traceOf(p, scanned, replayBlocked) helper. Read: shows live reading progress with stop, "scanning required first" if not yet scanned, a done summary if fully assessed, or else a progress fill splitting the remainder into distinct "unread" vs "stale" counts (never overlapping, since stale readings are already counted in assessed).
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+
 ## web/src/components/Prose.tsx
 
 ### the file itself
@@ -876,17 +884,19 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/SideBar.tsx
 
-### the file itself — QUIRKY
-- spec 3 · served in 2 parts · read at `b5b60ff265f0` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:56:05Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: The app's main navigation panel listing registered projects, with ProjectItem rendering each row (name, per-project read/progress counts, maybe a mini progress bar or status indicator) and DropLine as a drag-and-drop reorder indicator shown between rows while dragging. SideBar itself owns the list state, selection/click-to-open behavior, and drag-and-drop reordering logic (computing where DropLine should render, handling drop to reorder or move projects).
-- found: Got the core shape right — SideBar owns pointer-based (not HTML5, deliberately, because Tauri's macOS webview swallows native drag events) drag-to-reorder with DropLine as the gap indicator and a ghost row following the pointer, ProjectItem as the row. But I missed most of the actual feature surface: a right-click context menu (re-trace history, remint the project's mascot, remove from list), a failure-transcript overlay, and — the biggest gap — a whole parallel 'history replay/trace' feature (walking git commits via a separate progress stream from the agent-reading progress) with its own Cancel/Trace controls and progress bar sharing the row. Also missed the derived-state logic for what the row's top-line status word shows (scanning/exiting/reading/failed) and the compact-number formatting rule.
-- predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
+### the file itself
+- spec 3 · served in 2 parts · read at `44123db41be7` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:10:48Z · by ross@rossturk.com · warm reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: SideBar.tsx is the project list panel — SideBar renders the scrollable list of ProjectItem rows, manages drag-to-reorder state (pointer tracking, which row is being dragged, calling reorderProjects on drop), and probably an "Add project" affordance; DropLine is a small presentational component drawing the insertion-point indicator between rows during a drag.
+- found: Confirmed: SideBar renders the project list with pointer-based drag-to-reorder (calling reorderProjects on drop) and DropLine is the insertion-point indicator, as predicted. Additionally holds a right-click context menu (re-trace, remint mascot, remove from list), a failure-transcript overlay sheet, an "Add project" + button and empty-state copy, and renders a floating "ghost" copy of the dragged row that follows the pointer via a ref rather than React state for performance.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- note: Already read ProjectItem in an earlier task — this file task's second half was that same body, so only the SideBar/DropLine portion was new here.
 
 ### `SideBar` — QUIRKY — TANGLED
-- spec 3 · read at `f535f4d72bce` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:04Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Renders a full-height scrollable list of ProjectItem rows from `projects`, highlighting the one matching `active`. Supports drag-and-drop reordering using DropLine as an insertion indicator between rows. Wires per-row actions (read, forget, remint mascot, replay) and a top "+" add button, with any action failures reported up via onError rather than shown inline.
-- found: Renders the sidebar list of ProjectItem rows, with an add button and empty state. Implements custom pointer-event-based (not HTML5) drag-and-drop reordering with a DropLine insertion indicator and a ghost row following the pointer, because Tauri's webview swallows native HTML5 dragover events. Also handles a right-click context menu (re-trace history, remint mascot, remove from list) and a per-project failure transcript overlay opened via onFailure, in addition to wiring the various row callbacks.
-- predicted: some · documented: most · derivable: no · legible: some · trap: no
+- spec 3 · read at `0f9f61e57012` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:35Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Renders the full-height left column — an add-project control plus a list of ProjectItem rows built from projects, highlighting the active one, wiring each row's per-project actions (select, read, forget, remint mascot, replay, trace, scan, stop-trace) to the passed-in callbacks. Likely manages drag-and-drop reordering internally (using DropLine to render an insertion indicator) and passes replayKey/replay progress down to whichever row matches, funneling row-level failures up through onError.
+- found: Renders the project list column with add button, empty state, and per-row ProjectItems wired to all the passed callbacks — plus a hand-rolled pointer-events-based drag-and-drop reorder (state+ref split to avoid render lag, a ghost row following the pointer, a DropLine gap indicator), a right-click context menu (re-trace, remint mascot, forget), and a failure-transcript overlay sheet.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: The prop-level JSDoc comments (documented=some) explain the callback semantics well, but the component body's biggest surprises — the custom pointer-based DnD (HTML5 DnD is broken by the Tauri webview) and the context menu/failure overlay — aren't hinted at by the signature at all.
 
 ### `DropLine` — QUIRKY
 - spec 3 · read at `7cf9ac969254` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:47:17Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -895,11 +905,28 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 - note: I overestimated its size — it's a 2px accent line, not a row-height placeholder block.
 
-### `ProjectItem` — QUIRKY — TANGLED
-- spec 3 · read at `a4059d1dded6` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:44:10Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: This renders a single project row as a `div` (not a button, per the docs) that shows the project name and a right-aligned slot displaying either the idle function count, an in-progress replay's progress bar, or action controls (Read/Stop/failure) when the row is active. It wires up click, context-menu, drag-to-reorder (via `onGrab`/`dragging`), and keyboard handling manually since the div can't nest real buttons for those controls, and it disables/greys the replay control when `blocked` is true because only one project can be traced at a time.
-- found: A two-line-plus-history row: an icon/name/status line, an optional history-trace sub-row (with its own progress bar, Cancel/Trace buttons) shown only when there are commits to replay, and a detail line with Read/Stop/failure-info buttons. It tracks local hover/cancelling/asked state, computes several derived flags (busy, reading, settled, blocked) to decide what to show, and draws a bottom-edge progress rule plus an animated 'sweep' overlay while readers are active.
+### `ProjectItem` — QUIRKY — TANGLED — STALE
+- spec 3 · read at `8a8e9df42c25` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:08:26Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A div-based row (not a button, per docs) for one project, showing name/icon, active/dragging styles, wired to onClick/onContextMenu/onGrab and keyboard handling since it's not a real button. The right-hand slot conditionally renders a static count, a replay progress indicator when `replay` is non-null, or action controls (Read/Stop/Trace/Scan) when this is the current row, with `blocked` disabling the trace control.
+- found: Renders a div with role=button and keyboard handling for a project row. Tracks local `hover`, `cancelling`, and `asked` state to give immediate feedback on Stop/Cancel presses ahead of backend confirmation. Computes several derived booleans (running, winding, stopping, busy, reading, working, failed, open) to decide what a top-line `state` chip says (Scanning/N exiting/N reading/Read failed) and whether a bottom-edge sweep animation shows. Delegates the actual phase buttons (scan/trace/replay/read and their stop variants) to a child `Phases` component via an `onAct` callback that dispatches to the various on* props.
 - predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: The right-side slot I predicted (count/replay/actions inline) is actually fully delegated to a separate Phases component — the row itself only renders a status text chip and a progress sweep.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
+
+## web/src/components/Sprig.tsx
+
+### `rng`
+- spec 3 · read at `23eeeccc94cb` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:01Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Implements the Mulberry32 PRNG algorithm — takes a numeric seed and returns a closure that, on each call, advances internal state with the standard Mulberry32 bit-mixing steps (xor-shifts and multiplications) and returns a float in [0,1). Small self-contained generator with no external deps, deterministic per seed.
+- found: Standard Mulberry32 PRNG: seeds a 32-bit state, returns a closure that mixes it with the canonical constant/xorshift/imul sequence and returns a float in [0,1) per call.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `Sprig`
+- spec 3 · read at `6a67c1b8c88c` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:39:43Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A decorative SVG component that uses a seeded PRNG (rng) to deterministically generate a unique-looking twig with a curving stem and a handful of small leaves branching off it, so each row gets a different-but-stable sprig based on its seed (likely derived from the project key/name), filling empty space under a project row's pills when there's nothing else to show.
+- found: Generates a stem as sum of two irrational-frequency sine waves plus a slight lean (to avoid looking mechanical/plotted), extending off both tile edges; then walks along it placing alternating-side leaves whose angle is derived from the stem's local tangent slope plus jitter, each leaf drawn via the shared leafPath helper.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ## web/src/components/StaleHatch.tsx
 
@@ -1065,11 +1092,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/api.ts
 
 ### the file itself
-- spec 3 · served in 3 parts · read at `96ee24a832bc` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:56:34Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: The frontend's data/IPC layer: typed wrapper functions around Tauri `invoke` calls and event listeners for every backend command (listProjects, projectScan, scanRepo, selectProject, forgetProject, pickProject, repoRemote, cliStatus, installCli, harnesses, startCheck/stopCheck, setReader, agentActivity/agentReports, fileFunctions, functionLinks/functionSources, commitDetail, functionHistory, openCodeWindow, onScanScore/onScanProgress/onSetTheme/onOpenProject/onInstallCli, syncThemeMenu, saveMovie, reorderProjects, readSource/readCurve), plus a substantial set of pure tree-shaping helpers that convert raw backend scan payloads into the typed Node/Scan tree the UI renders (toNode/toScan, pruneExcluded, applyAgentReports/applyScores, reaggregate, readInto/readIntoRing, countPending/summarize, isReportStale/legibleOf/trapOf/reportGrades/readingWords), and a "heat" color-ramp family (temperature, wedgeHeat, shareRamp, paintHeat, heatColor, rampStop, rampAt) used to color wedges by how recently/urgently they were read. No header, so this reads as the catch-all client module bridging Rust and the React tree/visualization rather than a single well-scoped responsibility.
-- found: Exactly what was predicted in shape: (1) the full set of wire types (Score, Node, ProjectSummary, AgentReport, etc.) plus toNode/toScan converting snake_case WireNode/WireScan payloads to the camelCase types the UI uses; (2) typed invoke()/listen() wrappers for every backend command and event; (3) tree-shaping helpers (pruneExcluded, applyAgentReports/applyScores, reaggregate, readInto/readIntoRing, countPending, summarize) that fold agent readings and streamed scores into the tree, carefully preserving object identity for React memoization; (4) the heat/color-ramp family (temperature, wedgeHeat, shareRamp, paintHeat, heatColor, rampStop, rampAt, isAnalyzed) that decides what and how a wedge is colored. What I underestimated: a whole parallel "grade vocabulary" system (HEAT_WORDS/LEGIBLE_WORDS/DOC_WORDS, GRADE_SURPRISE/GRADE_DOCUMENTED/DOC_GAP) mapping the 4-step agent grade to display words/numbers, plus "dated" grade semantics (legibleDated/trapDated) marking readings taken under a since-rewritten grading question as historical-only — a versioning concern for the grading rubric itself that isn't inferable from names/signatures alone.
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: Reports (surprise/legible/documented/trap grades) can be "dated" — answered under an earlier version of the grading question — and are then kept for history but excluded from coloring/counting everywhere (legibleOf/trapOf/reportGrades all filter on it); a naive reader who reads `r.legible` or `r.trap` directly anywhere new will silently reintroduce the bug this indirection exists to prevent.
+- spec 3 · served in 3 parts · read at `9e690c7db252` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:16Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: The frontend's single API/bridge layer to the Tauri Rust backend — wrapping invoke() calls for project lifecycle (list/select/pick/reorder/forget), scanning/reading/tracing source, and report/history retrieval, plus event listeners for backend-pushed events (scan progress, theme, install). It probably also bundles pure display-derivation helpers (heat/color ramps, legibility/trap grading, summarizing reports) that don't need a backend round-trip, grown into the same file as a catch-all since there's no header describing a narrower scope.
+- found: It is the frontend's bridge to the Tauri backend (invoke wrappers for project lifecycle, scanning, tracing, history, reports) plus event listeners, exactly as predicted — but the bulk of the file's weight is actually large wire-format type definitions (Node, Score, ProjectSummary, WireNode, etc. with extensive per-field doc comments) and tree-aggregation logic (reaggregate, applyScores, applyAgentReports, summarize, countPending) that keep the sunburst map's colors/roll-ups consistent with the Rust backend's own aggregation math — a much bigger and more central concern than the "catch-all of misc helpers" framing I predicted.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- note: No file header exists, but nearly every export has a rich doc comment — this file rewards per-function reading far more than a top-level skim.
 
 ### `pruneExcluded`
 - spec 3 · read at `387ef5c13909` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:56:29Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -1174,11 +1201,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: Already read this exact function verbatim in the prior api.ts file task, so this was recall, not prediction — reporting cold:false.
 
 ### `stopCheck`
-- spec 2 · read at `0ebe9e44ca28` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:07:16Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A thin wrapper that POSTs to a "/stop" endpoint (or similar) with the given project/run key, likely reusing a shared fetch helper, and resolves once the server acknowledges the stop request — it doesn't wait for the run to actually finish stopping.
-- found: A one-line wrapper that calls Tauri's `invoke('stop_check', { key })`, forwarding the key to the Rust backend command and resolving when it acknowledges.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: I guessed it was a fetch/HTTP POST wrapper rather than a Tauri invoke call, though the shape (thin passthrough with a key) was right.
+- spec 3 · read at `8ff5e7dff082` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:39:28Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Thin IPC wrapper calling Tauri's invoke('stop_check', { key }) (or similarly named backend command) to tell the Rust backend to halt an in-progress agent "check"/read run for the given project key, returning a promise that resolves when the backend acknowledges.
+- found: Exactly as predicted: a one-line Tauri invoke wrapper calling the 'stop_check' backend command with the project key.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `readable`
 - spec 2 · read at `d8ec7b19b2c0` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:07:18Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -1680,11 +1706,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/history.ts
 
 ### the file itself
-- spec 3 · served in 2 parts · read at `ed2a0b16860c` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:19:52Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: The frontend engine behind the commit-replay feature: it calls into the Rust backend (scanHistory/warmHistory, with progress via onHistoryProgress) to get the raw replayed commit data, then maintains client-side state for stepping the playhead through it (enter/leave/advance/replay, insertSorted/removeSorted for the ordered commit list). It builds/updates the sunburst's tree representation frame by frame (frameTree, dirNode, aggregate, collapse, census, headSizes), applying scores/readings into it (scoreInto, readingInto, gradeAt), and handles directory scoping/drilling (scopeOf, dirsOf, pathIndexOf, posOf, realOf) plus small utilities like daysBetween for age display.
-- found: The frontend replay engine: fetches/warms timeline data from Rust (scanHistory/warmHistory), incrementally folds commit deltas into a mutable, memoized "Frame" (advance/replay, forward-only with backward rebuild from opening), and builds a pooled, per-frame sunburst tree (frameTree) with directory/file arrival tracking (enter/leave/census), a flash-only "birth"/"touch" color model instead of recency coloring, LOC-based thinning of thin functions into "rest" stand-in nodes to bound draw cost, LOC-weighted aggregate roll-ups mirroring the Rust scan, single-directory-chain collapsing matching the live tree shape, and scope/position helpers (scopeOf, pathIndexOf, posOf, realOf) for drilling and binary-searching commit positions.
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: Missed from the name/peer list alone: heavy object pooling for GC pressure, the explicit rule that surprise/analysis lenses are never replayed (only committed readings + birth/touch flashes are shown), and the minLoc/scope-aware thinning that keeps a 90k-function replay drawable.
+- spec 3 · served in 2 parts · read at `6d8da81cfe13` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:11Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This file implements the frontend "history replay" engine — pulling commit-history scan data from the Rust backend (scanHistory, traceProject, warmHistory, onHistoryProgress) and then stepping through it frame-by-frame (enter/leave/advance/replay/census) to reconstruct tree state (open directories, sizes, positions) at each point in time so the sunburst can animate through a repo's history. Helper functions (insertSorted/removeSorted/daysBetween/aggregate/collapse/dirNode/frameTree/scopeOf/pathIndexOf/posOf/realOf) maintain sorted timelines and map between logical scope and tree positions during replay.
+- found: A commit-by-commit replay engine for the sunburst's History mode. Backend calls (scanHistory/traceProject/warmHistory/onHistoryProgress) fetch/refresh a stored timeline; `opening`/`advance`/`replay` fold commit deltas into a mutable `Frame` (live lines, churn window, birth/touch timestamps, per-function author, packed grade readings) with a forward-only memo since folding is linear in history length; `enter`/`leave`/`census` track container (file/dir) presence so a container's \"birth\" flash fires only on its own 0→1 transition, never rolled up from children. `frameTree` builds a fresh Node tree per frame (pooling function nodes, not containers, to avoid GC pressure and to let the sunburst layout react to identity changes), applying a level-of-detail cutoff (`minLoc`, scaled by density and scope) that rolls thin functions into a synthetic `#/folded` stand-in per file so large repos don't try to render tens of thousands of wedges 30x/second. `aggregate` rolls loc/churn/age/reading-coverage up containers LOD-weighted; `collapse` merges single-child directory chains to match the live scan's shape.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: The docs are unusually rich — most functions carry a paragraph of "why", including specific war-story numbers (ceph's 94k functions, a 26ms fold at commit 983, a React duplicate-key ghost-wedge bug) that no static analysis of the code could regenerate.
 
 ### `scanHistory`
 - spec 3 · read at `5cb544ec5c94` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:48:27Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -1693,10 +1719,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `warmHistory`
-- spec 2 · read at `bf062faa9fb5` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:28:35Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Calls the backend's history-warm endpoint/function with the given repo path, awaiting and returning its boolean result (true if a cached timeline existed and was topped up, false if there was nothing to warm), without building a new timeline.
-- found: Thin Tauri invoke wrapper calling the 'warm_history' backend command with the path, returning its boolean result.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `ff9955356789` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:39:20Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A thin 3-line wrapper that invokes a Tauri backend command to pre-warm/cache git history data for the given project path, returning a boolean indicating whether history is available/was warmed successfully.
+- found: Thin wrapper invoking the Tauri 'warm_history' command with the path, returning its boolean result.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ### `onHistoryProgress`
 - spec 2 · read at `362d617cee23` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:03:44Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
