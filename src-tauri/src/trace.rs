@@ -318,6 +318,32 @@ fn load_bank(repo: &std::path::Path) -> Option<crate::churn::Bank> {
 /// already are: blame is keyed on `(content, last commit)` and the parse computed the content
 /// hash a moment ago. A file the cache has never heard of blames uncached, which is correct
 /// and merely slower.
+/// How many times a blame pass lands on the live tree before it is finished.
+///
+/// **A count and not an interval, because what a publish costs scales with the repo.** Every
+/// one of them replaces the project's tree, which bumps `scanned`, which clears the window's
+/// function rings and refetches them — on kibana a 148,000-function tree. Ten of those over a
+/// pass is the map filling in as the work happens; one every few seconds is a repo that spends
+/// its afternoon re-sending itself.
+const PUBLISH_STEPS: usize = 10;
+
+/// The fewest files worth publishing between. Below this the pass is short enough that
+/// splitting it buys nothing — a 90-file repo blames in three seconds — and the chunking would
+/// only cost it ten full re-applies. Matches `scancache`'s own flush cadence, which is the same
+/// judgement about the same kind of work.
+const PUBLISH_FLOOR: usize = 400;
+
+/// Every file the blame pass will visit, in the order it will visit them.
+fn blamable(scan: &Scan, scans: &crate::scancache::ScanCache) -> Vec<(String, u64)> {
+    let mut files: Vec<(String, u64)> = Vec::new();
+    scan.root.visit(&mut |n| {
+        if n.kind == NodeKind::File {
+            files.push((n.path.clone(), scans.hash_of(&n.path).unwrap_or(0)));
+        }
+    });
+    files
+}
+
 pub fn depth2(
     repo: &std::path::Path,
     scan: &Scan,
@@ -326,12 +352,7 @@ pub fn depth2(
     stop: &std::sync::atomic::AtomicBool,
     on_file: &(dyn Fn(&str, usize, usize) + Sync),
 ) -> Blame {
-    let mut files: Vec<(String, u64)> = Vec::new();
-    scan.root.visit(&mut |n| {
-        if n.kind == NodeKind::File {
-            files.push((n.path.clone(), scans.hash_of(&n.path).unwrap_or(0)));
-        }
-    });
+    let files = blamable(scan, scans);
     let total = files.len();
     let done = std::sync::atomic::AtomicUsize::new(0);
     Blame::read(repo, &files, history, scans, stop, &|path: &str| {
@@ -351,6 +372,7 @@ pub fn deepen(
     scans: &crate::scancache::ScanCache,
     stop: &std::sync::atomic::AtomicBool,
     on_progress: &(dyn Fn(crate::scan::Progress) + Sync),
+    on_publish: &(dyn Fn(&Scan) + Sync),
 ) -> (Depth, usize, usize) {
     if depth == Depth::Untraced {
         return (Depth::Untraced, 0, 0);
@@ -376,14 +398,46 @@ pub fn deepen(
         // untracked, and the honest report is the depth this repo already had.
         return (Depth::Untraced, 0, 0);
     };
+    // **The blame pass lands on the live tree as it goes, in chunks.** It used to be one
+    // `Blame::read` over every file, applied once at the end — so for the whole of a
+    // thirty-three-minute pass on kibana the map went on showing DEPTH 1: every function
+    // wearing its file's author, each file a single flat colour, while the pill counted
+    // truthfully up to `21k / 59k`. All the per-function colour then arrived in one step at the
+    // end. The work was real and none of it was anywhere a person could see it.
+    //
+    // Chunking is safe because blame is per file and independent: a chunk is a whole answer for
+    // the files it covers, `absorb` is a union rather than a merge of two opinions, and `apply`
+    // is idempotent by construction — the files not yet reached simply keep falling back to
+    // their file's numbers, which is exactly what depth 1 already means.
     let blame = if depth == Depth::Lines && !stop.load(std::sync::atomic::Ordering::Relaxed) {
-        depth2(repo, scan, &history, scans, stop, &|path, done, total| {
-            on_progress(
-                crate::scan::Progress::counting("reading per-line history", "files", done, total)
+        let files = blamable(scan, scans);
+        let total = files.len();
+        let step = (total / PUBLISH_STEPS).max(PUBLISH_FLOOR);
+        let done = std::sync::atomic::AtomicUsize::new(0);
+        let mut acc = Blame::default();
+        for chunk in files.chunks(step) {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+            let part = Blame::read(repo, chunk, &history, scans, stop, &|path: &str| {
+                on_progress(
+                    crate::scan::Progress::counting(
+                        "reading per-line history",
+                        "files",
+                        done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1,
+                        total,
+                    )
                     .on(path)
                     .step(2),
-            )
-        })
+                )
+            });
+            acc.absorb(part);
+            // Landed and handed over before the next chunk starts. The final `apply` below
+            // still runs — it is idempotent, and it is what covers the un-chunked paths.
+            apply(scan, &history, &acc);
+            on_publish(scan);
+        }
+        acc
     } else {
         Blame::default()
     };
@@ -609,6 +663,68 @@ mod tests {
         dir
     }
 
+    /// **A blame pass lands on the tree while it is still running.**
+    ///
+    /// The bug: `deepen` read every file's blame and applied it ONCE at the end, so for the
+    /// whole of a thirty-three-minute pass on kibana the map showed depth 1 — every function
+    /// wearing its file's author, each file one flat colour — while the pill counted honestly
+    /// up to `21k / 59k`. All the per-function colour arrived in a single step at the end.
+    ///
+    /// Asserted on what each landing CARRIES rather than by timing anything: a snapshot has to
+    /// reach the tree before the pass returns, and each one has to hold more than the last.
+    #[test]
+    fn a_blame_pass_lands_before_it_finishes() {
+        let dir = repo();
+        let mut scan = scan_of(dir.path(), Depth::Files);
+        let scans = crate::scancache::ScanCache::open(dir.path());
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let history = depth1(dir.path(), &stop, &|_| {}).expect("walks");
+
+        // One chunk per file, so this small fixture exercises the loop the way a large repo
+        // does — `PUBLISH_FLOOR` would otherwise make the whole pass a single chunk.
+        let files = blamable(&scan, &scans);
+        assert!(files.len() >= 2, "the fixture has something to chunk");
+
+        let mut acc = Blame::default();
+        let mut steps = Vec::new();
+        for chunk in files.chunks(1) {
+            acc.absorb(Blame::read(dir.path(), chunk, &history, &scans, &stop, &|_| {}));
+            apply(&mut scan, &history, &acc);
+            steps.push(acc.len());
+        }
+        assert!(steps.len() > 1, "more than one landing: {steps:?}");
+        assert!(
+            steps.windows(2).all(|w| w[1] > w[0]),
+            "each landing carries strictly more than the last: {steps:?}"
+        );
+        assert_eq!(*steps.last().unwrap(), files.len(), "and the last is everything");
+    }
+
+    /// Absorbing chunk by chunk reaches the same tree as reading the lot in one go — which is
+    /// what makes publishing a partial pass honest rather than merely early.
+    #[test]
+    fn a_chunked_blame_pass_matches_an_unchunked_one() {
+        let dir = repo();
+        let scan = scan_of(dir.path(), Depth::Files);
+        let scans = crate::scancache::ScanCache::open(dir.path());
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let history = depth1(dir.path(), &stop, &|_| {}).expect("walks");
+        let files = blamable(&scan, &scans);
+
+        let whole = Blame::read(dir.path(), &files, &history, &scans, &stop, &|_| {});
+        let mut chunked = Blame::default();
+        for chunk in files.chunks(1) {
+            chunked.absorb(Blame::read(dir.path(), chunk, &history, &scans, &stop, &|_| {}));
+        }
+        assert_eq!(whole.len(), chunked.len());
+
+        let mut a = scan.clone();
+        let mut b = scan.clone();
+        apply(&mut a, &history, &whole);
+        apply(&mut b, &history, &chunked);
+        same(&rows(&a), &rows(&b));
+    }
+
     fn scan_of(repo: &Path, depth: Depth) -> crate::scan::Scan {
         let (scores, scans) = crate::scan::Memos::ephemeral();
         crate::scan::scan(
@@ -748,7 +864,7 @@ mod tests {
 
         // A per-line pass fills the cache, and the same question is then free.
         let stop = std::sync::atomic::AtomicBool::new(false);
-        deepen(dir.path(), &mut scan, Depth::Lines, &scans, &stop, &|_| {});
+        deepen(dir.path(), &mut scan, Depth::Lines, &scans, &stop, &|_| {}, &|_| {});
         assert!(relines(&scan, &scans, &history), "and free once the blame is banked");
 
         // An empty cache is the dropped-cache case, and it is priced per file rather than
@@ -793,7 +909,7 @@ mod tests {
         // The trace half of the same rule — see `relines`.
         let scans = crate::scancache::ScanCache::open(dir.path());
         let stop = std::sync::atomic::AtomicBool::new(false);
-        deepen(dir.path(), &mut scan, Depth::Lines, &scans, &stop, &|_| {});
+        deepen(dir.path(), &mut scan, Depth::Lines, &scans, &stop, &|_| {}, &|_| {});
         assert!(relines(&scan, &scans, &crate::churn::read(dir.path())));
     }
 

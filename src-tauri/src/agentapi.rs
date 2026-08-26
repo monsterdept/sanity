@@ -2079,6 +2079,7 @@ async fn open_project(
             &scans,
             &std::sync::atomic::AtomicBool::new(false),
             &|_| {},
+            &|_| {},
         );
         Ok::<_, anyhow::Error>(scan)
     })
@@ -3311,12 +3312,28 @@ async fn trace(State(state): State<Shared>, Json(p): Json<TraceParams>) -> Json<
             let scan = scan.as_mut()?;
             let scans = crate::scancache::ScanCache::open(&repo);
             let traced_to =
-                crate::trace::deepen(&repo, scan, depth, &scans, &stop, &|progress| {
-                    let mut st = lock(&ticking);
-                    if let Some(p) = st.projects.get_mut(&ticking_key) {
-                        p.trace.running = Some(progress);
-                    }
-                });
+                crate::trace::deepen(
+                    &repo,
+                    scan,
+                    depth,
+                    &scans,
+                    &stop,
+                    &|progress| {
+                        let mut st = lock(&ticking);
+                        if let Some(p) = st.projects.get_mut(&ticking_key) {
+                            p.trace.running = Some(progress);
+                        }
+                    },
+                    // A window may well be open on this project while an agent or the CLI
+                    // drives the trace, and it watches `scanned` like any other.
+                    &|snapshot| {
+                        let mut st = lock(&ticking);
+                        if let Some(p) = st.projects.get_mut(&ticking_key) {
+                            p.scan = snapshot.clone();
+                            p.scanned = p.scanned.wrapping_add(1);
+                        }
+                    },
+                );
             Some((scan.clone(), traced_to))
         })
         .await
@@ -6076,9 +6093,17 @@ fn trace_within_budget(
             }
             let (reached, resolved) = {
                 let (reached, done, considered) =
-                    crate::trace::deepen(repo, scan, depth, scans, &stop, &|progress| {
-                        on_progress(progress)
-                    });
+                    crate::trace::deepen(
+                        repo,
+                        scan,
+                        depth,
+                        scans,
+                        &stop,
+                        &|progress| on_progress(progress),
+                        // The restore lane holds no project to publish INTO — it is building
+                        // the tree that becomes one. Its caller lands the finished scan.
+                        &|_| {},
+                    );
                 (reached, (done, considered))
             };
             TraceState { depth: reached, resolved, pending: None, running: None, stop }

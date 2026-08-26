@@ -171,6 +171,7 @@ pub async fn scan_repo(
             &scans,
             &CANCEL,
             &|_| {},
+            &|_| {},
         );
         Ok::<_, String>(scan)
     })
@@ -515,12 +516,30 @@ pub async fn trace_project(
         // the copies had already diverged into two that reported nothing at all. What a step is
         // called is the step's business.
         let traced_to =
-            crate::trace::deepen(&traced, &mut scan, want, &scans, &stop, &|progress| {
-                let mut s = crate::agentapi::lock(&ticking);
-                if let Some(p) = s.projects.get_mut(&ticking_key) {
-                    p.trace.running = Some(progress);
-                }
-            });
+            crate::trace::deepen(
+                &traced,
+                &mut scan,
+                want,
+                &scans,
+                &stop,
+                &|progress| {
+                    let mut s = crate::agentapi::lock(&ticking);
+                    if let Some(p) = s.projects.get_mut(&ticking_key) {
+                        p.trace.running = Some(progress);
+                    }
+                },
+                // **Each chunk of blame reaches the map while the pass is still running.**
+                // `scanned` is what the window watches to refetch a tree, so bumping it is the
+                // whole of "show this now" — see `trace::PUBLISH_STEPS` for why there are ten
+                // of these and not one a second.
+                &|snapshot| {
+                    let mut s = crate::agentapi::lock(&ticking);
+                    if let Some(p) = s.projects.get_mut(&ticking_key) {
+                        p.scan = snapshot.clone();
+                        p.scanned = p.scanned.wrapping_add(1);
+                    }
+                },
+            );
         (scan, traced_to)
     })
     .await

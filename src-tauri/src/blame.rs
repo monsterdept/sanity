@@ -156,6 +156,21 @@ impl Blame {
         self.files.get(path)
     }
 
+    /// Fold another pass's files into this one.
+    ///
+    /// **What makes a blame pass publishable before it finishes.** The pass runs in chunks so
+    /// the map fills in as it goes (see `trace::deepen`), and each chunk is a whole answer for
+    /// the files it covers — blame is per file and independent, so absorbing one is a union and
+    /// never a merge of two opinions about the same thing. `now` is the reading's own clock and
+    /// is taken from whichever pass has one, so a default-constructed accumulator does not
+    /// stamp every age as the epoch.
+    pub fn absorb(&mut self, other: Blame) {
+        if self.now == 0 {
+            self.now = other.now;
+        }
+        self.files.extend(other.files);
+    }
+
     /// How many files this holds per-line history for.
     ///
     /// The numerator of what the map can honestly claim: a pass that was stopped, or one that
