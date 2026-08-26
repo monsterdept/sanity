@@ -2078,7 +2078,7 @@ async fn open_project(
             crate::trace::Depth::Files,
             &scans,
             &std::sync::atomic::AtomicBool::new(false),
-            &|_, _, _| {},
+            &|_| {},
         );
         Ok::<_, anyhow::Error>(scan)
     })
@@ -3296,6 +3296,10 @@ async fn trace(State(state): State<Shared>, Json(p): Json<TraceParams>) -> Json<
         };
         project.trace.stop.store(false, std::sync::atomic::Ordering::Relaxed);
         project.trace.running = Some(crate::scan::Progress::phase("reading the commit log"));
+        // Retired the moment the work starts — see the same line in `commands::trace_project`.
+        // A pending price and a running pass are two answers to one question, and a caller that
+        // has to know which to prefer is one that will eventually prefer the wrong one.
+        project.trace.pending = None;
         project.trace.stop.clone()
     };
     let traced = {
@@ -3306,28 +3310,20 @@ async fn trace(State(state): State<Shared>, Json(p): Json<TraceParams>) -> Json<
         tokio::task::spawn_blocking(move || {
             let scan = scan.as_mut()?;
             let scans = crate::scancache::ScanCache::open(&repo);
-            let resolved =
-                crate::trace::deepen(&repo, scan, depth, &scans, &stop, &|path, done, total| {
+            let traced_to =
+                crate::trace::deepen(&repo, scan, depth, &scans, &stop, &|progress| {
                     let mut st = lock(&ticking);
                     if let Some(p) = st.projects.get_mut(&ticking_key) {
-                        p.trace.running = Some(
-                            crate::scan::Progress::counting(
-                                "reading per-line history",
-                                "files",
-                                done,
-                                total,
-                            )
-                            .on(path),
-                        );
+                        p.trace.running = Some(progress);
                     }
                 });
-            Some((scan.clone(), resolved))
+            Some((scan.clone(), traced_to))
         })
         .await
         .ok()
         .flatten()
     };
-    let Some((scan, resolved)) = traced else {
+    let Some((scan, (reached, done, considered))) = traced else {
         return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
     };
 
@@ -3336,15 +3332,22 @@ async fn trace(State(state): State<Shared>, Json(p): Json<TraceParams>) -> Json<
         return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
     };
     project.scan = scan;
-    // **The depth asked for, with the coverage it actually reached.** A stopped pass used to
-    // be reported as the depth below — rounding a fraction into a step, which made two thirds
-    // of a repo's blame look like work that never happened. `resolved` says where it got to.
-    let stopped = project.trace.stop.load(std::sync::atomic::Ordering::Relaxed);
-    project.trace = TraceState { depth, resolved, ..Default::default() };
+    // **The depth the pass REACHED, with the coverage it got to.** A stopped pass used to be
+    // reported as the depth below — rounding a fraction into a step, which made two thirds of a
+    // repo's blame look like work that never happened — and the correction was made here, out
+    // of a stop flag this function read for itself. It is `deepen`'s answer now: the log walk
+    // is interruptible too, and a stop inside it reaches nothing, which no amount of reading
+    // the flag from out here could have told apart from a completed walk.
+    let resolved = (done, considered);
+    // Falling short of what was asked for IS the stop, and reading it this way rather than off
+    // the flag survives the flag being replaced a line later — which it is, by a fresh
+    // `TraceState`, and reading it after that was a bug this file already carries a note about.
+    let stopped = reached != depth;
+    project.trace = TraceState { depth: reached, resolved, ..Default::default() };
     // Banked, so a restart puts the map back where somebody paid to have it — see
     // `KnownProject::trace_depth`. Only what actually landed: a stopped pass banks the depth it
     // reached, not the one it was aiming at.
-    crate::reports::note_trace(&key, if stopped { "files" } else { depth.tag_str() });
+    crate::reports::note_trace(&key, reached.tag_str());
     project.scanned = project.scanned.wrapping_add(1);
     Json(serde_json::json!({
         "ok": true,
@@ -6064,23 +6067,21 @@ fn trace_within_budget(
             // unchanged repo already holds every answer; `relines` prices the remainder and
             // says no where the cache cannot serve it, which keeps a dropped cache from
             // spending minutes at launch on work nobody re-requested.
-            if banked == Some("lines") && crate::trace::relines(scan, scans, &crate::trace::depth1(repo)) {
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            if banked == Some("lines")
+                && crate::trace::depth1(repo, &stop, &|_| {})
+                    .is_some_and(|h| crate::trace::relines(scan, scans, &h))
+            {
                 depth = crate::trace::Depth::Lines;
             }
-            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-            let resolved =
-                crate::trace::deepen(repo, scan, depth, scans, &stop, &|path, done, total| {
-                    on_progress(
-                        crate::scan::Progress::counting(
-                            "reading per-line history",
-                            "files",
-                            done,
-                            total,
-                        )
-                        .on(path),
-                    );
-                });
-            TraceState { depth, resolved, pending: None, running: None, stop }
+            let (reached, resolved) = {
+                let (reached, done, considered) =
+                    crate::trace::deepen(repo, scan, depth, scans, &stop, &|progress| {
+                        on_progress(progress)
+                    });
+                (reached, (done, considered))
+            };
+            TraceState { depth: reached, resolved, pending: None, running: None, stop }
         }
         // Nothing is hidden by declining: the map is drawn, the row says what history would
         // cost, and the button is right there. What must not happen is a launch quietly

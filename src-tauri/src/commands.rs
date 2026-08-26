@@ -170,7 +170,7 @@ pub async fn scan_repo(
             crate::trace::Depth::Files,
             &scans,
             &CANCEL,
-            &|_, _, _| {},
+            &|_| {},
         );
         Ok::<_, String>(scan)
     })
@@ -495,30 +495,33 @@ pub async fn trace_project(
         // make this one refuse to do anything and read as a button that did nothing.
         p.trace.stop.store(false, std::sync::atomic::Ordering::Relaxed);
         p.trace.running = Some(crate::scan::Progress::phase("reading the commit log"));
+        // **A price is what a phase offers when nothing is happening, so starting retires it.**
+        // `pending` means "declined for cost, waiting to be asked" — and somebody has now
+        // asked. Left set, it is a second answer to "what is this phase doing" that outlives
+        // the question, and the window has to know to prefer the other one. Same move
+        // `scan_repo` makes with a declined scan when the scan starts.
+        p.trace.pending = None;
+
         (p.scan.clone(), p.trace.stop.clone())
     };
     let traced = root.clone();
     let started = std::time::Instant::now();
     let ticking = (*state).clone();
     let ticking_key = key.clone();
-    let (scan, resolved) = tauri::async_runtime::spawn_blocking(move || {
+    let (scan, (reached, resolved, considered)) = tauri::async_runtime::spawn_blocking(move || {
         let scans = crate::scancache::ScanCache::open(&traced);
-        let resolved =
-            crate::trace::deepen(&traced, &mut scan, want, &scans, &stop, &|path, done, total| {
+        // **The phase, its unit and its chamber all come from `deepen`.** They were built here,
+        // and at four other call sites, which is five copies of one pass's own vocabulary — and
+        // the copies had already diverged into two that reported nothing at all. What a step is
+        // called is the step's business.
+        let traced_to =
+            crate::trace::deepen(&traced, &mut scan, want, &scans, &stop, &|progress| {
                 let mut s = crate::agentapi::lock(&ticking);
                 if let Some(p) = s.projects.get_mut(&ticking_key) {
-                    p.trace.running = Some(
-                        crate::scan::Progress::counting(
-                            "reading per-line history",
-                            "files",
-                            done,
-                            total,
-                        )
-                        .on(path),
-                    );
+                    p.trace.running = Some(progress);
                 }
             });
-        (scan, resolved)
+        (scan, traced_to)
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -526,16 +529,16 @@ pub async fn trace_project(
     let mut s = crate::agentapi::lock(&state);
     let project = s.projects.get_mut(&key).ok_or("that project is not open")?;
     project.scan = scan;
-    // The depth asked for, with the coverage it reached — see `/trace`, which makes the same
-    // call for the same reason: a stopped pass is a fraction and reporting it as the depth
-    // below throws away everything it did.
-    // Read BEFORE the state is replaced: the new `TraceState` carries a fresh flag, so asking
-    // it afterwards is asking a stop that has not happened yet and every pass looks completed.
-    let stopped = project.trace.stop.load(std::sync::atomic::Ordering::Relaxed);
-    project.trace = crate::agentapi::TraceState { depth: want, resolved, ..Default::default() };
+    // **The depth the pass REACHED, which the pass is the only thing that knows.** This used to
+    // be the depth asked for, corrected here by reading the stop flag — right while a stop
+    // could only land inside the blame pass, and wrong the moment the log walk became
+    // interruptible too, where it would have banked a walk that folded nothing as `files`.
+    let resolved = (resolved, considered);
+    project.trace =
+        crate::agentapi::TraceState { depth: reached, resolved, ..Default::default() };
     // Banked, so reopening the app restores what this press bought rather than asking for it
     // again — see `KnownProject::trace_depth`.
-    crate::reports::note_trace(&key, if stopped { "files" } else { want.tag_str() });
+    crate::reports::note_trace(&key, reached.tag_str());
     project.scanned = project.scanned.wrapping_add(1);
     Ok(started.elapsed().as_secs_f32())
 }

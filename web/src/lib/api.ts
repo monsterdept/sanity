@@ -304,6 +304,15 @@ export interface Progress {
   /** Repo-relative path this tick is about, so the map can light the wedge — see
    *  `Progress::at` in Rust. Empty for phases with no single subject. */
   at?: string
+  /** Which sub-step of a multi-step phase this tick belongs to, 1-based — see
+   *  `Progress::step` in Rust, and `Phase.fill` for the chambers it fills.
+   *
+   *  A number rather than the phase string, which the window could have matched on instead and
+   *  which would have worked until somebody reworded a heading. Absent from an older backend,
+   *  and the reader must have an answer for that rather than a branch that falls through: a
+   *  trace with no step is the log walk, which is the only step that can report without a
+   *  denominator. */
+  step?: number
 }
 
 /** Serde renames these to snake_case on the wire; Tauri does not convert for us. */

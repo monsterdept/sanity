@@ -211,24 +211,240 @@ impl Blame {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
-        let files = paths
-            .par_iter()
-            .filter(|_| !stop.load(std::sync::atomic::Ordering::Relaxed))
-            .map(|entry| {
-                done(&entry.0);
-                entry
-            })
-            .filter_map(|(p, hash)| {
-                let want = history.last_commit_of(p);
-                if let Some(b) = cache.cached_blame(p, *hash, want) {
-                    return Some((p.clone(), b));
-                }
-                let b = blame_file(repo, p)?;
-                cache.put_blame(p, Some(&b), want);
-                Some((p.clone(), b))
-            })
-            .collect();
+        // The project this pass belongs to, and the whole identity the floor rule needs — one
+        // repo is one claim on the slots, however many files it holds.
+        let key = repo.display().to_string();
+        let run = || {
+            paths
+                .par_iter()
+                .filter(|_| !stop.load(std::sync::atomic::Ordering::Relaxed))
+                .map(|entry| {
+                    done(&entry.0);
+                    entry
+                })
+                .filter_map(|(p, hash)| {
+                    let want = history.last_commit_of(p);
+                    // **A cached file takes no slot, because it spawns nothing.** Blame is
+                    // cached per file on `(content, last commit)`, so a warm repo answers most
+                    // of this pass out of the store; making those queue behind a cold repo's
+                    // children would be rationing a resource they do not use.
+                    if let Some(b) = cache.cached_blame(p, *hash, want) {
+                        return Some((p.clone(), b));
+                    }
+                    let _slot = slots::shared().acquire(&key);
+                    let b = blame_file(repo, p)?;
+                    cache.put_blame(p, Some(&b), want);
+                    Some((p.clone(), b))
+                })
+                .collect()
+        };
+
+        // **Its own pool, and the slots alone would not have been enough without it.** The
+        // slot rule rations `git blame` CHILDREN; what starved the second repo first was the
+        // WORKERS. On the shared pool a big repo's `par_iter` occupies every thread — some
+        // holding slots, the rest parked waiting for one — and a second repo's tasks are then
+        // never scheduled at all, so they cannot even reach the point of asking for a slot.
+        // A private pool means a project can only ever exhaust its own threads.
+        //
+        // Sized to the shared pool rather than to this project's allowance: the threads are
+        // asleep on a subprocess, so idle ones cost a stack and nothing else, and the slot rule
+        // is what decides how many may actually be working. Falling back to the global pool if
+        // one cannot be built keeps a thread-starved machine blaming rather than failing.
+        let files = match rayon::ThreadPoolBuilder::new()
+            .num_threads(rayon::current_num_threads().max(2))
+            .thread_name(|i| format!("blame-{i}"))
+            .build()
+        {
+            Ok(pool) => pool.install(run),
+            Err(_) => run(),
+        };
         Blame { files, now }
+    }
+}
+
+/// How many `git blame` children may be in flight, and who is allowed to hold them.
+///
+/// # The resource here is a SUBPROCESS SLOT, not a core
+///
+/// Sampled mid-pass on a 8-core machine: all nine rayon workers were sitting in
+/// `Command::output`, waiting on a `git blame` child, and not one was running in-process code.
+/// So the pool is not compute that has to be divided — it is a count of how many children may
+/// be outstanding, and a thread holding one is asleep. That is why the numbers below are
+/// allowed to exceed the core count and why oversubscribing costs almost nothing.
+///
+/// # Why a floor per project rather than a share of the pool
+///
+/// A big repo used to take everything. Blaming kibana is 59,008 files at ~38ms each; press
+/// Trace on a second repo and its work went to the back of the same queue, so a 90-file repo —
+/// **3.4 seconds** of work — sat behind thirty-three minutes of somebody else's. Nothing on
+/// screen said so, because from the row's side a starved pass and a hung one are identical.
+///
+/// A percentage was the obvious fix and it does not scale. A 10% reservation of nine slots is
+/// ONE slot; two waiting projects share it, five waiting projects share it, so the rule that
+/// rescues the second repo starves the third. And a flat 90% cap is worse still: it is
+/// unconditional, so a repo running alone gives up a ninth of the machine forever to guard
+/// against contention that is not happening — four minutes of that thirty-eight, every time.
+///
+/// So the reservation is sized by demand instead. **Every project with work outstanding is
+/// guaranteed at least one slot; whoever wants the rest may have it.** With `total` slots and
+/// `others` other active projects, a project may hold `total - others`, never less than one:
+///
+/// | active | kibana | sanity | each of three more |
+/// |---|---|---|---|
+/// | kibana alone | 9 | — | — |
+/// | + sanity | 8 | 1 | — |
+/// | + three | 5 | 1 | 1 |
+///
+/// Work-conserving at the top — alone means all of it — and it degrades by queueing rather
+/// than by starving.
+///
+/// # Nothing is preempted, and it does not need to be
+///
+/// An incumbent over its new cap is not interrupted; it simply may not take another slot when
+/// one of its own finishes. Slots turn over per FILE, so at nine slots and 38ms a slot frees
+/// every four milliseconds — a newcomer waits about that long for its floor. Preempting a
+/// running `git blame` would throw away work to save four milliseconds.
+mod slots {
+    use std::collections::{HashMap, HashSet};
+    use std::sync::{Condvar, Mutex, OnceLock};
+
+    #[derive(Default)]
+    pub(super) struct State {
+        /// Slots each project is holding right now.
+        pub(super) holding: HashMap<String, usize>,
+        /// Threads each project has parked waiting for one.
+        ///
+        /// **Counted, and that is what makes the floor work.** A waiter is what tells the
+        /// incumbent its cap has dropped: without this, a project holding every slot computes
+        /// `others = 0`, keeps its full allowance, and the newcomer waits forever on a
+        /// condition that can never become true.
+        pub(super) waiting: HashMap<String, usize>,
+    }
+
+    /// How many OTHER projects have a claim on the pool right now.
+    ///
+    /// **Holders and waiters both, and the waiters are the half that is easy to forget.** A
+    /// project parked with nothing in hand is invisible to a count of holdings — so an
+    /// incumbent would see an empty field, keep its whole allowance, and take back every slot
+    /// it released. Whether somebody is WAITING is the only evidence that the pool is
+    /// contended at the moment it matters, because a project only ever parks when the pool is
+    /// full and therefore holds nothing at all.
+    pub(super) fn contenders(state: &State, key: &str) -> usize {
+        let mut active: HashSet<&str> = HashSet::new();
+        for (k, v) in state.holding.iter() {
+            if *v > 0 {
+                active.insert(k.as_str());
+            }
+        }
+        for (k, v) in state.waiting.iter() {
+            if *v > 0 {
+                active.insert(k.as_str());
+            }
+        }
+        active.iter().filter(|k| **k != key).count()
+    }
+
+    pub(super) struct Slots {
+        state: Mutex<State>,
+        freed: Condvar,
+        total: usize,
+    }
+
+    /// What one project may hold, given how many others want work.
+    ///
+    /// Never zero: with more projects than slots every one of them is entitled to a slot it
+    /// has to queue for, which is a wait. Zero would be a deadlock.
+    pub(super) fn allowance(total: usize, others: usize) -> usize {
+        total.saturating_sub(others).max(1)
+    }
+
+    /// May this project take another slot right now?
+    ///
+    /// **Split out because it is the only part of the rule a test can pin down.** A project
+    /// only ever WAITS when the pool is full, so the moment that separates the floor from no
+    /// floor — an incumbent one slot short of the total, with somebody parked — cannot be
+    /// staged with threads: the freed slot is a race between the two of them, and either
+    /// outcome is possible whether or not the rule is there. As a function it is one line and
+    /// two assertions. `acquire` calls this rather than repeating it, so what the test pins is
+    /// what actually runs.
+    pub(super) fn admits(total: usize, inflight: usize, mine: usize, others: usize) -> bool {
+        inflight < total && mine < allowance(total, others)
+    }
+
+    impl Slots {
+        pub(super) fn new(total: usize) -> Self {
+            Slots { state: Mutex::new(State::default()), freed: Condvar::new(), total: total.max(1) }
+        }
+
+        /// Take a slot for `key`, waiting until the floor rule allows one.
+        pub(super) fn acquire(&self, key: &str) -> Slot<'_> {
+            // Poisoning protects nothing here and would cost everything: one panic under this
+            // lock and every blame pass in the app would block forever. Same judgement
+            // `agentapi::lock` makes.
+            let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *st.waiting.entry(key.to_string()).or_insert(0) += 1;
+            loop {
+                let inflight: usize = st.holding.values().sum();
+                let others = contenders(&st, key);
+                let mine = st.holding.get(key).copied().unwrap_or(0);
+                if admits(self.total, inflight, mine, others) {
+                    match st.waiting.get_mut(key) {
+                        Some(w) if *w > 1 => *w -= 1,
+                        _ => {
+                            st.waiting.remove(key);
+                        }
+                    }
+                    *st.holding.entry(key.to_string()).or_insert(0) += 1;
+                    return Slot { slots: self, key: key.to_string() };
+                }
+                st = self.freed.wait(st).unwrap_or_else(|e| e.into_inner());
+            }
+        }
+
+        /// How many threads are parked for `key`. Exists so a test can wait for a waiter to be
+        /// REGISTERED rather than sleeping and hoping — the rule turns on that registration,
+        /// so a test that races it proves nothing.
+        #[cfg(test)]
+        pub(super) fn waiting_for(&self, key: &str) -> usize {
+            let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            st.waiting.get(key).copied().unwrap_or(0)
+        }
+
+        fn release(&self, key: &str) {
+            {
+                let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                match st.holding.get_mut(key) {
+                    Some(h) if *h > 1 => *h -= 1,
+                    _ => {
+                        st.holding.remove(key);
+                    }
+                }
+            }
+            // Everyone, not one: the freed slot may only be legal for a project whose cap just
+            // rose, and waking a single arbitrary waiter can wake one the rule still refuses.
+            self.freed.notify_all();
+        }
+    }
+
+    /// A held slot. Releases on drop, which is what makes every early return in the blame
+    /// path — a git that would not run, a `?` on a parse — safe: a slot leaked once is a slot
+    /// the pool never gets back.
+    pub(super) struct Slot<'a> {
+        slots: &'a Slots,
+        key: String,
+    }
+
+    impl Drop for Slot<'_> {
+        fn drop(&mut self) {
+            self.slots.release(&self.key);
+        }
+    }
+
+    /// The app's slots. Sized to the pool the blame pass would have had to itself, so a repo
+    /// running alone is no slower than before any of this existed.
+    pub(super) fn shared() -> &'static Slots {
+        static SLOTS: OnceLock<Slots> = OnceLock::new();
+        SLOTS.get_or_init(|| Slots::new(rayon::current_num_threads().max(2)))
     }
 }
 
@@ -707,6 +923,162 @@ pub(crate) fn fixture(author: &str) -> FileBlame {
     FileBlame {
         lines: vec![Line { commit: 1, author: 0, time: 0 }],
         authors: vec![author.to_string()],
+    }
+}
+
+#[cfg(test)]
+mod slot_tests {
+    use super::slots::{admits, allowance, contenders, Slots, State};
+    use std::sync::Arc;
+
+    /// **The moment the floor exists for: an incumbent one slot short of the whole pool, with
+    /// somebody parked behind it.**
+    ///
+    /// This pair is the entire difference between the rule and no rule, and it is the reason
+    /// the waiter has to be COUNTED rather than only the holders. Nine tenths of the way
+    /// through a pass, a project that looks only at who is HOLDING sees nobody else, keeps its
+    /// full allowance, and takes back every slot it frees — which is exactly how a 90-file repo
+    /// came to wait half an hour for 3.4 seconds of work.
+    #[test]
+    fn the_last_free_slot_belongs_to_whoever_is_waiting() {
+        // Nobody else wants anything: take it.
+        assert!(admits(4, 3, 3, 0), "alone, a project may fill the pool");
+        // One other project is active — holding or merely parked — so the last slot is spoken
+        // for and the incumbent waits for its next one instead.
+        assert!(!admits(4, 3, 3, 1), "the last slot is the waiting project's floor");
+        // The rule rations rather than refuses: below its allowance it proceeds as normal.
+        assert!(admits(4, 2, 2, 1));
+        // And a full pool is a full pool, whatever anybody's cap says.
+        assert!(!admits(4, 4, 0, 1));
+    }
+
+    /// **A project parked with nothing in hand still counts.**
+    ///
+    /// The other half of the rule, and the half that leaves no trace when it is missing: a
+    /// waiter holds zero slots, so a contender count built from holdings alone reports an empty
+    /// field to the incumbent — which then keeps its whole allowance and takes back every slot
+    /// it frees. Nothing about that is visible in an end-to-end test, because a project only
+    /// ever parks when the pool is full, and the freed slot is then a race either way.
+    #[test]
+    fn a_project_waiting_with_nothing_in_hand_is_still_a_contender() {
+        let mut st = State::default();
+        st.holding.insert("big".into(), 3);
+        assert_eq!(contenders(&st, "big"), 0, "nobody else is asking yet");
+
+        st.waiting.insert("small".into(), 1);
+        assert_eq!(contenders(&st, "big"), 1, "a parked project is a claim on the pool");
+        assert_eq!(contenders(&st, "small"), 1, "and it can see the incumbent");
+
+        // Which is exactly what turns the incumbent's next attempt away.
+        assert!(!admits(4, 3, 3, contenders(&st, "big")));
+
+        // A counter left at zero is not a contender — entries are removed rather than zeroed,
+        // but a stale zero must not ration the pool against a project that has gone.
+        st.waiting.insert("small".into(), 0);
+        assert_eq!(contenders(&st, "big"), 0);
+    }
+
+    /// The floor, stated as a table. Every row is a case the percentage schemes get wrong.
+    #[test]
+    fn every_active_project_is_owed_a_slot() {
+        // Alone means all of it. A flat 90% cap would idle a slot here forever, which is a
+        // ninth of a thirty-eight-minute pass spent guarding against nobody.
+        assert_eq!(allowance(9, 0), 9);
+        // One newcomer takes exactly its floor out of the incumbent's allowance.
+        assert_eq!(allowance(9, 1), 8);
+        // Four more, and each is still owed one — where a fixed 10% reservation would have
+        // had the four of them sharing a single slot.
+        assert_eq!(allowance(9, 4), 5);
+        // More projects than slots: everyone is still owed one and they queue for it. Zero
+        // here would be a project that can never run, which is a deadlock and not a wait.
+        assert_eq!(allowance(4, 9), 1);
+        assert_eq!(allowance(1, 1), 1);
+    }
+
+    /// The plumbing, end to end: a parked project is admitted, and everything unwinds.
+    ///
+    /// **It does not discriminate the rule** — see `the_last_free_slot_belongs_to_whoever_is_
+    /// waiting` for that, and note that this one passes with the waiter-counting removed.
+    /// What it covers is the parts that arithmetic cannot: that a waiter is registered before
+    /// it parks, that a release wakes it, that a guard dropped in another thread returns its
+    /// slot, and that nothing deadlocks on the way out.
+    ///
+    /// The bug this is written against: one repo's pass held the whole pool and a 90-file repo
+    /// waited half an hour for 3.4 seconds of work. The fix is a floor, and the half of it that
+    /// is easy to leave out is COUNTING THE WAITER — an incumbent that only looks at who is
+    /// holding computes `others = 0`, keeps its full allowance, and takes every slot it frees
+    /// straight back.
+    ///
+    /// Asserting that as an invariant rather than as a race is the point. "The small project
+    /// eventually gets in" passes without the fix, because the two threads coin-flip for the
+    /// mutex on every release and over enough cycles the small one wins. What the rule actually
+    /// guarantees is stronger and is not probabilistic: with a waiter registered, the incumbent
+    /// is over its cap and **blocks**.
+    #[test]
+    fn a_waiting_project_cannot_be_out_competed_for_a_freed_slot() {
+        let slots = Arc::new(Slots::new(4));
+        let mut held: Vec<_> = (0..4).map(|_| slots.acquire("big")).collect();
+        assert_eq!(held.len(), 4, "alone, it may have the lot");
+
+        // The guard borrows the pool, so each thread HOLDS its slot and is told when to let go
+        // — a slot that came back over a channel would have to outlive the pool it came from.
+        let (got_small, small_in) = std::sync::mpsc::channel();
+        let (free_small, small_waits) = std::sync::mpsc::channel::<()>();
+        let small = {
+            let slots = slots.clone();
+            std::thread::spawn(move || {
+                let _slot = slots.acquire("small");
+                got_small.send(()).expect("the test is still listening");
+                small_waits.recv().ok();
+            })
+        };
+        // Registered, not merely spawned. Sleeping here would race the very thing under test.
+        while slots.waiting_for("small") == 0 {
+            std::thread::yield_now();
+        }
+
+        // One file finishes. Nothing is preempted — this is the incumbent releasing normally.
+        held.pop();
+
+        let (got_big, big_again) = std::sync::mpsc::channel();
+        let bigger = {
+            let slots = slots.clone();
+            std::thread::spawn(move || {
+                let _slot = slots.acquire("big");
+                got_big.send(()).expect("the test is still listening");
+            })
+        };
+
+        small_in
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the waiting project gets the freed slot");
+        assert!(
+            big_again.recv_timeout(std::time::Duration::from_millis(200)).is_err(),
+            "the incumbent is over its cap while another project is active, so it must wait"
+        );
+
+        // Once the other project is done, the incumbent's cap goes back up and it proceeds —
+        // the rule rations, it does not refuse.
+        free_small.send(()).expect("small is still holding");
+        small.join().expect("small finishes");
+        big_again
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("with nobody else waiting, the incumbent may have it back");
+        bigger.join().expect("big finishes");
+        drop(held);
+    }
+
+    /// A slot survives every early return in the blame path — a git that will not run, a `?`
+    /// on a parse — because it is released by `Drop`. One leaked slot is one the pool never
+    /// gets back, and enough of them is a pass that stops for good.
+    #[test]
+    fn a_slot_is_returned_however_its_holder_leaves() {
+        let slots = Slots::new(1);
+        for _ in 0..3 {
+            let _slot = slots.acquire("one");
+            // dropped at the end of each turn; a leak would block the next acquire forever
+        }
+        let _finally = slots.acquire("one");
     }
 }
 

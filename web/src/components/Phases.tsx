@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { clsx } from '../lib/cn'
 import type { ProjectSummary } from '../lib/api'
 import { Sprig } from './Sprig'
 
@@ -50,8 +51,24 @@ export type PhaseAction =
 
 interface Phase {
   key: 'scan' | 'trace' | 'read'
-  /** 0..1. How much of this phase the map holds. */
-  fill: number
+  /** The gauge: one value per CHAMBER, each 0..1. How much of this phase the map holds.
+   *
+   *  **Chambers rather than one bar, because the trace is three depths and they are not three
+   *  equal amounts of work.** `trace.rs`'s own table is 6.5s / 206s / minutes on ceph — a
+   *  1:10:100 ladder — so a single fill sitting at a third was claiming a third of the wait was
+   *  behind you when about one percent of it was. Worse, it was the only value anybody ever
+   *  saw: the log walk had no counter at all and the blame pass finishes in 0.35s on an
+   *  ordinary repo, so the bar's whole vocabulary in practice was 0, a third, and full.
+   *
+   *  A chamber is a STEP. Three of them cannot be read as a proportion of anything, so nobody
+   *  has to be told that the first is cheap; and the divider positions are the same on every
+   *  row, which is what keeps a list of projects comparable at a glance. Weighting them by
+   *  measured seconds was the alternative and it fails on exactly that: the dividers would move
+   *  per repo, and on ceph the first chamber would be two percent wide, so pressing Trace would
+   *  look like it had done nothing.
+   *
+   *  Scan and Read are one chamber, which draws exactly as the single bar always did. */
+  fill: number[]
   /** The verb, when there is something to press. Absent means this pill is a marker. */
   verb?: string
   /** What pressing it does — see [`PhaseAction`]. */
@@ -136,7 +153,7 @@ export function phasesOf(p: ProjectSummary, replayBlocked = false): Phase[] {
   const scan: Phase = p.scan_cost
     ? {
         key: 'scan',
-        fill: 0,
+        fill: [0],
         verb: 'Scan',
         act: 'scan',
         // An arrow rather than a middot: these two are not a list, they are a cause and its
@@ -151,7 +168,7 @@ export function phasesOf(p: ProjectSummary, replayBlocked = false): Phase[] {
           // Genuinely partial as a WAIT, all-or-nothing as an answer: a half-parsed tree is a
           // wrong map rather than a small one, so stopping keeps the parse cache and throws
           // the tree away.
-          fill: p.read_total > 0 ? p.read_done / p.read_total : 0,
+          fill: [p.read_total > 0 ? p.read_done / p.read_total : 0],
           verb: 'Stop',
           act: 'stop-scan',
           // The phase alone until there is a denominator: a scan names what it is doing (a
@@ -168,7 +185,7 @@ export function phasesOf(p: ProjectSummary, replayBlocked = false): Phase[] {
       : p.behind
         ? {
             key: 'scan',
-            fill: 1,
+            fill: [1],
             stale: true,
             verb: 'Rescan',
             act: 'scan',
@@ -176,7 +193,7 @@ export function phasesOf(p: ProjectSummary, replayBlocked = false): Phase[] {
           }
         : {
             key: 'scan',
-            fill: 1,
+            fill: [1],
             done: 'Scan',
             note: `${compact(p.functions)} functions in ${compact(p.files)} files`,
           }
@@ -191,7 +208,7 @@ export function phasesOf(p: ProjectSummary, replayBlocked = false): Phase[] {
         // slot that is supposed to be quiet. A wave has a stop, a count and a fraction, and all
         // three of those are things this pill already knows how to be.
         key: 'read',
-        fill: total > 0 ? p.assessed / total : 0,
+        fill: [total > 0 ? p.assessed / total : 0],
         verb: 'Stop',
         act: 'stop-read',
         note: p.run?.stopping
@@ -201,14 +218,14 @@ export function phasesOf(p: ProjectSummary, replayBlocked = false): Phase[] {
     : !scanned
     ? {
         key: 'read',
-        fill: 0,
+        fill: [0],
         na: true,
         note: 'scanning is required first',
       }
     : p.assessed >= total && total > 0
       ? {
           key: 'read',
-          fill: 1,
+          fill: [1],
           done: 'Read',
           // The same shape the other two finished notes take: what there is, not that it is
           // done — the tick says that. `none stale` is worth the words because it is the half
@@ -217,7 +234,7 @@ export function phasesOf(p: ProjectSummary, replayBlocked = false): Phase[] {
         }
       : {
           key: 'read',
-          fill: total > 0 ? p.assessed / total : 0,
+          fill: [total > 0 ? p.assessed / total : 0],
           verb: 'Read',
           act: 'read',
           // **Three disjoint numbers, never two that overlap.** It read `140 to read · 66
@@ -233,32 +250,77 @@ export function phasesOf(p: ProjectSummary, replayBlocked = false): Phase[] {
   return [scan, trace, read]
 }
 
-/** The trace pill, which carries three depths in one gauge.
+/** The trace pill, which carries three depths in three chambers.
  *
  *  **The replay belongs here.** It had a line of its own under the grid, and that line was the
  *  clearest evidence the layout was wrong: the row claims these are the three things Sanity
  *  does, then contradicts itself with a fourth that is also git history work. It is depth 3 of
  *  the same process — the commit log, then per-line blame, then every commit replayed — so it
- *  is a third of one bar, and the verb renames itself to `Replay` on the last step because
- *  that step is a different act and costs an hour rather than a minute.
+ *  is the last chamber of this gauge, under the same verb as the other two.
+ *
+ *  **Every chamber can now move, and until recently only one of them could.** The blame pass
+ *  and the replay have always reported a fraction; the log walk reported nothing at all,
+ *  because it was one buffered `git log` with no counter in it and nothing to interrupt. So
+ *  the gauge's entire vocabulary in practice was empty, one chamber, and full — a control that
+ *  jumped and then sat still, which is what made people press it again. `churn::walk` streams
+ *  now and counts the commits it folds against what the estimate priced.
+ *
+ *  **A chamber is a step, and steps are equal here because they are not comparable.** These
+ *  three are a 1:10:100 cost ladder, so no single continuous bar can be honest about both what
+ *  is done and how much is left; what a reader needs from a sixty-pixel gauge is which step
+ *  they are on. See `Phase::fill` for why weighting them by seconds was rejected.
  *
  *  What does NOT move here is the running replay's own line: progress and a Cancel are a
  *  transient state with more to say than a pill can hold, and it was only ever the STANDING
  *  state that had no business being a fourth row. */
 function traceOf(p: ProjectSummary, scanned: boolean, replayBlocked: boolean): Phase {
-  const third = 1 / 3
+  /** The three chambers, in the order the work happens: the commit log, per-line blame, the
+   *  replay. Named rather than indexed, because `[1, 0.4, 0]` at four call sites below is three
+   *  facts nobody can check by reading. */
+  const gauge = (log: number, blame: number, story: number) => [log, blame, story]
+  const none = gauge(0, 0, 0)
+
   if (!scanned) {
+    return { key: 'trace', fill: none, na: true, note: 'scanning is required first' }
+  }
+  // **A phase that is RUNNING outranks every standing state, and this used to be last.**
+  // `trace_cost` and `tracing_history` are not exclusive: the price comes from `trace.pending`
+  // and the progress from `trace.running`, and a repo whose history was declined for cost keeps
+  // its price for the whole walk it was declined for. Tested in that order, kibana answered a
+  // press by going on quoting the estimate — 34 seconds of `git log` with ten cores busy and a
+  // pill still offering to start. An offer is what a phase says when nothing is happening.
+  // **A running trace says which chamber it is filling, and says it structurally.** The log
+  // walk and the blame pass are one endpoint reporting into one field; they used to be told
+  // apart by whether `resolved` had moved, which could not see the log walk at all because it
+  // has no denominator until it ends. `Progress.step` is set by the pass itself — see `deepen`
+  // — so the window is not matching on a phase name that somebody may reword.
+  const running = p.tracing_history
+  if (running) {
+    const part = running.total > 0 ? running.done / running.total : 0
+    // Step 2 is the blame pass; anything else reporting here is the log walk, which is step 1
+    // and is the only other thing `deepen` runs. An older backend sends no step at all, and
+    // falls to the log walk, which is where a trace with no per-file count must be.
+    const blaming = running.step === 2
     return {
       key: 'trace',
-      fill: 0,
-      na: true,
-      note: 'scanning is required first',
+      fill: blaming ? gauge(1, part, 0) : gauge(part, 0, 0),
+      verb: 'Stop',
+      act: 'stop-trace',
+      note: blaming
+        ? `${compact(running.done)} / ${compact(running.total)} files blamed`
+        : running.total > 0
+          ? `${compact(running.done)} / ${compact(running.total)} commits read`
+          : // No denominator yet: the estimate could not price this repo without walking it,
+            // which is the case `Estimate::commits` is null for. A noun beats `0 / 0`.
+            'reading the commit log',
     }
   }
+
+
   if (p.trace_cost) {
     return {
       key: 'trace',
-      fill: 0,
+      fill: none,
       verb: 'Trace',
       act: 'trace',
       note: `${
@@ -270,39 +332,30 @@ function traceOf(p: ProjectSummary, scanned: boolean, replayBlocked: boolean): P
     // **Not the same as untraced, and never drawn as it.** No git at all is a fact about the
     // folder; untraced is work nobody has paid for. Reached only once a walk has run and found
     // nothing, which is the only way to know the difference.
-    return { key: 'trace', fill: 0, na: true, note: 'no git history here' }
+    return { key: 'trace', fill: none, na: true, note: 'no git history here' }
   }
-  if (p.tracing_history) {
-    const t = p.tracing_history
+
+  const blamed = p.resolvable > 0 ? p.resolved / p.resolvable : 0
+  if (blamed < 1) {
     return {
       key: 'trace',
-      fill: third + (t.total > 0 ? (t.done / t.total) * third : 0),
-      verb: 'Stop',
-      act: 'stop-trace',
-      note: `${compact(t.done)} / ${compact(t.total)} files blamed`,
-    }
-  }
-  const resolved = p.resolvable > 0 ? p.resolved / p.resolvable : 0
-  if (resolved < 1) {
-    return {
-      key: 'trace',
-      fill: third + resolved * third,
+      fill: gauge(1, blamed, 0),
       verb: 'Trace',
       act: 'trace',
       // **What depth 2 buys, in the plainest words available.** It said "still on their
       // file's numbers", which is the mechanism — every function in an unblamed file shares
       // its file's age, churn and author — and nobody who had not read `trace.rs` could tell
       // what it was offering.
-      // Blame is the word the running note and the finished note both already use, and `to
-      // blame` is what the other outstanding notes say — work left, not a state of absence.
       note: `${compact(p.resolvable - p.resolved)} files to blame`,
     }
   }
+
+  const told = p.commits > 0 ? p.replayed / p.commits : 0
   const unreplayed = Math.max(0, p.commits - p.replayed)
   if (p.tracing) {
     return {
       key: 'trace',
-      fill: 2 * third + (p.commits > 0 ? (p.replayed / p.commits) * third : 0),
+      fill: gauge(1, 1, told),
       verb: 'Stop',
       act: 'stop-replay',
       note: `${compact(p.replayed)} / ${compact(p.commits)} commits walked`,
@@ -311,13 +364,12 @@ function traceOf(p: ProjectSummary, scanned: boolean, replayBlocked: boolean): P
   if (unreplayed > 0) {
     return {
       key: 'trace',
-      fill: 2 * third + (p.commits > 0 ? (p.replayed / p.commits) * third : 0),
+      fill: gauge(1, 1, told),
       // **One word for the whole column: `Trace`.** This step used to relabel itself `Replay`,
       // on the argument that walking every commit for the first time is a different act from
       // pressing play on a built timeline — true, and beside the point at the size of a pill.
       // A button that renames itself mid-sequence reads as a NEW button that has appeared,
       // which is a question ("what is replay?") where a third press of the same verb is not.
-      // What the step is and what it buys goes in the note, which is what the note is for.
       //
       // Not offered while another repo is walking — one at a time, because it saturates every
       // core it can get. Dimmed, and still saying `Trace`: showing the outstanding count in
@@ -326,9 +378,6 @@ function traceOf(p: ProjectSummary, scanned: boolean, replayBlocked: boolean): P
       verb: replayBlocked ? undefined : 'Trace',
       act: 'replay',
       label: replayBlocked ? 'Trace' : undefined,
-      // The work, in the unit it is done in. `→ the timeline` named an internal noun and left
-      // the reader to work out what pressing this buys; `one walk at a time` stated the policy
-      // where what somebody needs is what it is waiting FOR.
       note: replayBlocked
         ? 'waiting on another operation'
         : `${compact(unreplayed)} commits to walk`,
@@ -336,7 +385,7 @@ function traceOf(p: ProjectSummary, scanned: boolean, replayBlocked: boolean): P
   }
   return {
     key: 'trace',
-    fill: 1,
+    fill: gauge(1, 1, 1),
     done: 'Trace',
     // **Numbers, and not the word `read`.** It said "read to the line, every commit replayed",
     // which spends the line on a claim the tick already makes — and borrows the third phase's
@@ -349,7 +398,17 @@ function traceOf(p: ProjectSummary, scanned: boolean, replayBlocked: boolean): P
 /** One phase, as a pill that is either a control or a marker.
  *
  *  The fill is a positioned block rather than a gradient so it lands on an exact pixel column:
- *  a 57% that renders as "about half" is the arc problem again in a different shape. */
+ *  a 57% that renders as "about half" is the arc problem again in a different shape.
+ *
+ *  **Nothing here is dimmed to say what it is.** Every state below used to carry an opacity on
+ *  the whole pill — 70% for a marker, 60% for a pressed one, 35% for a dash — and an opacity on
+ *  the pill is an opacity on its LABEL, so the row was paying for its affordances in
+ *  legibility. Measured at 10px on `--card`: the marker's word 3.92:1, a pressed one 3.61:1,
+ *  the dash 2.15:1, against a bar of 4.5. The palette was never the problem — ink on the tile
+ *  is 14.64:1 and ink on the marker's own 55% fill is 6.89:1 — so the fix costs no colour and
+ *  moves no pixel. The channels that were already saying these things say them alone: a border
+ *  says pressable, a tick says finished, a dash says the question does not arise. See
+ *  `--note-ink`, which is where the one meaning worth keeping went. */
 function Pill({
   phase,
   busy,
@@ -364,23 +423,66 @@ function Pill({
    *  three sentences at once is the prose list this layout replaced. */
   onHover: (over: boolean) => void
 }) {
+  // **Pressed dims the GAUGE, never the word.** Fading the whole pill was what took a busy
+  // label to 3.61:1; the fill dropping away is the same "this is not yours to press right now"
+  // said in the channel that has no text on it. The border stays accent — taken to `--border`
+  // it reads 1.10:1 against the tile, which is not a quieter button but a marker, and the two
+  // must not be confusable.
+  // **A FINISHED phase is the quietest thing in the row, and it was briefly the loudest.**
+  // Taking the marker's blanket opacity off to fix its contrast left a done pill drawn as a
+  // solid accent block with full-strength ink on it — which in every convention on screen is
+  // what a PRIMARY button looks like, sitting beside two outlined ones that were the actual
+  // outstanding work. The row pointed hardest at the one pill nobody can press.
+  //
+  // The fix is not opacity again: a finished gauge carries no information. It is full by
+  // definition and the tick already says so, so drawing it at strength spends the row's
+  // loudest ink on its least informative fact. It goes faint, and the label goes to
+  // `--note-ink` — 4.66:1 on Paper, 6.04:1 on Ink, measured — which leaves the accent to the
+  // things somebody can act on. That is what "the pressable things on screen are exactly the
+  // work outstanding" has to look like, not just what the button count says.
+  //
+  // A marker that is NOT done keeps the strong fill: a blocked replay is outstanding work with
+  // real progress behind it, and only the border is missing because there is nothing to press.
+  const ink = busy ? 0.16 : phase.done ? 0.14 : 0.35
   const body = (
     <>
-      {phase.fill > 0 && (
-        <span
-          aria-hidden
-          className="absolute inset-y-0 left-0 rounded-[3px]"
-          style={{
-            width: `${Math.min(100, phase.fill * 100)}%`,
-            // The map's own mark for "true when it was taken, and the code has moved" — see
-            // `StaleHatch`. One vocabulary for one idea.
-            background: phase.stale
-              ? 'repeating-linear-gradient(135deg, var(--accent) 0 2px, transparent 2px 4px)'
-              : 'var(--accent)',
-            opacity: phase.verb ? 0.35 : 0.55,
-          }}
-        />
-      )}
+      {/* **The chambers.** One per step of the phase — three for a trace, one for everything
+          else, which draws exactly as the single bar always did. Inset by a pixel from the
+          pill's border rather than sitting under it, so a full chamber reads as a filled
+          compartment instead of as the button having changed colour. */}
+      <span aria-hidden className="absolute inset-px flex">
+        {phase.fill.map((part, i) => (
+          <span key={i} className="relative flex-1 overflow-hidden rounded-[2px]">
+            {part > 0 && (
+              <span
+                className="absolute inset-y-0 left-0"
+                style={{
+                  // A floor, because a chamber that has genuinely started must not be
+                  // indistinguishable from one that has not: at sixty pixels across three
+                  // chambers, the first percent of a walk is a third of a pixel and rounds
+                  // away. The gauge may be coarse; it may not report started work as nothing.
+                  width: `${Math.max(6, Math.min(100, part * 100))}%`,
+                  // The map's own mark for "true when it was taken, and the code has moved" —
+                  // see `StaleHatch`. One vocabulary for one idea.
+                  background: phase.stale
+                    ? 'repeating-linear-gradient(135deg, var(--accent) 0 2px, transparent 2px 4px)'
+                    : 'var(--accent)',
+                  opacity: ink,
+                }}
+              />
+            )}
+          </span>
+        ))}
+      </span>
+      {/* **No dividers, deliberately.** The chambers are still how the gauge is COMPUTED — the
+          three depths advance it a third each, so a trace one step in reads a third of the way
+          along and the bar is honest about where the column has got to — but their boundaries
+          are not drawn. Which of the three is running is a question the note line one row down
+          already answers in words (`5.0k / 59k files blamed`), and answering it a second time
+          in hairlines spends the pill's whole width on a fact nobody was asking a sixty-pixel
+          bar for. A drawn divider also has to clear two grounds at once and only just manages
+          it: against a filled chamber the accent version measured 1.07:1, which is not a faint
+          line but no line at all. */}
       {/* A verb and nothing else — every number is under the pills, where there is room for it
           to be a sentence (see `Phase::note`). A finished phase keeps its word and takes a
           tick: three bare ticks in a row is a project that cannot say what it finished, which
@@ -396,7 +498,7 @@ function Pill({
       <span
         onMouseEnter={() => onHover(true)}
         onMouseLeave={() => onHover(false)}
-        className="flex h-[18px] items-center justify-center rounded-[4px] border border-dashed border-[var(--border)] text-[10px] leading-none opacity-35"
+        className="flex h-[18px] items-center justify-center rounded-[4px] border border-dashed border-[var(--border)] text-[10px] leading-none text-[var(--note-ink)]"
       >
         —
       </span>
@@ -407,7 +509,11 @@ function Pill({
       <span
         onMouseEnter={() => onHover(true)}
         onMouseLeave={() => onHover(false)}
-        className="relative flex h-[18px] items-center justify-center overflow-hidden rounded-[4px] px-1 text-[10px] leading-none opacity-70"
+        className={clsx(
+          'relative flex h-[18px] items-center justify-center overflow-hidden rounded-[4px] px-1 text-[10px] leading-none',
+          // Finished recedes; outstanding-but-unpressable does not. See `ink` above.
+          phase.done && 'text-[var(--note-ink)]',
+        )}
       >
         {body}
       </span>
@@ -422,7 +528,7 @@ function Pill({
         e.stopPropagation()
         onPress()
       }}
-      className="relative flex h-[18px] items-center justify-center overflow-hidden rounded-[4px] border border-[var(--accent)] px-1 text-[10px] font-semibold leading-none hover:brightness-110 disabled:opacity-60"
+      className="phase-pill relative flex h-[18px] items-center justify-center overflow-hidden rounded-[4px] border border-[var(--accent)] px-1 text-[10px] font-semibold leading-none disabled:text-[var(--note-ink)]"
     >
       {body}
     </button>
@@ -470,6 +576,9 @@ export function Phases({
     project.scanned,
     project.loading ? 1 : 0,
     project.scan_cost ? 1 : 0,
+    // Retired the moment a trace starts, so on an over-budget repo this is the FIRST thing that
+    // moves — the walk's own counter is a poll behind it.
+    project.trace_cost ? 1 : 0,
     project.resolved,
     project.assessed,
   ].join('|')
@@ -516,7 +625,7 @@ export function Phases({
         ))}
       </div>
       {note ? (
-        <span className="h-3 w-full truncate text-[10px] leading-3 tabular-nums opacity-55">
+        <span className="h-3 w-full truncate text-[10px] leading-3 tabular-nums text-[var(--note-ink)]">
           {note}
         </span>
       ) : (

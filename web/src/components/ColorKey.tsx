@@ -96,9 +96,22 @@ function Legend({
     // to be one number and the palette has since gone to sixty-four: a legend that named all
     // of them would be six hundred pixels of names over the map, and a legend is a caption.
     // Everyone past it still has their own colour — the panel says whose when you click.
+    // **An unranked category is `other`, never this list's own index.** The fallback here was
+    // `categories.indexOf(c)`, which invents a slot the map has never heard of: the wedges take
+    // their colour from `ranks` alone and paint anyone missing in the shared neutral, so a
+    // legend that filled the gap from its own ordering handed the top swatch to somebody
+    // rendered grey. Drilled into one of kibana's directories it named eleven people in eleven
+    // colours over a picture where every one of them was neutral — the key and the map
+    // disagreeing about the same wedge, with the key sounding the more authoritative.
+    //
+    // It bites hardest exactly where it is least expected: `stats.authors` is CAPPED, so on a
+    // big repo the people past the cap have no rank at all, and on a repo still being blamed
+    // nobody in an unblamed file does yet. `keyFor` has always used this constant for the movie
+    // key, which is the same key one surface over.
+    const unranked = Number.MAX_SAFE_INTEGER
     const named = categories
-      .filter((c) => (ranks?.get(c) ?? categories.indexOf(c)) < NAMED)
-      .sort((a, b) => (ranks?.get(a) ?? 0) - (ranks?.get(b) ?? 0))
+      .filter((c) => (ranks?.get(c) ?? unranked) < NAMED)
+      .sort((a, b) => (ranks?.get(a) ?? unranked) - (ranks?.get(b) ?? unranked))
     return (
       // Wider than it was, because the palette is twice as deep. Sixteen names at ceph's
       // median of twelve characters is two per row at 300px and eight rows of key over the
@@ -111,7 +124,7 @@ function Legend({
           <span key={c} className="flex items-center gap-1">
             <span
               className="h-2 w-2 rounded-full"
-              style={{ background: slotColor(ranks?.get(c) ?? categories.indexOf(c)) }}
+              style={{ background: slotColor(ranks?.get(c) ?? unranked) }}
             />
             <span className="text-[10px] text-[var(--muted-foreground)]">{c}</span>
           </span>

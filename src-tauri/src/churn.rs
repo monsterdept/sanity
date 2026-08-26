@@ -189,12 +189,51 @@ impl History {
 /// 17.5s on kibana, 56s on linux. [`refresh`] is the one that keeps a stored walk current
 /// instead, and this is what it falls back to.
 pub fn read(repo: &Path) -> History {
-    walk(repo, &[], now_secs())
+    match walk(repo, &[], now_secs(), &NEVER, &|_| {}) {
+        Walked::Done(h) => h,
+        // Unreachable with a stop flag that is never set, and answered rather than unwrapped:
+        // an empty history is what every other failure here returns.
+        Walked::Stopped => History::default(),
+    }
+}
+
+/// A stop flag for the callers that have none. Named rather than constructed inline so the
+/// three of them cannot each invent one.
+static NEVER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// How a walk ended.
+///
+/// **A stopped walk is not a short one, and the difference is the whole reason this is not an
+/// `Option` of convenience.** A partial log folds into a perfectly well-formed `History` that
+/// is simply missing the older half of the repo — every file looks younger than it is and some
+/// look untracked. Banked, that is indistinguishable from a complete walk and would be served
+/// as the truth until somebody rewrote history. So the incomplete case is a variant nobody can
+/// unwrap by accident, and [`refresh`] refuses to bank it.
+enum Walked {
+    Done(History),
+    Stopped,
 }
 
 /// One `git log`, folded. `bounds` narrows it — a revision range, a `--since`, or nothing.
-fn walk(repo: &Path, bounds: &[&str], now: i64) -> History {
-    let out = Command::new("git")
+///
+/// **Streamed rather than buffered, and that is what gives depth 1 a gauge.** It was
+/// `Command::output()`, which hands back the entire log in one call: no count until it is over
+/// and nothing to interrupt. On linux that is 56 seconds in which the trace pill's first
+/// chamber could only be empty or full, so the control read as though one press had done
+/// nothing and a second was needed. Reading the pipe in chunks costs nothing — the bytes were
+/// always going to be buffered, they are merely counted on the way past — and buys both the
+/// count and the stop.
+///
+/// The count is `\x01` bytes, which is exactly what [`parse_log`] splits on: the same
+/// delimiter, so the gauge and the fold cannot disagree about how many commits went by.
+fn walk(
+    repo: &Path,
+    bounds: &[&str],
+    now: i64,
+    stop: &std::sync::atomic::AtomicBool,
+    tick: &dyn Fn(usize),
+) -> Walked {
+    let child = Command::new("git")
         .arg("-C")
         .arg(repo)
         .args([
@@ -205,16 +244,53 @@ fn walk(repo: &Path, bounds: &[&str], now: i64) -> History {
             "--name-only",
         ])
         .args(bounds)
-        .output();
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn();
 
-    let Ok(out) = out else {
-        return History::default();
+    let Ok(mut child) = child else {
+        return Walked::Done(History::default());
     };
-    if !out.status.success() {
-        return History::default();
+    let Some(mut out) = child.stdout.take() else {
+        let _ = child.kill();
+        return Walked::Done(History::default());
+    };
+
+    use std::io::Read;
+    let mut text = Vec::new();
+    let mut chunk = vec![0u8; 64 * 1024];
+    let mut seen = 0usize;
+    loop {
+        if stop.load(std::sync::atomic::Ordering::Relaxed) {
+            // The pipe is dropped with the child, so git gets EPIPE and exits rather than
+            // filling a buffer nobody is reading. Reaped either way — a `git log` of linux
+            // left unwaited is a zombie for the life of the app.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Walked::Stopped;
+        }
+        match out.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                seen += chunk[..n].iter().filter(|b| **b == 0x01).count();
+                text.extend_from_slice(&chunk[..n]);
+                tick(seen);
+            }
+            // A read error mid-log is the same answer as a git that would not start: no
+            // history, rather than a partial one presented as whole.
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Walked::Done(History::default());
+            }
+        }
     }
-    let text = String::from_utf8_lossy(&out.stdout);
-    parse_log(&text, now)
+    match child.wait() {
+        Ok(status) if status.success() => {
+            Walked::Done(parse_log(&String::from_utf8_lossy(&text), now))
+        }
+        _ => Walked::Done(History::default()),
+    }
 }
 
 /// A stored walk, the commit it was taken at, and what it cost.
@@ -236,7 +312,39 @@ pub struct Bank {
     /// bounded walk will cost. Its own number rather than a share of the total: a repo can be
     /// twenty years old and busy this week, or the reverse.
     pub window_commits: u32,
+    /// When this walk was taken, so [`refresh`] can tell a stale window from a current one.
+    ///
+    /// **`Option`, and the absence is what makes this free to add.** A bank written before this
+    /// field existed reads as `None`, which means "unknown" and forces a full refresh — the
+    /// conservative direction, and the same behaviour every launch already had. It cannot make
+    /// anything wrong, only slower, and it repairs itself on the first write. That is why it
+    /// does NOT move `BANK_FORMAT`: bumping would throw away every banked walk in the app —
+    /// a fresh log walk of nixpkgs and kibana apiece — to buy nothing at all.
+    ///
+    /// This is the safe half of the `#[serde(default)]` hazard rather than an exception to it.
+    /// The rule exists because a default can read as a valid VALUE and be silently believed;
+    /// `None` here is unreadable as a timestamp and every path that consults it treats it as
+    /// "walk again".
+    #[serde(default)]
+    pub taken_at: Option<i64>,
 }
+
+/// How long a banked walk stays good while HEAD has not moved.
+///
+/// **A relaunch used to re-walk the churn window every time, and on a large repo that is most
+/// of what an open costs.** The window is a rate over the last ninety days, so it slides with
+/// wall-clock time and the walk was rerun unconditionally — measured at **2.1s over 5,599
+/// commits on kibana and 12.4s over 28,593 on nixpkgs**, before the bank it produces is
+/// serialized back over the 136MB it came from. Every launch, for a number that had not
+/// changed.
+///
+/// What it is really re-deriving is which commits have aged OUT, since with HEAD unchanged
+/// none have come in. Six hours of drift is a fifteen-hundredth of the window; on kibana's
+/// rate that is about fifteen commits of five and a half thousand, well under a percent. It is
+/// hours rather than days because the number wants to be visibly current within a working
+/// session, and hours rather than minutes because a person restarting the app four times in an
+/// afternoon should pay for that walk once.
+const WINDOW_DRIFT: i64 = 6 * 60 * 60;
 
 /// A walk shorter than this is not timed. Process startup and the first page of output are a
 /// fixed cost that would read as an enormous per-commit rate on a small repo, and a small repo
@@ -258,30 +366,76 @@ const RATE_SAMPLE: u32 = 500;
 ///
 /// The window is recounted every time regardless, because ninety days from WHEN is the one
 /// thing a stored answer cannot keep — see [`History::rewindow`].
-pub fn refresh(repo: &Path, banked: Option<Bank>) -> Bank {
+pub fn refresh(
+    repo: &Path,
+    banked: Option<Bank>,
+    stop: &std::sync::atomic::AtomicBool,
+    tick: &dyn Fn(usize),
+) -> Option<(Bank, bool)> {
     let now = now_secs();
     let head = head_of(repo);
+
+    // **Nothing has happened and nothing has aged out worth the walk: hand it straight back.**
+    // The costly half of a refresh is re-deriving a window that has not meaningfully moved —
+    // see [`WINDOW_DRIFT`]. Returning `false` also spares the caller writing the bank, which on
+    // nixpkgs is 136MB of JSON serialized over the top of the identical 136MB it was read from.
+    if let Some(bank) = &banked {
+        let fresh = bank.taken_at.is_some_and(|t| now.saturating_sub(t) < WINDOW_DRIFT);
+        if !bank.head.is_empty() && bank.head == head && fresh {
+            return banked.map(|b| (b, false));
+        }
+    }
+
     let window = format!("--since={CHURN_WINDOW_DAYS} days ago");
     let started = std::time::Instant::now();
+
+    // The commits counted so far, across every walk this call makes. The estimate prices the
+    // delta AND the window together (see `trace::estimate`), so the gauge has to add them up
+    // the same way or its denominator is a number from a different question.
+    let counted_so_far = std::sync::atomic::AtomicUsize::new(0);
+    // Read at call time rather than captured, so each walk carries on from where the last one
+    // finished instead of restarting the count at zero — which on a repo with a banked walk
+    // would send the chamber backwards as the window pass began.
+    let onward = |n: usize| tick(counted_so_far.load(std::sync::atomic::Ordering::Relaxed) + n);
+    let bank_seen = |h: &History| {
+        let n = h.total_commits_of("").unwrap_or(0);
+        counted_so_far.fetch_add(n as usize, std::sync::atomic::Ordering::Relaxed);
+        n
+    };
 
     let (mut history, mut rate, walked) = match banked {
         Some(bank) if !bank.head.is_empty() && is_ancestor(repo, &bank.head) => {
             let mut history = bank.history;
             let mut walked = 0;
             if bank.head != head {
-                let delta = walk(repo, &[&format!("{}..HEAD", bank.head)], now);
-                walked = delta.total_commits_of("").unwrap_or(0);
+                let delta = match walk(
+                    repo,
+                    &[&format!("{}..HEAD", bank.head)],
+                    now,
+                    stop,
+                    &onward,
+                ) {
+                    Walked::Done(h) => h,
+                    Walked::Stopped => return None,
+                };
+                walked = bank_seen(&delta);
                 history.absorb(delta);
             }
             (history, bank.rate, walked)
         }
         _ => {
-            let whole = walk(repo, &[], now);
-            let walked = whole.total_commits_of("").unwrap_or(0);
+            let whole = match walk(repo, &[], now, stop, &onward) {
+                Walked::Done(h) => h,
+                Walked::Stopped => return None,
+            };
+            let walked = bank_seen(&whole);
             (whole, None, walked)
         }
     };
-    let recent = walk(repo, &[&window], now);
+    let recent = match walk(repo, &[&window], now, stop, &onward) {
+        Walked::Done(h) => h,
+        Walked::Stopped => return None,
+    };
     let window_commits = recent.total_commits_of("").unwrap_or(0);
     history.rewindow(&recent, now);
 
@@ -292,7 +446,7 @@ pub fn refresh(repo: &Path, banked: Option<Bank>) -> Bank {
     if counted >= RATE_SAMPLE {
         rate = Some(started.elapsed().as_secs_f32() / counted as f32);
     }
-    Bank { head, history, rate, window_commits }
+    Some((Bank { head, history, rate, window_commits, taken_at: Some(now) }, true))
 }
 
 /// Commits between `head` and HEAD, without walking their contents.
@@ -544,6 +698,15 @@ impl History {
 
 #[cfg(test)]
 mod tests {
+    /// `refresh` with nothing watching and nothing stopping it. Every test here walks to the
+    /// end, so the interrupted case is the one worth spelling out where it is exercised rather
+    /// than unwrapped identically in six places.
+    fn refreshed(repo: &std::path::Path, banked: Option<super::Bank>) -> super::Bank {
+        super::refresh(repo, banked, &super::NEVER, &|_| {})
+            .expect("a walk nobody stopped banks a result")
+            .0
+    }
+
     use super::*;
 
     /// A repo with `n` commits, each touching one of two files.
@@ -595,7 +758,7 @@ mod tests {
     #[test]
     fn a_refreshed_walk_matches_a_whole_one() {
         let dir = repo(4);
-        let banked = refresh(dir.path(), None);
+        let banked = refreshed(dir.path(), None);
         assert!(!banked.head.is_empty(), "a repo with commits has a head");
 
         let git = |args: &[&str]| {
@@ -607,8 +770,8 @@ mod tests {
             git(&["commit", "-q", "-m", &format!("c{i}")]);
         }
 
-        let extended = refresh(dir.path(), Some(banked));
-        let whole = refresh(dir.path(), None);
+        let extended = refreshed(dir.path(), Some(banked));
+        let whole = refreshed(dir.path(), None);
         assert_eq!(shape(&extended.history), shape(&whole.history));
         assert_eq!(extended.history.authors(), whole.history.authors());
         assert_eq!(extended.head, whole.head);
@@ -619,13 +782,143 @@ mod tests {
         );
     }
 
+    /// **A relaunch over an unchanged repo walks nothing at all.**
+    ///
+    /// This is the whole of what an open used to spend on a large project: the churn window is
+    /// a rate over ninety days, so it slides with the clock, and the walk that re-derives it
+    /// ran unconditionally — 2.1s over 5,599 commits on kibana, 12.4s over 28,593 on nixpkgs,
+    /// every launch, plus serializing the result back over the 136MB it was read from. With
+    /// HEAD unchanged no commit has come IN; all that moves is a few ageing out, and six hours
+    /// of that is under a percent (see `WINDOW_DRIFT`).
+    ///
+    /// Asserted by the tick never firing rather than by a stopwatch: a walk that reports no
+    /// commits is a walk that did not happen, and a timing assertion on a build machine is a
+    /// flake waiting to be written.
+    #[test]
+    fn an_unchanged_repo_is_not_walked_again() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let dir = repo(4);
+        let first = refreshed(dir.path(), None);
+        assert!(first.taken_at.is_some(), "a fresh walk stamps when it was taken");
+
+        let ticks = AtomicUsize::new(0);
+        let (again, changed) = super::refresh(dir.path(), Some(first), &super::NEVER, &|_| {
+            ticks.fetch_add(1, Ordering::Relaxed);
+        })
+        .expect("an unchanged repo still has a bank");
+        assert_eq!(ticks.load(Ordering::Relaxed), 0, "no git ran");
+        assert!(!changed, "and the caller is told not to rewrite 136MB of identical JSON");
+        assert!(again.history.total_commits_of("src/a.rs").is_some(), "the history is intact");
+
+        // A bank from before the stamp existed reads as unknown and is walked, which is the
+        // conservative direction and exactly what every launch already did.
+        let stale = super::Bank { taken_at: None, ..again };
+        let walked = AtomicUsize::new(0);
+        let (_, changed) = super::refresh(dir.path(), Some(stale), &super::NEVER, &|_| {
+            walked.fetch_add(1, Ordering::Relaxed);
+        })
+        .expect("it walks");
+        assert!(walked.load(Ordering::Relaxed) > 0, "an unstamped bank is walked again");
+        assert!(changed);
+    }
+
+    /// A new commit is walked, stamp or no stamp — the shortcut is about the window sliding,
+    /// never about the repo standing still.
+    #[test]
+    fn a_new_commit_still_refreshes_a_stamped_bank() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let dir = repo(3);
+        let banked = refreshed(dir.path(), None);
+        let git = |args: &[&str]| {
+            Command::new("git").arg("-C").arg(dir.path()).args(args).output().expect("git runs");
+        };
+        std::fs::write(dir.path().join("src/a.rs"), "fn f() { 99 }\n").unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "after the bank"]);
+
+        let ticks = AtomicUsize::new(0);
+        let (bank, changed) = super::refresh(dir.path(), Some(banked), &super::NEVER, &|_| {
+            ticks.fetch_add(1, Ordering::Relaxed);
+        })
+        .expect("it walks");
+        assert!(changed, "HEAD moved, so the bank is out of date whatever its stamp says");
+        assert!(ticks.load(Ordering::Relaxed) > 0);
+        assert_eq!(bank.head, super::head_of(dir.path()));
+    }
+
+    /// A stopped walk banks nothing, and that is not fussiness about an edge case.
+    ///
+    /// A partial `git log` folds into a perfectly well-formed `History` that is simply missing
+    /// the older half of the repo — every file younger than it is, some of them apparently
+    /// untracked. Banked, it is indistinguishable from a complete walk and would be served as
+    /// the truth until somebody rewrote history. `Walked::Stopped` exists so that case cannot
+    /// be unwrapped by accident.
+    #[test]
+    fn a_stopped_walk_is_never_banked() {
+        let dir = repo(4);
+        let stop = std::sync::atomic::AtomicBool::new(true);
+        assert!(
+            super::refresh(dir.path(), None, &stop, &|_| {}).is_none(),
+            "a walk that was stopped has no bankable answer"
+        );
+        // And nothing was written, so the next open still walks rather than reading a half repo.
+        assert!(
+            refreshed(dir.path(), None).history.total_commits_of("src/a.rs").is_some(),
+            "the repo is still walkable afterwards"
+        );
+    }
+
+    /// The gauge counts commits, and it counts them across every walk one refresh makes.
+    ///
+    /// **`refresh` walks up to three times** — a delta or the whole log, then the churn window —
+    /// and the estimate the first chamber divides by prices all of them together. A tick that
+    /// restarted at zero for each walk would send the chamber backwards partway through, which
+    /// is the one thing a progress gauge may never do. That is what `onward` is for, and this
+    /// is what fails without it.
+    #[test]
+    fn the_gauge_only_ever_counts_upward() {
+        let dir = repo(4);
+        let banked = refreshed(dir.path(), None);
+        let git = |args: &[&str]| {
+            Command::new("git").arg("-C").arg(dir.path()).args(args).output().expect("git runs");
+        };
+        for i in 4..7 {
+            std::fs::write(dir.path().join("src/a.rs"), format!("fn f() {{ {i} }}\n")).unwrap();
+            git(&["add", "-A"]);
+            git(&["commit", "-q", "-m", &format!("c{i}")]);
+        }
+
+        let ticks = std::sync::Mutex::new(Vec::new());
+        let (bank, _) = super::refresh(dir.path(), Some(banked), &super::NEVER, &|n| {
+            ticks.lock().unwrap().push(n)
+        })
+        .expect("an uninterrupted walk banks a result");
+
+        let ticks = ticks.into_inner().unwrap();
+        assert!(!ticks.is_empty(), "a walk with commits in it reports at least once");
+        assert!(
+            ticks.windows(2).all(|w| w[1] >= w[0]),
+            "a gauge never goes backwards: {ticks:?}"
+        );
+        // **The sum, and asserting it is the whole point of this test.** Monotonicity alone
+        // does not catch a tick that restarts per walk, and the first version of this test
+        // passed without the fix for exactly that reason: these walks are small enough to
+        // deliver their entire log in one read, so a per-walk count reports once each — 3, then
+        // 7 — which is increasing and wrong. What says the counts were CARRIED is the total.
+        assert_eq!(
+            ticks.iter().copied().max().unwrap_or(0),
+            3 + bank.window_commits as usize,
+            "the delta's commits and the window's are one running count, not two: {ticks:?}"
+        );
+    }
+
     /// A rewritten history is replayed, never appended to — the stored commits are not the
     /// commits in front of us, and folding one into the other produces a history that never
     /// happened.
     #[test]
     fn a_rewritten_history_is_walked_again_rather_than_extended() {
         let dir = repo(3);
-        let banked = refresh(dir.path(), None);
+        let banked = refreshed(dir.path(), None);
         let before = banked.head.clone();
         Command::new("git")
             .arg("-C")
@@ -634,9 +927,9 @@ mod tests {
             .output()
             .expect("git runs");
 
-        let after = refresh(dir.path(), Some(banked));
+        let after = refreshed(dir.path(), Some(banked));
         assert_ne!(after.head, before, "the fixture has to actually rewrite something");
-        assert_eq!(shape(&after.history), shape(&refresh(dir.path(), None).history));
+        assert_eq!(shape(&after.history), shape(&refreshed(dir.path(), None).history));
     }
 
     /// A directory changes when its files change — and a commit touching several files

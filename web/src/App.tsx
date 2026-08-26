@@ -43,6 +43,7 @@ import {
 import {
   frameTree,
   headSizes,
+  historyLangs,
   onHistoryProgress,
   scanHistory,
   traceProject,
@@ -88,6 +89,9 @@ import { CodeView } from './components/CodeView'
 import { ColorLegend, Lock, ModeSwitcher, type Locked } from './components/ColorKey'
 import { Detail } from './components/Detail'
 import { SideBar } from './components/SideBar'
+// The pill's own answer to "what does pressing Trace do next" — see `chaseTrace`,
+// which walks the column rather than re-deriving the ladder from `trace_depth`.
+import { phasesOf } from './components/Phases'
 import { Overlay } from './components/Overlay'
 import { ReadDialog } from './components/ReadDialog'
 
@@ -151,64 +155,105 @@ function sameProgress(a?: Progress | null, b?: Progress | null): boolean {
   return a.done === b.done && a.total === b.total && a.phase === b.phase && a.unit === b.unit
 }
 
+/** Where a trace has got to, as one string.
+ *
+ *  `chaseTrace`'s only test for "did that step accomplish anything". Every way a step can end
+ *  without finishing its phase — the user pressed Stop, the walk hit a rewritten history, a
+ *  blame pass banked short — comes back as this being unchanged, and one press must never turn
+ *  into a loop that keeps restarting a pass somebody just stopped. Cheaper and more honest than
+ *  asking each phase how it ended: a phase that made no progress has nothing to chain to,
+ *  whatever the reason was. */
+function traceSig(p: ProjectSummary): string {
+  return `${p.trace_depth}|${p.resolved}/${p.resolvable}|${p.replayed}/${p.commits}`
+}
+
+/** Fields whose equality is more than identity. Everything else compares with `Object.is`.
+ *
+ *  **A short list of exceptions, not a long list of inclusions**, and the difference is the
+ *  whole point — see [`sameProjects`]. */
+const DEEPLY: {
+  [K in keyof ProjectSummary]?: (a: ProjectSummary[K], b: ProjectSummary[K]) => boolean
+} = {
+  reading: sameIds,
+  run: sameRun,
+  tracing: sameProgress,
+  tracing_history: sameProgress,
+  trace_cost: sameCost,
+  scan_cost: sameCost,
+  banked_models: (a, b) =>
+    sameIds(
+      a?.map((m) => `${m.model}:${m.readings}`),
+      b?.map((m) => `${m.model}:${m.readings}`),
+    ),
+  // **The reading ticker, and it is `seq` alone by design.** Every entry is append-only and
+  // stamped with a monotonic sequence, so the last one having the same number means nothing
+  // behind it moved either. Comparing the whole array would be several hundred string
+  // comparisons twice a second to learn what one integer already says.
+  //
+  // It carries its own weight here for a reason the old hand-written conjunction shows: this
+  // field was not in it at ALL, and under a rule that compares whatever it finds, an
+  // array freshly allocated by every poll is never equal to itself. That is not a missing
+  // update, it is the opposite — the list would read as changed on every tick and re-render
+  // every row forever, which during a replay is the periodic stutter `history.rs` is written
+  // against. An exceptions list only works if the exceptions are actually all there.
+  events: (a, b) =>
+    (a?.length ?? 0) === (b?.length ?? 0) &&
+    (a?.[a.length - 1]?.seq ?? -1) === (b?.[b.length - 1]?.seq ?? -1),
+}
+
+/** The two cost estimates, which are small flat objects and freshly allocated every poll. */
+function sameCost(
+  a?: { seconds: number; cold: boolean; fits: boolean } | null,
+  b?: { seconds: number; cold: boolean; fits: boolean } | null,
+): boolean {
+  if (!a || !b) return !a && !b
+  const n = (v: unknown) => (typeof v === 'number' ? v : null)
+  return (
+    a.seconds === b.seconds &&
+    a.cold === b.cold &&
+    a.fits === b.fits &&
+    // `commits` on a trace cost, `files` on a scan cost — the one field that differs between
+    // them, read structurally rather than by naming both.
+    n((a as { commits?: number }).commits) === n((b as { commits?: number }).commits) &&
+    n((a as { files?: number }).files) === n((b as { files?: number }).files)
+  )
+}
+
+/** Has the project list actually changed?
+ *
+ *  The poll runs every 1.5s and `listProjects` allocates fresh objects each time, so storing
+ *  the answer unconditionally re-renders every row — and during a replay that rebuilt several
+ *  thousand arcs on a fixed period, which is the periodic stutter `history.rs` warns about.
+ *  So the list is compared before it is stored.
+ *
+ *  **Every field this forgets is a number frozen on screen, and it forgot seven.** This was a
+ *  hand-written conjunction of the fields somebody thought mattered, and it has now been wrong
+ *  three times in the same way — twice recorded in its own comments, and once more for the
+ *  whole of the trace: `tracing_history`, `trace_depth`, `trace_cost`, `resolved`, `resolvable`,
+ *  `behind` and `scan_cost` were all absent, so a running trace fetched a fresh counter every
+ *  tick, this said "same", the array was dropped, and the row showed the estimate it had been
+ *  offered before anybody pressed anything. The pill stayed pressed for the same reason: it
+ *  clears on the project object changing, and the project object never changed.
+ *
+ *  So it is not a list of fields any more. It walks whatever the row HAS and compares each key,
+ *  which inverts the failure: a field added to `ProjectSummary` and forgotten here is now
+ *  compared by default — at worst an extra re-render — where before it was silently ignored and
+ *  froze on screen. Only the fields that need more than `Object.is` are named, in [`DEEPLY`],
+ *  and those are the ones with a shape somebody would notice writing.
+ *
+ *  Keys from BOTH sides, because a backend that predates a field omits it: comparing only `a`'s
+ *  keys would miss the tick where it first appears. */
 function sameProjects(a: ProjectSummary[], b: ProjectSummary[]): boolean {
   if (a.length !== b.length) return false
   return a.every((p, i) => {
     const q = b[i]
-    return (
-      p.key === q.key &&
-      p.name === q.name &&
-      p.touched === q.touched &&
-      p.repo === q.repo &&
-      p.assessed === q.assessed &&
-      p.functions === q.functions &&
-      p.files === q.files &&
-      p.scanned === q.scanned &&
-      p.stale === q.stale &&
-      p.working === q.working &&
-      p.loading === q.loading &&
-      p.read_done === q.read_done &&
-      p.read_total === q.read_total &&
-      // The phase moves without the counts moving — a scan crossing from parsing into the
-      // blame pass restarts at 1 of a new total, and the pane's ETA clock keys on the
-      // phase. A comparator that cannot see it holds the old phase on screen.
-      p.read_phase === q.read_phase &&
-      p.read_unit === q.read_unit &&
-      // The settings and the derived-from-corpus pair. They move rarely, which is exactly
-      // why leaving them out is easy and wrong: choosing an agent in the Read dialog
-      // changes `harness` and nothing else, so an omitted field means the dialog reopens
-      // showing the value you just replaced. Every field this list forgets is a stale
-      // reading of the same shape.
-      p.harness === q.harness &&
-      p.model === q.model &&
-      p.banked_model === q.banked_model &&
-      p.banked_harness === q.banked_harness &&
-      p.recent_model === q.recent_model &&
-      sameIds(
-        p.banked_models?.map((m) => `${m.model}:${m.readings}`),
-        q.banked_models?.map((m) => `${m.model}:${m.readings}`),
-      ) &&
-      p.unread_lines === q.unread_lines &&
-      // **The trace line is made of these three and the comparator could not see any of
-      // them.** So while a walk ran, every poll fetched a fresh `replayed` and this said
-      // "same", the array was dropped, and the row kept the number from whenever some other
-      // field last moved — ceph read `81k commits to trace` with 68k already banked. The
-      // comment above about every forgotten field being a stale reading was written two
-      // fields too early.
-      p.commits === q.commits &&
-      p.replayed === q.replayed &&
-      sameProgress(p.tracing, q.tracing) &&
-      // Compared, not ignored. The map pulses these, so a change here has to reach the
-      // frontend — and a field the poll drops out of the comparison is a highlight that
-      // freezes on whatever was in flight the last time some OTHER number moved.
-      //
-      // Defaulted, because the backend answering may predate the field: `serve` is
-      // idempotent, so an app somebody started this morning goes on answering a window
-      // built tonight. Reading `.length` off `undefined` there would throw inside the
-      // poll, which is a dead sidebar rather than a missing highlight.
-      sameIds(p.reading, q.reading) &&
-      sameRun(p.run, q.run)
-    )
+    if (!q) return false
+    const keys = new Set([...Object.keys(p), ...Object.keys(q)]) as Set<keyof ProjectSummary>
+    for (const k of keys) {
+      const deep = DEEPLY[k] as ((x: unknown, y: unknown) => boolean) | undefined
+      if (deep ? !deep(p[k], q[k]) : !Object.is(p[k], q[k])) return false
+    }
+    return true
   })
 }
 
@@ -465,6 +510,13 @@ export default function App() {
    *  switching projects with a stale one loaded would replay one repo's commits over
    *  another's name. */
   const [historyKey, setHistoryKey] = useState<string | null>(null)
+  /** `historyKey`, mirrored, for the same reason `walking` mirrors `busyKey`: `replay` reads it
+   *  after awaiting a walk, where the closure's copy is whatever it was when the press landed.
+   *
+   *  Assigned during render rather than in an effect — an effect runs after paint, and a chain
+   *  finishing between the two would consult a key one frame out of date. */
+  const shownHistory = useRef<string | null>(null)
+  shownHistory.current = historyKey
   /** The project whose replay is running, or null.
    *
    *  A boolean once, which made a replay a property of the WINDOW rather than of a repo:
@@ -473,6 +525,27 @@ export default function App() {
    *  that was no longer on screen. A replay takes long enough on a large repo that leaving
    *  it running and going to look at something else is the normal thing to do. */
   const [busyKey, setBusyKey] = useState<string | null>(null)
+  /** The replay's guard, as a ref rather than as `busyKey` itself.
+   *
+   *  `chaseTrace` reaches the replay after awaiting a phase that can run for a minute, and a
+   *  `busyKey` read out of that closure is whatever it was when the press landed. The state is
+   *  what the rows render; this is what decides. */
+  const walking = useRef<string | null>(null)
+  /** Which projects have a trace column being walked. Keyed, and that is the point.
+   *
+   *  **It was one slot, and one slot is a rule about the APP where the constraint is about a
+   *  project.** Two repos can be traced at once — `TraceState.stop` is per project for exactly
+   *  that reason — and only the replay is one-at-a-time, which `walking` guards on its own. A
+   *  single slot meant a chain on kibana, which is minutes of blame, silently swallowed the
+   *  press on every other row: no error, no busy pill, nothing. A guard that refuses work has
+   *  to refuse the work it was written about, or it becomes a dead button somewhere else. */
+  const chasing = useRef<Set<string>>(new Set())
+  /** Projects whose chain has been asked to stop. Checked between phases, so a stopped blame
+   *  pass does not roll straight on into an hour of replay — a Stop means the column, not just
+   *  the step. Keyed for the same reason `chasing` is: stopping one repo is not stopping all of
+   *  them, and a shared flag would have quietly ended somebody else's walk. */
+  const stopChase = useRef<Set<string>>(new Set())
+
   /** Is the project on screen the one being replayed? Everything the window says about a
    *  replay is about the repo it is drawing, never about the app. */
   const historyBusy = busyKey === activeKey
@@ -1093,21 +1166,19 @@ export default function App() {
    *  The projects poll is what refreshes the row; the tree refetch is what repaints the map,
    *  and it has to be asked for here because `scanned` moving is the only signal the window
    *  gets and a trace bumps it from a call it made itself. */
-  const readHistory = useCallback(
-    (key: string) => {
-      const repo = projects.find((p) => p.key === key)?.repo
-      if (!repo) return
-      void traceProject(repo)
-        .then(() => refreshProjects())
-        .catch((err) => setError(String(err)))
-    },
-    [projects, refreshProjects],
-  )
-
-  const trace = useCallback(
-    (key: string, fresh = false) => {
-      const repo = projects.find((p) => p.key === key)?.repo
-      if (!repo) return
+  /** The replay — depth 3 — as something that can be awaited.
+   *
+   *  Split out of `trace` below so the chain can wait for it. Two callers, one body: the
+   *  context menu's "replay from scratch" still fires and forgets, and `chaseTrace` needs to
+   *  know when the walk is over before it looks at what is left. A second copy of this that
+   *  happened to `await` would be two implementations of one walk, and the unwatched one is
+   *  the one that forgets to clear `busyKey`.
+   *
+   *  Takes the repo path rather than looking it up: the chain has a freshly listed project in
+   *  hand, and `projects` in a closure that has been awaiting a minute of `git log` is exactly
+   *  the stale read this avoids. */
+  const replay = useCallback(
+    async (key: string, repo: string, fresh = false) => {
       // **One walk at a time.** A walk saturates every core it can get — the parse is
       // `rayon` over each commit's changed files — so two do not run in half the time each,
       // they run in twice the time each and neither finishes; and the progress events carry
@@ -1117,7 +1188,12 @@ export default function App() {
       // other rows while one is running. This is the guard behind that, not the message —
       // an error screen is what you show somebody who did something, and pressing a button
       // that should not have been there is something the app did.
-      if (busyKey) return
+      //
+      // A ref rather than the state it mirrors, because the chain calls this after awaiting a
+      // phase that can take a minute: `busyKey` read out of that closure is whatever it was
+      // when the press landed.
+      if (walking.current) return
+      walking.current = key
       setBusyKey(key)
       // **Zero of nothing, immediately.** The row shows its trace line while `replay` is
       // non-null, and that used to arrive with the first progress event — which on a large
@@ -1125,25 +1201,112 @@ export default function App() {
       // of a button that looked like it had missed the press. A count of `0` is honest about
       // what has been traced and honest that something has started.
       setHistoryProgress({ done: 0, total: 0, phase: 'starting…' })
-      // Every commit is a frame — the log lists them and a click addresses one, so the
-      // trace has no business coarsening what it stores. The slider governs how fast the
-      // story is PLAYED, and the transport already skips to hold the duration it promised.
-      void scanHistory(repo, true, fresh)
-        .then(() => {
-          // The walk returns a count, not a story. Dropping what is held makes the next
-          // History open fetch the tables of the timeline this trace just wrote — and only
-          // when it is the timeline on screen, since a trace of another repo has nothing to
-          // do with what this window is drawing.
-          if (historyKey === key) {
-            setHistory(null)
-            setHistoryKey(null)
-            setLoaded(0)
-          }
-        })
-        .catch((e) => setError(String(e)))
-        .finally(() => setBusyKey(null))
+      try {
+        // Every commit is a frame — the log lists them and a click addresses one, so the
+        // trace has no business coarsening what it stores. The slider governs how fast the
+        // story is PLAYED, and the transport already skips to hold the duration it promised.
+        await scanHistory(repo, true, fresh)
+        // The walk returns a count, not a story. Dropping what is held makes the next
+        // History open fetch the tables of the timeline this trace just wrote — and only
+        // when it is the timeline on screen, since a trace of another repo has nothing to
+        // do with what this window is drawing. Through the ref for the reason above.
+        if (shownHistory.current === key) {
+          setHistory(null)
+          setHistoryKey(null)
+          setLoaded(0)
+        }
+      } finally {
+        walking.current = null
+        setBusyKey(null)
+      }
     },
-    [projects, busyKey, historyKey],
+    [],
+  )
+
+  /** Press `Trace` once and get the whole column.
+   *
+   *  **The three depths are one ask.** `trace.rs` reads history in three sizes — the commit
+   *  log, then per-line blame, then every commit replayed into a timeline — and the pill has
+   *  always been one column saying `Trace` for all three, on the argument that a button which
+   *  renames itself mid-sequence reads as a new button that has appeared. That argument was
+   *  right about the label and left the sequence in the same place: the same word in the same
+   *  sixty pixels had to be pressed three times, with nothing on screen saying so, and the
+   *  second press looked like the first one had failed.
+   *
+   *  So a press means the column rather than the step. It runs each phase in turn, checking
+   *  the backend's own state between them and stopping the moment a step reports no progress —
+   *  which is what a Stop looks like from here (see `traceSig`).
+   *
+   *  **The steps stay separate underneath, and that is deliberate.** Chaining lives here, in
+   *  the one place three phases are drawn as one control; `trace_project` and `scan_history`
+   *  are still two commands doing one depth each, because the CLI's `sanity trace` and the MCP
+   *  endpoint are separate asks and must not inherit a sequence nobody typed.
+   *
+   *  What a press does NOT do is escape the budget: it is an explicit ask, so it runs whatever
+   *  it was pointed at — and the replay on a large repo is an hour where the log walk was a
+   *  minute. Every phase remains stoppable at its own granularity, the depth reached is banked
+   *  either way, and the note under the pill names the phase that is running. */
+  const chaseTrace = useCallback(
+    (key: string) => {
+      // One column at a time. A second press while this is walking is somebody asking again
+      // for what is already happening, and the pill has gone busy to say so.
+      // A second press on the row already walking is somebody asking again for what is
+      // happening. Another row is a different question and gets its own chain.
+      if (chasing.current.has(key)) return
+      chasing.current.add(key)
+      stopChase.current.delete(key)
+      const run = async () => {
+        for (;;) {
+          const list = await listProjects()
+          setProjects((prev) => (sameProjects(prev, list.projects) ? prev : list.projects))
+          const p = list.projects.find((x) => x.key === key)
+          if (!p || stopChase.current.has(key)) return
+          // **`phasesOf` decides what comes next, not a second copy of the ladder here.** The
+          // pill already resolves a project row into "the trace phase's outstanding action",
+          // and working that out again from `trace_depth` and `resolved` is the two-answers
+          // problem `PhaseAction` exists to prevent — with the unwatched copy free to go wrong.
+          const act = phasesOf(p).find((ph) => ph.key === 'trace')?.act
+          const before = traceSig(p)
+          if (act === 'replay') {
+            // **The last third, and the chain ends on it whatever happens.** There is nothing
+            // after the replay to chain to, so a completed one has no next step and a
+            // CANCELLED one must not be handed straight back to itself — a partial walk is
+            // banked and extended, so its counter has moved and every "did that accomplish
+            // anything" test would say yes. Pressing Trace again resumes it, which is the
+            // explicit ask that step deserves.
+            await replay(key, p.repo)
+            return
+          }
+          if (act !== 'trace') return
+          await traceProject(p.repo)
+          const after = await listProjects()
+          setProjects((prev) => (sameProjects(prev, after.projects) ? prev : after.projects))
+          const now = after.projects.find((x) => x.key === key)
+          if (!now || traceSig(now) === before) return
+        }
+      }
+      void run()
+        .catch((err) => setError(String(err)))
+        .finally(() => {
+          chasing.current.delete(key)
+          refreshProjects()
+        })
+    },
+    [refreshProjects, replay],
+  )
+
+  /** Replay this repo from scratch, for the row's context menu.
+   *
+   *  The one entry that is NOT the chain: "replay from scratch" is a deliberate re-walk of a
+   *  timeline that already exists, so it names its own step rather than asking what is
+   *  outstanding — which is nothing. */
+  const trace = useCallback(
+    (key: string, fresh = false) => {
+      const repo = projects.find((p) => p.key === key)?.repo
+      if (!repo) return
+      void replay(key, repo, fresh).catch((e) => setError(String(e)))
+    },
+    [projects, replay],
   )
 
   // Follow a hand-added repo to the map once its scan has landed.
@@ -1730,39 +1893,99 @@ export default function App() {
    *
    *  **A frame of a replay is not a drill, and that distinction is the memo below.** Both
    *  hand this a different tree; only one of them is a different QUESTION. */
-  /** Category → colour slot.
+  /** The same drill, resolved against TODAY rather than against the frame on screen.
    *
-   *  **An author's slot comes from the REPO, and everything else's from the view.** Those are
-   *  two different questions wearing one name. A language is a category of the picture in
-   *  front of you: six of them, ranked by how much of this directory they are, and the sixth
-   *  matters — rank it against what is on screen. A person is not a category, they are an
-   *  identity, and an identity that changes colour when you drill or when a replay advances
-   *  is not one.
+   *  A replay hands `focus` a different tree every commit, which is what `langRank` cannot
+   *  be ranked over. Standing somewhere is a fact about the drill stack, so it can be asked
+   *  of the live tree at any playhead; a path that does not exist at HEAD stops the walk and
+   *  the ranking is the nearest live ancestor's, which is coarser and still stable. */
+  const liveFocus = useMemo(() => {
+    if (!filled) return null
+    let node: Node = filled
+    for (const id of stack) {
+      const next = findById(filled, id)
+      if (!next) break
+      node = next
+    }
+    return node
+  }, [filled, stack])
+
+  /** Author → colour slot. **Held still while a replay runs, ranked where you stand when one
+   *  is not.**
    *
-   *  Three rules were tried before this and each went grey somewhere. Ranking every frame
-   *  recoloured the cast as the story ran. Seeding from today's ranking made the opening grey,
-   *  because the people who start a repo are rarely its biggest authors by the end — ceph's
-   *  `rgw` opened on six authors and drew `other (6)`. Assigning by arrival made the ENDING
-   *  grey: the first sixteen held the palette forever and their lines are gone by 2026, so a
-   *  frame with seventy-three people on screen had none of them coloured.
+   *  The two halves answer different questions and neither answer works for the other.
    *
-   *  All three were versions of the same mistake — deriving identity from whatever happened to
-   *  be visible. `stats.authors` is the whole repo's cast, ranked once over the whole log, and
-   *  a person's place in it does not depend on where the playhead is or which directory you
-   *  are standing in. Sixty-four of them have a colour; past that is `other`, which is the
-   *  honest end of the palette rather than the top of a table. */
+   *  **Replaying, a person is an IDENTITY.** Somebody whose colour changes as the story
+   *  advances is not one, and three rules were tried before this that each went grey
+   *  somewhere. Ranking every frame recoloured the cast as it ran. Seeding from today's
+   *  ranking made the opening grey, because the people who start a repo are rarely its
+   *  biggest authors by the end — ceph's `rgw` opened on six authors and drew `other (6)`.
+   *  Assigning by arrival made the ENDING grey: the first sixteen held the palette forever
+   *  and their lines are gone by 2026, so a frame with seventy-three people on screen had
+   *  none of them coloured. All three derived identity from whatever happened to be visible.
+   *  `stats.authors` is the whole repo's cast, ranked once over the whole log, so a person's
+   *  place in it does not depend on the playhead.
+   *
+   *  **Live, a person is a CATEGORY OF THE PICTURE IN FRONT OF YOU**, and the repo-wide order
+   *  spends the palette on the wrong people. Standing in one directory of kibana, its
+   *  sixteen biggest authors are not the repo's sixteen biggest — so the wedges you came to
+   *  look at drew in the shared neutral while the colours went to people with nothing on
+   *  screen. The map was grey about exactly the thing being asked about. So it is ranked over
+   *  the drill, which is the rule `langRank` already follows, and drilling recolours: that is
+   *  the price, and it buys a directory whose people are actually distinguishable.
+   *
+   *  The live tree, never the frame — a replay hands `focus` a new tree thirty times a second
+   *  and that is the recolouring this exists to prevent. The fallback is `stats.authors`, for
+   *  a view that has no ranking to give: at the root of a large repo the rings are not fetched
+   *  and files carry the answer, and a tree that yields nothing at all must not go grey. */
   const authorRank = useMemo(() => {
-    const list = scan?.stats.authors ?? []
-    return list.length > 0 ? new Map(list.map((name, i) => [name, i])) : null
-  }, [scan])
+    const cast = scan?.stats.authors ?? []
+    const wide = cast.length > 0 ? new Map(cast.map((name, i) => [name, i])) : null
+    if (replaying) return wide
+    if (!liveFocus) return wide
+    const here = rankCategories(liveFocus, 'blame')
+    return here.size > 0 ? here : wide
+  }, [scan, replaying, liveFocus])
+  /** Language → colour slot, ranked over the VIEW but not over the FRAME.
+   *
+   *  **A language is a category of the picture in front of you and that is why it is ranked
+   *  where you are standing** — six of them in this directory, the sixth of which matters —
+   *  which is the one thing that stays different from `authorRank`. What a replay does is
+   *  hand that ranking a new tree thirty times a second, so the mix shifts as the story runs
+   *  and a file changes colour without changing language: the Blame lens was fixed for
+   *  exactly this and Language was left animating its own legend.
+   *
+   *  A drill is a different question and a frame is not, so the scope is the drill and the
+   *  tree is the LIVE one — the same map the ranking already had when History was pressed,
+   *  which is what keeps entering a replay from recolouring anything.
+   *
+   *  **Today cannot rank what today has not got.** A repo that migrated off a language has
+   *  no wedge at HEAD to rank it by, so its whole era would open in `other` — the mistake
+   *  `authorRank` records from the other side. `historyLangs` supplies that tail, after
+   *  everything the live map holds, so the live order is untouched and a vanished language
+   *  still gets a colour of its own. */
+  const langRank = useMemo(() => {
+    if (!liveFocus) return undefined
+    const m = rankCategories(liveFocus, 'language')
+    const tables = historyOn && history && historyKey === activeKey ? history.tables : null
+    if (tables) {
+      let slot = m.size
+      for (const lang of historyLangs(tables, drilled)) {
+        if (!m.has(lang)) m.set(lang, slot++)
+      }
+    }
+    return m
+  }, [liveFocus, historyOn, history, historyKey, activeKey, drilled])
+
   const ranks = useMemo(() => {
     const at = focus ?? tree
     if (!at) return undefined
     // The fallback is the old behaviour, for a backend too old to send the list: ranking what
     // is on screen is wrong in a way somebody can see, where an empty map is not.
     if (viewMode === 'blame' && authorRank) return authorRank
+    if (viewMode === 'language' && langRank) return langRank
     return rankCategories(at, viewMode)
-  }, [focus, tree, viewMode, authorRank])
+  }, [focus, tree, viewMode, authorRank, langRank])
   /** The key a movie carries, for whichever lens it is being recorded in.
    *
    *  **Built here because this is the side that knows the ranking.** `movie.ts` draws it into
@@ -1799,7 +2022,12 @@ export default function App() {
         }
       }
       const cats = legendFor(at, m)
-      const slots = m === 'blame' && authorRank ? authorRank : rankCategories(at, m)
+      const slots =
+        m === 'blame' && authorRank
+          ? authorRank
+          : m === 'language' && langRank
+            ? langRank
+            : rankCategories(at, m)
       const named = cats
         .filter((c) => (slots.get(c) ?? Number.MAX_SAFE_INTEGER) < NAMED)
         .sort((a, b) => (slots.get(a) ?? 0) - (slots.get(b) ?? 0))
@@ -1815,7 +2043,7 @@ export default function App() {
         ramp: null,
       }
     },
-    [focus, tree, authorRank],
+    [focus, tree, authorRank, langRank],
   )
   keyNow.current = keyFor
   /** Stable across renders, and current when called — see `keyNow`. */
@@ -2150,8 +2378,12 @@ export default function App() {
             setRemint((n) => n + 1)
           }}
           onError={setError}
-          onReplay={trace}
-          onTrace={readHistory}
+          // **Both pill actions are the same press.** `phasesOf` reports `replay` for the
+          // column's last third and `trace` for the first two, which is right for naming what
+          // a step DOES — and from the row's side all three are one word being pressed, so
+          // they land on one handler that works out where the column has got to.
+          onReplay={(key, fresh) => (fresh ? trace(key, true) : chaseTrace(key))}
+          onTrace={chaseTrace}
           onScan={(key) => {
             // The same command the Open button uses. One construction site for a project
             // whichever door it came through — the gate lives in the restore lane and in the
@@ -2160,6 +2392,10 @@ export default function App() {
             if (repo) void scanRepo(repo).catch((err) => setError(String(err)))
           }}
           onStopTrace={(key) => {
+            // The chain first: a blame pass that is asked to stop must not have the next
+            // phase started for it half a second later. Stopping one step of a sequence
+            // somebody set going means the sequence.
+            stopChase.current.add(key)
             const repo = projects.find((p) => p.key === key)?.repo
             if (repo) void stopTrace(repo).catch((err) => setError(String(err)))
           }}

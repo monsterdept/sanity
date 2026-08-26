@@ -274,12 +274,38 @@ pub struct Progress {
     /// number, two nouns, in one window.
     #[serde(default)]
     pub unit: String,
+    /// Which sub-step of a multi-step phase this tick belongs to, 1-based. `0` for a phase
+    /// that has no sub-steps.
+    ///
+    /// **The gauge is chambers, so a tick has to say which chamber it fills.** A trace is three
+    /// depths behind one control — the commit log, per-line blame, the replay — and the window
+    /// draws them as three chambers of one pill rather than as one continuous fill, because
+    /// they are a 1:10:100 cost ladder and a single bar at a third claims the cheapest step is
+    /// a third of the wait.
+    ///
+    /// It is a NUMBER and not the phase string, which the window could have matched on and
+    /// which would have worked. That is the arrangement `just tokens` was burned by once: a
+    /// boundary located by searching for a heading, reworded an hour later, silently wrong
+    /// afterwards. A boundary worth drawing is worth making structural.
+    ///
+    /// Not persisted anywhere — progress is live and nothing caches it — so `default` here is
+    /// backwards compatibility on the wire only, and not the format change that annotation is
+    /// on a stored record.
+    #[serde(default)]
+    pub step: u8,
 }
 
 impl Progress {
     /// A step of a countable job whose unit the caller has already established.
     pub fn at(done: usize, total: usize) -> Self {
-        Progress { done, total, phase: String::new(), unit: String::new(), at: String::new() }
+        Progress {
+            done,
+            total,
+            phase: String::new(),
+            unit: String::new(),
+            at: String::new(),
+            step: 0,
+        }
     }
 
     /// A job that has begun and cannot yet be counted.
@@ -290,18 +316,32 @@ impl Progress {
             phase: what.to_string(),
             unit: String::new(),
             at: String::new(),
+            step: 0,
         }
     }
 
     /// A countable job that says which one it is and what it is counting.
     pub fn counting(what: &str, unit: &str, done: usize, total: usize) -> Self {
-        Progress { done, total, phase: what.to_string(), unit: unit.to_string(), at: String::new() }
+        Progress {
+            done,
+            total,
+            phase: what.to_string(),
+            unit: unit.to_string(),
+            at: String::new(),
+            step: 0,
+        }
     }
 
     /// …and where it has got to. Separate from [`Progress::counting`] because most phases
     /// have no single subject and would pass an empty string.
     pub fn on(mut self, path: &str) -> Self {
         self.at = path.to_string();
+        self
+    }
+
+    /// …and which chamber of its phase's gauge it fills — see [`Progress::step`].
+    pub fn step(mut self, step: u8) -> Self {
+        self.step = step;
         self
     }
 }
@@ -1147,8 +1187,13 @@ pub fn scan(
         // these fields in later, and the map says which of the two it is meanwhile.
         History::default()
     } else {
-        on_progress(Progress::phase("reading the commit log"));
-        crate::trace::depth1(root)
+        // Uninterruptible here on purpose: a scan's own stop is checked per FILE in the parse,
+        // and this walk is one of the phases that runs before there are files to count. The
+        // window's Trace button is the path with a stop on it.
+        crate::trace::depth1(root, &std::sync::atomic::AtomicBool::new(false), &|seen| {
+            on_progress(Progress::counting("reading the commit log", "commits", seen, 0).step(1))
+        })
+        .unwrap_or_default()
     };
     lap("churn");
 

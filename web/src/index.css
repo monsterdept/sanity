@@ -76,6 +76,31 @@
   --muted-foreground: #8b8279; /* Muted */
   --border: #e5e1da; /* Rule */
 
+  /* Secondary text at the sizes the sidebar works in, and it is a colour rather than a
+   * percentage for a reason worth writing down.
+   *
+   * The tile expressed every degree of "less important than the name" as an opacity on the
+   * whole element — 70% for a finished pill, 55% for the note line, 35% for a dash — and each
+   * of those dimmed the TEXT in order to make a point about the CONTROL. Measured at 10px
+   * against `--card`, three of them fail AA and the dash is the worst thing in the app: the
+   * note line comes out at 3.70:1 on Paper and the dash at 2.15:1, where 4.5 is the bar and
+   * 10px is never "large text".
+   *
+   * None of that is the palette's fault. Ink on the tile is 14.64:1 and ink on a 55% accent
+   * fill is 6.89:1; every failure was a multiplier. So the multipliers go, the meanings they
+   * were carrying move to channels that cost nothing — a border says pressable, a tick says
+   * finished, a dash says not applicable — and what is left, "this is secondary", becomes one
+   * named value that was measured rather than picked.
+   *
+   * `--muted-foreground` is the obvious candidate and it does not survive the measurement:
+   * 3.17:1 on Paper at this size. It stays what it is for larger text elsewhere.
+   *
+   * Mixed in **srgb**, not oklch, because 68% here means 68% of the way along the channel
+   * ramp — which is what the contrast arithmetic was done in, and oklch would land somewhere
+   * else. Against `--card`; the selected row is `--background`, half a step lighter, so it
+   * reads very slightly better there rather than worse. 5.54:1 on Paper, 7.29:1 on Ink. */
+  --note-ink: color-mix(in srgb, var(--foreground) 68%, var(--card));
+
   /* The ground under SOURCE, and it is deliberately not one of the chrome's four greys.
    *
    * A snippet on `--secondary` sat one step off the pane it was in, so a column of tiles read
@@ -489,6 +514,14 @@
   --muted: color-mix(in oklch, #1a1a1a 88%, #f5f1ea 12%);
   --muted-foreground: color-mix(in oklch, #8b8279 72%, #f5f1ea 28%);
   --border: color-mix(in oklch, #1a1a1a 82%, #f5f1ea 18%);
+  /* Repeated rather than inherited, and the reason is the paragraph at the top of this file:
+   * a ground can be scoped to a SUBTREE. A custom property whose value contains `var()` is
+   * substituted where it is DECLARED, so a `--note-ink` living only on `:root` would inherit
+   * into a scoped `.dark` pane already resolved against the light foreground — the one failure
+   * mode that looks fine in the app's own theme switch (which is on `<html>`, where the two
+   * selectors land on one element) and wrong everywhere the scoping is used. Same construction,
+   * both ends of the scale. */
+  --note-ink: color-mix(in srgb, var(--foreground) 68%, var(--card));
   /* Ink itself — the panel is a lighter mix of it, so the code sits BELOW the chrome here
    * exactly as it sits above it in light mode. Same rule, opposite direction. */
   --code: #1a1a1a;
@@ -719,6 +752,51 @@ textarea,
 }
 .shell-chrome--hover:hover {
   background: color-mix(in oklch, var(--card) 50%, var(--background) 50%);
+}
+
+/* A phase pill that is a CONTROL — see `Phases`. The markers take none of this, which is the
+ * point of the rule existing at its own selector: a finished phase is not a button, so it must
+ * not light up under the pointer, and the surest way to guarantee that is for the hover to hang
+ * off the element that IS one. The `span` markers cannot pick it up by accident.
+ *
+ * It was `hover:brightness-110`, which is a filter over the whole element and therefore over
+ * its label as well — on Paper that lifts near-black text toward grey, so pointing at a button
+ * made its word harder to read, and at sixty pixels the change was small enough that people
+ * pressed things to find out whether they were pressable. What lights up here is the GROUND:
+ * an accent wash behind the pill, which is a thing the resting state does not have at all.
+ *
+ * The wash sits under the progress fill rather than over it, so a part-filled pill lights along
+ * its whole length and keeps its gauge readable — the filled portion lands at an effective 48%
+ * accent, ink on which is 7.6:1, comfortably inside the bar the rest of the tile is held to.
+ *
+ * The border firms up toward the FOREGROUND, never toward `--accent-dim`. Dim is the brand
+ * sheet's hover value and it is a step DOWN the hue in both directions, which is right on Paper
+ * and backwards on Ink, where the accent was lifted off Primary precisely to carry on a dark
+ * ground. Mixing toward the foreground darkens on Paper and lightens on Ink — one rule, both
+ * themes, the same idiom the heat gutter's border already uses. */
+.phase-pill {
+  cursor: pointer;
+  transition:
+    background-color 90ms ease,
+    border-color 90ms ease;
+}
+.phase-pill:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--foreground));
+}
+/* Pressed: the same wash again, so the pill keeps travelling in one direction rather than
+ * changing character between hover and press. */
+.phase-pill:active:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 34%, transparent);
+}
+.phase-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* Pressed and waiting on the backend. Not a hover target, and it says so with the cursor as
+ * well as by refusing the wash — the fill has already dropped away to 16% (see `Pill`). */
+.phase-pill:disabled {
+  cursor: default;
 }
 
 /* Wedges animate their fill only. Transitioning `d` would re-tessellate every arc on

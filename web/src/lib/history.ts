@@ -728,6 +728,32 @@ function scopeOf(hist: Tables, scope: string): Set<number> {
   return at
 }
 
+/** Every language the timeline has ever held under one scope, most FILES first.
+ *
+ *  The tail of the language ranking — see `langRank` in `App.tsx`. Today's map decides the
+ *  order of everything still present, and this supplies only what is not: a language a repo
+ *  has since migrated away from, which has no wedge at HEAD to be ranked by and would
+ *  otherwise open its own era in `other`. That is the failure the blame lens already
+ *  recorded from the other side, where seeding a replay from today's ranking left the
+ *  opening grey.
+ *
+ *  By file count rather than by lines, because the path table does not carry sizes. It is
+ *  only ordering the tail, where the alternative for every one of them is no colour at all.
+ *
+ *  Excluded paths are left out, the same way they are left out of the frame. */
+export function historyLangs(hist: Tables, scope: string): string[] {
+  const inScope = scope ? scopeOf(hist, scope) : null
+  const files = new Map<string, number>()
+  hist.langs.forEach((lang, p) => {
+    if (!lang || hist.excluded[p]) return
+    if (inScope && !inScope.has(p)) return
+    files.set(lang, (files.get(lang) ?? 0) + 1)
+  })
+  return [...files.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([lang]) => lang)
+}
+
 function pathIndexOf(hist: Tables): Map<string, number> {
   if (index && index.hist === hist) return index.at
   const at = new Map<string, number>()
