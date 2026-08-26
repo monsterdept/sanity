@@ -1623,6 +1623,17 @@ second metric, and the line between those is the whole design.
   for unrelated reasons, and a gate that cries wolf every release is one people learn to
   skip. It was checked against the change that made it necessary: `just expiry 16b3bba~1
   16b3bba` fails.
+  **A cache format is a THIRD thing to declare, and it costs a recompute rather than a
+  reading.** `BANK_FORMAT`, `treecache::VERSION`, `scancache::FORMAT_VERSION` and
+  `history::CACHE_VERSION` are watched too, and a move prints `recomputes:` and reaches the tag
+  body — never a failure, because rebuilding derived data is what a bump is FOR. It is here
+  because v0.18.0 went to bincode and charged every user a whole `git log` on their next
+  launch, while a gate watching only reading inputs correctly said "expires nothing" and the
+  note said nothing at all. Same property this file exists for, one size down: the user finds
+  out from a launch that got slower, and by then it has happened. `PARSE_VERSION` is not in the
+  cache list — it is already declared, and its cache consequence is what the output-neutral
+  verdict says. `cache.rs::FORMAT_VERSION` is not either: only `Cache::ephemeral` is reachable,
+  so bumping it costs nobody anything and a gate that fires over a dead cache gets skipped.
 - **A `#[serde(default)]` field on a cached record IS a format change.** It is the exact
   annotation that lets a stale record load as though it were current, so adding one without
   bumping `FORMAT_VERSION` is not a small omission — it is the whole failure. `file_doc` went

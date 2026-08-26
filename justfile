@@ -261,10 +261,25 @@ release version:
     else
         warning=""
     fi
+
+    # **A cache bump is a third thing to declare, and it went unsaid on the release that
+    # needed it.** v0.18.0 moved `BANK_FORMAT` to bincode, which charges every user a whole
+    # `git log` on their next launch; the gate watched only reading inputs, correctly said
+    # "expires nothing", and the tag body said nothing at all. Nobody reads a release note to
+    # be told their caches are fine, but somebody whose launch got slower deserves to find the
+    # answer rather than guess at it — and by the time they look, it has already happened.
+    #
+    # Orthogonal to the reading verdict rather than another branch of it: a release can expire
+    # readings AND rebuild caches, and the two costs are paid by different things.
+    recompute=$(sed -n 's/^    recomputes: /  - /p' <<<"$expiry")
+    if [[ -n "$recompute" ]]; then
+        recompute=$(printf 'This release rebuilds machine-local caches. No committed reading expires; the\nfirst launch after upgrading pays to recompute them, once.\n\n%s' "$recompute")
+        recompute="$recompute"$'\n\n'
+    fi
     if [[ -n "$prev" ]]; then
-        body=$(printf '%s\n\n%sChanges since %s:\n\n%s\n' "$tag" "$warning" "$prev" "$(git log --pretty='- %s' "$prev"..HEAD)")
+        body=$(printf '%s\n\n%s%sChanges since %s:\n\n%s\n' "$tag" "$warning" "$recompute" "$prev" "$(git log --pretty='- %s' "$prev"..HEAD)")
     else
-        body=$(printf '%s\n\n%s%s\n' "$tag" "$warning" "$(git log --pretty='- %s')")
+        body=$(printf '%s\n\n%s%s%s\n' "$tag" "$warning" "$recompute" "$(git log --pretty='- %s')")
     fi
     if [[ "{{version}}" == *-* ]]; then
         echo "==> $tag is a prerelease — bundles publish, but don't run \`just publish\` on it"

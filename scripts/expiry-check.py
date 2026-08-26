@@ -61,6 +61,35 @@ VERSIONS = {
     "src-tauri/src/assessment.rs": "SPEC",
 }
 
+# Cache formats, which cost a RECOMPUTE and never a reading. A fourth thing to say, and the
+# reason it is here: v0.18.0 moved `BANK_FORMAT` to bincode, which charges every user a whole
+# `git log` on their next launch — and this gate, watching only reading inputs, correctly
+# reported "expires nothing" and left the tag body silent about it. That is a smaller version
+# of the property this file exists for: the user finds out from a launch that got slower and
+# cannot ask afterwards why.
+#
+# Not an error and never a gate — a cache is derived data and rebuilding it is what a bump is
+# FOR. What it has to do is reach the release note.
+#
+# `PARSE_VERSION` is deliberately absent: it is in `VERSIONS` already, and its cache
+# consequence is what the output-neutral verdict below is about. `cache.rs::FORMAT_VERSION` is
+# absent too — only `Cache::ephemeral` is reachable, so bumping it costs nobody anything, and a
+# gate that fires over a dead cache is one people learn to skip.
+CACHES = {
+    "src-tauri/src/trace.rs": [
+        ("BANK_FORMAT", "the banked log walk", "a whole `git log` per repo"),
+    ],
+    "src-tauri/src/treecache.rs": [
+        ("VERSION", "the cached tree", "a full parse per repo"),
+    ],
+    "src-tauri/src/scancache.rs": [
+        ("FORMAT_VERSION", "the parse log", "a re-parse; cached blame survives it, per entry"),
+    ],
+    "src-tauri/src/history.rs": [
+        ("CACHE_VERSION", "the replay timeline", "a full replay, on repos that have one"),
+    ],
+}
+
 
 def at(ref, path):
     """A file's text at a ref, or None if it did not exist there."""
@@ -164,10 +193,31 @@ def main():
         if was != now:
             moved.append(f"{const} {was} → {now}")
 
+    # Orthogonal to everything above: a cache bump costs a recompute whatever the readings do,
+    # so it is collected separately and printed in every outcome rather than being a branch.
+    recompute = []
+    for path, entries in CACHES.items():
+        for const, what, cost in entries:
+            was, now = version_of(at(prev, path), const), version_of(at(later, path), const)
+            if was == now:
+                continue
+            # Absent reads as 0 by `version_of`'s convention, which is right for `SPEC` and
+            # reads oddly in a release note for a cache that simply did not exist yet.
+            moved_to = f"{const} {was} → {now}" if was else f"{const} → {now} (new)"
+            recompute.append(f"{moved_to} — {what}, so {cost}")
+
     print(f"==> reading expiry, {prev}..{later}")
     for r in reflowed:
         print(f"    reflowed: {r} (layout only — hashes the same)")
+    for r in recompute:
+        print(f"    recomputes: {r}")
     if not changed and not moved:
+        if recompute:
+            print("    EXPIRES NOTHING — no hash input moved, no reading is touched.")
+            print("    RECOMPUTES, though: a cache format moved, so the first launch after")
+            print("    this rebuilds it. Say so in the note — somebody whose launch got")
+            print("    slower should not have to guess why, and by then it has happened.")
+            return 0
         print("    EXPIRES NOTHING — no hash input moved, no version moved.")
         return 0
 
