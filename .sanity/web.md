@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-391 of 406 read · 77 surprising · 1 stale
+406 of 406 read · 78 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -190,6 +190,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Draws a filled PETALS path (a precomputed constant, not a call to a petals() helper), then the same PETALS path again as an outline scaled to 0.45 (reusing the same rose-curve shape rather than redrawing at a different k), then maps a SEEDS array of precomputed circles for the center. No seedHead call.
 - predicted: some · documented: none · derivable: no · legible: full · trap: no
 - note: I assumed petals()/seedHead() were called as functions; instead PETALS and SEEDS are precomputed module-level constants used directly, and the center is drawn as discrete seed circles rather than a single seedHead element.
+
+### `leafPath`
+- spec 3 · read at `6d4b644d3fb7` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:27Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Returns an SVG path `d` string drawing a vesica/lens shape: starts at one tip (0,-L), draws an elliptical/circular arc out to a maximum width and back to the other tip (0,L), then a mirrored arc back to the start, using a radius derived from L via the vesica piscis geometry (arc radius equal to the distance between the two circle centers, i.e. related to L by a sqrt(3) or similar factor).
+- found: Two-arc vesica path as predicted, but tips are along the x-axis (-L,0) to (L,0) rather than the y-axis, and the arc radius is just an empirical constant L*1.16 rather than a geometrically-derived vesica-piscis factor.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `Leaf`
 - spec 3 · read at `09b88f7e8082` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:38:51Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -792,11 +798,56 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Phases.tsx
 
-### `phasesOf` — QUIRKY
-- spec 3 · read at `7463633564a4` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:54Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Builds the three Phase objects (scan, trace, read) for a project row from its ProjectSummary fields, picking each pill's label/progress/disabled state by distinguishing cases that look similar but aren't (no git history vs untraced, in-progress vs declined, stale/behind map vs never-scanned) — returning an array of three Phase descriptors the Phases component renders as pills. `replayBlocked` likely disables or relabels the read/agent-replay pill when true.
-- found: Builds scan/trace/read Phase objects. Scan: shows cost estimate, or live progress while loading (with a "Stop" action), or "Rescan" if behind, or a done summary. Trace is delegated entirely to a separate traceOf(p, scanned, replayBlocked) helper. Read: shows live reading progress with stop, "scanning required first" if not yet scanned, a done summary if fully assessed, or else a progress fill splitting the remainder into distinct "unread" vs "stale" counts (never overlapping, since stale readings are already counted in assessed).
+### the file itself
+- spec 3 · read at `17271bab776f` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:52:14Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Defines the three-pill UI component (Phases) showing scan/trace/read progress per project — each pill's background fills proportionally to progress and its label states the action and its cost, becoming a flat marker when nothing is left to do. Includes helpers: compact (number formatting like "106k"), seconds (duration formatting), fnv (a hash, likely for stable color/key), and phasesOf/traceOf (deriving per-phase state from raw data), feeding a single Pill sub-component that the exported Phases component renders three of.
+- found: Confirmed the three-pill shape (fill=progress, verb+cost when actionable, tick+word when done) and the helper functions I predicted. Missed: the trace pill actually encodes three sub-depths (scan/blame/replay) as thirds of one bar rather than being its own simple phase; the hover-vs-idle note logic where an idle unhovered row shows a decorative seeded 'Sprig' plant instead of blank space; and the `pressed` state workaround for polling latency so a just-clicked pill shows busy before the next poll confirms it.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `compact`
+- spec 3 · read at `73bcbba467b7` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:08Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Formats a number compactly for a narrow UI label. For n below 1000, returns it as-is. For thousands, uses "k" suffix — one decimal place while in the first decade (1000-9999, e.g. "5.2k"), then rounds to whole numbers above that (e.g. "12k"). Same pattern for millions with "m" suffix (e.g. "1.2m", then "12m").
+- found: Formats a number with k/m suffix, one decimal in the first decade of each unit (1000-9999 and 1000000-9999999), whole number otherwise, using toFixed to round.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `fnv`
+- spec 3 · read at `fdf959d81bcc` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:24Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Standard FNV-1a hash implementation — iterates chars/bytes of text, XORs each into a running hash starting at the FNV offset basis, multiplies by the FNV prime (with 32-bit overflow handled via >>> 0 or Math.imul), and returns the final numeric hash.
+- found: Standard FNV-1a: offset basis 0x811c9dc5, XOR each char code then Math.imul by prime 0x01000193, returns h >>> 0.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `seconds`
+- spec 3 · read at `958cc9bcf2f6` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:42Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Converts a seconds estimate into a short coarse human-readable duration string, rounding hard (no decimals) — likely something like "<1m", "2m", or "1h" depending on magnitude, used as a wait-time label in the phase pill.
+- found: Returns "~Ns" for under 60s (rounded, min 1) or "~Nm" for 60s+ rounded to nearest minute — only two units, no hours tier.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `phasesOf`
+- spec 3 · read at `e601c2f5e429` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:46:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Builds a 3-element Phase[] (scan, trace, read) from a ProjectSummary, computing each phase's state (idle/in-progress/done/blocked) and a progress fraction, distinguishing the doc-mentioned edge cases (no git history vs untraced, declined scan vs in-progress scan, stale map vs never-made map). replayBlocked likely disables/marks the read phase when tracing hasn't produced a usable map yet.
+- found: Builds scan/trace/read Phase objects for the three pills. Scan phase branches on scan_cost estimate / loading (in-progress scan with stop control and progress note) / behind (needs rescan) / done. Trace delegates to traceOf. Read phase branches on actively running (with stop control, live count, fraction) / blocked because scan not done / fully done / partially done, and for partial splits remaining into unread vs stale counts rather than a naive subtraction, since stale readings are a subset of not-yet-current work that's distinct from assessed.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: The doc comment on phasesOf itself is a one-paragraph rationale for the three-state distinctions; the much richer detail (wave/stopping semantics, stale-vs-unread split reasoning) lives in inline comments in the body, not in the function doc.
+
+### `traceOf` — QUIRKY
+- spec 3 · read at `62449caeb837` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:09Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Determines which of the three trace depths (log walk, blame, replay) the project is at or currently running, computes a combined progress fraction (each depth worth a third of the bar), picks a label (renaming to "Replay" for the last third) and the right action name (trace/stop-trace/replay/stop-replay), and disables/marks the pill based on `scanned` and `replayBlocked`, returning it all as a `Phase` object.
+- found: Got the overall three-thirds progress combination and blocked/scanned gating right, but missed several early-return states (not-scanned, pre-run cost estimate, no-git-history) and got the "renames to Replay" behavior backwards: the code's own inline comment says that was tried and reverted — the verb stays "Trace" throughout, with the distinction pushed into the note text instead. The function-level doc I was handed (describing the rename to "Replay") is stale relative to the code's own explanation.
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+- note: The docs handed to the reader (file_doc and function docs) describe the verb renaming to "Replay" on the last third, but the function body's own comment says that was tried and explicitly reverted — the outer docs are stale relative to the code.
+
+### `Pill`
+- spec 3 · read at `bdcc0de0d7c5` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:05Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Renders a button-shaped div with an absolutely-positioned fill block whose width is set from phase's progress fraction (rounded to a pixel column, not percentage), a label describing the phase and its cost, onClick wired to onPress (unless there's nothing left to do, in which case it renders as a non-interactive flat marker), and onMouseEnter/onMouseLeave calling onHover(true/false). When busy is true it shows some pressed/loading/disabled state.
+- found: Builds a shared `body` (fill span sized by phase.fill*100%, hatched if stale, plus a label that's "done ✓" or the verb/label), then branches three ways: phase.na renders a dashed em-dash marker, phase with no verb renders a flat non-interactive span, and otherwise renders an actual disabled-while-busy button wired to onPress/onHover.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `Phases` — QUIRKY
+- spec 3 · read at `a9e9e3acd7f5` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:04Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Calls phasesOf(project, replayBlocked) to get the three Phase descriptors, then renders three Pill components in a row, each showing its fill/label/note and wired to call onAct with the phase's action when clicked (unless it's a flat done marker). The stopping prop overrides rendering to show an optimistic 'stopping' state immediately after a stop press, before the backend's own state (p.run.stopping) catches up.
+- found: Renders phasesOf(project, replayBlocked) as three Pills with onAct wiring, plus: a `pressed` optimistic-busy state cleared only when a fingerprint of backend fields actually changes (not on a timer), a memoised per-project Sprig seed, and a note line under the pills that prioritizes hovered phase > running phase > a decorative idle Sprig (falling back to blank via Sprig when nothing is hovered/running).
 - predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: Missed the optimistic-press/answered-fingerprint mechanism and the hover>running>Sprig note-line priority entirely — these are the bulk of the component's actual complexity beyond the simple phasesOf→Pill mapping.
 
 ## web/src/components/Prose.tsx
 
@@ -905,16 +956,20 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 - note: I overestimated its size — it's a 2px accent line, not a row-height placeholder block.
 
-### `ProjectItem` — QUIRKY — TANGLED — STALE
-- spec 3 · read at `8a8e9df42c25` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:08:26Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A div-based row (not a button, per docs) for one project, showing name/icon, active/dragging styles, wired to onClick/onContextMenu/onGrab and keyboard handling since it's not a real button. The right-hand slot conditionally renders a static count, a replay progress indicator when `replay` is non-null, or action controls (Read/Stop/Trace/Scan) when this is the current row, with `blocked` disabling the trace control.
-- found: Renders a div with role=button and keyboard handling for a project row. Tracks local `hover`, `cancelling`, and `asked` state to give immediate feedback on Stop/Cancel presses ahead of backend confirmation. Computes several derived booleans (running, winding, stopping, busy, reading, working, failed, open) to decide what a top-line `state` chip says (Scanning/N exiting/N reading/Read failed) and whether a bottom-edge sweep animation shows. Delegates the actual phase buttons (scan/trace/replay/read and their stop variants) to a child `Phases` component via an `onAct` callback that dispatches to the various on* props.
+### `ProjectItem` — QUIRKY — TANGLED
+- spec 3 · read at `1f6358cc3b7b` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:02Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Renders a div (not button) acting as a row: role + tabIndex + onKeyDown for click semantics, onClick, onContextMenu, and onPointerDown wired to onGrab for drag start. Shows project name/icon, with `active` and `dragging` controlling CSS classes. The right-side slot conditionally renders: a Progress/percentage view when `replay` is non-null, action buttons (Read, Stop trace, Scan) when this row is active or hovered, otherwise a static count (e.g. file/issue count) — with `blocked` disabling or styling the trace-related control differently.
+- found: Renders the row div as predicted (role=button, onClick, onContextMenu, onPointerDown=onGrab, active/dragging styling), but the right-side "slot" I predicted (inline Read/Stop/Scan buttons) is actually delegated entirely to a separate `Phases` subcomponent. The bulk of the function is a state machine deriving `running`, `winding`, `stopping`, `busy`, `reading`, `working`, `failed`, and `open` from `project.run` plus local `cancelling`/`asked` state (with effects to reset them), used to drive a bottom-edge "sweep" progress indicator, a pulsing icon, and a failure chip that opens a transcript — none of which I predicted.
 - predicted: some · documented: some · derivable: no · legible: some · trap: no
-- note: The right-side slot I predicted (count/replay/actions inline) is actually fully delegated to a separate Phases component — the row itself only renders a status text chip and a progress sweep.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
 
 ## web/src/components/Sprig.tsx
+
+### the file itself
+- spec 3 · read at `705845ca81b0` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:34Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Defines a small seeded-RNG helper (rng) and a Sprig React component that procedurally draws a decorative one-stem plant (SVG paths for stem + leaves) to fill the blank line under a project row's pills when idle. The shape is deterministic per project (seeded from something like the project id/path) so it looks different per row but stable across renders, purely decorative with no real data displayed.
+- found: Mulberry32 seeded PRNG plus a Sprig component that procedurally draws a wandering stem (sum of two sine waves plus a lean) with alternating leaves (borrowing leafPath from Bloom.tsx) as an SVG filler for the blank line under an idle project row's pills, seeded per-project so it's stable across polls but different every app session.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: The header doc is unusually thorough (explains rejected alternatives: showing a number, keeping the rose bud, a single sine wave) so almost nothing in the body was a surprise beyond exact constants/geometry.
 
 ### `rng`
 - spec 3 · read at `23eeeccc94cb` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:01Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -1200,6 +1255,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: Already read this exact function verbatim in the prior api.ts file task, so this was recall, not prediction — reporting cold:false.
 
+### `stopScan`
+- spec 3 · read at `460200c485de` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:25Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Thin frontend wrapper that invokes a Tauri command (e.g. invoke("stop_scan")) to signal the backend to stop the running scan, with no arguments, returning a promise that resolves once the command completes.
+- found: Calls invoke('stop_scan') with no args, returning the Promise<void>.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
 ### `stopCheck`
 - spec 3 · read at `8ff5e7dff082` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:39:28Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
 - expected: Thin IPC wrapper calling Tauri's invoke('stop_check', { key }) (or similarly named backend command) to tell the Rust backend to halt an in-progress agent "check"/read run for the given project key, returning a promise that resolves when the backend acknowledges.
@@ -1211,6 +1272,30 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Takes a ProjectSummary and returns a single number representing total readable units — summing something like p.functions + p.files (or their respective counts), consolidating the "total to read" calculation so it isn't duplicated across call sites.
 - found: Returns p.functions + p.files, exactly as predicted.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `stopTrace`
+- spec 3 · read at `f040b070dc9b` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:43Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A thin frontend wrapper invoking the Tauri stop_trace command with the repo path, awaiting the result and returning the boolean indicating whether the running trace was successfully stopped.
+- found: Exactly as predicted: a thin wrapper calling invoke('stop_trace', { path }) and returning the Promise<boolean>.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `estimateTrace`
+- spec 3 · read at `b7fd2560710b` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:47Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Thin wrapper that calls Tauri's invoke("estimate_trace", { path }) and returns the resulting TraceCost promise, mirroring the Rust `estimate` function.
+- found: Thin Tauri invoke wrapper: invoke('estimate_trace', { path }) returning Promise<TraceCost>.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `explainTrace`
+- spec 3 · read at `a77324d6dcda` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:48Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Thin frontend wrapper that invokes the Tauri backend command "explain_trace" and returns the resulting boolean promise, mirroring the Rust explain_trace function.
+- found: Exactly as predicted: a one-line invoke() wrapper calling the 'explain_trace' Tauri command.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `setExplainTrace`
+- spec 3 · read at `3baa2870cb8b` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:52Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Thin Tauri IPC wrapper: calls invoke("set_explain_trace", { explain }) and returns the resulting promise, toggling a backend flag controlling whether explain/trace output is produced by subsequent calls.
+- found: Thin Tauri IPC wrapper: invoke('set_explain_trace', { explain }).
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ### `listProjects`
 - spec 2 · read at `352ee0c679ef` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:07:18Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -1717,6 +1802,13 @@ What this is and how to add to it: [README.md](README.md)
 - expected: A thin wrapper that invokes a Tauri backend command (e.g. "scan_history") passing path, trace, fresh, and limit, awaits the result, and returns it as a TraceResult — trace=false does a cheap read of already-walked commits while trace=true triggers the expensive walk of unwalked commits.
 - found: Thin Tauri invoke wrapper calling the 'scan_history' backend command with path, limit, trace, fresh, returning the TraceResult promise directly.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `traceProject`
+- spec 3 · read at `1a442f471908` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:29Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Thin frontend wrapper that POSTs to the backend's /trace endpoint (same one the CLI `trace` command hits) with the project path and optional depth ('files' or 'lines'), awaits the JSON response, and resolves with the `seconds` field from the result so the app can compare actual cost to its own estimate.
+- found: A one-line wrapper around Tauri's `invoke('trace_project', { path, depth })`, resolving to the seconds elapsed as reported by the backend Rust command — it's an IPC call to the app's own Tauri backend, not an HTTP fetch to a separate server process.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: This is the Tauri desktop-app path (invoke), a separate call surface from the HTTP /trace endpoint the CLI uses — worth knowing there are two client entry points into tracing.
 
 ### `warmHistory`
 - spec 3 · read at `ff9955356789` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:39:20Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded

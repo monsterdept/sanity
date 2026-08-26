@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-837 of 889 read · 139 surprising · 2 stale
+891 of 891 read · 149 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -31,14 +31,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/agentapi.rs
 
-### the file itself — QUIRKY — STALE
-- spec 3 · served in 14 parts · read at `bf163c46e5ea` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:11:37Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: This is the core backend implementation of sanity's agent-facing loopback API — the whole sanity_next/sanity_reveal/sanity_report protocol lives here. It manages shared app state (AppState, Project, projects list, focus/selection), a work queue that hands out functions/files to assess with lease tracking (so a second reveal can't revise a prediction, leases expire, work spreads across files rather than repeating), scoring/report aggregation and summary stats (grade counts, staleness, coverage), git-tracing control (start/stop/depth), and an HTTP router/endpoint so external MCP clients can drive it — plus a large embedded test suite pinning down dozens of specific behavioral edge cases (rescans mid-run, deleted functions, file moves, twin functions, headless retirement, etc).
-- found: This is the complete implementation of sanity's agent-facing MCP loopback API: AppState/Project structs, the predict-then-reveal-then-report protocol with server-stamped provenance (body hash, spec version, timestamps, model/harness) so nothing self-certifies, a file-spreading lease-based work queue, paged reveal for oversized bodies with a manged-serialization guard on report(), full wave orchestration (spawning reader subprocesses, tracking live/finished/failed, barren-wave detection, graceful stop), git-history tracing with a cost gate, a two-lane parallel restore-on-launch that separates big and small repos, a file-watcher tick that rescans on disk changes (refusing while leases are held), daemon lifecycle (headless/retire/health/build-id) for handing off to newer builds, and aggregate reporting (grade tallies by model/position, priming exposure) — plus an enormous embedded test suite pinning down dozens of specific historical bugs as regressions.
-- predicted: some · documented: full · derivable: no · legible: not judged · trap: no
-- note: My initial prediction captured the right shape (queue, leases, protocol, HTTP surface, reporting) but wildly undercounted the mechanism — process orchestration, priming/contract warnings, paged reveal, watch-tick rescanning, and daemon handoff are all first-class subsystems here, not incidental details.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### the file itself
+- spec 3 · served in 14 parts · read at `1c146bff4bc5` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:49:01Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This file is the core implementation of the agent-facing "sanity" API — the loopback HTTP/MCP server and state machine backing sanity_next/sanity_reveal/sanity_report. It manages AppState/Project lifecycle (scanning, rescanning, focus, persistence), a work queue that distributes functions/files across projects fairly without repeats, leases on in-flight reveals, staleness detection when source changes underneath a queued item, grading/report aggregation and summary stats, and run lifecycle (start/stop/retire) plus endpoint publishing for routing between multiple open projects/backends — with an extensive suite of behavior-spec-named test functions asserting these invariants.
+- found: Exactly as predicted: this is the whole agent-facing "sanity" API — AppState/Project structs, the HTTP router (open/queue/reveal/check/report/status/summary/trace/retire), the leasing and staleness system, the interleave-by-file queueing that avoids handing one reader clustered work, paged reveal with prediction-locking, aggregate/tally reporting split by model and reader position, restore/rescan lane logic for large vs small repos, endpoint publish/retire lifecycle, and an enormous suite of named regression tests documenting the exact bugs each invariant fixes.
+- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
 
 ### `persist` — TRAP
 - spec 3 · read at `6b38c32ca845` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:41Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -363,6 +360,24 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 - note: The doc says 'kill the readers it has out' but the code just flips an atomic flag — the actual kill must live in whatever polls run.stop, not in this function.
 
+### `trace`
+- spec 3 · read at `4053ca0b2c8c` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:52Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the target project by key from TraceParams, runs the git trace synchronously at the requested depth while polling/checking a stop flag so it can be cancelled mid-walk, applies the resulting history/blame data onto the stored scan and persists it, and returns a JSON object summarizing the outcome (counts, elapsed time) or an error if the project/repo wasn't found or the trace failed.
+- found: Matches the core shape (lookup project, clear/run with stop flag, apply result, persist, return JSON), but I missed the depth-negotiation logic (explicit files/lines param or auto-advance one step from current depth), the spawn_blocking + progress-ticking callback that updates project.trace.running as it works, and the resolved-vs-stopped distinction (banking the depth actually reached via note_trace rather than the one requested).
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+
+### `scan_now` — QUIRKY
+- spec 3 · read at `b0588c5d3d0d` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:37Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Axum handler that reads a project key from StatusParams, removes that project from state.awaiting (the declined-for-cost list), then calls open_project to force the scan through regardless of the cost estimate, returning a JSON status/result once done.
+- found: Resolves the target project key via state.for_client(p.project), looks up its repo path from the on-disk index, then delegates to open_project with that path (defaulted OpenRequest) to force the scan through — no direct touch of state.awaiting; open_project presumably handles bypassing the cost gate.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `stop_trace`
+- spec 3 · read at `19a264cb9cb5` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:41Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Axum HTTP handler that looks up the project by key from StatusParams, then sets a shared cancellation flag/token that the running trace loop (polled inside trace::deepen) checks periodically to stop early, keeping partial results rather than discarding them. Returns a JSON {"ok": true}-style response, possibly erroring if no trace is running for that project.
+- found: Resolves the project by client key, and if found stores true into an atomic `trace.stop` flag on that project (Relaxed ordering) so a running trace loop polling it exits early; returns {ok:false, error} if no project, otherwise {ok:true, stopped: bool}.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
 ### `detached`
 - spec 2 · read at `f2536bd31875` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:47:52Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
 - expected: Checks whether a Tokio runtime handle is currently available (Handle::try_current()); if so, spawns fut on that handle. If not, spawns a new OS thread that builds its own runtime (likely single-threaded) and blocks on fut, so the caller never hits the tokio::spawn-without-runtime panic regardless of whether it's called from an axum handler or a synchronous Tauri command.
@@ -611,11 +626,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 - note: The docs attached to this handout actually describe the `restore` function, not `set_order` — file_doc/docs field mismatch.
 
-### `drain` — QUIRKY — TANGLED
-- spec 3 · read at `f69c556f32d6` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:17Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A worker-lane loop for restoring known projects at startup: it pops/claims projects (possibly coordinating with a shared `wanted` queue via claim_next) one at a time, runs a scan for each with the given on_shape/on_tick callbacks to stream progress into the shared state, and stores/publishes the resulting tree per project. It compares each project against `active` (the previously-focused project) but leaves the decision of which project to land on to the caller, since two lanes run this function concurrently and only rendezvous afterward.
-- found: Loop that claims one project at a time from queue (coordinating with `wanted` via claim_next), for each: publishes a stale/shallow tree immediately for instant display, skips/defers if not a dir or too large to fit an estimated budget, runs an untraced scan with progress/shape callbacks, then a budgeted trace pass, banks size/scan-rate/trace-depth stats for next launch, builds and inserts the full Project into shared state, and sets state.active if this project matches the previously-active key — all per iteration, contrary to my prediction that active-selection was deferred to the caller.
-- predicted: some · documented: most · derivable: no · legible: some · trap: no
+### `drain` — QUIRKY
+- spec 3 · read at `f8482eb480d9` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:01Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Loops over the queue of projects, popping each one, running the scan for it, invoking on_shape with resulting shape files and on_tick with progress updates. When queue empties, pulls more work from state via claim_next/wanted and continues until nothing left, tracking which project should become the active/landing project relative to `active`.
+- found: Pops one project from the queue (letting claim_next steer which one, so the window's wanted project goes first), removes stale/missing rows, and gates the actual scan behind a cost estimate (skipping big repos unless a warm tree cache makes the estimate wrong) before falling back to the estimate being declined. On the happy path it runs crate::scan::scan with progress/shape callbacks, banks size/rate stats for future pricing, resolves trace depth within budget, loads reports/marks, and inserts a full Project into state.projects. active is compared once per iteration to decide whether the window should switch to the just-restored project, and the comment explains why that must happen post-scan rather than pre-loop.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
 
 ### `claim_next`
 - spec 3 · read at `b95946e3ccb5` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:02:34Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -629,6 +644,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Loads a persisted project index, immediately publishes it as `restoring`/`order`/`active` so the UI sidebar fills in before scans finish, then spawns a background thread that reorders the queue to scan the active project first, measures unknown-size repos to bucket them into a big/small lane so a huge repo's scan doesn't block small ones, runs both lanes concurrently, joins them, falls back `active` to the most-recently-touched project if the original is missing, and persists the final state.
 - predicted: most · documented: none · derivable: yes · legible: most · trap: no
 - note: The two-lane big/small partition and the active-project-first reordering were the surprising, undocumented-by-signature parts — the doc comments inline are extensive and explain the why very well, but none of that is visible from the signature/peers alone.
+
+### `trace_within_budget` — QUIRKY
+- spec 3 · read at `56674f407e57` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:50Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Calls into the trace.rs machinery (estimate/depth1/depth2) to walk as much of the repo's git history as fits within a fixed time/cost budget, applies whatever it manages to compute onto `scan` via the on_progress callback, and returns a TraceState describing whether it fully traced, partially traced, or is still behind/needs more work. Since it's used for implicit/background paths (restore on launch, watcher noticing a move) rather than an explicit user request, it caps itself rather than doing a full expensive walk, unlike deepen_project which does what it's told unconditionally.
+- found: Delegates the fits-budget decision to trace::go, which returns either Run(depth) — proceed, reusing a banked 'lines' depth via relines() if the cache still covers it, then calling deepen() with progress callbacks and returning a resolved TraceState — or Ask(estimate) — decline silently, returning an Untraced state with the estimate stashed as 'pending' so the UI can offer the button instead of the launch spending a minute of the user's machine unasked.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: Missed that budget gating itself lives inside trace::go rather than in this function, and missed the banked-cache-reuse (relines) detail entirely in the prediction.
 
 ### `watch_tick`
 - spec 3 · read at `d49c579cb009` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:08:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -706,6 +728,20 @@ What this is and how to add to it: [README.md](README.md)
 - found: Test calls remember() to add a project and checks it appears in the on-disk index immediately (before any scan). It then also verifies that re-adding (remember called again, as happens on every add) does not duplicate the project or reset configured harness/model set via set_reader.
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 - note: The doc explained the historical bug (quit-before-scan lost the project) but the test body's second half, about remember() being idempotent and preserving reader config, wasn't hinted at by the docs.
+
+### `a_project_on_two_lists_is_still_one_row`
+- spec 3 · read at `f53e7257e771` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:49:59Z · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: I have already read this exact function's source earlier in this session (as part of the full-file read of agentapi.rs). It creates a temp repo, adds it via `remember`, then sets it as both an `awaiting` (declined) entry and a `restoring` (pending) entry, asserting `ProjectList::from_state` only lists it once; then inserts it into `projects` (loaded) and asserts it still appears exactly once — verifying a project shows as one row regardless of which of the three lists it's on.
+- found: Exactly as recalled: registers a project in the index, puts it on both the `awaiting` and `restoring` lists and asserts it appears once in `ProjectList::from_state`; then loads it into `projects` and asserts it still appears exactly once.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: This exact function's source was already fully read earlier in this session (part of the whole-file read of agentapi.rs), so this reading is recall rather than a genuine cold prediction.
+
+### `a_touch_cannot_erase_what_only_the_index_knows`
+- spec 3 · read at `1b1e7991da45` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:50:46Z · by ross@rossturk.com · warm reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: I already read this exact function earlier in this session (part of the whole-file read of agentapi.rs). It creates a temp repo/project, writes harness/model/scan_ms/trace_depth into the index via reports:: functions, then calls touch() on this project's key and on a different unrelated key, and asserts that the index entry for the first project still retains its trace_depth, scan_ms, harness, and model — proving that persist()/touch() rebuilding a live entry does not wipe index-only fields for other or the same project.
+- found: Exactly as recalled: writes harness/model/scan_ms/trace_depth into the index for one project, touches that project and then an unrelated key, and asserts the first project's index-only fields (trace_depth, scan_ms, harness, model) all survived both touches.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: This exact function's source was already fully read earlier in this session (part of the whole-file read of agentapi.rs), so this reading is recall rather than a genuine cold prediction.
 
 ### `a_save_mid_restore_does_not_erase_projects_it_has_not_loaded`
 - spec 3 · read at `5c9ab20ad609` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:42Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -1580,6 +1616,18 @@ What this is and how to add to it: [README.md](README.md)
 - found: Looks up the FileBlame for a path in the `files` map, returning Option<&FileBlame>.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
+### `len`
+- spec 3 · read at `e297ea2e22dd` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:18Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Trivial accessor on Blame returning the number of entries in its internal map, likely self.files.len() or similar, counting how many files have per-line history stored.
+- found: Returns self.files.len(), the count of files with per-line history stored.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `is_empty`
+- spec 3 · read at `153604a81602` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:36Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Standard is_empty/len idiom: returns self.len() == 0, delegating to the Blame::len peer method.
+- found: Returns self.files.is_empty(), checking the internal files map/collection directly rather than routing through len().
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
 ### `read`
 - spec 3 · read at `47dd1902b0f0` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:39:26Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
 - expected: Iterates `paths` in parallel (rayon), for each checking `cache` to see if its stored blame is still current (keyed by path/size or content hash) and reusing it if so; otherwise calls `done(path)` first to mark the file as started, checks `stop` for early cancellation, and calls `blame_file`/`parse_porcelain` to compute fresh per-line blame, silently skipping (not caching) files where blame fails (untracked/symlink/non-git). Collects results into a `Blame` map/struct, periodically appending to the cache (every ~400 entries) so an interrupted run can resume.
@@ -1878,12 +1926,50 @@ What this is and how to add to it: [README.md](README.md)
 - found: Calls `walk(repo, &[], now_secs())` — the full git log walk with an empty exclusion/seed list and the current timestamp — and returns its History result directly.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
+### `walk`
+- spec 3 · read at `a6070e075034` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:11Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Spawns a single `git log` process (using `bounds` to scope the range, e.g. --since or a rev range) and pipes its output through something like parse_log, folding each log entry into a History struct — accumulating per-file commit counts, authors, and last-touched timestamps computed relative to `now`.
+- found: Runs `git log --no-merges --format=%x01%ct%x02%an%x02%H --name-only` scoped by `bounds`, returning History::default() on spawn failure or nonzero exit, otherwise decodes stdout lossily and hands it to parse_log(&text, now).
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `refresh` — QUIRKY
+- spec 3 · read at `6a7360328d61` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:18Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Checks the banked HEAD against merge-base --is-ancestor; if there's no bank or history was rewritten (not an ancestor), does a full walk. If HEAD moved forward, does one incremental walk from banked..HEAD and folds those commits into the existing stored History via credit/flush_commit. If HEAD hasn't moved, keeps the stored history as-is. In all three cases recomputes the churn window (rewindow) since 'ninety days ago' always changes, and returns the resulting Bank.
+- found: Branches on bank validity via is_ancestor as predicted, using history.absorb(delta) rather than the credit/flush_commit peers I guessed. Additionally always does a separate windowed walk (the --since=N-days-ago pass) both to rewindow the history and to feed a rate calculation: elapsed time over total commits walked this call, banked only if it walked at least RATE_SAMPLE commits (a short walk isn't trusted as a rate).
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: Missed that the windowed walk is always performed unconditionally (not just for rewindow) and doubles as the timing basis for the banked rate estimate used later by estimate().
+
+### `commits_since`
+- spec 3 · read at `b39018530e6e` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:50Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Shells out to `git rev-list --count <head>..HEAD` in the given repo, parses the numeric output, and returns it as u32, defaulting to 0 on failure. A cheap content-free count used to estimate how much has changed since a repo's last traced commit, so the caller can decide whether re-tracing is worth the cost.
+- found: Runs `git rev-list --no-merges --count <head>..HEAD`, parses the trimmed stdout as u32, and returns 0 on any failure (command error, non-success exit, or parse failure).
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
 ### `packed_objects`
 - spec 3 · read at `93f5a2371224` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:12:28Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
 - expected: Runs a cheap git plumbing command (likely `git count-objects -v`) to sum object counts across pack files without walking history, returning 0 on failure since it's meant to be a free, best-effort estimate.
 - found: Runs `git -C repo count-objects -v`, parses the `in-pack: N` line from stdout, returns N or 0 on any failure to run/parse.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: The doc's calibration numbers (measured timings and accuracy across five real repos) justifying the tenth-of-objects heuristic used elsewhere aren't visible from this function alone.
+
+### `head_of`
+- spec 3 · read at `ef500906834c` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:52Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Runs git rev-parse HEAD in the given repo and returns the trimmed commit SHA as a String, returning an empty string on failure.
+- found: Runs `git -C repo rev-parse HEAD`, returns trimmed stdout as String on success, empty string otherwise.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
+
+### `is_ancestor`
+- spec 3 · read at `cf1321ba0dd2` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:12Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Shells out to `git merge-base --is-ancestor <old> HEAD` (or equivalent) with cwd set to `repo`, via std::process::Command, and returns true iff the command exits with status 0 (old is an ancestor of HEAD). Likely treats any failure to spawn/run git as false, defaulting to "history rewritten" on error since it's used as a conservative safety check before reusing cached history.
+- found: Runs `git -C <repo> merge-base --is-ancestor <old> HEAD` and returns whether it exited successfully; any spawn/exec failure is treated as false via unwrap_or.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: The doc comment explains the *purpose* (why this check exists, used by scancache/history) which isn't derivable from the 8-line body alone, so it adds real value beyond the code.
+
+### `days_since`
+- spec 3 · read at `a6474efd1e76` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:40Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Computes (now - ts) as f32, divides by 86400.0 to convert seconds to days, then clamps to 0.0 minimum with .max(0.0) so a future-dated commit doesn't produce a negative age.
+- found: Computes ((now - ts) as f32 / 86_400.0).max(0.0) — seconds-to-days conversion clamped at zero.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `now_secs`
 - spec 3 · read at `fbdc243743ae` · commit `1edee41` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:06:58Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1912,6 +1998,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 - note: The delimiter parsing (rsplit_once for oid vs author) is the subtle bit — matches the git log --format string elsewhere, not shown here.
 
+### `rank`
+- spec 3 · read at `60f4ef6267cd` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:49:27Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Takes a map of author name to commit count and returns the author names sorted descending by count, breaking ties alphabetically by name for deterministic, stable ordering across repeated reads.
+- found: Sorts authors descending by commit count, ties broken ascending alphabetically by name, returning just the names.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
 ### `absorb`
 - spec 3 · read at `21ec43f242c2` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:11:56Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
 - expected: Merges a newer incremental History walk into the existing one — for each path/directory entry, adds commit counts and rolls forward the newest-touch timestamp while keeping the oldest, using timestamp comparison (via `credit`) rather than list order, so the combined result is equivalent to a full walk over the whole range.
@@ -1919,11 +2011,36 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: Missed the by_author merge and re-rank; the doc's explanation of why `>=` vs `>` differs by direction (log order within a walk vs. head-descended delta across walks) is a subtle invariant not visible from the code's shape alone.
 
+### `rewindow`
+- spec 3 · read at `4ea7f1cead28` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:30Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Takes the freshly-walked `window` History (bounded by the --since cutoff) and copies its per-path churn/commit counts into self, replacing whatever stale window counts were stored, while leaving the all-time totals and ages alone except re-deriving 'days since' from the passed-in now rather than whenever the walk happened.
+- found: Stores `now` on self, then for every file entry sets recent_commits to the window History's total_commits for that path (0 if the path isn't present in the window at all), leaving everything else on the entry untouched.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: Simpler than expected: 'age re-dating' turns out to be just storing `now` once rather than recomputing per-file age fields here — ages are presumably derived lazily elsewhere from self.now.
+
 ### `repo`
 - spec 3 · read at `cf1ff5a7d361` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:20:07Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
 - expected: Creates a temporary directory, runs `git init` in it, then loops n times committing alternately to one of two files (e.g. "a.txt" and "b.txt"), writing some content and running `git add` + `git commit` each iteration so the resulting repo has n commits split across two files. Returns the TempDir handle so it stays alive for the caller to inspect with git log.
 - found: A git test-repo builder: inits a repo with test user config, then commits n times alternating between src/a.rs and src/b.rs, each commit writing distinct content and message.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `shape`
+- spec 3 · read at `3d30952a4973` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:36Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Iterates every path tracked in `h` and builds a Vec of tuples (path, commit count, distinct commit count, oldest timestamp, newest/recent timestamp, last author) — a flattened, comparable snapshot of the History used by property tests to assert a refreshed/incremental walk produces the same result as a full walk.
+- found: Nearly exact match to prediction: maps h.files into tuples of (path, total_commits, recent_commits, oldest_ts, newest_ts, last_commit) and sorts the result. Two details missed: the second u32 is `recent_commits` (a churn window) not a "distinct commit count", the trailing String is `last_commit` (likely a hash) not necessarily the author, and I didn't predict the final sort.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `a_refreshed_walk_matches_a_whole_one`
+- spec 3 · read at `f1029551b218` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:49:17Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Creates a test repo, commits some files, runs a full history walk to get a History. Adds more commits, then performs an incremental "refresh" walk that only reads the new commits and absorbs them into the existing History via History::absorb. Separately does a full walk from scratch on the final repo state, and asserts (via shape()) that the two Historys are equal.
+- found: Core idea matched: banks an initial walk, adds commits, does a refresh vs. a whole walk, compares via shape(). Missed specifics: it goes through a `refresh()` wrapper function (not `History::absorb` directly), uses raw `git` CLI commands to add commits, and adds extra assertions beyond shape() — authors(), head equality, and an exact total_commits_of count for one file.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `a_rewritten_history_is_walked_again_rather_than_extended`
+- spec 3 · read at `394dfe8722d7` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:55Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Builds a repo, records an initial History at some HEAD, then rewrites history (amend or reset to a divergent commit) so the old HEAD is no longer an ancestor of the new one. Calls the incremental refresh/absorb path and asserts that instead of appending onto stale stored commits (double-counting/corrupting), the code detects the non-ancestor case via is_ancestor and performs a full re-walk, matching a fresh walk from scratch.
+- found: Builds a 3-commit fixture repo, calls refresh to get a banked History, amends the tip commit (rewriting HEAD's SHA), then calls refresh again passing the stale banked state. Asserts the head actually changed, then asserts the resulting history's `shape` matches a completely fresh refresh(None) — proving the stale/rewritten bank was discarded and rewalked rather than incrementally extended.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `a_commit_touching_three_files_counts_once_for_their_directory`
 - spec 3 · read at `63739de855ec` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:03:32Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -2191,6 +2308,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Resolves the repo path, and if no backend is live or the backend doesn't have this repo open, answers offline by computing status/summary directly from the repo's committed .sanity/ data (never starting a daemon or rescanning) rather than refusing; otherwise fetches the endpoint's JSON from the live backend keyed by project.
 - predicted: some · documented: full · derivable: no · legible: most · trap: no
 
+### `trace` — QUIRKY
+- spec 3 · read at `06cc925e7006` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:17Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Opens/reads the repo at `path` (likely via read_repo), then runs the git-history fold (blame/churn/age) that a normal launch skips due to its time budget, with `lines` selecting file-level vs line-level trace depth. Prints the cost/time taken since costs are "printed rather than guarded", then saves the resulting tree to the cache so future launches see the traced data, returning an exit code.
+- found: Resolves the CLI path, ensures a backend process is running, posts /open to make sure the backend knows the project, then posts /trace with a depth (lines vs files) and prints a human-readable summary of the result (time taken, whether it was stopped early, and a hint to use --lines for finer resolution) based on the JSON response — it's a thin HTTP client to the backend, not a direct in-process trace/cache operation.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: The actual git-history fold and treecache save happen server-side behind /trace; this function is purely a CLI-to-backend RPC wrapper plus output formatting.
+
 ### `status` — QUIRKY
 - spec 2 · read at `139061bd94ca` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:03:45Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
 - expected: Resolves the repo path, queries the running backend's /status endpoint (falling back to offline_status/offline_summary if no backend is reachable), then formats the result using project_header, a progress bar, elapsed time, and grade_ink coloring, printing it to stdout and returning an exit code (0 on success, nonzero if there's no repo or data to show).
@@ -2319,14 +2443,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: The Tauri #[command] surface (964 lines): scan_repo (streams progress/shape/score events, publishes to shared state, banks stats), scan_history/history_* (replay commits, tables, log, scoped frames, deltas, funcs, warm), trace_project/estimate_trace/stop_trace (per-line history depth), read_source/function_sources/open_code_window (file content with path-traversal guards and size caps), repo_remote/slug_of (git remote → owner/name for captions), agent_reports/agent_activity/projects/project_scan/file_functions/function_links/function_history (project + function detail feeds for the window), add_project/select_project/reorder_projects/forget_project (sidebar management), install_cli/cli_status/cli_link_dirs (symlink sanity onto PATH, read-only status check via login shell), save_movie (only write path in the app, .mp4-only), start_check/stop_check/set_reader/harnesses (agent-run orchestration), sync_theme_menu (macOS menu ticking), stop_scan/stop_history (cancellation flags). Extensive prose comments explain many non-obvious design decisions (why streaming vs one payload, why slim trees, why canonicalize-and-check for path traversal, why active vs touched semantics).
 - predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
 
-### `scan_repo` — QUIRKY — TANGLED — STALE
-- spec 3 · read at `3347537f49bd` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:08:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Walks the repo directory tree (respecting .gitignore via ignore/walkdir), counts lines per file, and builds a nested Scan tree where directories aggregate children's line counts recursively. Likely does per-file language/extension classification for coloring, and may emit progress events or use app/state for cancellation.
-- found: It validates the path is a dir and a git repo, registers the project as "restoring" in shared state and on disk (so a crash mid-scan isn't lost), then runs the actual scan::scan() call on a blocking thread (CPU-bound, rayon-parallel) with callbacks for progress/score/shape events emitted to the frontend live. After scanning it deepens git-blame trace depth to Files, records timing stats for future estimates, publishes the result as a Project in shared state (merging with any prior assessment reports), focuses the window, and returns a slimmed Scan (functions stripped) since the window only needs the tree shape, not per-function detail yet.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
-- note: The docs field only explains why the payload isn't streamed; it says nothing about the restoring-state bookkeeping, live progress/score/shape events, git-blame deepening, or project publishing that make up most of the function body.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `scan_repo` — QUIRKY — TANGLED — TRAP
+- spec 3 · read at `f0febac70605` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:05Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Takes a ScanRequest (repo path + options), walks the file tree respecting .gitignore, counts lines per file, and aggregates them bottom-up into directories to build a hierarchical Scan tree for the sunburst UI. Likely computes a per-file score (churn/complexity) and may use state/app for cancellation or progress events during the walk.
+- found: Validates the path is a dir and a git repo, resets a global CANCEL flag, publishes a "restoring" sidebar entry and persists it to disk before doing any work, then runs the actual scan (scan::scan) on a blocking thread with callbacks that stream progress/score/shape events to the frontend and use both an ephemeral and a persistent (scancache) memo cache. After the scan, it deepens git-blame/commit-log tracing, clears the pending/restoring state, records scan timing stats for future estimates, and registers/replaces the result as a Project in shared app state (reusing prior assessment reports), removing it from any "awaiting" list and focusing the window. Finally it returns a slimmed-down Scan (root tree without full function bodies).
+- predicted: some · documented: some · derivable: no · legible: some · trap: yes
+- note: CANCEL is a single global static AtomicBool reset at the top of every call, so two concurrent scan_repo invocations (different repos) would stomp each other's cancellation state.
 
 ### `scan_history` — QUIRKY
 - spec 3 · read at `0a84dbcc23aa` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:07Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -2393,6 +2515,32 @@ What this is and how to add to it: [README.md](README.md)
 - found: Validates path is a directory (else returns an error string), then runs crate::trace::estimate on a blocking thread via spawn_blocking and maps the join error to a String.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: Missed that estimate runs inside spawn_blocking and that there's an explicit is_dir guard before calling it.
+
+### `explain_trace`
+- spec 3 · read at `17cea7ac8c87` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:32Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A thin Tauri command wrapper that calls KnownProjects::explain_trace() (likely reading a persisted setting/flag) and returns whether the add-project dialog should show its explanatory text about tracing.
+- found: Thin Tauri command that delegates to crate::reports::explain_trace() rather than KnownProjects as I guessed.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `set_explain_trace`
+- spec 3 · read at `fc38556dd57c` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:36Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A simple Tauri command that stores a global boolean flag (likely an AtomicBool or similar static) indicating whether "explain" mode is on — used later by explain_trace to decide whether to compute/return an explanation. Just a setter, no side effects beyond storing state.
+- found: A thin Tauri command wrapper that delegates directly to crate::reports::set_explain_trace(explain) — the actual state storage lives in the reports module, not here.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: This file is just the invoke surface; the real flag/state lives in crate::reports, so behavior can't be fully understood from this command alone.
+
+### `trace_project`
+- spec 3 · read at `5d923c0f6be1` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:05Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Tauri command backing the frontend's traceProject; looks up the project by path in state, parses the optional depth string into a trace::Depth enum, records a start Instant, and drives the actual git-history fold (parsing commits/blame, folding into the in-memory Scan) while checking a stop flag periodically so stop_trace can interrupt it. Updates the project's scan and treecache with traced results, then returns elapsed seconds as f32, with Result<_, String> for errors like a missing/unopened project.
+- found: Resolves target depth (explicit arg or one step past current), clears the stop flag, marks progress, then spawn_blocking's crate::trace::deepen with a per-file progress callback that updates shared state for the UI to poll. On completion, replaces the project's scan, records the resolved depth (capped to 'files' if stopped early) into a fresh TraceState, banks the depth via reports::note_trace for persistence across restarts, bumps a scanned counter, and returns elapsed seconds.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: The stop flag must be read before TraceState is replaced with a fresh Default (which carries a fresh, unset flag) — reading after would always see 'not stopped'.
+
+### `stop_trace`
+- spec 3 · read at `16ff68f48518` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:50:12Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Resolves the project key from `path`, looks it up in shared state, and if found sets its trace.stop atomic flag to true (mirroring the HTTP stop_trace handler in agentapi.rs), returning true if a project was found and signaled, false otherwise.
+- found: Computes the project key from the path, looks it up under the state lock, and sets its trace.stop flag to true if found, returning whether a project was found.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `read_source`
 - spec 2 · read at `c6b6cbc66ab8` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:52:45Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -4597,6 +4745,18 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: Doc explains WHY this exists (walk-time recording vs scan-completion) well but not the unchanged-value short-circuit, a minor implementation detail.
 
+### `note_scan` — QUIRKY
+- spec 3 · read at `f2cc532647dc` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:14Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Loads the persisted project index, finds or creates the entry for `key`, computes a per-file scan rate from `files` and `ms` (e.g. ms/files) and stores it as the entry's `scan_ms` field, then saves the index back to disk.
+- found: Loads the index, finds the existing entry for `key` (returns early/no-op if missing rather than creating one), skips the write if `files`/`ms` are unchanged, otherwise stores the raw `files` and `ms` values directly (no rate computation) and saves the index.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `note_trace`
+- spec 3 · read at `2aba229c9a38` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:45Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Loads the project index, finds the KnownProject matching key, sets its trace_depth field to depth.to_string(), and saves the index back to disk.
+- found: Loads index, finds project by key, and if trace_depth already equals depth returns early without writing; otherwise sets trace_depth = Some(depth.to_string()) and saves the index.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
 ### `set_reader`
 - spec 3 · read at `343bbd207df2` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:23Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
 - expected: Loads the persisted project index, finds the entry for `key` (creating one with `repo`/`name` if absent), overwrites the `harness` field only if `harness` is Some and the `model` field only if `model` is Some (leaving each alone when None), then saves the index back to disk.
@@ -4636,6 +4796,19 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly as predicted: an FNV-1a-shaped fold over the repo path's UTF-8 bytes, xor then multiply by the same constant seen in treecache.rs's `mix`, producing a u64 used to name cache slot files distinctly per repo.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 - note: The doc explains why this isn't fixed to true FNV-1a's prime (intentional consistency with duplicated twins elsewhere) — a fact not derivable from this function alone.
+
+### `explain_trace`
+- spec 3 · read at `38a98fcba470` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:39Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Reads a persisted boolean flag (paired with set_explain_trace) that controls whether the add-project dialog shows explanatory text about tracing/blame. It loads the index via load_index and returns the stored flag, likely defaulting to true if unset.
+- found: Exactly as predicted: loads the persisted index and returns explain_trace, defaulting to true when unset.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `set_explain_trace` — OBSCURE
+- spec 3 · read at `e42d98fea43f` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:56Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Sets a global flag (likely a static AtomicBool) recording whether the explain output is wanted — a simple store operation, no index/persistence involved despite sitting near cache/index functions.
+- found: Loads a persisted index struct, sets its explain_trace field to Some(explain), and saves the index back — this is persisted state via load_index/save_index, not an in-memory atomic as I guessed.
+- predicted: none · documented: some · derivable: no · legible: full · trap: no
+- note: I explicitly guessed against persistence despite sitting next to index/cache-slot peers — should have weighted proximity to load_index/save_index peers more heavily.
 
 ### `index_path`
 - spec 2 · read at `dd06184e0634` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:13:17Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -4818,6 +4991,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Checks a treecache signature shortcut first; walks and parses files per-directory (streaming on_shape/on_progress), takes git blame/history per depth setting, wires the repo-wide call graph and finds clones, builds a gray proxy-scored tree immediately, then (if a real model) builds a priority-ordered work queue (by proxy surprise score, cached per function body/doc) and streams model scores in, re-aggregating the tree as scores land; saves the scancache and treecache at the end.
 - predicted: some · documented: none · derivable: no · legible: some · trap: no
 
+### `a_scan_is_priced_from_the_last_one_and_an_unknown_size_is_not_refused`
+- spec 3 · read at `9425cab1ac7d` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:22Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A test exercising the scan budget-gate logic across four scenarios (known-small, known-large-over-budget, known-large-under-budget, unknown-size/never-scanned), asserting that only the known-and-large case is blocked/needs confirmation and that the unknown-size case is specifically allowed through rather than refused.
+- found: Test calling scan.rs's own estimate(files, seconds) with four cases: a banked fast rate (not cold, fits budget), the same file count with a 5x slower measured rate (not cold, doesn't fit), a larger known repo that clearly exceeds budget, and unknown (None, None) which is cold, reports no file count, but still 'fits' so it's never refused.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: This estimate() takes (files, seconds) directly rather than a repo path/bank like trace.rs's estimate — easy to conflate the two similarly-named functions across files.
+
 ### `fixture`
 - spec 2 · read at `f6944d8e34fb` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:20:31Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
 - expected: Shared test helper that creates a tempfile::TempDir, writes a small set of sample source files (a few functions, maybe multiple languages/dirs) into it to be scanned by the surrounding tests, and returns the TempDir handle for the caller to point scan() at.
@@ -4959,6 +5139,18 @@ What this is and how to add to it: [README.md](README.md)
 - found: It checks a cheap mtime+len gate against the stored entry first (fast path, no read); if that misses, it reads and hashes the file content and checks the hash against the stored entry (handles reformats/touches/checkouts that don't change bytes) restamping-eligible; only if both fail does it read the source and return Look::Miss with the freshly computed ident. In both hit paths, blame is only returned if the stored blame_commit matches the wanted commit, otherwise None — so a parse hit can still carry a stale/missing blame independently.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: The doc explained the "why" (why blame isn't invalidated on parse-version bumps) but not the actual mechanism (mtime+len gate, then hash fallback) — that mechanism is the derivable-from-code part, so documented is 'most' not 'full'.
+
+### `hash_of`
+- spec 3 · read at `c6c45ef2aed5` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:24Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the cached entry for rel_path in the ScanCache's internal map and returns the stored content hash (computed during the last parse) if the file is present in the cache, or None if it isn't cached.
+- found: Looks up rel_path in the store's entries map and returns the cached content hash if present, via an optional store accessor.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `has_blame`
+- spec 3 · read at `e2215505a8ff` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:22Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the cache entry for rel_path, checks that the stored hash matches `hash` (file unchanged) and possibly that last_commit is compatible with what's cached, returning true if valid blame data already exists without copying it out.
+- found: Looks up the entry for rel_path in the store; returns false if missing, otherwise returns true only if the hash matches, the cached blame_commit equals last_commit (defaulting to a sentinel ANCIENT), and blame data is actually present.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `cached_blame`
 - spec 3 · read at `f41988f043d5` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:48:18Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -5223,11 +5415,51 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/trace.rs
 
+### the file itself
+- spec 3 · served in 2 parts · read at `312096d824d2` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:52:15Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Implements the optional, deferred deep-trace pass (per-function git blame/line history) that's too expensive to run during the initial scan. Defines Depth (Untraced/Files/Lines) marking trace progress, estimate() to price running it, a go/bank pipeline computing FileTrace/churn Bank data, apply/apply_to/apply_dir_history to merge results onto existing scan data, and bank_path/load_bank/read_trace caching so an already-traced repo isn't repriced or redone; tests check deferred-vs-inline equivalence and idempotent re-application.
+- found: Implements the deferred git-derived enrichment pass split into three depths (Untraced/Files/Lines), with an Estimate/Go decision (Run vs Ask-the-user) gated by a 10s BUDGET, a banked/cached log walk (depth1) and per-line blame (depth2) driven by `deepen`, an idempotent `apply`/`apply_to`/`apply_dir_history` fold that lands git data onto an already-scanned tree (function falls back to file-level numbers when blame can't resolve it, via FileTrace/FuncTrace), and tests proving deferred-vs-inline equivalence, cache-based re-pricing, and idempotent double-apply.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: I underestimated how much of the file's real work is in the Go/Estimate cost-decision machinery and the FileTrace/FuncTrace per-function resolution fallback, rather than just the bank caching I focused on.
+
+### `tag_str`
+- spec 3 · read at `f649a901ef1e` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:17Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Depth is an enum representing how deeply git history has been traced for a file/repo (e.g. none, log-only, full blame). tag_str matches on self and returns a short static string name for each variant, used as a key/label when banking or displaying trace depth in the index/window.
+- found: Matches the Depth enum (Untraced, Files, Lines) and returns a static string name for each variant.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `tag`
+- spec 3 · read at `ea60a348650f` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:26Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Depth is an enum with a few variants for how deep the git trace went (e.g. names-only, last-author, full history). tag matches self and returns a distinct static byte-string literal per variant, used as a cache-key discriminant alongside a sibling tag_str returning the str form.
+- found: Matches on the Depth enum (Untraced, Files, Lines) and returns a static byte-string literal naming the variant, for use as a cache key discriminant.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: Actual variants are Untraced/Files/Lines — a progression of trace depth, not scan granularity as I guessed.
+
+### `estimate`
+- spec 3 · read at `23ddc928e7f4` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:07Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether the repo has a stored trace bank; if so, counts commits since the bank via `git rev-list --count` plus the churn window count, multiplies by that repo's measured seconds-per-commit to get a cost estimate. If never walked, falls back to `git count-objects -v` and a corpus ratio, returning an Estimate marked as a cold/rough guess rather than a real measurement.
+- found: Loads the stored bank; if it has a head, computes commits since via churn::commits_since plus window_commits, multiplied by the bank's measured rate (or a cold default rate) for seconds, marked not cold. Otherwise estimates commit count from packed object count / objects-per-commit ratio, multiplied by the cold rate, marked cold. Returns an Estimate also stating whether it fits within a fixed BUDGET.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Missed that even the "banked" branch can fall back to COLD_RATE when b.rate is None, so the cold/not-cold flag isn't purely about which branch was taken — it's really about whether a bank record exists at all.
+
 ### `relines`
 - spec 3 · read at `09603caa8223` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:02Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
 - expected: Checks whether restoring this scan to per-line trace depth would be free: iterates the scan's files, and for each checks whether scancache already has a cached blame keyed by content/last-commit (via history). Returns true if every file's blame is already cached (so no wait is needed to reline), false if at least one file would require a fresh git blame call.
 - found: Walks the scan's files, counting how many lack a cached blame (via scancache's has_blame keyed on content hash and last commit), then estimates the total blame cost for the missing files (missing * BLAME_MS_PER_FILE) and returns true if that estimated cost fits within a fixed BUDGET — i.e. it's not a strict all-cached check but a "cheap enough to just do it" threshold.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `go`
+- spec 3 · read at `de9ed7b418ce` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:29Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Returns a `Go` value describing whether this repo's history can be read without explicit user consent, and at what depth. Likely loads a previously banked/measured blame-rate estimate for this repo path (via load_bank or similar) and if present decides depth1 vs depth2 automatically; if no bank exists yet, returns a value indicating the caller must explicitly ask before doing the expensive depth-2 blame pass.
+- found: Calls estimate(repo) to get a projected cost/rate; if it fits (cheap enough) returns Go::Run(Depth::Files) to proceed automatically, otherwise returns Go::Ask(e) so the caller can prompt the user with the estimate.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: I guessed a cached 'bank' lookup gates the decision; actually it's a live estimate() call each time, with the estimate itself carried in the Ask variant for the caller to display.
+
+### `bank_path`
+- spec 3 · read at `aff96f8c117a` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:28Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Computes the on-disk location of the "bank" file that persists what trace depth a given repo reached (referenced by load_bank and note_trace elsewhere), likely delegating to something like crate::reports::cache_slot("trace", repo, ...) similar to treecache::path_for, returning None if the repo has no resolvable cache directory.
+- found: Delegates to crate::reports::cache_slot("traces", repo, &format!("f{BANK_FORMAT}")), returning the path with a .json extension, or None if no cache slot resolves.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ### `depth1`
 - spec 3 · read at `cd451bb534bc` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:10:48Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -5235,12 +5467,51 @@ What this is and how to add to it: [README.md](README.md)
 - found: Loads a bank from disk, refreshes it via churn::refresh, prunes old cache slots, writes the updated bank back (via temp file + rename), and returns bank.history — silently ignoring write failures as the docs describe.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
+### `load_bank`
+- spec 3 · read at `5583135edfd9` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:12Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Computes the bank file path via bank_path(repo), then attempts to read and deserialize that file into a Bank struct, returning None if the file is missing or fails to parse/deserialize.
+- found: Gets bank path (itself optional, via bank_path(repo)?), records it as used via reports::mark_used side effect, then reads the file to string and deserializes as JSON into a Bank, collapsing any failure (missing path, missing file, bad JSON) into None via ? chaining.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: I hadn't anticipated the mark_used side-effect call or that bank_path itself returns an Option.
+
+### `depth2` — QUIRKY
+- spec 3 · read at `30b783f3074e` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:14Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over the files recorded in `scan`, and for each one looks up its cached content hash from `scans`/`history` to decide whether it can reuse a cached blame result or must run `git blame` against `repo`. Reports progress via `on_file` (path, current count, total), checks `stop` periodically to allow cancellation, and assembles the per-line author/commit results into a `Blame` struct returned at the end.
+- found: depth2 just collects (path, cached_hash) pairs for every file node in the scan tree, then delegates the actual blame work to Blame::read, wrapping on_file in a counter to compute progress (done/total) before forwarding to the caller's callback. The keying-on-content-hash logic described in the doc lives inside Blame::read, not here.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
 ### `deepen`
 - spec 3 · read at `11d971f6c649` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:20:12Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
 - expected: Walks the repo's files (or a cached scan) and runs git blame/log against them to compute ownership/depth data up to `depth`, applying results onto the existing `scan` map via `apply`/`apply_to` so it lands on the already-drawn picture rather than redrawing it. It checks `stop` periodically to allow cancellation, calls `on_file` per file processed (passing name and some progress counts) for UI feedback, and may consult `scans` (the ScanCache) to reuse already-traced data across depth levels. Returns a tuple of two usize counts, likely (files processed, total files) or (files traced, lines traced).
 - found: Runs depth1 (git log walk, not interruptible) then, if depth is Lines and not stopped, depth2 (git blame, interruptible per-file) to build a Blame. Applies history+blame onto the scan map regardless of whether it was stopped (partial data is still valid at whatever resolution was reached). Returns (resolved, considered): considered is total files in the tree; resolved is `considered` if the pass ran to completion (a finished pass resolved everything even if some files have no blame, e.g. untracked files), but `blame.len()` if it was stopped early (only then is the gap meaningful to report).
 - predicted: most · documented: some · derivable: no · legible: most · trap: no
 - note: The resolved/considered accounting encodes a subtle invariant (finished-pass vs stopped-pass have different meanings for "resolved") that isn't visible from the signature or docs at all — only the code comments explain it.
+
+### `of` — QUIRKY
+- spec 3 · read at `ce53158b6c85` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:52Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Constructor for FileTrace: looks up the given path's commit history within `history` (likely filtering/borrowing the relevant entries) and pairs it with the borrowed `blame` data, returning a FileTrace struct that holds the path, its history slice, and a reference to blame for later per-function/per-line queries.
+- found: Builds a FileTrace by pulling several separate per-path metrics off History (churn, age, commits, last-touched, last-author) and the blame entry for the path, plus blame's `now` timestamp.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+
+### `last_author` — QUIRKY
+- spec 3 · read at `372613bf0f7c` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:27Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the file's path in the History data held by FileTrace, finds the most recent commit touching that file, and returns its author name, or None if there's no history entry for the file.
+- found: It's a trivial getter that clones an already-computed `last_author` field on the struct; the actual lookup/computation happens elsewhere (likely in FileTrace::of), not in this function.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `func`
+- spec 3 · read at `e593dbbafa4c` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:53Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether per-line blame data is actually available and covers this line range (i.e., depth reached Lines and the file is tracked); if so, derives the function's own churn/age/last-author from just the blame lines in start..end. Otherwise falls back to the whole-file-level trace values, since untracked files, no-git repos, or shallower depths can't offer anything finer than file resolution.
+- found: Tries self.blame.range(start, end, now); if it returns a per-line history, builds FuncTrace with churn normalized by TRACE_SATURATION (a different saturation constant than the file/window one) and the range's own age/commits/last_touched/last_author. Otherwise falls back to copying the file-level fields (self.churn, self.age_days, etc.) unchanged.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Confirms the prediction closely; the one detail not obvious from the signature/docs alone was that churn uses a distinct TRACE_SATURATION constant from blame.rs rather than reusing whatever the file-level churn was normalized by.
+
+### `apply` — TRAP
+- spec 3 · read at `2d75355dbdf3` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:41Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Walks the Scan's tree (root node) and, for every file (and possibly function) node, overwrites its age/churn/author fields by reading fresh values from history and blame — likely delegating per-node to apply_to/apply_dir_history, and folding dir-level aggregates on the way back up. Because it's idempotent, it always computes each field directly from the two inputs rather than incrementing or merging with whatever the node currently holds.
+- found: Calls apply_to on the root to fold per-file/function blame+history, then aggregate() to rebuild container scores (which zeroes commit counts), THEN apply_dir_history to re-credit directories — an order dependency the comment calls out explicitly. Also sets scan.stats.authors (top N from history), without_history flag, and stats.commits from history.total_commits_of("") rather than a separate git rev-list call, since the walk already counted it.
+- predicted: most · documented: most · derivable: no · legible: full · trap: yes
+- note: The comment itself flags the ordering trap (aggregate must run before apply_dir_history or directory commit counts get zeroed), so this is a documented trap, not an undocumented one — reporting trap:true per the code-level hazard even though a comment explains it, since 'the repo knows' language in the grading guide is about hazards a comment warns of, though the instructions say a warned hazard is NOT a trap; downgrading awareness only.
 
 ### `apply_to`
 - spec 3 · read at `afd08bc75576` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:11:06Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -5255,13 +5526,77 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: Missed that it also fills in all_commits (lifetime total) alongside commits — doc covered this but I only predicted the commits field.
 
+### `repo`
+- spec 3 · read at `0a8bac4e4e45` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:41Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Test fixture that creates a temp directory, runs git init, and creates a small file with a few functions — each added and committed separately (so each function has a different blame/commit-time), giving trace tests a repo where per-function last-author/age genuinely differs from the file's own. Returns the TempDir handle for the caller to point trace functions at.
+- found: Creates a tempdir git repo, configures user, then over 4 commits grows a.rs by appending one more function each time (f0..f3, cumulative) while fully rewriting b.rs each commit to a single new function (g0..g3, replacing not accumulating). Returns the TempDir.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Missed the asymmetry between the two files: a.rs accumulates functions across commits while b.rs replaces its single function each commit — likely deliberate so tests can distinguish per-function blame from whole-file churn.
+
+### `scan_of`
+- spec 3 · read at `d9e2164401af` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:13Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A lightweight repo scan (parsing files via tree-sitter, no git blame) at the given Depth, returning a Scan struct that can later have trace/blame data applied to it via apply/deepen. Likely a thin wrapper delegating most work to crate::scan.
+- found: A test-helper wrapper around crate::scan::scan that sets up ephemeral memoization, no-op callbacks (progress/reading/cancel), and forces Fidelity::Full, then unwraps the result with .expect("scans"). It's used to produce a full-fidelity Scan (likely for comparing against deferred/incremental trace application in tests) rather than being the lightweight/deferred scan I predicted.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: Function is private (no pub) and sits near test-named peers, suggesting it's a test helper rather than production code — worth confirming scope before assuming it's on a hot path.
+
+### `rows` — QUIRKY
+- spec 3 · read at `78c70e04cee8` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:47Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Iterates the scan's parsed files (and their functions), building one Row per file or function with path/name and line-count/size info derived purely from the scan (no git calls), returning the full list as the base map data that trace/blame info is later applied onto via `apply`/`apply_to`.
+- found: Visits the scan tree and, for every node that has a `score` (skipping ones without), collects a tuple/Row of id, churn, age_days, commits, all_commits, last_touched_days, and last_author — i.e. the trace-relevant scoring metrics, not general file/function structural info. Given the peer names (property-test-style function names), this looks like a test helper for comparing scan state before/after applying a trace, not production row-building.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+
+### `same`
+- spec 3 · read at `1c8be5807b12` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:16Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Test-helper assertion function that compares two slices of Row for equality field-by-field, except it allows age_days and last_touched_days to differ by a small tolerance (~0.001, i.e. ~86 seconds) rather than requiring exact equality, panicking/asserting if anything else differs.
+- found: Test helper asserting two Row tuple-slices match: same length and tree order, churn/age/touched compared with a 0.001 tolerance (age and touched allowing None on both sides), commits/all_commits/last_author compared exactly, each with a descriptive assert message.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `read_trace`
+- spec 3 · read at `1e78a00d1402` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:49:05Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A synchronous helper (likely test-only) that runs the commit log walk to build History (depth1) and then per-line blame over the scan's files (depth2), returning both as a (History, Blame) tuple with no caching or stop-flag handling.
+- found: Right overall shape (build History, build Blame, return both, no real caching), but wrong on mechanism: uses `churn::read` for History (not a `depth1` helper), collects file paths by visiting the scan tree, and calls `Blame::read` with an ephemeral cache, a fresh stop flag, and a no-op progress callback rather than calling `depth2` directly.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `a_deferred_trace_lands_exactly_where_an_inline_one_did`
+- spec 3 · read at `ac80c5b3b5bc` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:21Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Scans a test repo twice: once with git-derived fields deferred/wiped and then applied afterward via `apply`, and once "inline" with git available from the start. Converts both resulting trees to comparable rows (via `rows`) and asserts they're equal (via `same` or `assert_eq!`), proving deferring the trace produces an identical map to computing it inline.
+- found: Matches prediction closely: scans inline, scans deferred/untraced, applies the trace, and compares rows via `same`. Additionally asserts the fixture actually has history (so the test isn't vacuous) and asserts the untraced scan's rows are all-zero/none in the git-derived fields rather than just differing from the traced version.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `a_repo_already_blamed_goes_back_to_the_line_for_nothing`
+- spec 3 · read at `45f7cfd75d17` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:18Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Test verifying the doc's claim: sets up a scenario where a repo was previously traced to line-depth (blame cached per file), simulates a "fresh restart" state (only file-level depth), then calls whatever function prices the cost of re-tracing to lines and asserts the computed cost is ~0 — because the blame cache for unchanged files already holds the answer, so nothing needs to be re-derived.
+- found: Three-part test: (1) asserts `relines` (the budget check for going to line depth) passes on a cold two-file fixture repo since it's affordable even uncached; (2) runs `deepen` to Lines depth to fill the blame cache, then asserts `relines` still passes ('free once banked'); (3) opens a fresh ephemeral (empty) ScanCache and asserts every file is missing blame — demonstrating the dropped-cache case is priced per file rather than assumed free.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `a_cached_answer_is_not_priced_as_though_it_had_to_be_derived` — QUIRKY
+- spec 3 · read at `fb2877285c31` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:50:30Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Sets up a repo, traces it to depth 1, then deepens it fully to depth 2 (populating the blame cache), then calls the cost-estimator for a depth-2 trace again and asserts it reports a cheap/negligible cost (or fits: true) because it counts only files still missing cached blame — proving the estimator doesn't price already-cached work as though it needed a fresh git blame per file.
+- found: Tests both halves of the "cached answer" rule: first that `treecache::warm` is false for an unscanned repo but true once scanned (the scan-cache/decode half), then scans, deepens to depth Lines (populating blame), and asserts `relines` returns true — meaning the per-line trace is recognized as already resolvable from cache rather than needing a fresh git blame.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: I predicted a numeric cost-estimator check; the actual test uses boolean cache-readiness predicates (treecache::warm, relines) for both the scan-tree and blame halves of the rule.
+
+### `an_unwalked_repo_is_priced_from_free_evidence_and_a_walked_one_from_its_own`
+- spec 3 · read at `df256949b0b6` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:49:45Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: This test builds a fixture repo, calls the cost-estimation function before any trace has been run and asserts it returns a rough bound (derived from git count-objects, cheap and non-destructive) flagged as unmeasured/an estimate rather than a real measurement. Then it runs an actual walk (deepen/trace), calls the estimator again, and asserts it now returns a measured cost from the bank left behind by that walk rather than the earlier bound.
+- found: Calls `estimate` on a fresh repo and checks `cold: true`, `commits: None`, `fits: true`; then walks the repo with `depth1`, calls `estimate` again and checks `cold: false`, `commits: Some(4)`, and that `go()` now returns `Go::Run(Depth::Files)`.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `applying_a_trace_twice_changes_nothing`
+- spec 3 · read at `8663fe21e511` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:49:16Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: This test builds a small repo/scan, applies a git trace (blame/history) to it once, snapshots the resulting node fields, then applies the same trace a second time and asserts nothing changed — guarding against a bug where re-applying a trace (e.g. depth 2 landing on an already depth-1 tree) would double-count or corrupt fields like churn/age/author rather than being idempotent.
+- found: Scans a fixture repo untraced, reads the history/blame trace once, applies it to the scan, snapshots the resulting rows, applies the same trace a second time, and asserts the rows are unchanged — confirming `apply` is idempotent.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
 ## src-tauri/src/treecache.rs
 
 ### the file itself
-- spec 3 · read at `b2d2a9480236` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:10:14Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Caches the fully-built, scored directory tree (Scan) itself — not just the parse/blame ingredients scancache handles — keyed by a signature derived from walked files' mtimes/lengths, HEAD, fidelity, and trace depth, so reopening an unchanged repo skips re-parsing/re-scoring/re-aggregating and just reads the saved tree back (load/save, path_for/tag). Stores the tree and call-graph Links separately (load_links/links_path, split/halves), and keeps a smaller "slim" variant (slim/read_slim/slim_path) for cheap reads that don't need the full tree, with stale/head_of/mix deciding whether a cached entry still applies.
-- found: Caches the finished, scored Scan tree in binary (bincode) form keyed by a signature (parse version, cache version, fidelity, trace depth, HEAD-if-traced, .sanityignore contents, per-file path/len/mtime), writing three files per repo: the whole tree, a "slim" tree without function bodies for fast launch reads (with a stale() variant that skips signature verification for instant-first-paint), and the neighbour/links table separately so it can be skipped or omitted cheaply. Version bumps are tracked carefully per added field since serde defaults would otherwise silently degrade a warm cache.
+- spec 3 · read at `c07b8cc2dc31` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:02Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Persistence layer for the fully-built/aggregated scan tree (vs scancache's raw parse/blame ingredients). Computes a signature/tag (git HEAD + config hash) to detect staleness (stale/warm vs current), and provides save/load to serialize the tree to disk so launch is a read not a rebuild. slim/read_slim/slim_path is a lighter cache format; links/halves/split suggest the tree's link data is stored in pieces (possibly borrowed vs owned); path_for/config locate cache files per-config.
+- found: Persists the fully-folded scan tree (not just parse/blame ingredients) to disk as bincode, keyed by a signature hashing parse version, cache format version, fidelity, trace depth, HEAD (only if traced), .sanityignore contents, and per-file path/size/mtime — so a launch can skip parsing, scoring and folding entirely if the signature matches. Writes three files: the whole tree, a 'slim' functionless copy for fast drawing, and a separate neighbour/links table, in that order (slim then whole then links) so partial-write failures degrade gracefully. `stale`/`warm` answer whether a cache exists without proving full validity, trading a cheap file read for occasional staleness that a fast rescan then corrects.
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: The version-bump discipline (VERSION comments explaining exactly why each field addition required a bump, tied to #[serde(default)] silently loading None) is a load-bearing convention that isn't obvious from the code shape alone — only the doc comments teach it.
 
 ### `config`
 - spec 3 · read at `1723b014079a` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:01:07Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -5282,6 +5617,13 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Computes the slim cache path for repo, reads/deserializes the trimmed tree file, and checks its stored signature matches the given signature (cache still describes this repo state) — returns Some(Scan) if valid, None if missing or the signature doesn't match.
 - found: Delegates to read_slim to load the cached (signature, scan) pair, then returns the scan only if the signature matches, else None.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `warm`
+- spec 3 · read at `79388ae952a4` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:26Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether the cached tree is still valid without loading the full tree — walks the repo to compute a current signature, reads just the slim/header record, and compares signatures (accounting for fidelity/depth), returning true if the cache is still good.
+- found: A one-line composition: computes the current signature via current(repo, fidelity, depth) and checks whether slim() finds a matching cached record, returning true/false via is_some(). Matches my prediction of the mechanism exactly, just expressed as delegation to two other functions rather than inline logic.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: The real logic (walk cost, signature comparison) lives in current() and slim(), not here — this function is just the boolean-returning glue, so understanding it fully requires those two functions.
 
 ### `stale`
 - spec 3 · read at `04470122e2f9` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:59:09Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
