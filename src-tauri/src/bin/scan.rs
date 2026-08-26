@@ -79,6 +79,7 @@ fn main() {
         // the strongest one in the mix — a histogram read off a scan that skipped it would
         // be a measurement of a different instrument.
         sanity_lib::scan::Fidelity::Full,
+        sanity_lib::trace::Depth::Lines,
     ) {
         Ok(s) => s,
         Err(e) => {

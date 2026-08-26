@@ -88,6 +88,17 @@ export function scanHistory(
  *
  * Fire-and-forget. The answer changes nothing on screen.
  */
+/** Read more of a repo's history onto the MAP, because the person asked.
+ *
+ *  Not the replay — that is `scanHistory` below, which is depth 3. This is the commit log
+ *  (`files`: age, churn and authors per file) and per-line blame (`lines`: the same facts per
+ *  function). Omitted means one step on from wherever this repo is. Resolves with what it
+ *  actually took, in seconds, which is the only place the app learns whether its own estimate
+ *  was close. */
+export function traceProject(path: string, depth?: 'files' | 'lines'): Promise<number> {
+  return invoke<number>('trace_project', { path, depth })
+}
+
 export function warmHistory(path: string): Promise<boolean> {
   return invoke<boolean>('warm_history', { path })
 }

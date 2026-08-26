@@ -38,6 +38,7 @@ pub mod scan;
 pub mod scancache;
 pub mod screen;
 pub mod surprise;
+pub mod trace;
 pub mod treecache;
 pub mod watch;
 
@@ -319,6 +320,11 @@ pub fn run() {
             commands::commit_detail,
             commands::scan_history,
             commands::warm_history,
+            commands::trace_project,
+            commands::stop_trace,
+            commands::estimate_trace,
+            commands::explain_trace,
+            commands::set_explain_trace,
             commands::agent_activity,
             commands::add_project,
             commands::harnesses,

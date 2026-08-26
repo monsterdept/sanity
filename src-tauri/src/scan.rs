@@ -2,7 +2,7 @@
 
 use crate::blame::Blame;
 use crate::cache::{self, Cache};
-use crate::churn::{self, History};
+use crate::churn::History;
 use crate::heuristic::{self, Fingerprint};
 use crate::model::{Lang, Node, NodeKind, Provenance, Score, Source};
 use crate::parse::{self, FuncDef};
@@ -211,20 +211,6 @@ pub struct Scan {
     pub links: std::sync::Arc<crate::links::Links>,
 }
 
-/// How many commits HEAD can reach, merges excluded — see [`ScanStats::commits`]. Zero when
-/// there is no history, which the UI reads as "do not print a commit count" rather than as a
-/// repo with none.
-fn commit_count(repo: &Path) -> usize {
-    std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(["rev-list", "--no-merges", "--count", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
-        .unwrap_or(0)
-}
 
 /// One function's score, the moment it is known.
 ///
@@ -658,47 +644,62 @@ fn parse_file(
     })
 }
 
-/// Score every function in one directory.
+/// What a scan of this repo may cost before somebody has to be asked.
 ///
-/// Scoring is grouped by directory rather than by file for one reason: a function needs
-/// peers to be compared against, and plenty of real files hold exactly one function. A
-/// lone function with no peers scores an undecided 0.5 distinctiveness (see
-/// `heuristic::distinctiveness`), so without the directory fallback every
-/// one-function-per-file codebase — which is most React frontends — would have its
-/// strongest signal switched off.
-/// Fill in each directory's DISTINCT commit count from the git history.
+/// **Its own number, and it is not the trace's**, because the two phases are unrelated work
+/// with unrelated shapes: a trace scales with commits × paths and a scan scales with files and
+/// their size. Sharing one constant would tie them together for no reason other than that
+/// they were both written down here. Ten seconds, the same value, arrived at separately.
+pub const BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Milliseconds per file for a repo this machine has never scanned.
 ///
-/// `aggregate` can compute a directory's lines, surprise and hot share from its children,
-/// but not this: a commit touching twelve files in one directory is one commit for that
-/// directory, and by the time the tree exists only per-file counts survive. `churn::read`
-/// credits ancestor directories once per commit while the log is still grouped, so the
-/// answer is a lookup on the directory's own path.
+/// Measured across the corpus on a release build — kibana 0.16, ceph 0.48, linux 0.50 — and
+/// deliberately the pessimistic end of it, because the cost of over-estimating is one dialog
+/// somebody dismisses and the cost of under-estimating is the wait this exists to prevent.
+/// A repo that has been scanned here uses its OWN measured rate instead (`KnownProject::
+/// scan_ms`), which is what makes a debug build price itself honestly without anyone
+/// hard-coding two constants.
+const COLD_MS_PER_FILE: f32 = 0.5;
+
+/// What the next scan of `repo` would cost, and how much of that is known.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Estimate {
+    /// Seconds, at this repo's own measured rate where it has one.
+    pub seconds: f32,
+    /// Files the last scan found. `None` where none has finished here.
+    pub files: Option<usize>,
+    /// Nothing has scanned this repo on this machine, so both the count and the rate are
+    /// inferred. Said out loud, so nothing prints a guess as a stopwatch.
+    pub cold: bool,
+    /// Whether it fits [`BUDGET`].
+    pub fits: bool,
+}
+
+/// Price a scan from what the last one cost — see [`crate::reports::KnownProject::scan_ms`].
 ///
-/// Churn itself stays the children's LOC-weighted mean rather than `churn_of(dir)`: the
-/// normalization constant is tuned for a single file, and a directory pooling every
-/// commit beneath it would saturate to 1.0 the moment anyone touched anything.
+/// **Free, and that is the whole design.** The count and the rate are both banked by the
+/// previous scan, so deciding costs a lookup rather than a walk — which matters at a launch
+/// restoring every project, where paying a directory walk apiece to decide would be most of
+/// what the gate is trying to save.
 ///
-/// **Files as well as directories, despite the name.** A file node's score comes from
-/// `aggregate`, which sets `commits: 0` because summing its functions would count one
-/// commit once per function it touched — and nothing filled it back in, so every file
-/// reported zero commits next to a churn bar at 72. A file's path is a real path, so the
-/// log answers directly; only the aggregate could not. Two cold readers predicted
-/// directories-only from the name and this doc, in two separate runs, and both were
-/// caught by the `File` arm — which is the instrument reporting a name that undersells
-/// its function, so the doc now says it rather than an inline comment inside the body
-/// where a reader predicting from the outside never sees it.
-fn apply_dir_history(node: &mut Node, history: &History) {
-    if node.kind == NodeKind::Dir || node.kind == NodeKind::File {
-        if let Some(score) = node.score.as_mut() {
-            score.commits = history.commits_of(&node.path);
-            // The lifetime total comes from the same place and for the same reason: a
-            // directory counts a commit once, and only the log pass still knows which
-            // commit touched what. A function keeps `None` — see `Score::all_commits`.
-            score.all_commits = history.total_commits_of(&node.path);
-        }
-    }
-    for child in &mut node.children {
-        apply_dir_history(child, history);
+/// A repo with no bank is priced from its file count if the caller has walked it and from
+/// nothing at all if not — in which case the estimate is `None` files, zero seconds and
+/// `fits`, because refusing to scan a repo nobody can price would leave somebody with a row
+/// that cannot be acted on. **The gate errs toward doing the work**; what it must never do is
+/// spend a minute silently, and a repo whose size is unknown is one walk from being known.
+pub fn estimate(files: Option<usize>, scan_ms: Option<u64>) -> Estimate {
+    let rate = match (files, scan_ms) {
+        (Some(n), Some(ms)) if n > 0 => ms as f32 / n as f32,
+        _ => COLD_MS_PER_FILE,
+    };
+    let seconds = files.map(|n| n as f32 * rate / 1000.0).unwrap_or(0.0);
+    Estimate {
+        seconds,
+        files,
+        cold: scan_ms.is_none(),
+        fits: seconds <= BUDGET.as_secs_f32(),
     }
 }
 
@@ -730,6 +731,14 @@ pub enum Fidelity {
     Ordering,
 }
 
+/// Score every function in one directory.
+///
+/// Scoring is grouped by directory rather than by file for one reason: a function needs
+/// peers to be compared against, and plenty of real files hold exactly one function. A
+/// lone function with no peers scores an undecided 0.5 distinctiveness (see
+/// `heuristic::distinctiveness`), so without the directory fallback every
+/// one-function-per-file codebase — which is most React frontends — would have its
+/// strongest signal switched off.
 fn score_dir(
     files: &[ParsedFile],
     // Index of this directory's first file in the flat list [`edges::wire`] was given.
@@ -752,13 +761,10 @@ fn score_dir(
         .iter()
         .enumerate()
         .map(|(fi, file)| {
-            let churn = history.churn_of(&file.rel_path);
-            let age_days = history.age_of(&file.rel_path);
-            let commits = history.commits_of(&file.rel_path);
-            let last_touched_days = history.last_touched_of(&file.rel_path);
-            let last_author = history.last_author_of(&file.rel_path);
-
-            let file_blame = blame.get(&file.rel_path);
+            // One lookup for the file, one per function under it — and the SAME one a
+            // deferred trace uses, so a map drawn with git in hand and one that gets git
+            // afterwards cannot come out different. See `trace::apply`.
+            let file_trace = crate::trace::FileTrace::of(&file.rel_path, history, blame);
 
             let ords = ordinals(&file.funcs);
             let children: Vec<Node> = file
@@ -766,24 +772,15 @@ fn score_dir(
                 .iter()
                 .enumerate()
                 .map(|(i, func)| {
-                    // This function's own history where blame could read it, the file's
-                    // otherwise — an untracked file, a repo without git, or a range the
-                    // blame no longer covers should cost resolution, not the axis.
-                    let own =
-                        file_blame.and_then(|b| b.range(func.start_line, func.end_line, blame.now));
-                    let (churn, age_days, commits, last_touched_days, last_author) = match &own {
-                        Some(h) => (
-                            // `TRACE_SATURATION`, not the window's: this count is commits
-                            // surviving in the body, which is a different quantity from
-                            // commits in ninety days — see `blame.rs`.
-                            (h.commits as f32 / crate::blame::TRACE_SATURATION).clamp(0.0, 1.0),
-                            Some(h.age_days),
-                            h.commits,
-                            Some(h.last_touched_days),
-                            Some(h.last_author.clone()).filter(|a| !a.is_empty()),
-                        ),
-                        None => (churn, age_days, commits, last_touched_days, last_author.clone()),
-                    };
+                    // Its own history where blame could read it, its file's otherwise — see
+                    // `FileTrace::func`, which is where that rule now lives.
+                    let crate::trace::FuncTrace {
+                        churn,
+                        age_days,
+                        commits,
+                        last_touched_days,
+                        last_author,
+                    } = file_trace.func(func.start_line, func.end_line);
                     // Same-file peers when there are any; otherwise the directory's.
                     let peers: Vec<&Fingerprint> = if fidelity == Fidelity::Ordering {
                         Vec::new()
@@ -936,7 +933,7 @@ fn score_dir(
                     loc: 0, // filled by aggregate()
                     line: None,
                     lang: Some(file.lang),
-                    last_author: last_author.clone(),
+                    last_author: file_trace.last_author(),
                     score: None,
                     hotspots: Vec::new(),
                     // A file is not called and does not call; its functions are. Rolled up in
@@ -1094,6 +1091,10 @@ pub fn scan(
     cancel: &AtomicBool,
     memos: Memos<'_>,
     fidelity: Fidelity,
+    // How much git to read, and whether to read any — see [`crate::trace::Depth`]. The two
+    // long phases of a scan of a large repo are both git, and neither is needed to draw the
+    // map: on ceph they are 210s of a 214s cold scan against 1.97s of parsing.
+    depth: crate::trace::Depth,
 ) -> anyhow::Result<Scan> {
     let Memos { scores: cache, scans } = memos;
     // **What each phase costs, when asked.** Every performance decision in this file — the
@@ -1126,7 +1127,7 @@ pub fn scan(
     // streams them as it goes; handing it a finished tree would skip the very work it was
     // asked to do.
     let signature =
-        (!model.is_model()).then(|| crate::treecache::signature(root, &files, fidelity));
+        (!model.is_model()).then(|| crate::treecache::signature(root, &files, fidelity, depth));
     if let Some(sig) = signature {
         if let Some(cached) = crate::treecache::load(root, sig) {
             on_progress(Progress::phase("reading the cached map"));
@@ -1141,8 +1142,14 @@ pub fn scan(
     // Named for the log it reads, not for "history", because the blame pass below is also
     // history and is the one that takes the hours. Two phases with the same noun on the
     // same bar is the ambiguity this whole run of naming exists to remove.
-    on_progress(Progress::phase("reading the commit log"));
-    let history = churn::read(root);
+    let history = if depth == crate::trace::Depth::Untraced {
+        // Not "this repo has no history" — nobody has asked for it yet. `trace::apply` fills
+        // these fields in later, and the map says which of the two it is meanwhile.
+        History::default()
+    } else {
+        on_progress(Progress::phase("reading the commit log"));
+        crate::trace::depth1(root)
+    };
     lap("churn");
 
     // Group by parent directory so `score_dir` has peers to compare against. BTreeMap
@@ -1174,6 +1181,12 @@ pub fn scan(
     let parsed = AtomicUsize::new(0);
     let parsed_dirs: Vec<Vec<ParsedFile>> = by_dir
         .par_iter()
+        // **Stoppable, per directory.** A cold parse of a repo of a hundred thousand files is
+        // the other phase somebody can be left waiting on, and what it has done survives being
+        // stopped the same way the blame does: `scancache` holds every file it got through.
+        // The tree it would have built does not survive, and must not — a tree missing the
+        // directories nobody reached is a map that quietly understates the repo.
+        .filter(|_| !cancel.load(Ordering::Relaxed))
         .map(|(dir, entries)| {
             let files: Vec<ParsedFile> = entries
                 .iter()
@@ -1228,19 +1241,33 @@ pub fn scan(
     // is that the scan has hung. A phase boundary the viewer can see is worth a bar that
     // restarts; a false start is a smaller lie than a false estimate.
     let blamed = AtomicUsize::new(0);
-    let blame = Blame::read(root, &for_blame, &history, scans, &|path: &str| {
-        on_progress(
-            Progress::counting(
-                "reading per-line history",
-                "files",
-                blamed.fetch_add(1, Ordering::Relaxed) + 1,
-                for_blame.len(),
-            )
-            .on(path),
-        );
-    });
+    let blame = if depth == crate::trace::Depth::Lines {
+        Blame::read(root, &for_blame, &history, scans, cancel, &|path: &str| {
+            on_progress(
+                Progress::counting(
+                    "reading per-line history",
+                    "files",
+                    blamed.fetch_add(1, Ordering::Relaxed) + 1,
+                    for_blame.len(),
+                )
+                .on(path),
+            );
+        })
+    } else {
+        // Depth 1 without depth 2 is the resolution the fallback in `FileTrace::func` has
+        // always described: every function takes its file's numbers. Blocky rings under Age
+        // and Churn, and honestly so.
+        Blame::default()
+    };
 
     lap("blame");
+    if cancel.load(Ordering::Relaxed) {
+        // Reported rather than returned. Half a parse is not a smaller map, it is a WRONG
+        // one — every wedge is drawn from lines that were counted, so the directories the
+        // walk never reached simply would not be there and nothing on screen would say so.
+        // The caller keeps the tree it had; the work is in the cache for the next attempt.
+        anyhow::bail!("stopped");
+    }
     // A repo shrinks as well as grows, and an entry nobody asks about again is never
     // invalidated by anything — without this a cache would carry every file of every
     // branch anyone had ever checked out.
@@ -1320,7 +1347,7 @@ pub fn scan(
         collapse_chains(child);
     }
     tree.aggregate();
-    apply_dir_history(&mut tree, &history);
+    crate::trace::apply_dir_history(&mut tree, &history);
     lap("tree");
 
     // ── The model pass, in priority order ────────────────────────────────────────
@@ -1434,7 +1461,7 @@ pub fn scan(
         tree.aggregate();
         // `aggregate` rebuilds every directory score from its children, which zeroes the
         // commit counts again — so this has to follow EVERY aggregate, not just the first.
-        apply_dir_history(&mut tree, &history);
+        crate::trace::apply_dir_history(&mut tree, &history);
     }
 
     let mut functions = 0;
@@ -1459,7 +1486,10 @@ pub fn scan(
             without_history: history.is_empty(),
             // Capped where the palette stops meaning anything — see `ScanStats::authors`.
             authors: history.authors().iter().take(AUTHOR_SLOTS).cloned().collect(),
-            commits: commit_count(root),
+            // Out of the walk that just ran rather than a `git rev-list` of its own — see
+            // `trace::apply`, which fills this the same way when the trace arrives later.
+            // Zero means "print no count" rather than "a repo with none".
+            commits: history.total_commits_of("").unwrap_or(0) as usize,
             model: model.label(),
             calls_resolved: wiring.resolved,
             calls_unresolved: wiring.unresolved,
@@ -1477,6 +1507,37 @@ pub fn scan(
 
 #[cfg(test)]
 mod tests {
+    /// **The gate errs toward doing the work, and never toward a silent minute.**
+    ///
+    /// Four states, and the one that catches people out is the last: a repo nobody has scanned
+    /// here has no count and no rate, and refusing it would leave a row that cannot be acted
+    /// on — a question with no way to answer it. What the budget is for is the case where the
+    /// size IS known and is large.
+    #[test]
+    fn a_scan_is_priced_from_the_last_one_and_an_unknown_size_is_not_refused() {
+        // Measured on this machine: 59,008 files in 9.3s is 0.16ms a file.
+        let kibana = super::estimate(Some(59_008), Some(9_310));
+        assert!(!kibana.cold, "a repo with a banked rate is priced from it");
+        assert!(kibana.fits, "nine seconds is under the budget");
+
+        // The same repo through a build that parses five times slower — which is what a debug
+        // binary is, and the reason the rate is measured rather than assumed.
+        let slow = super::estimate(Some(59_008), Some(46_550));
+        assert!(!slow.fits, "forty-six seconds is not, and the same repo has to ask");
+
+        let huge = super::estimate(Some(45_748), Some(120_000));
+        assert!(!huge.fits && huge.seconds > 60.0, "two minutes asks");
+
+        let unknown = super::estimate(None, None);
+        assert!(unknown.cold, "nothing has measured this, and the estimate says so");
+        assert_eq!(unknown.files, None, "a count nobody counted is not reported");
+        assert!(
+            unknown.fits,
+            "a repo whose size is unknown is one walk from being known — refusing it would \
+             leave a row with a question and no way to answer it"
+        );
+    }
+
     use super::*;
     use crate::surprise::HeuristicModel;
     use std::fs;
@@ -1535,6 +1596,7 @@ mod tests {
             &AtomicBool::new(false),
             Memos { scores: &m.0, scans: &m.1 },
             Fidelity::Ordering,
+            crate::trace::Depth::Lines,
         )
         .unwrap();
 
@@ -1581,6 +1643,7 @@ mod tests {
             &AtomicBool::new(false),
             Memos { scores: &m.0, scans: &m.1 },
             Fidelity::Ordering,
+            crate::trace::Depth::Lines,
         )
         .unwrap();
         let json = serde_json::to_string(&scan).expect("serialises");
@@ -1643,6 +1706,7 @@ mod tests {
             &AtomicBool::new(false),
             Memos { scores: &m.0, scans: &m.1 },
             Fidelity::Ordering,
+            crate::trace::Depth::Lines,
         )
         .unwrap();
 
@@ -1678,6 +1742,7 @@ mod tests {
             &AtomicBool::new(false),
             Memos { scores: &m.0, scans: &m.1 },
             Fidelity::Full,
+            crate::trace::Depth::Lines,
         )
         .unwrap()
     }
@@ -1817,6 +1882,7 @@ mod tests {
                 &std::sync::atomic::AtomicBool::new(false),
                 Memos { scores: &cache, scans: &scans },
                 Fidelity::Ordering,
+                crate::trace::Depth::Lines,
             )
             .unwrap();
             let mut out = Vec::new();
@@ -1856,6 +1922,7 @@ mod tests {
             &std::sync::atomic::AtomicBool::new(false),
             Memos { scores: &cache, scans: &scans },
             Fidelity::Ordering,
+            crate::trace::Depth::Lines,
         )
         .unwrap();
         let mut ids = Vec::new();

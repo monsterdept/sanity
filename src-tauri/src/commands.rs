@@ -70,12 +70,20 @@ pub async fn scan_repo(
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| pending_key.clone());
         s.restoring.retain(|k| k.key != pending_key);
+        // **Off the declined list the moment the scan starts.** A repo whose scan was over
+        // budget sits in `awaiting` with a row of its own, and `restoring` is a second list
+        // that also renders a row — so pressing Scan there put the same project on screen
+        // twice, the pending copy beside the declined one, under one name. The question has
+        // been answered; the row that asks it goes.
+        s.awaiting.remove(&pending_key);
         s.restoring.push(crate::reports::KnownProject {
             key: pending_key.clone(),
             repo: root.to_string_lossy().to_string(),
             name: name.clone(),
             touched: 0,
             files: None,
+            scan_ms: None,
+            trace_depth: None,
             harness: None,
             model: None,
         });
@@ -90,6 +98,7 @@ pub async fn scan_repo(
     // runtime's threads.
     let progress_state = (*state).clone();
     let progress_key = pending_key.clone();
+    let scan_started = std::time::Instant::now();
     let scanned = tauri::async_runtime::spawn_blocking(move || {
         let model = HeuristicModel;
 
@@ -138,7 +147,7 @@ pub async fn scan_repo(
             let _ =
                 app.emit("scan-shape", crate::scan::ShapeBatch { project: &progress_key, files });
         };
-        scan::scan(
+        let mut scan = scan::scan(
             &root,
             &model,
             &emit,
@@ -147,8 +156,23 @@ pub async fn scan_repo(
             &CANCEL,
             Memos { scores: &cache, scans: &scans },
             scan::Fidelity::Ordering,
+            crate::trace::Depth::Untraced,
         )
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+        // **Somebody stood in front of the app and chose this repo**, so the commit log is
+        // not work nobody invited — the same reading `sanity_open` gets. Depth 2 is still an
+        // ask of its own, here as everywhere: an hour of `git blame` is not what pressing
+        // Open means. See `trace::go` for the work that IS gated.
+        emit(crate::scan::Progress::phase("reading the commit log"));
+        crate::trace::deepen(
+            &root,
+            &mut scan,
+            crate::trace::Depth::Files,
+            &scans,
+            &CANCEL,
+            &|_, _, _| {},
+        );
+        Ok::<_, String>(scan)
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -160,6 +184,16 @@ pub async fn scan_repo(
         let mut s = crate::agentapi::lock(&state);
         s.restoring.retain(|k| k.key != pending_key);
         s.restoring_progress.remove(&pending_key);
+    }
+
+    // Banked so the next launch can price this repo from its own measurement rather than the
+    // corpus default — see `reports::note_scan` and `scan::estimate`.
+    if let Ok(scan) = scanned.as_ref() {
+        crate::reports::note_scan(
+            &pending_key,
+            scan.stats.files_scanned,
+            scan_started.elapsed().as_millis() as u64,
+        );
     }
 
     // Publish as a project so an MCP client can pull a work queue from the very scan the
@@ -193,6 +227,9 @@ pub async fn scan_repo(
             reports,
         );
         shared.projects.insert(key.clone(), project);
+        // Off the declined list, if it was on it: it has a map now, so the row's question has
+        // been answered and leaving it would show a Scan button over a scanned repo.
+        shared.awaiting.remove(&key);
         shared.touch(&key);
         // Focused outright, unlike the agent and headless paths. This is the window's own
         // Open command — somebody stood in front of the app and chose this repo, which is
@@ -393,6 +430,125 @@ pub async fn warm_history(path: String) -> bool {
     })
     .await
     .unwrap_or(false)
+}
+
+/// What reading this repo's history would cost, before it is added or opened.
+///
+/// Free: nothing walks the log to answer it — see `trace::estimate`, which prices a repo
+/// nobody has walked here from its packed object count. That is what lets the add dialog show
+/// this repo's own numbers instead of a general warning about large repositories.
+#[tauri::command]
+pub async fn estimate_trace(path: String) -> Result<crate::trace::Estimate, String> {
+    let root = PathBuf::from(&path);
+    if !root.is_dir() {
+        return Err(format!("{path} is not a directory"));
+    }
+    tauri::async_runtime::spawn_blocking(move || crate::trace::estimate(&root))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Whether the add dialog explains itself — see `KnownProjects::explain_trace`.
+#[tauri::command]
+pub fn explain_trace() -> bool {
+    crate::reports::explain_trace()
+}
+
+/// Remember that somebody has read the explanation, or wants it back.
+#[tauri::command]
+pub fn set_explain_trace(explain: bool) {
+    crate::reports::set_explain_trace(explain)
+}
+
+/// Read more of the open repo's history, because the person asked for it.
+///
+/// The window's half of `/trace`. What it returns is how long it took, so the row can say what
+/// the estimate turned out to be worth — an estimate nobody ever checks is a number that
+/// drifts, and this is the only place the app finds out whether its own arithmetic was close.
+#[tauri::command]
+pub async fn trace_project(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    path: String,
+    depth: Option<String>,
+) -> Result<f32, String> {
+    let root = PathBuf::from(&path);
+    if !root.is_dir() {
+        return Err(format!("{path} is not a directory"));
+    }
+    let key = crate::agentapi::project_key(&root);
+    let at = {
+        let s = crate::agentapi::lock(&state);
+        s.projects.get(&key).map(|p| p.trace.depth).unwrap_or_default()
+    };
+    let want = match depth.as_deref() {
+        Some("files") => crate::trace::Depth::Files,
+        Some("lines") => crate::trace::Depth::Lines,
+        _ => match at {
+            crate::trace::Depth::Untraced => crate::trace::Depth::Files,
+            _ => crate::trace::Depth::Lines,
+        },
+    };
+    let (mut scan, stop) = {
+        let mut s = crate::agentapi::lock(&state);
+        let p = s.projects.get_mut(&key).ok_or("that project is not open")?;
+        // Cleared on the way in, never on the way out — a flag left set by the last stop would
+        // make this one refuse to do anything and read as a button that did nothing.
+        p.trace.stop.store(false, std::sync::atomic::Ordering::Relaxed);
+        p.trace.running = Some(crate::scan::Progress::phase("reading the commit log"));
+        (p.scan.clone(), p.trace.stop.clone())
+    };
+    let traced = root.clone();
+    let started = std::time::Instant::now();
+    let ticking = (*state).clone();
+    let ticking_key = key.clone();
+    let (scan, resolved) = tauri::async_runtime::spawn_blocking(move || {
+        let scans = crate::scancache::ScanCache::open(&traced);
+        let resolved =
+            crate::trace::deepen(&traced, &mut scan, want, &scans, &stop, &|path, done, total| {
+                let mut s = crate::agentapi::lock(&ticking);
+                if let Some(p) = s.projects.get_mut(&ticking_key) {
+                    p.trace.running = Some(
+                        crate::scan::Progress::counting(
+                            "reading per-line history",
+                            "files",
+                            done,
+                            total,
+                        )
+                        .on(path),
+                    );
+                }
+            });
+        (scan, resolved)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut s = crate::agentapi::lock(&state);
+    let project = s.projects.get_mut(&key).ok_or("that project is not open")?;
+    project.scan = scan;
+    // The depth asked for, with the coverage it reached — see `/trace`, which makes the same
+    // call for the same reason: a stopped pass is a fraction and reporting it as the depth
+    // below throws away everything it did.
+    // Read BEFORE the state is replaced: the new `TraceState` carries a fresh flag, so asking
+    // it afterwards is asking a stop that has not happened yet and every pass looks completed.
+    let stopped = project.trace.stop.load(std::sync::atomic::Ordering::Relaxed);
+    project.trace = crate::agentapi::TraceState { depth: want, resolved, ..Default::default() };
+    // Banked, so reopening the app restores what this press bought rather than asking for it
+    // again — see `KnownProject::trace_depth`.
+    crate::reports::note_trace(&key, if stopped { "files" } else { want.tag_str() });
+    project.scanned = project.scanned.wrapping_add(1);
+    Ok(started.elapsed().as_secs_f32())
+}
+
+/// Stop a running trace. What it read is kept.
+#[tauri::command]
+pub fn stop_trace(state: tauri::State<'_, crate::agentapi::Shared>, path: String) -> bool {
+    let key = crate::agentapi::project_key(&PathBuf::from(&path));
+    let s = crate::agentapi::lock(&state);
+    s.projects
+        .get(&key)
+        .map(|p| p.trace.stop.store(true, std::sync::atomic::Ordering::Relaxed))
+        .is_some()
 }
 
 /// The text of one file in the open repo, for the code view.

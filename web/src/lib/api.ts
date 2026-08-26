@@ -640,6 +640,13 @@ export function startCheck(
 }
 
 /** Ask a wave to stop. Honored between readers, never mid-reading. */
+/** Stop a running scan. What it parsed is kept in the scan cache, so the next attempt picks up
+ *  where this one stopped; the tree is not — a half-parsed tree is a wrong map, not a small
+ *  one, so a stopped scan leaves the map that was there before it. */
+export function stopScan(): Promise<void> {
+  return invoke<void>('stop_scan')
+}
+
 export function stopCheck(key: string): Promise<void> {
   return invoke<void>('stop_check', { key })
 }
@@ -653,6 +660,49 @@ export function stopCheck(key: string): Promise<void> {
  *  as done. */
 export function readable(p: ProjectSummary): number {
   return p.functions + p.files
+}
+
+/** What the next depth of history would cost, as the backend priced it.
+ *
+ *  Seconds are an ESTIMATE, and `cold` says whether anything measured this repo: one nobody
+ *  has walked here is priced from its packed object count against a corpus ratio, which is
+ *  free and approximate. Printing that as though somebody had timed it would be the
+ *  instrument claiming a confidence it has not got. */
+export interface TraceCost {
+  seconds: number
+  commits: number | null
+  cold: boolean
+  fits: boolean
+}
+
+/** What reading a repo's history would cost, before it has been added — see `estimateTrace`. */
+/** Stop a running trace. What it read is kept — depth 1 is whole or not at all, and a stopped
+ *  depth 2 leaves the files it reached resolved and the rest on their file's numbers. */
+export function stopTrace(path: string): Promise<boolean> {
+  return invoke<boolean>('stop_trace', { path })
+}
+
+export function estimateTrace(path: string): Promise<TraceCost> {
+  return invoke<TraceCost>('estimate_trace', { path })
+}
+
+/** Does the add dialog explain what a scan and a trace are? Machine-local, and it hides the
+ *  explanation rather than the choice — a repo over budget still arrives with its history
+ *  unread either way, which is what makes the checkbox safe to tick. */
+export function explainTrace(): Promise<boolean> {
+  return invoke<boolean>('explain_trace')
+}
+
+export function setExplainTrace(explain: boolean): Promise<void> {
+  return invoke('set_explain_trace', { explain })
+}
+
+/** What a scan would cost, as the backend priced it from the last one's rate. */
+export interface ScanCost {
+  seconds: number
+  files: number | null
+  cold: boolean
+  fits: boolean
 }
 
 export interface ProjectSummary {
@@ -696,6 +746,38 @@ export interface ProjectSummary {
    *  count beside it froze. Backend-reported, so a reloaded window, a second window and a
    *  headless `serve` all say the same thing. Null when nothing is walking it. */
   tracing: Progress | null
+  /** How much of this repo's history the MAP holds — see `trace::Depth` in Rust.
+   *
+   *  `untraced` means the wedges carry no age, churn or author at all. That is NOT the same
+   *  sentence as "this folder has no git history", and the two must never render alike: one
+   *  is a fact about the repo, the other is work nobody has paid for yet. */
+  trace_depth: 'untraced' | 'files' | 'lines'
+  /** What reading more of it would cost, when that is more than the budget spends unasked.
+   *
+   *  Present means the map is deliberately incomplete and somebody has to say go. Null means
+   *  nothing is waiting — it fitted and it was done, or it is running now. */
+  trace_cost: TraceCost | null
+  /** Where a running trace has got to, from the process doing it — null when none is.
+   *
+   *  Its own field beside `tracing`, which is the REPLAY's progress: they are two depths of
+   *  one instrument and they run independently, so a row folding them into one would report
+   *  whichever started last. */
+  tracing_history: Progress | null
+  /** Files with per-line history, and how many the trace set out to resolve.
+   *
+   *  **Divide these by each other and nothing else.** `files` beside them is a different count —
+   *  what a reader could be handed — and using it as the denominator left the fraction unable to
+   *  reach one, so the Trace pill went on offering work that was already done. */
+  resolved: number
+  resolvable: number
+  /** The repo has moved since this scan, and rescanning it is over budget. The one state where
+   *  a map is knowingly out of date — small repos are repaired within a tick and never set it. */
+  behind: boolean
+  /** What a scan of this repo would cost, when nobody has been asked yet.
+   *
+   *  Present ONLY for a repo whose scan was declined: there is no tree, every count is zero
+   *  because nothing has been measured, and this is what the row offers instead. */
+  scan_cost: ScanCost | null
   /** Which agent reads this repo. Machine-local — which CLI you have is a fact about this
    *  laptop, not about the repo. Null until somebody chooses. */
   harness: string | null

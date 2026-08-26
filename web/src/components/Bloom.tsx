@@ -145,14 +145,22 @@ function Flower({ s = 1 }: { s?: number }) {
 }
 
 /** A leaf: the **vesica**, the lens where two equal circles overlap, each arc through the
- *  other's center — the leaf every illuminator has drawn since the twelfth century. */
+ *  other's center — the leaf every illuminator has drawn since the twelfth century.
+ *
+ *  The path is exported because it is the shape, not this component: the sidebar hangs the same
+ *  leaf off a stem in `Sprig`, and a second leaf drawn by hand would be a second answer to a
+ *  question this one has already answered. `L` is the half-length along the midrib. */
+export function leafPath(L: number): string {
+  const R = L * 1.16
+  return `M ${-L} 0 A ${R} ${R} 0 0 1 ${L} 0 A ${R} ${R} 0 0 1 ${-L} 0 Z`
+}
+
 function Leaf({ s = 1 }: { s?: number }) {
   const L = 7.4
-  const R = L * 1.16
   return (
     <g transform={`scale(${s})`}>
       <path
-        d={`M ${-L} 0 A ${R} ${R} 0 0 1 ${L} 0 A ${R} ${R} 0 0 1 ${-L} 0 Z`}
+        d={leafPath(L)}
         fill="currentColor"
         fillOpacity={0.18}
         stroke="currentColor"

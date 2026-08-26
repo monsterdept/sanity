@@ -156,6 +156,19 @@ impl Blame {
         self.files.get(path)
     }
 
+    /// How many files this holds per-line history for.
+    ///
+    /// The numerator of what the map can honestly claim: a pass that was stopped, or one that
+    /// hit untracked files, resolves some of a repo and not the rest — see `TraceState::
+    /// resolved`, which is where that fraction is reported rather than rounded away.
+    pub fn len(&self) -> usize {
+        self.files.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+
     /// Blame every file, in parallel, taking from `cache` whatever is still current.
     ///
     /// Failures are silent and per-file on purpose: an untracked file, a symlink, or a
@@ -185,6 +198,13 @@ impl Blame {
         paths: &[(String, u64)],
         history: &History,
         cache: &ScanCache,
+        // **Checked per file, because this is the phase worth stopping.** A cold pass is 206s
+        // on ceph and hours on a repo of a hundred thousand files, and what it has already
+        // done is not lost when it stops: `scancache` appends every four hundred entries, so
+        // a second run picks up where this one was interrupted. Stopping is therefore cheap
+        // and resuming is nearly free, which is what makes starting it a reasonable thing to
+        // offer somebody.
+        stop: &std::sync::atomic::AtomicBool,
         done: &(dyn Fn(&str) + Sync),
     ) -> Blame {
         let now = std::time::SystemTime::now()
@@ -193,6 +213,7 @@ impl Blame {
             .unwrap_or(0);
         let files = paths
             .par_iter()
+            .filter(|_| !stop.load(std::sync::atomic::Ordering::Relaxed))
             .map(|entry| {
                 done(&entry.0);
                 entry
@@ -676,6 +697,17 @@ fn parse_porcelain(text: &str) -> FileBlame {
         }
     }
     FileBlame { lines, authors }
+}
+
+/// A blame with one line in it, for tests elsewhere in the crate that need a VALUE rather
+/// than a reading — `scancache` has to prove it kept one across a re-parse, and the fields
+/// are private so it cannot build one itself.
+#[cfg(test)]
+pub(crate) fn fixture(author: &str) -> FileBlame {
+    FileBlame {
+        lines: vec![Line { commit: 1, author: 0, time: 0 }],
+        authors: vec![author.to_string()],
+    }
 }
 
 #[cfg(test)]

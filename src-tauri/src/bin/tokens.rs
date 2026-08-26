@@ -123,6 +123,7 @@ fn main() {
         // Ordering fidelity: the all-pairs term changes the SCORES, and this tool weighs
         // payloads. Skipping it costs nothing here and makes a large repo finish.
         sanity_lib::scan::Fidelity::Ordering,
+        sanity_lib::trace::Depth::Lines,
     ) {
         Ok(s) => s,
         Err(e) => {

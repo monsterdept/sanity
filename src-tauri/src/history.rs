@@ -1753,21 +1753,30 @@ struct Cached {
 /// `.sanity/`, which is the repo's committed assessment and holds only what cannot be
 /// recomputed. Every byte here comes back from `git log`.
 fn cache_path(repo: &Path, limit: usize) -> Option<PathBuf> {
-    let dir = crate::reports::data_dir()?.join("timelines");
-    std::fs::create_dir_all(&dir).ok()?;
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in repo.to_string_lossy().as_bytes() {
-        h ^= *b as u64;
-        h = h.wrapping_mul(0x1000_0000_01b3);
-    }
-    // Named rather than numbered when unbounded — a file called `…-18446744073709551615`
-    // is a number nobody can read as "the whole repo".
+    crate::reports::cache_slot("timelines", repo, &tag(limit)).map(|p| p.with_extension("json"))
+}
+
+/// The name this build's timelines are kept under — see [`crate::reports::cache_slot`].
+///
+/// The window first, because it is the oldest half of this name and the one a person reads:
+/// a different window is a different fold and gets its own file rather than being trimmed or
+/// extended into shape. Then the two versions `load_cache` refuses on. Without them a release
+/// app and a dev build one `PARSE_VERSION` apart each replayed the repo in full and wrote the
+/// result over the other's — 57s of tonepoet, every switch, in both directions.
+///
+/// Named rather than numbered when unbounded: a file called `…-18446744073709551615` is a
+/// number nobody can read as "the whole repo".
+fn tag(limit: usize) -> String {
     let window = if limit == ALL_COMMITS { "all".to_string() } else { limit.to_string() };
-    Some(dir.join(format!("{h:016x}-{window}.json")))
+    format!("{window}-p{}v{}", crate::parse::PARSE_VERSION, CACHE_VERSION)
 }
 
 fn load_cache(repo: &Path, limit: usize) -> Option<HistoryScan> {
-    let text = std::fs::read_to_string(cache_path(repo, limit)?).ok()?;
+    let path = cache_path(repo, limit)?;
+    // A timeline with nothing new to append is read and left alone, which is a use and not a
+    // write, and only a write is visible to another build's sweep — see `mark_used`.
+    crate::reports::mark_used(&path);
+    let text = std::fs::read_to_string(path).ok()?;
     let cached: Cached = serde_json::from_str(&text).ok()?;
     (cached.version == CACHE_VERSION
         && cached.parse == crate::parse::PARSE_VERSION
@@ -1824,6 +1833,10 @@ fn bank(repo: &Path, limit: usize, scan: &HistoryScan) {
 
 fn save_cache(repo: &Path, limit: usize, scan: &HistoryScan) {
     let Some(path) = cache_path(repo, limit) else { return };
+    // Windows other than this one go the same way as versions other than this one: a fold
+    // nobody has written or opened in a month. `--limit` is an experiment's flag, so those
+    // are its leftovers; the app itself only ever asks for `ALL_COMMITS`.
+    crate::reports::prune_slots("timelines", repo, &tag(limit));
     // Nothing is reported when this fails. A reading that fails to save is an error the
     // agent must see, because the work is gone; a timeline that fails to save costs the
     // next replay some seconds and nothing else.

@@ -39,6 +39,7 @@ fn main() {
         // The scores are never used here — only the handout is — so the all-pairs term
         // would be thirty seconds spent on a number this tool does not print.
         sanity_lib::scan::Fidelity::Ordering,
+        sanity_lib::trace::Depth::Lines,
     ) {
         Ok(s) => s,
         Err(e) => {

@@ -132,6 +132,15 @@ pub struct Project {
     /// The comparison the tick makes. Held per project rather than globally because two repos
     /// move independently and a single mark would rescan both whenever either did.
     pub marks: crate::watch::Marks,
+    /// How much of this repo's history has been read, and what more would cost.
+    pub trace: TraceState,
+    /// The repo has moved since this scan, and rescanning it is over [`crate::scan::BUDGET`].
+    ///
+    /// **The one state where a map is knowingly out of date.** A small repo is repaired by the
+    /// next tick and never sets this; a large one would cost more than the watcher may spend
+    /// unasked, so the map is kept, the flag is raised, and the row offers a rescan. Keeping
+    /// the map and saying nothing would be the same sin as a stale reading keeping its colour.
+    pub behind: bool,
     /// Bumped every time a scan lands. The window follows it.
     ///
     /// A counter rather than a timestamp for the same reason `touched` is one: the UI has to
@@ -192,6 +201,13 @@ pub struct AppState {
     /// as fully assessed because it has no functions to assess. This list is display-only,
     /// and drains as each real scan lands.
     pub restoring: Vec<crate::reports::KnownProject>,
+    /// Projects whose scan would cost more than [`crate::scan::BUDGET`], waiting to be asked.
+    ///
+    /// Held apart from `projects` for the reason above and one more: a repo in here has no
+    /// tree at all, so a placeholder would report zero functions as though somebody had
+    /// counted them. It is display-only, it carries the estimate the row shows, and it empties
+    /// the moment a scan is asked for.
+    pub awaiting: HashMap<String, crate::scan::Estimate>,
     /// How far each pending rescan has got, keyed the same way.
     ///
     /// Measured, not estimated. The scan already reports `done`/`total` and the restore was
@@ -301,25 +317,33 @@ impl AppState {
         let live: Vec<crate::reports::KnownProject> = self
             .projects
             .iter()
-            .map(|(key, p)| crate::reports::KnownProject {
-                key: key.clone(),
-                repo: p.repo.to_string_lossy().to_string(),
-                name: p.name.clone(),
-                touched: p.touched,
-                // The one field here the live project simply knows. It is what the restore
-                // sorts lanes by next launch — see `BIG_REPO_FILES`.
-                files: Some(p.scan.stats.files_scanned),
-                // Carried across from the entry being replaced, because it is not held in
-                // memory at all. `AppState` knows nothing about which agent reads this
-                // repo — `sanity init` writes it straight to the index — so building a
-                // fresh record from the live project and saving it would erase the setting
-                // on the next touch of any kind, silently, minutes after it was made.
-                harness: index
-                    .projects
-                    .iter()
-                    .find(|k| &k.key == key)
-                    .and_then(|k| k.harness.clone()),
-                model: index.projects.iter().find(|k| &k.key == key).and_then(|k| k.model.clone()),
+            .map(|(key, p)| {
+                // **Everything this record holds that memory does not.** `AppState` knows
+                // which repos are open and how big they are; it does not know which agent
+                // reads this one, what its last scan cost, or how deep anybody has traced it —
+                // those are written straight to the index by other paths. So a fresh record
+                // built from the live project ERASES them on the next touch of any kind,
+                // silently, minutes after they were set.
+                //
+                // That was written down here for `harness` and it happened again anyway, to
+                // `scan_ms` and `trace_depth`, because the trap is a field list and a comment
+                // is not one: tracing a second project touched the index and wiped the first
+                // project's depth on the way past. `a_touch_cannot_erase_what_only_the_index_
+                // knows` is the tripwire; the comment is why.
+                let banked = index.projects.iter().find(|k| &k.key == key);
+                crate::reports::KnownProject {
+                    key: key.clone(),
+                    repo: p.repo.to_string_lossy().to_string(),
+                    name: p.name.clone(),
+                    touched: p.touched,
+                    // The one field here the live project simply knows. It is what the restore
+                    // sorts lanes by next launch — see `BIG_REPO_FILES`.
+                    files: Some(p.scan.stats.files_scanned),
+                    scan_ms: banked.and_then(|k| k.scan_ms),
+                    trace_depth: banked.and_then(|k| k.trace_depth.clone()),
+                    harness: banked.and_then(|k| k.harness.clone()),
+                    model: banked.and_then(|k| k.model.clone()),
+                }
             })
             .collect();
         // Anything on disk this session has not loaded is carried through untouched. Live
@@ -361,6 +385,11 @@ impl AppState {
     /// per-project clock, so it leaves with the project.
     pub fn forget(&mut self, key: &str) {
         self.projects.remove(key);
+        // And off the declined list, or a repo taken out of the sidebar comes back as a row
+        // offering to scan itself — the ghost `restoring` was written up against, arriving
+        // through the one list that does not drain on its own.
+        self.awaiting.remove(key);
+        self.restoring.retain(|k| k.key != key);
         if self.active.as_deref() == Some(key) {
             self.active = None;
         }
@@ -1612,7 +1641,7 @@ fn default_n() -> usize {
     1
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct OpenRequest {
     /// Which repo. **Optional, and an agent should leave it out.**
     ///
@@ -2012,6 +2041,8 @@ async fn open_project(
             name,
             touched: 0,
             files: None,
+            scan_ms: None,
+            trace_depth: None,
             harness: None,
             model: None,
         });
@@ -2025,7 +2056,7 @@ async fn open_project(
         // touched is the same work producing the same answer, and on PrusaSlicer that was
         // 51.5s of a 51.5s open. See `scancache`.
         let scans = crate::scancache::ScanCache::open(&scan_path);
-        crate::scan::scan(
+        let mut scan = crate::scan::scan(
             &scan_path,
             &crate::surprise::HeuristicModel,
             &|_| {},
@@ -2034,7 +2065,22 @@ async fn open_project(
             &std::sync::atomic::AtomicBool::new(false),
             crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
             crate::scan::Fidelity::Ordering,
-        )
+            crate::trace::Depth::Untraced,
+        )?;
+        // **An open is an ASK, so it is not gated** — a person picked this repo or an agent
+        // named it, and either way somebody is waiting on the answer and meant to be. What it
+        // is not is a blank cheque for depth 2: blame is per-file work on a scale nothing here
+        // can predict — an hour on kibana — so it stays an explicit request of its own, the
+        // same for a human and for an agent. `sanity_open` reports what that would cost.
+        crate::trace::deepen(
+            &scan_path,
+            &mut scan,
+            crate::trace::Depth::Files,
+            &scans,
+            &std::sync::atomic::AtomicBool::new(false),
+            &|_, _, _| {},
+        );
+        Ok::<_, anyhow::Error>(scan)
     })
     .await;
     let scan_ms = started.elapsed().as_millis() as u64;
@@ -2102,6 +2148,10 @@ async fn open_project(
     // going. Two construction sites for one struct is how the same bug arrives twice; there
     // is one now.
     let mut project = Project::rescan(s.projects.get(&key), path, name.clone(), scan, reports);
+    // What the open above actually traced to, and what the depth beyond it would cost — an
+    // open never takes depth 2 on its own, so this is where a caller learns what asking for it
+    // buys. See `open_project`'s scan.
+    project.trace = TraceState { depth: crate::trace::Depth::Files, ..Default::default() };
     // Leases are the one thing a reopen SHOULD drop, and now for one reason rather than
     // two. Ids no longer move when a function does — see `assessment::key_of` — so a lease
     // is no longer a claim on a line. What it is is a claim taken against a BODY that this
@@ -2113,6 +2163,8 @@ async fn open_project(
     project.recent_files.clear();
     project.last_agent = Some(Instant::now());
     s.projects.insert(key.clone(), project);
+    // An open is an ask, so whatever the budget declined is now paid for — see `scan_now`.
+    s.awaiting.remove(&key);
     s.touch(&key);
     let showing = s.focus(&key, req.focus.unwrap_or(false));
     Json(serde_json::json!({
@@ -3185,6 +3237,166 @@ async fn stop(State(state): State<Shared>, Json(p): Json<StatusParams>) -> Json<
     Json(serde_json::json!({ "ok": true, "stopped": stopped }))
 }
 
+/// What `trace` was asked for.
+#[derive(Debug, Deserialize)]
+struct TraceParams {
+    #[serde(default)]
+    project: Option<String>,
+    /// `files` or `lines`. Absent deepens by one step from wherever this repo is.
+    #[serde(default)]
+    depth: Option<String>,
+}
+
+/// Read this repo's history, because somebody asked.
+///
+/// **The other side of the budget, and the only one that spends without a ceiling.** The gate
+/// exists to keep work nobody invited off a person's machine; a caller reaching this has
+/// invited it, so what it does is what it was told and the cost is reported rather than
+/// refused. The estimate the row was showing is what they decided from.
+///
+/// Synchronous on purpose. Depth 1 is seconds-to-a-minute and the caller wants the map to be
+/// right when it returns; depth 2 is the long one and a caller asking for it has been shown
+/// what it costs. What makes that survivable is the stop flag, not a short call.
+async fn trace(State(state): State<Shared>, Json(p): Json<TraceParams>) -> Json<serde_json::Value> {
+    let (key, repo, at) = {
+        let st = lock(&state);
+        let Some(key) = st.for_client(p.project.as_deref()) else {
+            return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
+        };
+        let Some(project) = st.projects.get(&key) else {
+            return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
+        };
+        (key.clone(), project.repo.clone(), project.trace.depth)
+    };
+    let depth = match p.depth.as_deref() {
+        Some("files") => crate::trace::Depth::Files,
+        Some("lines") => crate::trace::Depth::Lines,
+        // One step on from wherever it is. A caller that says nothing gets the cheap half
+        // first, which is also the half that makes the next estimate a measured one.
+        None => match at {
+            crate::trace::Depth::Untraced => crate::trace::Depth::Files,
+            _ => crate::trace::Depth::Lines,
+        },
+        Some(other) => {
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": format!("unknown depth {other}"),
+                "hint": "depth is `files` (the commit log) or `lines` (per-line blame)",
+            }));
+        }
+    };
+
+    let started = Instant::now();
+    // Cleared before it starts, never after it ends: a flag left set by a previous stop would
+    // make the next trace refuse to do anything and look like a button that did nothing.
+    let stop = {
+        let mut st = lock(&state);
+        let Some(project) = st.projects.get_mut(&key) else {
+            return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
+        };
+        project.trace.stop.store(false, std::sync::atomic::Ordering::Relaxed);
+        project.trace.running = Some(crate::scan::Progress::phase("reading the commit log"));
+        project.trace.stop.clone()
+    };
+    let traced = {
+        let repo = repo.clone();
+        let mut scan = { lock(&state).projects.get(&key).map(|p| p.scan.clone()) };
+        let ticking = state.clone();
+        let ticking_key = key.clone();
+        tokio::task::spawn_blocking(move || {
+            let scan = scan.as_mut()?;
+            let scans = crate::scancache::ScanCache::open(&repo);
+            let resolved =
+                crate::trace::deepen(&repo, scan, depth, &scans, &stop, &|path, done, total| {
+                    let mut st = lock(&ticking);
+                    if let Some(p) = st.projects.get_mut(&ticking_key) {
+                        p.trace.running = Some(
+                            crate::scan::Progress::counting(
+                                "reading per-line history",
+                                "files",
+                                done,
+                                total,
+                            )
+                            .on(path),
+                        );
+                    }
+                });
+            Some((scan.clone(), resolved))
+        })
+        .await
+        .ok()
+        .flatten()
+    };
+    let Some((scan, resolved)) = traced else {
+        return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
+    };
+
+    let mut st = lock(&state);
+    let Some(project) = st.projects.get_mut(&key) else {
+        return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
+    };
+    project.scan = scan;
+    // **The depth asked for, with the coverage it actually reached.** A stopped pass used to
+    // be reported as the depth below — rounding a fraction into a step, which made two thirds
+    // of a repo's blame look like work that never happened. `resolved` says where it got to.
+    let stopped = project.trace.stop.load(std::sync::atomic::Ordering::Relaxed);
+    project.trace = TraceState { depth, resolved, ..Default::default() };
+    // Banked, so a restart puts the map back where somebody paid to have it — see
+    // `KnownProject::trace_depth`. Only what actually landed: a stopped pass banks the depth it
+    // reached, not the one it was aiming at.
+    crate::reports::note_trace(&key, if stopped { "files" } else { depth.tag_str() });
+    project.scanned = project.scanned.wrapping_add(1);
+    Json(serde_json::json!({
+        "ok": true,
+        "project": key,
+        "repo": repo.display().to_string(),
+        "depth": project.trace.depth,
+        "stopped": stopped,
+        "seconds": started.elapsed().as_secs_f32(),
+    }))
+}
+
+/// Scan a repo whose scan was declined for cost, because somebody asked.
+///
+/// The other side of `scan::BUDGET`, and the counterpart to `/trace`: a launch that would have
+/// spent a minute parsing linux leaves the row saying what it would cost, and this is how a
+/// person says go. It routes through `open_project`, which is the one place a scan becomes a
+/// project — a second construction site for the same thing is how the same bug arrives twice.
+async fn scan_now(State(state): State<Shared>, Json(p): Json<StatusParams>) -> Json<serde_json::Value> {
+    let repo = {
+        let st = lock(&state);
+        let Some(key) = st.for_client(p.project.as_deref()) else {
+            return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
+        };
+        crate::reports::load_index()
+            .projects
+            .into_iter()
+            .find(|k| k.key == key)
+            .map(|k| k.repo)
+    };
+    let Some(repo) = repo else {
+        return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
+    };
+    open_project(State(state), Json(OpenRequest { path: Some(repo), ..Default::default() })).await
+}
+
+/// Stop a running trace. What it has read is kept — see `trace::deepen`.
+async fn stop_trace(
+    State(state): State<Shared>,
+    Json(p): Json<StatusParams>,
+) -> Json<serde_json::Value> {
+    let st = lock(&state);
+    let Some(key) = st.for_client(p.project.as_deref()) else {
+        return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
+    };
+    let stopped = st
+        .projects
+        .get(&key)
+        .map(|p| p.trace.stop.store(true, std::sync::atomic::Ordering::Relaxed))
+        .is_some();
+    Json(serde_json::json!({ "ok": true, "stopped": stopped }))
+}
+
 /// Run a future to completion in the background, with or without a runtime to hand.
 ///
 /// **`tokio::spawn` panics when nothing is running, and that shipped.** `start_run` used it
@@ -3456,6 +3668,14 @@ impl Project {
         Project {
             file_marks: stamp_marks(&repo, &scan),
             marks: crate::watch::probe(&repo),
+            // **The trace belongs to the SCAN, not to the project's run**, so it does not
+            // survive here the way the leases and predictions do: this `scan` was folded with
+            // whatever depth its caller traced it to, and claiming the last one's depth over a
+            // fresh tree would be the map reporting a resolution nobody paid for. The caller
+            // sets it from what it actually did.
+            trace: TraceState::default(),
+            // A fresh tree is by definition not behind the repo it was just read from.
+            behind: false,
             leased: prev.map(|p| p.leased.clone()).unwrap_or_default(),
             recent_files: prev.map(|p| p.recent_files.clone()).unwrap_or_default(),
             predictions: prev.map(|p| p.predictions.clone()).unwrap_or_default(),
@@ -4350,6 +4570,15 @@ async fn status(
                 // process when something is wrong, which a status verb should not withhold.
                 "pid": std::process::id(),
                 "port": read_endpoint().map(|e| e.port),
+                // **How much of this repo's history the map holds**, because an orchestrator
+                // reading `churn` or `age` off a summary has to know whether anybody has read
+                // the log. `untraced` means those numbers are absent, which is not the same
+                // claim as a repo with no git in it — see `trace::Depth`.
+                "trace_depth": p.trace.depth,
+                // What reading more would cost, when it is more than Sanity spends unasked.
+                // Present means the map is deliberately incomplete and a person has to say go;
+                // `sanity trace` is the verb, and `sanity_open` counts as having asked.
+                "trace_cost_s": p.trace.pending.as_ref().map(|e| e.seconds),
                 "functions": functions,
                 // **Beside `functions`, because `assessed` counts both.** A file with
                 // declarations is its own reading — queued, leased, graded and expired
@@ -4864,6 +5093,36 @@ pub struct ProjectSummary {
     /// the list the sidebar already polls, so any window — reloaded, second, or opened an hour
     /// later — sees the same thing.
     pub tracing: Option<crate::scan::Progress>,
+    /// How much of this repo's history the MAP holds — see `trace::Depth`.
+    ///
+    /// Depth 3 is the replay above; this is the two below it. `untraced` means the wedges carry
+    /// no age, churn or author at all, which is a different sentence from "this folder has no
+    /// git history" and has to reach the window as one.
+    pub trace_depth: crate::trace::Depth,
+    /// What reading more of it would cost, when that is more than a budget will spend unasked.
+    ///
+    /// `None` means nothing is waiting — either it fits and has been done, or it is running.
+    /// Present means the map is deliberately incomplete and somebody has to say go.
+    pub trace_cost: Option<crate::trace::Estimate>,
+    /// Where a running trace has got to, from the process doing it. Null when none is.
+    pub tracing_history: Option<crate::scan::Progress>,
+    /// Files with per-line history, and how many the trace was asked to resolve.
+    ///
+    /// **Both numbers, from the same place.** The row used to divide `resolved` by the file
+    /// count reported beside it, and the two are counted differently — `files` is what a reader
+    /// could be handed, `resolvable` is every file node the trace walked — so the fraction
+    /// never reached one and the pill went on offering work that was done. Two fields that are
+    /// always set together cannot drift the way two definitions of one number can.
+    pub resolved: usize,
+    pub resolvable: usize,
+    /// The repo has moved and rescanning it is over budget — see `Project::behind`.
+    pub behind: bool,
+    /// What a scan of this repo would cost, when nobody has been asked yet.
+    ///
+    /// Present ONLY for a repo whose scan was declined: there is no tree, every count below is
+    /// zero because nothing has been measured, and this is what the row offers instead. Not to
+    /// be confused with `trace_cost`, which is about a repo that HAS a map.
+    pub scan_cost: Option<crate::scan::Estimate>,
     pub stale: usize,
     pub touched: u64,
     /// An agent has called about this project recently. Per project, so two sessions
@@ -4915,6 +5174,15 @@ impl ProjectList {
                 let Counts { kept: functions, excluded, oversize } = count_funcs(&p.scan);
                 let files = count_files(&p.scan).kept;
                 ProjectSummary {
+                    trace_depth: p.trace.depth,
+                    trace_cost: p.trace.pending.clone(),
+                    tracing_history: p.trace.running.clone(),
+                    resolved: p.trace.resolved.0,
+                    resolvable: p.trace.resolved.1,
+                    behind: p.behind,
+                    // A project with a tree has been scanned; what it would cost to do again
+                    // is not a question the row asks. See the field.
+                    scan_cost: None,
                     // Same window as `agent_activity`: a reader predicting, opening a
                     // file and writing a report goes quiet for tens of seconds inside one
                     // continuous batch, and a shorter window makes it flicker.
@@ -4988,6 +5256,72 @@ impl ProjectList {
                 }
             })
             .collect();
+        // **Projects whose scan was declined for cost.** Listed from the index like the
+        // restoring rows below, and for the same reason — the name and path are known and the
+        // counts are not — but with `loading: false`, because nothing is happening and
+        // nothing is going to until somebody says so. The estimate rides along as the only
+        // number the row can honestly print.
+        projects.extend(
+            state
+                .awaiting
+                .iter()
+                // Against BOTH lists, not just the loaded one. Three sources feed this vector
+                // — loaded, declined, pending — and any two of them naming one key is that
+                // project on screen twice. `scan_repo` clears the declined entry when a scan
+                // starts, and this is the guard behind that rather than the message: a row
+                // that has appeared twice is not something to explain, it is something not to
+                // do.
+                .filter(|(key, _)| {
+                    !state.projects.contains_key(*key)
+                        && !state.restoring.iter().any(|k| &k.key == *key)
+                })
+                .filter_map(|(key, cost)| {
+                    let known =
+                        crate::reports::load_index().projects.into_iter().find(|k| &k.key == key)?;
+                    Some(ProjectSummary {
+                        key: known.key.clone(),
+                        name: known.name.clone(),
+                        repo: known.repo.clone(),
+                        scan_cost: Some(cost.clone()),
+                        functions: 0,
+                        files: 0,
+                        scanned: 0,
+                        excluded: 0,
+                        oversize: 0,
+                        harness: known.harness.clone(),
+                        model: known.model.clone(),
+                        banked_model: None,
+                        banked_harness: None,
+                        banked_models: Vec::new(),
+                        recent_model: None,
+                        run: None,
+                        events: Vec::new(),
+                        assessed: 0,
+                        unread_lines: 0,
+                        commits: 0,
+                        replayed: 0,
+                        tracing: None,
+                        trace_depth: crate::trace::Depth::Untraced,
+                        trace_cost: None,
+                        tracing_history: None,
+                        resolved: 0,
+                        resolvable: 0,
+                        behind: false,
+                        reading: Vec::new(),
+                        stale: 0,
+                        touched: known.touched,
+                        working: false,
+                        // **Not loading.** A declined scan is a standing state, not a wait —
+                        // the row that says "loading" forever is the failure this flag exists
+                        // to prevent, wearing the opposite face.
+                        loading: false,
+                        read_done: 0,
+                        read_total: 0,
+                        read_phase: String::new(),
+                        read_unit: String::new(),
+                    })
+                }),
+        );
         // Projects the restore knows about but has not reached yet. Listed from the index,
         // which holds the name and path — everything the sidebar needs to show a row — and
         // nothing it does not, so the counts stay zero behind `loading` rather than being
@@ -5032,6 +5366,15 @@ impl ProjectList {
                         commits: 0,
                         replayed: 0,
                         tracing: None,
+                        // Nothing has been scanned, so nothing has been traced and there is
+                        // no bank to price the next one from — same rule as the counts above.
+                        trace_depth: crate::trace::Depth::Untraced,
+                        trace_cost: None,
+                        tracing_history: None,
+                        resolved: 0,
+                        resolvable: 0,
+                        behind: false,
+                        scan_cost: None,
                         reading: Vec::new(),
                         stale: 0,
                         touched: known.touched,
@@ -5178,6 +5521,9 @@ pub fn router(state: Shared) -> Router {
         .route("/check", post(check))
         .route("/stop", post(stop))
         .route("/report", post(report))
+        .route("/scan", post(scan_now))
+        .route("/trace", post(trace))
+        .route("/trace/stop", post(stop_trace))
         .route("/status", get(status))
         .route("/summary", get(summary))
         .with_state(state)
@@ -5402,7 +5748,37 @@ fn drain(
             }
             s.restoring_progress.insert(progress_key.clone(), p);
         };
-        let Ok(scan) = crate::scan::scan(
+        // **Priced before a file is opened.** The count and the rate are both banked by the
+        // last scan of this repo, so this costs a lookup — which is the point at a launch
+        // restoring every project, where a directory walk apiece to decide would be most of
+        // what the gate is meant to save. A repo nobody has scanned here is not refused: its
+        // size is unknown, and refusing on an unknown would leave a row that cannot be acted
+        // on. See `scan::estimate`.
+        let priced = crate::scan::estimate(known.files, known.scan_ms);
+        // **A cached tree makes that price wrong**, and wrong in the direction that annoys: the
+        // estimate is what PARSING would cost, and a repo whose tree is already stored is not
+        // going to be parsed — the scan walks, matches the signature and decodes the answer.
+        // Kibana was declined at every launch on a fifteen-second estimate for a tenth of a
+        // second of work. Asked only when the price says no, so a small repo never pays for the
+        // question. See `treecache::warm`.
+        if !priced.fits
+            && !crate::treecache::warm(
+                &path,
+                crate::scan::Fidelity::Ordering,
+                crate::trace::Depth::Untraced,
+            )
+        {
+            let mut s = lock(state);
+            s.awaiting.insert(known.key.clone(), priced);
+            settled(&mut s);
+            continue;
+        }
+        let scans = crate::scancache::ScanCache::open(&path);
+        let scan_took = Instant::now();
+        // **Nobody asked for this one.** A launch restores every project in the index, so it is
+        // the least invited work in the app, and it draws the map without opening git at all —
+        // see `trace`. What history costs is decided below, against a budget, per repo.
+        let Ok(mut scan) = crate::scan::scan(
             &path,
             &crate::surprise::HeuristicModel,
             &on_progress,
@@ -5411,14 +5787,22 @@ fn drain(
             &std::sync::atomic::AtomicBool::new(false),
             crate::scan::Memos {
                 scores: &crate::cache::Cache::ephemeral(),
-                scans: &crate::scancache::ScanCache::open(&path),
+                scans: &scans,
             },
             // A queue sort key, not a number anyone sees — see `scan::Fidelity`.
             crate::scan::Fidelity::Ordering,
+            crate::trace::Depth::Untraced,
         ) else {
             settled(&mut lock(state));
             continue;
         };
+        // Banked from the scan that just ran, so the next launch prices this repo from its own
+        // measurement rather than the corpus default — see `reports::note_scan`. Written here
+        // rather than beside `note_size` because a rate needs a whole scan to be a rate.
+        crate::reports::note_scan(&known.key, scan.stats.files_scanned, scan_took.elapsed().as_millis() as u64);
+        let pending =
+            trace_within_budget(&path, &mut scan, &scans, known.trace_depth.as_deref(), &on_progress);
+        crate::reports::note_trace(&known.key, pending.depth.tag_str());
         let marks = stamp_marks(&path, &scan);
         let mut s = lock(state);
         settled(&mut s);
@@ -5432,6 +5816,8 @@ fn drain(
                 name: known.name.clone(),
                 scan,
                 reports,
+                trace: pending,
+                behind: false,
                 leased: HashMap::new(),
                 recent_files: HashMap::new(),
                 predictions: HashMap::new(),
@@ -5627,6 +6013,86 @@ pub fn restore(
     });
 }
 
+/// What a project's history has cost so far, and what the rest would cost.
+///
+/// **A depth is a property of the map, not a preference**, so it travels with the project and
+/// is reported wherever coverage is — see `trace::Depth`. `pending` is the estimate a person
+/// is shown when the next depth is over budget: present means "waiting to be asked", which is
+/// a third state beside traced and untraceable and must never render as either.
+#[derive(Clone, Debug, Default)]
+pub struct TraceState {
+    pub depth: crate::trace::Depth,
+    pub pending: Option<crate::trace::Estimate>,
+    /// How many of this repo's files have per-line blame, out of how many there are.
+    ///
+    /// **A fraction, because depth 2 genuinely is one.** Blame is a process per file and stops
+    /// per file, so a repo two thirds of the way through is two thirds resolved — and this
+    /// used to be rounded back down to `Files` on the argument that the map must not claim a
+    /// resolution it only has in places. A fraction does not CLAIM, it states; rounding it
+    /// away was the dishonest move, and it made a stopped pass look like work that never
+    /// happened. Zero of zero for an untraced repo.
+    pub resolved: (usize, usize),
+    /// Where a running trace has got to, reported by the thread doing it.
+    ///
+    /// **From the backend and not from the window**, for the reason the replay's own progress
+    /// already is: a reload would otherwise lose sight of a walk that is still running, and
+    /// the row would offer to start a second one.
+    pub running: Option<crate::scan::Progress>,
+    /// Set to stop the running trace. Per project, because two repos can be traced at once
+    /// and one flag would stop the wrong one.
+    pub stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// Read as much of `repo`'s history as fits the budget, and say what is left.
+///
+/// The one place the gate is applied to work nobody asked for — a launch restoring projects,
+/// and a watcher noticing a repo moved. An explicit open, a CLI verb or the window's own Trace
+/// button all go through [`deepen_project`] instead, which does what it was told.
+fn trace_within_budget(
+    repo: &Path,
+    scan: &mut Scan,
+    scans: &crate::scancache::ScanCache,
+    banked: Option<&str>,
+    on_progress: &(dyn Fn(crate::scan::Progress) + Sync),
+) -> TraceState {
+    match crate::trace::go(repo) {
+        crate::trace::Go::Run(mut depth) => {
+            on_progress(crate::scan::Progress::phase("reading the commit log"));
+            // **What this repo was traced to last time, if it can be had for nothing.** A
+            // restart used to drop a repo back to file resolution and ask for the per-line pass
+            // again — work somebody had already bought. Blame is cached per file, so an
+            // unchanged repo already holds every answer; `relines` prices the remainder and
+            // says no where the cache cannot serve it, which keeps a dropped cache from
+            // spending minutes at launch on work nobody re-requested.
+            if banked == Some("lines") && crate::trace::relines(scan, scans, &crate::trace::depth1(repo)) {
+                depth = crate::trace::Depth::Lines;
+            }
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let resolved =
+                crate::trace::deepen(repo, scan, depth, scans, &stop, &|path, done, total| {
+                    on_progress(
+                        crate::scan::Progress::counting(
+                            "reading per-line history",
+                            "files",
+                            done,
+                            total,
+                        )
+                        .on(path),
+                    );
+                });
+            TraceState { depth, resolved, pending: None, running: None, stop }
+        }
+        // Nothing is hidden by declining: the map is drawn, the row says what history would
+        // cost, and the button is right there. What must not happen is a launch quietly
+        // spending a minute of somebody's machine on linux's log.
+        crate::trace::Go::Ask(estimate) => TraceState {
+            depth: crate::trace::Depth::Untraced,
+            pending: Some(estimate),
+            ..Default::default()
+        },
+    }
+}
+
 /// Bind loopback and serve. Returns the port.
 ///
 /// 127.0.0.1 only, and port 0 so the OS picks a free one. This exposes a read-mostly view
@@ -5671,10 +6137,36 @@ async fn watch_tick(state: &Shared) {
         if now == was {
             continue;
         }
+        // **The repo moved and rescanning it is over budget**, so the map stays as it is and
+        // says so. This is the only way a scanned project's own map goes out of date without
+        // being repaired within a tick — small repos never reach it. See `Project::behind`.
+        let priced = {
+            let s = lock(state);
+            let known = crate::reports::load_index();
+            let entry = known.projects.iter().find(|k| k.key == key);
+            let _ = &s;
+            crate::scan::estimate(entry.and_then(|k| k.files), entry.and_then(|k| k.scan_ms))
+        };
+        if !priced.fits {
+            let mut s = lock(state);
+            if let Some(p) = s.projects.get_mut(&key) {
+                p.behind = true;
+                // The marks are advanced anyway. Without that every tick would re-notice the
+                // same change, and a flag that is set once is what the row needs — not a
+                // decision re-made twice a second for the life of the window.
+                p.marks = now;
+            }
+            continue;
+        }
         let scan_repo = repo.clone();
+        let banked = crate::reports::load_index()
+            .projects
+            .into_iter()
+            .find(|k| k.key == key)
+            .and_then(|k| k.trace_depth);
         let scanned = tokio::task::spawn_blocking(move || {
             let scans = crate::scancache::ScanCache::open(&scan_repo);
-            crate::scan::scan(
+            let mut scan = crate::scan::scan(
                 &scan_repo,
                 &crate::surprise::HeuristicModel,
                 &|_| {},
@@ -5683,10 +6175,16 @@ async fn watch_tick(state: &Shared) {
                 &std::sync::atomic::AtomicBool::new(false),
                 crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
                 crate::scan::Fidelity::Ordering,
-            )
+                crate::trace::Depth::Untraced,
+            )?;
+            // A timer nobody set is the least invited work there is — it already refuses to
+            // run while a reader holds a lease, and it takes the budget for the same reason.
+            // A branch switch on a large repo must not start a minute of `git log`.
+            let trace = trace_within_budget(&scan_repo, &mut scan, &scans, banked.as_deref(), &|_| {});
+            Ok::<_, anyhow::Error>((scan, trace))
         })
         .await;
-        let Ok(Ok(scan)) = scanned else {
+        let Ok(Ok((scan, trace))) = scanned else {
             // A repo that has been deleted or moved out from under us fails here every tick.
             // The marks are left alone deliberately: retrying is what recovers a `git
             // checkout` caught mid-write, and there is nothing to report to anyone about a
@@ -5710,9 +6208,14 @@ async fn watch_tick(state: &Shared) {
         p.scan = scan;
         p.reports = reports;
         p.file_marks = file_marks;
+        // Whatever the budget allowed this time. A repo that was traced and has now moved past
+        // what a tick may spend goes back to saying so rather than keeping the old depth's
+        // colours over a tree that no longer has those numbers in it.
+        p.trace = trace;
         // From after the scan, not the `now` from before it: anything the walk itself touched
         // is then already accounted for and cannot read as a change on the next tick.
         p.marks = fresh;
+        p.behind = false;
         p.scanned = p.scanned.wrapping_add(1);
     }
 }
@@ -5780,6 +6283,7 @@ pub(crate) mod tests {
                 scans: &crate::scancache::ScanCache::ephemeral(),
             },
             crate::scan::Fidelity::Ordering,
+            crate::trace::Depth::Lines,
         )
         .unwrap();
         let marks = stamp_marks(dir, &scan);
@@ -5788,6 +6292,8 @@ pub(crate) mod tests {
             name: "t".into(),
             scan,
             reports: HashMap::new(),
+            trace: TraceState { depth: crate::trace::Depth::Lines, ..Default::default() },
+            behind: false,
             leased: HashMap::new(),
             recent_files: HashMap::new(),
             predictions: HashMap::new(),
@@ -6010,6 +6516,8 @@ fn second() { println!(\"2\"); }\n",
                 name: (*k).into(),
                 touched: 0,
                 files: *files,
+                scan_ms: None,
+                trace_depth: None,
                 harness: None,
                 model: None,
             })
@@ -6043,6 +6551,99 @@ fn second() { println!(\"2\"); }\n",
         assert_eq!(again.projects[0].model.as_deref(), Some("sonnet"), "the model survived");
     }
 
+    /// One project is one row, whichever lists it is on.
+    ///
+    /// **The sidebar is fed by three of them** — loaded, declined for cost, and pending a scan
+    /// — and any two naming the same key put that repo on screen twice under one name. It
+    /// happened the moment the third was added: pressing `Scan` on a repo whose scan was over
+    /// budget starts a pending scan without clearing the declined entry, so kibana appeared
+    /// beside itself.
+    #[test]
+    fn a_project_on_two_lists_is_still_one_row() {
+        let _data = data_home();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let key = project_key(dir.path());
+        let known = crate::reports::KnownProject {
+            key: key.clone(),
+            repo: dir.path().to_string_lossy().to_string(),
+            name: "t".into(),
+            touched: 0,
+            files: None,
+            scan_ms: None,
+            trace_depth: None,
+            harness: None,
+            model: None,
+        };
+
+        // **In the index, or the declined row cannot exist.** It is built from the name and
+        // path on disk — a repo the index has never heard of has no row to draw — so a test
+        // that skips this asserts against a list the bug cannot reach, and passes whether the
+        // guard is there or not. It did.
+        crate::reports::remember(&key, &known.repo, "t");
+
+        let mut state = AppState::default();
+        state.awaiting.insert(key.clone(), crate::scan::estimate(Some(90_000), Some(90_000)));
+        state.restoring.push(known.clone());
+        assert_eq!(
+            ProjectList::from_state(&state).projects.iter().filter(|p| p.key == key).count(),
+            1,
+            "declined and pending is one repo in two states, not two repos"
+        );
+
+        // And once it has actually loaded, neither of the other two may add a second.
+        state.projects.insert(key.clone(), project_of(dir.path()));
+        assert_eq!(
+            ProjectList::from_state(&state).projects.iter().filter(|p| p.key == key).count(),
+            1,
+            "a loaded project is listed once however it got there"
+        );
+    }
+
+    /// A touch of ANY project must not erase what only the index knows about another.
+    ///
+    /// **This is the trap the `harness` comment in `persist` describes, sprung again.** That
+    /// record holds several things memory does not: which agent reads a repo, what its last
+    /// scan cost, how deep it has been traced. `persist` rebuilds an entry per live project on
+    /// every touch — and a field added to the struct and filled with `None` there erases the
+    /// banked value the next time anybody so much as selects a row.
+    ///
+    /// It cost exactly that: trace a repo, restart, see it come back traced; trace a SECOND
+    /// repo, restart, and both are untraced, because touching the second one rewrote the first
+    /// one's record on the way past. A comment did not stop it, so this does — every field the
+    /// index owns is asserted here, and adding one to `KnownProject` without carrying it
+    /// through `persist` fails this test rather than a user's map.
+    #[test]
+    fn a_touch_cannot_erase_what_only_the_index_knows() {
+        let _data = data_home();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let key = project_key(dir.path());
+
+        let state: Shared = Default::default();
+        {
+            let mut s = lock(&state);
+            s.projects.insert(key.clone(), project_of(dir.path()));
+        }
+        // Everything written to the index by a path that is not `persist`.
+        crate::reports::remember(&key, &dir.path().to_string_lossy(), "t");
+        crate::reports::set_reader(&key, &dir.path().to_string_lossy(), "t", Some("agy"), Some("sonnet"));
+        crate::reports::note_scan(&key, 41, 1234);
+        crate::reports::note_trace(&key, "lines");
+
+        // A touch of this project, and of another — the second is what actually bit, because
+        // `persist` rewrites every live entry rather than the one that moved.
+        lock(&state).touch(&key);
+        lock(&state).touch("/somewhere/else");
+
+        let index = crate::reports::load_index();
+        let banked = index.projects.iter().find(|k| k.key == key).expect("still listed");
+        assert_eq!(banked.trace_depth.as_deref(), Some("lines"), "the traced depth survived");
+        assert_eq!(banked.scan_ms, Some(1234), "what the last scan cost survived");
+        assert_eq!(banked.harness.as_deref(), Some("agy"), "the harness survived");
+        assert_eq!(banked.model.as_deref(), Some("sonnet"), "the model survived");
+    }
+
     /// A save from a half-restored session must not erase the projects it has not got to.
     ///
     /// This is the bug that emptied a real index down to one entry. `restore` rescans on a
@@ -6057,6 +6658,7 @@ fn second() { println!(\"2\"); }\n",
 
         crate::reports::save_index(&crate::reports::KnownProjects {
             active: Some("/a".into()),
+            explain_trace: None,
             // `..Default::default()` for the rest: a test about restoring two projects has
             // no opinion about the sidebar's arrangement, and spelling every field out makes
             // adding one a change to every test that ever built this.
@@ -6068,6 +6670,8 @@ fn second() { println!(\"2\"); }\n",
                     name: "a".into(),
                     touched: 7,
                     files: None,
+                    scan_ms: None,
+                    trace_depth: None,
                     harness: None,
                     model: None,
                 },
@@ -6077,6 +6681,8 @@ fn second() { println!(\"2\"); }\n",
                     name: "b".into(),
                     touched: 4,
                     files: None,
+                    scan_ms: None,
+                    trace_depth: None,
                     harness: None,
                     model: None,
                 },
@@ -7264,6 +7870,8 @@ fn second() { println!(\"2\"); }\n",
             name: "a".into(),
             touched: 1,
             files: None,
+            scan_ms: None,
+            trace_depth: None,
             harness: None,
             model: None,
         });
@@ -7276,6 +7884,8 @@ fn second() { println!(\"2\"); }\n",
             name: "b".into(),
             touched: 2,
             files: None,
+            scan_ms: None,
+            trace_depth: None,
             harness: None,
             model: None,
         });
@@ -7303,6 +7913,7 @@ fn second() { println!(\"2\"); }\n",
         let state: Shared = Default::default();
         crate::reports::save_index(&crate::reports::KnownProjects {
             active: None,
+            explain_trace: None,
             order: Vec::new(),
             projects: vec![crate::reports::KnownProject {
                 key: "/added".into(),
@@ -7310,6 +7921,8 @@ fn second() { println!(\"2\"); }\n",
                 name: "added".into(),
                 touched: 1,
                 files: None,
+                scan_ms: None,
+                trace_depth: None,
                 harness: None,
                 model: None,
             }],

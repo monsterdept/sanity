@@ -20,8 +20,9 @@
 //! - every walked file's path, modification time and length — the same pair `scancache` gates
 //!   on, and the same one `resync_changed` uses, for the same reason: two writes in one second
 //!   can share an mtime;
-//! - `HEAD`, because churn, age and blame are read from git and move when a commit lands even
-//!   though no file did;
+//! - `HEAD`, but only for a tree that was folded with git in it — see `trace`. An untraced
+//!   tree holds no age, churn or blame, so a commit cannot make it wrong, and the largest
+//!   thing this cache holds stops being thrown away every time somebody commits;
 //! - `PARSE_VERSION`, because a parser that has moved means the same bytes yield different
 //!   functions — the rule this repo's caches all follow;
 //! - the fidelity, because `Ordering` and `Full` compute different scores from identical
@@ -125,8 +126,8 @@ fn config() -> bincode::config::Configuration {
 
 /// The signature for `repo` as it stands, walking it to find out. For callers outside the
 /// scan — see `slim`.
-pub fn current(repo: &Path, fidelity: Fidelity) -> u64 {
-    signature(repo, &crate::scan::collect_files(repo), fidelity)
+pub fn current(repo: &Path, fidelity: Fidelity, depth: crate::trace::Depth) -> u64 {
+    signature(repo, &crate::scan::collect_files(repo), fidelity, depth)
 }
 
 /// The map WITHOUT its functions, if the stored one still describes this repo.
@@ -142,6 +143,23 @@ pub fn current(repo: &Path, fidelity: Fidelity) -> u64 {
 pub fn slim(repo: &Path, signature: u64) -> Option<Scan> {
     let cached = read_slim(repo)?;
     (cached.signature == signature).then_some(cached.scan)
+}
+
+/// Is the stored tree still this repo's answer?
+///
+/// **What stops a big repo asking to be scanned every single launch.** `scan::estimate` prices
+/// a scan from files times a rate, which is the cost of PARSING them — and a repo whose tree is
+/// already cached is not going to be parsed at all: the scan walks, matches the signature and
+/// returns the stored answer. Kibana was declined at every open on a fifteen-second estimate
+/// for work that was really a tenth of a second of decoding.
+///
+/// The walk is the price of the question — 1.4s on kibana, 0.1s on this repo — and it is the
+/// same walk the scan then does, so a warm repo pays it twice. That is the trade for never
+/// asking a person about work that is not going to happen. Only the slim record is decoded,
+/// which is why this is not simply `load`: the whole tree is 36MB on ceph and the question is
+/// answered by its header.
+pub fn warm(repo: &Path, fidelity: Fidelity, depth: crate::trace::Depth) -> bool {
+    slim(repo, current(repo, fidelity, depth)).is_some()
 }
 
 /// The last map this repo had, without asking whether it is still true.
@@ -162,7 +180,11 @@ pub fn stale(repo: &Path) -> Option<Scan> {
 }
 
 fn read_slim(repo: &Path) -> Option<Cached> {
-    let bytes = std::fs::read(slim_path(repo)?).ok()?;
+    let path = slim_path(repo)?;
+    // A launch that answers from here writes nothing, and to another build's sweep a slot
+    // nothing writes looks abandoned — see `mark_used`.
+    crate::reports::mark_used(&path);
+    let bytes = std::fs::read(path).ok()?;
     let (cached, _): (Cached, usize) = bincode::serde::decode_from_slice(&bytes, config()).ok()?;
     (cached.version == VERSION).then_some(cached)
 }
@@ -171,15 +193,18 @@ fn slim_path(repo: &Path) -> Option<PathBuf> {
     path_for(repo).map(|p| p.with_extension("slim.bin"))
 }
 
+/// The name this build's trees are kept under — see [`crate::reports::cache_slot`].
+///
+/// Both versions, because both are refusals a reader makes: [`VERSION`] decides whether the
+/// record can be READ, `PARSE_VERSION` whether what it holds still MEANS anything. The
+/// signature covers the pair too, so nothing here is newly gated — what changes is that a
+/// build one version away now looks in a different place instead of overwriting this one.
+fn tag() -> String {
+    format!("p{}v{}", crate::parse::PARSE_VERSION, VERSION)
+}
+
 fn path_for(repo: &Path) -> Option<PathBuf> {
-    let dir = crate::reports::data_dir()?.join("trees");
-    std::fs::create_dir_all(&dir).ok()?;
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in repo.to_string_lossy().as_bytes() {
-        h ^= *b as u64;
-        h = h.wrapping_mul(0x1000_0000_01b3);
-    }
-    Some(dir.join(format!("{h:016x}.bin")))
+    crate::reports::cache_slot("trees", repo, &tag()).map(|p| p.with_extension("bin"))
 }
 
 /// Fold one more value into a running FNV.
@@ -191,12 +216,33 @@ fn mix(h: &mut u64, bytes: &[u8]) {
 }
 
 /// What this scan depends on, as one number. See the module note for what is in it and why.
-pub fn signature(repo: &Path, files: &[(PathBuf, crate::model::Lang)], fidelity: Fidelity) -> u64 {
+pub fn signature(
+    repo: &Path,
+    files: &[(PathBuf, crate::model::Lang)],
+    fidelity: Fidelity,
+    depth: crate::trace::Depth,
+) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     mix(&mut h, &crate::parse::PARSE_VERSION.to_le_bytes());
     mix(&mut h, &VERSION.to_le_bytes());
     mix(&mut h, if fidelity == Fidelity::Full { b"full" } else { b"ordering" });
-    mix(&mut h, head_of(repo).as_bytes());
+    // **How much git the tree was folded with.** A tree traced to the line and one traced to
+    // the file carry different numbers in the same fields, and an untraced one carries none —
+    // so without this, a scan that deliberately skipped git would be served the last traced
+    // tree and would look like it had done the work. Caught by the test that pins a deferred
+    // trace against an inline one: the untraced scan came back with history in it.
+    //
+    // It is here rather than a version bump because it is a property of THIS scan, not of the
+    // format. Where this ends up is a parse-only tree with the trace applied on top — see
+    // `trace::apply` — at which point this mixes one value and stops mattering.
+    mix(&mut h, depth.tag());
+    // **Only when the tree actually holds git.** This is why taking the trace out of a scan
+    // was worth doing: an untraced tree is parse-only, so a commit cannot make it wrong, and
+    // ceph stopped throwing away a 36MB tree every time somebody committed to it. A tree
+    // folded WITH history still turns over on a commit, because the numbers in it did.
+    if depth != crate::trace::Depth::Untraced {
+        mix(&mut h, head_of(repo).as_bytes());
+    }
     // **`.sanityignore`, because it decides what is in scope and is not a source file.**
     // Caught by `an_excluded_file_leaves_the_queue_and_stays_in_the_count` on the first run
     // of this cache: the walk only lists parseable files, so a repo that gained an ignore
@@ -236,7 +282,9 @@ fn head_of(repo: &Path) -> String {
 
 /// The stored tree, if it describes this repo as it stands.
 pub fn load(repo: &Path, signature: u64) -> Option<Scan> {
-    let bytes = std::fs::read(path_for(repo)?).ok()?;
+    let path = path_for(repo)?;
+    crate::reports::mark_used(&path);
+    let bytes = std::fs::read(path).ok()?;
     let (cached, _): (Cached, usize) = bincode::serde::decode_from_slice(&bytes, config()).ok()?;
     let mut scan =
         (cached.version == VERSION && cached.signature == signature).then_some(cached.scan)?;
@@ -271,6 +319,9 @@ fn links_path(repo: &Path) -> Option<PathBuf> {
 /// nothing is reported — the same rule the timeline cache follows.
 pub fn save(repo: &Path, signature: u64, scan: &Scan) {
     let Some(path) = path_for(repo) else { return };
+    // Once a scan, which is the only moment anything here changes — see `prune_slots` for
+    // why the sweep is by age rather than by tag.
+    crate::reports::prune_slots("trees", repo, &tag());
     let Ok(bytes) = bincode::serde::encode_to_vec(
         Cached {
             version: VERSION,
@@ -382,7 +433,7 @@ mod tests {
         let repo = std::env::var("REPO").expect("REPO=/path/to/repo");
         let repo = std::path::Path::new(&repo);
         let t = std::time::Instant::now();
-        let sig = super::current(repo, crate::scan::Fidelity::Ordering);
+        let sig = super::current(repo, crate::scan::Fidelity::Ordering, crate::trace::Depth::Lines);
         let walk = t.elapsed();
         // What a launch actually does: read the last map without proving it — see `stale`.
         let t = std::time::Instant::now();

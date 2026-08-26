@@ -2,11 +2,12 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import { clsx } from '../lib/cn'
 import { Overlay } from './Overlay'
 import { SideBarHeader } from './shell/SideBarHeader'
+import { Phases } from './Phases'
 import {
-  readable,
   reorderProjects,
   stopCheck,
   stopHistory,
+  stopScan,
   type Progress,
   type ProjectSummary,
 } from '../lib/api'
@@ -30,6 +31,9 @@ export function SideBar({
   onRemintMascot,
   onError,
   onReplay,
+  onTrace,
+  onScan,
+  onStopTrace,
   replayKey = null,
   replay = null,
 }: {
@@ -46,6 +50,16 @@ export function SideBar({
    *  repo, and watching one you are not looking at is what the strip above the map used to
    *  invite. */
   onReplay: (key: string, fresh?: boolean) => void
+  /** Read a project's commit log onto the map — depth 1, and the thing the budget declined.
+   *
+   *  Not `onReplay`: that walks every commit to build a timeline, and this reads the log once
+   *  to give the wedges an age. Two jobs, two orders of magnitude apart, and the row says
+   *  which is which. */
+  onTrace: (key: string) => void
+  /** Scan a repo whose scan was declined for cost — see `scan::BUDGET`. */
+  onScan: (key: string) => void
+  /** Stop a running trace. What it read is kept. */
+  onStopTrace: (key: string) => void
   onSelect: (key: string) => void
   /** Pick a repo and add it. The one way a project enters that does not involve a
    *  terminal — see the `+` below for why it exists again. */
@@ -319,6 +333,9 @@ export function SideBar({
               }
               onError={onError}
               onReplay={(fresh) => onReplay(p.key, fresh)}
+              onTrace={onTrace}
+              onScan={onScan}
+              onStopTrace={onStopTrace}
               onRead={() => onRead(p.key)}
               onFailure={() => setFailureFor(p.key)}
               onClick={() => {
@@ -376,6 +393,9 @@ export function SideBar({
             onGrab={() => {}}
             onError={() => {}}
             onReplay={() => {}}
+            onTrace={() => {}}
+            onScan={() => {}}
+            onStopTrace={() => {}}
             onRead={() => {}}
             onFailure={() => {}}
             onClick={() => {}}
@@ -561,6 +581,9 @@ function ProjectItem({
   onFailure,
   onError,
   onReplay,
+  onTrace,
+  onScan,
+  onStopTrace,
   dragging,
   blocked,
   onGrab,
@@ -584,6 +607,12 @@ function ProjectItem({
   onError: (message: string) => void
   /** Walk this project's history. `fresh` throws the stored timeline away first. */
   onReplay: (fresh?: boolean) => void
+  /** Read this project's commit log onto the map — see the list's own prop. */
+  onTrace: (key: string) => void
+  /** Scan this project, when its scan was declined for cost. */
+  onScan: (key: string) => void
+  /** Stop a running trace on this project. */
+  onStopTrace: (key: string) => void
   /** A trace is running on another project. One walks at a time — see `trace` in `App` —
    *  and a button that reports that when pressed is a worse way of saying it than not being
    *  there. */
@@ -608,8 +637,6 @@ function ProjectItem({
    *  it. Without it, pressing Stop looked like pressing nothing. */
   const [asked, setAsked] = useState(false)
 
-  const total = readable(project)
-  const left = total - project.assessed
   const run = project.run
   const running = !!run?.running
   // **A wave that has ended is not finished while its readers are alive.** Stop marks the
@@ -625,6 +652,16 @@ function ProjectItem({
   // Readers out on THIS project, whichever one is selected. A run is a fact about a repo,
   // not about the pane you happen to be looking at.
   const reading = busy || (project.reading?.length ?? 0) > 0
+  /** Anything at all is running on this repo — a scan, either depth of a trace, a replay, or a
+   *  wave of readers.
+   *
+   *  **The sweep along the bottom edge and the pulsing glyph both belonged to READING**, which
+   *  made them a claim about one phase rather than about the row: a scan of kibana or a replay
+   *  of ceph ran for minutes with nothing on the tile saying so beyond a fill creeping inside
+   *  one pill. Three phases that can each take minutes need one answer to "is this repo busy",
+   *  and it is the same answer wherever the work is. */
+  const working =
+    reading || project.loading || !!project.tracing_history || !!project.tracing
   const failed = !busy && (run?.failures?.length ?? 0) > 0
   // The row's own controls. Shown for the row under the pointer and the selected one — and
   // unconditionally while a run is on, because Stop is the one control somebody goes
@@ -648,52 +685,26 @@ function ProjectItem({
    *  exact figure costs six characters in a 220px column that also has to hold a button.
    *  Small ones keep every digit, because 64 and 6.4k are not the same kind of number: one
    *  is a session's work and the other is a decision. */
-  const compact = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : n.toLocaleString())
 
-  /** LEVEL ONE, right: what this repo is DOING, or nothing at all.
+  /** LEVEL ONE, right: news the pills cannot carry.
    *
    *  **Only news.** It carried a verdict for every row — `Never read`, `93% read` — and a
-   *  column of those is a column of the same sentence in three variants, which the eye
-   *  learns to skip and which says nothing the line below and the rule along the bottom do
-   *  not already. What earns a slot up here is a state that will not be true in five
-   *  minutes: a scan, a run, readers exiting, a failure. Everything else leaves it empty,
-   *  so a project that is doing something is the only one with anything written there. */
-  const state: { text: string; tint: string } | null = project.loading
-    ? { text: 'Scanning', tint: 'var(--accent)' }
-    : stopping
-      ? { text: `${run?.live ?? 0} exiting`, tint: 'var(--accent)' }
-      : running
-        ? // Failures are named rather than folded into "started". A misconfigured agent
-          // exits instantly, so a run with nothing landing looks merely slow — this is the
-          // one number that tells the two apart.
-          { text: `${run!.spawned} reading`, tint: 'var(--accent)' }
-        : failed
-          ? { text: 'Read failed', tint: 'var(--warning)' }
-          : null
+   *  column of those is the same sentence in three variants, which the eye learns to skip.
+   *  What earns a slot up here is a state that will not be true in five minutes.
+   *
+   *  **Which is now one state, because the pills took the rest.** It said `Scanning` while a
+   *  scan ran, and `5 reading` while a wave did — and the pill for that phase already says
+   *  `Stop`, fills with its progress, and puts the count on the line below without anybody
+   *  hovering. Three marks for one fact, and the asymmetry gave it away: a trace got no chip,
+   *  because the chip was written before the trace had a pill and nobody added one. The answer
+   *  to "why does scanning get a label and tracing not" is that scanning should not have had
+   *  one either.
+   *
+   *  A failure is what is left. It is not a phase — no pill is in a failed state, the run is
+   *  over — and it is the way into the transcript. */  const state: { text: string; tint: string } | null = failed
+    ? { text: 'Read failed', tint: 'var(--warning)' }
+    : null
 
-  /** Commits nobody has replayed yet.
-   *
-   *  **A repo is two jobs, and the sidebar used to show one.** Readings are taken from the
-   *  code as it stands; the story is replayed from the commits behind it. They are worked
-   *  separately, they finish separately, and a row that reported only the first left the
-   *  second discoverable by turning a mode on and waiting to find out. Same shape, same
-   *  verb, one under the other. */
-  const unreplayed = Math.max(0, project.commits - project.replayed)
-
-  /** Every job this row can report is done: nothing unread, nothing stale, nothing left to
-   *  trace. Stale is covered by `left` rather than checked beside it — `assessed` excludes
-   *  stale everywhere, so an expired reading is already outstanding work here.
-   *
-   *  **A finished row states it in words and drops the bar.** A rule drawn at 100% is a
-   *  measurement of nothing left to measure: it says "read" in the same shape it uses to say
-   *  "part read", so the one state a person can stop thinking about looked identical to the
-   *  one that needs them, minus a few pixels of gap. The sentence is unambiguous at a glance
-   *  down the column, which is the question this list exists to answer.
-   *
-   *  Not while a scan or a run is live: during those the coverage number is frozen and the
-   *  bar is carrying the walk instead, which is the thing worth watching. */
-  const settled =
-    !project.loading && !busy && total > 0 && left === 0 && unreplayed === 0 && !replay
 
   /** LEVEL TWO, left: the work outstanding, which is the number a person acts on.
    *
@@ -701,34 +712,6 @@ function ProjectItem({
    *  those two belong together: "119k unread" and `Read` are a sentence. While something is
    *  running, the same slot carries that walk's own count — the backlog is not moving and
    *  the walk is. */
-  const detail = project.loading
-    ? project.read_total > 0
-      ? // The unit comes off the wire, never from here. Two literals said `files` and
-        // `functions` about the same number, in the same window, an inch apart — see
-        // `phaseLine` in App.tsx. This one happened to be right, which is worse: nothing
-        // about a hard-coded noun stays right when the phase under it changes.
-        `${compact(project.read_done)} / ${compact(project.read_total)} ${project.read_unit || 'files'}`
-      : // The scan names its own phases now — a walk, a `git log`, a cache read — and this
-        // line said `walking the repo` through all of them. It said it before the scan had
-        // STARTED, too: projects are restored one at a time, so the rows below the running
-        // one were reporting a phase nothing had entered, which is a guess wearing the
-        // clothes of a measurement.
-        project.read_phase || 'queued'
-    : left > 0
-      ? `${compact(left)} unread functions`
-      : settled
-        ? 'analysis up to date'
-        : ''
-
-  /** How full the rule along the bottom edge is drawn. The scan while there is one, because
-   *  until it lands there is no coverage to report; coverage otherwise.
-   *
-   *  **Not the replay**, which has a line of its own now and states its own percentage
-   *  there. A rule that changed subject would leave the row with no answer to "how much of
-   *  this repo has been read" for the hour a large replay takes. */
-  const walking =
-    project.loading && project.read_total > 0 ? project.read_done / project.read_total : null
-
   return (
     <div
       role="button"
@@ -752,18 +735,12 @@ function ProjectItem({
       onPointerDown={onGrab}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      title={
-        project.loading
-          ? `${project.repo} · reading…`
-          : `${project.repo} · ${project.assessed} of ${total} read` +
-            (project.stale > 0 ? ` · ${project.stale} stale` : '') +
-            // Why a run stopped, kept where the run is. "Ended" and "ended because three
-            // waves in a row banked nothing" are different outcomes and only one is
-            // finished. In the tooltip rather than the row: the row has one slot and the
-            // live numbers have the better claim on it.
-            (run?.ended && !busy ? ` · ${run.ended}` : '') +
-            (busy && (run?.failed ?? 0) > 0 ? ` · ${run!.failed} failed` : '')
-      }
+      // **No tooltip on the TILE.** It carried the path and the reading counts, and because it
+      // sat on the whole row it fired wherever the pointer was — including over the pills,
+      // where the bubble landed on top of the note line and said the same numbers a second
+      // time. The counts are the note's job now; the path moved onto the name, and why a run
+      // ended moved onto the chip that says one did. A tooltip belongs to the thing it
+      // qualifies, not to the tile that thing is in.
       className={clsx(
         'relative flex w-full cursor-pointer flex-col justify-center gap-1.5 overflow-hidden rounded-md px-2 py-2 text-left text-[13px] transition-colors',
         active ? 'shell-chrome--active' : 'shell-chrome--rest shell-chrome--hover',
@@ -791,33 +768,13 @@ function ProjectItem({
           Six pixels rather than two: at a hairline the one thing this is FOR — how far along
           a repo is — had to be looked for, and the sweep that rides in the same band had
           almost no room to read as movement. The row grew to hold a button and can spend it. */}
-      {/* **The rule shows whatever the second line is talking about.** Coverage most of the
-          time, because that is the standing fact about a repo; the walk's own fraction while
-          a scan or a replay is running, because during those the coverage number is frozen
-          and the thing worth watching is the one that is moving.
-          **One colour for both, and for every other bar in the app.** Coverage was drawn in
-          the readings' own teal and the walk in the accent, on the argument that the tint
-          said which of the two you were looking at — a distinction nobody asked the rule to
-          make, and one it could not make anyway without a legend. What it did instead was
-          put two hues in a column of otherwise identical rows, so the palette read as status
-          where it was only provenance. A progress bar is a progress bar: accent, here and in
-          the movie export's timeline and the export dialog's own bar. The second line above
-          says which fraction it is, in words. */}
-      {(walking !== null ||
-        (!project.loading && total > 0 && project.assessed > 0 && !settled)) && (
-        <span
-          aria-hidden
-          className="absolute bottom-0 left-0 h-[6px] rounded-full"
-          style={{
-            width: `${Math.min(100, (walking ?? project.assessed / total) * 100)}%`,
-            background: 'var(--accent)',
-            // Brighter while readers are out: the rule is the thing that moves during a
-            // run, so it should be the thing you notice.
-            opacity: reading || walking !== null ? 0.95 : 0.6,
-            transition: 'width 400ms ease-out, opacity 200ms',
-          }}
-        />
-      )}
+      {/* **The coverage rule is gone, and the pills are why.** It drew `assessed / total`
+          along the bottom edge — which is exactly what the Read pill's own fill now says, in
+          the column labelled with the verb it belongs to — and the scan's fraction while a
+          scan ran, which is the Scan pill. One fact drawn twice in one tile is worse than a
+          fact drawn once: they cannot disagree, so the second one is asking to be read as
+          something else, and the obvious guess (all three phases? the replay?) is wrong.
+          What stays is the sweep below, which is not a measurement at all. */}
       {/* **A sweep along the whole edge while readers are out.** The pulsing icon was the
           only sign, and an 11px glyph changing opacity is not enough to catch an eye that is
           somewhere else — which is the entire job, because the project being read is usually
@@ -827,7 +784,7 @@ function ProjectItem({
           and invisible on the ones about to finish. Movement across the row reads the same
           at any coverage, and it sits under the fill rather than replacing it, so "how far
           along" and "working right now" stay two separate readings. */}
-      {reading && (
+      {working && (
         <span
           aria-hidden
           className="pointer-events-none absolute inset-x-0 bottom-0 h-[6px] overflow-hidden"
@@ -848,13 +805,42 @@ function ProjectItem({
           `93% read`, `3 reading`. Reading DOWN the column, this line alone answers "what is
           the state of my projects", which is the question the list exists for. */}
       <div className="relative flex w-full items-center gap-2">
-        <span className={clsx('shrink-0 text-[11px] opacity-70', reading && 'reading-pulse')}>
+        <span className={clsx('shrink-0 text-[11px] opacity-70', working && 'reading-pulse')}>
           ◍
         </span>
-        <span className="mono min-w-0 flex-1 truncate">{project.name}</span>
+        {/* The path, on the name. Two checkouts of one repo are two rows with the same word
+            in them, and this is the only thing that tells them apart. */}
+        <span className="mono min-w-0 flex-1 truncate" title={project.repo}>
+          {project.name}
+        </span>
+        {/* **The transcript is on the words that say a run failed**, rather than an `i` button
+            in a row of its own — that row held the outstanding count and the Read button once,
+            and after both moved into the pills it was a loose control floating over the plant.
+            A chip that reports a failure and cannot be asked about it is the dead end; a chip
+            that opens the transcript is the same fact and the way in. */}
         {state && (
           <span
-            className="shrink-0 truncate text-[10px] tabular-nums"
+            role={failed && open ? 'button' : undefined}
+            tabIndex={failed && open ? 0 : undefined}
+            onClick={
+              failed && open
+                ? (e) => {
+                    e.stopPropagation()
+                    onFailure()
+                  }
+                : undefined
+            }
+            title={
+              failed && open
+                ? 'What the readers said'
+                : (run?.ended && !busy ? run.ended : '') ||
+                  (busy && (run?.failed ?? 0) > 0 ? `${run!.failed} failed` : '') ||
+                  undefined
+            }
+            className={clsx(
+              'shrink-0 truncate text-[10px] tabular-nums',
+              failed && open && 'cursor-pointer underline decoration-dotted underline-offset-2',
+            )}
             style={{ color: state.tint, opacity: 0.9 }}
           >
             {state.text}
@@ -862,196 +848,57 @@ function ProjectItem({
         )}
       </div>
 
-      {/* THE HISTORY, under the name and above the backlog.
-          Two lines in the same shape, each with the button that acts on it — but NOT the
-          same verb. `Read` means one thing in this app: an agent predicted a function, then
-          opened it, and reported the gap. A commit is not read, and calling it that would
-          make the two lines look like the same job at two sizes, which is the one thing the
-          pair is here to distinguish — the readings cost tokens and an agent, the replay
-          costs minutes and a parser.
-          The verb is `Trace`. `Replay` is what the code calls the machinery and what the
-          transport does once a timeline exists — pressing play on something already built —
-          and the two are different acts: this one WALKS the commits for the first time and
-          costs an hour on a large repo. Keeping the code's word for both would have made the
-          expensive one look like pressing play. The replay used to appear here only while it was RUNNING, which made it
-          a thing you had to already know about: there was no state in which the row said a
-          story was there to be read.
-          Above the reading line because it is the one that changes: while a replay runs this
-          line carries its own count, its own bar and its own Cancel, and the reading line
-          below goes on saying what it always says.
-          **Nothing left to trace is nothing to say.** The settled state used to read `history
-          traced`, which is a line about a job that is over, on every project, forever — and
-          the two controls it shares the row with (Trace, Cancel) both hide themselves there,
-          so it was a sentence with nothing to act on standing above the one number the tile
-          exists for. The line still appears the moment there IS something to walk, which is
-          what it was added for: a repo with commits outstanding advertises them rather than
-          waiting to be known about. */}
-      {project.commits > 0 && (replay || unreplayed > 0) && (
-        <div className="relative flex w-full flex-col gap-1">
-          <div className="flex w-full items-center gap-2">
-            {/* One phrase, not three columns. `68k / 145k commits` and `47% replayed` and a
-                button do not fit in 220px — the count truncated to `68k / 14…`, which is the
-                one thing on the line that has to be read exactly.
-                The percentage went with the word: the bar directly underneath is the
-                proportion, said better than a number can, and what the numbers were missing
-                was which verb they belonged to. */}
-            <span
-              className="min-w-0 flex-1 truncate text-[10px] tabular-nums"
-              style={{ color: replay ? 'var(--accent)' : 'inherit', opacity: replay ? 0.9 : 0.55 }}
-            >
-              {replay
-                ? // Before the first tick there is nothing to divide, so the walk says what
-                  // it is doing instead — reading the stored trace, reading the log. Both
-                  // are seconds on a large repo, and `starting…` for all of them reads as a
-                  // button that missed the press.
-                  replay.total === 0
-                  ? // **A number with no denominator is still a number.** Reading a resumed
-                    // trace's sha list is a nineteen-second revwalk on the kernel, and the
-                    // only way to know how many there are is the same walk — so buying a
-                    // denominator would mean doing the work twice to narrate it once. A
-                    // count that climbs says "working" as well as a fraction does; what it
-                    // cannot say is how much is left, and it does not pretend to.
-                    replay.done > 0
-                    ? `${compact(replay.done)} ${replay.unit || 'read'}`
-                    : replay.phase || 'starting…'
-                  : // **The unit comes from the phase, because two phases count now.**
-                    // Reading the log counts commits off a pipe and the walk counts commits
-                    // parsed; both are a fraction of the same total and they are nothing
-                    // like the same work, so a hard-coded `traced` described the second
-                    // while the first was running — see `Progress::unit`.
-                    `${compact(replay.done)} / ${compact(replay.total)} ${replay.unit || 'traced'}`
-                : `${compact(unreplayed)} commits to trace`}
-            </span>
+      {/* **THE THREE PHASES, as three pills that are their own buttons** — see `Phases`, which
+          carries the whole argument for why the state and the verb are one object.
+          The replay moved INTO the trace pill, where it belongs: it is depth 3 of the same
+          process, and a fourth line under a row claiming to show three phases was the row
+          contradicting itself — and its running progress is the pill's own last third, so it
+          has no line either. */}
+      <Phases
+        project={project}
+        replayBlocked={blocked}
+        // Either kind of stop that has been pressed and not yet answered: a replay's cancel,
+        // or a wave's. Both disable the pill that asked, because both take a moment — a walk
+        // stops at its next commit and a reader is killed mid-call.
+        stopping={cancelling || stopping}
+        onAct={(action) => {
+          if (action === 'scan') onScan(project.key)
+          else if (action === 'trace') onTrace(project.key)
+          else if (action === 'replay') onReplay()
+          else if (action === 'read') onRead()
+          else if (action === 'stop-scan') void stopScan().catch((err) => onError(String(err)))
+          else if (action === 'stop-trace') onStopTrace(project.key)
+          else if (action === 'stop-read') {
+            // **Stop kills the readers rather than letting the wave finish.** They are coding
+            // agents spending tokens by the minute, so a stop that means "in a few minutes" is
+            // not what anybody pressing this wants — the reading in flight is lost, which is
+            // the cheaper half of that trade.
+            setAsked(true)
+            void stopCheck(project.key).catch(() => setAsked(false))
+          }
+          else {
+            setCancelling(true)
+            void stopHistory().catch((err) => {
+              setCancelling(false)
+              onError(String(err))
+            })
+          }
+        }}
+      />
 
-            {/* **Cancel keeps what it has.** An hour of parsing with no way out is a thing
-                people avoid starting, and stopping is not throwing away: the walk banks what
-                it reached, the timeline is scrubbable up to that commit, and asking again
-                resumes rather than restarting. */}
-            {replay && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setCancelling(true)
-                  // **Reported, never swallowed.** This caught and ignored, so a backend
-                  // that does not have the command — an older build, which is the normal
-                  // state of an app mid-development — refused the call and the button sat
-                  // there looking merely slow. A control whose failure is indistinguishable
-                  // from its success is worse than no control.
-                  void stopHistory().catch((err) => {
-                    setCancelling(false)
-                    onError(String(err))
-                  })
-                }}
-                disabled={cancelling}
-                title="Stop tracing. What it has reached is kept."
-                className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none disabled:opacity-60"
-                style={{ background: 'var(--accent)', color: 'var(--accent-foreground)' }}
-              >
-                {cancelling ? 'Cancelling…' : 'Cancel'}
-              </button>
-            )}
-            {/* **Only when there is something to walk.** Starting a finished timeline over
-                is a real thing to want — a parser change, or a timeline written by a build
-                since fixed — but it is rare, expensive and destructive of an hour's work, so
-                it lives in the right-click menu rather than under the pointer of somebody
-                reading the row. */}
-            {!replay && open && !blocked && unreplayed > 0 && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onReplay()
-                }}
-                title="Trace this repo's history, commit by commit"
-                className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none"
-                style={{ background: 'var(--accent)', color: 'var(--accent-foreground)' }}
-              >
-                Trace
-              </button>
-            )}
-          </div>
-          {/* Its own track, rather than a turn on the rule along the bottom. The rule is
-              coverage, and coverage is a standing fact about a repo — a replay borrowing it
-              would leave the row unable to say how much had been read for the hour a large
-              walk takes, and on a repo that has never been read it left no bar at all. */}
-          {replay && (
-            <div className="h-[3px] w-full overflow-hidden rounded-full bg-[var(--border)]">
-              <div
-                className="h-full rounded-full transition-[width] duration-300"
-                style={{
-                  width:
-                    replay.total > 0
-                      ? `${Math.min(100, (replay.done / replay.total) * 100)}%`
-                      : '100%',
-                  background: 'var(--accent)',
-                }}
-              />
-            </div>
-          )}
-        </div>
-      )}
+      {/* **The replay has no line of its own any more, not even while it runs.** Its progress
+          is the last third of the trace pill's fill, its count is the note under the pills, and
+          its Cancel is that pill saying `Stop` — which is the same three things this block held,
+          drawn twice. The bar it had was the last piece of duplication in the tile.
+          `stopping` is what a pill cannot work out for itself: the walk stops at its next
+          commit, which is a second or two on a large repo, and a button that does not
+          acknowledge the press reads as one that did nothing. */}
 
-      {/* LEVEL TWO — the work outstanding, and the button that does something about it.
-          Flush with the tile's own left edge, under the dot rather than under the name. An
-          indent hangs the second line off the title, which is right when it is a sub-fact OF
-          the title and wrong here: these are the row's own numbers, and the indent left them
-          aligned to nothing — the edge of a glyph in a proportional name that changes with
-          every project. The controls live down here, beside the number they act on:
-          `119k unread` and `Read` are a sentence, and putting the button on the name's line
-          made it a decoration of the title. */}
-      <div className="relative flex min-h-[16px] w-full items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-[10px] tabular-nums opacity-55">
-          {detail}
-        </span>
-
-        {/* The transcript, beside the row that says a run failed. */}
-        {failed && open && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onFailure()
-            }}
-            title="What the readers said"
-            aria-label="What the readers said"
-            className="shrink-0 rounded-full border border-current px-[5px] text-[10px] leading-[1.3] text-[var(--warning)] opacity-80 hover:opacity-100"
-          >
-            i
-          </button>
-        )}
-
-        {open && !busy && !project.loading && left > 0 && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onRead()
-            }}
-            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none"
-            style={{ background: 'var(--accent)', color: 'var(--accent-foreground)' }}
-          >
-            Read
-          </button>
-        )}
-
-        {/* Stop kills the readers rather than letting the wave finish. They are coding agents
-            spending tokens by the minute, so a "stop" that means "in a few minutes" is not
-            what anybody pressing this wants — the reading in flight is lost, which is the
-            cheaper half of that trade.
-            Always "Stop", disabled while it happens: the line above already says
-            "3 exiting", and a button that relabels itself would be the same fact twice. */}
-        {busy && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              setAsked(true)
-              void stopCheck(project.key).catch(() => setAsked(false))
-            }}
-            disabled={stopping}
-            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none disabled:opacity-60"
-            style={{ background: 'var(--accent)', color: 'var(--accent-foreground)' }}
-          >
-            Stop
-          </button>
-        )}
-      </div>
+      {/* **The selected row's hairline, painted over everything above.** It is already drawn by
+          `shell-chrome--active`, as an inset shadow — which lands under the row's contents, so
+          the sprig's vine crossed it. Drawn again here, last, the vine passes behind the edge
+          instead. One definition, in `--chrome-ring`. */}
+      {active && <span aria-hidden className="shell-chrome--edge pointer-events-none absolute inset-0 rounded-md" />}
     </div>
   )
 }

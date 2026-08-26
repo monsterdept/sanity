@@ -26,8 +26,8 @@ import { heatColor, type Ramp } from '../lib/api'
 export function Lock({ keyed }: { keyed: boolean }) {
   return (
     <svg
-      width="9"
-      height="9"
+      width="7"
+      height="7"
       viewBox="0 0 12 12"
       fill="none"
       aria-hidden
@@ -294,8 +294,14 @@ export function ModeSwitcher({
             // a dim "⌘3" beside each label is a row of keyboard documentation where the
             // control itself should be — discoverable once, noise every time after.
             title={lock ? lock.why : `${MODE_HINT[k]}${shortcut(i) ? `  (⌘${shortcut(i)})` : ''}`}
-            className="rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
+            className="relative rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
             style={{
+              // Four more pixels on the locked ones, so the glyph is not shoulder to shoulder
+              // with its own label. The `History` control alongside sets the spacing to match:
+              // it lays its lock out inline with a four-pixel gap, and that is what reads
+              // right. Four is still a third of what the inline version cost here, because the
+              // rest of the glyph lives in padding the tab already had.
+              paddingLeft: lock ? 14 : undefined,
               background: on ? 'var(--accent)' : 'transparent',
               color: on ? 'var(--accent-foreground)' : 'var(--muted-foreground)',
               fontWeight: on ? 600 : 400,
@@ -304,13 +310,25 @@ export function ModeSwitcher({
               opacity: lock ? 0.55 : 1,
               display: 'flex',
               alignItems: 'center',
-              gap: '4px',
               // Only the chosen one lifts. A shadow on every segment would make the
               // track read as five buttons rather than one control with a position.
               boxShadow: on ? '0 1px 2px rgb(0 0 0 / 0.25)' : undefined,
             }}
           >
-            {lock && <Lock keyed={lock.keyed} />}
+            {/* **In the padding, not in the layout.** The lock sat before the label with a gap,
+                which is thirteen pixels a tab — and eleven lenses with most of them locked put
+                the window's minimum width up by more than a hundred. A tab already carries ten
+                pixels of padding on that side and a seven-pixel glyph fits inside it, so the
+                mark costs nothing and the row is the width of its words again.
+                Dimming alone was the alternative and gives back less than it looks: the tooltip
+                can say what would open a lens, but only for the one tab under the pointer,
+                where the lock's COLOUR says it for all of them at once — accent means a button
+                in the sidebar opens this, muted means nothing will. */}
+            {lock && (
+              <span className="pointer-events-none absolute left-[4px] top-1/2 -translate-y-1/2">
+                <Lock keyed={lock.keyed} />
+              </span>
+            )}
             {MODE_LABEL[k]}
           </button>
         )

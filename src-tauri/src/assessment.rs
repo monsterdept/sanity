@@ -1463,6 +1463,7 @@ mod tests {
                 scans: &crate::scancache::ScanCache::ephemeral(),
             },
             crate::scan::Fidelity::Ordering,
+            crate::trace::Depth::Lines,
         )
         .unwrap();
 

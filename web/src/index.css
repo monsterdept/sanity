@@ -57,6 +57,10 @@
   /* Room for the macOS overlay traffic lights, which float over the sidebar header. */
   --traffic-light-reserve: 92px;
   --sidebar-w: 220px;
+  /* The hairline that marks the selected row. Its own property because it is drawn twice —
+   * under the row's contents by `--active`, and over them by `--edge` — and a ring that
+   * disagreed with itself by a percent would be invisible to look for and obvious to see. */
+  --chrome-ring: inset 0 0 0 1px color-mix(in oklch, var(--foreground) 13%, transparent);
 
   /* The Monster Dept palette (monsterdept.com/brand) — light. Neutrals are shared
    * across every tool in the department; the rose is Sanity's. */
@@ -697,7 +701,21 @@ textarea,
   background: var(--background);
   box-shadow:
     0 1px 4px rgba(0, 0, 0, 0.11),
-    inset 0 0 0 1px color-mix(in oklch, var(--foreground) 13%, transparent);
+    var(--chrome-ring);
+}
+
+/* The selected row's edge again, drawn ON TOP of what the row contains.
+ *
+ * An inset box-shadow paints above the background and below the content, which is right for
+ * every other row and wrong for one with a plant growing through it: the sidebar's sprig runs
+ * the full width of the tile, and a vine crossing the ring reads as a rendering fault rather
+ * than as a vine. Laid over the top as a sibling, the same one pixel makes the plant pass
+ * BEHIND the edge, which is what a vine at the edge of a bed does.
+ *
+ * One definition either way — see `--chrome-ring` — because two rings a pixel apart in
+ * different files is a difference nobody would ever find. */
+.shell-chrome--edge {
+  box-shadow: var(--chrome-ring);
 }
 .shell-chrome--hover:hover {
   background: color-mix(in oklch, var(--card) 50%, var(--background) 50%);

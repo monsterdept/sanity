@@ -320,6 +320,7 @@ pub(crate) mod tests {
             &std::sync::atomic::AtomicBool::new(false),
             crate::scan::Memos { scores: &m.0, scans: &m.1 },
             crate::scan::Fidelity::Ordering,
+            crate::trace::Depth::Lines,
         )
         .expect("scans");
         let scanned = t.elapsed();

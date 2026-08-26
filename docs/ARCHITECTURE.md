@@ -131,6 +131,31 @@ repo):
 No git history means no second axis, and the UI says so rather than showing a
 confident-looking half-verdict.
 
+**Reading git is not part of a scan, and on a large repo it was nearly all of it.** Measured
+cold on ceph: 214s total, of which `git blame` was 206s and the log walk 4.4s, against 1.97s
+of tree-sitter. So a scan parses and draws, and history arrives afterwards at one of three
+depths, each about ten times the last (`trace.rs`):
+
+| depth | what it buys | ceph | kibana | linux |
+|---|---|---|---|---|
+| 1 · the log walk | age, churn, commits, authors — per FILE | 6.5s | 17.5s | 56s |
+| 2 · per-line blame | the same four facts per FUNCTION | 206s | — | — |
+| 3 · the replay | the timeline (`history.rs`) | minutes | — | — |
+
+Depth 2 is **resolution, not the axis**: a function takes its own history where blame could
+read it and its file's otherwise, which is what `score_dir` has always done for untracked
+files. So depth 1 alone is an honest map with blocky rings, and "not traced yet" is a third
+state that must never be rendered as "this repo has no git history".
+
+What runs unasked is decided by estimated WORK against a ten-second budget, never by the size
+of the repo — one rule, three answers: sanity's log walk is 0.02s and never asks, ceph's is
+6.5s and never asks, linux's is 56s and asks once, after which keeping it current costs the
+commits since. Pricing is free: a walked repo knows its own measured seconds-per-commit, and
+an unwalked one is bounded by `git count-objects` at about 10ms.
+
+The scan that results is parse-only, which is why `treecache` stops mixing `HEAD` into its
+signature for one: a tree with no git in it cannot be made wrong by a commit.
+
 ## Pipeline
 
 ```
@@ -138,7 +163,9 @@ scan.rs       walk (ignore crate → .gitignore for free), group files by direct
 parse.rs      tree-sitter → functions with signatures and doc comments
 heuristic.rs  the offline proxy + the measured doc-coverage term
 surprise.rs   the SurpriseModel trait and the offline proxy behind it
-churn.rs      git history → the stability axis
+churn.rs      one `git log` → the stability axis, banked and refreshed rather than rewalked
+blame.rs      one `git blame` per file → the same axis resolved to the function
+trace.rs      the depths, the budget, and the fold that lands history on a drawn map
 edges.rs      call sites → who calls whom, and how far the call travels
 clones.rs     normalised bodies → which functions are copies of each other
 links.rs      the two above, kept, so the panel can answer "which fourteen"

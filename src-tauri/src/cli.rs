@@ -1447,6 +1447,28 @@ fn project_header(v: &Value) {
     }
     println!();
     println!("  {} read ({:.1}%)", commas(read), pct(read));
+    // **Said in the header, because every git-derived number below and on the map depends on
+    // it.** `untraced` is not "this repo has no history" — it is history nobody has paid for
+    // yet, and the cost of paying is printed beside it so the next command is obvious.
+    match v.get("trace_depth").and_then(|d| d.as_str()) {
+        Some("lines") => println!("  History read to the line"),
+        Some("files") => println!("  History read per file — `sanity trace --lines` for per-function"),
+        // **Absent is not `untraced`.** The offline answer — computed from the repo when no
+        // backend is running — knows nothing about what a map is holding, and printing "history
+        // not read" there would be inventing a fact from a missing field. Nothing is said.
+        None => {}
+        Some(_) => {
+            let cost = v.get("trace_cost_s").and_then(|x| x.as_f64());
+            println!(
+                "  History not read{} — `sanity trace`",
+                match cost {
+                    Some(s) if s >= 60.0 => format!(" (about {:.0} min)", s / 60.0),
+                    Some(s) => format!(" (about {:.0}s)", s.max(1.0)),
+                    None => String::new(),
+                }
+            );
+        }
+    }
     println!("  {} unread ({:.1}%)", commas(never), pct(never));
     println!("  {} stale ({:.1}%)", commas(stale), pct(stale));
     if let Some(n) = v.get("in_flight").and_then(|x| x.as_u64()) {
@@ -1530,6 +1552,11 @@ fn read_repo(
         crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
         // Ordering, like `refresh`: the proxy scores decide nothing this prints.
         crate::scan::Fidelity::Ordering,
+        // And no git, for the same reason one step further: what this prints is reading
+        // coverage, which comes out of `.sanity/` and the parse. Blaming every file to print
+        // how many functions have been read was minutes of somebody's terminal spent on
+        // numbers this verb does not have a column for.
+        crate::trace::Depth::Untraced,
     )
     .map_err(|e| {
         eprintln!("sanity: could not scan {}: {e}", repo.to_string_lossy());
@@ -1582,6 +1609,82 @@ fn read_verb(path: &str, endpoint: &str) -> Result<Value, i32> {
         };
     }
     Ok(v)
+}
+
+/// Read this repo's history onto the map, because somebody asked.
+///
+/// **The verb that spends what the budget declines.** A scan reads no git at all and a launch
+/// only reads as much as fits ten seconds — see `trace::go` — so on a large repo the map
+/// arrives with no age, churn or author in it, and this is how a person says go. Costs are
+/// printed rather than guarded: an explicit ask is permission, and the one thing this owes
+/// somebody is knowing what they bought.
+///
+/// It opens the repo first, because there has to be something to land the history ON.
+pub fn trace(path: &str, lines: bool) -> i32 {
+    let repo = match resolve(path) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("sanity: {e}");
+            return 1;
+        }
+    };
+    let ep = match ensure_backend() {
+        Ok(ep) => ep,
+        Err(e) => {
+            eprintln!("sanity: {e}");
+            return 1;
+        }
+    };
+    let key = agentapi::project_key(&repo);
+    // Opened first: a trace lands on a scan, so a repo the backend has never heard of has
+    // nothing to land on. `open` is idempotent and is what `sanity check` does for the same
+    // reason.
+    if let Err(e) = post(
+        &ep,
+        "/open",
+        serde_json::json!({ "path": repo.to_string_lossy(), "project": key }),
+    ) {
+        eprintln!("sanity: {e}");
+        return 1;
+    }
+    println!();
+    println!("Reading {} history…", if lines { "per-line" } else { "commit-log" });
+    let body = serde_json::json!({
+        "project": key,
+        "depth": if lines { "lines" } else { "files" },
+    });
+    match post(&ep, "/trace", body) {
+        Ok(v) if v.get("ok").and_then(|x| x.as_bool()) == Some(true) => {
+            println!();
+            println!(
+                "  {} in {:.1}s{}",
+                match v.get("depth").and_then(|d| d.as_str()) {
+                    Some("lines") => "Every function has its own age, churn and author",
+                    _ => "Every file has an age, a churn and an author",
+                },
+                v.get("seconds").and_then(|x| x.as_f64()).unwrap_or(0.0),
+                if v.get("stopped").and_then(|x| x.as_bool()) == Some(true) {
+                    " (stopped — what it read is kept)"
+                } else {
+                    ""
+                },
+            );
+            if !lines {
+                println!();
+                println!("  `sanity trace --lines` resolves those to each function.");
+            }
+            println!();
+            0
+        }
+        Ok(v) => {
+            eprintln!("sanity: {}", text(&v, "error"));
+            1
+        }
+        Err(e) => {
+            eprintln!("sanity: {e}");
+            1
+        }
+    }
 }
 
 /// How far along an assessment is. A formatter over `/status` and nothing more.
@@ -1816,6 +1919,10 @@ pub fn refresh(path: &str) -> i32 {
         // a shard holds readings, and a reading is an agent's — so paying for the all-pairs
         // term would buy a number this verb does not print.
         crate::scan::Fidelity::Ordering,
+        // Untraced, on the same argument. A shard is keyed by `key_of` and hashed against the
+        // doc and the body; no line of it comes from git. This verb rewrote the format and
+        // waited out a full blame pass to do it.
+        crate::trace::Depth::Untraced,
     ) {
         Ok(s) => s,
         Err(e) => {
@@ -1951,6 +2058,16 @@ enum Verb {
         #[arg(long)]
         detach: bool,
     },
+    /// Read this repo's git history onto the map
+    Trace {
+        /// The repo. Defaults to where you are standing.
+        #[arg(default_value = ".")]
+        path: String,
+        /// Per-line blame as well, so age and churn resolve to the function rather than the
+        /// file. One `git blame` per file — minutes on a large repo, hours on a huge one.
+        #[arg(long)]
+        lines: bool,
+    },
     /// View backend status and reading completion
     Status {
         /// The repo. Defaults to where you are standing.
@@ -2005,6 +2122,7 @@ pub fn main(args: &[String]) -> i32 {
         Verb::Init { path, harness, model, show } => {
             init(&path, harness.as_deref(), model.as_deref(), show)
         }
+        Verb::Trace { path, lines } => trace(&path, lines),
         Verb::Check { path, model, readers, limit, detach } => {
             check(&path, model.as_deref(), readers, limit, detach)
         }

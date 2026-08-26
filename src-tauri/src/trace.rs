@@ -1,0 +1,733 @@
+//! Everything that reads git, and the fold that lands it on a map that was drawn without it.
+//!
+//! # Why this is not part of a scan
+//!
+//! It was, and on a large repo it was nearly all of it. Measured on ceph (6,142 parsed files,
+//! 163,916 commits), a cold scan took 214s: **206s of that was `git blame`**, 4.4s was the
+//! log walk, and the tree-sitter parse everybody assumes is the expensive half was **1.97s**.
+//! Kibana is 121,447 files — twenty times ceph's — and that is where an open stopped being
+//! something a person waits for.
+//!
+//! None of that work is needed to draw the map. A wedge's WIDTH is lines and its COLOUR is
+//! surprise, and neither reads git. What git buys is the second axis — age and churn, the
+//! thing that tells brilliance from mess — and that axis can arrive after the picture.
+//!
+//! # Three depths, an order of magnitude apart
+//!
+//! | depth | what it buys | ceph | linux | kibana |
+//! |---|---|---|---|---|
+//! | 1 · the log walk ([`crate::churn`]) | age, churn, commits and authors per FILE | 6.5s | 56s | 17.5s |
+//! | 2 · per-line blame ([`crate::blame`]) | the same four facts per FUNCTION | 206s | — | — |
+//! | 3 · the replay ([`crate::history`]) | the timeline | minutes | — | — |
+//!
+//! Each is roughly ten times the one before, which is what makes one budget able to choose a
+//! depth rather than merely refusing a repo. Depths 2 and 3 on linux and kibana are deliberately
+//! unmeasured here: the only honest way to learn a per-file blame rate is to run a pass and bank
+//! it — sampling thirty files gave 2ms against ceph's measured 34ms, an order of magnitude out,
+//! because file size and history depth vary far more within a repo than between thirty samples.
+//!
+//! # Depth 2 is RESOLUTION, not the axis
+//!
+//! `score_dir` has always said so, in the line this module is built around: a function takes its
+//! own history where blame could read it and **its file's otherwise**, because an untracked file
+//! or a range blame no longer covers "should cost resolution, not the axis". Depth 1 alone
+//! therefore gives every function in a file its file's numbers — blocky rings under Age and
+//! Churn, and honestly so. That is a third state beside "this repo has no git history" and
+//! "traced", and nothing may present it as either.
+//!
+//! # Applying is a second fold, on the pattern readings already follow
+//!
+//! `applyAgentReports` lands readings on an already-folded tree and keeps the proxy underneath so
+//! the upgrade is reversible. [`apply`] does the same for git: it walks a finished tree, fills the
+//! git-derived fields from whatever depth is in hand, re-aggregates the containers and re-credits
+//! their commit counts. It is idempotent and it is the ONE definition — the scan folds through it
+//! too, so an inline trace and a deferred one cannot produce two different maps.
+
+use crate::blame::{Blame, FileBlame};
+use crate::churn::History;
+use crate::model::{Node, NodeKind};
+use crate::scan::Scan;
+
+/// How deep a trace goes — see the module note for what each depth costs.
+///
+/// **A depth is a reading CONDITION and travels with the map, never a preference.** A tree
+/// traced to `Files` says every function in a file has its file's numbers; one traced to
+/// `Lines` says they are the function's own. Presenting either as the other is the map
+/// claiming a resolution nobody paid for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Depth {
+    /// No git at all. Age, churn, commits and authors are absent — which is NOT the same
+    /// claim as a repo with no history, and nothing may render it as one.
+    #[default]
+    Untraced,
+    /// The log walk: every file's age, churn, commit count and last author.
+    Files,
+    /// Per-line blame as well, so the same four facts resolve to the function.
+    Lines,
+}
+
+impl Depth {
+    /// The depth's name, as the index banks it and the window reads it.
+    pub fn tag_str(self) -> &'static str {
+        match self {
+            Depth::Untraced => "untraced",
+            Depth::Files => "files",
+            Depth::Lines => "lines",
+        }
+    }
+
+    /// What a cache has to key on to tell two depths apart — see `treecache::signature`.
+    pub fn tag(self) -> &'static [u8] {
+        match self {
+            Depth::Untraced => b"untraced",
+            Depth::Files => b"files",
+            Depth::Lines => b"lines",
+        }
+    }
+}
+
+/// What a trace may cost before somebody has to be asked.
+///
+/// **Ten seconds, and it is a budget on the WORK rather than a verdict on the repo.** The same
+/// rule gives three different answers to the three repos it was tuned against: sanity's log
+/// walk is 0.02s and runs unasked forever; ceph's is 6.5s and runs unasked; linux's is 56s and
+/// asks once, after which keeping it current is the commits since. There is deliberately no
+/// clause anywhere about a repo being big, or about this being the first time — those are
+/// outputs of the estimate, and writing either one down as a rule would be a size test wearing
+/// a hat.
+pub const BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// A default rate for a repo this machine has never walked — see [`crate::churn::Bank::rate`]
+/// for why a real one is measured per repo. Ten objects to the commit and forty microseconds
+/// to the commit, both from the measured corpus.
+const COLD_RATE: f32 = 0.000_040;
+const OBJECTS_PER_COMMIT: f32 = 10.0;
+
+/// What the next trace of this repo would cost, and how much of that is known.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Estimate {
+    /// Seconds, for the depth named. An estimate, never a measurement — and on a repo with no
+    /// bank it is a bound derived from object count rather than anything about commits.
+    pub seconds: f32,
+    /// Commits the walk would cover, where that is known without paying for a walk to find out.
+    pub commits: Option<u32>,
+    /// Nothing has walked this repo on this machine, so `seconds` is the free bound and not a
+    /// rate anybody measured here. Said out loud because a number whose provenance is a guess
+    /// must not be printed as though somebody had timed it.
+    pub cold: bool,
+    /// Whether it fits [`BUDGET`].
+    pub fits: bool,
+}
+
+/// What to do about `repo`'s history without being asked.
+#[derive(Debug, Clone)]
+pub enum Go {
+    /// Trace it, to this depth. Nobody is interrupted.
+    Run(Depth),
+    /// Over budget. The estimate is what a person is shown so they can decide.
+    Ask(Estimate),
+}
+
+/// Price depth 1 for `repo`, cheaply enough to do it on every open.
+///
+/// Two tiers, because a repo that has been walked here knows its own rate and one that has not
+/// cannot be asked without paying most of what the walk costs:
+///
+/// - **Banked** — commits since the stored head plus the churn window's own count, times this
+///   repo's measured seconds-per-commit. `rev-list --count <banked>..HEAD` is bounded by what
+///   has been committed since somebody last looked.
+/// - **Never walked** — `git count-objects -v`, which is free, over the corpus ratio. Stated as
+///   cold, so nothing renders it as a measurement.
+pub fn estimate(repo: &std::path::Path) -> Estimate {
+    let bank = load_bank(repo);
+    let (seconds, commits, cold) = match &bank {
+        Some(b) if !b.head.is_empty() => {
+            let commits = crate::churn::commits_since(repo, &b.head) + b.window_commits;
+            (commits as f32 * b.rate.unwrap_or(COLD_RATE), Some(commits), false)
+        }
+        _ => {
+            let commits = crate::churn::packed_objects(repo) as f32 / OBJECTS_PER_COMMIT;
+            (commits * COLD_RATE, None, true)
+        }
+    };
+    Estimate { seconds, commits, cold, fits: seconds <= BUDGET.as_secs_f32() }
+}
+
+/// Milliseconds per file for a cold `git blame`, measured on ceph — 206s across 6,142 files.
+///
+/// A corpus figure rather than a per-repo one, unlike everything else priced here, and it can
+/// afford to be: it is only ever used to answer "is the blame I need already cached", where
+/// the count is usually zero or nearly all of them and the rate barely matters.
+const BLAME_MS_PER_FILE: f32 = 34.0;
+
+/// Can this repo be put back to per-line resolution without a wait?
+///
+/// **The question a restart has to ask.** A per-line trace is nobody's automatic — its cost is
+/// per file and cannot be predicted — but a repo somebody has already traced to the line should
+/// not have to be traced again when the app reopens, and it usually costs nothing: blame is
+/// cached per file, keyed on content and last-touching commit, so an unchanged repo already
+/// holds every answer. What this prices is the REMAINDER — the files whose blame the cache
+/// cannot serve, because they changed, or because the cache was dropped.
+///
+/// So a normal restart restores the depth instantly, an edited file or two costs a blame apiece,
+/// and a dropped cache asks rather than spending minutes at launch on work nobody re-requested.
+pub fn relines(scan: &Scan, scans: &crate::scancache::ScanCache, history: &History) -> bool {
+    let mut missing = 0usize;
+    scan.root.visit(&mut |n| {
+        if n.kind != NodeKind::File {
+            return;
+        }
+        let hash = scans.hash_of(&n.path).unwrap_or(0);
+        if !scans.has_blame(&n.path, hash, history.last_commit_of(&n.path)) {
+            missing += 1;
+        }
+    });
+    missing as f32 * BLAME_MS_PER_FILE / 1000.0 <= BUDGET.as_secs_f32()
+}
+
+/// Whether this repo's history may be read without asking, and how deep.
+///
+/// Depth 2 is never taken on its own account here. It is per-file work on a scale depth 1
+/// cannot predict — the only honest way to know a repo's blame rate is to run a pass and bank
+/// it, and thirty sampled files were an order of magnitude out — so it is an explicit ask
+/// until this repo has a measured rate to be estimated against.
+pub fn go(repo: &std::path::Path) -> Go {
+    let e = estimate(repo);
+    if e.fits { Go::Run(Depth::Files) } else { Go::Ask(e) }
+}
+
+/// The shape of a banked walk. Bumped when [`crate::churn::Bank`] changes, because a record
+/// this build cannot read is a full walk of linux nobody asked for.
+const BANK_FORMAT: u32 = 1;
+
+fn bank_path(repo: &std::path::Path) -> Option<std::path::PathBuf> {
+    crate::reports::cache_slot("traces", repo, &format!("f{BANK_FORMAT}"))
+        .map(|p| p.with_extension("json"))
+}
+
+/// The log walk — depth 1. Every file's age, churn, commit count and last author.
+///
+/// **Banked, so this costs what has happened since rather than what has ever happened.** A
+/// whole walk is 6.5s on ceph (163,916 commits), 17.5s on kibana (109,525) and 56s on linux
+/// (1,479,915) — cost is commits × paths-touched, which is why kibana is over a ten-second
+/// budget with fewer commits than ceph. Refreshing one is the commits since somebody last
+/// looked, plus a walk bounded by the churn window.
+///
+/// Machine-local, like the timeline cache and unlike `.sanity/`: every byte of it comes back
+/// out of the object database, it changes on every commit, and in-repo it would be a
+/// conflicting blob on every branch. A failed read costs a walk; a failed write costs the
+/// next one. Neither is reported, for the same reason.
+pub fn depth1(repo: &std::path::Path) -> History {
+    let bank = crate::churn::refresh(repo, load_bank(repo));
+    let path = bank_path(repo);
+    if let Some(p) = &path {
+        crate::reports::prune_slots("traces", repo, &format!("f{BANK_FORMAT}"));
+        if let Ok(text) = serde_json::to_string(&bank) {
+            let tmp = p.with_extension("tmp");
+            if std::fs::write(&tmp, text).is_ok() {
+                let _ = std::fs::rename(&tmp, p);
+            }
+        }
+    }
+    bank.history
+}
+
+fn load_bank(repo: &std::path::Path) -> Option<crate::churn::Bank> {
+    let path = bank_path(repo)?;
+    crate::reports::mark_used(&path);
+    serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
+}
+
+/// Per-line blame — depth 2 — for the files a finished scan holds.
+///
+/// The hashes come from the scan cache rather than from the tree, because that is where they
+/// already are: blame is keyed on `(content, last commit)` and the parse computed the content
+/// hash a moment ago. A file the cache has never heard of blames uncached, which is correct
+/// and merely slower.
+pub fn depth2(
+    repo: &std::path::Path,
+    scan: &Scan,
+    history: &History,
+    scans: &crate::scancache::ScanCache,
+    stop: &std::sync::atomic::AtomicBool,
+    on_file: &(dyn Fn(&str, usize, usize) + Sync),
+) -> Blame {
+    let mut files: Vec<(String, u64)> = Vec::new();
+    scan.root.visit(&mut |n| {
+        if n.kind == NodeKind::File {
+            files.push((n.path.clone(), scans.hash_of(&n.path).unwrap_or(0)));
+        }
+    });
+    let total = files.len();
+    let done = std::sync::atomic::AtomicUsize::new(0);
+    Blame::read(repo, &files, history, scans, stop, &|path: &str| {
+        on_file(path, done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1, total);
+    })
+}
+
+/// Trace `repo` to `depth` and land it on a map that was drawn without one.
+///
+/// The deferred half of the split: a scan runs `Depth::Untraced` and puts the picture up, and
+/// this arrives behind it with whatever the budget allowed. Deepening from `Files` to `Lines`
+/// is the same call again — [`apply`] is idempotent precisely so that works.
+pub fn deepen(
+    repo: &std::path::Path,
+    scan: &mut Scan,
+    depth: Depth,
+    scans: &crate::scancache::ScanCache,
+    stop: &std::sync::atomic::AtomicBool,
+    on_file: &(dyn Fn(&str, usize, usize) + Sync),
+) -> (usize, usize) {
+    if depth == Depth::Untraced {
+        return (0, 0);
+    }
+    // **The log walk is one `git log` and is not interruptible; the blame pass is thousands of
+    // processes and is.** So a stop pressed during depth 1 takes effect when it ends — which is
+    // bounded, and measured at 56s on the largest repo tried — and a stop during depth 2 takes
+    // effect within a file. Saying that here rather than pretending both are the same.
+    let history = depth1(repo);
+    let blame = if depth == Depth::Lines && !stop.load(std::sync::atomic::Ordering::Relaxed) {
+        depth2(repo, scan, &history, scans, stop, on_file)
+    } else {
+        Blame::default()
+    };
+    // Applied even when it was stopped: what depth 1 read is a whole answer at its own
+    // resolution, and a partial blame is every file that WAS read — the rest fall back to
+    // their file's numbers, which is the same absence `FileTrace::func` handles everywhere.
+    apply(scan, &history, &blame);
+    // What it resolved, out of what it was asked to. Reported rather than rounded, so a stopped
+    // pass says where it got to and a resumed one starts from a number somebody can see moving.
+    //
+    // **A pass that RAN to the end resolved everything, whatever the blame count says.** Files
+    // git has never seen blame to nothing, by design — an untracked file costs itself its
+    // per-function history and nothing else — so counting successes against files attempted
+    // leaves a repo with one untracked file permanently at 99%, offering to finish work that
+    // is finished. Only a STOPPED pass reports the count, because only there is the gap real.
+    let mut considered = 0;
+    scan.root.visit(&mut |n| {
+        if n.kind == NodeKind::File {
+            considered += 1;
+        }
+    });
+    let resolved = match depth {
+        Depth::Lines if !stop.load(std::sync::atomic::Ordering::Relaxed) => considered,
+        Depth::Lines => blame.len(),
+        _ => 0,
+    };
+    (resolved, considered)
+}
+
+/// One file's history, looked up once and asked about many functions.
+///
+/// The per-file lookups are five `HashMap` hits and the per-function ones are a slice of the
+/// blame, so this exists to keep the ratio that way round: `score_dir` reads a file's numbers
+/// once and its functions' numbers one apiece, and [`apply`] has to do the same or a repo the
+/// size of kibana pays 121,447 lookups it does not need.
+pub(crate) struct FileTrace<'a> {
+    churn: f32,
+    age_days: Option<f32>,
+    commits: u32,
+    last_touched_days: Option<f32>,
+    last_author: Option<String>,
+    blame: Option<&'a FileBlame>,
+    now: i64,
+}
+
+/// What one function's history says, at whatever resolution is available.
+pub(crate) struct FuncTrace {
+    pub churn: f32,
+    pub age_days: Option<f32>,
+    pub commits: u32,
+    pub last_touched_days: Option<f32>,
+    pub last_author: Option<String>,
+}
+
+impl<'a> FileTrace<'a> {
+    pub(crate) fn of(path: &str, history: &History, blame: &'a Blame) -> FileTrace<'a> {
+        FileTrace {
+            churn: history.churn_of(path),
+            age_days: history.age_of(path),
+            commits: history.commits_of(path),
+            last_touched_days: history.last_touched_of(path),
+            last_author: history.last_author_of(path),
+            blame: blame.get(path),
+            now: blame.now,
+        }
+    }
+
+    /// Who last touched the file, for the file's own node — the one field a container takes
+    /// straight from the log rather than from its children.
+    pub(crate) fn last_author(&self) -> Option<String> {
+        self.last_author.clone()
+    }
+
+    /// This function's own history where blame could read it, the file's otherwise — an
+    /// untracked file, a repo without git, a range the blame no longer covers, or a repo
+    /// traced only to depth 1 should cost RESOLUTION, not the axis.
+    pub(crate) fn func(&self, start: u32, end: u32) -> FuncTrace {
+        match self.blame.and_then(|b| b.range(start, end, self.now)) {
+            Some(h) => FuncTrace {
+                // `TRACE_SATURATION`, not the window's: this count is commits surviving in
+                // the body, which is a different quantity from commits in ninety days — see
+                // `blame.rs`.
+                churn: (h.commits as f32 / crate::blame::TRACE_SATURATION).clamp(0.0, 1.0),
+                age_days: Some(h.age_days),
+                commits: h.commits,
+                last_touched_days: Some(h.last_touched_days),
+                last_author: Some(h.last_author.clone()).filter(|a| !a.is_empty()),
+            },
+            None => FuncTrace {
+                churn: self.churn,
+                age_days: self.age_days,
+                commits: self.commits,
+                last_touched_days: self.last_touched_days,
+                last_author: self.last_author.clone(),
+            },
+        }
+    }
+}
+
+/// Land a trace on a tree that was folded without one.
+///
+/// **Idempotent, and it has to be**: a repo traced to depth 1 is traced again to depth 2 over
+/// the same tree, and the second landing must not read the first one's output as input. Every
+/// field written here is written from `history` and `blame` alone; nothing accumulates.
+pub fn apply(scan: &mut Scan, history: &History, blame: &Blame) {
+    apply_to(&mut scan.root, history, blame);
+    // `aggregate` rebuilds every container score from its children, which zeroes the commit
+    // counts — so crediting the directories has to FOLLOW it, every time, and that is why the
+    // two are one call rather than two things a caller has to remember to pair.
+    scan.root.aggregate();
+    apply_dir_history(&mut scan.root, history);
+    scan.stats.authors =
+        history.authors().iter().take(crate::scan::AUTHOR_SLOTS).cloned().collect();
+    scan.stats.without_history = history.is_empty();
+    // **The repo's commit count comes out of the walk that just ran.** It used to be its own
+    // `git rev-list --no-merges --count HEAD`, which is 1.14s on ceph and 7.1s on linux for a
+    // number this already holds: the root is credited once per commit that touched anything —
+    // see `churn::flush_commit`. The one difference is a commit that changed no path at all,
+    // which is now not counted, and "commits that changed something" is the more honest
+    // reading of a number printed beside what a repo is made of.
+    scan.stats.commits = history.total_commits_of("").unwrap_or(0) as usize;
+}
+
+fn apply_to(node: &mut Node, history: &History, blame: &Blame) {
+    // Looked up per FILE and used for every function under it — see `FileTrace`.
+    if node.kind == NodeKind::File {
+        let file = FileTrace::of(&node.path, history, blame);
+        node.last_author = file.last_author();
+        for child in &mut node.children {
+            if child.kind != NodeKind::Func {
+                continue;
+            }
+            let (Some(start), Some(end)) = (child.line, child.end_line) else { continue };
+            let t = file.func(start, end);
+            child.last_author = t.last_author.clone();
+            if let Some(score) = child.score.as_mut() {
+                score.churn = t.churn;
+                score.age_days = t.age_days;
+                score.commits = t.commits;
+                score.last_touched_days = t.last_touched_days;
+                // A function's lifetime count would be `git log -L`, a process apiece — see
+                // `Score::all_commits`, which is `None` here for that reason and not for want
+                // of history.
+                score.all_commits = None;
+            }
+        }
+    }
+    for child in &mut node.children {
+        apply_to(child, history, blame);
+    }
+}
+
+/// Fill in each directory's DISTINCT commit count from the git history.
+///
+/// `aggregate` can compute a directory's lines, surprise and hot share from its children, but
+/// not this: a commit touching twelve files in one directory is one commit for that directory,
+/// and by the time the tree exists only per-file counts survive. `churn::read` credits ancestor
+/// directories once per commit while the log is still grouped, so the answer is a lookup on the
+/// directory's own path.
+///
+/// Churn itself stays the children's LOC-weighted mean rather than `churn_of(dir)`: the
+/// normalization constant is tuned for a single file, and a directory pooling every commit
+/// beneath it would saturate to 1.0 the moment anyone touched anything.
+///
+/// **Files as well as directories, despite the name.** A file node's score comes from
+/// `aggregate`, which sets `commits: 0` because summing its functions would count one commit once
+/// per function it touched — and nothing filled it back in, so every file reported zero commits
+/// next to a churn bar at 72. A file's path is a real path, so the log answers directly; only the
+/// aggregate could not. Two cold readers predicted directories-only from the name and this doc,
+/// in two separate runs, and both were caught by the `File` arm — which is the instrument
+/// reporting a name that undersells its function, so the doc says it rather than an inline
+/// comment inside the body where a reader predicting from the outside never sees it.
+pub(crate) fn apply_dir_history(node: &mut Node, history: &History) {
+    if node.kind == NodeKind::Dir || node.kind == NodeKind::File {
+        if let Some(score) = node.score.as_mut() {
+            score.commits = history.commits_of(&node.path);
+            // The lifetime total comes from the same place and for the same reason: a directory
+            // counts a commit once, and only the log pass still knows which commit touched what.
+            // A function keeps `None` — see `Score::all_commits`.
+            score.all_commits = history.total_commits_of(&node.path);
+        }
+    }
+    for child in &mut node.children {
+        apply_dir_history(child, history);
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+    use std::process::Command;
+
+    /// A repo whose functions were written at different times, so blame has something to say
+    /// that the file-level numbers do not.
+    fn repo() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git = |args: &[&str]| {
+            Command::new("git").arg("-C").arg(dir.path()).args(args).output().expect("git runs");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        let mut body = String::new();
+        for i in 0..4 {
+            body.push_str(&format!("fn f{i}() -> u32 {{\n    let x = {i};\n    x + {i}\n}}\n\n"));
+            std::fs::write(dir.path().join("a.rs"), &body).expect("writes");
+            std::fs::write(dir.path().join("b.rs"), format!("fn g{i}() {{\n    {i};\n}}\n"))
+                .expect("writes");
+            git(&["add", "-A"]);
+            git(&["commit", "-q", "-m", &format!("commit {i}")]);
+        }
+        dir
+    }
+
+    fn scan_of(repo: &Path, depth: Depth) -> crate::scan::Scan {
+        let (scores, scans) = crate::scan::Memos::ephemeral();
+        crate::scan::scan(
+            repo,
+            &crate::surprise::HeuristicModel,
+            &|_| {},
+            &|_, _: &crate::surprise::Reading| {},
+            &|_| {},
+            &std::sync::atomic::AtomicBool::new(false),
+            crate::scan::Memos { scores: &scores, scans: &scans },
+            crate::scan::Fidelity::Full,
+            depth,
+        )
+        .expect("scans")
+    }
+
+    /// Every git-derived field, per node, in tree order.
+    type Row = (String, f32, Option<f32>, u32, Option<u32>, Option<f32>, Option<String>);
+
+    fn rows(scan: &crate::scan::Scan) -> Vec<Row> {
+        let mut out = Vec::new();
+        scan.root.visit(&mut |n| {
+            if let Some(s) = n.score.as_ref() {
+                out.push((
+                    n.id.clone(),
+                    s.churn,
+                    s.age_days,
+                    s.commits,
+                    s.all_commits,
+                    s.last_touched_days,
+                    n.last_author.clone(),
+                ));
+            }
+        });
+        out
+    }
+
+    /// The two must agree about everything except WHEN they were taken.
+    ///
+    /// `age_days` and `last_touched_days` are measured from the moment the blame was read, so
+    /// two traces of one repo differ by the seconds between them. That is the instrument being
+    /// honest rather than a discrepancy, and a thousandth of a day is eighty-six seconds — far
+    /// looser than that gap and far tighter than any real difference.
+    fn same(a: &[Row], b: &[Row]) {
+        assert_eq!(a.len(), b.len(), "a deferred trace reached a different set of nodes");
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert_eq!(x.0, y.0, "tree order moved");
+            assert!((x.1 - y.1).abs() < 0.001, "{}: churn {} vs {}", x.0, x.1, y.1);
+            match (x.2, y.2) {
+                (Some(p), Some(q)) => assert!((p - q).abs() < 0.001, "{}: age {p} vs {q}", x.0),
+                (p, q) => assert_eq!(p, q, "{}: age", x.0),
+            }
+            assert_eq!(x.3, y.3, "{}: commits", x.0);
+            assert_eq!(x.4, y.4, "{}: all_commits", x.0);
+            match (x.5, y.5) {
+                (Some(p), Some(q)) => assert!((p - q).abs() < 0.001, "{}: touched", x.0),
+                (p, q) => assert_eq!(p, q, "{}: touched", x.0),
+            }
+            assert_eq!(x.6, y.6, "{}: last author", x.0);
+        }
+    }
+
+    fn read_trace(repo: &Path, scan: &crate::scan::Scan) -> (History, Blame) {
+        let history = crate::churn::read(repo);
+        let mut paths: Vec<(String, u64)> = Vec::new();
+        scan.root.visit(&mut |n| {
+            if n.kind == NodeKind::File {
+                paths.push((n.path.clone(), 0));
+            }
+        });
+        let cache = crate::scancache::ScanCache::ephemeral();
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let blame = Blame::read(repo, &paths, &history, &cache, &stop, &|_| {});
+        (history, blame)
+    }
+
+    /// **The claim the whole split rests on.** A map drawn with git in hand and a map drawn
+    /// without it and given git afterwards have to be the same map — otherwise deferring the
+    /// trace is not deferring a cost, it is producing a second instrument nobody has checked.
+    ///
+    /// So the fields git fills are wiped from a finished tree and put back by [`apply`], and
+    /// every one of them is compared: the functions' four facts, the containers' distinct and
+    /// lifetime commit counts, and the last author on every node that carries one.
+    #[test]
+    fn a_deferred_trace_lands_exactly_where_an_inline_one_did() {
+        // The scan writes its finished tree to the real cache directory otherwise, and a
+        // test that leaves entries in the developer's own cache is one that can also be
+        // ANSWERED by one — see `treecache::load`.
+        let _home = crate::agentapi::tests::data_home();
+        let dir = repo();
+        let inline = scan_of(dir.path(), Depth::Lines);
+        let before = rows(&inline);
+        assert!(
+            before.iter().any(|r| r.3 > 0),
+            "the fixture has to have history in it, or this test proves nothing"
+        );
+
+        // The real untraced path, not a tree with its fields knocked out by hand: what is
+        // being pinned is that a scan which never opened git leaves exactly the absences
+        // `apply` knows how to fill.
+        let mut deferred = scan_of(dir.path(), Depth::Untraced);
+        let untraced = rows(&deferred);
+        assert_ne!(untraced, before, "an untraced scan has to differ from a traced one");
+        assert!(
+            untraced.iter().all(|r| r.1 == 0.0 && r.2.is_none() && r.3 == 0 && r.6.is_none()),
+            "an untraced scan must claim nothing about history, not claim zero"
+        );
+
+        let (history, blame) = read_trace(dir.path(), &deferred);
+        apply(&mut deferred, &history, &blame);
+        same(&before, &rows(&deferred));
+    }
+
+    /// **A depth is bought once.** A restart scans without git and then reads what a budget
+    /// allows, which is the log walk; the per-line pass is nobody's automatic. So a repo
+    /// somebody had traced to the line came back asking to be traced again — and it costs
+    /// nothing to restore, because blame is cached per file and an unchanged repo already
+    /// holds every answer.
+    ///
+    /// What `relines` prices is the REMAINDER. Nothing missing is free; a cache that has been
+    /// dropped is a full pass, and a full pass at launch is exactly what the budget exists to
+    /// refuse.
+    #[test]
+    fn a_repo_already_blamed_goes_back_to_the_line_for_nothing() {
+        let _home = crate::agentapi::tests::data_home();
+        let dir = repo();
+        let mut scan = scan_of(dir.path(), Depth::Untraced);
+        let history = crate::churn::read(dir.path());
+        let scans = crate::scancache::ScanCache::open(dir.path());
+
+        // Nothing cached: every file would have to be blamed, which on a fixture is affordable
+        // and on a real repo is the case this refuses.
+        assert!(
+            relines(&scan, &scans, &history),
+            "a two-file repo is under any budget even cold"
+        );
+
+        // A per-line pass fills the cache, and the same question is then free.
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        deepen(dir.path(), &mut scan, Depth::Lines, &scans, &stop, &|_, _, _| {});
+        assert!(relines(&scan, &scans, &history), "and free once the blame is banked");
+
+        // An empty cache is the dropped-cache case, and it is priced per file rather than
+        // waved through: what makes this affordable here is the size of the fixture, and the
+        // arithmetic is the same one that refuses kibana.
+        let cold = crate::scancache::ScanCache::ephemeral();
+        let mut missing = 0;
+        scan.root.visit(&mut |n| {
+            if n.kind == NodeKind::File && !cold.has_blame(&n.path, 0, None) {
+                missing += 1;
+            }
+        });
+        assert!(missing > 0, "an empty cache holds no blame, so every file is a cost");
+    }
+
+    /// **An estimate prices the work that is left, never the work in principle.**
+    ///
+    /// The same mistake made twice, one phase apart, and this pins both halves of the rule. A
+    /// scan of a repo whose tree is cached is a decode, not a parse — kibana asked at every
+    /// launch on a fifteen-second estimate for a tenth of a second of work. A per-line trace of
+    /// a repo whose blame is cached is a lookup, not a `git blame` per file. Neither is priced
+    /// by counting what is in the repo; both are priced by counting what is missing.
+    #[test]
+    fn a_cached_answer_is_not_priced_as_though_it_had_to_be_derived() {
+        let _home = crate::agentapi::tests::data_home();
+        let dir = repo();
+
+        // Cold: nothing stored, so the walk finds no tree to serve.
+        assert!(
+            !crate::treecache::warm(dir.path(), crate::scan::Fidelity::Full, Depth::Untraced),
+            "an unscanned repo has nothing cached, whatever it would cost to scan"
+        );
+
+        // A scan stores its tree, and the same question then answers yes — which is what stands
+        // between a large repo and a question at every launch.
+        let mut scan = scan_of(dir.path(), Depth::Untraced);
+        assert!(
+            crate::treecache::warm(dir.path(), crate::scan::Fidelity::Full, Depth::Untraced),
+            "a scanned and unchanged repo is a decode away from its map"
+        );
+
+        // The trace half of the same rule — see `relines`.
+        let scans = crate::scancache::ScanCache::open(dir.path());
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        deepen(dir.path(), &mut scan, Depth::Lines, &scans, &stop, &|_, _, _| {});
+        assert!(relines(&scan, &scans, &crate::churn::read(dir.path())));
+    }
+
+    /// A repo nobody has walked is priced without walking it, and says so.
+    ///
+    /// The number is a bound from `count-objects`, not a measurement, and the flag is what
+    /// stops the window printing it as one. A fixture repo is small either way — what is being
+    /// pinned is that the cold path answers at all, that it costs nothing, and that a walk
+    /// leaves a bank behind for the warm path to use.
+    #[test]
+    fn an_unwalked_repo_is_priced_from_free_evidence_and_a_walked_one_from_its_own() {
+        let _home = crate::agentapi::tests::data_home();
+        let dir = repo();
+
+        let cold = estimate(dir.path());
+        assert!(cold.cold, "nothing has walked this repo, and the estimate has to say so");
+        assert_eq!(cold.commits, None, "a commit count nobody counted is not reported");
+        assert!(cold.fits, "a four-commit repo is under any budget");
+
+        depth1(dir.path());
+        let warm = estimate(dir.path());
+        assert!(!warm.cold, "a walk leaves a bank, and a bank is measured evidence");
+        assert_eq!(warm.commits, Some(4), "four commits, all inside the churn window");
+        assert!(matches!(go(dir.path()), Go::Run(Depth::Files)));
+    }
+
+    /// Depth 2 lands on a tree depth 1 already touched, so a second landing must read only the
+    /// trace it was given — never the fields the last one wrote.
+    #[test]
+    fn applying_a_trace_twice_changes_nothing() {
+        let _home = crate::agentapi::tests::data_home();
+        let dir = repo();
+        let mut scan = scan_of(dir.path(), Depth::Untraced);
+        let (history, blame) = read_trace(dir.path(), &scan);
+        apply(&mut scan, &history, &blame);
+        let once = rows(&scan);
+        apply(&mut scan, &history, &blame);
+        same(&once, &rows(&scan));
+    }
+}

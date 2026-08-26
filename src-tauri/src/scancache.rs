@@ -80,7 +80,13 @@ use crate::parse::FuncDef;
 /// have dropped these entries on its own; both are bumped because they answer different
 /// questions — the record's SHAPE changed and so did what a parse MEANS — and declaring only
 /// the one you happened to think of is how the next reader learns the wrong rule.
-const FORMAT_VERSION: u32 = 5;
+///
+/// 6 because the parser's version moved from the header onto each entry, so that a parse
+/// bump costs the parse and not the blame. It is also the version that names the file (see
+/// [`ScanCache::path_for`]), which means this bump orphans every existing log rather than
+/// dropping it — one cold scan per repo, once, and no build can silently read a log whose
+/// entries do not say which parser wrote them.
+const FORMAT_VERSION: u32 = 6;
 
 /// Stand-in oid for "not touched inside the churn window". See the module docs.
 const ANCIENT: &str = "-";
@@ -116,6 +122,20 @@ struct Entry {
     #[serde(default)]
     file_doc: Option<String>,
     head: String,
+    /// What the parser meant when `funcs`, `file_doc` and `head` were written — see
+    /// [`crate::parse::PARSE_VERSION`].
+    ///
+    /// **Per entry, because a parse bump is not a reason to throw the blame away.** It used
+    /// to be one number on the header and it dropped the whole store: a build one version
+    /// along read a file full of perfectly good `git blame` output — which no parser
+    /// produced and no parser can invalidate — and started again from nothing. On ceph that
+    /// is the longest phase of the scan, paid to fix the shorter one.
+    ///
+    /// Absent is 0, which matches no real parse version, so an entry from before this field
+    /// re-parses. That is the honest reading: its functions were produced by a parser that
+    /// did not say which it was.
+    #[serde(default)]
+    parse: u32,
     /// Absent when blame failed or was invalidated on its own. Untracked files, symlinks
     /// and non-repos are a per-file blame failure by design, and caching the absence would
     /// make a file that later gets committed keep its missing history.
@@ -124,21 +144,13 @@ struct Entry {
     blame_commit: String,
 }
 
+/// The log as a whole. **What the parser was is not here** — it is on each entry, because
+/// the two halves of an entry go stale for different reasons and only one of them is the
+/// parser's. `version` stays, and asks the one question that is about the whole file: can
+/// these bytes be read at all.
 #[derive(Serialize, Deserialize, Default)]
 struct Stored {
     version: u32,
-    /// What the parser meant when these entries were written — see
-    /// [`crate::parse::PARSE_VERSION`].
-    ///
-    /// Separate from `version` because they answer different questions and have different
-    /// blast radii on the way in: `version` asks whether this file can be READ, and a
-    /// mismatch means the bytes on disk are a shape nothing here understands. This asks
-    /// whether what was read still MEANS what it meant, and a mismatch means the records
-    /// parse perfectly and describe a repo as an older parser saw it. Folding the two into
-    /// one integer would work and would lose that distinction the first time somebody had
-    /// to reason about which one had fired.
-    #[serde(default)]
-    parse: u32,
     /// HEAD when this cache was last written, so a rewritten history can be detected.
     head: String,
     entries: HashMap<String, Entry>,
@@ -226,11 +238,7 @@ impl ScanCache {
     pub fn ephemeral() -> ScanCache {
         ScanCache {
             path: None,
-            inner: Mutex::new(Some(Stored {
-                version: FORMAT_VERSION,
-                parse: crate::parse::PARSE_VERSION,
-                ..Default::default()
-            })),
+            inner: Mutex::new(Some(Stored { version: FORMAT_VERSION, ..Default::default() })),
             dirty: Mutex::new(Dirty::default()),
             head: String::new(),
             repo: PathBuf::new(),
@@ -246,8 +254,19 @@ impl ScanCache {
     /// without changing a single byte in the working tree, while the parse of those
     /// unchanged bytes is still perfectly good.
     pub fn open(repo: &Path) -> ScanCache {
+        // Once a scan, before anything is read. Sweeps the slots of formats nobody has
+        // written in a month, and the untagged name every build shared before this — see
+        // `prune_slots`.
+        crate::reports::prune_slots("scans", repo, &format!("f{FORMAT_VERSION}"));
+        let path = Self::path_for(repo);
+        // Opened on every scan, including the ones that answer out of `treecache` and never
+        // read a line of this — which is exactly the log that would look abandoned to another
+        // build's sweep while being used daily.
+        if let Some(p) = &path {
+            crate::reports::mark_used(p);
+        }
         ScanCache {
-            path: Self::path_for(repo),
+            path,
             // Unread. The file is opened by `store` on the first entry anybody asks for,
             // which on a launch whose tree came from `treecache` is never.
             inner: Mutex::new(None),
@@ -294,12 +313,11 @@ impl ScanCache {
             .as_ref()
             .and_then(|p| std::fs::read_to_string(p).ok())
             .map(|s| read_log(&s))
-            .filter(|(s, _)| s.version == FORMAT_VERSION && s.parse == crate::parse::PARSE_VERSION)
+            .filter(|(s, _)| s.version == FORMAT_VERSION)
             .unwrap_or_else(|| {
                 (
                     Stored {
                         version: FORMAT_VERSION,
-                        parse: crate::parse::PARSE_VERSION,
                         head: self.head.clone(),
                         entries: HashMap::new(),
                     },
@@ -319,14 +337,18 @@ impl ScanCache {
         held
     }
 
-    /// One file per repo. Hashed rather than escaped, because repo paths hold separators
-    /// and characters that are illegal in a filename on at least one platform we ship to —
-    /// the same reasoning as `cache::path_for`.
+    /// One file per repo per FORMAT — see [`crate::reports::cache_slot`].
+    ///
+    /// **The format and not the parser, and the difference is the point of this whole file.**
+    /// A tag has to hold exactly what makes a reader refuse the record: here that is
+    /// [`FORMAT_VERSION`], which decides whether the log can be READ at all. `PARSE_VERSION`
+    /// deliberately stays out of it, because the expensive half of every entry — the blame —
+    /// is not the parser's work and does not go stale when the parser moves. Putting it in
+    /// the name would give each build its own copy of a corpus they can share, and a `git
+    /// blame` per file is the longest phase of a large scan.
     fn path_for(repo: &Path) -> Option<PathBuf> {
-        let dir = crate::reports::data_dir()?.join("scans");
-        std::fs::create_dir_all(&dir).ok()?;
-        let id = fnv(repo.to_string_lossy().as_bytes());
-        Some(dir.join(format!("{id:016x}.json")))
+        crate::reports::cache_slot("scans", repo, &format!("f{FORMAT_VERSION}"))
+            .map(|p| p.with_extension("json"))
     }
 
     /// Decide whether `path`'s memo still applies, reading the file only if it must.
@@ -334,6 +356,13 @@ impl ScanCache {
     /// `last_commit` is the oid of the newest commit touching this file, or `None` when it
     /// falls outside the churn window — see the module docs for why that is cacheable
     /// rather than uncacheable.
+    ///
+    /// **A miss here is not a miss for the whole entry**, which is what makes a parse bump
+    /// affordable. This answers about the PARSE, so it refuses anything an older parser
+    /// wrote; the entry stays in the store, and [`Self::cached_blame`] goes on answering out
+    /// of it — the blame was never the parser's work. The re-parse then writes its functions
+    /// back over the same entry and [`Self::put_parse`] carries the blame across, because the
+    /// bytes it was taken against have not moved.
     pub fn look(&self, rel_path: &str, path: &Path, last_commit: Option<&str>) -> Look {
         let want = last_commit.unwrap_or(ANCIENT);
         let meta = std::fs::metadata(path).ok();
@@ -347,7 +376,7 @@ impl ScanCache {
         // The fast path: the gate matches, so the bytes are not read and not hashed.
         if let (Some((mtime, len)), Some(inner)) = (gate, self.store().as_ref()) {
             if let Some(e) = inner.entries.get(rel_path) {
-                if e.mtime == mtime && e.len == len {
+                if e.mtime == mtime && e.len == len && e.parse == crate::parse::PARSE_VERSION {
                     return Look::Hit(Hit {
                         lang: e.lang,
                         funcs: e.funcs.clone(),
@@ -372,7 +401,7 @@ impl ScanCache {
         // so the next open takes the fast path.
         if let Some(inner) = self.store().as_ref() {
             if let Some(e) = inner.entries.get(rel_path) {
-                if e.hash == hash {
+                if e.hash == hash && e.parse == crate::parse::PARSE_VERSION {
                     return Look::Hit(Hit {
                         lang: e.lang,
                         funcs: e.funcs.clone(),
@@ -385,6 +414,29 @@ impl ScanCache {
             }
         }
         Look::Miss { src, ident }
+    }
+
+    /// What this file's bytes hashed to when they were last parsed.
+    ///
+    /// For a trace taken AFTER the scan that parsed them: blame is keyed on
+    /// `(content, last commit)`, the parse computed the content hash, and asking the file
+    /// again would read every byte of the repo a second time to learn what is already here.
+    pub fn hash_of(&self, rel_path: &str) -> Option<u64> {
+        self.store().as_ref()?.entries.get(rel_path).map(|e| e.hash)
+    }
+
+    /// Is this file's blame already here? Same test as [`Self::cached_blame`], without paying
+    /// for the copy.
+    ///
+    /// For deciding whether a per-line trace is affordable before running one: blame is the
+    /// expensive half of a scan and the only honest way to price it is to know how much of it
+    /// is already cached — see `trace::relines`.
+    pub fn has_blame(&self, rel_path: &str, hash: u64, last_commit: Option<&str>) -> bool {
+        let held = self.store();
+        let Some(e) = held.as_ref().and_then(|s| s.entries.get(rel_path)) else {
+            return false;
+        };
+        e.hash == hash && e.blame_commit == last_commit.unwrap_or(ANCIENT) && e.blame.is_some()
     }
 
     /// The stored blame for a file, if it was taken against these exact bytes and this
@@ -440,6 +492,7 @@ impl ScanCache {
                 funcs: funcs.to_vec(),
                 file_doc: file_doc.map(str::to_string),
                 head: head.to_string(),
+                parse: crate::parse::PARSE_VERSION,
                 blame,
                 blame_commit,
             },
@@ -562,9 +615,7 @@ impl ScanCache {
 /// that a reader has to apply the lines in order, and that removals need a rewrite — both
 /// cheap next to serialising hundreds of megabytes on a timer.
 fn header_line(s: &Stored) -> String {
-    serde_json::to_string(
-        &serde_json::json!({ "version": s.version, "parse": s.parse, "head": s.head }),
-    )
+    serde_json::to_string(&serde_json::json!({ "version": s.version, "head": s.head }))
     .unwrap_or_default()
         + "\n"
 }
@@ -591,10 +642,6 @@ struct Row {
 struct Header {
     #[serde(default)]
     version: u32,
-    /// Absent is 0, which matches no real parse version and therefore drops the cache — the
-    /// honest reading of a header written before the parser was versioned at all.
-    #[serde(default)]
-    parse: u32,
     #[serde(default)]
     head: String,
 }
@@ -610,12 +657,11 @@ struct Header {
 /// the note on appending above), so the work is `rayon`'s to spread. The header is read on
 /// its own because it is the one line that is not a file.
 fn read_log(text: &str) -> (Stored, usize) {
-    let mut out = Stored { version: 0, parse: 0, head: String::new(), entries: HashMap::new() };
+    let mut out = Stored { version: 0, head: String::new(), entries: HashMap::new() };
     let mut lines = text.lines().filter(|l| !l.is_empty());
     let Some(head) = lines.next() else { return (out, 0) };
     if let Ok(h) = serde_json::from_str::<Header>(head) {
         out.version = h.version;
-        out.parse = h.parse;
         out.head = h.head;
     }
     let rest: Vec<&str> = lines.collect();
@@ -709,6 +755,7 @@ mod tests {
             funcs: vec![func("one")],
             file_doc: Some("//! banner".into()),
             head: "abc".into(),
+            parse: crate::parse::PARSE_VERSION,
             blame: None,
             blame_commit: ANCIENT.into(),
         };
@@ -728,6 +775,7 @@ mod tests {
                 "lang",
                 "len",
                 "mtime",
+                "parse",
             ],
             "the cached record's fields changed — bump FORMAT_VERSION, then update this list"
         );
@@ -796,41 +844,86 @@ mod tests {
         );
     }
 
-    /// A cache written by a different parser is dropped, not extended.
+    /// A parse written by a different parser is not reused, and the blame beside it is.
     ///
-    /// **This is the one failure every other test here would pass through.** The gate, the
-    /// hash and the HEAD check all answer "have these bytes changed", and the answer is
+    /// **The first half is the failure every other test here would pass through.** The gate,
+    /// the hash and the HEAD check all answer "have these bytes changed", and the answer is
     /// correctly no — while the parser that read them has moved underneath. Mapping `.h` to
     /// C++ took one real repo from 1,682 functions to 1,724, and the app went on serving
     /// 1,682 out of a cache written an hour before, while `just scan` — uncached by design —
     /// reported the truth. Two numbers for one repo, and an orchestrator was sizing a
     /// 176-subagent run from the wrong one.
     ///
-    /// A header with no `parse` at all takes the same road: absent is 0, 0 matches no real
-    /// parse version, and a cache from before the parser was versioned is exactly the cache
-    /// whose parse cannot be vouched for.
+    /// **The second half is what that refusal used to cost.** The parser's version sat on the
+    /// header and a mismatch dropped the entire store, blame included — so a build one
+    /// version along re-took a `git blame` per file, which is the longest phase of a large
+    /// scan, to fix the shorter one. No parser produces blame and none can invalidate it.
+    ///
+    /// An entry with no `parse` at all takes the first road: absent is 0, 0 matches no real
+    /// parse version, and a record from before the parser was versioned is exactly the record
+    /// whose functions cannot be vouched for.
     #[test]
-    fn a_cache_from_a_different_parser_is_not_reused() {
-        let entries = |s: &str| read_log(s).0;
-        let header = |v: u32, p: Option<u32>| match p {
-            Some(p) => format!(r#"{{"version":{v},"parse":{p},"head":"abc"}}"#),
-            None => format!(r#"{{"version":{v},"head":"abc"}}"#),
-        };
-        let live =
-            |s: &Stored| s.version == FORMAT_VERSION && s.parse == crate::parse::PARSE_VERSION;
+    fn a_parse_bump_costs_the_parse_and_keeps_the_blame() {
+        let _home = crate::agentapi::tests::data_home();
+        let repo = tempfile::tempdir().unwrap();
+        let cache = on_disk(repo.path(), &[("a.rs", "fn one() {}")]);
+        cache.put_blame("a.rs", Some(&crate::blame::fixture("Ada")), Some("aaa"));
+        cache.save();
+        let path = ScanCache::path_for(repo.path()).unwrap();
+        let hash = fnv(b"fn one() {}");
+
+        // As this build wrote it: the parse is served without the file being read.
+        let back = ScanCache::open(repo.path());
+        assert!(
+            matches!(back.look("a.rs", &repo.path().join("a.rs"), Some("aaa")), Look::Hit(_)),
+            "this build's own entry is reused"
+        );
+
+        // The same log, as a build with a different parser sees it.
+        // From the pristine log each time — the previous iteration wrote its own stamp over
+        // the file, and re-reading it would look for a version that is no longer there.
+        let written = fs::read_to_string(&path).unwrap();
+        for stamp in [
+            format!(r#""parse":{}"#, crate::parse::PARSE_VERSION + 1),
+            r#""parse":0"#.to_string(),
+        ] {
+            let moved =
+                written.replace(&format!(r#""parse":{}"#, crate::parse::PARSE_VERSION), &stamp);
+            assert_ne!(moved, written, "the fixture has to actually move the parser");
+            fs::write(&path, &moved).unwrap();
+
+            let back = ScanCache::open(repo.path());
+            assert!(
+                matches!(
+                    back.look("a.rs", &repo.path().join("a.rs"), Some("aaa")),
+                    Look::Miss { .. }
+                ),
+                "functions from another parser describe a repo nobody is looking at ({stamp})"
+            );
+            assert!(
+                back.cached_blame("a.rs", hash, Some("aaa")).is_some(),
+                "and the blame beside them is nobody's parser's work ({stamp})"
+            );
+        }
+    }
+
+    /// The re-parse that follows a bump must hand the blame back, or the saving is one open
+    /// deep: `put_parse` rewrites the entry, and it is the only thing that can carry the old
+    /// blame across.
+    #[test]
+    fn re_parsing_unchanged_bytes_keeps_the_blame() {
+        let dir = tempfile::tempdir().unwrap();
+        let (cache, path) = seeded(dir.path(), "fn one() {}\n");
+        cache.put_blame("a.rs", Some(&crate::blame::fixture("Ada")), Some("aaa"));
+        let Look::Hit(h) = cache.look("a.rs", &path, Some("aaa")) else { panic!("unchanged") };
+
+        // What a bumped build does with the entry it refused: parse the same bytes again and
+        // store them over the top.
+        cache.put_parse("a.rs", &h.ident, Lang::Rust, &[func("two")], None, "head");
 
         assert!(
-            live(&entries(&header(FORMAT_VERSION, Some(crate::parse::PARSE_VERSION)))),
-            "this build's own cache is reused"
-        );
-        assert!(
-            !live(&entries(&header(FORMAT_VERSION, Some(crate::parse::PARSE_VERSION + 1)))),
-            "a newer parser's cache is not this parser's answer either — the records are \
-             internally consistent and describe a repo nobody is looking at"
-        );
-        assert!(
-            !live(&entries(&header(FORMAT_VERSION, None))),
-            "and a header from before the parser was versioned is dropped, not assumed"
+            cache.cached_blame("a.rs", fnv(b"fn one() {}\n"), Some("aaa")).is_some(),
+            "the bytes did not move, so the blame taken against them still describes them"
         );
     }
 

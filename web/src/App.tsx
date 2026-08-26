@@ -13,6 +13,11 @@ import {
   countPending,
   type Added,
   type AgentReport,
+  estimateTrace,
+  explainTrace,
+  stopTrace,
+  setExplainTrace,
+  type TraceCost,
   cliStatus,
   type CliState,
   forgetProject,
@@ -35,7 +40,14 @@ import {
   type Scan,
   type Upgrade,
 } from './lib/api'
-import { frameTree, headSizes, onHistoryProgress, scanHistory, warmHistory } from './lib/history'
+import {
+  frameTree,
+  headSizes,
+  onHistoryProgress,
+  scanHistory,
+  traceProject,
+  warmHistory,
+} from './lib/history'
 import {
   Deltas,
   Funcs,
@@ -798,11 +810,26 @@ export default function App() {
           setBigFolder(added)
           return
         }
-        // Remembered so the new project can be selected when it shows up. The scan
-        // publishes it and the poll renders it, which are two different moments — without
-        // this the repo you just added appears in the list and the map stays on whatever
-        // you were looking at.
-        takeFolder(added.path, added.key)
+        // Remembered so the new project can be selected when it shows up: the scan publishes
+        // it and the poll renders it, which are two different moments — without that the repo
+        // you just added appears in the list and the map stays on whatever you were looking at.
+        //
+        // **Priced before it is added, because the answer changes what happens next.** A repo
+        // whose history is under the budget is scanned and traced without anybody being asked;
+        // one over it arrives with its map drawn and its second axis missing, which is a thing
+        // to say out loud rather than let somebody discover from a grey lens. The estimate is
+        // free — see `trace::estimate` — so this costs nothing on the repos it does not apply
+        // to. A failure to price is not a reason to block an add: fall through and let the row
+        // say what it finds.
+        void Promise.all([estimateTrace(added.path), explainTrace()])
+          .then(([cost, explain]) => {
+            if (cost.fits || !explain) {
+              takeFolder(added.path, added.key)
+              return
+            }
+            setBigHistory({ added, cost })
+          })
+          .catch(() => takeFolder(added.path, added.key))
       })
       .catch((e) => {
         setPendingAdd(null)
@@ -871,6 +898,12 @@ export default function App() {
 
   /** A chosen folder that holds several repos, waiting to be confirmed. */
   const [bigFolder, setBigFolder] = useState<Added | null>(null)
+
+  /** A repo whose history is over the budget, and what it would cost — see the dialog. */
+  const [bigHistory, setBigHistory] = useState<{ added: Added; cost: TraceCost } | null>(null)
+  /** Ticked in that dialog. Written on the way out rather than on every click, so cancelling
+   *  leaves the preference where it was: dismissing a dialog is not answering it. */
+  const [hideExplain, setHideExplain] = useState(false)
 
   /** What the menu's Install Command Line Tool… reported, if anything. Split into a
    *  sentence and a path so the path can be set as code rather than the whole message
@@ -1050,6 +1083,27 @@ export default function App() {
    *  drop the window into History when the walk finished, so a button on one row rearranged
    *  what somebody was looking at on another. The row it was pressed on reports the progress
    *  and offers the way out, which is where a background job belongs. */
+  /** Read a repo's commit log onto the map — depth 1, the ask the budget declined.
+   *
+   *  **Not the replay.** `trace` below walks every commit to build a timeline; this reads the
+   *  log once so every wedge gains an age, a churn and an author. They share a word because
+   *  they are the same instrument at two depths — see `trace.rs` — and they share nothing
+   *  else: this one is seconds to a minute, and the map it lands on is already drawn.
+   *
+   *  The projects poll is what refreshes the row; the tree refetch is what repaints the map,
+   *  and it has to be asked for here because `scanned` moving is the only signal the window
+   *  gets and a trace bumps it from a call it made itself. */
+  const readHistory = useCallback(
+    (key: string) => {
+      const repo = projects.find((p) => p.key === key)?.repo
+      if (!repo) return
+      void traceProject(repo)
+        .then(() => refreshProjects())
+        .catch((err) => setError(String(err)))
+    },
+    [projects, refreshProjects],
+  )
+
   const trace = useCallback(
     (key: string, fresh = false) => {
       const repo = projects.find((p) => p.key === key)?.repo
@@ -1384,6 +1438,18 @@ export default function App() {
         out[m] = {
           why: `${MODE_LABEL[m]} needs this language's calls read off its grammar, which Sanity does not do for it. A guessed edge would be worse than a stated absence.`,
           keyed: false,
+        }
+      } else if (
+        (m === 'blame' || m === 'churn' || m === 'age') &&
+        activeProject?.trace_depth === 'untraced'
+      ) {
+        // **Asked BEFORE "no history", because an untraced repo also has no ages in it** and
+        // the two absences are opposite claims: this one is work nobody has paid for, and the
+        // one below is a fact about the folder. Reporting the second when the first is true
+        // tells somebody their repo has no git in it while its log sits there unread.
+        out[m] = {
+          why: `${MODE_LABEL[m]} reads git, and this repo's history has not been read yet. Press Trace on the project.`,
+          keyed: true,
         }
       } else if ((m === 'blame' || m === 'churn' || m === 'age') && tree.score?.ageDays === null) {
         out[m] = {
@@ -2085,6 +2151,18 @@ export default function App() {
           }}
           onError={setError}
           onReplay={trace}
+          onTrace={readHistory}
+          onScan={(key) => {
+            // The same command the Open button uses. One construction site for a project
+            // whichever door it came through — the gate lives in the restore lane and in the
+            // watcher, and a press is not gated at all.
+            const repo = projects.find((p) => p.key === key)?.repo
+            if (repo) void scanRepo(repo).catch((err) => setError(String(err)))
+          }}
+          onStopTrace={(key) => {
+            const repo = projects.find((p) => p.key === key)?.repo
+            if (repo) void stopTrace(repo).catch((err) => setError(String(err)))
+          }}
           onSelect={(key) => {
             // Selected immediately, before the tree is fetched. A project still being
             // rescanned has no tree to return, and gating the selection on one meant
@@ -2445,6 +2523,86 @@ export default function App() {
                 className="rounded-md bg-[var(--secondary)] px-3 py-1.5 text-xs font-semibold hover:opacity-90"
               >
                 Scan it anyway
+              </button>
+            </div>
+          </div>
+        </Overlay>
+      )}
+
+      {/* **WHAT ADDING A BIG REPO IS ABOUT TO DO, before it does it.**
+          Three processes, three costs, and only the first is unconditional: the map is
+          parsed from the files and appears; the history is read from git and this one is
+          over the budget, so it waits here rather than spending a minute of somebody's
+          machine on a repo they have just pointed at; the readings cost tokens and an agent
+          and are never automatic at any size.
+          The numbers are this repo's own — see `estimateTrace`, which prices a repo nobody
+          has walked from its packed object count and costs nothing. It is an estimate and it
+          says so with a tilde: printing `17s` for an inference would be the instrument
+          claiming a stopwatch it has not got.
+          The checkbox hides this EXPLANATION and not the choice. A big repo added with it
+          ticked still arrives with its history unread and its own row still says so — which
+          is the property that makes ticking it safe, and the reason it is not phrased as
+          "always trace". */}
+      {bigHistory && (
+        <Overlay onClose={() => setBigHistory(null)}>
+          <div
+            className="flex w-full max-w-md flex-col gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-[15px] font-semibold">This repo has a lot of history</div>
+            <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
+              Sanity does three things to a repo, and they cost very different amounts.
+            </p>
+            <ul className="flex flex-col gap-2 text-xs leading-relaxed text-[var(--muted-foreground)]">
+              <li>
+                <b className="text-[var(--foreground)]">Scan</b> parses every file and draws the
+                map. It happens now, and it does not read git at all.
+              </li>
+              <li>
+                <b className="text-[var(--foreground)]">Trace</b> reads the commit log, which is
+                what gives each wedge an age, a churn and an author. Here that is about{' '}
+                <b className="text-[var(--foreground)]">
+                  {bigHistory.cost.seconds < 60
+                    ? `${Math.max(1, Math.round(bigHistory.cost.seconds))} seconds`
+                    : `${Math.round(bigHistory.cost.seconds / 60)} minutes`}
+                </b>
+                {bigHistory.cost.cold ? ', estimated from the size of its object store' : ''} —
+                past what Sanity will spend without being asked, so the map arrives without those
+                lenses and the row carries a <b className="text-[var(--foreground)]">Trace</b>{' '}
+                button.
+              </li>
+              <li>
+                <b className="text-[var(--foreground)]">Read</b> puts an agent over the code to
+                measure how predictable it is. It costs tokens, it is always your call, and no
+                size of repo changes that.
+              </li>
+            </ul>
+            <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+              <input
+                type="checkbox"
+                checked={hideExplain}
+                onChange={(e) => setHideExplain(e.target.checked)}
+              />
+              Don’t explain this again
+            </label>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setBigHistory(null)}
+                className="rounded-md px-3 py-1.5 text-xs text-[var(--muted-foreground)] hover:opacity-80"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  // Written on the way through, not on the tick: cancelling leaves the
+                  // preference where it was, because dismissing a dialog is not answering it.
+                  if (hideExplain) void setExplainTrace(false).catch(() => {})
+                  takeFolder(bigHistory.added.path, bigHistory.added.key)
+                  setBigHistory(null)
+                }}
+                className="rounded-md bg-[var(--secondary)] px-3 py-1.5 text-xs font-semibold hover:opacity-90"
+              >
+                Add repo
               </button>
             </div>
           </div>
