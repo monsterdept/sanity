@@ -16,9 +16,9 @@ one and read it like notes from a code review.
 |---|---|---|---|---|
 | [docs](docs.md) | 2 | 2 | 1 | 0 |
 | [scripts](scripts.md) | 29 | 29 | 2 | 0 |
-| [src-tauri](src-tauri.md) | 891 | 891 | 149 | 0 |
-| [web](web.md) | 406 | 406 | 78 | 0 |
-| **total** | **1328** | **1328** | **230** | **0** |
+| [src-tauri](src-tauri.md) | 909 | 909 | 156 | 0 |
+| [web](web.md) | 409 | 409 | 77 | 0 |
+| **total** | **1349** | **1349** | **236** | **0** |
 
 ## Seeing it as a map
 

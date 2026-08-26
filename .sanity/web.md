@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-406 of 406 read · 78 surprising
+409 of 409 read · 77 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -17,115 +17,123 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/App.tsx
 
-### the file itself — QUIRKY
-- spec 3 · served in 5 parts · read at `5024301ecc25` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:55:50Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: The top-level React component and app-state hub for this desktop (Tauri) code-analysis tool: it wires together project selection/opening, a live scan-progress display fed by streaming events from the Rust backend (via the useProgress hook and ProgressTrack/ProgressStrip/ProgressPane components), and a history/timeline toggle (HistoryToggle) plus an empty-state view (Empty). The small helpers (noop, sameRun, sameIds, sameProgress, sameProjects, findById, parentOf, readingSignature) are mostly cheap equality/lookup utilities used to avoid redundant re-renders or re-fetches when high-frequency progress/project updates arrive, and to navigate/identify nodes in the project or file tree. No file header doc, so the file's overall purpose has to be inferred purely from its component/hook names.
-- found: The root component of the whole desktop app: polls the project list and follows whichever project an agent (or the user) has focused, streams and batches scan progress/shape/scores/live-position events to draw an assembling sunburst map while a scan runs, folds in AI-agent "readings" (predictability/legibility grades) and lazily-fetched per-file function rings into the tree, drives the sunburst's drill-down/selection/crumbs/code-view-modal navigation, runs a full git-history replay mode (timeline scrubbing, commit log, movie export staging) as an alternate frame source, manages the mascot/agent-activity indicator, color-mode lens switching with Cmd-number shortcuts, CLI-install and big-folder-confirmation dialogs, and the first-run empty state. Far larger and more feature-complete than the name/peers alone suggested — it is effectively the entire application's state machine and view composition root, not just a progress/history shell.
-- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
-- note: No module header at all on a 2500-line file that is the app's central state hub — nearly every non-trivial state/effect has its own doc comment (often with incident history) explaining a bug it fixes, but nothing at the top orients a reader to the file's overall shape before diving in.
+### the file itself
+- spec 3 · served in 6 parts · read at `ab7b4be6ff2c` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:00:12Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Frontend's composition-root file: contains the App component (owns nearly all state, renders the shell) plus its supporting cast — pure equality/diffing helpers (sameRun, sameIds, sameProgress, sameCost, sameProjects, traceSig, readingSignature) used to avoid needless re-renders from the 1.5s/2s polls, tree-traversal helpers (findById, parentOf), a noop stub, and several small presentational subcomponents (useProgress, ProgressTrack, ProgressStrip, ProgressPane, phaseLine, HistoryToggle, Empty) rendering progress bars/strips, the History toggle button, and the empty-state pane — all colocated because they exist only to serve App.
+- found: Confirms the prediction closely: the file is the composition root, opening with imports, then the pure diffing helpers (sameRun, sameIds, sameProgress, sameCost, sameProjects with a DEEPLY exceptions map, traceSig, readingSignature) and tree helpers (findById, parentOf), then the giant App() component (state + effects + render), and finally the small presentational helpers/components (useProgress, ProgressTrack, phaseLine, ProgressStrip, ProgressPane, HistoryToggle, Empty) that App's JSX renders inline. Everything hangs together to serve one screen.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: The file_doc attached to this whole-file task is the same stray chaseTrace comment seen misattached to parentOf earlier — it describes one inner callback, not the file.
 
 ### `noop`
-- spec 3 · read at `f3e401aaede9` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:00:49Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A trivial no-op arrow function that takes no meaningful action and returns undefined, used as a placeholder event handler (e.g. onClick/onSelect) for UI elements during an in-progress scan where interaction isn't yet meaningful.
-- found: A trivial no-op arrow function that does nothing.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `sameRun`
-- spec 2 · read at `86068e088b4f` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:59:56Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Compares two `run` objects field by field (not by reference) to decide if the sidebar/progress display should treat them as unchanged, since the polling loop always allocates fresh objects. It likely checks every field the progress UI reads — including `assessed`, `live`, and counts — returning false if any differ, since the doc says an omitted field caused stale progress to be shown after a run finished.
-- found: Null-safe field-by-field equality check on a run object's progress fields: running, stopping, live, spawned, finished, failed, readers, ended.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: The doc text handed to me actually describes `sameProjects` ('Do two project lists say the same thing?') not `sameRun` — it's about comparing project lists, while sameRun compares a single run's fields (running/stopping/live/spawned/finished/failed/readers/ended), and never mentions an `assessed` field at all, so the docs are for a sibling function, not this one.
-
-### `sameIds`
-- spec 2 · read at `6c45514e1a3d` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:24:35Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Treats undefined a/b as empty arrays, then returns false if lengths differ, otherwise returns true only if every element at each index matches (a.every((v, i) => v === b[i])).
-- found: Exactly as predicted: nullish-coalesces both to [], compares length, then every element by index.
-- predicted: full · documented: some · derivable: no · legible: full · trap: no
-
-### `sameProgress`
-- spec 3 · read at `6839b955bd59` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:28Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A shallow-equality check for Progress objects used to decide whether a UI update is needed. Returns true if both are null/undefined, false if only one is, and otherwise compares the relevant fields (e.g. phase, count/total) for equality to avoid needless re-renders.
-- found: Returns true if both null/undefined, false if only one is, otherwise compares done/total/phase/unit fields for equality.
+- spec 3 · read at `f8812f446328` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:50Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A trivial one-line no-op arrow function, `() => {}`, used as a placeholder callback for handlers the assembling map doesn't need.
+- found: const noop = () => {} — a trivial no-op function.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `sameProjects` — QUIRKY
-- spec 3 · read at `2614b0e33f66` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:00Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Compares two arrays of ProjectSummary for equality: checks length first, then iterates comparing each project's key summary fields (id, and likely a few others like status or counts) rather than full deep equality, used to detect whether project list state actually changed to avoid unnecessary re-renders.
-- found: An exhaustive field-by-field equality check across ~25 ProjectSummary fields (not just a few), including nested comparisons via sameIds/sameProgress/sameRun for arrays and sub-objects, with inline comments documenting three specific past bugs where omitting a field from this comparator caused stale UI (phase, harness/model, and replayed commit counts).
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
-- note: The comments already document why this list must stay exhaustive; the risk for an editor is adding a new ProjectSummary field and forgetting to add it here.
+### `sameRun`
+- spec 3 · read at `e1ca8c8b054c` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:53Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Compares two run objects field-by-field (handling null/undefined for "no run"), checking things like id/phase and, importantly, the `assessed` count and `live` reader count that a naive comparison previously missed — since a reference-equality or partial check let a finished run's ended state go undetected. Returns true only if every displayed field matches.
+- found: Null-safe field-by-field equality check over a run's running/stopping/live/spawned/finished/failed/readers/ended fields, used because the poll always allocates fresh objects so reference equality would never see a match.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: I guessed an `assessed` field that doesn't exist here — the real fields are spawned/finished/failed/readers/ended, though the general shape (field-by-field, null handling, include live) was right.
+
+### `sameIds`
+- spec 3 · read at `49a9ecc223ca` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:49Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: `sameIds` treats undefined as an empty array, then compares two id arrays for equality — same length and same id at each index, in order (not set equality).
+- found: Defaults both args to empty array, then checks equal length and every element equal at the same index, in order.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `sameProgress`
+- spec 3 · read at `512fdb72dd5c` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:54Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Compares two optional/nullable Progress values for equality. Returns true if both are null/undefined, false if exactly one is null/undefined (since that transition matters per the docs), and otherwise compares the relevant fields of the two Progress objects (e.g. phase, done, total) for equality, likely via a small set of field checks rather than a deep generic walk.
+- found: Returns !a && !b if either is nullish (so exactly one being null is false, both null is true), otherwise compares done, total, phase, and unit fields for equality.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `traceSig`
+- spec 3 · read at `893b4da71b18` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:01:45Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Builds a compact string fingerprint of the project's trace progress, concatenating a few relevant fields (phase/step and some count or depth) so callers can compare "did this step make progress" via simple string equality instead of deep-comparing the whole ProjectSummary.
+- found: Concatenates trace_depth, resolved/resolvable, and replayed/commits into a template string fingerprint.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `sameCost`
+- spec 3 · read at `69ae18f100f1` · commit `4bf0da1` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-26T21:00:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Shallow equality check between two optional cost objects — returns true if both are null/undefined, false if only one is, and otherwise compares seconds, cold, and fits field by field. Used to avoid unnecessary re-renders since the objects are freshly allocated on every poll.
+- found: Shallow-compares two optional cost objects for the common fields (seconds, cold, fits), then also structurally compares extra fields (commits, files) that only exist on one of the two cost-shape variants (trace cost vs scan cost), without naming which type is which.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `sameProjects`
+- spec 3 · read at `a6e30c66724a` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:47Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Compares two ProjectSummary arrays for equality to decide whether to trigger a re-render. First checks length (and maybe order/ids), then for each pair of items walks all keys present on EITHER object (to handle fields added by a newer backend or absent from an older one), comparing each key's value — using a deep/structural comparison for keys listed in a DEEPLY set (things like nested arrays/objects) and a shallow Object.is-style comparison for everything else. Returns false as soon as any mismatch is found, true if everything matches.
+- found: Compares two ProjectSummary arrays element-by-element by index (after a length check), and for each pair unions the keys present on either object, comparing each key with a DEEPLY-registered comparator if one exists for that key, otherwise Object.is — short-circuiting to false on first mismatch.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `findById`
-- spec 2 · read at `977918682157` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:17:34Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks the Node tree (checking node.id against the target, then descending into children) doing a depth-first search, returning the matching node or null if not found anywhere in the subtree.
-- found: Recursive depth-first search over node.children comparing node.id, returning the matching node or null.
+- spec 3 · read at `61c678125e8e` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:43Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Recursive tree search: checks if node.id === id, otherwise recurses into node.children looking for a match, returning the found Node or null.
+- found: Recursive DFS over node.children matching on node.id, returns first match or null.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `readingSignature`
-- spec 3 · read at `4af70cb96078` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:55:45Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Builds an FNV-1a hash by iterating over reports, feeding in each report's id/existence, the body/function signature it was taken against, and the grade fields (explicitly skipping found/note prose) into the hash accumulator, then returns the resulting hash as a hex string.
-- found: Implements FNV-1a hashing inline (offset basis 0x811c9dc5, prime 0x01000193) over a concatenated string of each report's id, at, body, predicted, documented, legible, trap, derivable, legibleDated, trapDated fields (explicitly excluding found/note). Returns "count:hash" as the signature string.
+- spec 3 · read at `9a8668398665` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:49Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: `readingSignature` builds a cheap FNV-1a hash string over the list of reports, folding in each reading's id, the body/target it was taken against, and its grades — explicitly excluding prose fields like `found`/`note` — so callers can cheaply detect "did anything actually change" without re-hashing megabytes of text every poll.
+- found: FNV-1a hash folding id, at, body, and all grade fields (predicted/documented/legible/trap/derivable + dated variants) per report into one running hash, prefixed with reports.length, returned as a string.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `parentOf`
-- spec 3 · read at `5c75a1c9f25b` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:46:50Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks the tree from `node`, checking if any of `node`'s direct children have the given `id`; if so returns `node` as the parent. Otherwise recurses into each child and returns the first non-null match found, or `null` if `id` isn't found anywhere in the subtree.
-- found: Recursively searches node's children for one matching id; returns the immediate parent if found among direct children, else recurses into children and returns first found parent, else null.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `2d96b8cce242` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:47Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Recursive depth-first walk from node: checks whether any of node's direct children has id, and if so returns node itself as the parent; otherwise recurses into each child and returns the first non-null result, returning null if id isn't found anywhere in the subtree.
+- found: Exactly as predicted: recursive DFS that returns node when one of its direct children matches id, else recurses into children, else null.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- note: The file_doc here is stale/misattached — it's the chaseTrace doc bleeding onto this peer, not a description of parentOf.
 
 ### `App` — QUIRKY — TANGLED
-- spec 3 · served in 5 parts · read at `1ef8a04adfec` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:39:20Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: The top-level React application component — wires together all global state (projects list, current scan/run, progress tracking, selected file/function, history), IPC calls to the Tauri backend, keyboard shortcuts, and renders the overall layout shell (sidebar, main content pane, progress strip/pane, history toggle, empty state) using the many hooks and subcomponents listed as peers. At 2420 lines it's the monolithic root component holding most of the app's orchestration logic.
-- found: The root App component: dozens of pieces of state and refs covering the active project, the live scan tree, streamed function readings, streamed parse "shape" (for drawing the map while a scan is still running), a live-progress marker set, a full git-history replay system (tables/deltas/frame-building/scrubbing/playback), color-mode/lens locking logic, keyboard shortcuts (Cmd+1..9/0/-/+), drill-in/selection/breadcrumb navigation, project add/forget/trace flows with confirmation dialogs for large repos, CLI-install dialog, and the final JSX layout wiring sidebar/top bar/sunburst map/detail panel/history transport/code-view modal together.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
-- note: Nearly every piece of state here has a load-bearing comment explaining a specific historical bug it fixes (stale closures, StrictMode double-invoke, re-render storms) — treat any 'simplification' of this component as high-risk without reading those comments first.
+- spec 3 · served in 5 parts · read at `113e032018eb` · commit `4bf0da1` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-26T21:01:30Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Root React component for the whole app — owns top-level state (current project, run progress, trace/history panes, selected reading), sets up polling effects against the backend, and renders the overall layout by composing sub-components (ProgressPane, ProgressStrip, HistoryToggle, Empty, etc). Likely contains substantial inline event-handling logic (trace-chasing, cost estimation triggers) given its 2600-line size rather than delegating to smaller hooks.
+- found: The root React component: owns dozens of state slots (scan tree, trace/replay/history state, streaming shape and score buffers, function-ring cache, selection/drill stack, dialogs), runs several polling/streaming effects against the Tauri backend with careful batching to avoid over-rendering a multi-thousand-arc sunburst, implements the Trace/replay chain-of-phases logic, keyboard shortcuts for color modes, and renders the full layout including sidebar, top row, sunburst/history bar, detail panel, and several modal overlays.
+- predicted: some · documented: none · derivable: no · legible: some · trap: no
 
 ### `useProgress`
-- spec 3 · read at `567112bc1bd9` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:35:05Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This is a React hook that takes a `Progress` object and returns `{ pct, eta }` (or similar) — `pct` is computed as done/total, defaulting to 0 when there's nothing yet. It tracks progress samples over time in a ref (timestamped snapshots) to estimate a rate, and only starts returning a non-null `eta` once enough samples have accumulated to make the estimate meaningful, using `useEffect`/`useRef` rather than deriving eta purely from the current `progress` object.
-- found: pct is done/total (0 if no total). A single `mark` ref (not an array of samples) holds a {phase, done, at} snapshot that resets whenever progress.phase changes. eta is computed from how much has moved and how much time has passed since that mark, gated by two thresholds (moved > 20 AND watched > 5s) so a burst or an idle stretch alone can't produce a false estimate; otherwise eta is null.</found> <parameter name="note">The outer doc comment (about ETA history/withholding) and the inline comment above the hook body both explain rationale not visible in the code itself — the dual-threshold and phase-reset design are load-bearing but only justified in prose.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `72304b16c0ca` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:38Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: `useProgress` is a hook that tracks a `Progress` object over time (via ref/state samples on each change), computing `pct` as a fraction (defaulting to `0`, never null) and computing `eta` in minutes only once it has accumulated enough samples to estimate a rate — returning `undefined`/omitting `eta` before then, since a tiny sample size makes the estimate swing wildly.
+- found: Keeps a ref marking {phase, done, at}, reset whenever phase changes; pct is done/total (0 if no total); eta is computed from progress moved since the mark divided by time watched, but only once moved>20 and watched>5s, else null.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `ProgressTrack`
-- spec 2 · read at `02dad8fe74e4` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:07:32Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Renders a track div with a fill element whose width is derived from pct; when progress is null (no total yet) it applies an indeterminate/sweeping CSS class instead of setting a fixed width, since there's no total to be a fraction of.
-- found: Renders a track div; when progress is truthy, an inner fill div with width set to pct*100% (with a transition); when progress is null, renders a differently-classed "track-sweep" div for an indeterminate animation.
-- predicted: full · documented: some · derivable: no · legible: full · trap: no
+- spec 3 · read at `b842fdf090ff` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:09Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Renders the shared progress-bar track: a div with a fill bar whose width is set from pct when there's a real total, but falls back to an indeterminate "sweep" CSS animation (track-sweep class) when progress is null or has no total yet.
+- found: Track div with fill bar width set from pct (rounded percent) when progress is non-null; when progress is null, renders a track-sweep indeterminate animation instead — condition is on progress being present, not specifically on total.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `phaseLine`
-- spec 3 · read at `ffefd66fc1c4` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:54:59Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Builds a status line like "Parsing 67,511 / 111,029 files" from the Progress object, using the phase name and unit string exactly as sent by the backend (not hardcoded), and formatting the done/total counts with thousands separators via toLocaleString for readability.
-- found: Capitalizes the phase name (defaulting to "Working" if absent), shows just "Phase…" when total is 0, otherwise formats done/total with toLocaleString separators plus an optional unit suffix pulled from the wire.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The doc explains why unit/phase come off the wire rather than being hardcoded, but says nothing about the total===0 or missing-phase fallback branches.
+- spec 3 · read at `60b615989acb` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:11Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Builds a human-readable status string from a Progress object, e.g. "Scanning 67,511 / 111,029 files", selecting the current phase name and formatting the counts with thousands separators for six-digit readability.
+- found: Capitalizes the phase name (or 'Working' if none), returns just "Phase…" if total is 0, otherwise formats done/total with toLocaleString for thousands separators and appends the unit string if present.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `ProgressStrip` — QUIRKY
-- spec 3 · read at `ca51c8550529` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:38:17Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Renders a small boxed one-line status chip (styled like the caveat chip in the graph's corner) that shows the current scan phase/progress text — likely built via `phaseLine(progress)` — so that even once the map looks fully drawn, the reader can still see that a slow pass (like git blame) is still running behind it. Probably returns null or renders nothing when progress indicates the scan is fully done.
-- found: A boxed one-line strip showing the phase text (phaseLine), a small progress bar (ProgressTrack, fed by pct from useProgress), and an ETA in minutes when available — always rendered, no early-exit for "done".
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: I predicted the phase-text chip but missed that it also includes a progress bar and an ETA readout — the visible bulk of the component beyond the caption.
+### `ProgressStrip`
+- spec 3 · read at `affc1b60debc` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:35Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Renders a small boxed overlay (styled like the caveat chip) containing the phaseLine(progress) text, positioned in a corner of the map so a still-running scan/blame pass stays visible even once the map itself looks visually complete.
+- found: Boxed strip showing phaseLine text, an embedded ProgressTrack bar, and an ETA in minutes (from useProgress) when available.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `ProgressPane`
-- spec 3 · read at `1ae798993fe4` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:38:17Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Renders a centered, wider progress indicator (reusing something like ProgressTrack/phaseLine) showing the current scan phase and the optional label, used as the empty-pane loading state before any map exists — analogous to ProgressStrip but standalone rather than docked beside a readable map.
-- found: Centered flex column showing a phase label (from progress via phaseLine, or a fallback label/default text), a ProgressTrack bar sized via useProgress's pct, and an ETA line in minutes when available.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `085bec7d8a15` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:45Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Centered, wider variant of the progress display for an empty pane: shows an optional label heading, phaseLine(progress) text, a ProgressTrack bar, and ETA, mirroring ProgressStrip's content but laid out for standalone full-pane display. Likely renders a simpler placeholder when progress is null.
+- found: Centered full-height/width flex column: phaseLine text or label/default fallback when progress is null, a ProgressTrack bar, and an ETA line when available — same shape as ProgressStrip but standalone-pane layout.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `HistoryToggle`
-- spec 3 · read at `707f6ab7ac5a` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:17:12Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A small toggle button component. It renders a button labeled something like "History" that calls onToggle() when clicked, is disabled when !traced (since there's nothing to show) or possibly when busy, and reflects the `on` state visually (active/pressed styling). It does NOT trigger any trace/commission work itself, per the docs warning.
-- found: A toggle button rendering "History"/"Tracing…" label with a lock icon when untraced. Disabled state is asymmetric: only disabled when turning ON (not on && (busy || !traced)) — leaving history view is always allowed, since locking someone into a mid-trace view was a past bug. Title tooltip explains state to the user.
+- spec 3 · read at `0d98d19a369b` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:37Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Renders a toggle/pill button (labeled something like "History") that calls onToggle when clicked, reflecting `on` as an active/pressed visual state. It's disabled (or rendered as inert/greyed) when `busy` is true or when `traced` is false, since there's nothing to show for an untraced repo and clicking must not trigger the trace itself — it just opens/closes the replay view.
+- found: Renders a pill button toggling the history/replay view. Disabled only when turning ON without a trace or while busy — turning it OFF (leaving the view) is always allowed even mid-trace, so nobody gets stuck in a view whose data stopped arriving. Shows a lock icon when untraced/idle, changes label to 'Tracing…' while busy, and varies its tooltip by state.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The disable condition is asymmetric (only blocks entering, never leaving) — the doc comment explains why but the field docstring alone doesn't make the button's actual disabled expression predictable.
+- note: The disabled condition is asymmetric (`!on && (busy || !traced)`) — leaving is unconditional — which isn't obvious from the prop names alone and is explained only in the inline comment.
 
-### `Empty`
-- spec 3 · read at `4781c65403cd` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:48:19Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Renders a centered first-run card with a single primary CTA button that calls onAdd to add a repo, plus a checkable prerequisite status (whether claude/codex CLI is installed) shown inline, and a small mention of MCP as an alternate way to trigger reading at the bottom, replacing the old two-step connect+paste-phrase flow.
-- found: Renders the first-run card: title, blurb, "Add a repo" button calling onAdd, a checked-agents line (which of claude/codex are installed), a demoted mention of `sanity check` as a terminal alternative, and — unpredicted — a whole CLI-on-PATH section that checks cliStatus and offers a button to link/install the `sanity` CLI onto PATH, with several states (already correct, points elsewhere, linking in progress, linked but shadowed).
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The CLI-linking block (install_cli/cliStatus) is a distinct concern from the harness-check block and is the part a name-only prediction can't anticipate.
+### `Empty` — QUIRKY
+- spec 3 · read at `7608306ba708` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:30Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: `Empty` renders the first-run screen with a single primary call-to-action button (wired to `onAdd`) to add a repo, plus a small check (likely an effect probing for `claude`/`codex` binaries or config) that states whether an agent CLI is available, and a brief mention of MCP as a secondary way to trigger the same action — no headline/pitch copy, since the doc says it deliberately dropped that.
+- found: Renders a card with an Add-a-repo button, a line naming which coding-agent harnesses are installed (from `harnesses()`), a demoted mention of `sanity check` terminal use, and a whole CLI-linking sub-UI that checks `cliStatus()` and lets the user install/link the `sanity` CLI onto PATH, showing state depending on whether PATH already resolves to this app, a different build, or nothing.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
 
 ## web/src/CodeWindow.tsx
 
@@ -300,10 +308,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: Docs mention a tooltip naming the button, but that's on a parent/sibling component, not this SVG itself.
 
 ### `Legend` — QUIRKY
-- spec 3 · read at `f304ed8f627b` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:19:01Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Branches on mode — for categorical modes (blame/lang) it renders a swatch list using categories colored via the shared ranks map (matching what's painted on the map), with an "Other" bucket for anything past the ranked slots; for quantitative/ramped modes it renders a gradient/ramp legend, likely delegating to ColorLegend, skipping categories entirely.
-- found: Categorical branch (categories.length>0) roughly as predicted: sorts named categories by rank, caps names at NAMED, groups the rest into an "Other" swatch. But there's no separate delegation to a ColorLegend component for ramps — it's all inline in this one function, with distinct hand-built keys per mode: traps gets one static square swatch (boolean, not a scale), callers/reach/clones each get their own banded swatch list (CALLER_KEY/REACH_KEY/hardcoded clone triple), and only the remaining modes fall through to an inline 24-segment gradient bar built from heatColor/rampOf with lo/hi labels.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+- spec 3 · read at `f13d1ed83d4c` · commit `4bf0da1` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-26T21:01:43Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Renders the categorical color key — a list of category names each with a swatch colored via slotColor(ranks.get(category)), sorted by rank, likely capping at a fixed number of visible entries and folding the rest into an "other" count/label.
+- found: Dispatches on categories/mode to render one of several distinct legend shapes: a rank-sorted, capped list of named category swatches plus an "other" bucket when categories are given; else a single boolean swatch for traps, banded swatches for callers/reach/clones, or a 24-stop gradient ramp with lo/hi labels for continuous modes.
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
 
 ### `shortcut`
 - spec 3 · read at `2344a0f70bf0` · commit `c4c6042` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-21T07:08:05Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -799,10 +807,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/Phases.tsx
 
 ### the file itself
-- spec 3 · read at `17271bab776f` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:52:14Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Defines the three-pill UI component (Phases) showing scan/trace/read progress per project — each pill's background fills proportionally to progress and its label states the action and its cost, becoming a flat marker when nothing is left to do. Includes helpers: compact (number formatting like "106k"), seconds (duration formatting), fnv (a hash, likely for stable color/key), and phasesOf/traceOf (deriving per-phase state from raw data), feeding a single Pill sub-component that the exported Phases component renders three of.
-- found: Confirmed the three-pill shape (fill=progress, verb+cost when actionable, tick+word when done) and the helper functions I predicted. Missed: the trace pill actually encodes three sub-depths (scan/blame/replay) as thirds of one bar rather than being its own simple phase; the hover-vs-idle note logic where an idle unhovered row shows a decorative seeded 'Sprig' plant instead of blank space; and the `pressed` state workaround for polling latency so a just-clicked pill shows busy before the next poll confirms it.
-- predicted: most · documented: full · derivable: no · legible: most · trap: no
+- spec 3 · served in 2 parts · read at `17271bab776f` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:00:12Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Renders the row of three fixed-width "phase" pills (scan, trace, read) shown per project, each acting as both a button and a progress gauge: its fill width tracks percent-complete, its label states the action and its cost (e.g. "106k commits"), and it degrades to a flat non-interactive marker once there's nothing left to do. Helpers: `compact` formats large numbers (e.g. 106k), `seconds` formats durations, `fnv` hashes something (maybe for a stable key or color), `phasesOf`/`traceOf` derive each pill's display state from the project/run data, `Pill` is the single reusable pill component, and `Phases` is the exported component that lays out all three.
+- found: Matches my prediction closely for the helpers (compact/seconds/fnv/Pill/Phases) and the button-is-gauge concept. What I missed: the trace pill's fill is multi-chamber (one per depth: log walk, blame, replay) rather than a single fraction, since the three depths are a 1:10:100 cost ladder that a single bar can't represent honestly; a rich state machine of na/done/stale/label markers per phase; a "pressed" state held until the next poll acknowledges it (to bridge the up-to-1.5s polling gap); and an idle decorative `Sprig` plant (seeded per-project, mixed with a session random) that fills the note line when nothing is hovered or running, replacing what would otherwise be a blank strip.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: The header doc explained the pill-as-gauge design well, but the multi-chamber trace gauge and the idle Sprig decoration are significant pieces of the file's actual shape that a reader would only get from the body.
 
 ### `compact`
 - spec 3 · read at `73bcbba467b7` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:08Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -823,31 +832,29 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `phasesOf`
-- spec 3 · read at `e601c2f5e429` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:46:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Builds a 3-element Phase[] (scan, trace, read) from a ProjectSummary, computing each phase's state (idle/in-progress/done/blocked) and a progress fraction, distinguishing the doc-mentioned edge cases (no git history vs untraced, declined scan vs in-progress scan, stale map vs never-made map). replayBlocked likely disables/marks the read phase when tracing hasn't produced a usable map yet.
-- found: Builds scan/trace/read Phase objects for the three pills. Scan phase branches on scan_cost estimate / loading (in-progress scan with stop control and progress note) / behind (needs rescan) / done. Trace delegates to traceOf. Read phase branches on actively running (with stop control, live count, fraction) / blocked because scan not done / fully done / partially done, and for partial splits remaining into unread vs stale counts rather than a naive subtraction, since stale readings are a subset of not-yet-current work that's distinct from assessed.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: The doc comment on phasesOf itself is a one-paragraph rationale for the three-state distinctions; the much richer detail (wave/stopping semantics, stale-vs-unread split reasoning) lives in inline comments in the body, not in the function doc.
+- spec 3 · read at `95df3cb2a9b5` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:04Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Builds the array of exactly three Phase objects (scan, trace, read) from a ProjectSummary, each with a label, a progress fraction (for the fill), and whether it should render as an actionable button vs. a flat 'done' marker — deriving state like 'no history', 'in progress', 'behind/stale', or 'complete' per phase from distinct fields on p so the three states can't collapse into each other. The replayBlocked flag likely disables/greys out the trace or read pill's button when replay can't currently run.
+- found: Builds [scan, trace, read] Phase objects. Scan branches on scan_cost/loading/behind/else into estimate/in-progress-with-stop/stale-needs-rescan/done states. Trace is delegated to a separate traceOf(p, scanned, replayBlocked) helper. Read branches on reading(running or stopping)/not-yet-scanned(na)/fully-assessed-done/in-progress, carefully keeping 'unread' and 'stale' as disjoint counts rather than one derived by subtraction, per an explicit design note.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
-### `traceOf` — QUIRKY
-- spec 3 · read at `62449caeb837` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:09Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Determines which of the three trace depths (log walk, blame, replay) the project is at or currently running, computes a combined progress fraction (each depth worth a third of the bar), picks a label (renaming to "Replay" for the last third) and the right action name (trace/stop-trace/replay/stop-replay), and disables/marks the pill based on `scanned` and `replayBlocked`, returning it all as a `Phase` object.
-- found: Got the overall three-thirds progress combination and blocked/scanned gating right, but missed several early-return states (not-scanned, pre-run cost estimate, no-git-history) and got the "renames to Replay" behavior backwards: the code's own inline comment says that was tried and reverted — the verb stays "Trace" throughout, with the distinction pushed into the note text instead. The function-level doc I was handed (describing the rename to "Replay") is stale relative to the code's own explanation.
-- predicted: some · documented: some · derivable: no · legible: full · trap: no
-- note: The docs handed to the reader (file_doc and function docs) describe the verb renaming to "Replay" on the last third, but the function body's own comment says that was tried and explicitly reverted — the outer docs are stale relative to the code.
+### `traceOf` — QUIRKY — TANGLED
+- spec 3 · read at `30140e4a00fc` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:25Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Constructs the Phase object for the trace pill — three sub-steps (commit log walk, blame pass, replay) weighted 1:10:100 for fill amount, computing label/cost text based on which chamber is currently running, and using scanned/replayBlocked flags to determine whether the pill is clickable or a disabled/flat marker.
+- found: A state machine returning the Phase for the trace pill, checked in priority order: not-scanned (disabled), currently running (log walk or blame pass, told apart by Progress.step), a priced-but-unstarted estimate, no git history, blame incomplete, replay in progress, replay outstanding (with replayBlocked dimming it), or fully done — each branch computing a 3-element fill gauge and a note string.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
 
-### `Pill`
-- spec 3 · read at `bdcc0de0d7c5` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:05Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Renders a button-shaped div with an absolutely-positioned fill block whose width is set from phase's progress fraction (rounded to a pixel column, not percentage), a label describing the phase and its cost, onClick wired to onPress (unless there's nothing left to do, in which case it renders as a non-interactive flat marker), and onMouseEnter/onMouseLeave calling onHover(true/false). When busy is true it shows some pressed/loading/disabled state.
-- found: Builds a shared `body` (fill span sized by phase.fill*100%, hatched if stale, plus a label that's "done ✓" or the verb/label), then branches three ways: phase.na renders a dashed em-dash marker, phase with no verb renders a flat non-interactive span, and otherwise renders an actual disabled-while-busy button wired to onPress/onHover.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+### `Pill` — QUIRKY
+- spec 3 · read at `d386696a8cdb` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:18Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Renders a single phase pill: a fixed-width button-like element whose background has a positioned fill block (not a gradient) sized to the phase's progress fraction, snapped to an exact pixel column. It shows a label describing what pressing it would do/cost, a border when it's actually pressable (a button), a checkmark/tick when the phase is finished, and a dash when the phase doesn't apply (marker state) rather than dimming opacity for these states (per the docs' accessibility rationale). Wires onPress/onHover to the underlying element, and reflects `busy` by disabling interaction or showing some in-progress visual instead of dimming.
+- found: Renders three mutually-exclusive shapes based on phase state: a dashed marker with just "—" when phase.na; a plain non-interactive span (with body: chambers + label) when there's no verb (done/inapplicable-to-press); and an actual <button> (bordered, disabled when busy) otherwise. The "body" is shared: a row of per-step fill chambers (one per phase step, e.g. three for a trace's three depths) each filled to its own fraction with a minimum 6% floor so started-but-tiny progress is still visible, using a diagonal hatch background instead of solid when phase.stale, plus a label that shows "N ✓" when done or the verb/label otherwise. Opacity (`ink`) varies by state (busy/done/in-progress) to indicate emphasis without dimming the label text itself, addressing a specific contrast-accessibility issue mentioned in the docs.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: The chamber boundaries are computed (used for width math) but never visually drawn — a divider would be nearly invisible against the fill (measured 1.07:1) and the note line already spells out which sub-phase is running.
 
 ### `Phases` — QUIRKY
-- spec 3 · read at `a9e9e3acd7f5` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:04Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Calls phasesOf(project, replayBlocked) to get the three Phase descriptors, then renders three Pill components in a row, each showing its fill/label/note and wired to call onAct with the phase's action when clicked (unless it's a flat done marker). The stopping prop overrides rendering to show an optimistic 'stopping' state immediately after a stop press, before the backend's own state (p.run.stopping) catches up.
-- found: Renders phasesOf(project, replayBlocked) as three Pills with onAct wiring, plus: a `pressed` optimistic-busy state cleared only when a fingerprint of backend fields actually changes (not on a timer), a memoised per-project Sprig seed, and a note line under the pills that prioritizes hovered phase > running phase > a decorative idle Sprig (falling back to blank via Sprig when nothing is hovered/running).
+- spec 3 · read at `ebeb74e6824a` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:02Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: `Phases` computes state for each of the three phases (scan/trace/read) via `phasesOf`/`traceOf` helpers, then renders three `Pill` components side by side — each showing progress-filled background, a label describing what pressing it would do and its cost, and becoming a flat non-interactive marker when that phase is complete. It uses `replayBlocked` to disable/gray the trace pill when another repo is replaying, and `stopping` to show an acknowledging "stopping…" state rather than looking unresponsive, calling `onAct(action)` when a pill is clicked.
+- found: Renders three Pill components from phasesOf(project, replayBlocked); tracks an optimistic "pressed" action cleared when a signature of real backend state changes; shows a note line for the hovered pill or the running phase, else fills the space with a per-project seeded decorative Sprig plant when idle.
 - predicted: some · documented: most · derivable: no · legible: most · trap: no
-- note: Missed the optimistic-press/answered-fingerprint mechanism and the hover>running>Sprig note-line priority entirely — these are the bulk of the component's actual complexity beyond the simple phasesOf→Pill mapping.
 
 ## web/src/components/Prose.tsx
 
@@ -1791,11 +1798,10 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/history.ts
 
 ### the file itself
-- spec 3 · served in 2 parts · read at `6d8da81cfe13` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:11Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This file implements the frontend "history replay" engine — pulling commit-history scan data from the Rust backend (scanHistory, traceProject, warmHistory, onHistoryProgress) and then stepping through it frame-by-frame (enter/leave/advance/replay/census) to reconstruct tree state (open directories, sizes, positions) at each point in time so the sunburst can animate through a repo's history. Helper functions (insertSorted/removeSorted/daysBetween/aggregate/collapse/dirNode/frameTree/scopeOf/pathIndexOf/posOf/realOf) maintain sorted timelines and map between logical scope and tree positions during replay.
-- found: A commit-by-commit replay engine for the sunburst's History mode. Backend calls (scanHistory/traceProject/warmHistory/onHistoryProgress) fetch/refresh a stored timeline; `opening`/`advance`/`replay` fold commit deltas into a mutable `Frame` (live lines, churn window, birth/touch timestamps, per-function author, packed grade readings) with a forward-only memo since folding is linear in history length; `enter`/`leave`/`census` track container (file/dir) presence so a container's \"birth\" flash fires only on its own 0→1 transition, never rolled up from children. `frameTree` builds a fresh Node tree per frame (pooling function nodes, not containers, to avoid GC pressure and to let the sunburst layout react to identity changes), applying a level-of-detail cutoff (`minLoc`, scaled by density and scope) that rolls thin functions into a synthetic `#/folded` stand-in per file so large repos don't try to render tens of thousands of wedges 30x/second. `aggregate` rolls loc/churn/age/reading-coverage up containers LOD-weighted; `collapse` merges single-child directory chains to match the live scan's shape.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: The docs are unusually rich — most functions carry a paragraph of "why", including specific war-story numbers (ceph's 94k functions, a 26ms fold at commit 983, a React duplicate-key ghost-wedge bug) that no static analysis of the code could regenerate.
+- spec 3 · served in 2 parts · read at `d387a0512758` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:46Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Frontend history/replay engine: wraps Tauri commands to kick off/warm a git-history scan and subscribe to progress (scanHistory, traceProject, warmHistory, onHistoryProgress), then implements a client-side model that replays commit history into directory-tree states over time (enter/leave/advance/replay/census/collapse/frameTree/dirNode reconstruct tree state at a point in time; headSizes/aggregate/scoreInto/gradeAt/readingInto compute size/score/grade metrics per node at that point; insertSorted/removeSorted/pathIndexOf/posOf/realOf/scopeOf maintain sorted indices for lookup) to drive a scrubbable timeline UI showing the repo's structure/quality evolving over commits.
+- found: Confirms the prediction's shape but with far more nuance: it's a client-side commit-by-commit replay engine mirroring history.rs, driving a scrubbable timeline sunburst. Frames are pooled/mutated in place for perf (not rebuilt each step), advance() applies deltas incrementally rather than refolding from scratch, arrivals/edits are drawn only as a transient 'flash' scoped to the exact step just taken (inStep), functions below a dynamic LOC threshold get rolled into per-file '#/folded' stand-in nodes to keep the tree drawable at scale, aggregate() rolls up LOC/churn/age/reading-coverage up the tree the same way the Rust scan does, and readings (agent grades) are replayed from what was actually known at each historical commit rather than stamping today's grade onto old code — a deliberate design principle stated repeatedly in comments.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
 
 ### `scanHistory`
 - spec 3 · read at `5cb544ec5c94` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:48:27Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -1941,6 +1947,12 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Iterates all paths in hist.paths and collects the indices of paths that fall under `scope`, using segment-wise prefix matching (so "web/src" doesn't match "web/src-old"), returning them as a Set<number> for fast membership checks elsewhere (e.g. filtering which functions/files are in view during replay).
 - found: Memoized: if the last computed scope set matches the same hist and scope, returns the cached Set directly. Otherwise walks hist.paths collecting indices where path equals scope or starts with scope+'/', caches the result in a module-level `scoped` variable, and returns it.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `historyLangs`
+- spec 3 · read at `edc4ca790989` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:00:28Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Walks every path that has ever existed in the history tables under `scope` (excluding excluded paths), buckets them by language extension, counts files per language, and returns the language names sorted by file count descending — supplying a stable ordering for languages that no longer exist at HEAD so they still get a consistent color/position in a replay instead of falling into an "other" bucket.
+- found: Counts files per language across `hist.langs`, skipping excluded/unlabeled paths and paths outside `scope` if given, then sorts descending by count with an alphabetical tiebreak and returns just the language names.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `pathIndexOf`
 - spec 3 · read at `adbb902f8645` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:59:48Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
