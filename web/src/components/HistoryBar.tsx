@@ -71,6 +71,8 @@ export function HistoryBar({
   onIndex,
   playing,
   onPlaying,
+  flashes,
+  onFlashes,
   duration,
   onDuration,
   name,
@@ -109,6 +111,10 @@ export function HistoryBar({
   ensure: (index: number) => Promise<void>
   /** Lay the map out for a file of this many pixels, or null to go back to the pane — see
    *  `App`'s `staged`. */
+  /** **TEMPORARY** — whether the commit under the playhead flashes what it touched. See the
+   *  button, and `frameTree`'s own `flashes`, which is where it actually takes effect. */
+  flashes: boolean
+  onFlashes: (on: boolean) => void
   onStage: (stage: import('../lib/movie').Staged | null) => void
   /** The lens on screen, and how to build a key for one — both handed straight to the export
    *  dialog, which is the only thing here with an opinion about either. */
@@ -285,6 +291,32 @@ export function HistoryBar({
             </button>
           ))}
         </div>
+
+        {/* **TEMPORARY — the two events, on and off.**
+            The replay adds exactly one colour of its own: a flash on what the commit under
+            the playhead created or changed. Everything else on screen is the lens. Whether
+            that flash reads as the story or shouts over it is a thing to look at rather
+            than to settle in advance, so here is the switch.
+
+            On the transport rather than beside the lens, because the events belong to the
+            playhead: they are a fact about the commit you are standing on, not about what
+            colour means. That is the same argument that moved their key here. */}
+        <button
+          onClick={() => onFlashes(!flashes)}
+          aria-pressed={flashes}
+          title={
+            flashes
+              ? 'Flashes on: the commit under the playhead lights what it touched'
+              : 'Flashes off: the lens alone, moving'
+          }
+          className="mono shrink-0 rounded px-1.5 py-0.5 text-[10px] transition-colors"
+          style={{
+            background: flashes ? 'var(--secondary)' : 'transparent',
+            color: flashes ? 'var(--foreground)' : 'var(--muted-foreground)',
+          }}
+        >
+          flash
+        </button>
 
         {/* Beside the lengths rather than beside the play button, because that is what it
             is a variant of: the transport plays the story for a chosen number of seconds

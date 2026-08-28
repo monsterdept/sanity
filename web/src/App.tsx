@@ -382,6 +382,11 @@ export default function App() {
   /** **TEMPORARY** — see `BandWidth`. Session state, not stored: the control is expected to
    *  go away once it has told us what `DIR_RIM_PX` should be. */
   const [band, setBand] = useState(0)
+  /** **TEMPORARY** — whether a replay flashes what each commit touched. See `HistoryBar`'s
+   *  own button, and `frameTree`, which is where it takes effect: with the flashes off the
+   *  frame carries no event at all, so the map, the roll-up stand-ins and the escalation all
+   *  go quiet together rather than three of them being switched off by hand. */
+  const [flashes, setFlashes] = useState(true)
   const chooseRings = useCallback((n: number) => {
     setRings(n)
     saveRings(n)
@@ -1435,6 +1440,7 @@ export default function App() {
             stepFrom(histIndex),
             drilled,
             staged && paneSide > 0 ? staged.px / paneSide : 1,
+            flashes,
           )
         : null,
     // The NAME, not the project row. `listProjects` hands back fresh objects every poll,
@@ -2529,7 +2535,10 @@ export default function App() {
               TopRow it can do neither. */}
             {tree && focus && <Crumbs trail={trail} onGo={goTo} onUp={goUp} />}
 
-            <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+            {/* `data-chart` is how the key finds the circle it has to wrap around — see
+                `useMapEdge`. A marker rather than a class name because the class list here is
+                layout that will change, and the key would break silently when it did. */}
+            <div data-chart className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
               {/* **The export's ground goes here, not on the document.** A recording is a copy
                 of the map on screen, so a light file wants a light map — and putting that on
                 `<html>` turned the whole app light in front of somebody who had asked for a
@@ -2718,6 +2727,8 @@ export default function App() {
                 }}
                 playing={playing}
                 onPlaying={setPlaying}
+                flashes={flashes}
+                onFlashes={setFlashes}
                 duration={duration}
                 onDuration={setDuration}
                 name={scope || (activeProject?.name ?? 'history')}

@@ -1006,8 +1006,22 @@ export function frameTree(
    *  would simply become the binding constraint — measured on a synthetic repo of 3,200
    *  files, a 4000px frame drew every file and not one more function than a 1000px one. */
   density: number = 1,
+  /** Whether the commit under the playhead flashes what it touched.
+   *
+   *  **TEMPORARY, and it is a question about the story rather than about the code.** The two
+   *  events are the only colour a replay adds of its own — everything else on screen is the
+   *  lens — and whether they help or shout over it is a thing to look at rather than to
+   *  argue about. Off, a replay is the lens alone, moving.
+   *
+   *  Expressed by moving `since`, which is the one thing every flash is decided against:
+   *  `inStep` asks whether something happened in `(since, index]`, so a step of nothing can
+   *  contain nothing. That is deliberately not a second rule — a flag consulted in four
+   *  places is four places to forget, and this way the stand-ins, the escalation and the
+   *  per-function scores all go quiet together because they were always reading one clock. */
+  flashes: boolean = true,
 ): Node {
   const frame = replay(hist, deltas, index)
+  if (!flashes) since = index
   if (!pool || pool.hist !== hist) {
     pool = {
       hist,

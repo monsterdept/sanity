@@ -12,7 +12,7 @@ import {
   type ColorMode,
   paintsFromReadings,
 } from '../lib/colorMode'
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { heatColor, type Ramp } from '../lib/api'
 
 /** A padlock, for a lens with nothing in it yet.
@@ -68,6 +68,7 @@ function Legend({
   mode,
   categories,
   ranks,
+  edge: card,
 }: {
   mode: ColorMode
   categories: string[]
@@ -80,6 +81,9 @@ function Legend({
    *  opened with Hisham Muhammad against a blue dot and a mauve map. Same value, two answers,
    *  and the legend is the one a reader trusts. */
   ranks?: Map<string, number>
+  /** The map's edge, in the CARD's coordinates — see `useMapEdge`. Measured once by the card,
+   *  which needs it for its own mask, and offset here by the padding the two are apart. */
+  edge: { r: number; cx: number; cy: number } | null
 }) {
   // **The replay's two events are keyed on the TRANSPORT, not here.** They used to sit in
   // this row behind a hairline, which was fine while a replay painted nothing else: the key
@@ -88,6 +92,9 @@ function Legend({
   // more people — and cost the width of two names in a box that is already over the map.
   // They belong beside the playhead anyway: they are a fact about the commit under it rather
   // than about the encoding. See `HistoryBar`.
+  // No padding between the two any more — the key is not a box — so the float's own
+  // coordinates and the pane's measurement of the key are the same origin.
+  const edge = card
   if (categories.length > 0) {
     // **In slot order, not in this frame's order.** With a held rank map the two can differ —
     // a person who is second today may be the only author in the frame on screen — and a
@@ -129,18 +136,53 @@ function Legend({
         { coloured: 0, neutral: 0, repeats: false },
       )
     return (
-      // Wider than it was, because the palette is twice as deep. Sixteen names at ceph's
-      // median of twelve characters is two per row at 300px and eight rows of key over the
-      // map; at 420 it is three per row and six rows, which is a caption rather than a panel.
-      <div className="flex max-w-[420px] flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
+      // **Inline flow, not flex, and that is what makes the curve possible.** A flex
+      // container lays its children out against its own box and ignores floats entirely, so
+      // the shape in the corner would exclude nothing. Inline items in normal flow are the
+      // one layout that respects `shape-outside` — see `useMapEdge` — and they wrap the same
+      // way a paragraph does, which is all this row ever was.
+      //
+      // Right-aligned, because the ragged edge belongs on the side the circle is NOT: lines
+      // shorten toward the top left as they meet the map and end flush against the pane's
+      // corner on the right.
+      // Fixed width so the shape has slack to take back: a key that shrinks to its longest
+      // line is already as short as it can be, and shortening one line just moves a name to
+      // the next. The simpler keys below shrink to fit, because they have no curve to feed.
+      <div className="w-[420px] text-right leading-[1.6]">
+        {/* The hole the lines flow around — see `useMapEdge`.
+            **Inside this block, not beside it.** A float shortens the line boxes of the
+            block formatting context it participates in; as a sibling of this div it was in
+            the box's context and this div's own lines never heard about it. */}
+        {edge && (
+          <div
+            aria-hidden
+            className="pointer-events-none float-left"
+            style={{
+              width: '100%',
+              // As deep as the circle reaches into this block and no deeper. **Not trimmed
+              // with a negative margin**, which was the last bug and the same one as the
+              // first: `shape-outside` is clipped to the float's MARGIN box, so a negative
+              // bottom margin collapsed the box to nothing and the shape with it. A float
+              // taller than the text simply hangs below it, empty and invisible, because
+              // this block is not a formatting context and never grew to contain it.
+              height: Math.max(0, Math.round(edge.cy + edge.r)),
+              shapeOutside: `circle(${Math.round(edge.r)}px at ${Math.round(edge.cx)}px ${Math.round(edge.cy)}px)`,
+              // A hair of daylight between the type and the rings it is standing next to.
+              shapeMargin: 8,
+            }}
+          />
+        )}
         {/* Only the slots the key can hold are named. The rest are counted below — the
             coloured ones because a caption cannot carry a hundred names, the neutral ones
             because naming them would imply they are distinguishable on screen, and they are
             not. */}
+        <span className={RIBBON}>
         {named.map((c) => (
-          <span key={c} className="flex items-center gap-1">
+          // `whitespace-nowrap` so a name never breaks across the shape's edge — a wrapped
+          // author is two half-names on two lines, which is worse than one short line.
+          <span key={c} className="mx-1 inline-flex items-center gap-1 whitespace-nowrap align-middle">
             <span
-              className="h-2 w-2 rounded-full"
+              className="h-2 w-2 shrink-0 rounded-full"
               style={{ background: slotColor(ranks?.get(c) ?? unranked) }}
             />
             <span className="text-[10px] text-[var(--muted-foreground)]">{c}</span>
@@ -156,18 +198,19 @@ function Legend({
             to show, and it says once that its shades repeat. The neutral row survives for
             what is actually neutral. */}
         {rest.coloured > 0 && (
-          <span className="text-[10px] text-[var(--muted-foreground)]">
+          <span className="mx-1 inline-block whitespace-nowrap align-middle text-[10px] text-[var(--muted-foreground)]">
             {rest.coloured} more{rest.repeats ? ' · shades repeat' : ''}
           </span>
         )}
         {rest.neutral > 0 && (
-          <span className="flex items-center gap-1">
+          <span className="mx-1 inline-flex items-center gap-1 whitespace-nowrap align-middle">
             <span className="h-2 w-2 rounded-full" style={{ background: 'var(--structure)' }} />
             <span className="text-[10px] text-[var(--muted-foreground)]">
               {OTHER_LABEL} ({rest.neutral})
             </span>
           </span>
         )}
+        </span>
       </div>
     )
   }
@@ -179,7 +222,7 @@ function Legend({
   // with no middle. One filled bar in the color the map is actually using, named once.
   if (mode === 'traps') {
     return (
-      <div className="flex items-center gap-2">
+      <div className={`${RIBBON} inline-flex items-center gap-2`}>
         {/* A square, the same shape as the stale and unread swatches below it — not the
             ramp's rounded bar. A bar spans, and spanning is what a scale does; this is one
             state a wedge either has or does not. The pill said "somewhere along here" about
@@ -200,7 +243,7 @@ function Legend({
   // scale is labelled at both ends instead of only where the eye is drawn.
   if (mode === 'callers') {
     return (
-      <div className="flex items-center gap-3">
+      <div className={`${RIBBON} inline-flex items-center gap-3`}>
         {CALLER_KEY.map(([fill, label]) => (
           <span key={label} className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ background: fill }} />
@@ -220,7 +263,7 @@ function Legend({
   // who saw only the purple could not tell a clean repo from an unmeasured one.
   if (mode === 'clones') {
     return (
-      <div className="flex items-center gap-3">
+      <div className={`${RIBBON} inline-flex items-center gap-3`}>
         {[
           ['var(--clone)', 'a clone'],
           ['var(--structure)', 'unique'],
@@ -237,7 +280,7 @@ function Legend({
 
   if (mode === 'reach') {
     return (
-      <div className="flex items-center gap-3">
+      <div className={`${RIBBON} inline-flex items-center gap-3`}>
         {REACH_KEY.map(([fill, label]) => (
           <span key={label} className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ background: fill }} />
@@ -255,7 +298,7 @@ function Legend({
   // wider row read as two unrelated things stacked rather than one thing explaining the
   // other.
   return (
-    <div className="flex items-center gap-2">
+    <div className={`${RIBBON} inline-flex items-center gap-2`}>
       <span className="shrink-0 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
         {lo}
       </span>
@@ -412,6 +455,92 @@ export function ModeSwitcher({
   )
 }
 
+/**
+ * The map's edge, as a hole in the corner the key sits in.
+ *
+ * **The picture is a circle and the key is a rectangle, so one of them has to give.** The
+ * box is anchored in the pane's bottom-right — a corner the rings never reach, which is what
+ * makes it free real estate — but its top-left corner is the one part of it the map DOES
+ * reach, so a long author list either overlapped the outermost wedges or pushed the whole
+ * box out to where it wasted the corner it was put in to use.
+ *
+ * A float with `shape-outside` is the whole mechanism: the exclusion is the map's own circle,
+ * so the lines shorten as they climb toward it and run full width along the bottom. Text
+ * wrapping a disc is what a magazine does with a photograph, and it is the same problem.
+ *
+ * **Measured against the pane rather than guessed**, because the circle moves: it is centred
+ * in the chart area and its radius is half the smaller side, both of which change with the
+ * window and with the sidebar. Read off the offset parent, which IS the chart pane — the key
+ * is absolutely positioned inside it — and recomputed when either box changes.
+ *
+ * Degrades to nothing: with no measurement yet, or in a pane too small for the circle to
+ * reach this corner, the float is not rendered and the key is the rectangle it always was.
+ */
+function useMapEdge(
+  box: React.RefObject<HTMLDivElement | null>,
+  /** What makes the key a different shape: the pane it is in, and how much it has to say.
+   *  Measuring again for anything else is what made this a loop — see below. */
+  key: string,
+): { r: number; cx: number; cy: number } | null {
+  const [edge, setEdge] = useState<{ r: number; cx: number; cy: number; key: string } | null>(null)
+  useLayoutEffect(() => {
+    const el = box.current
+    // **The chart pane, found by marker.** `offsetParent` was the first answer and it is the
+    // key's own absolutely-positioned wrapper, so the circle came out centred inside the key
+    // — a hole in the middle of the text rather than the map's edge at its corner.
+    const pane = el?.closest('[data-chart]') as HTMLElement | null
+    if (!el || !pane) return
+    // **Measured ONCE per shape, and that is not an optimisation — it is what stops this
+    // oscillating.** The key is anchored to the bottom of the pane, so a line added at the
+    // top moves its top edge UP, which moves the circle DOWN in the key's own coordinates,
+    // which changes how many lines fit. Re-measuring on every resize of the key is therefore
+    // a feedback loop with no fixed point, and under Blame — where the cast is long enough
+    // for the line count to flip — it span until the webview died.
+    //
+    // So the card is measured while it is still RECTANGULAR (no shape yet for this key), the
+    // shape is applied, and nothing measures it again until the pane or the content changes.
+    // The circle then sits a little low, by however much the shape grew the box, which is
+    // the same "roughly" the radius already carries.
+    if (edge?.key === key) return
+    const p = pane.getBoundingClientRect()
+    const b = el.getBoundingClientRect()
+    // The rings are fitted into the square with a margin and a reserve at the bottom for
+    // this very box, so the drawn radius is a little under half the smaller side. Being a
+    // few pixels generous costs a few pixels of line; being short costs an overlap.
+    const r = (Math.min(p.width, p.height) / 2) * 0.94
+    // In the CARD's own coordinates. The float subtracts its padding for itself — see
+    // `Legend` — because `shape-outside` measures from the float's margin box while the
+    // mask measures from the card's border box.
+    setEdge({
+      key,
+      r,
+      cx: p.left + p.width / 2 - b.left,
+      cy: p.top + p.height / 2 - b.top,
+    })
+  }, [box, key, edge])
+
+  /** A pane that has changed size has to be measured again, and the way to ask for that is
+   *  to forget what was measured — which puts the key back to a rectangle for one frame,
+   *  which is exactly the state the next measurement needs. */
+  useLayoutEffect(() => {
+    const pane = box.current?.closest('[data-chart]') as HTMLElement | null
+    if (!pane) return
+    const ro = new ResizeObserver(() => setEdge(null))
+    ro.observe(pane)
+    return () => ro.disconnect()
+  }, [box])
+
+  return edge?.key === key ? edge : null
+}
+
+/** How a line of the key stands off the map it is drawn over.
+ *
+ *  `clone` is the whole trick: it gives every line box its own background and its own rounded
+ *  ends rather than one box around the lot, so a ribbon that shortens as it climbs into the
+ *  rings looks like it was set that way. */
+const RIBBON =
+  'rounded-[var(--radius-sm)] bg-[var(--card)] px-2 py-[3px] [-webkit-box-decoration-break:clone] [box-decoration-break:clone]'
+
 /** The key, boxed to match the switcher so the two read as a pair across the graph. */
 export function ColorLegend({
   mode,
@@ -431,9 +560,27 @@ export function ColorLegend({
   /** Wedges drawn in the flat unanalyzed gray, having never been read. */
   unread?: number
 }) {
+  const box = useRef<HTMLDivElement>(null)
+  // Re-measured when the lens changes or the cast does, which are the two things that change
+  // the key's shape — and never for its own reflow, which is the loop.
+  const edge = useMapEdge(box, `${mode}:${categories.length}:${stale}:${unread}`)
   return (
-    <div className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-2 py-1.5">
-      <Legend mode={mode} categories={categories} ranks={ranks} />
+    // The width the curve needs room to work in: a key that shrinks to its longest line has
+    // no slack for the shape to take back, so the lines it shortens have nowhere to go.
+    //
+    // **There is no card any more, and that is the answer to what shape it should be.**
+    // A rectangle with a circular bite out of it is an odd object however it is drawn — the
+    // mask made it a shape nobody chose, and drawing the arc properly would still be a panel
+    // pretending to have been cut from a disc. What the names actually needed was to be
+    // legible over the pane, which is a property of the LINES rather than of a box around
+    // them: each one carries its own backing, hugging its own length (`box-decoration-break`),
+    // so the ragged edge the curve produces reads as a deliberate ribbon instead of as a
+    // panel that has gone wrong.
+    //
+    // Fixed width so the shape has slack to take back: a key that shrinks to its longest line
+    // is already as short as it can be, and shortening one line just moves a name to the next.
+    <div ref={box} className="max-w-[420px] text-right">
+      <Legend mode={mode} categories={categories} ranks={ranks} edge={edge} />
       {paintsFromReadings(mode) && (stale > 0 || unread > 0) && (
         /* The two things the ramp above cannot explain: a wedge can be hatched, or it can
            be uncolored. Both are absences of a reading rather than positions on the
@@ -452,7 +599,11 @@ export function ColorLegend({
            alike, not be the same object. They do have to STAY alike, though — the gray is
            `--unanalyzed` at 0.4 because that is what `Sunburst` draws an unread wedge
            with, and a key painted in a color the map does not use is worse than no key. */
-        <div className="mt-1.5 flex items-center gap-3 border-t border-[var(--border)] pt-1.5">
+        // Its own ribbon, on the right, rather than a rule under a box that no longer
+        // exists: these are one more line of the key, and a border needs two sides of a
+        // panel to divide.
+        <div className="mt-1 text-right">
+          <span className={`${RIBBON} inline-flex items-center gap-3`}>
           {stale > 0 && (
             <span className="flex items-center gap-1.5">
               <span
@@ -475,6 +626,7 @@ export function ColorLegend({
               <span className="text-[10px] text-[var(--muted-foreground)]">{unread} unread</span>
             </span>
           )}
+          </span>
         </div>
       )}
     </div>
