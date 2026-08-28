@@ -689,10 +689,33 @@ pub fn agent_reports(
     s.projects
         .get(&key)
         .map(|p| {
+            // **What the window cannot work out for itself: how big each read function is,
+            // and whether the reading has expired.** Both need the live tree, which the
+            // window has only in part — a large repo arrives without its functions. Built
+            // once per poll rather than per report, and not at all for a repo nobody has
+            // read, which is the common case and the expensive one: the walk is proportional
+            // to the repo and the reports are proportional to the reading somebody has done.
+            let mut live: std::collections::HashMap<&str, (Option<&str>, Option<u32>, u32)> =
+                std::collections::HashMap::new();
+            if !p.reports.is_empty() {
+                p.scan.root.visit(&mut |n| {
+                    if n.kind == crate::model::NodeKind::Func {
+                        live.insert(n.id.as_str(), (n.body.as_deref(), n.bytes, n.loc));
+                    }
+                });
+            }
             p.reports
                 .values()
                 .cloned()
                 .map(|mut r| {
+                    // A reading whose function is gone reports `loc: 0` and is dropped by the
+                    // window — it is not stale, it is about code that no longer exists, and
+                    // the two are different facts.
+                    let found = live.get(r.id.as_str()).copied();
+                    r.loc = found.map(|(_, _, loc)| loc).unwrap_or(0);
+                    r.stale = found
+                        .map(|(body, bytes, _)| crate::assessment::is_stale(&r, body, bytes))
+                        .unwrap_or(false);
                     // Stamped on the way out, never stored: `legible_dated` is a judgement
                     // THIS build makes about a fact the file records, so it has to be
                     // recomputed every time the constants move. Writing it into `.sanity/`
@@ -1390,6 +1413,57 @@ pub fn reorder_projects(state: tauri::State<'_, crate::agentapi::Shared>, keys: 
 #[tauri::command]
 pub fn forget_project(state: tauri::State<'_, crate::agentapi::Shared>, key: String) {
     crate::agentapi::lock(&state).forget(&key);
+}
+
+/// Throw away everything this app has DERIVED for one repo, and keep everything it has read.
+///
+/// **The escape hatch for a cache that cannot notice it is wrong.** Every cache here refuses
+/// itself on a version, a signature or a content hash, which covers the honest cases. What
+/// none of them can see is a build whose bugs are since fixed: the bytes match, the version
+/// matches, and the answer is simply the wrong one. It replaced `Re-trace history`, which was
+/// this for the timeline alone — a narrower door onto the same room, and the wrong shape for
+/// what it was actually being used for, which is clearing out the artifacts of a build that
+/// has moved on.
+///
+/// Three things go, and one stays.
+///
+/// The caches go (`reports::forget_all`) — the parsed tree, the scan log, the blame, the
+/// timeline, in every tag any build wrote. The banked numbers go with them: `files`,
+/// `scan_ms` and `trace_depth` are what the row prices its own work from, and a price for
+/// work whose result has just been deleted is worse than no price, because the gate believes
+/// it. The live project goes too, so the row returns to the state a freshly added repo is in
+/// rather than showing a tree from a cache that no longer exists.
+///
+/// **The readings stay**, in `.sanity/`, inside the repo. Nothing here touches them, which is
+/// why this can be one click with a sentence under it rather than a confirmation dialog.
+#[tauri::command]
+pub fn reset_project(state: tauri::State<'_, crate::agentapi::Shared>, key: String) {
+    let mut index = crate::reports::load_index();
+    // The repo's path from the INDEX rather than from the live state: a project that has been
+    // declined for cost or is waiting on a restore has a row and no `Project`, and those are
+    // exactly the ones somebody resets.
+    let Some(repo) = index
+        .projects
+        .iter()
+        .find(|p| p.key == key)
+        .map(|p| PathBuf::from(&p.repo))
+    else {
+        return;
+    };
+    crate::reports::forget_all(&repo);
+    if let Some(p) = index.projects.iter_mut().find(|p| p.key == key) {
+        p.files = None;
+        p.scan_ms = None;
+        p.trace_depth = None;
+    }
+    // **`unload`, never `forget`.** `forget` takes the row out of the index, which is Remove;
+    // this has to leave it there, because the point of a reset is to do the work again.
+    // Unloaded FIRST, then the index written: `persist` merges live state over what is on
+    // disk, so an entry still holding a scan would write its own numbers back over the ones
+    // just cleared — the erasure hazard `a_touch_cannot_erase_what_only_the_index_knows`
+    // exists for, running in the other direction.
+    crate::agentapi::lock(&state).unload(&key);
+    crate::reports::save_index(&index);
 }
 
 /// Write an exported replay to the path the save dialog came back with.

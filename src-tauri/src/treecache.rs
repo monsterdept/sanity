@@ -70,7 +70,13 @@ use std::path::{Path, PathBuf};
 ///    version-6 tree would report every node as having no extent — and an unknown extent
 ///    that read as a small one would put the god-files straight back in the queue to be
 ///    served whole, which is the failure this release exists to close.
-const VERSION: u32 = 7;
+/// 8: `Node` gained `cols`, a file's functions reduced to the numbers a distribution is
+///    built from — see [`crate::model::Cols`]. `slim` fills them, and `slim` is what this
+///    cache stores, so a version-7 tree loads with `None` on every file and the map falls
+///    back to a flat rim exactly where the histogram is worth the most: the repos too large
+///    to have fetched their rings. It is the `#[serde(default)]` hazard in its usual shape —
+///    a missing field reading as a valid value — and the reason this list exists.
+const VERSION: u32 = 8;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

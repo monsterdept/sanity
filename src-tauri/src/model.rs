@@ -623,6 +623,87 @@ pub struct Node {
     /// next field's bytes into the wrong slot. It cost 10% of a payload that is now 3.3MB.
     #[serde(default)]
     pub funcs: u32,
+    /// The bucketable numbers of this FILE's functions, as columns — see [`Cols`].
+    #[serde(default)]
+    pub cols: Option<Cols>,
+}
+
+/// A file's functions, reduced to the numbers a distribution is built from.
+///
+/// **A directory's rim draws what is underneath it, and "underneath" cannot mean "whatever
+/// the window happened to fetch".** The map colours a container by a roll-up — a hot share,
+/// a mean age — and every one of those survives [`Node::slim`] because it is folded here,
+/// over every function, once. A DISTRIBUTION had no such path: the window builds it by
+/// walking the function nodes it holds, and it holds a file's ring only after asking for
+/// one. On kibana that is a handful of files out of 59,008, so the histogram was either
+/// missing or, worse, a confident picture of a biased sample — three files with rings, all
+/// touched last week, and the directory holding four thousand drawn as entirely fresh.
+///
+/// **Columns rather than bands, because the browser owns what a band MEANS.** Bucketing
+/// here would put `CALLER_BANDS` and `AGE_BANDS` in two languages, and the copy nobody is
+/// looking at is the one that goes wrong — the same argument that keeps one MCP schema.
+/// What ships is the raw per-function numbers; the window buckets them with the same code
+/// it uses on real function nodes, so a file with its ring fetched and a file without one
+/// go down one path and cannot disagree.
+///
+/// **Cheap because it is only numbers.** `slim` exists because ceph's full tree is 75MB of
+/// JSON — names, signatures, docs and bodies. Five numeric columns are about 3.7MB across
+/// kibana's 148,000 functions, and they replace nothing: a ring fetched later is still the
+/// authority, because it carries everything.
+///
+/// Absences are `-1` rather than `null`, so a column is a flat array of numbers on the wire
+/// and in the positional tree cache. Each is documented where it is filled.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct Cols {
+    /// Lines per function, which is what every bucket is weighted by.
+    pub loc: Vec<u32>,
+    /// `Score::commits` — on a function, the commits its lines trace back to. `-1` where
+    /// the repo has no history.
+    pub commits: Vec<i32>,
+    /// `Score::last_touched_days`, rounded. `-1` where the repo has no history.
+    pub touched: Vec<i32>,
+    /// In-repo callers, `-1` where this language's calls were never parsed — the absence
+    /// the Callers lens draws grey rather than as a zero.
+    pub callers: Vec<i32>,
+    /// In-repo calls made, with the same `-1`.
+    pub calls: Vec<i32>,
+    /// Size of this function's clone group, `0` for none and `-1` for a body under the
+    /// token floor, which is "never compared" rather than "unique".
+    pub clones: Vec<i32>,
+}
+
+impl Cols {
+    /// One file's functions, columnised. Non-function children are skipped: a file holds
+    /// only functions, and a defensive filter here is cheaper than a surprise later.
+    fn of(funcs: &[Node]) -> Cols {
+        let mut c = Cols::default();
+        for f in funcs.iter().filter(|f| f.kind == NodeKind::Func) {
+            c.loc.push(f.loc);
+            // `-1` is "no history", which the lens draws as an absence. A repo with no git
+            // gives every function the same -1 and the map says so once, rather than
+            // drawing a ring of confident zeros.
+            let (commits, touched) = match f.score {
+                Some(s) if s.age_days.is_some() => (
+                    s.commits as i32,
+                    s.last_touched_days.map(|d| d.round() as i32).unwrap_or(-1),
+                ),
+                _ => (-1, -1),
+            };
+            c.commits.push(commits);
+            c.touched.push(touched);
+            c.callers.push(f.callers.map(|v| v as i32).unwrap_or(-1));
+            c.calls.push(f.calls.map(|v| v as i32).unwrap_or(-1));
+            // Three states, and the middle one is the point: `0` is "compared, no twin",
+            // `-1` is "never compared". Collapsing them would let the map say a function is
+            // unique when nobody looked — see `comparable`.
+            c.clones.push(match (f.comparable, f.clone_size) {
+                (None, _) => -1,
+                (Some(_), Some(n)) => n as i32,
+                (Some(_), None) => 0,
+            });
+        }
+        c
+    }
 }
 
 impl Node {
@@ -661,6 +742,7 @@ impl Node {
             copied: None,
             children: Vec::new(),
             funcs: 0,
+            cols: None,
         }
     }
 
@@ -875,6 +957,9 @@ impl Node {
             comparable: self.comparable,
             copied: self.copied,
             funcs: if self.kind == NodeKind::File { self.children.len() as u32 } else { 0 },
+            // Built here rather than in `aggregate`, because this is the one place that has
+            // the functions in hand and is about to drop them.
+            cols: if self.kind == NodeKind::File { Some(Cols::of(&self.children)) } else { None },
             children: if self.kind == NodeKind::File {
                 Vec::new()
             } else {

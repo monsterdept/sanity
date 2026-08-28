@@ -136,13 +136,22 @@ pub fn not_a_repo(path: &Path) -> String {
     )
 }
 
-/// How many authors the window can colour, and therefore how many are worth sending.
+/// How many authors the window can RANK, and therefore how many are worth sending.
 ///
-/// Matches `CATEGORICAL` in `colorMode.ts`. Two copies of one number, which is the shape this
-/// repo is careful about — but the alternative is the window asking Rust how long its own
-/// palette is, and the cost of them disagreeing is small and visible: a name past the end
-/// takes the same neutral as no name at all, which is what it would have taken anyway.
-pub const AUTHOR_SLOTS: usize = 64;
+/// **It used to be the palette's length, and that stopped being the right number when the
+/// palette started recycling.** `slotColor` now reuses the unnamed slots past sixty-four —
+/// see its note for why that is safe and why sharing by era is not — so a name past the
+/// palette is no longer indistinguishable from no name at all. It gets a colour, and a
+/// colour it can only get by being ranked, which it can only be by arriving here.
+///
+/// So this is a ceiling on the LIST rather than a mirror of the palette: past it a person
+/// really does fall to the neutral with everyone else, and at a thousand that is a repo with
+/// more contributors than kibana has ever had. The names cost about twenty bytes each and
+/// are sent once per scan.
+///
+/// Deliberately no longer equal to `CATEGORICAL.length`, and the two must not be re-tied: one
+/// is how many colours exist, the other is how many people can be given one.
+pub const AUTHOR_SLOTS: usize = 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanStats {
@@ -174,9 +183,11 @@ pub struct ScanStats {
     /// One list per repo means one colour per person, on the live map and in every frame of
     /// its history.
     ///
-    /// Capped at what the palette can actually hold plus a little slack — see `CATEGORICAL`.
-    /// A repo with five hundred authors has no five hundred distinguishable colours, and a
-    /// list that pretended otherwise would just be a longer tail of the same neutral.
+    /// Capped at [`AUTHOR_SLOTS`], which is no longer the palette's length. A repo with five
+    /// hundred authors still has no five hundred distinguishable colours — but `slotColor`
+    /// recycles the unnamed slots rather than tipping everyone past the palette into one
+    /// neutral, so a rank is worth having well past the point where it is worth naming. What
+    /// the cap protects now is the LIST, not the colours.
     pub authors: Vec<String>,
     pub model: String,
     /// Call sites that reached a definition in this repo, and ones that did not.
@@ -862,6 +873,9 @@ fn score_dir(
                     let copy = copies.at(base + fi, i);
 
                     let node = Node {
+                        // Only `slim` builds these, from the functions it is dropping. A
+                        // full tree has the functions themselves and needs no columns.
+                        cols: None,
                         id: crate::assessment::key_of(&file.rel_path, &func.name, ords[i]),
                         name: func.name.clone(),
                         kind: NodeKind::Func,
@@ -939,6 +953,7 @@ fn score_dir(
             (
                 file.rel_path.clone(),
                 Node {
+                    cols: None,
                     id: file.rel_path.clone(),
                     name,
                     kind: NodeKind::File,

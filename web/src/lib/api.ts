@@ -167,6 +167,26 @@ export interface Node {
    *  `fileFunctions`. Zero on a file whose functions are present, where `children` is the
    *  answer, and zero on everything that is not a file. */
   funcs: number
+  /** This FILE's functions, reduced to the numbers a distribution is built from — see
+   *  `Cols` in `model.rs`.
+   *
+   *  Present on a file whose ring has not been fetched, which is most of a large repo. It is
+   *  what lets a directory's rim draw what is actually underneath it rather than what the
+   *  window happens to hold: the roll-up scalars (`hotShare`, `orphans`) already survive
+   *  slimming, and this is the same idea for a shape rather than a mean. Never a substitute
+   *  for the ring — a fetched ring carries everything, and `histogramsFor` prefers it. */
+  /** Readings for this FILE's functions, when the ring holding them has not been fetched.
+   *
+   *  The reading lenses fold from function NODES, and a large repo arrives without any — so
+   *  a directory's breakdown under Legibility or Docs was built from whichever files
+   *  happened to have been asked for. `Cols` cannot close this one: a grade is not a number
+   *  the scan knows, it comes from `.sanity/` and is folded in the browser.
+   *
+   *  So the reports themselves ride on the file, carrying the two things the window cannot
+   *  work out without the function — its lines, and whether the reading has expired. See
+   *  `Report::loc` in `agentapi.rs`. */
+  pending?: AgentReport[]
+  cols?: Cols
   /** How many functions this node stands in for, on the synthetic wedge a band draws when
    *  it runs out of room. Undefined on everything else, which is what makes it the test
    *  for "this is a collection wearing a function's `kind`" — see `showsShare`. */
@@ -239,6 +259,18 @@ export function pruneExcluded(node: Node): Node {
 export function localityOf(n: Node): number | null {
   if (n.incident == null || n.away == null || n.incident === 0) return null
   return n.away / n.incident
+}
+
+/** A file's functions as parallel arrays. Absences are `-1`, never `null`, so each column
+ *  stays a flat array of numbers on the wire — see `Cols` in `model.rs` for what each one
+ *  holds and which absence it encodes. */
+export interface Cols {
+  loc: number[]
+  commits: number[]
+  touched: number[]
+  callers: number[]
+  calls: number[]
+  clones: number[]
 }
 
 export function showsShare(node: Node): boolean {
@@ -332,6 +364,7 @@ interface WireScore {
   analyzed_share: number
 }
 interface WireNode {
+  cols?: Cols
   id: string
   name: string
   kind: NodeKind
@@ -453,6 +486,10 @@ function toNode(w: WireNode): Node {
     copied: w.copied ?? null,
     children: (w.children ?? []).map(toNode),
     funcs: w.funcs ?? 0,
+    // Undefined rather than an empty `Cols`, so "this build sent none" and "this file has no
+    // functions" stay apart — `histogramsFor` refuses to draw a distribution over a subtree
+    // it cannot account for, and an empty column set would read as a file with nothing in it.
+    cols: w.cols ?? undefined,
   }
 }
 
@@ -612,6 +649,13 @@ export function reorderProjects(keys: string[]): Promise<void> {
 
 export function forgetProject(key: string): Promise<void> {
   return invoke<void>('forget_project', { key })
+}
+
+/** Throw away everything derived for this repo — the tree, the scan log, the blame and the
+ *  timeline — and keep its readings, which live in `.sanity/` and are not ours to delete.
+ *  See `reset_project`, which carries the argument. */
+export function resetProject(key: string): Promise<void> {
+  return invoke<void>('reset_project', { key })
 }
 
 export function harnesses(): Promise<HarnessInfo[]> {
@@ -1082,6 +1126,10 @@ export type Grade = 'full' | 'most' | 'some' | 'none'
 
 export interface AgentReport {
   id: string
+  /** Lines in the function this reading is about, and whether it has expired — both stamped
+   *  by the backend, which is the only party that can see the live body. See `pending`. */
+  loc?: number
+  stale?: boolean
   /** What the agent predicted BEFORE reading the body. */
   expected: string
   found: string
@@ -1426,9 +1474,28 @@ export function readIntoRing(ring: Node[], byId: Map<string, AgentReport>): Node
 
 export function applyAgentReports(root: Node, reports: AgentReport[]): Node {
   const byId = new Map(reports.map((r) => [r.id, r]))
+  /** Readings grouped by the file they belong to, for files whose functions are absent.
+   *
+   *  A node id is `path#name@line`, so the path is everything before the first `#` — the
+   *  same decomposition `key_of` makes on the other side. An orphan (`loc: 0`) is dropped
+   *  here rather than downstream: its function no longer exists, and counting its lines
+   *  would put code in a directory's breakdown that is not in the directory. */
+  const byPath = new Map<string, AgentReport[]>()
+  for (const r of reports) {
+    const cut = r.id.indexOf('#')
+    if (cut <= 0 || !r.loc) continue
+    const path = r.id.slice(0, cut)
+    const list = byPath.get(path)
+    if (list) list.push(r)
+    else byPath.set(path, [r])
+  }
   const visit = (node: Node): Node => {
     if (node.children.length === 0) {
-      return readInto(node, byId.get(node.id))
+      // A file with functions it has not been sent carries their readings instead. Its own
+      // reading still attaches below through `readInto` — a file's header grade and its
+      // functions' grades are two different measurements.
+      const held = node.kind === 'file' && node.funcs > 0 ? byPath.get(node.path) : undefined
+      return readInto(held ? { ...node, pending: held } : node, byId.get(node.id))
     }
     const children = node.children.map(visit)
     const folded = children.every((c, i) => c === node.children[i])
@@ -1567,13 +1634,36 @@ export function summarize(root: Node): RepoSummary {
     // printed under the repo's name. The count is the scan's own and does not depend on
     // where anybody has been looking.
     //
-    // The reading counts below cannot be recovered this way — a grade belongs to a
-    // function, and an unfetched one has none here — so they stay what they are: what is
-    // known of what is loaded. `unread` is what closes the gap, and it is derived from this
-    // total rather than counted, so the three still add up.
+    // The reading counts used to stop here, at what was known of what was loaded; a file's
+    // held readings now close that too — see just below. `unread` remains DERIVED from this
+    // total rather than counted, so the three add up either way.
     if (n.kind === 'file' && n.funcs > 0) {
       if (outOfScope) s.excluded += n.funcs
-      else s.functions += n.funcs
+      else {
+        s.functions += n.funcs
+        // **The readings of a file whose ring has not arrived.** The note below used to say
+        // these could not be recovered — that a grade belongs to a function and an unfetched
+        // one has none here — and that was true until the readings started riding on the
+        // file (see `Node.pending`). At the root of a large repo this is the difference
+        // between a Surprise breakdown that says "nothing has been read" and one that says
+        // what was. `unread` is still derived from the total below, so the three add up
+        // whether or not any of this fires.
+        for (const r of n.pending ?? []) {
+          if (r.stale) {
+            s.stale++
+          } else {
+            const g = r.predicted ?? (r.surprised ? 'none' : 'full')
+            s.spread[g]++
+            s.read++
+            const lg = legibleOf(r)
+            if (lg) {
+              s.legible[lg]++
+              s.legibleRead++
+            }
+            if (trapOf(r)) s.traps++
+          }
+        }
+      }
     }
     if (n.kind === 'func') {
       if (outOfScope) {

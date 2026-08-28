@@ -13,7 +13,19 @@ import {
 import { bucketsFor, colorFor, type Bucket, type ColorMode } from '../lib/colorMode'
 import { Counts } from './Counts'
 
-const GRADES: Grade[] = ['full', 'most', 'some', 'none']
+/** The order every breakdown in this app reads in: the LOUD end first.
+ *
+ *  It was `full` first — the calm end, matching the direction each ramp's own legend runs.
+ *  That is a defensible order for a list on its own and it stopped being one when the same
+ *  breakdown got drawn on the map: a container's rim is this bar curved onto the wedge it
+ *  describes, so the two have to run the same way, and on a rim the order is a DIRECTION
+ *  somebody compares between wedges rather than a list they read top to bottom.
+ *
+ *  Loud-first is the end that wins, and Churn and Age were already there — busiest first,
+ *  most recent first — because it is the end anybody opens a lens to find. Every other
+ *  breakdown now follows them rather than the other way round: the finding leads, and the
+ *  quiet end trails off toward the absence rows, which are last whatever the sort. */
+const GRADES: Grade[] = ['none', 'some', 'most', 'full']
 
 /** What the breakdown is a breakdown OF, per mode.
  *
@@ -343,7 +355,7 @@ function Buckets({
           <div
             key={b.key}
             style={{ width: `${(b.lines / total) * 100}%`, background: b.fill }}
-            title={`${b.label} — ${b.nodes.length} functions, ${b.lines.toLocaleString()} lines`}
+            title={`${b.label} — ${b.count.toLocaleString()} functions, ${b.lines.toLocaleString()} lines`}
           />
         ))}
       </div>
@@ -381,8 +393,12 @@ function Buckets({
               >
                 {b.label}
               </span>
+              {/* How many are IN it, not how many can be listed. The two differ on a repo
+                  whose function rings have not been fetched — see `Bucket.count` — and the
+                  number a breakdown row owes you is the size of the slice. What the list
+                  below can show is said by the list below. */}
               <span className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
-                {b.nodes.length}
+                {b.count.toLocaleString()}
               </span>
             </button>
           )
@@ -558,7 +574,7 @@ export function Summary({
             above was already asking. Now the key chooses and this follows. */}
         {lens
           ? bucket &&
-            bucket.nodes.length > 0 && (
+            bucket.count > 0 && (
               <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-[var(--border)] pt-3">
                 <div className="mb-2 flex items-baseline justify-between gap-2">
                   <p
@@ -568,9 +584,22 @@ export function Summary({
                     {bucket.label}
                   </p>
                   <p className="mono shrink-0 text-[10px] tabular-nums text-[var(--muted-foreground)]">
-                    {bucket.nodes.length}
+                    {bucket.nodes.length === bucket.count
+                      ? bucket.count.toLocaleString()
+                      : `${bucket.nodes.length.toLocaleString()} of ${bucket.count.toLocaleString()}`}
                   </p>
                 </div>
+                {/* **A bucket can hold more than it can name.** The breakdown counts every
+                    function in the subtree, including those in files whose ring the window
+                    has not asked for — that is the whole point of `Node.cols`. Those have a
+                    value and a line count and no node to list, so the header says how many of
+                    the slice this list is, and a row of nothing gets a sentence instead of
+                    reading as an empty answer. Drilling in fetches them. */}
+                {bucket.nodes.length === 0 && (
+                  <p className="text-[11px] text-[var(--note-ink)]">
+                    Counted from the scan. Drill in to list them.
+                  </p>
+                )}
                 {/* Painted by the same call the wedge is, so the swatch beside a name in this
                   list is the color that name is wearing on the map. `colorFor` returns null
                   for what the mode cannot speak about, which is exactly the "no git history"

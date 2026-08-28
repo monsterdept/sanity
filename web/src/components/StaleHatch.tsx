@@ -41,6 +41,26 @@ export function StaleHatch() {
           strokeOpacity={0.5}
         />
       </pattern>
+      {/* **A folded directory's handle.**
+       *
+       *  A fold gives a subtree's angle back to its siblings, so the ring stops being
+       *  proportional — and the handle is the only thing on the map that says so. It
+       *  therefore has to read as a MARK rather than as a small wedge: a narrow wedge is a
+       *  claim that something is small, which is the one thing that must not be said here,
+       *  because what was folded is usually the biggest thing in the ring.
+       *
+       *  Cross-hatched rather than lined, so it cannot be mistaken for `stale-hatch` at a
+       *  glance, and finer than either — this sits on a thirteen-pixel stub, where the
+       *  six-pixel pitch of the others would show one stroke and read as a stripe. */}
+      <pattern id="fold-hatch" width={4} height={4} patternUnits="userSpaceOnUse">
+        <rect width={4} height={4} fill="none" />
+        <path
+          d="M0 0 L4 4 M4 0 L0 4"
+          stroke="var(--foreground)"
+          strokeWidth={0.9}
+          strokeOpacity={0.4}
+        />
+      </pattern>
       <pattern
         id="stale-hatch"
         width={6}

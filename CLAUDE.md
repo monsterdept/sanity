@@ -911,6 +911,127 @@ When a field is added to `Report`, add it to the schema in the same commit.
   separate from `NOT_RUNNING` (never started) for that reason. Models fill silence with
   invention.
 
+## The ring is drilled, not panned
+
+**Size is ANGLE here, and a camera cannot give you more angle.** Unbounded rings plus pan
+and zoom was built — a fixed band, the tree drawn to its own depth, wheel and drag over the
+top, snaps to Whole / Home / Selection — and thrown away. It works, and it is worse than
+what it replaced: past six rings a wedge is a two-degree sliver, and a two-degree sliver
+magnified is still two degrees, where drilling makes that same subtree the whole three
+hundred and sixty. That is the line between a view somebody can move around and a view they
+have to re-root, and it is why depth past legibility is not a camera problem. The branch is
+`deep-rings`; read this before proposing it again.
+
+Three things came out of it and are on main:
+
+- **The count is the reader's, within a bounded range** (`lib/rings.ts`, 3–8, default 5).
+  It passes the test the reader batch size failed: the consequence of changing it is visible
+  immediately, in the picture, so a person has something to base the choice on. A batch size
+  hides its consequences in a corpus months later, which is why that slider was built and
+  removed. Bounded rather than open — a number box would offer forty, and forty has been
+  looked at.
+- **`minAngleAt` — the cull threshold is per RING.** An angle is not a width: the arc a span
+  subtends is `r × angle`, so the old single threshold measured at `R_OUTER` was letting the
+  innermost ring draw wedges four times under a pixel. Wrong in the safe direction, and less
+  safe the more rings there are.
+- **A container's rim draws a DISTRIBUTION, and "what is underneath" cannot mean "what the
+  window fetched".** The rim was a roll-up collapsed to one number — a hot share, a mean age,
+  a fraction called — and a mean over forty thousand functions lands mid-scale every time,
+  which is why Churn, Age, Callers and Reach drew the same middling ring on kibana. Four
+  questions, one answer, because averaging was what was being drawn. It is the same breakdown
+  the pane prints, curved onto the wedge it is about, and `contribute`/`sortBuckets` are
+  shared so the two cannot become two answers about one population.
+  **The population is the whole subtree or there is no histogram.** Function rings are fetched
+  per file, so on a large repo the browser holds almost none — and a histogram of whatever
+  happened to arrive is not an approximation, it is a confident picture of a biased sample:
+  three files with rings, all touched last week, and the directory holding four thousand drawn
+  as entirely fresh. A subtree with a hole in it falls back to the roll-up, which is complete
+  by construction.
+  **`Node::cols` is what closes the hole, and it is columns rather than bands on purpose.**
+  A file ships its functions' bucketable numbers as parallel arrays — about 3.7MB across
+  kibana's 148,000 functions, against the 75MB of strings `slim` exists to avoid. Bucketing
+  in Rust would put `CALLER_BANDS` and `AGE_BANDS` in two languages, and the copy nobody is
+  looking at is the one that goes wrong; instead the browser feeds a reused stand-in node
+  through the SAME `contribute` a real function takes, so a file with its ring and a file
+  without one cannot disagree about which band a number falls in. It moved
+  `treecache::VERSION` to 8 — `slim` is what that cache stores.
+  **Blame and Language never needed it, and running the columns for them double-counted every
+  directory** — once by author, once as `unknown` — because a file already carries its own
+  `lastAuthor` and `lang` and files survive `slim`.
+  **The reading lenses take the same shape through a different door.** A grade is not a number
+  the scan knows, so a column cannot carry one; the readings ride on the file instead
+  (`Node::pending`) with two fields the backend stamps on the way out — `loc`, so the bar is
+  weighted in lines like every other, and `stale`, because only the backend can compare a
+  reading's hash against a body the window was never sent, and counting an expired reading as
+  a live one is the one thing this store must never do. **The unread remainder is computed,
+  not guessed**: a file's `loc` is the sum of its functions', so whatever the held readings do
+  not account for is code nobody has read and goes to the absence bucket. Without it a file
+  with three readings out of forty functions draws as fully read, which is coverage off a
+  filtered list — the failure `work_left` exists to prevent, one surface over.
+  **The categorical tail recycles rather than going neutral, and sharing by ERA does not
+  work.** Past sixty-four everyone fell to one grey block — on kibana's root that was
+  sixty-one people drawn as a single band, so a rim could not tell a directory one person
+  wrote from one thirty people wrote, which is the reading it exists for. The tempting fix is
+  to share a colour between contributors whose active periods do not overlap; it is wrong,
+  because blame is about LINES and lines outlive their authors — somebody who stopped
+  committing in 2014 owns code on today's map beside somebody who started last month, so the
+  conflict graph is near complete and there is no schedule to exploit. It is also the family
+  of rule the replay palette rejected three times over.
+  **What makes recycling safe is that a recycled colour is never a NAMED one.** `slotColor`
+  reuses only the slots past `NAMED`, so a collision is always between two people the legend
+  does not identify — people who were both grey a moment ago. The distinction given up was
+  never held; what is gained is that a crowd looks like a crowd. It is stable through a replay
+  by construction: a pure function of a ranking computed once over the whole log.
+  **`AUTHOR_SLOTS` is no longer `CATEGORICAL.length` and the two must not be re-tied.** One is
+  how many colours exist, the other is how many people can be given one — a rank is worth
+  having well past the point where it is worth naming, so the cap moved to 1024 and now
+  protects the list rather than the palette. The legend says the tail's shades repeat, once,
+  where the claim is made; it counts the coloured tail WITHOUT a swatch, because it has no one
+  colour to show, and keeps a neutral row for what is actually neutral.
+  **Surprise is the one lens whose pane breakdown is not `bucketsFor`** — it is `Spread`,
+  counted in `summarize` by FUNCTION rather than by line, because its rows are lists somebody
+  clicks. The rim reproduces its categories, colours and order and differs in exactly one
+  stated way: segments are lines, like every other rim, because a wedge's width is lines and
+  a bar inside it measured in something else would be two units in one shape.
+  **One direction for every breakdown: the loud end leads.** Churn and Age were already there
+  and the rest have followed them, in the pane as well as on the rim. It was per lens — each
+  bar running the way its own ramp's legend runs — which is defensible for a list read
+  downward and stops being so when the same breakdown is curved onto a wedge, where the order
+  is a DIRECTION compared between neighbours. `sortBuckets` is the one definition and the rim
+  takes its output unchanged, so the two cannot disagree.
+- **A folded directory keeps a HANDLE, not its share.** Folding is somebody saying
+  *disregard this*, and until the handle existed the map did not: the subtree kept every
+  degree its lines had earned and merely stopped drawing its insides, so folding kibana's
+  `x-pack` left the thing you wanted out of the way owning two thirds of the circle. That
+  is a depth control wearing an exclusion control's label. The fold now gives that angle
+  back to its siblings and leaves a fixed stub where the share was.
+  **The ring is then no longer proportional, and that is a suspension of this map's one
+  claim.** It is taken deliberately, because the claim was already conditional in three
+  ways the app states out loud — drilling re-normalizes the circle to a subtree, sub-pixel
+  wedges are culled, thin siblings roll up into `206+` — so what is actually promised is
+  *within this view, angle is lines*, plus an obligation to say what is missing. A fold
+  joins that list: reader-initiated, reversible, and marked.
+  **Consent is implied by the gesture; the MARK is what has to survive it.** A dialog
+  confirming an ⌥-click is a modal asking somebody about the thing they just did, and it
+  aims at the wrong moment — the hazard is the window somebody comes back to an hour later,
+  or the screenshot they hand over. So the handle is hatched rather than filled (a narrow
+  wedge would claim to be a small thing, and what gets folded is usually the largest thing
+  in the ring), it carries no label, the corner chip NAMES a single fold and prices it
+  (`x-pack folded — 62% of this view`), and the hover says the share was given back to the
+  ring. Priced against the VIEW's lines, never the repo's, because the circle is the view.
+  **Handles are never culled for thinness and never take more than half a ring**
+  (`HANDLE_MAX_SHARE`). The first because a dropped handle is a ring that has stopped being
+  proportional with nothing on screen saying so, which is the one outcome this exists to
+  prevent; the second because handles are a fixed size and a ring is not, so twenty folded
+  siblings would otherwise spend the whole span on marks for things nobody wants to see.
+- **The map says which files need their functions, because the window cannot know.**
+  `onWantRings` reports the files whose wedge can hold a tiling, by the same test that draws
+  one. It replaces a share of the focused subtree's lines (`0.0025`) standing in for that
+  question — a stand-in that is right on a small repo and refuses **every file in kibana**,
+  where a quarter of a per cent is ten thousand lines. The outer band was empty there for
+  that reason alone, at any ring count. The share stays as the opening guess, because it
+  needs no picture to have been drawn yet.
+
 ## The panel answers the lens, not the tab it was born under
 
 The detail pane had one subject whatever tab was pressed. Expected and Found are the

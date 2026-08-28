@@ -330,6 +330,7 @@ pub fn run() {
             commands::harnesses,
             commands::read_curve,
             commands::forget_project,
+            commands::reset_project,
             commands::reorder_projects,
             commands::select_project,
             commands::install_cli,

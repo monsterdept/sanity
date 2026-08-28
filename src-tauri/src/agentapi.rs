@@ -404,6 +404,25 @@ impl AppState {
         self.persist();
     }
 
+    /// Drop the LIVE state for a project and leave it in the list.
+    ///
+    /// **The half of `forget` that is not about the sidebar.** A reset throws away everything
+    /// derived for a repo, so the tree held in memory is the one thing left claiming the
+    /// caches still exist — but the row has to stay, because the point is to scan it again.
+    /// `forget` cannot be reused for that: it takes the project out of the index, which is
+    /// what makes it Remove rather than Reset.
+    ///
+    /// The declined and pending lists go with it, on the same rule `forget` states: a repo
+    /// left on either comes back as a row offering work about a scan nobody now has.
+    pub fn unload(&mut self, key: &str) {
+        self.projects.remove(key);
+        self.awaiting.remove(key);
+        self.restoring.retain(|k| k.key != key);
+        if self.active.as_deref() == Some(key) {
+            self.active = None;
+        }
+    }
+
     /// Move a project to the front of the history. Says nothing about the window.
     ///
     /// It used to set `active` too, and the two are different claims: one is "this was
@@ -974,6 +993,27 @@ impl Grade {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Report {
     pub id: String,
+    /// Lines in the function this reading is about, and whether the reading has expired.
+    ///
+    /// **Stamped on the way out, never stored** — the same rule `legible_dated` follows, and
+    /// for a stronger reason: both are facts about the CODE as it stands, and the store is a
+    /// record of a reading. Writing them into `.sanity/` would freeze one scan's opinion
+    /// into a file that outlives it.
+    ///
+    /// They exist so that a directory can draw what its readings look like when the window
+    /// has not fetched its functions. The browser folds readings onto function NODES, and a
+    /// large repo arrives without them (see `Node::slim`), so a reading whose function is
+    /// not on screen could be counted neither by line nor as current — and counting an
+    /// expired reading as a live one is the one thing this store must never do. Only the
+    /// backend can answer that: staleness is a hash comparison against the live body, which
+    /// is precisely what the window is missing.
+    ///
+    /// `loc` is `0` for a reading whose function no longer exists. That is not a size; it is
+    /// how an orphan says so, and the window drops it rather than counting a phantom.
+    #[serde(default)]
+    pub loc: u32,
+    #[serde(default)]
+    pub stale: bool,
     /// What the agent expected before reading the body. Recorded even when it was right,
     /// because "expected X, found X" is the evidence that a wedge is genuinely boring.
     ///
@@ -1240,6 +1280,9 @@ impl Report {
     pub fn blank() -> Report {
         Report {
             id: String::new(),
+            // Stamped when the window asks, never stored — see the fields.
+            loc: 0,
+            stale: false,
             expected: String::new(),
             found: String::new(),
             paged: None,

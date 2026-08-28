@@ -1,10 +1,19 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { trapOf, type AgentCall, type Node } from '../lib/api'
 import { clsx } from '../lib/cn'
-import { colorFor, flashPaint, type ColorMode, paintsFromReadings } from '../lib/colorMode'
+import {
+  colorFor,
+  flashPaint,
+  histogramsFor,
+  REPLAY,
+  type Slice,
+  type ColorMode,
+  paintsFromReadings,
+} from '../lib/colorMode'
 import { unreadable } from '../lib/api'
 import { CHROME_INK } from '../lib/ink'
 import { arcPath, layout, tileFunctions, type Wedge } from '../lib/sunburst'
+import { RINGS_DEFAULT } from '../lib/rings'
 import { FileZoom, fanOf } from './FileZoom'
 import { arcOf, sectorOf, type Sector } from '../lib/fan'
 import { elide } from '../lib/text'
@@ -34,8 +43,6 @@ import { WedgeTip } from './WedgeTip'
 import { AgentMascot } from './AgentMascot'
 import type { MascotState } from './MascotFigure'
 
-/** Rings drawn at once. Deeper than this and the outer annuli are hairlines; the
- *  answer is to drill in, which is what clicking a directory does. */
 /** A function's name inside its file's band: the same treatment the fan gives it, at the
  *  smaller scale the ring can afford. The WEIGHT is not here — it is live, in
  *  `labelStyle`, and it has to be, because `fitLabel` measures in the weight
@@ -48,7 +55,6 @@ const FUNC_BEND = 0.45
  *  at least `FILE_MAX × LINE` deep or nothing fits in it. */
 const FILE_MAX = 11
 
-const RINGS = 5
 const R_INNER = 62
 const R_OUTER = 340
 
@@ -177,6 +183,14 @@ const MIN_STACK_ARC = 2
  *  has PARTS, which is the claim opening it makes. */
 const OPEN_PATCHES = 4
 
+/** How wide a folded directory's handle is, in real screen pixels.
+ *
+ *  Big enough to see and to click — this is the only way back to what was folded, short of
+ *  `unfold all` — and small enough that nobody reads it as a share. Under about ten it is
+ *  indistinguishable from the ring's own cuts, which would put the record of a fold in the
+ *  same visual class as a gap between two wedges. */
+const FOLD_HANDLE_PX = 13
+
 /** Narrowest a wedge may be drawn, in real screen pixels.
  *
  *  The sibling of `MIN_SLICE` in the file band, and stated the same way: the cut between
@@ -303,6 +317,22 @@ function heatShare(kind: string, mode: ColorMode): number {
  *  doesn't swallow the functions inside it. */
 const CUT = { dir: 2.2, file: 1.5, func: 0.35 }
 
+/** The hairline between two segments of a directory's rim, in screen pixels.
+ *
+ *  Thinner than any of the CUTs above, because those separate THINGS and this separates
+ *  values inside one thing — a gap wide enough to read as structure would turn a
+ *  distribution into a row of little wedges. Wide enough that two adjacent bands of a ramp
+ *  do not read as one band that changes. */
+const SLICE_CUT = 0.6
+
+/** How big a pointing dot is, in screen pixels — see `dots`.
+ *
+ *  Sized against the rim it sits in (`DIR_RIM_PX`), a little smaller so it reads as a mark
+ *  ON the band rather than a piece of one. Under about two it disappears against the
+ *  structure; much over four and a row of them closes into a rim, which is the encoding
+ *  this deliberately is not. */
+const DOT_PX = 3.2
+
 /** A wedge the map has to point at, and enough of its geometry to point at its SUBTREE.
  *
  *  The path is the wedge itself, for the outline. The angles and inner radius are what a
@@ -384,6 +414,9 @@ function SunburstView({
   sortBy,
   density,
   onSide,
+  rings = RINGS_DEFAULT,
+  rimShare = 0,
+  onWantRings,
 }: {
   root: Node
   selected: Node | null
@@ -436,6 +469,31 @@ function SunburstView({
   /** The pane's own measured side, for a caller that needs to know how much denser an export
    *  is than the screen it was staged from — see `frameTree`'s `density`. */
   onSide?: (px: number) => void
+  /** How many rings to draw. See `RINGS_DEFAULT`; the reader chooses, within
+   *  `RINGS_RANGE`. */
+  rings?: number
+  /** **TEMPORARY.** How far the directory rim is grown toward filling its whole ring, 0..1.
+   *
+   *  Zero is what it has always been — `DIR_RIM_PX`, a few pixels of reading on the edge a
+   *  directory shares with its contents. One is the entire band. It exists because the rim
+   *  stopped being a colour and became a histogram tonight, and nobody has yet looked at
+   *  enough repos to say how much room that wants; a constant chosen before that looking is
+   *  a guess with a number on it. Expected to collapse back into `DIR_RIM_PX` once it has
+   *  answered its question. */
+  rimShare?: number
+  /** Which files the map has somewhere to draw the insides of.
+   *
+   *  A file's ring of functions is fetched on demand, and the window decided which by a
+   *  share of the focused subtree's lines — a stand-in for "is this wedge big enough to
+   *  show an inside", chosen because the window cannot see the map. On a repo the size of
+   *  kibana a quarter of a per cent is ten thousand lines, so it refused nearly every file
+   *  in the repo and the outer band was empty however the map was drawn.
+   *
+   *  So the map answers it, which is where the answer has always been: these are the files
+   *  whose wedge can actually hold a tiling, by the same test that draws one. Reported
+   *  rather than fetched here — the ring belongs to the window's tree, and the component
+   *  that draws a picture should not also be the thing that goes and gets it. */
+  onWantRings?: (paths: readonly string[]) => void
   /** Sort siblings by this rather than by their size in the frame being drawn — see
    *  `LayoutOpts.sortBy` and `headSizes`. The replay's answer to wedges trading places
    *  under the playhead. */
@@ -500,10 +558,44 @@ function SunburstView({
     return extent / stepped
   }, [box.w, box.h, density])
 
-  const minAngle = useMemo(
-    () => (unitsPerPx === null ? undefined : (MIN_ARC_PX * unitsPerPx) / R_OUTER),
-    [unitsPerPx],
-  )
+  /** The thinnest wedge worth drawing, asked per ring.
+   *
+   *  One number for the whole circle was only ever right at one radius. An angle is not a
+   *  width — the arc a span subtends is `r × angle` — so a threshold measured at `R_OUTER`
+   *  and applied at every depth lets the inner rings draw wedges far under a pixel: at
+   *  five rings the innermost sits at about a quarter of the outer radius, so it was
+   *  keeping hairlines four times thinner than the floor claims. Wrong in the safe
+   *  direction, and it gets less safe the more rings there are, which is the reason to fix
+   *  it beside a control that raises them.
+   *
+   *  The radius is taken from the NOMINAL band — the ring count, not the depth actually
+   *  present — because the depth is read off the layout this threshold is an input to, and
+   *  feeding that back is a loop. On a tree shallower than the ring count the real bands
+   *  are thicker and every radius larger, so the estimate is conservative; nothing on a
+   *  three-ring repo is anywhere near the floor. */
+  /** The mid-radius of ring `d`, from the NOMINAL band — the ring count, not the depth
+   *  actually present, because the depth is read off the layout these thresholds are inputs
+   *  to and feeding that back is a loop. On a tree shallower than the count the real bands
+   *  are thicker and every radius larger, so both thresholds below are conservative. */
+  const radiusAt = useMemo(() => {
+    const band = (R_OUTER - R_INNER) / Math.max(1, rings)
+    return (d: number) => R_INNER + band * (d - 0.5)
+  }, [rings])
+
+  const minAngleAt = useMemo(() => {
+    if (unitsPerPx === null) return undefined
+    const arc = MIN_ARC_PX * unitsPerPx
+    return (d: number) => arc / radiusAt(d)
+  }, [unitsPerPx, radiusAt])
+
+  /** How wide a folded directory's handle is, per ring — see `LayoutOpts.handleAngleAt`.
+   *  Stated in pixels for the reason every threshold here is: what makes a handle work is
+   *  that it can be seen and hit, and neither is a fact about user units. */
+  const handleAngleAt = useMemo(() => {
+    if (unitsPerPx === null) return undefined
+    const arc = FOLD_HANDLE_PX * unitsPerPx
+    return (d: number) => arc / radiusAt(d)
+  }, [unitsPerPx, radiusAt])
   /** Every container between what is drawn and what is selected, by id.
    *
    *  Only the ANCESTORS: the selection's own id is deliberately absent, so a wedge that is
@@ -550,8 +642,8 @@ function SunburstView({
    *  stays closed when you come back past it. */
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
   const { wedges, hidden } = useMemo(
-    () => layout(root, RINGS, { collapsed, minAngle, sortBy }),
-    [root, collapsed, minAngle, sortBy],
+    () => layout(root, rings, { collapsed, minAngleAt, handleAngleAt, sortBy }),
+    [root, rings, collapsed, minAngleAt, handleAngleAt, sortBy],
   )
 
   /** Where the creature in the hub is looking: at whatever is happening right now.
@@ -684,6 +776,20 @@ function SunburstView({
    *  thirty times a second is the hitch-on-a-fixed-period this app has already paid for once,
    *  in the frame pool. */
   const soft = useRef<Map<string, Geo>>(new Map())
+  /** A fold is being eased, which is the chase running for a reason that is not a replay.
+   *
+   *  Folding hands a subtree's angle to its siblings, so one ⌥-click re-proportions every
+   *  wedge in the ring and everything under them. Applied instantly that is the whole map
+   *  jumping — the same hard cut `zoom.ts` was written to remove from level changes, and
+   *  worse here, because nothing about a fold tells you where anything went.
+   *
+   *  It rides the chase rather than growing a second animator: the machinery for "the shape
+   *  changed under the picture, walk it there" already exists for the replay, and a fold is
+   *  exactly that. What it must not do is turn on the things `morph` ALSO gates — the box is
+   *  pinned to the nominal circle during a replay, and a fold has no business moving the
+   *  camera. So the chase is gated on `chasing` and everything else stays on `morph`. */
+  const [folding, setFolding] = useState(false)
+  const chasing = !!morph || folding
   /** What the chase is chasing, and whether a level change has taken the picture off it.
    *  Refs because the loop runs between renders and must not hold the frame it started on. */
   const softTarget = useRef<Map<string, Geo>>(new Map())
@@ -759,6 +865,40 @@ function SunburstView({
   /** Each structural wedge's fill and label, computed once per level rather than per
    *  frame. Only geometry changes while the ring is moving, and `colorFor` over a couple
    *  of hundred wedges sixty times a second is work with no output. */
+  /** Every drawn directory's distribution under this lens — see `histogramsFor`.
+   *
+   *  Memoised beside `fills` and for the same reason: it is one walk of the tree, it changes
+   *  only when the tree or the lens does, and it must not be redone per frame of a chase. */
+  /** The containers on screen, which is what a histogram is worth computing for.
+   *
+   *  A wedge that is not drawn cannot show a rim, and answering for it is the expensive half
+   *  of the walk — see `histogramsFor`'s `want`. On kibana at five rings this is a couple of
+   *  hundred ids out of seven thousand directories. */
+  const drawnDirs = useMemo(() => {
+    const ids = new Set<string>()
+    for (const w of wedges) if (w.node.kind === 'dir') ids.add(w.node.id)
+    return ids
+  }, [wedges])
+
+  const hist = useMemo(
+    // **A replay draws these too, and the gate is the lens rather than the mode.** It was off
+    // for the whole of `morph`, on the belief that a frame carries no readings — it carries
+    // four grades packed into two bytes (`history.ts`), which is exactly why `REPLAY` marks
+    // Surprise, Legibility, Docs and Traps as live. What a frame genuinely does not carry is
+    // the parse-derived lenses, and those are the ones marked `cost`: bucketing them would
+    // put a confident grey rim under a lens whose wedges are deliberately neutral.
+    //
+    // It is a walk of the subtree per frame, which is the same order as building the frame
+    // tree the walk is over — the replay's roll-up (`minLoc`) folds most functions away
+    // before any node exists, so this is a constant factor on a cost already being paid, not
+    // a new one proportional to the repo.
+    () =>
+      replaying && REPLAY[mode] !== 'live'
+        ? new Map<string, Slice[]>()
+        : histogramsFor(root, mode, ranks, ageSpan, drawnDirs),
+    [root, mode, ranks, ageSpan, replaying, drawnDirs],
+  )
+
   const fills = useMemo(() => {
     const m = new Map<string, ReturnType<typeof colorFor>>()
     for (const w of wedges)
@@ -775,8 +915,19 @@ function SunburstView({
     const inset = DIR_RIM_INSET_PX * px
     // Never more than a third of the ring: on a deep tree the bands are thin, and a
     // margin that cannot fit is a band that eats its own plate.
-    return { width: Math.min(DIR_RIM_PX * px, band / 3), inset: Math.min(inset, band / 3) }
-  }, [band, unitsPerPx])
+    const base = Math.min(DIR_RIM_PX * px, band / 3)
+    // **TEMPORARY — see `rimShare`.** The rim was a fixed few pixels because it carried one
+    // colour; now it carries a distribution, and how much room a distribution wants is a
+    // question about looking at real repos rather than one to be answered from a constant.
+    // The far end is the whole band less its own margins, at which point the plate has
+    // nothing left and its label goes with it — which is part of what the control is for
+    // finding out.
+    const full = Math.max(base, band - inset * 2)
+    return {
+      width: base + (full - base) * Math.min(1, Math.max(0, rimShare)),
+      inset: Math.min(inset, band / 3),
+    }
+  }, [band, unitsPerPx, rimShare])
 
   /** A directory's paint as a band on its outer edge — see `DIR_RIM_PX` for why a
    *  directory does not get a fill. Returns null for every other kind, so a caller can
@@ -804,21 +955,168 @@ function SunburstView({
     r1: Math.max(g.r0, g.r1 - rim.width - rim.inset * 2),
   })
 
-  const dirRim = (node: Node, c: ReturnType<typeof colorFor>, g: Geo, fade = 1) => {
-    if (node.kind !== 'dir' || !c) return null
+  /** A directory's reading on the edge it shares with its contents — see `DIR_RIM_PX`.
+   *
+   *  `flash` says the colour is an EVENT rather than a reading: during a replay a directory
+   *  whose subtree gained or lost code in this commit has nowhere of its own to say so, so
+   *  it says it here (see `escalated`). An event must win outright over a distribution and a
+   *  mark, and it must do so structurally rather than because a replay happens to have the
+   *  other two switched off — this rim is the only slot the flash has, and a histogram drawn
+   *  over it is the commit under the playhead going unreported. */
+  /** Where a directory's rim sits, in the ring's own units. */
+  const rimBand = (g: Geo) => {
     const r1 = g.r1 - rim.inset
     const r0 = Math.max(g.r0, r1 - rim.width)
-    if (r1 <= r0) return null
     // The same margin on the ends, expressed as the angle that subtends it at the band's
     // own radius — so the gap is the same width all the way round, which is the rule the
     // CUTs already follow. Capped as a share of the wedge, or a thin one closes up.
     const pad = Math.min(rim.inset / Math.max(r1, 1), (g.a1 - g.a0) * 0.3)
+    return { r0, r1, a0: g.a0 + pad, a1: g.a1 - pad }
+  }
+
+  /**
+   * A directory's rim, cut into the segments that get drawn.
+   *
+   * **One definition, two readers: the paths below and the tooltip.** The pointer has to be
+   * able to say what a segment IS, and the only honest answer is the one that was drawn —
+   * a second pass that re-derived the widths would eventually disagree with the picture
+   * about which value the pointer is over, which is worse than saying nothing.
+   *
+   * **Merged, never dropped, and never drawn under a pixel.** Ordered by the lens's own
+   * scale, a run of tiny segments is a run of ADJACENT values — neighbouring bands on a
+   * ramp, or the tail of the rank order on a categorical lens — which is exactly what the
+   * legend already folds into `other`. Merging keeps the widths summing to the wedge, where
+   * dropping would silently re-proportion the rim; the colour follows the largest member, so
+   * every colour on the rim is one some wedge in it is wearing, and the LABEL follows it too
+   * — a merged run names the biggest thing in it and says how many else are there.
+   */
+  const rimRuns = (node: Node, g: Geo) => {
+    const slices = hist?.get(node.id)
+    if (!slices || slices.length === 0) return null
+    const total = slices.reduce((sum, s) => sum + s.lines, 0)
+    if (total <= 0) return null
+    const band = rimBand(g)
+    const span = band.a1 - band.a0
+    const floor = (MIN_ARC_PX * (unitsPerPx ?? 1)) / Math.max(band.r1, 1)
+    const runs: {
+      fill: string
+      label: string
+      lines: number
+      /** How many slices this run stands for, so a merged one can say so. */
+      held: number
+      widest: number
+      merged: boolean
+      a0: number
+      a1: number
+    }[] = []
+    for (const s of slices) {
+      const wide = (span * s.lines) / total >= floor
+      const last = runs[runs.length - 1]
+      if (wide || !last) {
+        runs.push({
+          fill: s.fill,
+          label: s.label,
+          lines: s.lines,
+          held: 1,
+          widest: s.lines,
+          merged: !wide,
+          a0: 0,
+          a1: 0,
+        })
+        continue
+      }
+      if (last.merged && s.lines > last.widest) {
+        last.fill = s.fill
+        last.label = s.label
+        last.widest = s.lines
+      }
+      last.lines += s.lines
+      last.held += 1
+      last.merged = true
+    }
+    let a = band.a0
+    for (const r of runs) {
+      r.a0 = a
+      a += (span * r.lines) / total
+      r.a1 = a
+    }
+    return { runs, total, band }
+  }
+
+  const dirRim = (
+    node: Node,
+    c: ReturnType<typeof colorFor>,
+    g: Geo,
+    fade = 1,
+    flash = false,
+  ) => {
+    if (node.kind !== 'dir') return null
+    const { r0, r1, a0, a1 } = rimBand(g)
+    if (r1 <= r0) return null
+    const opacity = fade * heatShare('dir', mode)
+
+    /** The distribution, when this lens has one — see `histogramsFor`. */
+    const cut = flash ? null : rimRuns(node, g)
+    if (cut) {
+      return (
+        <g className="pointer-events-none">
+          {cut.runs.map((s, i) => {
+            return (
+              <path
+                key={i}
+                d={arcPath(s.a0, s.a1, r0, r1)}
+                fill={s.fill}
+                fillOpacity={opacity}
+                // A hairline of the ground between segments, on the rule the ring's own CUTs
+                // follow: two values that abut with no gap read as one value that changes,
+                // which is the one thing a categorical rim must not say.
+                stroke="var(--background)"
+                strokeWidth={SLICE_CUT * (unitsPerPx ?? 1)}
+              />
+            )
+          })}
+        </g>
+      )
+    }
+
+    /** The pointing marks — see `dots`. Drawn in the rim's own band, so a lens that marks
+     *  and a lens that measures put their answer in the same place on the wedge. */
+    const marks = flash ? undefined : dots?.get(node.id)
+    if (marks && marks.length > 0) {
+      const rMid = (r0 + r1) / 2
+      const px = unitsPerPx ?? 1
+      const rad = (DOT_PX * px) / 2
+      // Merged by proximity, in ANGLE at this radius — the same threshold in pixels means a
+      // different angle on every ring, and the eye is reading pixels.
+      const gap = (DOT_PX * 1.6 * px) / Math.max(rMid, 1)
+      const keep: number[] = []
+      for (const a of [...marks].sort((x, y) => x - y)) {
+        if (a < a0 || a > a1) continue
+        if (keep.length === 0 || a - keep[keep.length - 1] >= gap) keep.push(a)
+      }
+      return (
+        <g className="pointer-events-none">
+          {keep.map((a) => (
+            <circle
+              key={a}
+              cx={rMid * Math.sin(a)}
+              cy={-rMid * Math.cos(a)}
+              r={rad}
+              fill={mode === 'traps' ? 'var(--trap)' : 'var(--clone)'}
+              fillOpacity={fade}
+            />
+          ))}
+        </g>
+      )
+    }
+
+    if (!c) return null
     return (
       <path
         className="pointer-events-none"
-        d={arcPath(g.a0 + pad, g.a1 - pad, r0, r1)}
+        d={arcPath(a0, a1, r0, r1)}
         fill={c.fill}
-        fillOpacity={fade * heatShare('dir', mode)}
+        fillOpacity={opacity}
       />
     )
   }
@@ -827,6 +1125,7 @@ function SunburstView({
     () => geoOf(wedges, R_INNER, band, (kind) => (kind === 'dir' ? RING_GAP : RING_GAP * 0.4)),
     [wedges, band],
   )
+
 
   /** The wedges of the level currently on screen, kept so the one being left can still be
    *  drawn on its way out. Declared before the check below uses it. */
@@ -939,7 +1238,7 @@ function SunburstView({
    *  screen instead of easing, so the moment the zoom lands the chase is already holding the
    *  picture and there is nothing to jump from. */
   useEffect(() => {
-    if (!morph) {
+    if (!chasing) {
       soft.current.clear()
       return
     }
@@ -990,10 +1289,17 @@ function SunburstView({
       // because they are chasing a target that no longer leaves room for it.
       if (at.size > to.size) for (const id of at.keys()) if (!to.has(id)) at.delete(id)
       if (busy) redraw((n) => n + 1)
+      // A fold's chase stops when it arrives; a replay's does not — see the note above on
+      // why the loop is not re-armed per change. Clearing the flag unconditionally is safe
+      // for both: `chasing` is an OR, so a replay goes on running on `morph` alone, and a
+      // fold that happened DURING a replay would otherwise leave the flag set and the chase
+      // running over the live map long after the replay ended. React bails out on an
+      // unchanged value, so the common case is not a re-render.
+      else setFolding(false)
     }
     raf = requestAnimationFrame(step)
     return () => cancelAnimationFrame(raf)
-  }, [morph])
+  }, [chasing, morph])
 
   /** Whether the chase was on for the previous render, so its FIRST render can be told
    *  from its later ones. */
@@ -1011,11 +1317,21 @@ function SunburstView({
   // Primed during RENDER and not in an effect, for the same reason the level change is
   // detected here: `geo` runs before any effect, so an effect would prime a map that had
   // already been seeded at zero and the blank frame would paint anyway.
-  if (morph && !wasMorphing.current) {
+  //
+  // **A fold seeds from the opposite side, and it has to.** Priming from `target` is right
+  // when the chase turns on because the PICTURE is about to start changing — pressing
+  // History, where the target is already a different tree and morphing the live map into
+  // the replay's first frame would be an animation nobody asked for. A fold is the other
+  // case: the target changed in the very render the chase turned on, so seeding from it
+  // means the wedges are already where they are going and one ⌥-click eases nothing at all.
+  // `live.current` still holds the previous frame here — it is rewritten further down this
+  // render — which is exactly the picture the fold has to move away from.
+  if (chasing && !wasMorphing.current) {
     soft.current.clear()
-    for (const [id, g] of target) soft.current.set(id, { ...g })
+    const seed = morph ? target : live.current
+    for (const [id, g] of seed) if (target.has(id)) soft.current.set(id, { ...g })
   }
-  wasMorphing.current = !!morph
+  wasMorphing.current = chasing
 
   const moving = t < 1
   const e = ease(t)
@@ -1035,7 +1351,7 @@ function SunburstView({
       const f = from.current.get(id)
       return f ? lerpGeo(f, to, e) : to
     }
-    if (!morph) return to
+    if (!chasing) return to
     const known = soft.current.get(id)
     if (known) return known
     const mid = (to.a0 + to.a1) / 2
@@ -1079,6 +1395,173 @@ function SunburstView({
     if ((fa1 - fa0) * rMid < MIN_STACK_ARC || sector < OPEN_PATCHES * patch) return null
     return { r0, r1, fa0, fa1 }
   }
+
+  /** What folding has taken out of the picture: the folded directories that are actually
+   *  drawn, and the share of this view's lines they stand for.
+   *
+   *  **The share is the price of the handle and has to be stated somewhere.** A fold hands
+   *  a subtree's angle to its siblings, so every remaining wedge is now larger than its
+   *  lines have earned — and the amount they are wrong by is exactly this number. Against
+   *  the VIEW's own lines rather than the repo's, because the circle is the view: drilled
+   *  into `src`, "62% of what you are looking at" is the honest sentence and "8% of the
+   *  repo" is an answer to a question nobody asked here.
+   *
+   *  Only what is drawn is counted. A directory folded and then drilled past is not
+   *  suppressing anything in the ring you are looking at, and putting it in this total
+   *  would attach a caveat to a picture that does not have the problem. */
+  const foldedInfo = useMemo(() => {
+    if (collapsed.size === 0) return null
+    const shut = wedges.filter((w) => w.node.kind === 'dir' && collapsed.has(w.node.id))
+    if (shut.length === 0) return null
+    const loc = shut.reduce((sum, w) => sum + w.node.loc, 0)
+    return {
+      count: shut.length,
+      name: shut.length === 1 ? shut[0].node.name : null,
+      share: root.loc > 0 ? loc / root.loc : 0,
+    }
+  }, [wedges, collapsed, root.loc])
+
+  /** Ask the window for the insides of every file the map could draw one for.
+   *
+   *  The test is `tilingOf` — the same one the render pass takes — so a file is asked about
+   *  exactly when a tiling would be drawn if its functions were here, and never when it
+   *  would not. See `onWantRings` for what this replaces and why the window could not have
+   *  answered it.
+   *
+   *  Against the SETTLED geometry rather than the frame in flight, so a level change does
+   *  not ask for a directory's worth of rings on its way past. Nothing is asked for twice:
+   *  a file whose functions have arrived has children, which is the condition being
+   *  tested, and the window keeps its own record of what is in flight.
+   *
+   *  `tilingOf` closes over the band and the patch floor, both of which are in the deps.
+   *  Naming the function itself would fire this on every render. */
+  useEffect(() => {
+    if (!onWantRings) return
+    const want: string[] = []
+    for (const w of fileWedges) {
+      const n = w.node
+      if (n.funcs <= 0 || n.children.length > 0) continue
+      const g = target.get(n.id)
+      if (g && tilingOf(g)) want.push(n.path)
+    }
+    if (want.length > 0) onWantRings(want)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileWedges, target, band, minPatchArea, onWantRings])
+
+  /** Where a directory's traps (or clones) lie, as angles on its own rim.
+   *
+   *  **A mark, and a POINTING one — not a tint and not a segment.** Traps and Clones are the
+   *  two lenses with no quantity in them: a trap is a boolean a reader reported and a clone
+   *  is a flashpoint, so a directory shaded by how many it holds would answer "how trapped
+   *  is this region" in the visual language of the lenses that do measure something. That
+   *  argument already killed a clone tint (`colorMode.ts`) and it kills a rim histogram
+   *  here for the same reason.
+   *
+   *  What a container CAN honestly say is where. Each dot sits at the angular middle of the
+   *  drawn descendant that holds the thing, so the mark is on the radial you would follow
+   *  outward to find it — the directory saying *there is one of these out this way* rather
+   *  than *I am n% trapped*.
+   *
+   *  **Positioned by the FILE, never by the function.** Functions are laid out angularly by
+   *  `layout` and then drawn tiled inside their file's band, so a function's layout angle is
+   *  not where its patch is — the same trap that makes labels land nowhere near the thing
+   *  they name. A file's wedge IS drawn at its angle, so pointing at the file points at the
+   *  right slice of the ring, and the patch itself is visible one ring out.
+   *
+   *  Merged when two would land within `DOT_PX` of each other: at this size two dots a pixel
+   *  apart are one fat dot, and a run of them is a dotted line that reads as a rim. */
+  const dots = useMemo(() => {
+    if (mode !== 'traps' && mode !== 'clones') return null
+    // Traps replays — a frame carries its grades — and Clones does not, which is what
+    // `REPLAY` already says about both. See `hist`, which takes the same gate.
+    if (replaying && REPLAY[mode] !== 'live') return null
+    /** Whether one function is the thing this lens marks. */
+    const hit = (n: Node) =>
+      mode === 'traps'
+        ? n.kind === 'func' && !!n.agent && !n.agentStale && !n.agent.trapDated && trapOf(n.agent)
+        : n.kind === 'func' && n.cloneSize != null
+    /** The same question about a file whose functions were never sent.
+     *
+     *  Clones are in the columns; traps are readings, so they ride on the file — see
+     *  `Node.cols` and `Node.pending`. Without this a mark existed only where somebody had
+     *  already fetched the ring holding it, which on a large repo is almost nowhere: kibana's
+     *  `platform` holds 334 six-clone functions and drew not one dot, while drilling one
+     *  level in made them appear. That is a mark that reports where you have BEEN. */
+    const held = (n: Node) =>
+      mode === 'clones'
+        ? (n.cols?.clones ?? []).some((c) => c > 0)
+        // `trapOf` already refuses an answer given under an older question; what it cannot
+        // see is whether the reading has expired, which only the backend can say.
+        : (n.pending ?? []).some((r) => !r.stale && trapOf(r))
+
+    const at = new Map<string, number[]>()
+    /**
+     * Angles of the DEEPEST DRAWN things under `node` that hold one of these, and whether
+     * anything under it does at all.
+     *
+     * The two are not the same question and that is the whole of this. An angle can only
+     * come from something the layout drew; a subtree can hold a trap ten levels past the
+     * outermost ring, where there is no wedge and therefore no angle. Reporting only what
+     * has an angle loses the mark exactly where the map is coarsest — and inventing one is
+     * worse, because the dot's entire claim is *out this way*.
+     *
+     * So a container that holds one but has no drawn descendant holding one falls back to
+     * its OWN middle: the honest reading of that dot is "somewhere in here", which is as
+     * precise as the picture can be, and it sharpens on its own as you drill in and the
+     * things underneath acquire wedges of their own.
+     */
+    const walk = (node: Node): { angles: number[]; any: boolean } => {
+      if (node.kind === 'func') return { angles: [], any: false }
+      const g = target.get(node.id)
+      if (node.kind === 'file') {
+        const hits = node.children.length > 0 ? node.children.filter(hit) : []
+        const any = node.children.length > 0 ? hits.length > 0 : held(node)
+        if (!any || !g) return { angles: [], any }
+        // **The function's own patch, not the file's middle.** A file is the deepest thing
+        // with an angle in the LAYOUT, but it is not the deepest thing on screen: its
+        // functions are tiled inside its band, each with a real angular position, and a dot
+        // whose claim is *out this radial* has to point down the radial the patch is on.
+        // Pointed at the file's midpoint it lands beside the thing it means, which on a wide
+        // file is most of a wedge away from it.
+        //
+        // The same tiling the render pass draws, from the same `tilingOf`, so the dot and
+        // the patch cannot disagree about where the function is.
+        const tile = tilingOf(g)
+        const slots = tile
+          ? tileFunctions(node.children, tile.r0, tile.r1, tile.fa0, tile.fa1, { minPatchArea })
+          : []
+        const at = new Map(slots.map((sl) => [sl.node.id, (sl.a0 + sl.a1) / 2]))
+        const angles: number[] = []
+        let rolled = false
+        for (const h of hits) {
+          const a = at.get(h.id)
+          if (a === undefined) rolled = true
+          else angles.push(a)
+        }
+        // A function the tiling rolled up has no patch to point at, and neither has one in a
+        // file too narrow to tile at all. The file's own middle stands in for those — one
+        // dot however many there are, because the alternative is a stack of identical marks
+        // saying nothing the first already said.
+        if (rolled || angles.length === 0) angles.push((g.a0 + g.a1) / 2)
+        return { angles, any }
+      }
+      let any = false
+      const angles: number[] = []
+      for (const c of node.children) {
+        const sub = walk(c)
+        if (sub.any) any = true
+        angles.push(...sub.angles)
+      }
+      // Nothing underneath could be pointed AT, but something is there. This is then the
+      // deepest drawn thing that holds it, so it points at itself.
+      const mine = angles.length > 0 ? angles : any && g ? [(g.a0 + g.a1) / 2] : []
+      if (g && mine.length > 0) at.set(node.id, mine)
+      return { angles: mine, any }
+    }
+    walk(root)
+    return at
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [root, mode, target, band, minPatchArea, replaying])
 
   /** A replay's events, moved to the nearest wedge that is actually drawn.
    *
@@ -1209,6 +1692,54 @@ function SunburstView({
     }
   }, [viewTo, e, moving, box.w, box.h, mascot])
 
+  /** Which segment of a directory's rim the pointer is over, if any.
+   *
+   *  **Read from the pointer rather than hit-tested by the paths, and that is a decision
+   *  about the CLICK.** Giving each segment its own listeners is the obvious version and it
+   *  quietly breaks the wedge underneath: a rim path that answers the mouse also swallows
+   *  the click that selects the directory and the double-click that drills into it, so the
+   *  four-and-a-half pixels of a directory's own reading would become the one part of it you
+   *  cannot press. Every segment would then have to re-implement select, drill and fold —
+   *  three behaviours in two places.
+   *
+   *  So the rim stays deaf and the arithmetic answers instead. The box is square and fitted
+   *  `xMidYMid`, so the smaller pane dimension is the scale and the box's centre is the
+   *  pane's — the same mapping the creature is placed by, one function over. Angles run
+   *  clockwise from twelve, matching `arcPath`.
+   *
+   *  It reads `rimRuns`, which is what the paths are drawn from, so the pointer and the
+   *  picture cannot disagree about which value is under it. */
+  const hoverSlice = useMemo(() => {
+    if (!hoverNode || hoverNode.kind !== 'dir' || moving) return null
+    const g = target.get(hoverNode.id)
+    if (!g || box.w <= 0 || box.h <= 0) return null
+    const cut = rimRuns(hoverNode, g)
+    if (!cut) return null
+    const v = viewNow.current
+    const scale = Math.min(box.w, box.h) / v.side
+    const ux = v.cx + (pos.x - box.w / 2) / scale
+    const uy = v.cy + (pos.y - box.h / 2) / scale
+    const r = Math.hypot(ux, uy)
+    if (r < cut.band.r0 || r > cut.band.r1) return null
+    // `arcPath` places a point at `(r sin a, −r cos a)`, so this inverts it — and the result
+    // is wrapped into the layout's own range rather than `[0, 2π)`, because the ring starts
+    // at nine o'clock and a wedge can span the seam.
+    let a = Math.atan2(ux, -uy)
+    while (a < cut.band.a0 - Math.PI) a += 2 * Math.PI
+    while (a > cut.band.a0 + Math.PI) a -= 2 * Math.PI
+    const run = cut.runs.find((x) => a >= x.a0 && a <= x.a1)
+    if (!run) return null
+    return {
+      label: run.label,
+      fill: run.fill,
+      lines: run.lines,
+      share: run.lines / cut.total,
+      // A merged run is several values wearing the biggest one's colour, and the card has to
+      // say so or it reports a share as though one person held it.
+      held: run.held,
+    }
+  }, [hoverNode, target, box.w, box.h, pos.x, pos.y, moving, hist, unitsPerPx, rim])
+
   /** The highlighted wedge's outline, drawn once over everything at the end.
    *
    *  A stroke straddles its path, so half of it lies inside the neighboring wedge —
@@ -1268,7 +1799,7 @@ function SunburstView({
           and pushed the legend off the bottom. `inset-0` makes both axes definite.
 
           The viewBox is the measured extent of what is DRAWN, not the nominal circle the
-          constants describe. A tree shallower than `RINGS` never reaches `R_OUTER`, and a
+          constants describe. A tree shallower than the ring count never reaches `R_OUTER`, and a
           ring whose outer band is sparse does not paint to its own edge — so a fixed box
           leaves a margin whose size depends on the repo, and the map sits smaller than
           the pane it was given for reasons the reader cannot see. Measured in USER units,
@@ -1420,6 +1951,8 @@ function SunburstView({
                 // drawn — see `escalated`. Its own comes first: a directory that is flashing its
                 // own arrival is already saying the loudest thing it has to say.
                 const c = fills.get(w.node.id) ?? escalated.get(w.node.id) ?? null
+                /** The colour came from an event rather than from a reading — see `dirRim`. */
+                const flashing = !fills.has(w.node.id) && escalated.has(w.node.id)
                 // A directory's reading goes on its rim, not through it — `DIR_RIM_PX`. What is
                 // left here is the plate, which is structure and takes the structural neutral,
                 // exactly as an unread directory always did.
@@ -1525,6 +2058,10 @@ function SunburstView({
                         // disclosure gesture on this platform; Command-click means "open
                         // elsewhere" nearly everywhere else.
                         if (e.altKey && foldable) {
+                          // Armed before the set changes, so the chase is already on for the
+                          // render that carries the new layout — see `folding`. A frame late
+                          // and the wedges have arrived before anything eases them.
+                          setFolding(true)
                           setCollapsed((prev) => {
                             const next = new Set(prev)
                             if (!next.delete(w.node.id)) next.add(w.node.id)
@@ -1536,8 +2073,21 @@ function SunburstView({
                       }}
                       onDoubleClick={() => onDrill(w.node)}
                     ></path>
+                    {/* **The handle is hatched, so it cannot be read as a small wedge.**
+                        A narrow wedge says "this is a small thing", and what somebody folds
+                        is usually the largest thing in the ring — so the one shape this must
+                        not take is the shape everything around it has. The texture is the
+                        statement; see `fold-hatch`. Deaf to the mouse so the wedge under it
+                        keeps every gesture, including the ⌥-click that puts it back. */}
+                    {isFolded && (
+                      <path
+                        d={arcPath(a0, a1, r0, r1)}
+                        fill="url(#fold-hatch)"
+                        pointerEvents="none"
+                      />
+                    )}
                     {/* The reading itself, on the edge the directory shares with its contents. */}
-                    {dirRim(w.node, c, g)}
+                    {dirRim(w.node, c, g, 1, flashing)}
                     {/* Out with a reader: a white pulse over the wedge.
                 **After the wedge, not before it.** SVG paints in document order, so the
                 first version of this drew the marker and then painted the wedge's own
@@ -1810,6 +2360,13 @@ function SunburstView({
             they have room to be read. */}
           {(moving ? [] : wedges)
             .filter((w) => w.node.kind === 'dir' || w.node.kind === 'file')
+            // **A handle carries no name.** `fitLabel` will find room for one — a
+            // thirteen-pixel stub is deep enough for a radial run at the size floor — and
+            // what it produces is six-unit type over a cross-hatch, which is neither
+            // readable as a name nor quiet enough to read as a mark. The corner chip names
+            // the fold and the hover gives it in full; the shape's whole job here is to be
+            // unmistakably not a wedge.
+            .filter((w) => !(w.node.kind === 'dir' && collapsed.has(w.node.id)))
             .map((w) => {
               // Fixed to where the wedge is THIS frame, like everything else. A label left at
               // its settled angle while its wedge travels is text sitting on a neighboring
@@ -2118,6 +2675,7 @@ function SunburstView({
       {hover && (
         <WedgeTip
           node={hover.node}
+          slice={hoverSlice}
           x={hover.x}
           y={hover.y}
           box={box}
@@ -2125,6 +2683,9 @@ function SunburstView({
           ranks={ranks}
           ageSpan={ageSpan}
           folded={hover.node.kind === 'dir' ? collapsed.has(hover.node.id) : undefined}
+          // What this handle is standing in for, so the share is one hover away from the
+          // mark that suppressed it rather than only in the corner.
+          share={root.loc > 0 ? hover.node.loc / root.loc : undefined}
         />
       )}
 
@@ -2145,8 +2706,18 @@ function SunburstView({
         <div className="absolute bottom-2 left-2 flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-[11px] text-[var(--muted-foreground)]">
           <span>
             {[
-              collapsed.size > 0 &&
-                `${collapsed.size.toLocaleString()} dir${collapsed.size === 1 ? '' : 's'} folded`,
+              // **Named and priced, not counted.** `1 dir folded` was enough while a fold
+              // only hid a subtree's insides; now it hands that subtree's angle to its
+              // siblings, and a reader coming back to this window an hour later has to be
+              // able to find out which ring is no longer proportional and by how much. One
+              // fold names itself, because the name is what makes it findable; several are
+              // a count, because a list of names in a corner chip is not read.
+              foldedInfo &&
+                `${
+                  foldedInfo.name
+                    ? `${foldedInfo.name} folded`
+                    : `${foldedInfo.count.toLocaleString()} dirs folded`
+                }${foldedInfo.share >= 0.005 ? ` — ${Math.round(foldedInfo.share * 100)}% of this view` : ''}`,
               hidden.files > 0 &&
                 `${hidden.files.toLocaleString()} file${hidden.files === 1 ? '' : 's'} too thin`,
               hidden.dirs > 0 &&
@@ -2159,7 +2730,10 @@ function SunburstView({
             <button
               type="button"
               className="rounded-[var(--radius-sm)] px-1 text-[var(--foreground)] underline decoration-dotted underline-offset-2 hover:bg-[var(--secondary)]"
-              onClick={() => setCollapsed(new Set())}
+              onClick={() => {
+                setFolding(true)
+                setCollapsed(new Set())
+              }}
             >
               unfold all
             </button>

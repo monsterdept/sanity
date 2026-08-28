@@ -366,6 +366,46 @@ pub fn mark_used(path: &Path) {
 ///
 /// Silent throughout, on the rule the caches themselves follow: nothing here cannot be
 /// derived again, so a failed removal costs disk and never an answer.
+/// Every cache this app keeps for one repo, and the kinds it keeps them under.
+///
+/// Written out rather than discovered from the directory listing: a kind that stops being
+/// used should disappear from here deliberately, and a new one that forgets to appear is a
+/// reset that quietly leaves something behind — which is the failure a reset exists to fix.
+const KINDS: [&str; 4] = ["trees", "scans", "traces", "timelines"];
+
+/// Throw away everything derived for this repo, whatever build or window wrote it.
+///
+/// **The escape hatch for a cache that cannot notice it is wrong.** Every one of these
+/// refuses itself on a version, a signature or a content hash, which covers the honest
+/// cases — a parser that moved, a file that changed. What none of them can see is a build
+/// whose bugs are since fixed: the bytes match, the version matches, and the answer is
+/// simply the wrong one. That is what this is for, and it is why it takes no argument
+/// finer than a repo.
+///
+/// It matches on the repo's hash and nothing else, so it takes every TAG with it — the
+/// slot this build would write, the ones its neighbours wrote, and the leftovers of a
+/// `--limit` experiment. Deliberately: a reset that spared another build's slot would leave
+/// the next launch of that build answering from the file this was called to destroy.
+///
+/// **Readings are not here and never were.** They live in `.sanity/` inside the repo, which
+/// this does not touch — that is the whole reason a reset can be offered without a
+/// confirmation dialog.
+pub fn forget_all(repo: &Path) {
+    let Some(root) = data_dir() else { return };
+    let hash = format!("{:016x}", slot_hash(repo));
+    for kind in KINDS {
+        let Ok(entries) = std::fs::read_dir(root.join(kind)) else { continue };
+        for e in entries.flatten() {
+            if e.file_name().to_string_lossy().starts_with(&hash) {
+                // Best effort, like every other cache write here: a file we cannot remove
+                // is one the next reader refuses on its own terms, which is where this
+                // started.
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+}
+
 pub fn prune_slots(kind: &str, repo: &Path, tag: &str) {
     let Some(dir) = data_dir().map(|d| d.join(kind)) else { return };
     let hash = format!("{:016x}", slot_hash(repo));

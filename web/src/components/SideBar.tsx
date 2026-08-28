@@ -28,6 +28,7 @@ export function SideBar({
   onAdd,
   onRead,
   onForget,
+  onReset,
   onRemintMascot,
   onError,
   onReplay,
@@ -68,6 +69,9 @@ export function SideBar({
   onRead: (key: string) => void
   /** Take a project out of the list. Not a delete — see `forgetProject`. */
   onForget: (key: string) => void
+  /** Drop every cache this app keeps for a repo and start it over — see `reset_project`.
+   *  The row stays in the list; a forget takes it out. */
+  onReset: (key: string) => void
   /** Throw this project's creature away; the next look at the map mints another. */
   onRemintMascot: (key: string) => void
   /** Report a refused action. The rows can fail — stopping a run, cancelling a replay — and
@@ -421,24 +425,30 @@ export function SideBar({
             className="absolute min-w-40 rounded-md border border-[var(--border)] bg-[var(--card)] py-1 text-[12px] shadow-lg"
             style={{ left: menu.x, top: menu.y }}
           >
-            {/* Throws the stored timeline away and walks the repo again. Here because it is
-                the rare, expensive one: a trace is resumable and idempotent, so the ordinary
-                answer to "trace this" is already on the row, and this is for the case the
-                cache cannot notice — a parser that has moved, or a timeline written by a
-                build whose bugs are since fixed. Nothing in it is wrong enough to fail a
-                version check; it is just the wrong answer. */}
-            {/* Absent while another repo is being walked, for the same reason the row's own
-                Trace button is. */}
+            {/* Throws away everything this app derived for the repo — the parsed tree, the
+                scan log, the blame and the timeline — and leaves the repo alone.
+
+                **It was `Re-trace history`, which was this for one cache.** The narrower
+                verb was the wrong shape for what it was actually being used for: the case
+                these caches cannot notice is not "the timeline is stale", it is "this build
+                has moved and the artifacts of the last one are still being believed". Every
+                one of them refuses itself on a version, a signature or a content hash, which
+                covers a parser that moved and a file that changed; none of them can see a
+                build whose bugs are since fixed, where the bytes match and the answer is
+                simply wrong. One door for all of them, named for what it does.
+
+                Absent while another repo is being walked, for the same reason the row's own
+                Trace button is: the walk holds the caches this would delete. */}
             {replayKey === null && (
               <button
                 type="button"
                 className="block w-full px-3 py-1 text-left hover:bg-[var(--secondary)]"
                 onClick={() => {
-                  onReplay(menu.key, true)
+                  onReset(menu.key)
                   setMenu(null)
                 }}
               >
-                Re-trace history
+                Reset
               </button>
             )}
             {/* **Named, in the project's own menu.** It used to be six clicks on the
@@ -467,10 +477,11 @@ export function SideBar({
             >
               Remove from list
             </button>
-            {/* Said here rather than behind a confirmation. The readings are committed in
-                the repo and this touches neither them nor it, so the honest thing is to
-                make the action cheap and explain it, not to interrupt it with a dialog
-                asking about a loss that does not happen. */}
+            {/* Said here rather than behind a confirmation, and it now answers for Reset as
+                well as for Remove. The readings are committed in the repo and neither verb
+                touches them or it — what Reset deletes is this app's own working-out, which
+                it can produce again. The honest thing is to make both cheap and explain
+                them, not to interrupt with a dialog about a loss that does not happen. */}
             <p className="px-3 pb-0.5 pt-1 text-[10px] leading-snug text-[var(--muted-foreground)]">
               The repo and its readings stay where they are.
             </p>

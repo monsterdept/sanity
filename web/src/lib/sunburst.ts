@@ -34,6 +34,9 @@ export interface Layout {
  *  honest about being in pixels — is the model. */
 const MIN_ANGLE = 0.0025
 
+/** The most of a ring that folded handles may take between them. See the sibling loop. */
+const HANDLE_MAX_SHARE = 0.5
+
 /** How siblings are laid out around the circle. */
 export interface LayoutOpts {
   /** Angle by lines (the default) or give every sibling the same room.
@@ -50,6 +53,38 @@ export interface LayoutOpts {
    *  so one angle is a different number of pixels in every window. Omit it and the fixed
    *  default stands. */
   minAngle?: number
+  /** The same threshold, asked per ring rather than once for the whole circle.
+   *
+   *  `minAngle` is an angle, and an angle is not a width: the arc a span subtends is
+   *  `r × angle`, so one number for every depth is only right at one radius. The caller
+   *  measured at the outermost, which is safe — everything inside it is culled less than
+   *  it should be — but "less than it should be" is a factor of four at the innermost
+   *  ring, and it grows with the number of rings drawn.
+   *
+   *  Asked per depth, the cut is one screen pixel everywhere, which is what `MIN_ARC_PX`
+   *  always claimed to be. Falls back to `minAngle` when absent, so a caller with no radii
+   *  to convert through is unchanged. */
+  minAngleAt?: (depth: number) => number
+  /** How much room a FOLDED directory keeps, per ring, in radians.
+   *
+   *  Folding is the reader saying *disregard this*, and until there was a handle the map
+   *  did not disregard it — a folded directory kept every degree its lines had earned and
+   *  simply stopped drawing its insides, so on kibana the subtree you wanted out of the
+   *  way went on owning two thirds of the circle. That is a depth control wearing an
+   *  exclusion control's label.
+   *
+   *  With a handle the fold gives its angle back to its siblings, and the ring is no
+   *  longer proportional. That is a real suspension of this map's one claim and it is
+   *  taken deliberately: the claim was already conditional — drilling re-normalizes to a
+   *  subtree, sub-pixel wedges are culled, thin siblings roll up — so what the map actually
+   *  promises is *within this view, angle is lines*, plus an obligation to say what is
+   *  missing. A fold joins that list. It is reader-initiated, it is reversible, and the
+   *  handle is left in the ring exactly where the share was, so the suspension has a mark
+   *  on screen rather than living in somebody's memory of what they clicked.
+   *
+   *  Omit it and a folded directory keeps its proportional span, which is what folding did
+   *  before this existed. */
+  handleAngleAt?: (depth: number) => number
   /** Smallest function patch worth drawing, in the layout's own units SQUARED.
    *
    *  The same correction as `minAngle`, for a threshold that is now an area. `MIN_PATCH_AREA`
@@ -129,15 +164,46 @@ export function layout(root: Node, maxDepth: number, opts: LayoutOpts = {}): Lay
       ? [...node.children].sort((x, y) => heatOf(y) - heatOf(x))
       : [...node.children].sort((x, y) => size(y) - size(x) || x.name.localeCompare(y.name))
     const weight = (c: Node) => (opts.even ? 1 : Math.max(c.loc, 1))
-    const total = kids.reduce((s, c) => s + weight(c), 0)
+
+    // Folded directories take a fixed handle and give the rest back — see `handleAngleAt`.
+    // Only directories: a file has no children to hide, and a function is not foldable at
+    // all, so neither can be in the set.
+    const shut = (c: Node) => c.kind === 'dir' && opts.collapsed?.has(c.id) === true
+    const handle = opts.handleAngleAt?.(d + 1) ?? 0
+    const folds = handle > 0 ? kids.filter(shut).length : 0
+    const open = kids.filter((c) => !shut(c))
+    // **Never more than half the ring, however many are folded.** Handles are a fixed size
+    // and the ring is not, so twenty folded siblings on a narrow branch would spend the
+    // whole span on marks for things nobody wants to see. Past the cap they share it and
+    // get smaller, which is the honest failure: the marks stay, they just stop dominating.
+    //
+    // With NOTHING left open the cap does not apply — there is no proportional content to
+    // protect, and a ring of handles crowded into half a circle with the rest blank would
+    // be a picture of nothing at all.
+    const each =
+      folds === 0
+        ? 0
+        : open.length === 0
+          ? (a1 - a0) / folds
+          : Math.min(handle, ((a1 - a0) * HANDLE_MAX_SHARE) / folds)
+    const free = a1 - a0 - each * folds
+    const total = open.reduce((s, c) => s + weight(c), 0)
     let a = a0
     let idx = 0
     for (const child of kids) {
-      const span = ((a1 - a0) * weight(child)) / total
+      const span = shut(child) && folds > 0 ? each : total > 0 ? (free * weight(child)) / total : 0
       // Functions are never dropped for thinness. They render as dots, which have a
       // minimum size no matter how many share a ring — the whole reason for drawing them
       // that way. Only arcs, which genuinely vanish below a pixel, get culled.
-      if (span < (opts.minAngle ?? MIN_ANGLE) && child.kind !== 'func') {
+      // The child's own depth, not this node's: the threshold is about the ring the wedge
+      // would be DRAWN in, and a child culled here is culled out of the ring one further
+      // out than the one being walked.
+      const floor = opts.minAngleAt?.(d + 1) ?? opts.minAngle ?? MIN_ANGLE
+      // A handle is never culled for thinness. It is the reader's own mark — the record
+      // that something was taken out of this ring — and dropping it silently would leave a
+      // ring that is no longer proportional with nothing on it saying so, which is the one
+      // outcome the handle exists to prevent.
+      if (span < floor && child.kind !== 'func' && !shut(child)) {
         // Count the whole subtree, not just this node — otherwise the tally under-
         // reports by exactly the amount that matters on a deep tree. Files and
         // directories are counted apart so the note can name what went missing;

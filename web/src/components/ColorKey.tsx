@@ -5,12 +5,14 @@ import {
   MODE_LABEL,
   OTHER_LABEL,
   NAMED,
+  shared,
   RAMP_ENDS,
   rampOf,
   slotColor,
   type ColorMode,
   paintsFromReadings,
 } from '../lib/colorMode'
+import { useState } from 'react'
 import { heatColor, type Ramp } from '../lib/api'
 
 /** A padlock, for a lens with nothing in it yet.
@@ -90,8 +92,7 @@ function Legend({
     // **In slot order, not in this frame's order.** With a held rank map the two can differ —
     // a person who is second today may be the only author in the frame on screen — and a
     // legend sorted by anything else would hand the top swatch to whoever the frame happened
-    // to list first. Anyone past the palette is counted as `other` rather than named, since
-    // they share the one neutral and naming them would imply they are distinguishable.
+    // to list first.
     // **Named up to what a key can hold, coloured up to what the palette can.** The two used
     // to be one number and the palette has since gone to sixty-four: a legend that named all
     // of them would be six hundred pixels of names over the map, and a legend is a caption.
@@ -112,14 +113,30 @@ function Legend({
     const named = categories
       .filter((c) => (ranks?.get(c) ?? unranked) < NAMED)
       .sort((a, b) => (ranks?.get(a) ?? unranked) - (ranks?.get(b) ?? unranked))
+    /** Everyone the key does not name, split by whether the MAP is colouring them. */
+    const rest = categories
+      .filter((c) => (ranks?.get(c) ?? unranked) >= NAMED)
+      .reduce(
+        (acc, c) => {
+          const r = ranks?.get(c)
+          if (r === undefined) acc.neutral += 1
+          else {
+            acc.coloured += 1
+            if (shared(r)) acc.repeats = true
+          }
+          return acc
+        },
+        { coloured: 0, neutral: 0, repeats: false },
+      )
     return (
       // Wider than it was, because the palette is twice as deep. Sixteen names at ceph's
       // median of twelve characters is two per row at 300px and eight rows of key over the
       // map; at 420 it is three per row and six rows, which is a caption rather than a panel.
       <div className="flex max-w-[420px] flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
-        {/* Only the slots that have their own color are named individually. Listing
-            the rest would imply they are distinguishable on screen, and they are not —
-            they all share the "Other" neutral. */}
+        {/* Only the slots the key can hold are named. The rest are counted below — the
+            coloured ones because a caption cannot carry a hundred names, the neutral ones
+            because naming them would imply they are distinguishable on screen, and they are
+            not. */}
         {named.map((c) => (
           <span key={c} className="flex items-center gap-1">
             <span
@@ -129,11 +146,25 @@ function Legend({
             <span className="text-[10px] text-[var(--muted-foreground)]">{c}</span>
           </span>
         ))}
-        {categories.length > named.length && (
+        {/* **The tail is two different things and it used to be drawn as one.**
+            Past the named slots there are people the palette still colours — recycling into
+            its unnamed range, see `slotColor` — and, past the ranking itself, people who
+            genuinely share the neutral. One row with a neutral swatch said both were the
+            second kind, which is the legend claiming a colour the map is not using: on
+            kibana's root sixty-one coloured people were listed as one grey category.
+            So the coloured tail is counted WITHOUT a swatch, because it has no single colour
+            to show, and it says once that its shades repeat. The neutral row survives for
+            what is actually neutral. */}
+        {rest.coloured > 0 && (
+          <span className="text-[10px] text-[var(--muted-foreground)]">
+            {rest.coloured} more{rest.repeats ? ' · shades repeat' : ''}
+          </span>
+        )}
+        {rest.neutral > 0 && (
           <span className="flex items-center gap-1">
             <span className="h-2 w-2 rounded-full" style={{ background: 'var(--structure)' }} />
             <span className="text-[10px] text-[var(--muted-foreground)]">
-              {OTHER_LABEL} ({categories.length - named.length})
+              {OTHER_LABEL} ({rest.neutral})
             </span>
           </span>
         )}
@@ -252,11 +283,24 @@ function Legend({
 const shortcut = (i: number) => (i < 9 ? `${i + 1}` : i === 9 ? '0' : i === 10 ? '-' : null)
 
 /**
- * The mode switcher, floated over the top of the graph.
+ * The lens, as one pulldown.
  *
- * Separate component from the key rather than one widget: they sit at opposite ends of
- * the picture now, and a component that had to be told where each half goes would be a
- * layout argument wearing a widget's clothes.
+ * **It was eleven segments in a track, and eleven is where a segmented control stops being
+ * one.** The row was the widest thing in the window and it set the window's minimum width;
+ * every lens added since has been paid for by every other control in the bar, and there were
+ * two more of them waiting for room. A segmented control earns its width by showing the
+ * alternatives — that is the whole reason to prefer it over a menu — and it stops earning it
+ * at the point where the alternatives no longer fit beside the thing they qualify.
+ *
+ * What is lost is real and worth naming: the eleven are no longer readable at a glance, so
+ * discovering that Traps exists now takes a click. What is bought is the room the ring count
+ * and the band width now sit in, both of which change what is ON the map rather than what it
+ * is coloured by — and having those visible beside the lens is worth more than having ten
+ * unchosen lens names visible.
+ *
+ * The trigger keeps the accent, because it is still the window's statement of what colour
+ * means. A fixed minimum width holds it still: `Age` and `Legibility` are five characters
+ * apart, and a bar that resized as you switched lens would move everything beside it.
  */
 export function ModeSwitcher({
   mode,
@@ -275,77 +319,95 @@ export function ModeSwitcher({
    */
   locked?: Partial<Record<ColorMode, Locked>>
 }) {
+  const [open, setOpen] = useState(false)
+  const here = locked[mode]
   return (
-    // A segmented control: one recessed track, segments inside it, and the selection as
-    // a raised pill. Without the track it was five words floating in the chrome — nothing
-    // said they were one control, that exactly one is chosen, or that the others could be
-    // clicked. The track is what carries all three, and it is inset rather than raised so
-    // the bar still reads as background with something set into it.
-    <div
-      role="tablist"
-      className="flex items-center gap-0.5 rounded-full p-[3px]"
-      style={{
-        opacity: 1,
-        background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
-        boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
-      }}
-    >
-      {(Object.keys(MODE_LABEL) as ColorMode[]).map((k, i) => {
-        const on = mode === k
-        // Dimmed rather than disabled: the lens is still a place you can stand, and what it
-        // has to say there — why a replay cannot paint it — is said in the map rather than
-        // by a control that refuses to be pressed.
-        const lock = locked[k]
-        return (
-          <button
-            key={k}
-            role="tab"
-            aria-selected={on}
-            onClick={() => !lock && onMode(k)}
-            disabled={!!lock}
-            // The shortcut rides in the tooltip rather than on the chip. Five chips with
-            // a dim "⌘3" beside each label is a row of keyboard documentation where the
-            // control itself should be — discoverable once, noise every time after.
-            title={lock ? lock.why : `${MODE_HINT[k]}${shortcut(i) ? `  (⌘${shortcut(i)})` : ''}`}
-            className="relative rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
-            style={{
-              // Four more pixels on the locked ones, so the glyph is not shoulder to shoulder
-              // with its own label. The `History` control alongside sets the spacing to match:
-              // it lays its lock out inline with a four-pixel gap, and that is what reads
-              // right. Four is still a third of what the inline version cost here, because the
-              // rest of the glyph lives in padding the tab already had.
-              paddingLeft: lock ? 14 : undefined,
-              background: on ? 'var(--accent)' : 'transparent',
-              color: on ? 'var(--accent-foreground)' : 'var(--muted-foreground)',
-              fontWeight: on ? 600 : 400,
-              // The selected lens keeps full weight even where the replay cannot paint it,
-              // because the row still has to say which one you are standing in.
-              opacity: lock ? 0.55 : 1,
-              display: 'flex',
-              alignItems: 'center',
-              // Only the chosen one lifts. A shadow on every segment would make the
-              // track read as five buttons rather than one control with a position.
-              boxShadow: on ? '0 1px 2px rgb(0 0 0 / 0.25)' : undefined,
+    <div className="relative">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        title={here ? here.why : MODE_HINT[mode]}
+        className="flex items-center gap-1.5 rounded-full px-3 py-[3px] text-[11px] font-semibold transition-colors"
+        style={{ background: 'var(--accent)', color: 'var(--accent-foreground)' }}
+      >
+        {/* The lock rides on the trigger when the lens you are STANDING in is the locked
+            one, which is an ordinary thing to be: a lens is still a place you can stand,
+            and what it has to say there is said by the map. */}
+        {here && <Lock keyed={here.keyed} />}
+        <span className="min-w-[62px] text-left">{MODE_LABEL[mode]}</span>
+        {/* A caret, not a chevron glyph from the font: at eleven pixels the two are the same
+            shape and one of them depends on what the system has installed. */}
+        <svg width="7" height="4" viewBox="0 0 7 4" aria-hidden>
+          <path d="M0 0 L3.5 4 L7 0 Z" fill="currentColor" />
+        </svg>
+      </button>
+
+      {open && (
+        <>
+          {/* The same backdrop the sidebar's context menu uses: one click anywhere closes,
+              including the click that chooses something else in the bar. Without it the menu
+              is dismissed only by choosing a lens, which makes opening it a commitment. */}
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setOpen(false)}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              setOpen(false)
             }}
+          />
+          <div
+            role="listbox"
+            className="absolute left-0 top-full z-50 mt-1 min-w-44 rounded-md border border-[var(--border)] bg-[var(--card)] py-1 text-[12px] shadow-lg"
           >
-            {/* **In the padding, not in the layout.** The lock sat before the label with a gap,
-                which is thirteen pixels a tab — and eleven lenses with most of them locked put
-                the window's minimum width up by more than a hundred. A tab already carries ten
-                pixels of padding on that side and a seven-pixel glyph fits inside it, so the
-                mark costs nothing and the row is the width of its words again.
-                Dimming alone was the alternative and gives back less than it looks: the tooltip
-                can say what would open a lens, but only for the one tab under the pointer,
-                where the lock's COLOUR says it for all of them at once — accent means a button
-                in the sidebar opens this, muted means nothing will. */}
-            {lock && (
-              <span className="pointer-events-none absolute left-[4px] top-1/2 -translate-y-1/2">
-                <Lock keyed={lock.keyed} />
-              </span>
-            )}
-            {MODE_LABEL[k]}
-          </button>
-        )
-      })}
+            {(Object.keys(MODE_LABEL) as ColorMode[]).map((k, i) => {
+              const on = mode === k
+              const lock = locked[k]
+              const key = shortcut(i)
+              return (
+                <button
+                  key={k}
+                  role="option"
+                  aria-selected={on}
+                  // Dimmed rather than disabled, as the tabs were: a locked lens is still a
+                  // place you can stand, and what it has to say there — why a replay cannot
+                  // paint it — is said by the map rather than by a control refusing to be
+                  // pressed.
+                  onClick={() => {
+                    onMode(k)
+                    setOpen(false)
+                  }}
+                  title={lock ? lock.why : MODE_HINT[k]}
+                  className="flex w-full items-center gap-2 px-3 py-1 text-left hover:bg-[var(--secondary)]"
+                  style={{
+                    color: on ? 'var(--foreground)' : 'var(--muted-foreground)',
+                    fontWeight: on ? 600 : 400,
+                  }}
+                >
+                  {/* A fixed slot, so the labels line up whether or not a lens is locked —
+                      the tabs hid the glyph in their own padding because a column of eleven
+                      names had no room; a menu has nothing but room. */}
+                  <span className="flex w-[7px] shrink-0 justify-center">
+                    {lock && <Lock keyed={lock.keyed} />}
+                  </span>
+                  <span className="flex-1">{MODE_LABEL[k]}</span>
+                  {/* On the row now rather than in the tooltip. The argument against putting
+                      it on a chip was that eleven chips each carrying a dim `⌘3` is keyboard
+                      documentation where the control should be — true of a row eleven wide,
+                      and the opposite of true in a menu, which is exactly where somebody
+                      goes to find out that the key exists. */}
+                  {key && (
+                    <span className="mono shrink-0 text-[10px] text-[var(--muted-foreground)]">
+                      ⌘{key}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
     </div>
   )
 }

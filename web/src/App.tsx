@@ -21,6 +21,7 @@ import {
   cliStatus,
   type CliState,
   forgetProject,
+  resetProject,
   harnesses,
   installCli,
   onInstallCli,
@@ -93,6 +94,8 @@ import { SideBar } from './components/SideBar'
 // which walks the column rather than re-deriving the ladder from `trace_depth`.
 import { phasesOf } from './components/Phases'
 import { Overlay } from './components/Overlay'
+import { BandWidth, RingCount } from './components/Rings'
+import { loadRings, saveRings } from './lib/rings'
 import { ReadDialog } from './components/ReadDialog'
 
 /** Files that have to have arrived before the assembling map is drawn — see `shapeRoot`. */
@@ -373,6 +376,16 @@ export default function App() {
   // what changes the question is what the color MEANS, and the same rings answer five
   // different ones depending on that.
   const [mode, setMode] = useState<ColorMode>('surprise')
+  /** How many rings the map draws — see `lib/rings.ts`. A display preference, so it is read
+   *  from storage once and written back on every change, and it is NOT per project. */
+  const [rings, setRings] = useState(loadRings)
+  /** **TEMPORARY** — see `BandWidth`. Session state, not stored: the control is expected to
+   *  go away once it has told us what `DIR_RIM_PX` should be. */
+  const [band, setBand] = useState(0)
+  const chooseRings = useCallback((n: number) => {
+    setRings(n)
+    saveRings(n)
+  }, [])
 
   /** What each project was last looking at, so coming back to one is coming back.
    *
@@ -916,31 +929,55 @@ export default function App() {
    *  after: the poll would drop the row and leave `activeKey` naming a project that is not
    *  in the list, which renders as a window still showing a map nothing can be selected
    *  for. */
+  /** Everything on screen that belongs to one project, dropped.
+   *
+   *  **Shared by the two verbs that stop a project being what it was.** Choosing a project
+   *  resets the tree, the drill stack, the picked wedge and the two refs the poll follows;
+   *  forgetting one cleared `activeKey` alone, so the sidebar went empty while the pane and
+   *  the detail panel carried on showing a repo the app no longer holds — with nothing left
+   *  to select to get rid of it. A reset needs the identical clearing for a different
+   *  reason: the row stays, and what is on screen for it came out of caches that have just
+   *  been deleted. */
+  const dropView = useCallback(
+    (key: string) => {
+      if (activeKey !== key) return
+      setActiveKey(null)
+      setTreeRev((n) => n + 1)
+      setScan(null)
+      // Nowhere to arrive, so nothing is banked — and the departing view is DROPPED rather
+      // than kept: a project can be added back under the same key, and it would return
+      // wearing a drill-in from before it was forgotten, pointing into a tree nobody has
+      // scanned yet.
+      switchTo(null, null)
+      views.current.delete(key)
+      // The poll compares against these to decide whether to refetch. Left naming a
+      // project that is gone, the next tick would fetch a tree for it.
+      shown.current = null
+      shownRev.current = 0
+    },
+    [activeKey, switchTo],
+  )
+
   const forget = useCallback(
     (key: string) => {
-      // **Everything the selection would have cleared, or the map outlives its project.**
-      // Choosing a project resets the tree, the drill stack, the picked wedge and the two
-      // refs the poll follows; forgetting one cleared `activeKey` alone, so the sidebar went
-      // empty while the pane and the detail panel carried on showing a repo the app no
-      // longer holds — with nothing left to select to get rid of it.
-      if (activeKey === key) {
-        setActiveKey(null)
-        setTreeRev((n) => n + 1)
-        setScan(null)
-        // Nowhere to arrive, so nothing is banked — and the departing view is DROPPED rather
-        // than kept: a project can be added back under the same key, and it would return
-        // wearing a drill-in from before it was forgotten, pointing into a tree nobody has
-        // scanned yet.
-        switchTo(null, null)
-        views.current.delete(key)
-        // The poll compares against these to decide whether to refetch. Left naming a
-        // project that is gone, the next tick would fetch a tree for it.
-        shown.current = null
-        shownRev.current = 0
-      }
+      dropView(key)
       void forgetProject(key).then(refreshProjects)
     },
-    [activeKey, refreshProjects],
+    [dropView, refreshProjects],
+  )
+
+  /** Drop everything this app derived for a repo and leave the repo alone — see
+   *  `reset_project`.
+   *
+   *  **Not routed through `forget`,** which was the first shape and was wrong in one word:
+   *  that one takes the row out of the index, so a reset would have been a remove wearing a
+   *  gentler label. What the two share is the window-side clearing, which is `dropView`. */
+  const reset = useCallback(
+    (key: string) => {
+      dropView(key)
+      void resetProject(key).then(refreshProjects)
+    },
+    [dropView, refreshProjects],
   )
 
   /** WebKit's own context menu, which is Reload and Inspect Element, does not ship.
@@ -1460,6 +1497,17 @@ export default function App() {
    * within a frame or two of opening. On ceph it is a few dozen.
    */
   const [fns, setFns] = useState<Map<string, Node[]>>(new Map())
+  /** What the MAP has asked for, held as a list so the fetch below can union it in.
+   *
+   *  Compared before it is stored, on the rule every poll in this file follows: the map
+   *  reports on each layout, and a fresh array naming the same paths would re-run a fetch
+   *  effect that walks the focused subtree, on every one of them. */
+  const [wanted, setWanted] = useState<readonly string[]>([])
+  const wantRings = useCallback((paths: readonly string[]) => {
+    setWanted((prev) =>
+      prev.length === paths.length && prev.every((p, i) => p === paths[i]) ? prev : [...paths],
+    )
+  }, [])
   const asked = useRef(new Set<string>())
   /** Which project the fetches above belong to, for answers that outlive the click that
    *  asked for them. */
@@ -1744,6 +1792,13 @@ export default function App() {
       for (const c of n.children) walk(c)
     }
     walk(focus)
+    // **And whatever the MAP says it has room for.** The share above is a stand-in for that
+    // question, asked by the one party that cannot see the answer — see `onWantRings`. It
+    // stays as the opening guess, because it needs no picture to have been drawn yet; what
+    // it cannot do is be right about a repo of four million lines, where a quarter of a per
+    // cent is ten thousand and it refuses every file there is. Unioned rather than swapped:
+    // what the map can hold is the better answer only once there IS a map.
+    for (const path of wanted) want.push(path)
     if (codeFile) want.push(codeFile)
 
     const key = activeKey
@@ -1776,7 +1831,7 @@ export default function App() {
       })
     // `fns` is a dependency because it is now half the question: what has arrived decides
     // what is still worth asking for, so a flush has to re-open it.
-  }, [activeKey, focus, codeFile, fns])
+  }, [activeKey, focus, codeFile, fns, wanted])
 
   /** Rings that have arrived and are waiting to be spliced in together.
    *
@@ -2373,6 +2428,7 @@ export default function App() {
           onRead={(key) => setReadFor(key)}
           onAdd={addProject}
           onForget={forget}
+          onReset={reset}
           onRemintMascot={(key) => {
             forgetMonster(key)
             setRemint((n) => n + 1)
@@ -2443,6 +2499,16 @@ export default function App() {
                   rings recolored with nothing on screen saying by what. Grayed, with the
                   reason in the tooltip, it still answers the question. */}
                 <ModeSwitcher mode={viewMode} onMode={setMode} locked={locks} />
+                {/* **In the room the lens strip gave up.** These went to the crumb bar when
+                    eleven tabs owned this row — see `ModeSwitcher`, which is one pulldown
+                    now. They belong here: the lens says what the map is COLOURED by, and
+                    these two say what is ON it, which is the same kind of statement about
+                    the same picture. The crumb bar is about where you are standing in it.
+                    Both stay live during a replay, because a frame is drawn by the same
+                    layout and they mean there exactly what they mean anywhere else — which
+                    is not true of the lens beside them. */}
+                <RingCount rings={rings} onRings={chooseRings} />
+                <BandWidth share={band} onShare={setBand} />
                 <HistoryToggle
                   on={historyOn}
                   busy={historyBusy}
@@ -2535,6 +2601,9 @@ export default function App() {
                     replaying={replaying}
                     density={staged?.px ?? null}
                     onSide={setPaneSide}
+                    rings={rings}
+                    rimShare={band}
+                    onWantRings={wantRings}
                     sortBy={headOrder}
                     onSelect={pick}
                     onClear={clearPick}
@@ -2554,6 +2623,10 @@ export default function App() {
                     // and a repo that jumps on every batch reads as a glitch; the same
                     // argument the replay makes, for the same reason — see `morph`.
                     morph
+                    // The same ring count the finished map will use, or the picture reorganises
+                    // itself the moment the scan lands — a map that changes depth on its own is
+                    // the reader's setting appearing to be ignored and then obeyed.
+                    rings={rings}
                     // Where the scan has got to — see `live`. The same prop a run uses for its
                     // leases, because it is the same claim about a wedge, and the two phases
                     // never overlap.

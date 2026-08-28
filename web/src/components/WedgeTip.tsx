@@ -47,6 +47,8 @@ export function WedgeTip({
   ranks,
   ageSpan,
   folded,
+  share,
+  slice,
 }: {
   node: Node
   /** Pointer position in container coordinates. */
@@ -62,6 +64,30 @@ export function WedgeTip({
    *  geometry has no such gesture, and the card offers none — an affordance named in a
    *  view that does not have it is worse than silence. */
   folded?: boolean
+  /** This node's share of the lines in the view it is drawn in, 0..1.
+   *
+   *  Printed only for a FOLDED directory, and that is the whole reason it is here: a fold
+   *  gives the subtree's angle to its siblings, so the handle left behind is the one wedge
+   *  on the map whose width says nothing about its size. The number it is no longer drawing
+   *  goes here, one hover from the mark that suppressed it. Everywhere else the wedge IS
+   *  the share and printing it would be the map annotating itself. */
+  share?: number
+  /** The segment of this container's rim the pointer is over — see `hoverSlice`.
+   *
+   *  **The rim answers before the wedge does, because it is the finer question.** A
+   *  directory's rim is a distribution of what is inside it, and pointing at one band of it
+   *  is asking about that band; answering with the directory's own totals would be replying
+   *  to the question one level up from the one that was asked. The rest of the card still
+   *  describes the directory, which is the context that makes the segment mean anything. */
+  slice?: {
+    label: string
+    fill: string
+    lines: number
+    share: number
+    /** How many values this segment stands for — see `rimRuns`. More than one when the
+     *  picture had no room to draw them apart. */
+    held: number
+  } | null
 }) {
   const c = colorFor(n, mode, ranks, ageSpan)
   const sc = n.score
@@ -174,6 +200,38 @@ export function WedgeTip({
         </p>
       )}
 
+      {/* The segment under the pointer, above the container's own reading and separated
+          from it: the two are different subjects, and the whole point of the rim is that
+          the fine one is available without drilling.
+
+          A merged run says how many it stands for rather than naming one of them — see
+          `rimRuns`, which lets the biggest member give the run its colour and its label. It
+          would otherwise report a share as though one value held it, which is the same
+          overstatement the legend's `other` row was making until tonight. */}
+      {slice && (
+        <div className="mb-1.5 border-b border-[var(--border)] pb-1.5">
+          <div className="flex items-baseline gap-1.5">
+            <span
+              className="h-2.5 w-2.5 shrink-0 translate-y-px rounded-[2px]"
+              style={{ background: slice.fill }}
+            />
+            <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-snug">
+              {elide(slice.label, FITS_SMALL)}
+              {slice.held > 1 && (
+                <span className="font-normal text-[var(--muted-foreground)]">
+                  {' '}
+                  +{slice.held - 1} more
+                </span>
+              )}
+            </span>
+          </div>
+          <p className="mono mt-0.5 text-[10px] leading-snug text-[var(--muted-foreground)]">
+            {slice.lines.toLocaleString()} lines · {Math.round(slice.share * 100)}% of this
+            directory
+          </p>
+        </div>
+      )}
+
       {/* The reading is the SWATCH — it is a color on the map, so stating it as a
           number here would be describing the encoding rather than reading it. The
           label beside it names the value, which is what keeps identity off color
@@ -253,7 +311,11 @@ export function WedgeTip({
       {n.kind === 'dir' && n.children.length > 0 && folded !== undefined && (
         <p className="mt-1.5 border-t border-[var(--border)] pt-1.5 text-[10px] text-[var(--muted-foreground)]">
           {folded
-            ? `${n.children.length} folded — ⌥-click to open`
+            ? `${n.children.length} folded${
+                share !== undefined && share >= 0.005
+                  ? ` · ${Math.round(share * 100)}% of this view, given back to the ring`
+                  : ''
+              } — ⌥-click to open`
             : '⌥-click to fold · double-click to drill in'}
         </p>
       )}

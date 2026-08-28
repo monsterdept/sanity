@@ -14,6 +14,8 @@ import {
   type Grade,
   type Node,
   type Ramp,
+  HEAT_WORDS,
+  type AgentReport,
 } from './api'
 import { inkOn } from './ink'
 
@@ -481,9 +483,44 @@ export function isAuthor(key: string | null): key is string {
   return key !== null && key !== UNCOMMITTED
 }
 
-/** Rank → color. Beyond the palette, everything is "Other". */
+/**
+ * Rank → colour, recycling into the UNNAMED slots once the palette runs out.
+ *
+ * **Past the palette everything used to be `OTHER`, and one flat neutral is a worse claim
+ * than a repeated colour.** On kibana's root that block was sixty-one people, drawn as a
+ * single band that reads as one owner called Other — so the rim could not tell a directory
+ * one person wrote from a directory thirty people wrote, which is the reading it exists to
+ * give. It was not a size problem: there is room for those segments, and the reason they
+ * were merged was that the palette had nothing left to give them.
+ *
+ * **Recycling is safe here for one reason and it is not the obvious one.** The tempting rule
+ * is to share a colour between people whose ACTIVE PERIODS do not overlap — an early
+ * contributor and a late one can surely wear the same shade. They cannot: blame is about
+ * lines, and lines outlive their authors. Somebody who stopped committing in 2014 owns code
+ * on today's map beside somebody who started last month, so the conflict graph is near
+ * complete and there is no schedule to exploit. It is also the family of rule this map has
+ * already rejected three times — see the replay's palette note, where ranking per frame
+ * recoloured the cast, seeding from today greyed the opening, and assigning by arrival
+ * greyed the ending.
+ *
+ * What makes it safe instead is that a recycled colour is never a NAMED one. The legend
+ * claims the first `NAMED` slots and nothing else, so a collision is always between two
+ * people the key does not identify — people who were both grey a moment ago. The distinction
+ * given up was never held; what is gained is that a crowd looks like a crowd.
+ *
+ * Stable across a replay by construction: this is a pure function of a ranking computed once
+ * over the whole log, so a person's colour does not move as the story runs.
+ */
 export function slotColor(rank: number): string {
-  return rank < CATEGORICAL.length ? CATEGORICAL[rank] : OTHER
+  if (rank < CATEGORICAL.length) return CATEGORICAL[rank]
+  const span = CATEGORICAL.length - NAMED
+  return CATEGORICAL[NAMED + ((rank - CATEGORICAL.length) % span)]
+}
+
+/** Whether this rank is wearing a shade somebody else is also wearing — see `slotColor`.
+ *  The legend says so once rather than every segment carrying a mark. */
+export function shared(rank: number): boolean {
+  return rank >= CATEGORICAL.length
 }
 
 /** One of a replay's two flashes: the token, flat, for as long as the flash lasts.
@@ -985,8 +1022,17 @@ export interface Bucket {
   key: string
   label: string
   fill: string
-  /** The functions in it, so the row can put them in a list. */
+  /** The functions in it that there is a NODE for, so the row can put them in a list.
+   *
+   *  Short of `count` wherever the window has not been sent a file's functions — those are
+   *  spoken for by `Node.cols` and `Node.pending`, which carry a line count and a value but
+   *  no function to point at. See `put` in `bucketsFor`. */
   nodes: Node[]
+  /** How many functions are in it, listable or not. This is the number a row shows: it is
+   *  the answer to "how many", where `nodes.length` is the answer to "how many can I be
+   *  shown", and the two were one field until a bucket could hold code the window has not
+   *  been handed. */
+  count: number
   lines: number
 }
 
@@ -1022,6 +1068,368 @@ const AGE_BANDS: { label: string; under: number }[] = [
   { label: 'older', under: Infinity },
 ]
 
+/** One node's own contribution to a breakdown, reported through `put`.
+ *
+ *  **Extracted so that a breakdown of one subtree and a breakdown of every subtree are the
+ *  same arithmetic.** `bucketsFor` accumulates these over a walk to answer for the pane;
+ *  `histogramsFor` accumulates the identical calls bottom-up to answer for every directory
+ *  on the map at once. Two walks over one rule, rather than two rules — the map and the
+ *  panel are describing the same population and a second implementation is how they would
+ *  come to disagree about it.
+ *
+ *  `outOfScope` is passed rather than derived: exclusion is inherited down the tree, and a
+ *  node cannot see whether an ancestor put it out of scope. */
+type Put = (key: string, label: string, fill: string, n: Node, ramp?: number) => void
+
+/** The bucket key for "no author" / "no language", kept out of the namespace real keys
+ *  live in: an author genuinely called `unknown` must not land in the absence row.
+ *
+ *  Written as the ESCAPE, never as a literal NUL. It was a literal one, which made this
+ *  file BINARY to every tool that samples for a zero byte — `grep` and `rg` matched
+ *  nothing in it and said so only if asked, `git diff` refused to show it, and one editor
+ *  round-trip would have dropped the byte and folded the absence row into a real category
+ *  with nothing failing. Identical at runtime, legible in the source. */
+const UNKNOWN = '\u0000unknown'
+
+function contribute(
+  n: Node,
+  outOfScope: boolean,
+  mode: ColorMode,
+  ranks: Map<string, number> | undefined,
+  span: number,
+  put: Put,
+): void {
+  // A FILE is a reading of its own under Docs — its header — so it is a row here beside
+  // the functions, and the buckets count what the list under them counts. Only Docs:
+  // `legible` and `trap` are never sent on a file reading (see `FILE_ASK`), and the other
+  // lenses ask questions a file has no answer to.
+  // A file stands in for its own functions when they have not arrived — see `legendFor`,
+  // which ranks the colours this fills in. Only where a file has an answer of its own:
+  // its author and its language are its own, while a grade is its functions'.
+  if (
+    n.kind === 'file' &&
+    !outOfScope &&
+    n.funcs > 0 &&
+    (mode === 'blame' || mode === 'language')
+  ) {
+    // The same three cases the function branch below spells out, and deliberately the
+    // same words: a row must not depend on whether the ring happened to be fetched.
+    const key = mode === 'blame' ? n.lastAuthor : n.lang
+    if (key && (mode !== 'blame' || isAuthor(key))) {
+      const rank = ranks?.get(key)
+      put(key, key, rank === undefined ? OTHER : slotColor(rank), n)
+    } else if (mode === 'blame' && key) {
+      put('\u0000uncommitted', 'uncommitted lines', 'var(--unanalyzed)', n)
+    } else {
+      put(UNKNOWN, mode === 'blame' ? 'no blame' : 'no language', 'var(--unanalyzed)', n)
+    }
+  }
+  if (n.kind === 'file' && !outOfScope && mode === 'docs') {
+    const g = docGrade(n)
+    if (g) put(g, DOC_WORDS[g], heatColor(DOC_GAP[g], 'docs'), n)
+    else put(UNKNOWN, 'not read yet', 'var(--unanalyzed)', n)
+  }
+  if (n.kind === 'func' && !outOfScope) {
+    const s = n.score
+    if (mode === 'surprise') {
+      // **`Spread`'s own terms, because `Spread` is what this has to match.** The Surprise
+      // pane is the one breakdown that does not come from here — it is counted in
+      // `summarize`, by function rather than by line, because its rows are lists somebody
+      // clicks. So the rim reproduces its categories, its colours and its order, and
+      // differs from it in one stated way: the segments are LINES, like every other rim,
+      // because a wedge's width is lines and a bar inside it measured in something else
+      // would be two units in one shape.
+      //
+      // `predicted` falls back to the boolean it replaced, the same fallback `summarize`
+      // makes, so a reading banked before the grades still lands somewhere real.
+      if (n.agentStale) {
+        put('\u0000expired', 'expired', 'var(--unanalyzed)', n)
+      } else if (n.agent) {
+        const g = n.agent.predicted ?? (n.agent.surprised ? 'none' : 'full')
+        put(g, HEAT_WORDS[g], heatColor(GRADE_SURPRISE[g]), n)
+      } else {
+        put(UNKNOWN, 'unread', 'var(--structure)', n)
+      }
+    } else if (mode === 'legible' || mode === 'docs' || mode === 'traps') {
+      // Both are read straight off the reading, so both share one absence: a function
+      // nobody has read yet. It is a bucket rather than a drop, for the same reason the
+      // map grays it rather than hiding it — a breakdown that silently omits the unread
+      // reports a coverage it has not got.
+      const r = n.agent && !n.agentStale ? n.agent : undefined
+      if (!r) {
+        put(UNKNOWN, 'not read yet', 'var(--unanalyzed)', n)
+      } else if (mode === 'traps') {
+        // A dated answer falls in with the unread, one bucket, for the reason the legible
+        // branch below gives: from where the reader stands they are the same fact.
+        if (r.trapDated) {
+          put(UNKNOWN, 'not read yet', 'var(--unanalyzed)', n)
+        } else {
+          const trap = trapOf(r)
+          put(
+            trap ? 'trap' : 'clear',
+            trap ? 'trap' : 'no trap reported',
+            trap ? 'var(--trap)' : 'var(--structure)',
+            n,
+          )
+        }
+      } else if (mode === 'docs') {
+        const g = docGrade(n)
+        if (g) put(g, DOC_WORDS[g], heatColor(DOC_GAP[g], 'docs'), n)
+        else put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
+      } else if (legibleOf(r)) {
+        const g = legibleOf(r)!
+        put(g, LEGIBLE_WORDS[g], heatColor(GRADE_SURPRISE[g], 'legible'), n)
+      } else {
+        // Covers both a reading that never graded legibility and one that graded it under
+        // a question since rewritten. Deliberately one bucket: from where the reader is
+        // standing they are the same fact — nobody has answered today's question about
+        // this function — and splitting them would put a row on screen about our own
+        // release history.
+        put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
+      }
+    } else if (mode === 'callers') {
+      // The map's own bands and its absence — a panel that grouped by anything else would
+      // be a legend disagreeing with the picture it sits beside. The exact count is on the
+      // ROW, where it adds what the heading cannot.
+      if (n.callers == null) {
+        put(UNKNOWN, 'calls not resolved here', 'var(--unanalyzed)', n)
+      } else {
+        const band = bandOf(CALLER_BANDS, n.callers)
+        put(band.label, band.label, heatColor(band.t, 'callers'), n)
+      }
+    } else if (mode === 'clones') {
+      if (n.comparable == null) {
+        put(UNKNOWN, 'too small to compare', 'var(--unanalyzed)', n)
+      } else if (n.cloneSize == null) {
+        put('unique', 'no clone in this repo', 'var(--structure)', n)
+      } else {
+        const band = bandOf(CLONE_BANDS, n.cloneSize)
+        put(band.label, band.label, 'var(--clone)', n)
+      }
+    } else if (mode === 'reach') {
+      // The map's bands and its absence, the same shape Callers takes — see `REACH_BANDS`.
+      if (n.calls == null) {
+        put(UNKNOWN, 'calls not resolved here', 'var(--unanalyzed)', n)
+      } else {
+        const band = bandOf(REACH_BANDS, n.calls)
+        put(band.label, band.label, heatColor(band.t, 'reach'), n)
+      }
+    } else if (mode === 'blame' || mode === 'language') {
+      const key = mode === 'blame' ? n.lastAuthor : n.lang
+      if (key && (mode !== 'blame' || isAuthor(key))) {
+        const rank = ranks?.get(key)
+        put(key, key, rank === undefined ? OTHER : slotColor(rank), n)
+      } else if (mode === 'blame' && key) {
+        // Written to but not committed. Its own row, because "these lines are yours and
+        // unsaved" and "this file is not in git" are different things to be told.
+        put('\u0000uncommitted', 'uncommitted lines', 'var(--unanalyzed)', n)
+      } else {
+        // No blame at all: untracked, a symlink, or not a repo. It was labeled
+        // `uncommitted`, which is the other thing entirely.
+        put(UNKNOWN, mode === 'blame' ? 'not in git' : 'unknown', 'var(--unanalyzed)', n)
+      }
+    } else if (mode === 'churn') {
+      // Same gate `colorFor` uses, so a wedge the map left gray is not given a band here.
+      if (s && s.ageDays !== null) {
+        const band =
+          CHURN_BANDS.find((b) => s.commits >= b.min) ?? CHURN_BANDS[CHURN_BANDS.length - 1]
+        put(band.label, band.label, '', n, s.churn)
+      } else {
+        put(UNKNOWN, 'no git history', 'var(--unanalyzed)', n)
+      }
+    } else {
+      if (s && s.lastTouchedDays !== null) {
+        const d = s.lastTouchedDays
+        const band = AGE_BANDS.find((b) => d < b.under) ?? AGE_BANDS[AGE_BANDS.length - 1]
+        put(band.label, band.label, '', n, ageRamp(d, span))
+      } else {
+        put(UNKNOWN, 'no git history', 'var(--unanalyzed)', n)
+      }
+    }
+  }
+
+}
+
+/** A file's columnised functions, put through the same `contribute` the real ones take.
+ *
+ *  **One bucketing implementation, not two.** The columns exist so that a file whose ring
+ *  has not been fetched can still say what is inside it, and the way that stays honest is
+ *  for both paths to end in the same branch of the same function — a file with its ring
+ *  and a file without one cannot then disagree about which band a number falls in, and
+ *  adding a lens does not mean remembering to teach a second place about it.
+ *
+ *  The stand-in node is allocated ONCE and mutated per column entry. `contribute` reads
+ *  it and never keeps it, so nothing outlives the call; kibana has 148,000 functions and
+ *  a fresh object apiece, per lens change, is the kind of allocation this codebase has
+ *  already paid for once in the frame pool. */
+function contributeCols(
+  file: Node,
+  mode: ColorMode,
+  ranks: Map<string, number> | undefined,
+  span: number,
+  put: Put,
+): void {
+  // **Only the lenses the columns can actually answer.**
+  //
+  // A stand-in carries numbers and nothing else, so under Blame or Language every one falls
+  // to the absence bucket — and the file has ALREADY answered those for itself, out of its
+  // own `lastAuthor` and `lang`. Run unguarded it doubled every directory: the real 300
+  // lines by author, plus 300 more of `unknown`. The reading lenses are out for the opposite
+  // reason — there is nothing in a column to answer them with, and an absence bucket would
+  // report a read repo as unread.
+  if (
+    mode !== 'churn' &&
+    mode !== 'age' &&
+    mode !== 'callers' &&
+    mode !== 'reach' &&
+    // Clones draws DOTS on the map rather than a rim, so `histogramsFor` never asks — but
+    // the pane's breakdown is `bucketsFor`, and on a repo with no rings fetched it had
+    // nothing to list at all. The columns carry the clone group size, so it can.
+    mode !== 'clones'
+  )
+    return
+  const c = file.cols
+  if (!c) return
+  const stand: {
+    /** Never listed, only counted — see `put` in `bucketsFor`. */
+    synthetic: true
+    kind: 'func'
+    loc: number
+    score?: { commits: number; ageDays: number | null; lastTouchedDays: number | null }
+    callers?: number
+    calls?: number
+    cloneSize?: number
+    comparable?: number
+    agent?: undefined
+    children: Node[]
+  } = { synthetic: true, kind: 'func', loc: 0, children: [] }
+  for (let i = 0; i < c.loc.length; i++) {
+    stand.loc = c.loc[i]
+    // `-1` is the absence every column encodes, and each lens already has a branch for it:
+    // no history, calls never parsed, a body never compared. Restoring it as `undefined`
+    // rather than as a zero is the whole point of the sentinel.
+    stand.score =
+      c.commits[i] < 0 && c.touched[i] < 0
+        ? undefined
+        : {
+            commits: Math.max(0, c.commits[i]),
+            // `ageDays` is the gate `contribute` checks for "this repo has history", and
+            // its VALUE is unused there — the bands read `commits` and `lastTouchedDays`.
+            ageDays: 0,
+            lastTouchedDays: c.touched[i] < 0 ? null : c.touched[i],
+          }
+    stand.callers = c.callers[i] < 0 ? undefined : c.callers[i]
+    stand.calls = c.calls[i] < 0 ? undefined : c.calls[i]
+    stand.comparable = c.clones[i] < 0 ? undefined : 1
+    stand.cloneSize = c.clones[i] > 0 ? c.clones[i] : undefined
+    contribute(stand as unknown as Node, false, mode, ranks, span, put)
+  }
+}
+
+/**
+ * A file's held readings, put through the same `contribute` its functions would take.
+ *
+ * The twin of `contributeCols`, for the half of the lenses a column cannot answer: a grade
+ * is not a number the scan knows. What makes it honest is the two fields the backend stamps
+ * — `loc`, so the bar is weighted in lines like every other, and `stale`, because a reading
+ * whose body has moved must not colour or count anything, and only the backend can compare
+ * a hash against a body the window was never sent.
+ *
+ * **The unread remainder is computed, not guessed.** A file's `loc` is the sum of its
+ * functions', so whatever the held readings do not account for is code nobody has read, and
+ * it goes to the same absence bucket an unread function node would. Without it a file with
+ * three readings out of forty functions would draw as fully read — a coverage claim off a
+ * filtered list, which is the failure `work_left` exists to prevent, one surface over.
+ */
+function contributeHeld(file: Node, mode: ColorMode, span: number, put: Put): void {
+  if (mode !== 'legible' && mode !== 'docs' && mode !== 'traps' && mode !== 'surprise') return
+  const held = file.pending
+  if (!held || held.length === 0) return
+  /** Never listed, only counted — see `put` in `bucketsFor`. */
+  const stand: {
+    synthetic: true
+    kind: 'func'
+    loc: number
+    agent?: AgentReport
+    agentStale?: boolean
+    children: Node[]
+  } = { synthetic: true, kind: 'func', loc: 0, children: [] }
+  let read = 0
+  for (const r of held) {
+    stand.loc = r.loc ?? 0
+    stand.agent = r
+    stand.agentStale = r.stale === true
+    read += stand.loc
+    contribute(stand as unknown as Node, false, mode, undefined, span, put)
+  }
+  const rest = file.loc - read
+  if (rest > 0) {
+    stand.loc = rest
+    stand.agent = undefined
+    stand.agentStale = false
+    contribute(stand as unknown as Node, false, mode, undefined, span, put)
+  }
+}
+
+/** The order a breakdown reads in, per lens.
+ *
+ *  Shared for the reason `contribute` is: the pane's rows and the map's rim segments are one
+ *  population, and an order that differed between them would put the same four values in two
+ *  arrangements on one screen — which is worse than either order, because it teaches that
+ *  position means nothing. On the rim it does a second job the pane does not need: a segment's
+ *  POSITION is the only thing that lets two directories be compared at a glance, so it has to
+ *  be a property of the lens and never of the wedge's own contents. */
+export function sortBuckets<T extends { key: string; lines: number }>(
+  rows: T[],
+  mode: ColorMode,
+): T[] {
+  if (mode === 'blame' || mode === 'language') {
+    // By lines, matching `legendFor` — so the panel lists them in the order the map's own
+    // legend does, and the biggest slice of the picture is the first row in both.
+    rows.sort((a, b) => b.lines - a.lines)
+  } else if (mode === 'traps') {
+    // Traps first: it is the only row anybody opens this lens to find.
+    rows.sort((a, b) => Number(b.key === 'trap') - Number(a.key === 'trap'))
+  } else if (mode === 'callers') {
+    // Most-called first. It was fewest-first, on the argument that the sparse end is what
+    // people sweep for — true, and outweighed by the rule now holding every lens together:
+    // one direction, loud end leading, so a rim can be compared with the rim beside it and
+    // with the bar in the pane. See `GRADES` in `Summary.tsx`.
+    const order = CALLER_BANDS.map((b) => b.label)
+    rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
+  } else if (mode === 'clones') {
+    // Biggest group first, on the same argument Traps makes for itself: it is the row
+    // anybody opens this lens to find, and the rows below it are context for it.
+    const order = [...CLONE_BANDS.map((b) => b.label), 'unique']
+    rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
+  } else if (mode === 'reach') {
+    // The direction Callers reads in — the two lenses are a pair and a reader moving between
+    // them must not have to re-learn which way a row of four runs.
+    const order = REACH_BANDS.map((b) => b.label)
+    rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
+  } else if (mode === 'surprise') {
+    // Obscure first, mundane last, then the two absences — `Spread` reads exactly this way
+    // now that `GRADES` leads with the loud end.
+    const order: string[] = ['none', 'some', 'most', 'full', '\u0000expired']
+    rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
+  } else if (mode === 'legible' || mode === 'docs') {
+    // Worst first, loud end first — the direction `Spread` now reads in, and every other
+    // breakdown with it. This was best-first for a while on the argument that a bar should
+    // run the way its ramp's legend runs; what settled it the other way is that the same
+    // breakdown is drawn on the map as a container's rim, where the order is a direction
+    // compared across wedges rather than a list read downward. One direction everywhere
+    // beats each lens reading the way its own legend happens to.
+    const order: string[] = ['none', 'some', 'most', 'full']
+    rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
+  } else {
+    const order = mode === 'churn' ? CHURN_BANDS.map((b) => b.label) : AGE_BANDS.map((b) => b.label)
+    rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
+  }
+  // Whatever the mode could not color goes last whichever way the rest is sorted: it is
+  // the one row that is not a value, and interleaving it by size would read as one.
+  return [...rows.filter((b) => b.key !== UNKNOWN), ...rows.filter((b) => b.key === UNKNOWN)]
+}
+
 /**
  * The subtree broken into the slices the current mode is painting it in.
  *
@@ -1053,7 +1461,6 @@ export function bucketsFor(
    *  different scale from the map beside it the moment you drilled in. */
   ageSpan?: number,
 ): Bucket[] {
-  if (mode === 'surprise') return []
 
   // The caller's span when there is one, and this subtree's only as a fallback for a caller
   // that has no tree above it.
@@ -1064,10 +1471,21 @@ export function bucketsFor(
   const put = (key: string, label: string, fill: string, n: Node, ramp?: number) => {
     let b = bucket.get(key)
     if (!b) {
-      b = { key, label, fill, nodes: [], lines: 0 }
+      b = { key, label, fill, nodes: [], count: 0, lines: 0 }
       bucket.set(key, b)
     }
-    b.nodes.push(n)
+    // **A stand-in never enters the list.** `contributeCols` and `contributeHeld` speak for
+    // functions the window was not sent, through one reused object that is mutated per
+    // entry — so pushing it here put the SAME object in the list hundreds of times, and the
+    // pane drew a row per phantom, every one of them showing whatever the last iteration
+    // had left in the fields. On kibana that was a `6+ callers` list of nameless rows,
+    // several of them labelled `calls 2` under a heading about callers.
+    //
+    // Its LINES still count, because those are what the bar measures and they are real. A
+    // bucket can therefore hold more lines than it can name, which is the honest shape: the
+    // breakdown is of the whole subtree, and the list is of what there is a node for.
+    if (!(n as { synthetic?: boolean }).synthetic) b.nodes.push(n)
+    b.count += 1
     b.lines += n.loc
     if (ramp !== undefined) {
       const r = ramps.get(key) ?? []
@@ -1084,137 +1502,17 @@ export function bucketsFor(
    *  nothing in it and said so only if asked, `git diff` refused to show it, and one editor
    *  round-trip would have dropped the byte and folded the absence row into a real category
    *  with nothing failing. Identical at runtime, legible in the source. */
-  const UNKNOWN = '\u0000unknown'
   const walk = (n: Node, out: boolean) => {
     const outOfScope = out || n.excluded
-    // A FILE is a reading of its own under Docs — its header — so it is a row here beside
-    // the functions, and the buckets count what the list under them counts. Only Docs:
-    // `legible` and `trap` are never sent on a file reading (see `FILE_ASK`), and the other
-    // lenses ask questions a file has no answer to.
-    // A file stands in for its own functions when they have not arrived — see `legendFor`,
-    // which ranks the colours this fills in. Only where a file has an answer of its own:
-    // its author and its language are its own, while a grade is its functions'.
-    if (
-      n.kind === 'file' &&
-      !outOfScope &&
-      n.funcs > 0 &&
-      (mode === 'blame' || mode === 'language')
-    ) {
-      // The same three cases the function branch below spells out, and deliberately the
-      // same words: a row must not depend on whether the ring happened to be fetched.
-      const key = mode === 'blame' ? n.lastAuthor : n.lang
-      if (key && (mode !== 'blame' || isAuthor(key))) {
-        const rank = ranks?.get(key)
-        put(key, key, rank === undefined ? OTHER : slotColor(rank), n)
-      } else if (mode === 'blame' && key) {
-        put('\u0000uncommitted', 'uncommitted lines', 'var(--unanalyzed)', n)
-      } else {
-        put(UNKNOWN, mode === 'blame' ? 'no blame' : 'no language', 'var(--unanalyzed)', n)
-      }
-    }
-    if (n.kind === 'file' && !outOfScope && mode === 'docs') {
-      const g = docGrade(n)
-      if (g) put(g, DOC_WORDS[g], heatColor(DOC_GAP[g], 'docs'), n)
-      else put(UNKNOWN, 'not read yet', 'var(--unanalyzed)', n)
-    }
-    if (n.kind === 'func' && !outOfScope) {
-      const s = n.score
-      if (mode === 'legible' || mode === 'docs' || mode === 'traps') {
-        // Both are read straight off the reading, so both share one absence: a function
-        // nobody has read yet. It is a bucket rather than a drop, for the same reason the
-        // map grays it rather than hiding it — a breakdown that silently omits the unread
-        // reports a coverage it has not got.
-        const r = n.agent && !n.agentStale ? n.agent : undefined
-        if (!r) {
-          put(UNKNOWN, 'not read yet', 'var(--unanalyzed)', n)
-        } else if (mode === 'traps') {
-          // A dated answer falls in with the unread, one bucket, for the reason the legible
-          // branch below gives: from where the reader stands they are the same fact.
-          if (r.trapDated) {
-            put(UNKNOWN, 'not read yet', 'var(--unanalyzed)', n)
-          } else {
-            const trap = trapOf(r)
-            put(
-              trap ? 'trap' : 'clear',
-              trap ? 'trap' : 'no trap reported',
-              trap ? 'var(--trap)' : 'var(--structure)',
-              n,
-            )
-          }
-        } else if (mode === 'docs') {
-          const g = docGrade(n)
-          if (g) put(g, DOC_WORDS[g], heatColor(DOC_GAP[g], 'docs'), n)
-          else put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
-        } else if (legibleOf(r)) {
-          const g = legibleOf(r)!
-          put(g, LEGIBLE_WORDS[g], heatColor(GRADE_SURPRISE[g], 'legible'), n)
-        } else {
-          // Covers both a reading that never graded legibility and one that graded it under
-          // a question since rewritten. Deliberately one bucket: from where the reader is
-          // standing they are the same fact — nobody has answered today's question about
-          // this function — and splitting them would put a row on screen about our own
-          // release history.
-          put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
-        }
-      } else if (mode === 'callers') {
-        // The map's own bands and its absence — a panel that grouped by anything else would
-        // be a legend disagreeing with the picture it sits beside. The exact count is on the
-        // ROW, where it adds what the heading cannot.
-        if (n.callers == null) {
-          put(UNKNOWN, 'calls not resolved here', 'var(--unanalyzed)', n)
-        } else {
-          const band = bandOf(CALLER_BANDS, n.callers)
-          put(band.label, band.label, heatColor(band.t, 'callers'), n)
-        }
-      } else if (mode === 'clones') {
-        if (n.comparable == null) {
-          put(UNKNOWN, 'too small to compare', 'var(--unanalyzed)', n)
-        } else if (n.cloneSize == null) {
-          put('unique', 'no clone in this repo', 'var(--structure)', n)
-        } else {
-          const band = bandOf(CLONE_BANDS, n.cloneSize)
-          put(band.label, band.label, 'var(--clone)', n)
-        }
-      } else if (mode === 'reach') {
-        // The map's bands and its absence, the same shape Callers takes — see `REACH_BANDS`.
-        if (n.calls == null) {
-          put(UNKNOWN, 'calls not resolved here', 'var(--unanalyzed)', n)
-        } else {
-          const band = bandOf(REACH_BANDS, n.calls)
-          put(band.label, band.label, heatColor(band.t, 'reach'), n)
-        }
-      } else if (mode === 'blame' || mode === 'language') {
-        const key = mode === 'blame' ? n.lastAuthor : n.lang
-        if (key && (mode !== 'blame' || isAuthor(key))) {
-          const rank = ranks?.get(key)
-          put(key, key, rank === undefined ? OTHER : slotColor(rank), n)
-        } else if (mode === 'blame' && key) {
-          // Written to but not committed. Its own row, because "these lines are yours and
-          // unsaved" and "this file is not in git" are different things to be told.
-          put('\u0000uncommitted', 'uncommitted lines', 'var(--unanalyzed)', n)
-        } else {
-          // No blame at all: untracked, a symlink, or not a repo. It was labeled
-          // `uncommitted`, which is the other thing entirely.
-          put(UNKNOWN, mode === 'blame' ? 'not in git' : 'unknown', 'var(--unanalyzed)', n)
-        }
-      } else if (mode === 'churn') {
-        // Same gate `colorFor` uses, so a wedge the map left gray is not given a band here.
-        if (s && s.ageDays !== null) {
-          const band =
-            CHURN_BANDS.find((b) => s.commits >= b.min) ?? CHURN_BANDS[CHURN_BANDS.length - 1]
-          put(band.label, band.label, '', n, s.churn)
-        } else {
-          put(UNKNOWN, 'no git history', 'var(--unanalyzed)', n)
-        }
-      } else {
-        if (s && s.lastTouchedDays !== null) {
-          const d = s.lastTouchedDays
-          const band = AGE_BANDS.find((b) => d < b.under) ?? AGE_BANDS[AGE_BANDS.length - 1]
-          put(band.label, band.label, '', n, ageRamp(d, span))
-        } else {
-          put(UNKNOWN, 'no git history', 'var(--unanalyzed)', n)
-        }
-      }
+    contribute(n, outOfScope, mode, ranks, span, put)
+    // **The pane has the same hole the rim had.** Its breakdown is built by walking function
+    // nodes, so on a repo whose rings have not been fetched it listed nothing — an empty
+    // `COMMITS BEHIND THESE LINES` over a directory with four thousand files. Same columns,
+    // same fix, and it has to be the same call or the pane and the rim would be two answers
+    // about one population again.
+    if (n.kind === 'file' && !outOfScope && n.funcs > 0) {
+      contributeCols(n, mode, ranks, span, put)
+      contributeHeld(n, mode, span, put)
     }
     n.children.forEach((c) => walk(c, outOfScope))
   }
@@ -1229,45 +1527,204 @@ export function bucketsFor(
     b.fill = ramped(mean, mode === 'churn' ? 'churn' : 'age').fill
   }
 
-  const out = [...bucket.values()]
-  if (mode === 'blame' || mode === 'language') {
-    // By lines, matching `legendFor` — so the panel lists them in the order the map's own
-    // legend does, and the biggest slice of the picture is the first row in both.
-    out.sort((a, b) => b.lines - a.lines)
-  } else if (mode === 'traps') {
-    // Traps first: it is the only row anybody opens this lens to find.
-    out.sort((a, b) => Number(b.key === 'trap') - Number(a.key === 'trap'))
-  } else if (mode === 'callers') {
-    // Fewest callers first: it is the end people open this lens to sweep, and it reads down
-    // the same way the other banded lenses do — one end of the scale to the other.
-    const order = CALLER_BANDS.map((b) => b.label).reverse()
-    out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
-  } else if (mode === 'clones') {
-    // Biggest group first, on the same argument Traps makes for itself: it is the row
-    // anybody opens this lens to find, and the rows below it are context for it.
-    const order = [...CLONE_BANDS.map((b) => b.label), 'unique']
-    out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
-  } else if (mode === 'reach') {
-    // Fewest first, the direction Callers reads in — the two lenses are a pair and a reader
-    // moving between them must not have to re-learn which way a row of four runs.
-    const order = REACH_BANDS.map((b) => b.label).reverse()
-    out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
-  } else if (mode === 'legible' || mode === 'docs') {
-    // Best first, calm end first, dark end first — the direction `Spread` reads in and the
-    // direction each ramp's own legend reads in (`crystal → nonsense`, `covered →
-    // undocumented`). It was worst-first, so the same bar meant "getting worse" left to
-    // right under Surprise and "getting better" under the two lenses beside it. Nothing was
-    // mis-COLORED — bright has always been the thing to act on — but a reader moving
-    // between tabs had to re-learn which way to read a row of five.
-    const order: string[] = ['full', 'most', 'some', 'none']
-    out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
-  } else {
-    const order = mode === 'churn' ? CHURN_BANDS.map((b) => b.label) : AGE_BANDS.map((b) => b.label)
-    out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
+  return sortBuckets([...bucket.values()], mode)
+}
+
+/** One segment of a directory's rim: a value, its colour, and how many lines hold it. */
+export interface Slice {
+  key: string
+  label: string
+  fill: string
+  lines: number
+}
+
+/**
+ * Every directory's own distribution, in one pass.
+ *
+ * **A container has no reading; it has a POPULATION, and a mean of one is not a summary of
+ * it.** `DIR_RIM_PX` argues that a directory's colour is a roll-up of what is inside rather
+ * than a reading of the directory — true, and it stopped one step short. What was drawn was
+ * that roll-up collapsed to a single number: a hot share, a mean age, a fraction called. A
+ * mean over forty thousand functions lands mid-scale every time, which is why Churn, Age,
+ * Callers and Reach all drew the same middling ring on kibana. Four different questions,
+ * one answer, and the answer was "about average" because averaging is what was being shown.
+ *
+ * So the rim draws the distribution instead — the same breakdown the pane prints, on the
+ * wedge it is about. Nothing is averaged and nothing is hidden: a directory that is half
+ * ancient and half rewritten last week reads as two bands, where its mean read as neither.
+ *
+ * **Bottom-up, because the obvious way is quadratic.** Each directory's histogram is the
+ * merge of its children's, so the whole map costs one walk plus a bucket merge per node;
+ * asking `bucketsFor` per wedge would re-walk every subtree from the top and cost
+ * O(nodes × depth) — about 1.2 million visits on kibana, per layout.
+ *
+ * **Slim on purpose.** `Bucket` carries the member nodes so the pane can list them; a
+ * directory's rim needs a width and a colour, and carrying node lists up the tree would
+ * hold the whole repo in memory once per level. Only lines and the ramp mean climb.
+ */
+export function histogramsFor(
+  root: Node,
+  mode: ColorMode,
+  ranks?: Map<string, number>,
+  ageSpan?: number,
+  /** Which containers are worth ANSWERING for — the ones the layout drew.
+   *
+   *  **The walk has to cover the whole subtree; the answer does not.** Completeness is why
+   *  this visits every file: a distribution over a sample is a confident picture of a biased
+   *  one. But materialising a result is a different cost from visiting a node — it sorts the
+   *  buckets and allocates a row apiece — and on kibana that ran for every one of ~7,000
+   *  directories to serve the two hundred on screen, with four hundred authors to sort in
+   *  each. Measured at 25ms a call under Blame, which is most of a 30fps frame and most of
+   *  why a replay stuttered.
+   *
+   *  Omit it and every container is answered for, which is what a caller with no layout in
+   *  hand needs. */
+  want?: ReadonlySet<string>,
+): Map<string, Slice[]> {
+  const out = new Map<string, Slice[]>()
+  // Lenses whose containers are marks rather than quantities answer elsewhere — see the
+  // dots on the map. A histogram of "contains a trap" is a share, which is the thing those
+  // two lenses are written not to say.
+  if (mode === 'traps' || mode === 'clones') return out
+  const span = ageSpan ?? ageSpanOf(root)
+
+  interface Tally {
+    key: string
+    label: string
+    fill: string
+    lines: number
+    /** Ramped modes take their swatch from the MEAN of the members' ramp inputs, so the
+     *  colour on the rim is a colour a wedge in it is actually wearing. Carried as a sum
+     *  and a count rather than an array, because these merge all the way up the tree. */
+    sum: number
+    n: number
   }
-  // Whatever the mode could not color goes last whichever way the rest is sorted: it is
-  // the one row that is not a value, and interleaving it by size would read as one.
-  return [...out.filter((b) => b.key !== UNKNOWN), ...out.filter((b) => b.key === UNKNOWN)]
+
+  const add = (into: Map<string, Tally>, t: Tally) => {
+    const cur = into.get(t.key)
+    if (!cur) {
+      into.set(t.key, { ...t })
+      return
+    }
+    cur.lines += t.lines
+    cur.sum += t.sum
+    cur.n += t.n
+  }
+
+  /** **Which lenses a file can answer for when its functions have not been fetched.**
+   *
+   *  This is the difference between a distribution and a sample of whatever happened to be
+   *  loaded. Rings arrive per file and only for files wide enough to draw an inside, so on
+   *  a large repo most of the tree has no function nodes — and a histogram built from the
+   *  handful that do is not a quiet approximation, it is a confident picture of a biased
+   *  subset. Three files with rings, all touched last week, and the directory holding four
+   *  thousand draws as entirely fresh.
+   *
+   *  So a subtree draws its distribution only when every file in it is answered for: by its
+   *  own ring, or by itself where its own value means the same thing. Everywhere else the
+   *  rim falls back to the roll-up the backend computed over the whole subtree, which is
+   *  what was drawn before any of this existed and is complete by construction. */
+  const standsIn =
+    mode === 'blame' ||
+    mode === 'language' ||
+    mode === 'age' ||
+    mode === 'churn' ||
+    mode === 'callers' ||
+    mode === 'reach' ||
+    mode === 'legible' ||
+    mode === 'docs' ||
+    mode === 'surprise'
+
+  /**
+   * Fold one subtree into `sink`, and answer for it if anybody asked.
+   *
+   * **The accumulator is passed DOWN rather than built at every node and copied up.** The
+   * first version gave each node its own map and merged its children's into it, which is a
+   * Map allocation per node and a copy of every key at every level — on a frame of kibana,
+   * 125,000 maps and four hundred author keys walked up five levels. It cost 25ms a call
+   * under Blame, which is most of a 30fps frame, and it is why a replay stuttered in a way
+   * that got worse the further the story ran: the tree grows, so the copying grows with it.
+   *
+   * Now only a node somebody wants an ANSWER for opens an accumulator of its own. Everything
+   * between adds straight into the nearest such ancestor's, so a subtree is counted once
+   * instead of once per level it sits under, and the merges that remain are a few hundred
+   * rather than a hundred thousand.
+   *
+   * Returns whether the subtree is WHOLE — see `standsIn`. That has to climb whatever the
+   * accumulator does: a hole anywhere under a container disqualifies its distribution, and a
+   * node that opens no accumulator still has to report one.
+   */
+  const walk = (node: Node, outer: boolean, sink: Map<string, Tally>): boolean => {
+    const outOfScope = outer || node.excluded
+    const answers = node.kind === 'dir' && (!want || want.has(node.id))
+    const mine = answers ? new Map<string, Tally>() : sink
+    const put: Put = (key, label, fill, n, ramp) =>
+      add(mine, {
+        key,
+        label,
+        fill,
+        lines: n.loc,
+        sum: ramp ?? 0,
+        n: ramp === undefined ? 0 : 1,
+      })
+    contribute(node, outOfScope, mode, ranks, span, put)
+    // A file that still holds its functions answers through them; one that does not answers
+    // through its columns and its held readings. Never both — `funcs` is zero exactly when
+    // the ring has arrived.
+    if (node.kind === 'file' && !outOfScope && node.funcs > 0) {
+      contributeCols(node, mode, ranks, span, put)
+      contributeHeld(node, mode, span, put)
+    }
+    // A file whose ring has not arrived is a hole unless this lens lets it answer for
+    // itself. An excluded one is not a hole: it is deliberately out of the population, and
+    // the counts say so elsewhere.
+    let whole =
+      node.kind !== 'file' ||
+      outOfScope ||
+      node.funcs === 0 ||
+      // Blame and Language need nothing extra — a file carries its own author and language.
+      // The numeric lenses need the columns; the reading lenses answer from `pending` and
+      // its computed remainder, which together cover every line in the file whether or not
+      // anybody has read it.
+      (standsIn &&
+        (mode === 'blame' ||
+          mode === 'language' ||
+          mode === 'legible' ||
+          mode === 'docs' ||
+          mode === 'surprise' ||
+          !!node.cols))
+    for (const child of node.children) {
+      if (!walk(child, outOfScope, mine)) whole = false
+    }
+    if (answers) {
+      if (whole && mine.size > 0) {
+        out.set(
+          node.id,
+          sortBuckets(
+            [...mine.values()].map((t) => ({
+              key: t.key,
+              label: t.label,
+              // An empty fill is a ramped bucket waiting for its mean — the same contract
+              // `bucketsFor` works to, and the same reason: the band is fixed, the colour is
+              // measured.
+              fill:
+                t.fill === '' && t.n > 0
+                  ? ramped(t.sum / t.n, mode === 'churn' ? 'churn' : 'age').fill
+                  : t.fill,
+              lines: t.lines,
+            })),
+            mode,
+          ),
+        )
+      }
+      // Into the ancestor either way: its population includes this subtree whether or not
+      // this one had an answer worth keeping.
+      for (const t of mine.values()) add(sink, t)
+    }
+    return whole
+  }
+  walk(root, false, new Map())
+  return out
 }
 
 /** The distinct values present, for a legend. Categorical modes need one; ramps don't. */
