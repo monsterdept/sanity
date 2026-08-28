@@ -110,29 +110,15 @@ export function onHistoryProgress(cb: (p: Progress) => void): () => void {
   }
 }
 
-/** Insert `f` into an ascending array, if it is not already there. */
-function insertSorted(order: number[], f: number): void {
-  let lo = 0
-  let hi = order.length
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
-    if (order[mid] < f) lo = mid + 1
-    else hi = mid
-  }
-  if (order[lo] !== f) order.splice(lo, 0, f)
-}
-
-/** Take `f` out of an ascending array. */
-function removeSorted(order: number[], f: number): void {
-  let lo = 0
-  let hi = order.length
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
-    if (order[mid] < f) lo = mid + 1
-    else hi = mid
-  }
-  if (order[lo] === f) order.splice(lo, 1)
-}
+/** The two array edits `advance` used to make per function, kept only as the record of what
+ *  replaced them.
+ *
+ *  Both are a binary search and then a splice, and the splice is O(live): on kibana that is
+ *  an array of 148,000 indices, moved once per arrival. It was the right shape while a frame
+ *  was one commit and is the wrong one at speed, where a frame carries the arrivals of
+ *  several hundred — see the merge at the end of `advance`, which does the same work for a
+ *  whole step in one linear pass. Measured: 2,000 arrivals, 18.8ms spliced against 0.5ms
+ *  merged. Deleted rather than left unused; the argument is the thing worth keeping. */
 
 /** Days between two epoch-second stamps, never negative. */
 function daysBetween(now: number, then: number): number {
@@ -164,8 +150,15 @@ interface Frame {
    *  **Kept sorted as it changes, rather than sorted per frame.** The tree builder used to
    *  copy the whole live map into an array and sort it every frame: on ceph that is ninety
    *  four thousand entries allocated and sorted thirty times a second, to answer a question
-   *  whose answer changed by a handful of entries since the last frame. A commit adds and
-   *  removes a few functions; splicing them into place costs a memmove and nothing else. */
+   *  whose answer changed by a handful of entries since the last frame.
+   *
+   *  **Rebuilt once per STEP, not per commit.** The first version spliced each arrival into
+   *  place, which is right when a frame is one commit — "a commit adds and removes a few
+   *  functions" — and wrong at speed, where the transport's duration makes a frame carry
+   *  hundreds of them. A splice is O(live), and live is 148,000 on kibana: measured, 2,000
+   *  arrivals cost 18.8ms one at a time and 0.5ms merged in a single pass. `advance` collects
+   *  the step's arrivals and departures and rebuilds this once, which is the same array by a
+   *  cheaper route. */
   order: number[]
   /** func index → when it was last touched. */
   touched: Map<number, number>
@@ -346,6 +339,21 @@ function leave(frame: Frame, p: number, hist: Tables): void {
 
 /** Apply commits `(frame.at, to]` in place. */
 function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): void {
+  /** Arrivals and departures for this WHOLE step, applied to `order` once at the end.
+   *
+   *  **A splice is O(live), and a step at speed is hundreds of commits.** `order` is an
+   *  ascending array of every function alive in the frame — 148,000 of them on kibana — so
+   *  each arrival moved up to that many elements, and a frame at 5× carries the arrivals of
+   *  roughly six hundred commits. Measured on an array that size: 2,000 arrivals spliced one
+   *  at a time is **18.8ms**, and the same arrivals merged once is **0.5ms**.
+   *
+   *  Held as two sets rather than applied and undone, because a function can arrive and
+   *  leave inside one step: a set that cancels its own opposite keeps the end state exactly
+   *  what a commit-by-commit fold would have produced, which is the property this must not
+   *  trade for speed — `frameTree` reads `order` and nothing else knows which functions are
+   *  live. */
+  const added = new Set<number>()
+  const gone = new Set<number>()
   for (let i = frame.at + 1; i <= to && i < hist.commits; i++) {
     const c = deltas.at(i)
     // Past what has been fetched. The caller waits on `Deltas.ensure` before folding, so
@@ -364,7 +372,7 @@ function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): void {
       frame.funcAuthor.set(f, c.author)
       frame.editedAt.set(f, i)
       if (arrived) {
-        insertSorted(frame.order, f)
+        if (!gone.delete(f)) added.add(f)
         frame.born.set(f, c.ts)
         frame.bornAt.set(f, i)
         enter(frame, hist.funcs[f].path, hist, i)
@@ -380,7 +388,7 @@ function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): void {
     for (const f of c.del) {
       if (frame.loc.has(f)) {
         leave(frame, hist.funcs[f].path, hist)
-        removeSorted(frame.order, f)
+        if (!added.delete(f)) gone.add(f)
         frame.lines -= frame.loc.get(f) ?? 0
       }
       frame.loc.delete(f)
@@ -395,6 +403,34 @@ function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): void {
     for (const [f, packed] of c.read ?? []) frame.graded.set(f, packed)
     for (const f of c.unread ?? []) frame.graded.delete(f)
     for (const p of c.files) frame.author.set(p, c.author)
+  }
+  // One pass for the whole step: drop what left, merge in what arrived. Both sides are
+  // ascending — `order` by construction and the arrivals by sorting once — so this is a
+  // linear merge rather than a splice apiece.
+  if (added.size > 0 || gone.size > 0) {
+    const fresh = [...added].sort((a, b) => a - b)
+    const out: number[] = []
+    let i = 0
+    let j = 0
+    const old = frame.order
+    while (i < old.length || j < fresh.length) {
+      if (i < old.length && gone.has(old[i])) {
+        i++
+        continue
+      }
+      if (j >= fresh.length) out.push(old[i++])
+      else if (i >= old.length) out.push(fresh[j++])
+      // Equal is not possible — an arrival is a function `frame.loc` did not hold — but a
+      // timeline is data and this is a merge: taking one and dropping the other keeps the
+      // array a SET, which is what every reader assumes it is.
+      else if (old[i] < fresh[j]) out.push(old[i++])
+      else if (old[i] > fresh[j]) out.push(fresh[j++])
+      else {
+        out.push(old[i++])
+        j++
+      }
+    }
+    frame.order = out
   }
   frame.at = Math.min(to, hist.commits - 1)
   frame.ts = deltas.at(Math.max(0, frame.at))?.ts ?? hist.baseTs
@@ -607,44 +643,74 @@ function aggregate(node: Node, appearedOf: (id: string) => number | null): void 
     if (s.lastTouchedDays !== null)
       touched = touched === null ? s.lastTouchedDays : Math.min(touched, s.lastTouchedDays)
   }
-  if (w === 0) return
-  node.score = {
+  // **Cleared, not left.** A pooled container arrives holding last frame's score, and a
+  // container whose children carry none this frame would otherwise keep it — a number six
+  // hundred commits stale, reading as current. `reuse` nulls it and this is the other half:
+  // the path that declines to write one has to say so.
+  if (w === 0) {
+    node.score = null
+    return
+  }
+  // **Written field by field into whatever is already there.** A `Score` is thirteen fields
+  // and there is one per container per frame; on a repo of sixty thousand files that is the
+  // same allocation storm the nodes themselves were, one layer down. Building a fresh object
+  // and copying it over the old one is worse than either — it allocates AND copies, which is
+  // what the first version of this did.
+  const s = node.score ?? {
     surprise: 0,
     documented: 0,
-    churn: churn / w,
-    // A replay has none. The timeline holds which commits touched what, so this is
-    // derivable — but it would be a count as of the FRAME, and every other number here is
-    // already that. Left absent rather than filled with today's answer about a past commit.
+    churn: 0,
     allCommits: null,
-    ageDays: age,
-    lastTouchedDays: touched,
-    commits,
+    ageDays: null,
+    lastTouchedDays: null,
+    commits: 0,
     provenance: 'history',
-    hotShare: node.loc > 0 ? hot / node.loc : 0,
+    hotShare: 0,
     source: 'proxy',
-    analyzedShare: node.loc > 0 ? readLines / node.loc : 0,
-    // **Never rolled up.** A container flashes on its OWN arrival and on nothing else, so
-    // this is filled from the frame's own record of when this path first existed — see
-    // `enter`. Rolled up from the children it meant that adding one function lit its file,
-    // its directory and every directory out to the rim, which reads as a large commit and
-    // was a one-line one.
-    appeared: appearedOf(node.id),
-    // **Containers never show the quiet flash at all**, on the same argument one step
-    // further. An arrival is a fact a file has of its own — it did not exist and now it
-    // does. Being EDITED is not: the only way to give a directory one is to inherit it from
-    // whatever changed inside, which is the roll-up, and at the dim end it would light half
-    // the map on every commit for no information. A touch is drawn where it happened.
+    analyzedShare: 0,
+    appeared: null,
     edited: null,
   }
+  s.churn = churn / w
+  // A replay has none. The timeline holds which commits touched what, so this is
+  // derivable — but it would be a count as of the FRAME, and every other number here is
+  // already that. Left absent rather than filled with today's answer about a past commit.
+  s.allCommits = null
+  s.ageDays = age
+  s.lastTouchedDays = touched
+  s.commits = commits
+  s.hotShare = node.loc > 0 ? hot / node.loc : 0
+  s.analyzedShare = node.loc > 0 ? readLines / node.loc : 0
+  // **Never rolled up.** A container flashes on its OWN arrival and on nothing else, so
+  // this is filled from the frame's own record of when this path first existed — see
+  // `enter`. Rolled up from the children it meant that adding one function lit its file,
+  // its directory and every directory out to the rim, which reads as a large commit and
+  // was a one-line one.
+  s.appeared = appearedOf(node.id)
+  // **Containers never show the quiet flash at all**, on the same argument one step
+  // further. An arrival is a fact a file has of its own — it did not exist and now it
+  // does. Being EDITED is not: the only way to give a directory one is to inherit it from
+  // whatever changed inside, which is the roll-up, and at the dim end it would light half
+  // the map on every commit for no information. A touch is drawn where it happened.
+  s.edited = null
+  node.score = s
 }
 
 /** Fold a directory that holds exactly one directory into its child, so `src/tauri/src`
  *  is one ring rather than three. The scan does this and the two pictures have to have
  *  the same shape, or scrubbing to HEAD would visibly restructure the repo. */
 function collapse(node: Node): Node {
-  node.children = node.children.map(collapse)
-  if (node.kind === 'dir' && node.children.length === 1 && node.children[0].kind === 'dir') {
-    const only = node.children[0]
+  // In place. It was `children.map(collapse)`, which allocates an array per container per
+  // frame — invisible next to the nodes themselves until those were pooled, and then the
+  // largest thing left. A chain that collapses still yields a fresh node, which is right:
+  // it is a different subject from either of the two it replaces, and there are few of them.
+  const kids = node.children
+  for (let i = 0; i < kids.length; i++) {
+    const done = collapse(kids[i])
+    if (done !== kids[i]) kids[i] = done
+  }
+  if (node.kind === 'dir' && kids.length === 1 && kids[0].kind === 'dir') {
+    const only = kids[0]
     return { ...only, name: `${node.name}/${only.name}` }
   }
   return node
@@ -688,22 +754,86 @@ function dirNode(path: string, name: string): Node {
   }
 }
 
-/** Function nodes, reused frame to frame.
+/** Every node a frame draws, reused frame to frame.
  *
  *  A frame of tonepoet is seventeen thousand functions, each with a `Score`, and building
  *  them fresh thirty times a second is a million objects a second handed straight to the
  *  collector — which showed up exactly as it sounds: a smooth replay with a hitch in it on
- *  a period nobody chose. Function nodes are pooled and MUTATED instead.
+ *  a period nobody chose. Nodes are pooled and MUTATED instead.
  *
- *  Containers are not pooled, deliberately. The sunburst recomputes its layout when the
- *  node it is rooted at changes identity, so a stable root would freeze the map: every dir
- *  and file has to be a new object each frame for the picture to move at all. That is
- *  seven hundred allocations against seventeen thousand, which is the whole saving with
- *  none of the hazard.
+ *  **Containers were left out of this, and the reason inverted on a large repo.** The
+ *  argument was that the sunburst recomputes its layout when the node it is ROOTED at
+ *  changes identity, so a stable root would freeze the map — which is exactly right about
+ *  the root and does not reach its children: `layout` walks the tree afresh every time it
+ *  runs, and every memo downstream keys on the root. So the root is still allocated per
+ *  frame, one object, and everything under it is held here.
+ *
+ *  What made it worth doing is that the saving was measured on the wrong half. `minLoc`
+ *  rolls a function up before a node exists, and on a 4.2M-line repo the cut is a thousand
+ *  lines — so nearly every function is folded away and the frame is almost entirely
+ *  containers. Sixty thousand files and their stand-ins, at about twenty-five fields each,
+ *  against a pooled population of nearly nothing: measured at 117ms a frame to BUILD, where
+ *  folding six hundred commits into it cost 33ms.
  *
  *  Keyed by the timeline it belongs to, so switching projects cannot hand one repo's nodes
  *  to another's tree. */
-let pool: { hist: Tables; nodes: Map<number, Node> } | null = null
+interface Pool {
+  hist: Tables
+  nodes: Map<number, Node>
+  dirs: Map<string, Node>
+  files: Map<number, Node>
+  /** The per-file roll-up stand-ins — see where they are built. */
+  folded: Map<number, Node>
+  /** ...and the per-DIRECTORY ones, for the files a ring has no room for. */
+  crowd: Map<number, Node>
+}
+let pool: Pool | null = null
+
+/** A score carrying an event and nothing else.
+ *
+ *  Every other field a `Score` has is a measurement, and a stand-in is a count of things the
+ *  picture has no room for — it has no age, no churn and no reading of its own, so they stay
+ *  at the values that mean "no claim". A score with nothing in it but the event is why
+ *  `aggregate` has to skip these nodes: rolled into their parent they would dilute its real
+ *  numbers with zeroes. */
+function flashOnly(birth: boolean, edit: boolean): Score | null {
+  if (!birth && !edit) return null
+  return {
+    surprise: 0,
+    documented: 0,
+    churn: 0,
+    ageDays: null,
+    lastTouchedDays: null,
+    commits: 0,
+    allCommits: null,
+    provenance: 'history',
+    hotShare: 0,
+    source: 'proxy',
+    analyzedShare: 0,
+    appeared: birth ? 1 : null,
+    edited: edit ? 1 : null,
+  }
+}
+
+/** Ready a pooled container for this frame.
+ *
+ *  Everything a frame DERIVES is cleared; everything that is a property of the path is left
+ *  alone. `id`, `path`, `name`, `kind` and `lang` are the second kind — a file does not
+ *  change its name between commits — and rewriting them every frame is the allocation this
+ *  exists to avoid, wearing a different hat.
+ *
+ *  `score` is cleared rather than kept for `aggregate` to overwrite, because `aggregate`
+ *  can decline to write one: a container whose children carry no score at all leaves it
+ *  untouched, and a stale score from six hundred commits ago is the worst of both — it
+ *  reads as current and describes a frame that has gone. */
+function reuse(node: Node): Node {
+  node.children.length = 0
+  node.loc = 0
+  node.score = null
+  node.birthBelow = undefined
+  node.touchBelow = undefined
+  return node
+}
 
 /** Path string → its index, so a container can look up its own arrival by node id. Built
  *  once per timeline rather than per frame: it is a property of the scan, and a replay
@@ -716,6 +846,74 @@ let index: { hist: Tables; at: Map<string, number> } | null = null
  *  of the frame: a replay rebuilds its tree thirty times a second and this changes only when
  *  somebody drills. A file scope matches itself; a directory matches everything beneath it,
  *  segment-wise, or `web/src` takes in `web/src-old`. */
+/**
+ * The directory tree of a timeline, interned once.
+ *
+ * **A replay's paths never change**, so the shape they make is a property of the timeline
+ * and not of the frame — which is what lets a frame ask "what is under this directory"
+ * without walking anything. Dirs are indices here for the same reason paths already are:
+ * a frame totals lines into a dense array, and a string key would put a hash in the middle
+ * of the hottest loop in the module.
+ *
+ * `ancestors` is innermost-first and excludes the root, matching `dirsOf`, which this
+ * replaces at frame time — that function allocated an array of strings per path per frame.
+ */
+interface Shape {
+  hist: Tables
+  /** Dir path per index. `0` is the repo root, whose path is the empty string. */
+  path: string[]
+  name: string[]
+  /** Child directories, and the files that sit directly inside — path indices. */
+  kids: number[][]
+  files: number[][]
+  /** Each file path's own directory, and its whole ancestor chain. */
+  owner: Int32Array
+  ancestors: Int32Array[]
+}
+
+let shaped: Shape | null = null
+function shapeOf(hist: Tables): Shape {
+  if (shaped && shaped.hist === hist && shaped.owner.length === hist.paths.length) return shaped
+  const at = new Map<string, number>([['', 0]])
+  const shape: Shape = {
+    hist,
+    path: [''],
+    name: [hist.paths.length > 0 ? '' : ''],
+    kids: [[]],
+    files: [[]],
+    owner: new Int32Array(hist.paths.length),
+    ancestors: new Array<Int32Array>(hist.paths.length),
+  }
+  const dirFor = (path: string): number => {
+    const had = at.get(path)
+    if (had !== undefined) return had
+    const cut = path.lastIndexOf('/')
+    const parent = dirFor(cut === -1 ? '' : path.slice(0, cut))
+    const idx = shape.path.length
+    shape.path.push(path)
+    shape.name.push(cut === -1 ? path : path.slice(cut + 1))
+    shape.kids.push([])
+    shape.files.push([])
+    at.set(path, idx)
+    shape.kids[parent].push(idx)
+    return idx
+  }
+  hist.paths.forEach((p, i) => {
+    const cut = p.lastIndexOf('/')
+    const dir = dirFor(cut === -1 ? '' : p.slice(0, cut))
+    shape.owner[i] = dir
+    shape.files[dir].push(i)
+    const chain: number[] = []
+    for (let d = dir; d !== 0; d = at.get(shape.path[d].slice(0, Math.max(0, shape.path[d].lastIndexOf('/')))) ?? 0) {
+      chain.push(d)
+      if (chain.length > 64) break
+    }
+    shape.ancestors[i] = Int32Array.from(chain)
+  })
+  shaped = shape
+  return shape
+}
+
 let scoped: { hist: Tables; scope: string; at: Set<number> } | null = null
 function scopeOf(hist: Tables, scope: string): Set<number> {
   if (scoped && scoped.hist === hist && scoped.scope === scope) return scoped.at
@@ -810,41 +1008,24 @@ export function frameTree(
   density: number = 1,
 ): Node {
   const frame = replay(hist, deltas, index)
-  const root = dirNode('', repoName)
-  const dirs = new Map<string, Node>([['', root]])
-
-  const dirFor = (path: string): Node => {
-    const found = dirs.get(path)
-    if (found) return found
-    const cut = path.lastIndexOf('/')
-    const parent = dirFor(cut === -1 ? '' : path.slice(0, cut))
-    const made = dirNode(path, cut === -1 ? path : path.slice(cut + 1))
-    dirs.set(path, made)
-    parent.children.push(made)
-    return made
-  }
-
-  const files = new Map<number, Node>()
-  const fileFor = (p: number): Node => {
-    const found = files.get(p)
-    if (found) return found
-    const path = hist.paths[p]
-    const cut = path.lastIndexOf('/')
-    const parent = dirFor(cut === -1 ? '' : path.slice(0, cut))
-    const made: Node = {
-      ...dirNode(path, cut === -1 ? path : path.slice(cut + 1)),
-      kind: 'file',
-      lang: hist.langs[p] || null,
-      lastAuthor: frame.author.get(p) ?? null,
+  if (!pool || pool.hist !== hist) {
+    pool = {
+      hist,
+      nodes: new Map(),
+      dirs: new Map(),
+      files: new Map(),
+      folded: new Map(),
+      crowd: new Map(),
     }
-    files.set(p, made)
-    parent.children.push(made)
-    return made
   }
-
-  if (!pool || pool.hist !== hist) pool = { hist, nodes: new Map() }
-  const nodes = pool.nodes
+  const held: Pool = pool
+  const nodes = held.nodes
+  const shape = shapeOf(hist)
   const pathIndex = pathIndexOf(hist)
+  // **The root is the one allocation, and it has to be.** Every memo downstream keys on it,
+  // so a stable root would hold the picture still while the data moved underneath — see the
+  // pool's own note.
+  const root = dirNode('', repoName)
 
   /** Lines a function needs before it gets a node of its own.
    *
@@ -864,27 +1045,27 @@ export function frameTree(
    *  under a few thousand functions the threshold lands below one line and nothing is
    *  rolled up. */
   const minLoc = frame.lines / (4000 * density * density)
-  /** The same rule asked about what is actually being drawn — see `scope`.
-   *
-   *  The pass this needs is the one the incremental `frame.lines` exists to avoid, so it is
-   *  paid only when drilled: at the root there is no scope, no pass, and the arithmetic
-   *  below is what it always was. Inside a scope it is one add per live function against a
-   *  set lookup, next to a loop that already visits every one of them and does far more. */
+  /** The same rule asked about what is actually being drawn — see `scope`. */
   const inScope = scope ? scopeOf(hist, scope) : null
   let scopeLines = 0
   if (inScope) {
-    for (const [f, loc] of frame.loc) {
-      const def = hist.funcs[f]
-      if (def && inScope.has(def.path)) scopeLines += loc
+    for (const f of frame.order) {
+      if (inScope.has(hist.funcs[f].path)) scopeLines += frame.loc.get(f) ?? 0
     }
   }
-  /** What a function inside the scope has to clear. Falls back to the repo-wide cut when the
-   *  scope holds nothing in this frame — a directory drilled into at HEAD and replayed from
-   *  before it existed, which is an ordinary thing to do. */
   const scopeMin = inScope && scopeLines > 0 ? scopeLines / (4000 * density * density) : minLoc
-  /** Lines and count rolled up per file, for the stand-in wedges below. */
-  const restLoc = new Map<number, number>()
-  const restCount = new Map<number, number>()
+
+  /** Lines and count rolled up per file, for the stand-in wedges below.
+   *
+   *  **Dense arrays rather than maps, because a path IS an index.** These are written once
+   *  per live function and read once per live file, and as maps that is a hash into a table
+   *  the size of the repo — 148,000 lookups against 60,000 keys, which is the pointer chase
+   *  the measurement found: sixty thousand files alone cost 10ms a frame and a hundred and
+   *  forty-eight thousand functions alone cost 17ms, but together they cost 97ms. That
+   *  superlinearity is not work, it is cache misses, and `hist.paths` is already a dense
+   *  index that makes it go away. */
+  const restLoc = new Float64Array(hist.paths.length)
+  const restCount = new Uint32Array(hist.paths.length)
   /** ...and whether anything folded into that stand-in flashed on this frame.
    *
    *  Without this a replay of a large repo shows nothing at all. `minLoc` drops a function
@@ -892,8 +1073,13 @@ export function frameTree(
    *  of them — so the commit under the playhead had nowhere to land and the map sat grey
    *  while the log scrolled past. The stand-in is what the fold left standing in for that
    *  function, so it is what carries the event. */
-  const restBirth = new Set<number>()
-  const restEdit = new Set<number>()
+  const restBirth = new Uint8Array(hist.paths.length)
+  const restEdit = new Uint8Array(hist.paths.length)
+  /** Every live line in each file, drawn or rolled up, and the functions that earned their
+   *  own node. The totals are what the top-down walk below thresholds against; the lists are
+   *  what a drawn file hangs off itself. */
+  const fileLoc = new Float64Array(hist.paths.length)
+  const drawn = new Map<number, Node[]>()
 
   // In interned order — see `Frame.order`, which is kept that way as commits land rather
   // than rebuilt here.
@@ -904,18 +1090,18 @@ export function frameTree(
     // pruning at the walk would mean re-tracing a large repo whenever the file changed — so
     // they are dropped here, where the picture is built. See `Tables.excluded`.
     if (hist.excluded[def.path]) continue
+    fileLoc[def.path] += loc
     // Too thin to draw. Its lines still count — they reach the file wedge through the
     // stand-in below, so a file is the size it is whatever its inside looks like.
     if (loc < (inScope && inScope.has(def.path) ? scopeMin : minLoc)) {
-      restLoc.set(def.path, (restLoc.get(def.path) ?? 0) + loc)
-      restCount.set(def.path, (restCount.get(def.path) ?? 0) + 1)
+      restLoc[def.path] += loc
+      restCount[def.path] += 1
       const bornAt = frame.bornAt.get(f)
       const editAt = frame.editedAt.get(f)
-      if (bornAt !== undefined && inStep(bornAt, since, frame.at)) restBirth.add(def.path)
-      if (editAt !== undefined && inStep(editAt, since, frame.at)) restEdit.add(def.path)
+      if (bornAt !== undefined && inStep(bornAt, since, frame.at)) restBirth[def.path] = 1
+      if (editAt !== undefined && inStep(editAt, since, frame.at)) restEdit[def.path] = 1
       continue
     }
-    const file = fileFor(def.path)
     let node = nodes.get(f)
     if (!node) {
       node = {
@@ -930,7 +1116,10 @@ export function frameTree(
         line: null,
         endLine: null,
         bytes: null,
-        lang: file.lang,
+        // From the path table rather than from the file NODE, which does not exist yet: the
+        // functions are collected first and the file is built around them only if the
+        // picture has room for it.
+        lang: hist.langs[def.path] || null,
         excluded: false,
         lastAuthor: null,
         score: null,
@@ -974,64 +1163,182 @@ export function frameTree(
     // number. Cleared when this frame has none, or a pooled node keeps the last one's.
     node.agent = packed === undefined ? undefined : readingInto(node.agent ?? null, packed)
     node.agentStale = false
-    file.children.push(node)
+    const list = drawn.get(def.path)
+    if (list) list.push(node)
+    else drawn.set(def.path, [node])
   }
 
-  // One stand-in per file for everything too thin to draw, in the shape the layout already
-  // makes for the same reason — see `rest` in `sunburst.ts`. It carries no children: those
-  // exist to be listed in the panel, and a frame's are a thousand objects a person cannot
-  // read while the story is running.
-  for (const [p, lines] of restLoc) {
-    const path = hist.paths[p]
-    const count = restCount.get(p) ?? 0
-    const birth = restBirth.has(p)
-    const edit = restEdit.has(p)
-    fileFor(p).children.push({
-      // **`#/folded`, and it must never be `#/rest`.** `tileFunctions` mints `${path}#/rest`
-      // for the members IT cannot draw — and in a replay the members it is handed include
-      // this stand-in, so both nodes arrived in one file's patch list under one id. React's
-      // answer to a duplicate key is that children "may be duplicated and/or omitted": it
-      // duplicated one, lost track of the copy, and never rendered it again. That copy is
-      // the ghost — a wedge frozen at the commit it was born on, sitting outside the rings
-      // while the map moves under it, cleared only by a remount. Two roll-ups meeting in
-      // one array is legitimate; sharing an id is not.
-      //
-      // The `/` is the third party to that argument: a real function's id is `key_of`'s
-      // `path#name`, so a file holding a function named `folded` mints this exact string
-      // and neither roll-up is safe from it. No identifier in any language here can contain
-      // a slash, which makes the two synthetic namespaces unreachable from the real one
-      // rather than merely unlikely to be reached.
-      ...dirNode(`${path}#/folded`, `${count}+`),
-      kind: 'func',
-      path,
-      lang: hist.langs[p] || null,
-      loc: lines,
-      rest: count,
-      // Only ever the flash. Every other field a `Score` has is a measurement, and this
-      // node is a count of things the picture has no room for — it has no age, no churn
-      // and no reading of its own, so they stay at the values that mean "no claim". A
-      // score with nothing in it but the event is why `aggregate` has to skip this node:
-      // rolled into its file it would dilute the file's real numbers with zeroes.
-      score:
-        birth || edit
-          ? {
-              surprise: 0,
-              documented: 0,
-              churn: 0,
-              ageDays: null,
-              lastTouchedDays: null,
-              commits: 0,
-              allCommits: null,
-              provenance: 'history',
-              hotShare: 0,
-              source: 'proxy',
-              analyzedShare: 0,
-              appeared: birth ? 1 : null,
-              edited: edit ? 1 : null,
-            }
-          : null,
-    })
+  /** Live lines and live files under each directory, and whether anything under it flashed.
+   *
+   *  **This is what makes the walk below top-DOWN.** The tree used to be built bottom-up
+   *  from every live function, which meant a node per live file whatever the picture had
+   *  room for: sixty thousand of them on kibana, to draw about two hundred wedges, with an
+   *  aggregate and a collapse pass over all of it thirty times a second. Totals first, then
+   *  descend only where there is something to see.
+   *
+   *  One add per ancestor per live file — a depth of eight on the deepest repos here — where
+   *  the old shape paid a node, a score and two walks. */
+  const dirLoc = new Float64Array(shape.path.length)
+  const dirFiles = new Uint32Array(shape.path.length)
+  const dirBirth = new Uint8Array(shape.path.length)
+  const dirEdit = new Uint8Array(shape.path.length)
+  for (let p = 0; p < fileLoc.length; p++) {
+    const lines = fileLoc[p]
+    if (lines <= 0) continue
+    const born = frame.pathBornAt.get(p)
+    const birth = restBirth[p] === 1 || (born !== undefined && inStep(born, since, frame.at))
+    const edit = restEdit[p] === 1
+    for (const a of shape.ancestors[p]) {
+      dirLoc[a] += lines
+      dirFiles[a] += 1
+      if (birth) dirBirth[a] = 1
+      if (edit) dirEdit[a] = 1
+    }
   }
+
+  /** The directories on the way to the scope, which are drawn whatever their size.
+   *
+   *  A drilled view resolves its own root by id against this tree, so pruning the chain that
+   *  reaches it would leave the window looking for a node that is not there. The scope is
+   *  also the one place a small directory is certainly worth drawing: somebody asked for it
+   *  by name. */
+  const forced = new Set<number>()
+  if (scope) {
+    for (let d = 0; d < shape.path.length; d++) {
+      if (shape.path[d] === scope || scope.startsWith(`${shape.path[d]}/`)) forced.add(d)
+    }
+  }
+
+  const dirNodeFor = (d: number): Node => {
+    const path = shape.path[d]
+    const had = held.dirs.get(path)
+    if (had) return reuse(had)
+    const made = dirNode(path, shape.name[d])
+    held.dirs.set(path, made)
+    return made
+  }
+
+  const fileNodeFor = (p: number): Node => {
+    const path = hist.paths[p]
+    const had = held.files.get(p)
+    const made = had
+      ? reuse(had)
+      : {
+          ...dirNode(path, path.slice(path.lastIndexOf('/') + 1)),
+          kind: 'file' as const,
+          lang: hist.langs[p] || null,
+        }
+    if (!had) held.files.set(p, made)
+    // The one field a file derives from the FRAME rather than from the path — see the
+    // stand-in below, which takes the same value for the same reason.
+    made.lastAuthor = frame.author.get(p) ?? null
+    for (const fn of drawn.get(p) ?? []) made.children.push(fn)
+    if (restLoc[p] > 0) made.children.push(standIn(p, restLoc[p], restCount[p]))
+    return made
+  }
+
+  /** One stand-in per file for everything too thin to draw, in the shape the layout already
+   *  makes for the same reason — see `rest` in `sunburst.ts`. It carries no children: those
+   *  exist to be listed in the panel, and a frame's are a thousand objects a person cannot
+   *  read while the story is running. */
+  const standIn = (p: number, lines: number, count: number): Node => {
+    const path = hist.paths[p]
+    const kept = held.folded.get(p)
+    const stand: Node =
+      kept ??
+      ({
+        // **`#/folded`, and it must never be `#/rest`.** `tileFunctions` mints `${path}#/rest`
+        // for the members IT cannot draw — and in a replay the members it is handed include
+        // this stand-in, so both nodes arrived in one file's patch list under one id. React's
+        // answer to a duplicate key is that children "may be duplicated and/or omitted": it
+        // duplicated one, lost track of the copy, and never rendered it again. That copy is
+        // the ghost — a wedge frozen at the commit it was born on, sitting outside the rings
+        // while the map moves under it, cleared only by a remount.
+        //
+        // The `/` is the third party to that argument: a real function's id is `key_of`'s
+        // `path#name`, so a file holding a function named `folded` mints this exact string
+        // and neither roll-up is safe from it. No identifier in any language here can contain
+        // a slash, which makes the two synthetic namespaces unreachable from the real one.
+        ...dirNode(`${path}#/folded`, `${count}+`),
+        kind: 'func' as const,
+        path,
+        lang: hist.langs[p] || null,
+      } as Node)
+    if (!kept) held.folded.set(p, stand)
+    stand.name = `${count}+`
+    stand.loc = lines
+    stand.rest = count
+    // **The file's own last committer, which is the resolution this node HAS.** Putting a
+    // file's author on each of forty functions is wrong about thirty-nine; this is not one
+    // of forty, it IS the file, standing in for everything the picture has no room to draw.
+    stand.lastAuthor = frame.author.get(p) ?? null
+    stand.score = flashOnly(restBirth[p] === 1, restEdit[p] === 1)
+    return stand
+  }
+
+  /** And one per DIRECTORY for the files too thin to draw, which is the same rule one ring
+   *  out and the whole reason a frame is now proportional to the picture.
+   *
+   *  Drawn as a file rather than as a directory: it holds no functions and can be descended
+   *  into by nobody, which is what a file wedge with a roll-up count already means. The
+   *  layout was throwing these away anyway — the "9,022 files too thin" note in the corner
+   *  IS this population — so what changes is that the fold stops building them first. */
+  const crowd = (d: number, lines: number, count: number, birth: boolean, edit: boolean): Node => {
+    const path = `${shape.path[d]}#/files`
+    const kept = held.crowd.get(d)
+    const stand: Node =
+      kept ??
+      ({
+        ...dirNode(path, ''),
+        kind: 'file' as const,
+        path: shape.path[d],
+      } as Node)
+    if (!kept) held.crowd.set(d, stand)
+    stand.name = `${count.toLocaleString()} files`
+    stand.loc = lines
+    stand.rest = count
+    stand.lastAuthor = null
+    stand.score = flashOnly(birth, edit)
+    return stand
+  }
+
+  /** Descend while there is something worth drawing, and roll up what there is not. */
+  const walk = (d: number, into: Node): void => {
+    let restLines = 0
+    let restFiles = 0
+    let restB = false
+    let restE = false
+    const cut = inScope && (forced.has(d) || shape.path[d].startsWith(`${scope}/`)) ? scopeMin : minLoc
+    for (const k of shape.kids[d]) {
+      const lines = dirLoc[k]
+      if (lines <= 0) continue
+      if (lines >= cut || forced.has(k)) {
+        const node = dirNodeFor(k)
+        into.children.push(node)
+        walk(k, node)
+        continue
+      }
+      restLines += lines
+      restFiles += dirFiles[k]
+      restB = restB || dirBirth[k] === 1
+      restE = restE || dirEdit[k] === 1
+    }
+    for (const p of shape.files[d]) {
+      const lines = fileLoc[p]
+      if (lines <= 0) continue
+      if (lines >= cut) {
+        into.children.push(fileNodeFor(p))
+        continue
+      }
+      restLines += lines
+      restFiles += 1
+      const born = frame.pathBornAt.get(p)
+      restB = restB || restBirth[p] === 1 || (born !== undefined && inStep(born, since, frame.at))
+      restE = restE || restEdit[p] === 1
+    }
+    if (restLines > 0) into.children.push(crowd(d, restLines, restFiles, restB, restE))
+  }
+  walk(0, root)
 
   // Containers are keyed by path, and a file's or directory's node id IS its path — which
   // is what lets a container ask the frame directly when it arrived instead of inheriting an
