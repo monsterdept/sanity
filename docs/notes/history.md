@@ -1,0 +1,281 @@
+# History replay
+
+## History is replayed, never re-measured
+
+`history.rs` grows the same rings one commit at a time. It is a second *view*, not a
+second metric, and the line between those is the whole design.
+
+- **Surprise is not replayed, and the lens switcher is disabled to say so.** A
+  temperature is a reading taken against the code as it is NOW; stamping it onto the same
+  function's 2019 body would be the map claiming a measurement nobody took — the same sin
+  as a stale reading keeping its colour. What a frame is coloured by is recency, *as of
+  that frame's own date*, which is a fact about the commit stream and the only thing this
+  module reads. Greyed rather than hidden: remove the switcher and the rings are recoloured
+  with nothing on screen saying by what.
+- **A category's colour is held still while a replay runs and ranked where you stand when one
+  is not.** Those are two questions wearing one name. Replaying, a person is an IDENTITY, and
+  three rules were tried that each went grey somewhere: ranking every frame recoloured the cast
+  as it ran; seeding from today's ranking made the OPENING grey, because the people who start a
+  repo are rarely its biggest by the end (ceph's `rgw` drew `other (6)`); assigning by arrival
+  made the ENDING grey, the first sixteen holding the palette until their lines were gone. All
+  three derived identity from whatever happened to be visible, so a replay uses `stats.authors`,
+  ranked once over the whole log. **Live it is the opposite**: standing in one kibana directory,
+  its biggest authors are not the repo's, so the palette went to people with nothing on screen
+  and the wedges being asked about drew neutral. Ranked over the drill, which is the rule
+  `langRank` already followed — and drilling then recolours, which is the price.
+  **A legend may never invent a rank the map does not use.** It filled gaps from its own ordering
+  (`?? categories.indexOf(c)`), and `stats.authors` is CAPPED, so on a big repo it named eleven
+  people in eleven colours over a picture where every one of them was the shared neutral — the
+  key and the map disagreeing about the same wedge, with the key sounding more authoritative.
+  Unranked is `other`, which is what the movie key had always done one surface over.
+- **Nothing before the window makes a claim about its own age.** Functions folded into the
+  opening frame have no touch date, so they draw uncoloured. Dating them to the edge of the
+  window would open every truncated repo with the entire codebase flaring as though someone
+  had just written it.
+- **Only changed files are re-parsed.** The obvious implementation checks out each commit
+  and scans — a full scan per frame, minutes for a repo the live map draws in a second.
+  The walk carries parse state forward and re-parses exactly what each commit touched, so
+  the cost is file *versions* in the window, not commits × files. tonepoet: 984 commits,
+  17k functions, 57s cold.
+- **It must refuse what the scan refuses.** History has no `.gitignore` walker to lean on,
+  and the first version drew a committed 161-function mascot bundle the scan skips as
+  minified — 769 functions at HEAD against the map's 472, with the largest wedge in the
+  story a file the map does not show. `MINIFIED_LINE_BYTES` and `VENDORED` are duplicated
+  here on purpose and have to move together. A refused blob yields an EMPTY state, never
+  no state, or a file that turns into a bundle keeps its old wedges forever.
+- **The cap is a backstop, not a window.** It was 400, chosen against the scrub bar, and it
+  cost the feature its point: tonepoet opened with 584 commits already folded in, so the
+  directory structure existed on day one and the story started in the middle. Addressing a
+  commit is the log's job and the log addresses all of them. So there is no cap at all now:
+  `history::ALL_COMMITS`, and `churn` walks whole for its own reason (a capped total is a
+  longer window with no label on it). The two agree by arriving there separately.
+- **The cache is machine-local, and that is the same rule `.sanity/` follows from the other
+  side.** The repo holds what cannot be recomputed; a timeline is derivable from the repo's
+  own object database in full, is megabytes, and changes on every commit — in-repo it would
+  be a conflicting blob on every branch and a dirty `git status` after merely looking.
+  A failed cache write is silent for the same reason a failed *reading* write must not be:
+  nothing is lost that git cannot produce again.
+- **A cached timeline is EXTENDED, not rebuilt.** A commit's diff is immutable, so the
+  frames cannot go stale the way a score can; a working day's commits are appended and the
+  overflow folded into the opening state. `Replayer::resume` derives its parse state by
+  folding the frames rather than storing a second copy — a stored copy could disagree with
+  the frames, and the disagreement would be invisible, with new commits diffing against a
+  state nobody can see. `extending_a_cached_timeline_matches_replaying_it_whole` and its
+  fold twin are what keep a warm machine and a cold one telling the same story; keep them
+  passing. A rewritten history (`merge-base --is-ancestor` says no) is replayed, never
+  appended to — appending would produce a timeline that never happened.
+- **The transport sets a DURATION, not a rate.** It was 1×–8× commits per second, and a
+  rate cannot be right for two repos at once: eight a second is six seconds of this repo
+  and two minutes of tonepoet, so one button meant "a glance" on one project and "go and
+  make coffee" on the next. Nobody is choosing commits per second; they are choosing how
+  long they will watch. Past `MAX_FPS` the clock SKIPS commits rather than falling behind
+  — every frame is computed from its index, so a step of forty is as correct as forty
+  steps of one, and the label stays true on a slow machine. The clock must never depend on
+  `index`: an effect rebuilt per frame re-reads its own start time, and the replay
+  silently overruns the duration it promised.
+- **The frontend replay is forward-incremental; the fold is not.** A from-scratch fold is
+  linear in how far along you are — 1.3ms at tonepoet's commit 98 and **26ms at 983** — so
+  the map got slower exactly as the story got interesting and the top speed was set by the
+  tail. `advance` mutates a memoised frame forward; scrubbing BACKWARDS rebuilds, because
+  undoing a commit needs the state it replaced, which is the whole timeline stored twice
+  and free to drift. Churn therefore keeps touch STAMPS, not a count: the 90-day window
+  moves with the playhead, so a count could only be recomputed from the start.
+- **Drilling narrows the timeline, and that is a VIEW, not a second fold.** A directory's
+  transport and log list only the commits that touched it — otherwise the scrub bar spends
+  most of its length on commits that change nothing on screen. But the rings are still
+  built at the REAL commit: a commit outside a subtree cannot change what is inside it, so
+  the narrowed list is complete for what is drawn, while folding only the scoped commits
+  would give the frame the wrong DATE, and the date is what the colour means here.
+  `histIndex` therefore stays a real index and the transport speaks positions in the scoped
+  list — which is also what makes drilling in and popping back out land on the same commit
+  rather than somewhere proportional. The prefix test is segment-wise, or `web/src` takes
+  in `web/src-old`.
+- **A replay is a periodic-stutter detector for the whole window.** Every timer in the app
+  became visible the moment something ran at thirty frames a second, and each one was a
+  hitch on a fixed period: the 2s reading poll fetched all 16,925 of tonepoet's readings
+  and folded them into a tree that is not on screen during history; the 1.5s project poll
+  replaced an unchanged list, which rebuilt the frame tree (`activeProject` is a fresh
+  object every poll — depend on its NAME) and re-rendered several thousand arcs. Poll
+  results are now compared before they are stored. **If the replay stutters on a period,
+  look for a timer, not for the renderer.**
+- **Function nodes are pooled; containers are not.** A frame of tonepoet is seventeen
+  thousand functions with a `Score` apiece, and building them fresh thirty times a second
+  hands a million objects a second to the collector. They are mutated in place instead —
+  but dirs and files must stay freshly allocated, because the sunburst recomputes its
+  layout when the node it is rooted at changes identity, and a pooled root would freeze the
+  map while the data underneath it moved. 700 allocations against 17,000, with none of the
+  hazard. A full sequential playback of tonepoet costs 1.1ms a frame.
+- **`warm` tops up a timeline; it cannot create one.** Prefetching on open would charge
+  every open of every project a minute of parsing for a mode most opens never enter. Once
+  a repo has one, keeping it current costs the commits since — so History opens in 0.2s on
+  the repo you are actually working in. Ask for it once; never be charged for it unasked.
+- **The functions page in beside the deltas that name them.** `tables` used to carry every
+  function every version of every file ever had — on ceph 19.8MB of a 20.1MB response, sent
+  before a single frame could be drawn. A PREFIX is a complete answer, which is what makes
+  it pageable: `intern` appends a function the first time the walk meets it and the walk runs
+  oldest-first, so a fold of commits `0..=n` can only name functions from the front of the
+  list. `Deltas.ensure` takes the highest index a block mentions and tops `Funcs` up **before**
+  the block joins `have()`, because the fold is synchronous and a frame drawn against a hole
+  is worse than a frame that waits. The watermark is computed on the window's side: those
+  numbers are already being parsed there, and a round trip to be told the maximum of
+  something already in hand buys nothing. Measured on ceph: `tables` 20.9MB → 1.0MB, first
+  view 22.3MB → 6.9MB. It is not 20× because ceph's opening block is an SVN import that lands
+  62,804 functions in its first 2,000 commits — that 4.5MB is genuinely needed to draw the
+  frame, and the honest next win is a compact encoding, not a later fetch.
+- **The roll-up cut is a share of the CIRCLE, and when you drill the circle is the subtree.**
+  `minLoc` is `frame.lines / 4000` — right at the root, and far too coarse anywhere else,
+  because the lines it divides were the whole repo's while the wedges being drawn belong to
+  one directory. Standing in ceph's `src/mon`, 44,160 lines of a repo hundreds of times
+  larger, that meant five functions drawn and everything else rolled into `206+`, on a ring
+  with room for hundreds — drilling is the gesture that asks for detail and it could not
+  deliver any. The live map never had this: its cull is per-wedge ANGLE, and an angle grows
+  when you drill. `frameTree` takes a `scope`, and inside it the cut is that subtree's own
+  lines; outside it stays coarse, so the fold is not paying to build nodes nobody will draw.
+  The extra pass is the one the incremental `frame.lines` exists to avoid, so it is paid only
+  when drilled — at the root there is no scope, no pass, and the arithmetic is what it was.
+  The scope comes from the drill STACK, never from `focus`: focus is resolved against the
+  tree this builds, so asking it there is a cycle.
+- **Two roll-ups, two id namespaces, and the ghosts came from forgetting that.** The replay
+  folds a per-file stand-in for everything too thin to draw, and `tileFunctions` mints its
+  own for the members a wedge cannot hold — both were `${path}#rest`, and in a replay the
+  second rolls up the first, so the pair arrived as siblings in one file's patch array.
+  React's answer to a duplicate key is that children "may be duplicated and/or omitted": it
+  duplicated one, lost track of the copy, and never rendered it again. That orphan is the
+  ghost — a wedge frozen where it was born, sitting outside the rings while the map moves
+  under it, cleared only by a remount. The fold's is `#folded` now.
+  **What made this findable was the wrong theory dying on one observation**: "they stay in
+  place as I move the timeline". Legitimate wedges are rebuilt every frame, so anything that
+  holds still is stale by definition, and the deep-narrow-branch story — which is real, and
+  does explain the labelled islands like `src/tools/rbd` — cannot explain a mark that never
+  moves. Diffing two frames of an exported replay put it beyond argument: the region was
+  pixel-identical across 23 seconds while labels 100px away had moved. **A screenshot shows
+  what is on screen; a diff of two shows what is not being redrawn.**
+- **Dressing the window for a replay waits for the FRAME, not for the request.** `historyOn`
+  is a request; on a large repo it is true for a few hundred milliseconds while the map is
+  still drawing today. The lens, the sort order, the legend and `morph` were keyed on it, so
+  pressing History repainted the live map in Age's greens and then repainted it again as the
+  replay's first frame. `replaying` (the request AND a frame to show) is the key for all of
+  them, so it happens once.
+- **Morphing starts from the picture on screen.** `geo` seeds a wedge the chase has never
+  heard of at zero angular width so it OPENS rather than appearing — right for a file that
+  shows up mid-replay, and catastrophic for the frame morphing is switched on, when the chase
+  has heard of nothing and every wedge on screen is therefore new. The whole map collapsed to
+  the hub for a frame and bloomed back out. `soft` is primed from `target` on the first
+  morphing render, and primed during RENDER rather than in an effect: `geo` runs first, so an
+  effect would prime a map that had already been seeded at zero and the blank frame would
+  paint anyway.
+- **A frame costs what the PICTURE holds, not what the repo holds — and that took three
+  measurements to get right.** kibana stuttered where ceph did not, which is not the commit
+  count: the transport is a duration, so at 5x kibana folds 589 commits a frame and ceph folds
+  683. Timestamps pulled out of a screen recording settled the shape — macOS emits a frame only
+  when the screen CHANGES, so they are a log of when the app painted — and the gaps were
+  irregular and GREW with the playhead, which is work proportional to the tree rather than a
+  timer. Measured on a synthetic frame the shape kibana builds: the fold was 33ms and building
+  the tree was 117ms. **Pre-aggregating the deltas would have bought a fifth of the wrong
+  half**, which is what the measurement was for.
+- **So the tree is built top-down and only where there is something to see.** `minLoc` already
+  rolled a function up before a node existed; files and directories take the same rule, which
+  is what the layout was doing anyway — the "9,022 files too thin" note in the corner IS that
+  population, and the fold was building sixty thousand nodes for the layout to discard. Totals
+  per directory first (one add per ancestor per live file), then descend while a subtree is
+  worth drawing. A large repo went from ~120,000 nodes a frame to a few hundred. **The scope's
+  own ancestors are forced**: a drilled view resolves its root by id, and pruning the chain
+  would lose it. **Lines are conserved at every size** — that is the invariant this rests on.
+- **Containers are pooled with the functions now, and the reason they were not is worth
+  keeping.** The argument — the sunburst re-lays-out when the node it is ROOTED at changes
+  identity — is right about the root and does not reach its children, since `layout` walks the
+  tree afresh and every memo keys on the root. The saving had also been measured on the half
+  that stopped mattering: `minLoc` folds nearly every function away on a big repo, so the
+  pooled population was almost empty and the frame was made entirely of containers.
+- **Three smaller ones, each measured, none guessed.** `advance` rebuilds `order` once per STEP
+  rather than splicing each arrival into a 148,000-element array (18.8ms to 0.5ms for 2,000
+  arrivals). The per-file accumulators are dense typed arrays rather than maps hashed 148,000
+  times into a 60,000-key table — the superlinear term, 97ms where the two halves alone cost 10
+  and 17. And `aggregate` writes its `Score` in place; the first attempt allocated AND copied,
+  which the harness caught. Together: kibana at 5x went 150.6ms to 47.7ms a frame, and a
+  250k-file synthetic 641.7 to 105.7. `histogramsFor` answers only for containers that are
+  DRAWN on the same argument, which took Blame from 24.4ms to 5.1ms a call.
+- **The replayed author lives on the roll-up stand-in.** It carried a `lang` and no author, so
+  Language replayed and Blame did not — and on a repo where every function is rolled up, the
+  stand-ins are the whole picture. It takes the file's own last committer, which is the claim a
+  file wedge makes one ring in; the warning against a file's author standing in for a FUNCTION
+  is about a real function, and this node IS the file.
+- `just history <repo>` is the headless check, and it is UNCACHED by default: a run that
+  answers from a file is not a run of the thing being checked. `--files` reconciles its
+  totals against `just scan`, which is how the mascot bundle was found.
+- **The export records the map on screen; it does not draw a second one.** `movie.ts` copies
+  the live `svg[data-sunburst]` per frame and rasterizes it — a Canvas2D renderer of the same
+  rings would be a picture nobody has checked against the one being replayed, and the two
+  would part company the first time a wedge changed. What the copy has to carry with it is
+  everything the document was supplying: the custom properties (resolved from computed style,
+  named from the stylesheets — one knows which theme is on, the other knows what to ask for)
+  and the label face, inlined as woff2, or the export is set in a typeface the map is not.
+  **It is not a realtime capture, and that is the same argument the transport's duration
+  rests on from the other side.** On screen a duration is held by SKIPPING commits, which is
+  right for something being watched; a file made that way would be as good as the machine
+  that happened to make it. The output's clock is the file's — frame `f` is at `f / FPS` —
+  so the movie is the length that was asked for and every commit lands. The map is
+  re-rasterized only when the commit under the playhead CHANGES: a minute of a forty-commit
+  repo is 1,800 frames of forty pictures.
+  **The timeline is fetched per frame and awaited, never in one go up front.** The first
+  version pulled every delta before drawing anything, on the argument that a block landing
+  mid-export would stall the playhead into the file. Awaiting the one commit about to be
+  drawn buys exactly that guarantee and never holds more of the story than the export has
+  reached — the version that pre-fetched materialised 123,000 ceph commits before the first
+  frame, and the export was then reported as hung.
+  **An export names its STAGE, because a frame counter cannot tell working from stopped.**
+  One frame of a long repo is hundreds of commits of folding, so `Frame 7 of 300` sits still
+  long enough to read as a hang, and did. `Tick` carries fetch/fold/raster/encode with a mean
+  cost apiece, which is also the only way to find out which of the four is worth attacking.
+  **A bigger file is a bigger CANVAS, not a bigger picture of the same map.** Every threshold
+  that decides whether something is worth drawing is a pixel size converted through
+  `unitsPerPx`, so density is a property of how large the map is being drawn and nothing
+  else — an export that reasons about the pane it was staged from is the same picture
+  upscaled. `Sunburst` takes a `density` and the export sets it to the file's own width, so a
+  4000px movie lays out for 4000px and shows the files a 1000px one culls. The map on screen
+  changes for the duration, which is the price of the export recording what is on screen
+  rather than drawing a second map; it is behind the dialog, and it goes back.
+  **The fold has a threshold too, and it is SQUARED where the ring's is linear.** `minLoc`
+  rolls a function up before a node is ever built, so the layout can only draw what the fold
+  supplied. A wedge's share of the ring is an angle and falls in proportion to the width;
+  a function is not on the ring — `tileFunctions` packs it inside its file's band against an
+  AREA, which `unitsPerPx²` already scales quadratically. Scaled linearly, the fold became
+  the binding constraint: measured on a synthetic repo of 3,200 files, a 4000px frame drew
+  every file and not one more function than a 1000px one. At `density²` the same frame draws
+  all 25,600.
+  **The codec ladder is H.264 then H.265, and the size is why.** VideoToolbox's H.264
+  encoder stops around 8.9 million luma samples — fine for the 16:9 shapes that number was
+  written for, brutal for a square, where it lands at about 2985 a side. So 2160² passes,
+  3072² would not, and 4000² is sixteen million samples and never had a chance; no bitrate
+  or profile negotiates that down. `preflight` tries each codec in turn and returns the one
+  that actually encoded ten frames. The fallback is STATED in the dialog rather than silent:
+  an `.mp4` that turns out to be H.265 is a different thing to hand somebody.
+  **A refusal is the app's own sentence, never the encoder's.** What reached the person when
+  4000² failed was WebCodecs' own words — a paragraph about "this browser", naming a profile
+  string and a bitrate, in an app that is not a browser and that had another codec and four
+  smaller sizes it could have offered instead.
+  **The ground is offered as light or dark and never as `system`.** On screen that means
+  "follow the machine", which is a live relationship; a file cannot follow anything, so
+  offering it would be a coin flip decided by whoever renders.
+  Both awaits in the frame loop carry a deadline, and one of them earned it: `decode()` on
+  an SVG image is not reliably a promise that settles, and neither is the encoder accepting
+  a frame. A wait nothing can interrupt is not one the Stop button can reach either.
+  **The encoder stalls at frame seven, and the wait it stalls in has no error path.**
+  `CanvasSource` blocks once four frames are outstanding and waits for a `dequeue` event, so
+  an encoder that stops dequeuing hangs a promise nothing can catch — there is no exception,
+  no rejected promise and no event, only a clock we hold ourselves. Two things are aimed at
+  it. `latencyMode: 'realtime'`, which is not about latency here: the default mode lets the
+  encoder reorder and look ahead, so it may swallow a run of frames before emitting any,
+  which is a deadlock between two components that are each behaving correctly. And a
+  **preflight that asks the encoder rather than about it** — ten blank frames at the chosen
+  size before the recording starts, because `canEncodeVideo` is `isConfigSupported`
+  underneath and it answered yes for a configuration this machine then produced not one
+  packet from. Same rule as probing a harness by asking it to LIST its tools.
+  Giving it an explicit bitrate (`preferBitrate`, rather than a bare quality level, which
+  prefers quantizer-based rate control) was tried first on the same evidence and did NOT fix
+  it. It is kept because the quantizer path is the newer and thinner one, but it is not the
+  cause. The stage display is what turned "it froze" into a line naming the encoder.
+  The MP4 is the one thing this app writes. `save_movie` takes a path from a native save
+  dialog, refuses anything that is not `.mp4`, and the bytes cross the IPC base64 because the
+  alternative shape for a byte array is a JSON array of numbers.
+

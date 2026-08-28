@@ -1,0 +1,238 @@
+# The MCP tool contract
+
+## The tool contract is part of the metric
+
+`mcp.rs`'s `inputSchema` is not documentation — it is what the reader is allowed to say.
+**There is exactly one MCP server**, `sanity mcp`, hosted by the app binary; the Node
+script that used to sit beside it in `mcp/` is deleted. Do not add a second — two copies
+of one contract drift, and this one did: the Rust schema gained the grades, the Node copy
+did not, and `.mcp.json` pointed at the Node copy, so every reading taken in this repo
+dropped them.
+
+The drift ate four fields: the protocol asked for `predicted`, `documented`, `derivable`
+and `model`, Rust could store all four, and the schema declared none of them. Careful readers printed the grades into chat, where they were lost, and
+`predicted` was collapsed into the `surprised` boolean. **`derivable` is the defence
+against generated docs counting as documentation — it was being collected and discarded.**
+When a field is added to `Report`, add it to the schema in the same commit.
+
+- **The descriptions are priced per reading. `just tokens` before and after touching
+  them.** At one function per reader, `tools/list` is loaded once per FUNCTION, so an
+  `inputSchema` description stopped being editorial and became a per-reading charge.
+  Measured on this repo it was 86% of a reader's input floor against 8% for the code it
+  exists to read — and 800 of those tokens described three tools a reader never calls.
+  Two rules fall out. **The wire carries the rule; the source carries the reason** — the
+  arguments behind the rules live in doc comments and here, where they cost nothing per
+  reading, and what ships is what a reader must DO plus the one clause that makes it
+  stick. **Guidance for the orchestrator goes in the RESPONSE, not the description** —
+  `protocol`, `next_step` and `note` reach the one session that asked, at the moment it
+  matters, instead of every reader that never will. That is the argument `PROTOCOL` was
+  already written down for; it just was not being applied to its neighbours.
+- **`PROTOCOL` and `reader_prompt` are two things because they are priced differently.**
+  One goes to an orchestrator once; the other is multiplied by the function count. The second
+  is a function rather than a constant, taking the batch size, so the number in the ask and
+  the number a wave is sized by cannot be two numbers. `just tokens` first located the boundary by searching for a heading, the heading
+  was reworded an hour later, and it silently billed every reader for both halves. A
+  boundary worth measuring is worth making structural.
+- **A scan is a photograph; the repo is not standing still. Re-cut before handing out.**
+  Line numbers come from the scan, while `read_source` and every reader's bounded read go
+  to the file as it is NOW — so one edit puts every function below it at the wrong lines.
+  The code view highlights the wrong extent, and a reader predicts one function, reads
+  whatever now sits at those lines, and grades the two against each other. That is not a
+  weak reading, it is a reading about nothing, and nothing in it says so. A reader found
+  it from the far end, reporting that the range it was handed held unrelated constants.
+  `resync_changed` runs at the top of `queue` — mtime AND length, because two writes in
+  one second can share an mtime. It refreshes positions, signature, docs and body hash;
+  it does **not** touch node ids (they embed `@line`, they would all move, and re-keying
+  the reports map is the shape of the migration that once destroyed a project's readings),
+  and it does **not** add functions written since the scan, because those need scoring
+  against every peer in the file. Those arrive on the next `sanity_open`.
+- **Never report coverage off a lease-filtered list.** `done`/`remaining` did, so 34
+  functions out with readers read as finished under "every function has an up-to-date
+  reading". `work_left` returns `(remaining, in_flight)`: remaining ignores leases and
+  only falls when a reading lands. An instrument that overstates its own coverage is worse
+  than one that measures nothing.
+- **Coldness is the queue's job, not the reader's.** `interleave_by_file` round-robins
+  across files, because scores cluster by file (distinctiveness is file-local) and a
+  reader handed 25 from one file is recalling after the first. `cold` is self-reported and
+  should be a check, not the mechanism.
+- **Ten functions per reader, and the number is the edge of what was measured.** It was
+  three, on the belief that a reader ramps: it absorbs idioms, naming, domain vocabulary
+  and author style as it works, so its eighth prediction is made by a better reader than
+  its first and the map cannot tell that apart from code that is genuinely easier to
+  predict. **Two experiments went looking for that and neither found it.** A full pass of
+  this repo at three: `full` 39.5% at position 1 against 38.4% later, flat. Forty readers
+  at ten on a 10,828-function repo, buckets forty deep: positions 2-10 scattered between
+  35% and 55%, slope ≈ 0. 784 readings, two codebases, no warming — so the mechanism that
+  argued for a short batch is not in evidence, and assuming it anyway costs 2.5x.
+  Cost is the settled half: ~23,110 to enter a reader plus ~3,030 per function, so
+  `23,110/n + 3,030` — a hyperbola with no knee, which makes any choice a judgement about
+  what saving is worth having. 26,100 tokens per function at one, 10,700 at three, 5,300
+  at ten. **Ten is where the measurement stops, not where the curve does. Fifteen might be
+  fine and nobody has run it.**
+  The one position effect that did show up argues the same way: on the ten-batch repo,
+  position 1 graded `full` 27.5% against 41.9% for everything after — first readings
+  HARSHER, which looks like a reader hedging before it has used the scale rather than
+  anything about the code (z ≈ 1.9, did not replicate, treat as unresolved). If it is
+  real, a bigger batch dilutes it. **What would move this number:** down, warming found at
+  positions 8-10 with buckets deeper than forty; up, a clean run at 15-25 finding nothing.
+  `position` is on every reading and `by_position` buckets per position, so any run adds a
+  point to that curve for free — read it before touching the constant.
+  **It is not a user-facing control, and a slider for it was built and removed.** The trade
+  is real and tempting — one function per reader is five times the cost and about five times
+  the speed, which is the honest answer to "why is a ten-function run slow" — but the curve
+  has no knee to aim at, so the control offers a choice with nothing to base it on. Worse,
+  the batch is a reading CONDITION: it is recorded per reading as `position`, and varying it
+  across one repo makes that corpus a mixture in exactly the way two models do, with nothing
+  on the map saying which wedge was read under which arrangement. Same rule as `model`. The
+  number lives in `agentapi::BATCH`, which `reader_prompt` formats into the ask and the wave
+  is sized by, so the two cannot drift.
+  The one repo-shaped limit: the queue rests a file after drawing from it, so on a small
+  repo a reader deep into a batch gets handed a file it already opened. That bit a
+  43-file repo at three and not a 731-file one at ten. **The binding constraint on batch
+  size is file supply, not warming**, and `cold` records it honestly when it bites.
+- **Ten readings per reader, fetched ONE at a time. Those are two different knobs and
+  they got conflated.** The saving is the shared *context*, not the shared *handout*: a
+  wave that fetched three times inside one context cost 30,125 per reader against 30,495
+  for a true batch of three — the same — and is colder, because a reader handed a batch
+  has read every signature, owner and peer list in it before predicting the first. One
+  sweep reader said so unprompted and downgraded its own later readings for it. So
+  `default_n` is the size of one HANDOUT — 1 — and the protocol asks for ten calls. Equal
+  cost, better reading.
+- **The batch size is decided in `default_n` and nowhere else.** `mcp.rs` used to carry
+  its own `unwrap_or(1)` and send `n` on every call, so when the constant, its doc,
+  CLAUDE.md and the protocol text all moved to 3, readers still got one — the only line
+  that decided was in the shim. A cold reader found it in the first wave. The shim now
+  omits `n` unless the caller asked, and serde fills it.
+- **Staleness covers the docs, not just the body.** `documented` and `derivable` grade the
+  comment, and `predicted` is made *from* it — the comment stack reaches the reader before
+  it opens anything, which is why documenting a repo drains the map. Hashing only the body
+  left a documentation grade reading as current when the text it graded was gone.
+  `reading_hash(doc, body)` is what `node.body` holds now; it collapses whitespace across
+  both, so a reflow expires nothing.
+- **`.sanityignore` scopes the repo, and the tool must never decide what goes in it.**
+  Whether `tests-unit/` is noise or the most interesting thing here is a judgement about a
+  specific codebase, and the tool provider cannot know it. **So there are no defaults —
+  especially not tests.** A full pass of this repo found seven tests whose names promised
+  properties their bodies never exercised, including the one named for the product's whole
+  claim; a shipped default excluding tests would have deleted the best result of the run.
+  What the tool does instead is make the decision cheap: `sanity_open` returns `shape`
+  (functions per top-level directory) so an agent that has read the repo can put a
+  proposal in front of the human *with numbers*, and the human writes the file. Mechanism
+  here, judgement from the reader, decision with the person.
+  **Every exclusion is counted out loud.** `functions` and `excluded` appear together
+  everywhere either does. An exclusion that vanishes from the totals is how a map claims
+  completeness over a subset somebody narrowed months ago — the same failure as `done`
+  counting leased work. Excluded functions are still parsed and still drawn; what they
+  are not is queued, or in the denominator.
+- **`by_position` is one bucket per position, and reading it as a curve is the point.**
+  It used to collapse to first-versus-later, which answered the wrong question and hid
+  that it had: a full pass of this repo at a batch of three found the two buckets flat,
+  which reads as "no warming" and actually means "no warming *within three*". The concern
+  was always position eight or nine — and per position, forty readers at a batch of ten
+  answered it, scattering between 35% and 55% with no slope. That measurement did not need
+  a new experiment; any run at any batch size adds a point to the same curve for free, and
+  a knee at six would show up as a knee.
+- **`peers` is the nearest twenty in FILE ORDER, and the remainder is reported.** It was
+  every function in the file, which nobody noticed while the only repo being scanned had
+  small ones. Measured: this repo's median task payload was 920 characters with 438 of
+  siblings; tonepoet's was **5,213 with 4,759** — 91% — and 30,512 at p90. A full pass
+  there would have spent ~20M tokens on lists of function names, twice the entire tool
+  contract, which makes it by a distance the biggest thing we control. File order rather
+  than alphabetical because the value was never a census: the findings this field earns —
+  a test named for a property its neighbours show it lacks — come from adjacency.
+  `peers_omitted` exists so a window is never mistaken for a whole file. **Run `just
+  tokens` against a repo with big files before trusting any claim about payload size.**
+- **The orchestrator must be able to read its own result.** It is the party that has to
+  report and the one party forbidden `.sanity/`, and nothing returned a grade — so a real
+  run ended with the driving session describing its own measurement from what subagents
+  said in chat. `sanity_summary` closes that: **repo-wide aggregates only, never a
+  per-file or per-function breakdown.** "38% graded most" tells a future reader nothing;
+  "udf.rs averages some" is `.sanity/` with the serial numbers filed off, and one server
+  answers both readers and orchestrators.
+- **A bare name is not an identity — hand over the `owner`.** One file holds a dozen
+  `parse`s, one per descriptor type, and `peers` deduped bare names so the twins collapsed
+  to a single entry. Readers predicted one twin, read another, and reported the docs as
+  belonging to something else — an invented copy-paste bug in the repo, the same class of
+  error as inheriting an enclosing type's docstring. `owner` rides beside `name` and is
+  never folded into it: `key_of(path, name, ord)` keys every committed reading, so a
+  rename would expire a repo's assessment wholesale.
+- **Every endpoint routes by the session's key, and says which repo it answered about.**
+  The shim holds the project this client opened (`PROJECT` in `mcp.rs`) and passes it on
+  every call, so a human clicking another project in the app cannot retarget a headless run
+  mid-flight and two sessions can assess two repos at once. `/status` was the last one
+  still resolving through `active` — an orchestrator polled its own run, got another repo's
+  `assessed` and `remaining`, and reported a conclusion from them; `queue` and `report`
+  meanwhile served its real repo, so one server described two subjects in one run. It was
+  caught only because the number happened to be absurd. `active_project()` is gone with it:
+  a shortcut past `for_client` is an invitation to reopen the hole in the next endpoint.
+  The window's project remains the fallback for a caller that supplies no key, and every
+  response names what it answered about (`project`, `repo`) so a mismatch is visible
+  anyway. **The key is never in the tool schema** — a model cannot forget, garble or
+  compact away what it never carries, and the schema is priced per reading.
+- **The backend is per machine, and the window is not a prerequisite for it.** `cli.rs`
+  hosts `sanity serve` — the same binary, the same `agentapi`, no window — because the
+  state lived in the app's process only from the accident of the app being written first.
+  There is one endpoint file, one process and a map of projects, so `sanity check` in a
+  second repo is another client, never a second server. Three rules keep it from becoming
+  a lifecycle problem. **`serve` is idempotent, not exclusive** — something already
+  answering means it prints the port and exits 0, which is the whole of "must not conflict
+  with a running UI": the second one never starts. **The daemon stands down when the
+  endpoint file stops naming its pid**, so a human opening the app beats a background
+  process rather than stranding two servers with one address. **It holds nothing
+  precious** — the scan recomputes, the readings are in `.sanity/`, an expired lease
+  re-queues — which is why it can idle out on a timer, why there is no `sanity stop`, and
+  why `agentapi::lock` recovers from a poisoned mutex instead of honouring it. Poisoning
+  protects nothing here and cost everything: one panic under the lock and every handler
+  answered empty forever, while `/health` (which touches no state, deliberately) kept
+  vouching for the process — so the idle check could not tell how idle it was and never
+  stood down. **The idle check must fail closed**; it had an `ok()` that read "I cannot
+  tell" as "not idle".
+  **`sanity_open` starts one if nothing answers, and any call may heal one that died.** MCP
+  being configured used to get an agent as far as talking to a backend and no further —
+  somebody still had to open a window, which is the UI requirement wearing a hat. `open`
+  is where a cold start belongs because it means "I am starting work": once per session,
+  before any reader exists. It was for a while the *only* tool allowed to, which was a lock
+  written as a rule about callers — and it failed as both. It never excluded anything (two
+  sessions opening two repos are two permitted callers), and it made recovery impossible,
+  because the calls that notice a dead backend were exactly the ones forbidden to restart
+  it: quit the app mid-wave and every reader failed until a human intervened. **Exclusion
+  belongs at the spawn, where it can be enforced.** `take_spawn_lock` is an `O_EXCL` create
+  — one atomic syscall, no check-then-claim window, no dependency — and losers wait for the
+  winner's backend rather than queueing to start their own. Because `O_EXCL` leaves nothing
+  to clean up after a crash, an abandoned lock is stolen by AGE, which is only sound because
+  the region it guards is bounded by `START_WAIT`. With that in place `with_retry` heals any
+  call, once, gated on a probe — and healing **reopens the shim's own `PROJECT`**, because a
+  fresh backend restores in the background and a reader retried into that window gets
+  `NO_PROJECT`, which is Fatal by design and loses the reading anyway. The spawn's stdio is
+  null because the shim speaks JSON-RPC on stdout, and `SANITY_BACKEND` suppresses it: a
+  shim pointed at one server must not quietly start another.
+  **A backend that exits retracts its claim** (`release_endpoint`), and only if the file
+  still names its own pid — the superseded path is a daemon standing down *because* the app
+  wrote its port over the top, and deleting there would take the live backend's address with
+  it. Nothing retracted before, so a file always existed, so `mcp.rs` chose its error text by
+  file existence and told readers a quit app was "usually TRANSIENT, retry five times". The
+  discriminator is a probe now. Errors must say what to do, and that one said the opposite.
+  The CLI's read verbs are formatters over `/status` and `/summary` and compute nothing;
+  anything they needed that an endpoint lacks belongs in the endpoint, or it is two
+  implementations of one answer and the unwatched one goes wrong.
+- **Opening a repo is not a claim on the window.** `touch` (history) and `focus` (the
+  view) were one call, so any open retargeted the pane — including a headless run in
+  another repo, and including the second of two agents working two repos at once, which is
+  the hazard `for_client` is written up against. `focus(key, asked)` moves the view only
+  when a caller asked outright (`sanity init --show`, the window's own Open command) or
+  when nothing holds it — a fresh launch, a headless daemon, an `active` naming a project
+  that is not loaded. Nothing is hidden by declining: the project is in the sidebar with
+  its own progress, and `/open` returns `showing` so a caller never tells the human to go
+  and look at a pane that is still on something else. **`for_client(None)` follows the last
+  repo OPENED, never `active`.** Those were the same value only while opening also moved the
+  window; once they came apart, a caller with no key — a reader shim that never handled
+  `sanity_open` — resolved to whatever somebody was LOOKING at, and `report` takes that same
+  path, so the reading would land in another repo's `.sanity/`, attributed and hashed and
+  looking entirely genuine. `touched` is the right fallback because every open bumps it and
+  no view moves it.
+- **Errors must say what to do.** A reader that hit the old flat "Sanity is not running"
+  invented a prerequisite, another ran the tools as shell commands, another read
+  `.sanity/` to compensate — contaminating itself. `UNREACHABLE` (transient, retry) is
+  separate from `NOT_RUNNING` (never started) for that reason. Models fill silence with
+  invention.
+
