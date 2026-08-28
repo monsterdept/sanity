@@ -1523,6 +1523,42 @@ second metric, and the line between those is the whole design.
   morphing render, and primed during RENDER rather than in an effect: `geo` runs first, so an
   effect would prime a map that had already been seeded at zero and the blank frame would
   paint anyway.
+- **A frame costs what the PICTURE holds, not what the repo holds — and that took three
+  measurements to get right.** kibana stuttered where ceph did not, which is not the commit
+  count: the transport is a duration, so at 5x kibana folds 589 commits a frame and ceph folds
+  683. Timestamps pulled out of a screen recording settled the shape — macOS emits a frame only
+  when the screen CHANGES, so they are a log of when the app painted — and the gaps were
+  irregular and GREW with the playhead, which is work proportional to the tree rather than a
+  timer. Measured on a synthetic frame the shape kibana builds: the fold was 33ms and building
+  the tree was 117ms. **Pre-aggregating the deltas would have bought a fifth of the wrong
+  half**, which is what the measurement was for.
+- **So the tree is built top-down and only where there is something to see.** `minLoc` already
+  rolled a function up before a node existed; files and directories take the same rule, which
+  is what the layout was doing anyway — the "9,022 files too thin" note in the corner IS that
+  population, and the fold was building sixty thousand nodes for the layout to discard. Totals
+  per directory first (one add per ancestor per live file), then descend while a subtree is
+  worth drawing. A large repo went from ~120,000 nodes a frame to a few hundred. **The scope's
+  own ancestors are forced**: a drilled view resolves its root by id, and pruning the chain
+  would lose it. **Lines are conserved at every size** — that is the invariant this rests on.
+- **Containers are pooled with the functions now, and the reason they were not is worth
+  keeping.** The argument — the sunburst re-lays-out when the node it is ROOTED at changes
+  identity — is right about the root and does not reach its children, since `layout` walks the
+  tree afresh and every memo keys on the root. The saving had also been measured on the half
+  that stopped mattering: `minLoc` folds nearly every function away on a big repo, so the
+  pooled population was almost empty and the frame was made entirely of containers.
+- **Three smaller ones, each measured, none guessed.** `advance` rebuilds `order` once per STEP
+  rather than splicing each arrival into a 148,000-element array (18.8ms to 0.5ms for 2,000
+  arrivals). The per-file accumulators are dense typed arrays rather than maps hashed 148,000
+  times into a 60,000-key table — the superlinear term, 97ms where the two halves alone cost 10
+  and 17. And `aggregate` writes its `Score` in place; the first attempt allocated AND copied,
+  which the harness caught. Together: kibana at 5x went 150.6ms to 47.7ms a frame, and a
+  250k-file synthetic 641.7 to 105.7. `histogramsFor` answers only for containers that are
+  DRAWN on the same argument, which took Blame from 24.4ms to 5.1ms a call.
+- **The replayed author lives on the roll-up stand-in.** It carried a `lang` and no author, so
+  Language replayed and Blame did not — and on a repo where every function is rolled up, the
+  stand-ins are the whole picture. It takes the file's own last committer, which is the claim a
+  file wedge makes one ring in; the warning against a file's author standing in for a FUNCTION
+  is about a real function, and this node IS the file.
 - `just history <repo>` is the headless check, and it is UNCACHED by default: a run that
   answers from a file is not a run of the thing being checked. `--files` reconciles its
   totals against `just scan`, which is how the mascot bundle was found.
