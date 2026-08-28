@@ -90,6 +90,18 @@ jobs:
         working-directory: web
         run: npm run build
 
+      # The frontend's one test: a synthetic timeline folded to the same commit two ways,
+      # comparing a backward seek against a fold from the opening state. Deterministic and
+      # needs no repo checked out. See `just replay-check`.
+      - name: Replay equality check
+        shell: bash
+        working-directory: web
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/esbuild scripts/replay-check.ts --bundle --format=esm \
+            --platform=node --outfile="$RUNNER_TEMP/replay-check.mjs" --log-level=warning
+          node "$RUNNER_TEMP/replay-check.mjs"
+
       # The whole Rust crate lives in src-tauri/ — there is no workspace-root
       # backend crate. Scanning and scoring run in-process, not as a sidecar.
       - name: cargo test

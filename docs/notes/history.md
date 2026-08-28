@@ -76,10 +76,19 @@ second metric, and the line between those is the whole design.
 - **The frontend replay is forward-incremental; the fold is not.** A from-scratch fold is
   linear in how far along you are — 1.3ms at tonepoet's commit 98 and **26ms at 983** — so
   the map got slower exactly as the story got interesting and the top speed was set by the
-  tail. `advance` mutates a memoised frame forward; scrubbing BACKWARDS rebuilds, because
-  undoing a commit needs the state it replaced, which is the whole timeline stored twice
-  and free to drift. Churn therefore keeps touch STAMPS, not a count: the 90-day window
-  moves with the playhead, so a count could only be recomputed from the start.
+  tail. `advance` mutates a memoised frame forward. Churn therefore keeps touch STAMPS, not a
+  count: the 90-day window moves with the playhead, so a count could only be recomputed from
+  the start.
+- **Scrubbing BACKWARDS thaws a checkpoint, and never undoes a commit.** Undoing one needs the
+  state it replaced, which is the whole timeline stored twice and free to drift; a checkpoint
+  is a state the fold already computed. `Frame` is dense typed arrays keyed by function index
+  so that a checkpoint is a `memcpy` rather than a walk over eight maps, every absence is a
+  sentinel that no measurement can produce, and the bank is bounded by a count AND a byte
+  budget. **The frame a seek produces must be identical to the one playback produces** —
+  `just replay-check` folds a synthetic timeline to the same commit three ways and compares
+  the trees field by field, and asserts on `cost` that the seek folded a bounded remainder,
+  because a seek that thawed nothing is correct and slow and no comparison of trees can see
+  it. Read `docs/backward-scrubbing.md` before touching any of it.
 - **Drilling narrows the timeline, and that is a VIEW, not a second fold.** A directory's
   transport and log list only the commits that touched it — otherwise the scrub bar spends
   most of its length on commits that change nothing on screen. But the rings are still

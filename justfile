@@ -69,12 +69,12 @@ check:
 # into a change somebody has to review.
 fmt:
     cd src-tauri && cargo fmt
-    cd web && npx prettier --write "src/**/*.{ts,tsx,css}"
+    cd web && npx prettier --write "src/**/*.{ts,tsx,css}" "scripts/**/*.ts"
 
 # Fail if anything is unformatted — the check half of `fmt`, for CI or a pre-commit look.
 fmt-check:
     cd src-tauri && cargo fmt --check
-    cd web && npx prettier --check "src/**/*.{ts,tsx,css}"
+    cd web && npx prettier --check "src/**/*.{ts,tsx,css}" "scripts/**/*.ts"
 
 # Full release bundle (needs the icon set — `just icons` first).
 build:
@@ -90,6 +90,7 @@ test:
     # Frontend first: `npm run build` is `tsc -b && vite build`, so it doubles as the
     # TypeScript type-check gate, and tauri-build reads web/dist while compiling src-tauri.
     cd web && npm run build
+    just replay-check
     cd src-tauri && cargo test
     cd src-tauri && cargo clippy --all-targets -- -D warnings
 
@@ -128,6 +129,26 @@ history path="." *flags="":
     set -euo pipefail
     target="$(cd "{{path}}" && pwd)"
     cd src-tauri && cargo run --quiet --bin sanity-history -- "$target" {{flags}}
+
+# Fold a synthetic timeline to the same commit two ways and compare the trees field by
+# field — the check that a backward seek returns exactly what playback returns.
+#
+# `replay` is a pure accelerator and checkpoints extend that promise to seeking, which is a
+# claim about code no repo on this machine can prove: the timeline is generated, so the run
+# is deterministic and needs nothing checked out. It also prints the seek against a fold
+# from the opening state, and fails if the two are close — a seek that thawed nothing is
+# correct and slow, which no equality check can see.
+#
+# esbuild rather than a test runner: the frontend has no test framework, and one bundle of
+# one file is a smaller thing to keep working than a framework nothing else uses.
+replay-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd web
+    out="$(mktemp -d)/replay-check.mjs"
+    ./node_modules/.bin/esbuild scripts/replay-check.ts --bundle --format=esm \
+        --platform=node --outfile="$out" --log-level=warning
+    node "$out"
 
 # Weigh what a reader pays for the context we write it — the tool descriptions, the
 # subagent prompt, and the task payload for a real repo. At one function per reader the

@@ -136,15 +136,83 @@ const CHURN_SATURATION = 8
  *  a deeper memory costs bytes and answers nothing. */
 const CHURN_MEMORY = 16
 
-/** What the repo looked like after one commit. */
+/** What a field holds when it holds nothing.
+ *
+ *  **`0` is a value, not an absence.** A `Map` said "no answer" by not holding the key; a
+ *  dense array has to say it with a number, and every one of these fields has a natural
+ *  zero that would be believed: a touch at the epoch, the reading `predicted: none`, the
+ *  first commit in the story, the first author to appear. So each absence is a value the
+ *  measurement cannot produce — the same rule `#[serde(default)]` is written up against in
+ *  CLAUDE.md, one language over.
+ *
+ *  Timestamps are epoch SECONDS in a `Uint32Array`: exact, half the width of a double, and
+ *  `0xffffffff` is a date no commit carries. Grades are packed into ten bits, so `0xffff`
+ *  is unreachable. Commit indices and author ids are non-negative, so `-1` is free. */
+const NO_TS = 0xffffffff
+const NO_AT = -1
+const NO_GRADE = 0xffff
+const NO_AUTHOR = -1
+
+/**
+ * Authors, interned per timeline.
+ *
+ * A frame used to hold two `Map`s of strings — who last touched each file, who last touched
+ * each function — and a string map is the one thing in a frame that cannot be copied with a
+ * `memcpy`. Interning makes both of them `Int32Array`s into a table that is a property of
+ * the timeline rather than of the frame, so every checkpoint shares one copy of the names.
+ *
+ * Ids are assigned in the order the fold meets them, which is deterministic for one
+ * timeline folded from either end — the table is append-only and outlives any frame built
+ * against it. Rebuilt when the timeline changes, at which point every frame and every
+ * checkpoint built against it is discarded too; see `replay`.
+ */
+let interned: { hist: Tables; list: string[]; at: Map<string, number> } | null = null
+function authorsOf(hist: Tables): { list: string[]; at: Map<string, number> } {
+  if (interned && interned.hist === hist) return interned
+  interned = { hist, list: [], at: new Map() }
+  return interned
+}
+function authorId(hist: Tables, name: string): number {
+  const table = authorsOf(hist)
+  const had = table.at.get(name)
+  if (had !== undefined) return had
+  const id = table.list.length
+  table.list.push(name)
+  table.at.set(name, id)
+  return id
+}
+function authorName(hist: Tables, id: number): string | null {
+  return id < 0 ? null : (authorsOf(hist).list[id] ?? null)
+}
+
+/**
+ * What the repo looked like after one commit.
+ *
+ * **Dense, and that is what makes a backward seek possible.** Every per-function field here
+ * was a `Map` keyed by a function index that is already dense — `hist.funcCount` is known
+ * the moment the tables land — and at kibana's 148,000 live functions those eight maps are
+ * ~1.2M entries, 60–90MB of hash overhead before the values. That is not merely slow to
+ * walk: it is too big to COPY, and a copy is what a checkpoint is. Typed arrays buy three
+ * things in one move — the frame gets about tenfold smaller, a checkpoint becomes a
+ * `memcpy` rather than a walk, and the fold loses the map hashing that was most of what was
+ * left in it after the August 2026 pass.
+ *
+ * Absence is a sentinel; see `NO_TS` and its siblings for why each one is what it is.
+ */
 interface Frame {
-  /** func index → lines. */
-  loc: Map<number, number>
+  /** func index → lines, and whether it is live at all.
+   *
+   *  Two arrays rather than one, because a function's line count is allowed to be zero and
+   *  "not in this frame" is the question every reader of this actually asks — `advance`
+   *  decides whether a `set` is an ARRIVAL by it, and an arrival is the only thing the
+   *  replay paints. */
+  loc: Float64Array
+  live: Uint8Array
   /** Lines live in this frame. Kept as commits land, because the alternative is a pass over
    *  every function to decide the threshold that exists to avoid a pass over every
    *  function. */
   lines: number
-  /** The keys of `loc`, ascending — which is the order functions first appeared, and
+  /** The live function indices, ascending — which is the order functions first appeared, and
    *  therefore the order a file's wedges keep for the whole replay.
    *
    *  **Kept sorted as it changes, rather than sorted per frame.** The tree builder used to
@@ -158,103 +226,137 @@ interface Frame {
    *  hundreds of them. A splice is O(live), and live is 148,000 on kibana: measured, 2,000
    *  arrivals cost 18.8ms one at a time and 0.5ms merged in a single pass. `advance` collects
    *  the step's arrivals and departures and rebuilds this once, which is the same array by a
-   *  cheaper route. */
+   *  cheaper route.
+   *
+   *  **The one field a checkpoint does not store**, because `live` already holds it: it is
+   *  the ascending list of set bits, and rebuilding it is a scan of one byte per function
+   *  where storing it is a second copy free to disagree with the first. */
   order: number[]
   /** func index → when it was last touched. */
-  touched: Map<number, number>
+  touched: Uint32Array
   /** func index → the INDEX of the commit it first appeared in, for the flash.
    *
    *  Beside `born` rather than derived from it, because they answer different questions:
    *  one is a date, which is what the panel says out loud, and one is a position in the
    *  story, which is the only thing the replay draws. A date cannot be converted into a
-   *  position — that is the whole reason this map exists, see `inStep`. */
-  bornAt: Map<number, number>
+   *  position — that is the whole reason this array exists, see `inStep`. */
+  bornAt: Int32Array
   /** func index → when it first appeared *within the replayed window*. */
-  born: Map<number, number>
+  born: Uint32Array
   /** func index → the INDEX of the commit that last touched it, for the quieter of the two
    *  flashes. Every arrival is also a touch; which one a wedge shows is decided where they
    *  are drawn, and the brighter wins — see `colorFor`. */
-  editedAt: Map<number, number>
+  editedAt: Int32Array
   /** path index → how many of its functions are live, and which commit the file arrived
    *  in. A file is on screen exactly while the count is above zero — see `enter`. */
-  pathLive: Map<number, number>
-  pathBornAt: Map<number, number>
-  /** The same pair for directories, keyed by directory path. */
-  dirLive: Map<string, number>
-  dirBornAt: Map<string, number>
-  /** func index → when recent commits touched it, oldest first, capped.
+  pathLive: Uint32Array
+  pathBornAt: Int32Array
+  /** The same pair for directories, keyed by the directory INDEX `Shape` interns.
+   *
+   *  Strings before, which cost a hash per ancestor per arrival and a `Map` copy per
+   *  checkpoint. The shape of a replay's paths never changes, so a directory is an index
+   *  for the same reason a path already is. */
+  dirLive: Uint32Array
+  dirBornAt: Int32Array
+  /** func index → when recent commits touched it, oldest first, `CHURN_MEMORY` wide, with
+   *  the used length beside it.
    *
    *  Stamps rather than a running count, because a count cannot be advanced: churn is
    *  commits inside a 90-day window, and as the playhead moves forward old touches fall
    *  OUT of that window. A counter would have to be recomputed from the start every frame,
    *  which is exactly the cost `advance` exists to avoid. Capped at `CHURN_MEMORY` — the
-   *  scale saturates at eight, so a longer tail changes no number anybody sees. */
-  hits: Map<number, number[]>
-  /** path index → who committed to it last. */
-  author: Map<number, string>
-  /** func index → who last committed a change to THAT function.
+   *  scale saturates at eight, so a longer tail changes no number anybody sees.
+   *
+   *  One flat array of `funcCount × CHURN_MEMORY` rather than an array per function: the
+   *  ring is the widest thing a frame holds, and as a map of small arrays it was also the
+   *  slowest to copy. `hitLen` is the used prefix, so a full ring shifts with `copyWithin`
+   *  and keeps the oldest-first order the count reads. */
+  hits: Uint32Array
+  hitLen: Uint8Array
+  /** path index → who committed to it last, interned. */
+  author: Int32Array
+  /** func index → who last committed a change to THAT function, interned.
    *
    *  **The file's author was standing in for this and is a different answer.** A commit that
    *  edits one function in a file of forty makes its author the last committer of all forty,
    *  which on a shared file is wrong about thirty-nine of them. The walk already knows which
    *  functions each commit changed — that is what `set` means — so the finer answer costs one
-   *  map and no extra wire.
+   *  array and no extra wire.
    *
    *  Still not what the live Blame lens means: that one is per LINE, folded up from
    *  `git blame`, so a function whose body is mostly mine and whose last tweak was yours reads
    *  as mine there and as yours here. Replaying per-line authorship would mean blaming every
    *  version of every file, which is the trade `blame.rs` refuses for churn. The tab says which
    *  question it is answering. */
-  funcAuthor: Map<number, string>
+  funcAuthor: Int32Array
   /** func index → the reading this repo held for it AT this commit, packed.
    *
    *  **`.sanity/` is committed, so the readings are in the history like any other file.**
    *  What a frame paints under Surprise, Legibility, Docs or Traps is therefore what the repo
    *  KNEW about itself then — not today's grade stamped onto an older commit, which is the
-   *  thing that is still forbidden. A function missing from this map has not been read yet as
+   *  thing that is still forbidden. A function holding `NO_GRADE` has not been read yet as
    *  of this frame, which is a fact worth drawing rather than a hole: watching it fill in is
    *  the point of folding these at all. See `assessment::packed` for the layout. */
-  graded: Map<number, number>
+  graded: Uint16Array
   /** The frame's own "now". */
   ts: number
   /** Which commit this frame stands at; -1 is the opening state. */
   at: number
 }
 
-/** The opening state: everything the truncated commits built, before any frame lands. */
-function opening(hist: Tables): Frame {
-  const frame: Frame = {
-    loc: new Map(),
+/** How many functions a frame has room for. `funcCount` is what the timeline promises and
+ *  `funcs` is what has been paged in so far — the fold only ever names an index `Deltas`
+ *  has guaranteed, but a frame sized under either would be a silent out-of-bounds write on
+ *  a typed array, which is the one class of bug a `Map` could not have. */
+function widthOf(hist: Tables): number {
+  return Math.max(hist.funcCount, hist.funcs.length)
+}
+
+/** A frame holding nothing, with every field at its own absence. */
+function blank(hist: Tables): Frame {
+  const shape = shapeOf(hist)
+  const n = widthOf(hist)
+  return {
+    loc: new Float64Array(n),
+    live: new Uint8Array(n),
     lines: 0,
     order: [],
-    touched: new Map(),
-    graded: new Map(),
-    funcAuthor: new Map(),
-    bornAt: new Map(),
-    born: new Map(),
-    editedAt: new Map(),
-    pathLive: new Map(),
-    pathBornAt: new Map(),
-    dirLive: new Map(),
-    dirBornAt: new Map(),
-    hits: new Map(),
-    author: new Map(),
+    touched: new Uint32Array(n).fill(NO_TS),
+    born: new Uint32Array(n).fill(NO_TS),
+    bornAt: new Int32Array(n).fill(NO_AT),
+    editedAt: new Int32Array(n).fill(NO_AT),
+    funcAuthor: new Int32Array(n).fill(NO_AUTHOR),
+    graded: new Uint16Array(n).fill(NO_GRADE),
+    hits: new Uint32Array(n * CHURN_MEMORY),
+    hitLen: new Uint8Array(n),
+    pathLive: new Uint32Array(hist.paths.length),
+    pathBornAt: new Int32Array(hist.paths.length).fill(NO_AT),
+    dirLive: new Uint32Array(shape.path.length),
+    dirBornAt: new Int32Array(shape.path.length).fill(NO_AT),
+    author: new Int32Array(hist.paths.length).fill(NO_AUTHOR),
     ts: hist.baseTs,
     at: -1,
   }
+}
+
+/** The opening state: everything the truncated commits built, before any frame lands. */
+function opening(hist: Tables): Frame {
+  const frame = blank(hist)
+  const shape = shapeOf(hist)
   // The readings that came with the truncated prefix. Unlike a touch date, a reading from
   // before the window is not a claim about when anything happened — it is what the repo knew
   // at the moment the story starts, which is exactly what the opening frame should show.
-  for (const [f, packed] of hist.baseRead ?? []) frame.graded.set(f, packed)
+  for (const [f, packed] of hist.baseRead ?? []) frame.graded[f] = packed
   for (const [f, loc] of hist.base) {
-    frame.loc.set(f, loc)
+    frame.loc[f] = loc
+    frame.live[f] = 1
     frame.lines += loc
     frame.order.push(f)
     // COUNTED, though — its file and directories are on screen from frame one, and a
     // container that is not counted here is a container that would report itself as newly
     // arrived the first time somebody adds a function to it. Counting without a birth is
     // exactly the state that says "present, with no arrival to show".
-    census(frame, hist.funcs[f].path, hist)
+    census(frame, shape, hist.funcs[f].path)
     // Deliberately NOT marked as touched or born. Everything here predates the window, so
     // the only honest thing to say about when it was last written is that we do not know —
     // and an undated function draws uncolored rather than being dated to the start of the
@@ -262,16 +364,6 @@ function opening(hist: Tables): Frame {
     // the entire repo.
   }
   return frame
-}
-
-/** Every directory a path sits in, innermost first. The repo root is not one of them: it
- *  is on screen from the first frame to the last, so it has no arrival to show. */
-function dirsOf(path: string): string[] {
-  const out: string[] = []
-  for (let cut = path.lastIndexOf('/'); cut > 0; cut = path.lastIndexOf('/', cut - 1)) {
-    out.push(path.slice(0, cut))
-  }
-  return out
 }
 
 /**
@@ -286,17 +378,17 @@ function dirsOf(path: string): string[] {
  * flashed a stripe from the middle of the map to the rim and the picture said "a lot
  * happened here" about a commit that touched one function.
  */
-function enter(frame: Frame, p: number, hist: Tables, at: number): void {
+function enter(frame: Frame, shape: Shape, p: number, at: number): void {
   // Nothing above the function has arrived unless the FILE has: a function added to a file
   // that was already on screen changes no container's presence, and the dir counts were not
   // touched. Reading them anyway would re-birth a directory whose one file just gained a
   // second function.
-  if (!census(frame, p, hist)) return
-  frame.pathBornAt.set(p, at)
+  if (!census(frame, shape, p)) return
+  frame.pathBornAt[p] = at
   // A count of exactly one, after counting this file in, means this file is the first thing
   // in that directory — so the directory arrived with it.
-  for (const d of dirsOf(hist.paths[p])) {
-    if (frame.dirLive.get(d) === 1) frame.dirBornAt.set(d, at)
+  for (const d of shape.ancestors[p]) {
+    if (frame.dirLive[d] === 1) frame.dirBornAt[d] = at
   }
 }
 
@@ -305,40 +397,37 @@ function enter(frame: Frame, p: number, hist: Tables, at: number): void {
  *
  *  Split out because the opening state has to count without recording a birth: see
  *  `opening`. */
-function census(frame: Frame, p: number, hist: Tables): boolean {
-  const live = (frame.pathLive.get(p) ?? 0) + 1
-  frame.pathLive.set(p, live)
+function census(frame: Frame, shape: Shape, p: number): boolean {
+  const live = frame.pathLive[p] + 1
+  frame.pathLive[p] = live
   if (live > 1) return false
-  for (const d of dirsOf(hist.paths[p])) {
-    frame.dirLive.set(d, (frame.dirLive.get(d) ?? 0) + 1)
-  }
+  for (const d of shape.ancestors[p]) frame.dirLive[d] += 1
   return true
 }
 
 /** A function has left `p`. The mirror of `enter`: a file that loses its last function has
  *  left the picture, and if it comes back it is an arrival again — which is the honest
  *  reading, because that is what the map shows. */
-function leave(frame: Frame, p: number, hist: Tables): void {
-  const live = (frame.pathLive.get(p) ?? 1) - 1
-  if (live > 0) {
-    frame.pathLive.set(p, live)
-    return
-  }
-  frame.pathLive.delete(p)
-  frame.pathBornAt.delete(p)
-  for (const d of dirsOf(hist.paths[p])) {
-    const n = (frame.dirLive.get(d) ?? 1) - 1
-    if (n > 0) {
-      frame.dirLive.set(d, n)
-      continue
-    }
-    frame.dirLive.delete(d)
-    frame.dirBornAt.delete(d)
+function leave(frame: Frame, shape: Shape, p: number): void {
+  // Floored rather than allowed to wrap. These counts are consistent by construction — a
+  // departure is only ever applied to a function the frame holds — but the store is now
+  // unsigned, so the one thing an inconsistency must not do is turn a zero into four
+  // billion and put a directory on screen for the rest of the replay.
+  const live = frame.pathLive[p] > 0 ? frame.pathLive[p] - 1 : 0
+  frame.pathLive[p] = live
+  if (live > 0) return
+  frame.pathBornAt[p] = NO_AT
+  for (const d of shape.ancestors[p]) {
+    const n = frame.dirLive[d] > 0 ? frame.dirLive[d] - 1 : 0
+    frame.dirLive[d] = n
+    if (n === 0) frame.dirBornAt[d] = NO_AT
   }
 }
 
-/** Apply commits `(frame.at, to]` in place. */
-function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): void {
+/** Apply commits `(frame.at, to]` in place. Returns whether every commit asked for was
+ *  actually there — see the break below, and `bank`, which must not store a frame that
+ *  stands somewhere other than where it says it does. */
+function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): boolean {
   /** Arrivals and departures for this WHOLE step, applied to `order` once at the end.
    *
    *  **A splice is O(live), and a step at speed is hundreds of commits.** `order` is an
@@ -354,55 +443,66 @@ function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): void {
    *  live. */
   const added = new Set<number>()
   const gone = new Set<number>()
+  const shape = shapeOf(hist)
+  let whole = true
   for (let i = frame.at + 1; i <= to && i < hist.commits; i++) {
     const c = deltas.at(i)
     // Past what has been fetched. The caller waits on `Deltas.ensure` before folding, so
     // this is the end of the story rather than a gap — see `lib/timeline.ts`.
-    if (!c) break
+    if (!c) {
+      whole = false
+      break
+    }
+    const who = authorId(hist, c.author)
     for (const [f, loc] of c.set) {
       // Absent BEFORE this commit, which is not the same question as "has no birth on
       // record". `c.set` carries rewrites as well as arrivals, and everything in the
       // opening state arrives with no birth by design — keyed on `born` this lit up every
       // base function the first time somebody edited it, which is an arrival the replay
       // never saw and, under a flash, the loudest thing on screen.
-      const arrived = !frame.loc.has(f)
-      frame.lines += loc - (frame.loc.get(f) ?? 0)
-      frame.loc.set(f, loc)
-      frame.touched.set(f, c.ts)
-      frame.funcAuthor.set(f, c.author)
-      frame.editedAt.set(f, i)
+      const arrived = frame.live[f] === 0
+      frame.lines += loc - frame.loc[f]
+      frame.loc[f] = loc
+      frame.live[f] = 1
+      frame.touched[f] = c.ts
+      frame.funcAuthor[f] = who
+      frame.editedAt[f] = i
       if (arrived) {
         if (!gone.delete(f)) added.add(f)
-        frame.born.set(f, c.ts)
-        frame.bornAt.set(f, i)
-        enter(frame, hist.funcs[f].path, hist, i)
+        frame.born[f] = c.ts
+        frame.bornAt[f] = i
+        enter(frame, shape, hist.funcs[f].path, i)
       }
-      const seen = frame.hits.get(f)
-      if (seen) {
-        seen.push(c.ts)
-        if (seen.length > CHURN_MEMORY) seen.shift()
-      } else {
-        frame.hits.set(f, [c.ts])
+      // The ring, oldest first. A full one shifts by one rather than growing — see
+      // `Frame.hits`, and `CHURN_MEMORY` for why sixteen is all anybody can see.
+      const base = f * CHURN_MEMORY
+      let len = frame.hitLen[f]
+      if (len >= CHURN_MEMORY) {
+        frame.hits.copyWithin(base, base + 1, base + CHURN_MEMORY)
+        len = CHURN_MEMORY - 1
       }
+      frame.hits[base + len] = c.ts
+      frame.hitLen[f] = len + 1
     }
     for (const f of c.del) {
-      if (frame.loc.has(f)) {
-        leave(frame, hist.funcs[f].path, hist)
+      if (frame.live[f] === 1) {
+        leave(frame, shape, hist.funcs[f].path)
         if (!added.delete(f)) gone.add(f)
-        frame.lines -= frame.loc.get(f) ?? 0
+        frame.lines -= frame.loc[f]
       }
-      frame.loc.delete(f)
-      frame.touched.delete(f)
-      frame.born.delete(f)
-      frame.bornAt.delete(f)
-      frame.editedAt.delete(f)
-      frame.funcAuthor.delete(f)
-      frame.graded.delete(f)
-      frame.hits.delete(f)
+      frame.live[f] = 0
+      frame.loc[f] = 0
+      frame.touched[f] = NO_TS
+      frame.born[f] = NO_TS
+      frame.bornAt[f] = NO_AT
+      frame.editedAt[f] = NO_AT
+      frame.funcAuthor[f] = NO_AUTHOR
+      frame.graded[f] = NO_GRADE
+      frame.hitLen[f] = 0
     }
-    for (const [f, packed] of c.read ?? []) frame.graded.set(f, packed)
-    for (const f of c.unread ?? []) frame.graded.delete(f)
-    for (const p of c.files) frame.author.set(p, c.author)
+    for (const [f, packed] of c.read ?? []) frame.graded[f] = packed
+    for (const f of c.unread ?? []) frame.graded[f] = NO_GRADE
+    for (const p of c.files) frame.author[p] = who
   }
   // One pass for the whole step: drop what left, merge in what arrived. Both sides are
   // ascending — `order` by construction and the arrivals by sorting once — so this is a
@@ -420,7 +520,7 @@ function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): void {
       }
       if (j >= fresh.length) out.push(old[i++])
       else if (i >= old.length) out.push(fresh[j++])
-      // Equal is not possible — an arrival is a function `frame.loc` did not hold — but a
+      // Equal is not possible — an arrival is a function `frame.live` did not hold — but a
       // timeline is data and this is a merge: taking one and dropping the other keeps the
       // array a SET, which is what every reader assumes it is.
       else if (old[i] < fresh[j]) out.push(old[i++])
@@ -434,7 +534,220 @@ function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): void {
   }
   frame.at = Math.min(to, hist.commits - 1)
   frame.ts = deltas.at(Math.max(0, frame.at))?.ts ?? hist.baseTs
+  return whole
 }
+
+/** Commits between checkpoints.
+ *
+ *  A seek pays at most this many folds, at ~32µs each on a kibana-shaped timeline — tens of
+ *  milliseconds, which is a drag that moves. It is a spacing rather than a schedule: a
+ *  checkpoint is taken at whatever commit the playhead happens to land on once this many
+ *  have passed, because a frame at speed carries hundreds of commits and stopping it on an
+ *  exact multiple would mean folding twice. */
+const CHECKPOINT_EVERY = 2_000
+/** How many are kept, and what they may cost.
+ *
+ *  **Both, because either alone is wrong on some repo.** A count alone is a memory promise
+ *  nobody checked: a checkpoint is ~48 bytes per function the timeline has ever held, so a
+ *  dozen is a few megabytes on this repo and most of a gigabyte on something with a million
+ *  functions. A budget alone gives a small repo far more checkpoints than its whole history
+ *  can use. The bank takes whichever runs out first, and never fewer than two — with one you
+ *  are back to folding from the opening state, which is the thing this exists to avoid. */
+const CHECKPOINTS = 12
+const CHECKPOINT_BUDGET = 96 * 1024 * 1024
+
+/**
+ * A frame, frozen.
+ *
+ * **`hits` is packed and everything else is a straight copy.** The ring is `CHURN_MEMORY`
+ * wide per function and is by a distance the biggest thing a frame holds — 64 bytes against
+ * the 32 the rest of the fields come to — while most functions have been touched a handful
+ * of times. So a checkpoint stores exactly `hitLen[f]` stamps per function, in function
+ * order, and `thaw` scatters them back. Nothing is approximated: the same stamps come back
+ * in the same order, which is the whole promise a checkpoint makes.
+ *
+ * `order` is not stored. It is the ascending list of live functions and `live` already says
+ * which those are, so a second copy could only ever disagree with the first.
+ */
+interface Checkpoint {
+  at: number
+  ts: number
+  lines: number
+  loc: Float64Array
+  live: Uint8Array
+  touched: Uint32Array
+  born: Uint32Array
+  bornAt: Int32Array
+  editedAt: Int32Array
+  funcAuthor: Int32Array
+  graded: Uint16Array
+  hitLen: Uint8Array
+  hits: Uint32Array
+  pathLive: Uint32Array
+  pathBornAt: Int32Array
+  author: Int32Array
+  dirLive: Uint32Array
+  dirBornAt: Int32Array
+}
+
+function freeze(frame: Frame): Checkpoint {
+  const n = frame.hitLen.length
+  let stamps = 0
+  for (let f = 0; f < n; f++) stamps += frame.hitLen[f]
+  const hits = new Uint32Array(stamps)
+  let w = 0
+  for (let f = 0; f < n; f++) {
+    const len = frame.hitLen[f]
+    if (len === 0) continue
+    const base = f * CHURN_MEMORY
+    for (let i = 0; i < len; i++) hits[w++] = frame.hits[base + i]
+  }
+  return {
+    at: frame.at,
+    ts: frame.ts,
+    lines: frame.lines,
+    loc: frame.loc.slice(),
+    live: frame.live.slice(),
+    touched: frame.touched.slice(),
+    born: frame.born.slice(),
+    bornAt: frame.bornAt.slice(),
+    editedAt: frame.editedAt.slice(),
+    funcAuthor: frame.funcAuthor.slice(),
+    graded: frame.graded.slice(),
+    hitLen: frame.hitLen.slice(),
+    hits,
+    pathLive: frame.pathLive.slice(),
+    pathBornAt: frame.pathBornAt.slice(),
+    author: frame.author.slice(),
+    dirLive: frame.dirLive.slice(),
+    dirBornAt: frame.dirBornAt.slice(),
+  }
+}
+
+function thaw(cp: Checkpoint): Frame {
+  const n = cp.hitLen.length
+  const hits = new Uint32Array(n * CHURN_MEMORY)
+  const order: number[] = []
+  let r = 0
+  for (let f = 0; f < n; f++) {
+    if (cp.live[f] === 1) order.push(f)
+    const len = cp.hitLen[f]
+    if (len === 0) continue
+    const base = f * CHURN_MEMORY
+    for (let i = 0; i < len; i++) hits[base + i] = cp.hits[r++]
+  }
+  return {
+    loc: cp.loc.slice(),
+    live: cp.live.slice(),
+    lines: cp.lines,
+    order,
+    touched: cp.touched.slice(),
+    born: cp.born.slice(),
+    bornAt: cp.bornAt.slice(),
+    editedAt: cp.editedAt.slice(),
+    funcAuthor: cp.funcAuthor.slice(),
+    graded: cp.graded.slice(),
+    hits,
+    hitLen: cp.hitLen.slice(),
+    pathLive: cp.pathLive.slice(),
+    pathBornAt: cp.pathBornAt.slice(),
+    dirLive: cp.dirLive.slice(),
+    dirBornAt: cp.dirBornAt.slice(),
+    author: cp.author.slice(),
+    ts: cp.ts,
+    at: cp.at,
+  }
+}
+
+function weigh(cp: Checkpoint): number {
+  return (
+    cp.loc.byteLength +
+    cp.live.byteLength +
+    cp.touched.byteLength +
+    cp.born.byteLength +
+    cp.bornAt.byteLength +
+    cp.editedAt.byteLength +
+    cp.funcAuthor.byteLength +
+    cp.graded.byteLength +
+    cp.hitLen.byteLength +
+    cp.hits.byteLength +
+    cp.pathLive.byteLength +
+    cp.pathBornAt.byteLength +
+    cp.author.byteLength +
+    cp.dirLive.byteLength +
+    cp.dirBornAt.byteLength
+  )
+}
+
+/**
+ * The checkpoints held for one timeline, and the memoised frame they accelerate.
+ *
+ * **A runtime accelerator, never a stored artefact.** These are derived from deltas the
+ * window already has, so `history::CACHE_VERSION` is not involved and never should be — the
+ * day one of these is written to disk is the day it becomes a second copy of the story, free
+ * to drift from the one it was derived from.
+ */
+let bank: { hist: Tables; at: Checkpoint[]; bytes: number } | null = null
+
+/** Keep the survivors SPREAD, rather than clustered where somebody last was.
+ *
+ *  Playback banks a checkpoint every couple of thousand commits as it goes, so dropping the
+ *  oldest would leave a dozen of them in the last stretch of the story and nothing at all in
+ *  front of the opening state — which is the seek that is slowest to begin with. The one
+ *  dropped is whichever leaves the smallest hole: the interior checkpoint whose neighbours
+ *  are closest together. The ends are kept, because they are the two the ordering itself
+ *  cannot replace. */
+function evict(kept: Checkpoint[]): void {
+  if (kept.length < 3) return
+  let worst = 1
+  let gap = Infinity
+  for (let i = 1; i < kept.length - 1; i++) {
+    const span = kept[i + 1].at - kept[i - 1].at
+    if (span < gap) {
+      gap = span
+      worst = i
+    }
+  }
+  kept.splice(worst, 1)
+}
+
+function remember(hist: Tables, frame: Frame): void {
+  if (!bank || bank.hist !== hist) bank = { hist, at: [], bytes: 0 }
+  const kept = bank.at
+  const last = kept.length > 0 ? kept[kept.length - 1].at : -1
+  if (frame.at - last < CHECKPOINT_EVERY) return
+  const cp = freeze(frame)
+  const size = weigh(cp)
+  kept.push(cp)
+  bank.bytes += size
+  while (kept.length > 2 && (kept.length > CHECKPOINTS || bank.bytes > CHECKPOINT_BUDGET)) {
+    const before = kept.length
+    evict(kept)
+    if (kept.length === before) break
+    bank.bytes = kept.reduce((s, c) => s + weigh(c), 0)
+  }
+}
+
+/** The highest checkpoint at or before `index`, or nothing. */
+function nearest(hist: Tables, index: number): Checkpoint | null {
+  if (!bank || bank.hist !== hist) return null
+  let out: Checkpoint | null = null
+  for (const cp of bank.at) {
+    if (cp.at <= index && (!out || cp.at > out.at)) out = cp
+  }
+  return out
+}
+
+/**
+ * What the last fold actually cost, in commits.
+ *
+ * **Because a seek that thawed nothing is correct and slow**, and no comparison of two trees
+ * can tell that apart from a seek that worked — which is exactly the failure checkpoints
+ * exist to prevent, arriving back as a silent regression. A wall clock would say so too, and
+ * says it differently on every machine; this is the same claim without a threshold anybody
+ * has to tune. Read by `scripts/replay-check.ts`.
+ */
+export const cost = { folded: 0, thawed: 0 }
 
 /** The last frame computed, kept so playing forward does not re-fold the whole timeline.
  *
@@ -445,19 +758,32 @@ function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): void {
  *
  *  Module-level rather than a hook, because it is a pure accelerator: it changes no answer
  *  — `frameTree(hist, i)` returns the same tree whether or not the memo is warm — so it
- *  has no business in the render tree. Scrubbing BACKWARDS rebuilds from the opening
- *  state; undoing a commit would need the state it replaced, which is the whole timeline
- *  stored a second time and free to drift.
+ *  has no business in the render tree.
+ *
+ *  **Scrubbing backwards is the same promise one level down.** It used to rebuild from the
+ *  opening state, which on kibana is 60,000 folds and about two seconds of nothing moving;
+ *  it now thaws the nearest checkpoint and folds the remainder. What it does NOT do is undo
+ *  a commit: that needs the state each commit replaced, which is a second timeline the size
+ *  of the first with a standing obligation to stay in step with it forever. A checkpoint is
+ *  a state the fold already computed, so there is nothing to keep in step.
  */
 let memo: { hist: Tables; frame: Frame } | null = null
 
 function replay(hist: Tables, deltas: Deltas, index: number): Frame {
   if (memo && memo.hist === hist && memo.frame.at <= index) {
-    advance(memo.frame, hist, deltas, index)
+    cost.folded = index - memo.frame.at
+    cost.thawed = -1
+    if (advance(memo.frame, hist, deltas, index)) remember(hist, memo.frame)
     return memo.frame
   }
-  const frame = opening(hist)
-  advance(frame, hist, deltas, index)
+  // A timeline the bank has never seen invalidates the interned authors with it: the ids in
+  // a frame are indices into that table, so the two are one store wearing two names.
+  if (!bank || bank.hist !== hist) authorsOf(hist)
+  const from = nearest(hist, index)
+  cost.thawed = from ? from.at : -1
+  cost.folded = index - (from ? from.at : -1)
+  const frame = from ? thaw(from) : opening(hist)
+  if (advance(frame, hist, deltas, index)) remember(hist, frame)
   memo = { hist, frame }
   return frame
 }
@@ -539,18 +865,22 @@ function scoreInto(
   frame: Frame,
   f: number,
   since: number,
-  packed: number | undefined,
+  /** The frame's packed reading, or `NO_GRADE` — never `undefined`. A dense store has no
+   *  hole to hand out. */
+  packed: number,
 ): Score {
-  const touched = frame.touched.get(f)
-  const at = frame.bornAt.get(f)
-  const edit = frame.editedAt.get(f)
-  const born = frame.born.get(f)
+  const touched = frame.touched[f]
+  const at = frame.bornAt[f]
+  const edit = frame.editedAt[f]
+  const born = frame.born[f]
   // Counted at read time, not carried: the window moves with the playhead, so a touch
   // that counted last frame may have aged out of this one.
-  const seen = frame.hits.get(f)
-  const commits = seen
-    ? seen.filter((t) => daysBetween(frame.ts, t) <= CHURN_WINDOW_DAYS).length
-    : 0
+  const base = f * CHURN_MEMORY
+  const len = frame.hitLen[f]
+  let commits = 0
+  for (let i = 0; i < len; i++) {
+    if (daysBetween(frame.ts, frame.hits[base + i]) <= CHURN_WINDOW_DAYS) commits++
+  }
   const s: Score = into ?? {
     surprise: 0,
     documented: 0,
@@ -565,15 +895,15 @@ function scoreInto(
     analyzedShare: 0,
   }
   s.churn = Math.min(1, commits / CHURN_SATURATION)
-  s.ageDays = born === undefined ? null : daysBetween(frame.ts, born)
-  s.lastTouchedDays = touched === undefined ? null : daysBetween(frame.ts, touched)
+  s.ageDays = born === NO_TS ? null : daysBetween(frame.ts, born)
+  s.lastTouchedDays = touched === NO_TS ? null : daysBetween(frame.ts, touched)
   s.commits = commits
   // **What the repo knew about this function at this commit.** Absent is the common case
   // early in a story and it is a finding rather than a hole — `analyzedShare` of 0 is what
   // `isAnalyzed` refuses to colour, so an unread function draws as unread and the map fills
   // in as the readings land.
-  const predicted = packed === undefined ? undefined : gradeAt(packed, 0)
-  const documented = packed === undefined ? undefined : gradeAt(packed, 3)
+  const predicted = packed === NO_GRADE ? undefined : gradeAt(packed, 0)
+  const documented = packed === NO_GRADE ? undefined : gradeAt(packed, 3)
   s.surprise = predicted ? GRADE_SURPRISE[predicted] : 0
   s.documented = documented ? GRADE_DOCUMENTED[documented] : 0
   s.analyzedShare = predicted ? 1 : 0
@@ -584,8 +914,8 @@ function scoreInto(
   s.source = predicted ? 'agent' : 'proxy'
   // Written every time, including to null: these Score objects are POOLED and reused frame
   // to frame, so a field left alone keeps the last function's answer.
-  s.appeared = at !== undefined && inStep(at, since, frame.at) ? 1 : null
-  s.edited = edit !== undefined && inStep(edit, since, frame.at) ? 1 : null
+  s.appeared = at !== NO_AT && inStep(at, since, frame.at) ? 1 : null
+  s.edited = edit !== NO_AT && inStep(edit, since, frame.at) ? 1 : null
   return s
 }
 
@@ -855,8 +1185,9 @@ let index: { hist: Tables; at: Map<string, number> } | null = null
  * a frame totals lines into a dense array, and a string key would put a hash in the middle
  * of the hottest loop in the module.
  *
- * `ancestors` is innermost-first and excludes the root, matching `dirsOf`, which this
- * replaces at frame time — that function allocated an array of strings per path per frame.
+ * `ancestors` is innermost-first and excludes the root. It is what `advance` walks when a
+ * function arrives or leaves: the string version allocated an array of paths per arrival and
+ * hashed each one into a map, which is a per-commit cost for an answer that never changes.
  */
 interface Shape {
   hist: Tables
@@ -869,6 +1200,9 @@ interface Shape {
   /** Each file path's own directory, and its whole ancestor chain. */
   owner: Int32Array
   ancestors: Int32Array[]
+  /** Directory path → index, which is how a container looks its own arrival up by node id.
+   *  Built here because it is built here anyway — `dirFor` needs it to intern. */
+  dirAt: Map<string, number>
 }
 
 let shaped: Shape | null = null
@@ -883,6 +1217,7 @@ function shapeOf(hist: Tables): Shape {
     files: [[]],
     owner: new Int32Array(hist.paths.length),
     ancestors: new Array<Int32Array>(hist.paths.length),
+    dirAt: at,
   }
   const dirFor = (path: string): number => {
     const had = at.get(path)
@@ -904,7 +1239,11 @@ function shapeOf(hist: Tables): Shape {
     shape.owner[i] = dir
     shape.files[dir].push(i)
     const chain: number[] = []
-    for (let d = dir; d !== 0; d = at.get(shape.path[d].slice(0, Math.max(0, shape.path[d].lastIndexOf('/')))) ?? 0) {
+    for (
+      let d = dir;
+      d !== 0;
+      d = at.get(shape.path[d].slice(0, Math.max(0, shape.path[d].lastIndexOf('/')))) ?? 0
+    ) {
       chain.push(d)
       if (chain.length > 64) break
     }
@@ -1064,7 +1403,7 @@ export function frameTree(
   let scopeLines = 0
   if (inScope) {
     for (const f of frame.order) {
-      if (inScope.has(hist.funcs[f].path)) scopeLines += frame.loc.get(f) ?? 0
+      if (inScope.has(hist.funcs[f].path)) scopeLines += frame.loc[f]
     }
   }
   const scopeMin = inScope && scopeLines > 0 ? scopeLines / (4000 * density * density) : minLoc
@@ -1098,7 +1437,7 @@ export function frameTree(
   // In interned order — see `Frame.order`, which is kept that way as commits land rather
   // than rebuilt here.
   for (const f of frame.order) {
-    const loc = frame.loc.get(f) ?? 0
+    const loc = frame.loc[f]
     const def = hist.funcs[f]
     // Ignored means ignored, in the replay as on the live map. The trace still holds them —
     // pruning at the walk would mean re-tracing a large repo whenever the file changed — so
@@ -1110,10 +1449,10 @@ export function frameTree(
     if (loc < (inScope && inScope.has(def.path) ? scopeMin : minLoc)) {
       restLoc[def.path] += loc
       restCount[def.path] += 1
-      const bornAt = frame.bornAt.get(f)
-      const editAt = frame.editedAt.get(f)
-      if (bornAt !== undefined && inStep(bornAt, since, frame.at)) restBirth[def.path] = 1
-      if (editAt !== undefined && inStep(editAt, since, frame.at)) restEdit[def.path] = 1
+      const bornAt = frame.bornAt[f]
+      const editAt = frame.editedAt[f]
+      if (bornAt !== NO_AT && inStep(bornAt, since, frame.at)) restBirth[def.path] = 1
+      if (editAt !== NO_AT && inStep(editAt, since, frame.at)) restEdit[def.path] = 1
       continue
     }
     let node = nodes.get(f)
@@ -1170,12 +1509,12 @@ export function frameTree(
     // every function in a file somebody touched, which is the thing this replaced. A function
     // from the truncated prefix has no author for the same reason it has no touch date: the
     // commit that wrote it is outside the window, and the honest answer is that we do not know.
-    node.lastAuthor = frame.funcAuthor.get(f) ?? null
-    const packed = frame.graded.get(f)
+    node.lastAuthor = authorName(hist, frame.funcAuthor[f])
+    const packed = frame.graded[f]
     node.score = scoreInto(node.score, frame, f, since, packed)
     // The reading itself, for the two lenses that read it as a report rather than as a
     // number. Cleared when this frame has none, or a pooled node keeps the last one's.
-    node.agent = packed === undefined ? undefined : readingInto(node.agent ?? null, packed)
+    node.agent = packed === NO_GRADE ? undefined : readingInto(node.agent ?? null, packed)
     node.agentStale = false
     const list = drawn.get(def.path)
     if (list) list.push(node)
@@ -1199,8 +1538,8 @@ export function frameTree(
   for (let p = 0; p < fileLoc.length; p++) {
     const lines = fileLoc[p]
     if (lines <= 0) continue
-    const born = frame.pathBornAt.get(p)
-    const birth = restBirth[p] === 1 || (born !== undefined && inStep(born, since, frame.at))
+    const born = frame.pathBornAt[p]
+    const birth = restBirth[p] === 1 || (born !== NO_AT && inStep(born, since, frame.at))
     const edit = restEdit[p] === 1
     for (const a of shape.ancestors[p]) {
       dirLoc[a] += lines
@@ -1245,7 +1584,7 @@ export function frameTree(
     if (!had) held.files.set(p, made)
     // The one field a file derives from the FRAME rather than from the path — see the
     // stand-in below, which takes the same value for the same reason.
-    made.lastAuthor = frame.author.get(p) ?? null
+    made.lastAuthor = authorName(hist, frame.author[p])
     for (const fn of drawn.get(p) ?? []) made.children.push(fn)
     if (restLoc[p] > 0) made.children.push(standIn(p, restLoc[p], restCount[p]))
     return made
@@ -1285,7 +1624,7 @@ export function frameTree(
     // **The file's own last committer, which is the resolution this node HAS.** Putting a
     // file's author on each of forty functions is wrong about thirty-nine; this is not one
     // of forty, it IS the file, standing in for everything the picture has no room to draw.
-    stand.lastAuthor = frame.author.get(p) ?? null
+    stand.lastAuthor = authorName(hist, frame.author[p])
     stand.score = flashOnly(restBirth[p] === 1, restEdit[p] === 1)
     return stand
   }
@@ -1322,7 +1661,8 @@ export function frameTree(
     let restFiles = 0
     let restB = false
     let restE = false
-    const cut = inScope && (forced.has(d) || shape.path[d].startsWith(`${scope}/`)) ? scopeMin : minLoc
+    const cut =
+      inScope && (forced.has(d) || shape.path[d].startsWith(`${scope}/`)) ? scopeMin : minLoc
     for (const k of shape.kids[d]) {
       const lines = dirLoc[k]
       if (lines <= 0) continue
@@ -1346,8 +1686,8 @@ export function frameTree(
       }
       restLines += lines
       restFiles += 1
-      const born = frame.pathBornAt.get(p)
-      restB = restB || restBirth[p] === 1 || (born !== undefined && inStep(born, since, frame.at))
+      const born = frame.pathBornAt[p]
+      restB = restB || restBirth[p] === 1 || (born !== NO_AT && inStep(born, since, frame.at))
       restE = restE || restEdit[p] === 1
     }
     if (restLines > 0) into.children.push(crowd(d, restLines, restFiles, restB, restE))
@@ -1358,8 +1698,15 @@ export function frameTree(
   // is what lets a container ask the frame directly when it arrived instead of inheriting an
   // answer from the functions inside it.
   aggregate(root, (id) => {
-    const at = frame.dirBornAt.get(id) ?? frame.pathBornAt.get(pathIndex.get(id) ?? -1)
-    return at !== undefined && inStep(at, since, frame.at) ? 1 : null
+    // A dir first, then a file: the two namespaces are disjoint — a node id IS its path —
+    // and asking the shape rather than the frame is what lets both be dense.
+    const d = shape.dirAt.get(id)
+    let at = d !== undefined ? frame.dirBornAt[d] : NO_AT
+    if (at === NO_AT) {
+      const p = pathIndex.get(id)
+      if (p !== undefined) at = frame.pathBornAt[p]
+    }
+    return at !== NO_AT && inStep(at, since, frame.at) ? 1 : null
   })
   return collapse(root)
 }
