@@ -395,21 +395,7 @@ export function CommitLog({
         <div className="-mx-4 mt-4 border-t border-[var(--border)] pt-3" />
       </div>
 
-      {/* **TEMPORARY — the list is hidden while the replay is PLAYING.**
-          An experiment, and what it is testing is whether this pane is what makes a big
-          replay stutter. It is the one thing on screen that does React work per frame: the
-          rings are geometry the map mutates in place, but the playhead moving means a new
-          window of rows, new `Row` elements, and a scroll the follow effect drives. The
-          header stays — it is the answer to "what am I looking at" and it does not move —
-          and the list comes back the moment the story is paused or scrubbed, which is when
-          somebody is reading it rather than watching it go past.
-          If it turns out not to be the cost, this whole branch comes out and the log plays
-          again. If it IS the cost, the fix is a smaller one than hiding it. */}
-      {playing ? (
-        <p className="px-4 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-          The log is hidden while the story runs. Pause to read it.
-        </p>
-      ) : frames.length === 0 ? (
+      {frames.length === 0 ? (
         /* A file that exists only because commits before the window built it. The rings
            still draw it; nothing in the replayed window ever touched it, and saying that
            is better than an empty pane that reads as a failure. */
