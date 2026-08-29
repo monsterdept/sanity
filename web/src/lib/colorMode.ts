@@ -468,6 +468,26 @@ export function rampOf(mode: ColorMode): Ramp {
   return 'heat'
 }
 
+/** The one colour that stands for a lens, as a custom-property name.
+ *
+ *  **Stop 3 rather than stop 4 for the ramped lenses.** The hot end is the loudest colour in
+ *  the app and it is spent on the wedges that need it; a chip wearing it competes with the
+ *  map it is labelling. One stop down is the same hue and reads as chrome.
+ *
+ *  Blame and Language have nothing on the map to quote — their wedges come out of the
+ *  categorical palette, and one slot out of it would paint the lens in whichever author
+ *  sorted first. They get a colour of their own instead, spent on the chrome only; see
+ *  `--lens-blame` in index.css for where the two hues come from. */
+export function modeToken(mode: ColorMode): string {
+  if (mode === 'traps') return '--trap'
+  if (mode === 'clones') return '--clone'
+  if (mode === 'callers') return '--callers-3'
+  if (mode === 'reach') return '--reach-3'
+  if (mode === 'blame') return '--lens-blame'
+  if (mode === 'language') return '--lens-language'
+  return `--${rampOf(mode)}-3`
+}
+
 /** The name git puts on a line that is in the working tree and not in a commit.
  *
  *  It arrives as an author string and it is not an author: it is a STATE, and treating it
@@ -1247,7 +1267,6 @@ function contribute(
       }
     }
   }
-
 }
 
 /** A file's columnised functions, put through the same `contribute` the real ones take.
@@ -1461,7 +1480,6 @@ export function bucketsFor(
    *  different scale from the map beside it the moment you drilled in. */
   ageSpan?: number,
 ): Bucket[] {
-
   // The caller's span when there is one, and this subtree's only as a fallback for a caller
   // that has no tree above it.
   const span = ageSpan ?? ageSpanOf(root)

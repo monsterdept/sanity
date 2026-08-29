@@ -9,11 +9,13 @@ import {
   RAMP_ENDS,
   rampOf,
   slotColor,
+  modeToken,
   type ColorMode,
   paintsFromReadings,
 } from '../lib/colorMode'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { heatColor, type Ramp } from '../lib/api'
+import { inkOn } from '../lib/ink'
 
 /** A padlock, for a lens with nothing in it yet.
  *
@@ -25,16 +27,27 @@ import { heatColor, type Ramp } from '../lib/api'
  *
  *  (Read and Trace are both `--accent` today, so the hue says "a button in the sidebar" rather
  *  than which of the two. Distinguishing them is a decision about those buttons, not this.) */
-export function Lock({ keyed }: { keyed: boolean }) {
+export function Lock({
+  keyed,
+  size = 7,
+  color,
+}: {
+  keyed: boolean
+  size?: number
+  /** Overrides the tint, for a lock standing on a coloured ground rather than on the pane.
+   *  The switcher's trigger wears its lens's colour, and an accent-tinted padlock on it is
+   *  at best a clash and at worst — when the lens IS the accent — invisible. */
+  color?: string
+}) {
   return (
     <svg
-      width="7"
-      height="7"
+      width={size}
+      height={size}
       viewBox="0 0 12 12"
       fill="none"
       aria-hidden
       style={{
-        color: keyed ? 'var(--accent)' : 'var(--muted-foreground)',
+        color: color ?? (keyed ? 'var(--accent)' : 'var(--muted-foreground)'),
         opacity: keyed ? 1 : 0.7,
       }}
     >
@@ -364,6 +377,7 @@ export function ModeSwitcher({
 }) {
   const [open, setOpen] = useState(false)
   const here = locked[mode]
+  const tint = modeToken(mode)
   return (
     <div className="relative">
       <button
@@ -373,12 +387,18 @@ export function ModeSwitcher({
         onClick={() => setOpen((v) => !v)}
         title={here ? here.why : MODE_HINT[mode]}
         className="flex items-center gap-1.5 rounded-full px-3 py-[3px] text-[11px] font-semibold transition-colors"
-        style={{ background: 'var(--accent)', color: 'var(--accent-foreground)' }}
+        // **The chip wears the lens.** The switcher replaced a row of tabs, and a row said
+        // which lens you were in by position; one chip has to say it by itself, and the
+        // colour the map is currently painted in is the thing already in front of the eye.
+        // Blame and Language have nothing on the map to quote and take a chrome colour of
+        // their own rather than the accent (see `modeToken`) — eleven lenses, eleven chips,
+        // and no two of them the app's own furniture colour.
+        style={{ background: `var(${tint})`, color: inkOn(tint) }}
       >
         {/* The lock rides on the trigger when the lens you are STANDING in is the locked
             one, which is an ordinary thing to be: a lens is still a place you can stand,
             and what it has to say there is said by the map. */}
-        {here && <Lock keyed={here.keyed} />}
+        {here && <Lock keyed={here.keyed} color="currentColor" />}
         <span className="min-w-[62px] text-left">{MODE_LABEL[mode]}</span>
         {/* A caret, not a chevron glyph from the font: at eleven pixels the two are the same
             shape and one of them depends on what the system has installed. */}
@@ -428,11 +448,23 @@ export function ModeSwitcher({
                     fontWeight: on ? 600 : 400,
                   }}
                 >
+                  {/* The same colour the chip takes when you are standing in this lens, so
+                      the menu is where the eleven get learned: a column of eleven swatches
+                      beside their names is the only place they are ever seen together, and
+                      it teaches the chip. Full opacity on a locked row too — the swatch is
+                      the lens's identity, not a claim that it has anything in it. */}
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ background: `var(${modeToken(k)})` }}
+                  />
                   {/* A fixed slot, so the labels line up whether or not a lens is locked —
                       the tabs hid the glyph in their own padding because a column of eleven
-                      names had no room; a menu has nothing but room. */}
-                  <span className="flex w-[7px] shrink-0 justify-center">
-                    {lock && <Lock keyed={lock.keyed} />}
+                      names had no room; a menu has nothing but room. Which is also why the
+                      padlock is drawn at full size here and stays at seven on the trigger:
+                      seven was the size that fit between a label and a caret in the bar, not
+                      a size anybody chose to read. */}
+                  <span className="flex w-[11px] shrink-0 justify-center">
+                    {lock && <Lock keyed={lock.keyed} size={11} />}
                   </span>
                   <span className="flex-1">{MODE_LABEL[k]}</span>
                   {/* On the row now rather than in the tooltip. The argument against putting
