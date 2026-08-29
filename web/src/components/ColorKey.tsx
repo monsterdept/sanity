@@ -448,15 +448,6 @@ export function ModeSwitcher({
                     fontWeight: on ? 600 : 400,
                   }}
                 >
-                  {/* The same colour the chip takes when you are standing in this lens, so
-                      the menu is where the eleven get learned: a column of eleven swatches
-                      beside their names is the only place they are ever seen together, and
-                      it teaches the chip. Full opacity on a locked row too — the swatch is
-                      the lens's identity, not a claim that it has anything in it. */}
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ background: `var(${modeToken(k)})` }}
-                  />
                   {/* A fixed slot, so the labels line up whether or not a lens is locked —
                       the tabs hid the glyph in their own padding because a column of eleven
                       names had no room; a menu has nothing but room. Which is also why the
@@ -471,12 +462,24 @@ export function ModeSwitcher({
                       it on a chip was that eleven chips each carrying a dim `⌘3` is keyboard
                       documentation where the control should be — true of a row eleven wide,
                       and the opposite of true in a menu, which is exactly where somebody
-                      goes to find out that the key exists. */}
-                  {key && (
-                    <span className="mono shrink-0 text-[10px] text-[var(--muted-foreground)]">
-                      ⌘{key}
-                    </span>
-                  )}
+                      goes to find out that the key exists.
+
+                      **And it is the swatch.** There was a dot at the head of every row and a
+                      grey key at the tail, which spent two slots saying two things about one
+                      lens; the key painted in the lens's own colour says both, and it is the
+                      shape the chip already is. A squircle rather than the chip's full pill
+                      because the glyph inside is two characters of mono and a pill around
+                      that reads as a button you could press. Full colour on a locked row too
+                      — the colour is the lens's identity, not a claim it has anything in it.
+
+                      A lens past the shortcuts (a twelfth) gets the badge empty rather than
+                      absent, so the column of colours survives running out of keys. */}
+                  <span
+                    className="mono flex h-[15px] min-w-[22px] shrink-0 items-center justify-center rounded-[5px] px-1 text-[10px] font-semibold"
+                    style={{ background: `var(${modeToken(k)})`, color: inkOn(modeToken(k)) }}
+                  >
+                    {key && `⌘${key}`}
+                  </span>
                 </button>
               )
             })}
