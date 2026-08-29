@@ -845,6 +845,29 @@ pub fn file_functions(
         .unwrap_or_default()
 }
 
+/// Every place a name appears on the map, best first.
+///
+/// **Asked of the backend rather than of the tree in the window**, and that is the whole
+/// reason this command exists — see [`crate::search`]. A window holding a slimmed tree has no
+/// function names at all, so the search somebody types would come back empty on exactly the
+/// repos big enough to need one.
+///
+/// Empty for a project that has never been scanned, which is the same answer as "nothing
+/// matched" and is honest in both directions: there is no map to find anything on yet.
+#[tauri::command]
+pub fn search_project(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    key: String,
+    query: String,
+    limit: usize,
+) -> Vec<crate::search::Hit> {
+    crate::agentapi::lock(&state)
+        .projects
+        .get(&key)
+        .map(|p| crate::search::find(&p.scan.root, &query, limit))
+        .unwrap_or_default()
+}
+
 /// What one function is connected to: its callers, what it calls, and its clone group.
 ///
 /// **Asked for on selection, never sent with the tree.** The lists are the edges the Callers,

@@ -955,6 +955,34 @@ export async function fileFunctions(key: string, paths: string[]): Promise<Map<s
   return new Map(Object.entries(wire).map(([path, fns]) => [path, fns.map(toNode)]))
 }
 
+/** One place a search found what was typed. Mirrors `search::Hit`. */
+export interface Hit {
+  /** The node's id — a path for a container, `path#name@line` for a function. */
+  id: string
+  /** The file or directory this is in, or IS. What the camera flies to. */
+  path: string
+  name: string
+  kind: 'dir' | 'file' | 'func'
+  /** Where in the file, for a function; `0` on a container. Functions are pointed at by
+   *  LINE and never by name — a dozen `init`s in one file are a dozen functions. */
+  line: number
+  loc: number
+  lang: string | null
+}
+
+/** Where a name is on the map, best first. See `search::find`.
+ *
+ *  **Asked of the backend, not of the tree in the window.** A large repo is drawn from a
+ *  slimmed tree that carries no function names at all — so the search a person types would
+ *  come back empty on exactly the repos big enough to need one. The backend's copy is whole.
+ *
+ *  `limit` is what the list can show, not what the search considers: the ranking runs over
+ *  every match and the truncation happens after it, or the best answer would be missing
+ *  because it lives in a directory the walk reaches late. */
+export function searchProject(key: string, query: string, limit: number): Promise<Hit[]> {
+  return invoke<Hit[]>('search_project', { key, query, limit })
+}
+
 /** One function, as a row in a list of its neighbours. Mirrors `links::Ref`. */
 export interface FuncRef {
   path: string

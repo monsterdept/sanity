@@ -37,6 +37,7 @@ pub mod reports;
 pub mod scan;
 pub mod scancache;
 pub mod screen;
+pub mod search;
 pub mod surprise;
 pub mod trace;
 pub mod treecache;
@@ -314,6 +315,7 @@ pub fn run() {
             commands::projects,
             commands::project_scan,
             commands::file_functions,
+            commands::search_project,
             commands::function_links,
             commands::function_sources,
             commands::function_history,

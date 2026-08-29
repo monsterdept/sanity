@@ -34,6 +34,7 @@ import {
   onScanScore,
   onScanProgress,
   openCodeWindow,
+  type Hit,
   type Node,
   type Progress,
   type AgentActivity,
@@ -66,6 +67,7 @@ import type { MascotState } from './components/MascotFigure'
 import { CommitLog } from './components/CommitLog'
 import { HistoryBar } from './components/HistoryBar'
 import { Crumbs } from './components/Crumbs'
+import { Find } from './components/Find'
 import { TopRow } from './components/shell/TopRow'
 import { rampStop } from './lib/api'
 import {
@@ -361,6 +363,9 @@ export default function App() {
    *  first, so a rescan re-resolves the selection to the fresh node; the stored object is
    *  the fallback for anything the tree does not contain. */
   const [picked, setPicked] = useState<Node | null>(null)
+  /** Whether the finder is up. Session state and nothing more — a search box that
+   *  remembered it was open would greet a launch with a panel over the map. */
+  const [finding, setFinding] = useState(false)
   const [stack, setStack] = useState<string[]>([])
   /** A function to scroll to once the code view is up.
    *
@@ -1753,6 +1758,16 @@ export default function App() {
         toggleHistory()
         return
       }
+      // Find, on the key every editor and every browser has trained into the hand. It sits
+      // with the lens digits rather than in a listener of its own because they share the one
+      // rule that matters here: Cmd is what keeps a shortcut from being a character. Live
+      // during a replay, unlike the digits — the panel is what explains why it cannot search
+      // one, and a key that does nothing explains nothing.
+      if (e.key === 'f') {
+        e.preventDefault()
+        setFinding(true)
+        return
+      }
       if (e.shiftKey) return
       // Pinned while the replay is up, for the same reason the switcher is grayed: the
       // shortcut is the switcher, and a control that is disabled in one place and live on
@@ -2411,6 +2426,37 @@ export default function App() {
     }
   }, [tree, focus])
 
+  /** Take the map to a search result.
+   *
+   *  **Three kinds of hit, two mechanisms, and the reason is which of them may not exist in
+   *  this window yet.** A container's id IS its path, so a directory or a file can be
+   *  re-rooted directly. A function cannot: on a slimmed tree the window has never been sent
+   *  one, so `jumpTo` is the right tool — it holds the request, asks for the file's ring, and
+   *  selects the function when it lands. That machinery was built for the panel's `→` and it
+   *  is exactly this problem, so this is a second caller rather than a second path.
+   *
+   *  A file goes through `jumpTo` too, with a line no function can have. It resolves to the
+   *  file's own ring with the file selected, which is where drilling a file lands you — a
+   *  search result and a click should not arrive at two different places.
+   *
+   *  Nothing found in the window's tree is dropped silently: the finder only offers what the
+   *  backend's tree holds, and the two can differ for one moment after a rescan. Landing on
+   *  the repo root would be a lie about having gone somewhere. */
+  const flyTo = useCallback(
+    (hit: Hit) => {
+      if (!tree) return
+      if (hit.kind === 'dir') {
+        const dir = findById(tree, hit.path)
+        if (!dir) return
+        setStack(dir.id === tree.id ? [] : [dir.id])
+        setPicked(dir)
+        return
+      }
+      jumpTo(hit.path, hit.kind === 'func' ? hit.line : -1)
+    },
+    [tree, jumpTo],
+  )
+
   return (
     <div className="relative flex h-full flex-col">
       {/* The chrome is ONE painted field: the gradient lives here, on the row, and the
@@ -2515,6 +2561,11 @@ export default function App() {
                     is not true of the lens beside them. */}
                 <RingCount rings={rings} onRings={chooseRings} />
                 <BandWidth share={band} onShare={setBand} />
+                {/* Between what is ON the map and the door out of it. Find is neither an
+                    encoding nor a change of subject — it is a way of getting somewhere in
+                    the picture you already have — so it sits after the two controls that
+                    shape that picture and before the one that replaces it. */}
+                <FindButton on={finding} onOpen={() => setFinding(true)} />
                 <HistoryToggle
                   on={historyOn}
                   busy={historyBusy}
@@ -2534,6 +2585,18 @@ export default function App() {
               the whole shell down by its own height every time a scan started. Below
               TopRow it can do neither. */}
             {tree && focus && <Crumbs trail={trail} onGo={goTo} onUp={goUp} />}
+
+            {/* Over the map rather than in the bar. A search box parked in the chrome is a
+                control you have to look at forever to use twice a day; summoned by ⌘F it
+                costs nothing when it is not wanted, and it lands over the picture it is
+                about to move. */}
+            <Find
+              open={finding}
+              projectKey={activeKey}
+              replaying={historyOn}
+              onClose={() => setFinding(false)}
+              onPick={flyTo}
+            />
 
             {/* `data-chart` is how the key finds the circle it has to wrap around — see
                 `useMapEdge`. A marker rather than a class name because the class list here is
@@ -3140,6 +3203,54 @@ function ProgressPane({ progress, label }: { progress: Progress | null; label?: 
         </p>
       )}
     </div>
+  )
+}
+
+/**
+ * The finder, as a button.
+ *
+ * **⌘F is the real control and this is the one that says so.** A shortcut nobody can see is
+ * a feature only its author has; the button exists so the panel is discoverable by looking,
+ * and it names the key in its tooltip so the second visit is faster than the first. That is
+ * the whole job — it opens exactly what the key opens, and there is deliberately no field
+ * parked in the bar. A search box on the chrome is a control you have to look at forever to
+ * use twice a day, and this row is the one the lens strip had to be dismantled to make room
+ * in (see `ModeSwitcher`).
+ *
+ * A drawn magnifier rather than a glyph from the font, for the reason the switcher's caret
+ * gives: at this size a system glyph is the same shape and depends on what is installed.
+ *
+ * Lit while the panel is up, so the button and the panel are visibly one thing rather than
+ * two ways in.
+ */
+function FindButton({ on, onOpen }: { on: boolean; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label="Find"
+      title="Find a function, file or directory  (⌘F)"
+      className="flex items-center rounded-full px-2 py-[3px] transition-colors"
+      style={{
+        background: on ? 'var(--accent)' : 'color-mix(in oklch, var(--foreground) 8%, transparent)',
+        color: on ? 'var(--accent-foreground)' : 'var(--muted-foreground)',
+        boxShadow: on ? '0 1px 2px rgb(0 0 0 / 0.25)' : undefined,
+      }}
+    >
+      {/* **Sized to the pills' LINE BOX, not to their type.** Every control beside this one
+          is `text-[11px]` with `py-[3px]`, and what sets their height is the line box that
+          11px of type sits in — about 16, not 11. An 11px icon with the same padding made a
+          pill three pixels shorter than everything else in the row, which reads as a smaller
+          button rather than as a smaller glyph. 16 is also about right optically: an icon
+          has to be a little larger than cap height to carry the same weight as a word.
+
+          Stroked rather than filled, so it holds its shape at this size and inherits the
+          same `currentColor` flip the other pills use when they light up. */}
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
+        <circle cx="6.6" cy="6.6" r="4.4" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M9.9 9.9 L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    </button>
   )
 }
 
