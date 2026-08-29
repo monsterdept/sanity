@@ -1,6 +1,6 @@
 # scripts — sanity assessment
 
-29 of 29 read · 2 surprising
+35 of 35 read · 3 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -57,10 +57,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `main`
-- spec 3 · read at `c57373188b8c` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T19:41:06Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: main() orchestrates the expiry check: it parses CLI args (probably git refs, or defaults to comparing the working tree against the last committed version), then for each function/file tracked by the version-checking system it computes shape/function_text at old and new versions via at/version_of, compares whether the meaningful inputs to reading_hash changed without a version bump (the file_doc bug case), and prints a report before exiting with a non-zero status if any mismatch is found — making this runnable as a CI gate.
-- found: Compares a previous git tag (or given ref) against HEAD (or given ref). For each watched function it diffs the text; if changed only in layout it's logged as "reflowed" (non-failing), if changed in substance it's added to `changed`. Separately it checks whether declared VERSIONS constants (like PARSE_VERSION, SPEC) moved between the two refs. If substance changed but no version was bumped, it fails (exit 1) — the "undeclared expiry" case the file exists to catch. If PARSE_VERSION moved but is declared output-stable since a version at-or-before the prior release (via stable_since vs parse_before), it treats it as neutral (caches drop, no readings actually expire). Otherwise it reports readings as legitimately expiring and exits 0.
-- predicted: most · documented: none · derivable: no · legible: most · trap: no
+- spec 3 · read at `999fab49f986` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:28:40Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Orchestrates the expiry check: gets the diff/changed files for the release, uses version_of/stable_since/shape helpers to determine whether anything feeding reading_hash (parser, question text, hashed inputs) changed since the last stable version, and prints a verdict plus exits with a nonzero code if the release silently invalidates cached readings without a version bump (guarding against the file_doc incident described in the file doc).
+- found: Compares a previous tag to HEAD (or given refs): diffs watched functions (splitting real changes from mere reflow via `shape`), diffs declared version constants, and separately tracks cache-format version bumps. It prints a full report and returns exit code 1 only for the "undeclared expiry" case (a watched function changed but no version moved); it also special-cases a PARSE_VERSION bump declared output-neutral via `stable_since`, which recomputes caches but expires nothing.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ## scripts/make-icon.py
 
@@ -86,11 +86,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## scripts/palette-search.py
 
-### the file itself
-- spec 3 · read at `7a6af0557b5b` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:03:48Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A standalone Python script that programmatically searches for the five-stop color ramps used by the sunburst visualization's "lens" hues, replacing manual eyeballing with a reproducible constrained search. It implements color-space conversions (sRGB↔linear↔OKLab/OKLCH, hex parsing), a CIEDE2000 perceptual distance metric, a color-vision-deficiency simulator, and search/validation helpers (legal, margins, worst, verify, add, flat, ramp, plain) that iterate candidate hues/chroma/lightness combinations to find ramps satisfying contrast/distinguishability constraints, then prints or outputs the resulting hex values for use in index.css.
-- found: A reproducible color-search script for the sunburst's five lens ramps: sRGB/OKLab/OKLCH conversions, CIEDE2000, CVD simulation, and verify/add/flat subcommands that reproduce or extend the shipped palette under explicit perceptual-distance constraints (barred hue range, floors vs neutral/trap/mark colors), scored differently for ramps (normal vision only) vs categorical colors (all dichromacies) per the docstring's reasoning.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+### the file itself — QUIRKY
+- spec 3 · read at `62037ae600f0` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:31:35Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A standalone script that performs a constrained search to derive the hue/chroma values for five color ramps ("lenses") used in a sunburst chart, using perceptual color math (OKLab/OKLCH conversions, CIEDE2000 distance) and colorblindness simulation to score candidate palettes against distinguishability/contrast constraints, then outputs/prints the winning ramp so the derivation is reproducible instead of hand-picked.
+- found: A CLI script with four subcommands (verify/order/add/flat) that solves hues for the sunburst's lens ramps in OKLCH space. It shares one lightness/chroma profile across all ramps (hue is the only free variable), scores ramps under normal vision only (unlike the categorical palette which scores across colorblindness simulations too, since a ramp's reading survives via the shared lightness climb), enforces a hue-ordering constraint matching a fixed menu, pins certain hues, and validates against floors relative to neutral/trap/structure colors. `verify` reproduces the shipped palette channel-exact to confirm the model is trustworthy.
+- predicted: some · documented: full · derivable: no · legible: not judged · trap: no
+- note: I predicted CVD/colorblindness simulation was used to score the ramps, but the file is explicit that ramps are deliberately scored under normal vision only (`plain`), while CVD simulation (`worst`) is reserved for the categorical palette elsewhere — a real distinction I got backwards.
 
 ### `srgb_to_linear`
 - spec 3 · read at `70e0814618e2` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:00:49Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -127,6 +128,13 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Standard OKLab-to-linear-sRGB conversion: takes L, a, b, computes the l/m/s intermediate values via the OKLab matrix (linear combination of L,a,b), cubes them to undo the OKLab nonlinearity, then applies the LMS-to-linear-RGB matrix to produce (r, g, b) linear values, returned as a tuple.
 - found: Standard OKLab-to-linear-sRGB conversion using the published matrices: computes l_/m_/s_ as linear combos of L,a,b, cubes them, then applies the LMS-to-linear-RGB matrix.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `hex_to_oklch`
+- spec 3 · read at `e3ed083c6c8b` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:32:49Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Converts a hex color string to OKLCH by chaining hex_to_rgb, srgb_to_linear, and linear_to_oklab, then converting the resulting oklab a/b to polar chroma and hue (via atan2/hypot), returning (L, C, H).
+- found: Exactly as predicted: hex → srgb_to_linear → linear_to_oklab → polar (hypot for chroma, atan2 degrees mod 360 for hue), returning (L, C, H).
+- predicted: full · documented: some · derivable: no · legible: full · trap: no
+- note: The docstring explains a caller's usage (reading marks' hue back off shipped colors) rather than what the function itself computes.
 
 ### `oklch_to_hex`
 - spec 3 · read at `3eacff90ff4b` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:52:41Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -200,9 +208,41 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: I predicted the search/margin-maximization structure correctly but missed that each 'against' color is actually a light+dark theme pair, not a single value.
 
+### `chips`
+- spec 3 · read at `9cb459fb6ffd` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:27Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Builds the dict of chip colors shown in the MENU: for each ramp lens it computes the hex color at the ramp's fourth stop using the lens's hue from `hues` plus the shared lightness/chroma profile; for the two mark lenses (e.g. traps/clones) it returns their own fixed, louder color rather than deriving from a ramp; and for chrome-only lenses it builds a color at the fourth stop's lightness/chroma so it visually sits on the ring. Likely uses dark-mode lightness/chroma values since that's the theme it was tuned against.
+- found: For each menu key, uses the hue from the `hues` argument in all three branches: MARKS keys get their own dark-mode lightness/chroma (from MARKS[k]['dark']) combined with that hue; CHROME keys use fixed CHIP_L/CHIP_C constants with that hue; everything else (ramp lenses) uses the shared L_PROFILE[3]/C_PROFILE[3] fourth-stop lightness/chroma with that hue, converting each to hex via oklch_to_hex.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: I assumed marks kept their own hue too ('quote themselves'), but the hue is still taken from the passed-in `hues` dict for every branch, including marks — only lightness/chroma is special-cased.
+
+### `ordered_score`
+- spec 3 · read at `120983dd3968` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:04Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: ordered_score(hues) takes a candidate hue assignment, computes each of the cold/hot/chip ramps via ramp/worst (finding the worst-case pairwise contrast/distance within each), then combines the three "worst" scores into a single objective that weights the cold-lens worst-pair most heavily (since that's the binding constraint) while treating hot and chip as floor constraints, returning the tuple (objective, cold, hot, chip) for comparison/sorting during the search.
+- found: Builds ramps per lens (excluding marks/chrome), takes the minimum pairwise distance across lenses at the ramp's cold end (index 0) and hot end (index 4), plus the minimum pairwise chip distance, then returns the weighted-min objective min(cold, hot*0.75, chip*0.6) alongside the three raw components.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `descending`
+- spec 3 · read at `2a07746e7e30` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:32:41Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Given a list of hue values (circular, 0-360 degrees), this "unwraps" them into a monotonically descending sequence — e.g. by subtracting 360 from any hue that would otherwise be greater than the previous one — so that the menu's declared hue order can be checked or compared with simple numeric less-than comparisons instead of needing circular/modular arithmetic. Returns the unwrapped list of hues.
+- found: Iterates the MENU keys in order, looking up each hue in the `hues` dict, and subtracts 360 whenever a hue would be greater than the previous unwrapped value, producing a strictly non-increasing (given the docstring, intended descending) sequence so order can be checked by simple less-than comparison.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `start_from_pins`
+- spec 3 · read at `8981c70e4415` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:07Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Produces the initial hue guess for the search: it unwraps the pinned hues onto the descending line (like `descending`), then evenly spaces the free (non-pinned) menu hues within the arc between each pair of adjacent pins, using ordinary linear interpolation on the unwrapped line, and finally wraps the results back into 0-360 with modulo before returning a dict of hues keyed by menu item.
+- found: Unwraps each pinned hue onto a line relative to the first pin (rather than reusing `descending`), then for each consecutive pair of pinned menu positions, linearly interpolates the free hues that fall between them (mod 360), and finally merges the pinned hues back in verbatim before returning the full hues dict.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+- note: Doesn't reuse the `descending` helper despite solving an equivalent unwrap-then-interpolate problem — its own inline unwrap only anchors to the first pin, which is a detail not obvious from the docstring.
+
+### `order`
+- spec 3 · read at `8ca521c48c35` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:16Z · by ross@rossturk.com · warm reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Solves eleven lens hues under the menu's ordering constraint using coordinate ascent: starts from equal spacing between pinned hues (start_from_pins), then iteratively moves each free hue within the bounds set by its two menu-neighbors to maximize ordered_score (weighted cold/hot/chip margins), repeating until no hue moves or 12 iterations pass. Finally prints the worst cold/hot/chip pairs, each lens's hue and chip color, the ramps, chrome chips, and mark colors.
+- found: Coordinate ascent solving all eleven lens hues under the menu's fixed ordering constraint: starts from equal spacing between pinned hues, then repeatedly nudges each free hue within the 4-degree-padded window bounded by its two menu neighbors to maximize ordered_score, until convergence or 12 passes; prints the worst cold/hot/chip margins and the resulting hues, chips, ramps, chrome tokens, and marks.
+- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
+- note: I had already read this exact function in full when assessing scripts/palette-search.py as item 1, so this is a warm/recall reading rather than a genuine cold prediction.
+
 ### `verify`
-- spec 3 · read at `585fb9bf7cc5` · commit `0ce57c0` · read by claude-sonnet-5 · via claude · when 2026-08-19T02:12:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: verify() hardcodes the shipped palette's stop values (hex or OKLCH triples) for each of the seven ramps, recomputes the same stops by running the palette-search/constraint-solving logic, and compares them channel-by-channel rounded to one decimal — raising/asserting a failure (or printing a mismatch and exiting nonzero) if any channel doesn't match, and printing a success confirmation if all match exactly.
-- found: Recomputes each shipped ramp via ramp(), compares to SHIPPED_STOPS hex-by-hex converted to RGB 0-255 and takes the max per-channel integer step difference (not decimal rounding of OKLCH values as I predicted); prints per-ramp diffs plus several margin stats (cold/hot pairs, vs unanalyzed, vs trap, vs structure floor, vs agent-mark) each annotated with the value index.css claims, then returns 0/1 based on whether worst_step <= 1.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: The docstring's 'channel-exact-to-one' claim is about the STOPS check, but the function also prints five margins() stats purely for cross-referencing against index.css prose — that reporting role isn't mentioned in the docstring at all.
+- spec 3 · read at `b4aa024daefb` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:28:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: verify() recomputes the palette ramps using the search machinery in this file and compares the result against the shipped/hardcoded palette values (from index.css or a constant here), asserting that each channel matches to one decimal place. It likely prints a pass/fail message per ramp/lens and raises or exits with an error code if any ramp doesn't reproduce the shipped stops, serving as a regression check that the documented search actually generates what's shipped.
+- found: verify() recomputes each shipped ramp via ramp(h) and compares per-channel RGB (rounded to 255 scale) against the hardcoded SHIPPED_STOPS, allowing a tolerance of at most 1/255 per channel (worst_step<=1). It also prints several diagnostic margins (cold/hot pair distances, vs-unanalyzed, vs-trap, vs-structure, vs-agent-mark) alongside the values index.css claims, purely as informational context, not as pass/fail criteria — only the stop-level reproduction determines the return code.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no

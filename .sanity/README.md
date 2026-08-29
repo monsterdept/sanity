@@ -15,10 +15,10 @@ one and read it like notes from a code review.
 | area | read | of | surprising | stale |
 |---|---|---|---|---|
 | [docs](docs.md) | 2 | 2 | 1 | 0 |
-| [scripts](scripts.md) | 29 | 29 | 2 | 0 |
-| [src-tauri](src-tauri.md) | 912 | 912 | 158 | 0 |
-| [web](web.md) | 409 | 409 | 77 | 0 |
-| **total** | **1352** | **1352** | **238** | **0** |
+| [scripts](scripts.md) | 35 | 35 | 3 | 0 |
+| [src-tauri](src-tauri.md) | 936 | 936 | 155 | 0 |
+| [web](web.md) | 448 | 448 | 84 | 0 |
+| **total** | **1421** | **1421** | **243** | **0** |
 
 ## Seeing it as a map
 
