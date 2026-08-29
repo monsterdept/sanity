@@ -30,16 +30,22 @@ tight one at 20.5 against --trap — and prints them beside what the file claims
 matching, this script is wrong and nothing it recommends can be trusted.
 
 WHAT IT CONSTRAINS.
-  - 170-240 degrees is barred for every lens. Cyan sat 40 degrees from churn's blue and made
-    docs and churn one color; the fix was to bar the region rather than to nudge.
+  - Hue runs in MENU ORDER, descending once around the wheel and never doubling back. Eleven
+    lenses share one pulldown and each wears its hue on its row, so that menu is the only
+    place the palette is ever seen as a set — and a set arriving in no order reads as a wheel
+    with colours wedged into it. This is what `order` solves and it costs the cold ends: 12.9
+    when hue only had to answer "which question", 8.2 once it also has to answer "in what
+    order". The 170-240 bar is gone twice over now — it was barred for a cyan that left, and
+    the ordering fills that arc on purpose.
   - Surprise is pinned to amber. It has to read as heat.
   - Every cold end clears dE 10 from --unanalyzed in both themes. Draining to neutral would
     put "cold" on top of "nobody has looked at this", which is the one distinction this app
     exists to be able to state.
   - Every hot end clears dE 15 from --trap, which is drawn over the same wedges.
 
-  Usage:  palette-search.py verify        reproduce the shipped five and their margins
-          palette-search.py add N         hold those five, search N more hues
+  Usage:  palette-search.py verify        reproduce the shipped ramps and their margins
+          palette-search.py order         re-solve all eleven under the menu's hue ordering
+          palette-search.py add N         hold the shipped hues, search N more
           palette-search.py flat          one standalone accent, for a lens that is not a ramp
 """
 
@@ -87,6 +93,15 @@ def oklab_to_linear(L, a, b):
         -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
         -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
     )
+
+
+def hex_to_oklch(h):
+    """The other direction, for the two MARKS: they keep the lightness and chroma they were
+    solved for and only their hue is placed, so the solver has to read those back off the
+    shipped colour rather than assume the ramps' profile."""
+    r, g, b = (srgb_to_linear(c) for c in hex_to_rgb(h))
+    L, A, B = linear_to_oklab(r, g, b)
+    return L, math.hypot(A, B), math.degrees(math.atan2(B, A)) % 360
 
 
 def oklch_to_hex(L, C, h_deg):
@@ -215,39 +230,52 @@ L_PROFILE = [0.443, 0.538, 0.627, 0.721, 0.804]
 C_PROFILE = [0.048, 0.071, 0.094, 0.117, 0.140]
 
 # Read back off the shipped stops rather than remembered. Chroma is gamut-clamped at the top
-# for churn and docs, which `oklch_to_hex` reproduces by reducing chroma rather than clipping
-# channels — clipping would move lightness and hue and break the shared profile silently.
+# for reach and legible, which `oklch_to_hex` reproduces by reducing chroma rather than
+# clipping channels — clipping would move lightness and hue and break the shared profile
+# silently. Churn used to be the clamped one; it was blue then.
 SHIPPED = {
     "heat": 74.0,
-    "churn": 224.0,
-    "legible": 322.0,
-    "docs": 26.0,
+    "legible": 47.0,
+    "docs": 17.0,
+    "churn": 144.8,
     "age": 114.0,
-    "locality": 170.0,
-    "reach": 268.0,
+    "reach": 236.4,
+    "callers": 268.0,
 }
 
 # What `index.css` actually holds, so `verify` compares against the file rather than against a
 # remembered number. Reconstruction lands on these to within one 8-bit step everywhere; the
-# two stops that differ (legible-4 and docs-4) are the two where sRGB runs out of gamut, and a
-# single channel of rounding there is the whole discrepancy.
+# stops that differ are the ones where sRGB runs out of gamut, and a single channel of rounding
+# there is the whole discrepancy.
 SHIPPED_STOPS = {
     "heat": ["#634f35", "#87683d", "#aa7f43", "#d09949", "#f4b04a"],
-    "churn": ["#345967", "#3b778d", "#3c94b2", "#3db4db", "#40d1ff"],
-    "legible": ["#604b63", "#826087", "#a375aa", "#c78cd0", "#e9a0f4"],
-    "docs": ["#6c4945", "#935e58", "#ba716a", "#e5877e", "#ffa299"],
+    "legible": ["#6a4b3c", "#90614a", "#b77656", "#e18d63", "#ffa67a"],
+    "docs": ["#6c494a", "#935d5f", "#ba7074", "#e5858a", "#ffa1a5"],
+    "churn": ["#435b43", "#547954", "#639764", "#74b876", "#82d785"],
     "age": ["#535737", "#6d7341", "#878f49", "#a4ad51", "#bec955"],
-    "locality": ["#375c4f", "#3f7c68", "#449b80", "#48bc9a", "#45dcb1"],
-    "reach": ["#48536e", "#5c6d98", "#7086c2", "#85a2ef", "#a4bdff"],
+    "reach": ["#39586b", "#437492", "#4a91ba", "#52b0e4", "#70caff"],
+    "callers": ["#48536e", "#5c6d98", "#7086c2", "#85a2ef", "#a4bdff"],
 }
-# The cyan band is NOT barred any more, and removing it is what let seven hues fit.
-#
-# It was barred because DOCS was in it, 40 degrees from churn, and the pair read as one
-# colour; docs left for 26 and nothing has been in that region since. Barring a band while
-# also enforcing all-pairs dE is one constraint counted twice — and dE is the half that can
-# see what is actually adjacent, which a band cannot. Held as a bar, the search reported
-# there was no room for a sixth hue; released, seven clear 12.9 and locality sits at 170,
-# inside what used to be forbidden. Keep the floors, not the folklore.
+
+# The MENU is the constraint now, and it is what `order` solves. Eleven lenses live in one
+# pulldown, each wearing its hue on its row, and that menu is the only place the palette is
+# ever seen as a set. So hue descends once around the wheel as you go down it and never
+# doubles back — the order itself is semantic and fixed in `colorMode.ts`, so the assignment
+# is the only thing free. Five hues are pinned where they already were (heat must read as
+# heat, trap must read as an alarm, and clone/callers/age had no reason to move); the other
+# six are solved. Two of the eleven are not ramps at all: trap and clone are marks, and blame
+# and language are chrome-only chips at the ramps' fourth stop.
+MENU = ["heat", "legible", "docs", "trap", "clone", "callers", "reach", "blame", "language",
+        "churn", "age"]
+PINNED = {"heat": 74.0, "trap": 358.0, "clone": 309.0, "callers": 268.0, "age": 114.0}
+# The two chips with no ramp under them: the level a chip quotes is stop 3.
+CHIP_L, CHIP_C = L_PROFILE[3], C_PROFILE[3]
+CHROME = {"blame": 206.4, "language": 176.8}
+# The marks keep their lightness and chroma and only their hue is placed — a trap is meant to
+# be the loudest thing in its lens, so it does not join the ramps' chroma.
+MARKS = {"trap": {"light": "#ff4f95", "dark": "#ff5ea1"},
+         "clone": {"light": "#b026ff", "dark": "#bd5cff"}}
+
 BARRED = None
 # Drawn over the same wedges as every ramp, so both are floors rather than preferences.
 NEUTRAL = {"light": "#b3aca3", "dark": "#4a4642"}
@@ -371,13 +399,144 @@ def flat():
     return 0
 
 
+def chips(hues):
+    """What the MENU shows: one colour per lens, at the level a chip quotes.
+
+    A ramp lens quotes its fourth stop. The two marks quote themselves — they keep their own
+    lightness and chroma, because a trap is meant to be louder than any ramp — and the two
+    chrome-only lenses are built at the ramps' fourth stop so they sit ON the ring rather than
+    beside it. Dark-mode marks, because that is the theme the menu was drawn against first and
+    the light ones are a shade further from everything."""
+    out = {}
+    for k, h in hues.items():
+        if k in MARKS:
+            L, C, _ = hex_to_oklch(MARKS[k]["dark"])
+            out[k] = oklch_to_hex(L, C, h)
+        elif k in CHROME:
+            out[k] = oklch_to_hex(CHIP_L, CHIP_C, h)
+        else:
+            out[k] = oklch_to_hex(L_PROFILE[3], C_PROFILE[3], h)
+    return out
+
+
+def ordered_score(hues):
+    """(objective, cold, hot, chip) for one assignment.
+
+    Three worst-pairs rather than two, because the menu added a third place two lenses can be
+    confused: the chip column. They are weighted rather than summed — the cold ends are what
+    the ordering constraint actually squeezes, so they lead, and the other two are held above
+    their floors rather than optimised."""
+    ramps = {k: ramp(h) for k, h in hues.items() if k not in MARKS and k not in CHROME}
+    ks = list(ramps)
+    cold = min(plain(ramps[a][0], ramps[b][0]) for i, a in enumerate(ks) for b in ks[i + 1:])
+    hot = min(plain(ramps[a][4], ramps[b][4]) for i, a in enumerate(ks) for b in ks[i + 1:])
+    c = chips(hues)
+    cs = list(c)
+    chip = min(plain(c[a], c[b]) for i, a in enumerate(cs) for b in cs[i + 1:])
+    return min(cold, hot * 0.75, chip * 0.6), cold, hot, chip
+
+
+def descending(hues):
+    """The menu's hues, unwrapped onto a falling line so ordering is a plain comparison."""
+    out, prev = [], None
+    for k in MENU:
+        h = hues[k]
+        while prev is not None and h > prev:
+            h -= 360
+        out.append(h)
+        prev = h
+    return out
+
+
+def start_from_pins():
+    """Where the ascent begins: the free hues spread evenly across the arcs the pins leave.
+
+    Equal spacing over all eleven was the first start and it converges half a point worse —
+    it walks every free hue across a pin's arc before it finds the room, and ascent stops at
+    the first ridge. Spacing WITHIN each arc starts the search where the constraint already
+    put it, and the pins are what define the arcs, so this is the same solve stated in the
+    order the problem has.
+
+    Done on the unwrapped line rather than on the circle: the menu descends through 0 exactly
+    once, so subtracting the wrap from every pin turns "between these two pins" into ordinary
+    interpolation and the modulo goes back on at the end."""
+    first = MENU[0]
+    line = {k: PINNED[first] - (PINNED[first] - h) % 360 for k, h in PINNED.items()}
+    line[first] = PINNED[first]
+    at = [i for i, k in enumerate(MENU) if k in PINNED]
+    hues = {}
+    for lo, hi in zip(at, at[1:]):
+        a, b = line[MENU[lo]], line[MENU[hi]]
+        for j, k in enumerate(MENU[lo + 1:hi], 1):
+            hues[k] = (a + (b - a) * j / (hi - lo)) % 360
+    hues.update(PINNED)
+    return hues
+
+
+def order():
+    """Solve the eleven hues under the menu's ordering constraint.
+
+    Coordinate ascent rather than exhaustive search, and the difference matters: eleven hues
+    on a 1-degree grid is 360**11 assignments, and the constraint that makes the problem
+    tractable — each hue is boxed between its two neighbours in the menu — is the same one
+    that makes ascent from a sensible start reliable here. The start is equal spacing, which
+    is what the ordering asks for when nothing is pinned, so the search only has to move hues
+    toward the room the pins leave.
+
+    What it reports is the bill, because the bill is the point: ordering costs the cold ends,
+    and it costs them where three warm lenses now share the arc two used to have."""
+    hues = start_from_pins()
+    cur = ordered_score(hues)
+    for _ in range(12):
+        moved = False
+        for i, k in enumerate(MENU):
+            if k in PINNED:
+                continue
+            u = descending(hues)
+            lo = (u[i + 1] if i + 1 < len(MENU) else u[0] - 360) + 4
+            hi = (u[i - 1] if i else u[-1] + 360) - 4
+            best, at = cur, hues[k]
+            h = lo
+            while h <= hi:
+                trial = dict(hues)
+                trial[k] = h % 360
+                sc = ordered_score(trial)
+                if sc[0] > best[0] + 1e-9:
+                    best, at = sc, h % 360
+                h += 1
+            if at != hues[k]:
+                hues[k], cur, moved = at, best, True
+        if not moved:
+            break
+    obj, cold, hot, chip = cur
+    print(f"worst cold pair {cold:.1f}   worst hot pair {hot:.1f}   worst chip pair {chip:.1f}\n")
+    c = chips(hues)
+    for i, k in enumerate(MENU):
+        pin = " PINNED" if k in PINNED else ""
+        print(f"  {i + 1:>2}. {k:<9} {hues[k]:>5.1f}deg  {c[k]}{pin}")
+    print("\nramps:")
+    for k in MENU:
+        if k in MARKS or k in CHROME:
+            continue
+        print(f"  {k:<9} " + " ".join(ramp(hues[k])))
+    print("\nchrome chips:")
+    for k in CHROME:
+        print(f"  --lens-{k}: {oklch_to_hex(CHIP_L, CHIP_C, hues[k])};")
+    print("\nmarks (light / dark):")
+    for k in MARKS:
+        L, C, _ = hex_to_oklch(MARKS[k]["light"])
+        Ld, Cd, _ = hex_to_oklch(MARKS[k]["dark"])
+        print(f"  --{k}: {oklch_to_hex(L, C, hues[k])};  dark {oklch_to_hex(Ld, Cd, hues[k])};")
+    return 0
+
+
 def verify():
     """Reproduce the shipped palette, and say so or fail.
 
-    Seven ramps since the wiring lenses got hues of their own; `add` and its MARK_FLOOR are
-    kept for the next one, and the note there about existing lenses not moving is now a
-    statement about a trade this palette DID make — four of them moved by 2 to 20 degrees to
-    take the worst pair from 10.0 to its 12.9 ceiling.
+    Seven ramps since the wiring lenses got hues of their own, and all of them now placed by
+    `order` rather than by the free assignment `add` searches — the menu's hue ordering is the
+    binding constraint and it is a stronger one, so `add` is kept for the question it still
+    answers (is there room at all) rather than as the thing that chose these.
 
     The check is against the STOPS, not against the margins. A margin is one number summarising
     twenty-five colors and two of those colors could be wrong without moving it; and the tightest
@@ -397,10 +556,10 @@ def verify():
         worst_step = max(worst_step, max(steps))
         flag = "" if max(steps) == 0 else f"   <- off by {max(steps)}/255"
         print(f"  {k:<8} {h:>5.0f}deg  {' '.join(got)}{flag}")
-    print(f"\nworst cold pair      {cold:.1f}   (index.css says 12.9-13.2, evenly)")
-    print(f"worst hot pair       {hot:.1f}   (index.css says 19.5, churn against reach)")
-    print(f"cold vs unanalyzed   {vn:.1f}   (index.css says worst 11.5)")
-    print(f"hot vs trap          {vt:.1f}   (index.css says legible is tight at 18.7)")
+    print(f"\nworst cold pair      {cold:.1f}   (index.css says 8.2, churn against age)")
+    print(f"worst hot pair       {hot:.1f}   (index.css says 13.5, reach against callers)")
+    print(f"cold vs unanalyzed   {vn:.1f}   (index.css says worst 11.5, heat)")
+    print(f"hot vs trap          {vt:.1f}   (index.css says docs is tight at 16.6)")
     print(f"any stop vs structure {vs:.1f}   (floor {STRUCTURE_FLOOR}; --structure is on the map)")
     print(f"any stop vs agent-mark {vm:.1f}   (reported, NOT a floor — see MARK)")
     ok = worst_step <= 1
@@ -415,4 +574,6 @@ if __name__ == "__main__":
         sys.exit(verify())
     if cmd == "flat":
         sys.exit(flat())
+    if cmd == "order":
+        sys.exit(order())
     sys.exit(add(int(sys.argv[2]) if len(sys.argv) > 2 else 1))
