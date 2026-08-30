@@ -207,6 +207,85 @@ console.log('roll-ups — a count is not a member of a distribution')
   check('a crowd of files is not `not in git`', blame.length === 0, blame.map((b) => b.label))
 }
 
+console.log("roll-ups — and a count that knows what it holds says so")
+{
+  /** ceph's `src/pybind` as a replay folds it: a sliver drawn, the rest rolled into one
+   *  stand-in — 1,152 files down to 183. Measured live, the directory is 71% Python and 29%
+   *  TypeScript; drawn from what survives the fold alone it is 100% TypeScript. */
+  const drawn = (loc: number, lang: string): Node =>
+    ({ kind: 'file', loc, lang, excluded: false, funcs: 1, children: [] }) as unknown as Node
+  const crowd = (loc: number, count: number, lang: [string, number][]): Node =>
+    ({
+      kind: 'file',
+      loc,
+      excluded: false,
+      funcs: 0,
+      rest: count,
+      lang: null,
+      lastAuthor: null,
+      children: [],
+      folded: { lang, author: [] },
+    }) as unknown as Node
+  const dir = (kids: Node[]): Node =>
+    ({ kind: 'dir', loc: 0, excluded: false, children: kids }) as unknown as Node
+
+  const pybind = dir([
+    drawn(517, 'TypeScript'),
+    crowd(194_999, 969, [
+      ['Python', 138_006],
+      ['TypeScript', 56_365],
+      ['Shell', 508],
+      ['JavaScript', 120],
+    ]),
+  ])
+  // The app always hands these in — an unranked category is `other`, so a fixture without
+  // them would be testing the fallback rather than the fold.
+  const ranks = new Map([
+    ['Python', 0],
+    ['TypeScript', 1],
+    ['Shell', 2],
+    ['JavaScript', 3],
+  ])
+  const rows = bucketsFor(pybind, 'language', ranks)
+  const total = rows.reduce((n, b) => n + b.lines, 0)
+  const share = (k: string) => (rows.find((b) => b.label === k)?.lines ?? 0) / total
+
+  check('the fold does not shrink the population', total === 195_516, total)
+  check('Python leads, as it does live', rows[0]?.label === 'Python', rows[0]?.label)
+  check('at 71%', Math.round(share('Python') * 100) === 71, share('Python'))
+  check('TypeScript at 29%', Math.round(share('TypeScript') * 100) === 29, share('TypeScript'))
+  check('and the small two survive', rows.length === 4, rows.map((b) => b.label))
+
+  // The lines are counted, never listed: a tally has no node to point at.
+  const crowded = rows.find((b) => b.label === 'Python')!
+  check('a tallied bucket lists nothing it cannot show', crowded.nodes.length === 0)
+
+  // A lens the tally cannot answer keeps saying nothing rather than inventing a band. Age is
+  // a fact about a FUNCTION and the frame carries no per-file dates, so the roll-up's lines
+  // stay out of the distribution entirely — where a wrong band would be a reading nobody took.
+  const dated = ({
+    kind: 'func',
+    loc: 517,
+    children: [],
+    excluded: false,
+    score: { commits: 1, ageDays: 400, lastTouchedDays: 0.5 },
+  }) as unknown as Node
+  const aged = bucketsFor(
+    dir([
+      ({ kind: 'file', loc: 517, excluded: false, funcs: 0, children: [dated] }) as unknown as Node,
+      crowd(194_999, 969, [['Python', 138_006]]),
+    ]),
+    'age',
+    ranks,
+  )
+  check(
+    'age counts only what it has a reading for',
+    aged.reduce((n, b) => n + b.lines, 0) === 517,
+    aged.map((b) => [b.label, b.lines]),
+  )
+  check('and does not invent a band for the fold', aged.length === 1 && aged[0].label === 'today')
+}
+
 if (failed > 0) {
   console.error(`\n${failed} check(s) failed`)
   process.exit(1)

@@ -1231,12 +1231,36 @@ function contribute(
   // frame the more functions there are to fold, which is exactly backwards from a bug about
   // missing history and is what makes it read as a data problem rather than a drawing one.
   //
-  // The lines are not counted in some other bucket instead: a stand-in has no value to put
-  // anywhere, and `no history for these lines` is false — the history exists, the frame just
-  // did not materialise the functions holding it. What the roll-up knows is its count, and
-  // that is on the wedge's own card. `rest` is the marker because nothing but a roll-up ever
-  // carries one: the backend never sets it, and the layout's own are minted after this walk.
-  if (n.rest !== undefined) return
+  // **What it CAN say, it says.** Skipping outright was the first repair and it went too far:
+  // with the roll-ups gone the distribution was drawn over whatever the frame had happened to
+  // materialise, so ceph's `src/pybind` — 71% Python, 29% TypeScript, measured — came out as
+  // 100% TypeScript over 517 of its 195,516 lines. A biased sample stated with total
+  // confidence is the failure `histogramsFor` opens by naming, and it is worse than the
+  // mislabelled absence it replaced, because nothing about it looks wrong.
+  //
+  // So a roll-up now carries a tally of what it folded (see `Node.folded`) and its lines go
+  // back into the distribution under the values they actually belong to. Per FILE, which is
+  // the grain a file already answers at when its ring has not arrived.
+  //
+  // Where there is no tally for this lens the old rule stands and the lines go nowhere: Age
+  // and Churn are facts about a FUNCTION, the frame carries no per-file dates, and a roll-up
+  // that guessed a band would be inventing the reading. `rest` is the marker for both cases —
+  // nothing but a roll-up ever carries one, since the backend never sets it and the layout
+  // mints its own after this walk.
+  if (n.rest !== undefined) {
+    if (outOfScope) return
+    const folded = mode === 'language' ? n.folded?.lang : mode === 'blame' ? n.folded?.author : undefined
+    if (!folded) return
+    for (const [key, lines] of folded) {
+      const rank = ranks?.get(key)
+      // Never listed, only counted: these lines have no node to point at, which is the same
+      // contract `contributeCols`'s stand-in works to — see `put` in `bucketsFor`.
+      const stand = { synthetic: true, kind: 'func', loc: lines, children: [] }
+      if (rank === undefined) put(OTHER_KEY, OTHER_LABEL, OTHER, stand as unknown as Node)
+      else put(key, key, slotColor(rank), stand as unknown as Node)
+    }
+    return
+  }
   // A FILE is a reading of its own under Docs — its header — so it is a row here beside
   // the functions, and the buckets count what the list under them counts. Only Docs:
   // `legible` and `trap` are never sent on a file reading (see `FILE_ASK`), and the other

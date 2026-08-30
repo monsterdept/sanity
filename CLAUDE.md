@@ -66,10 +66,12 @@ the map went on looking like a map.
   modes: blame ranks over `stats.authors` everywhere, and a language is named by `Lang::label`
   on both sides of the wire. Two of each is a split brain that recolours the whole map the
   moment History opens, and it reads as a palette bug.
-- **A roll-up stand-in is a count, not a member of a distribution.** `aggregate` skips them;
-  so must any walk that buckets. A replay folds most of a frame into them, so counting their
-  lines as an absence drew ceph's own history as `no git history` — worse the further the
-  story ran, which is what disguised a drawing bug as a data one. `rest` is the marker.
+- **A roll-up carries a tally, or it says nothing — it never says what it cannot know.**
+  A replay folds most of a frame into stand-ins (`rest` is the marker). Counting their lines
+  as an absence drew ceph's own history as `no git history`; dropping them instead drew 0.27%
+  of `src/pybind` as 100% of it. So the fold totals what it drops, per FILE, and lenses with
+  no tally — Age, Churn — keep their lines out of the distribution rather than inventing a
+  band. `aggregate` already skipped these nodes; any walk that buckets must too.
 - **A band says what it knows, never what the repo is.** `no git history` is a fact about a
   folder; a per-function null under Age or Churn means this map has no history for those
   lines, which on a traced repo is a different sentence entirely. Repo-level answers go on the

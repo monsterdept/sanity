@@ -191,6 +191,24 @@ export interface Node {
    *  it runs out of room. Undefined on everything else, which is what makes it the test
    *  for "this is a collection wearing a function's `kind`" — see `showsShare`. */
   rest?: number
+  /** What a roll-up STANDS FOR, by value — the summary that keeps a folded wedge in the
+   *  distribution instead of out of it.
+   *
+   *  **A replay folds most of a frame away, and the fold used to destroy the answer.** Files
+   *  too thin to draw become one stand-in per directory carrying their combined lines and
+   *  nothing else, so a rim built from what was left described a sample and called it the
+   *  whole: ceph's `src/pybind` is 71% Python and 29% TypeScript, and the replay drew it as
+   *  100% TypeScript over 517 of its 195,516 lines. Counting those lines as an ABSENCE was
+   *  worse still — it said the history was missing when it was merely not materialised.
+   *
+   *  So the fold carries a tally of what it dropped. Per FILE rather than per function, which
+   *  is the resolution a file already answers at when its ring has not arrived — its author
+   *  and its language are its own — and one the live map makes the same way. Only the
+   *  categorical lenses for now: a language and an author are facts about a file, where an age
+   *  or a churn band is a fact about a function and the frame does not carry per-file dates.
+   *  Those lenses keep saying nothing about a roll-up, which is the honest half of the old
+   *  behaviour without the label that was the dishonest half. */
+  folded?: Folded
   /** Does anything in this subtree flash on this frame of a replay — see `history.ts`'s
    *  `aggregate`, which rolls it up, and `Sunburst`, which spends it.
    *
@@ -264,6 +282,18 @@ export function localityOf(n: Node): number | null {
 /** A file's functions as parallel arrays. Absences are `-1`, never `null`, so each column
  *  stays a flat array of numbers on the wire — see `Cols` in `model.rs` for what each one
  *  holds and which absence it encodes. */
+/** One roll-up's contents, by value and by lines — see `Node.folded`.
+ *
+ *  Pairs rather than a `Map` because these are rebuilt every frame and read once: a map's
+ *  allocation per stand-in, per frame, is the cost the fold was rewritten twice to avoid. */
+export interface Folded {
+  /** Lines by language, for the Language lens. */
+  lang: [string, number][]
+  /** Lines by last author, for Blame. `null` keys — a file git has never seen — are left out
+   *  rather than folded into a name, the same way the live walk treats them. */
+  author: [string, number][]
+}
+
 export interface Cols {
   loc: number[]
   commits: number[]

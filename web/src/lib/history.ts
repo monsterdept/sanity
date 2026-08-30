@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { GRADE_DOCUMENTED, GRADE_SURPRISE } from './api'
-import type { AgentReport, Grade, Node, Progress, Score } from './api'
+import type { AgentReport, Folded, Grade, Node, Progress, Score } from './api'
 import type { Deltas, Tables } from './timeline'
 
 /**
@@ -1626,6 +1626,14 @@ export function frameTree(
     // of forty, it IS the file, standing in for everything the picture has no room to draw.
     stand.lastAuthor = authorName(hist, frame.author[p])
     stand.score = flashOnly(restBirth[p] === 1, restEdit[p] === 1)
+    // Its own file's answer, in the shape a crowd's takes. It could be read off `lang` and
+    // `lastAuthor` instead — this stand-in IS one file — but then `contribute` would need two
+    // rules for one kind of node, and the one it reached for would depend on which sort of
+    // roll-up had been built. One rule, one field.
+    stand.folded = {
+      lang: hist.langs[p] ? [[hist.langs[p], lines]] : [],
+      author: stand.lastAuthor ? [[stand.lastAuthor, lines]] : [],
+    }
     return stand
   }
 
@@ -1636,7 +1644,15 @@ export function frameTree(
    *  into by nobody, which is what a file wedge with a roll-up count already means. The
    *  layout was throwing these away anyway — the "9,022 files too thin" note in the corner
    *  IS this population — so what changes is that the fold stops building them first. */
-  const crowd = (d: number, lines: number, count: number, birth: boolean, edit: boolean): Node => {
+  const crowd = (
+    d: number,
+    lines: number,
+    count: number,
+    birth: boolean,
+    edit: boolean,
+    /** What it stands for, by value — see `Node.folded`. */
+    folded: Folded,
+  ): Node => {
     const path = `${shape.path[d]}#/files`
     const kept = held.crowd.get(d)
     const stand: Node =
@@ -1652,8 +1668,47 @@ export function frameTree(
     stand.rest = count
     stand.lastAuthor = null
     stand.score = flashOnly(birth, edit)
+    // **The one thing it CAN say.** It has no author and no language of its own — it is a
+    // hundred files — but it knows which languages and which people its lines belong to, and
+    // a distribution built without that describes whatever was big enough to draw and calls
+    // it the whole directory.
+    stand.folded = folded
     return stand
   }
+
+  /**
+   * What a roll-up stands for, gathered as it is rolled up — see `Node.folded`.
+   *
+   * **Per FILE, and that is the whole reason this is affordable.** A language and an author
+   * are facts about a file, so a fold that already visits every file it drops can total them
+   * on the way past: the cost is one map hit per folded file, against the alternative of
+   * materialising per-function columns for everything the picture is not drawing, which is
+   * the work the fold exists to avoid. It is also the resolution the LIVE map uses whenever a
+   * file's ring has not arrived — a file's author and its language are its own — so the two
+   * pictures answer at the same grain rather than one of them guessing finer.
+   */
+  const tallyOf = () => ({ lang: new Map<string, number>(), author: new Map<string, number>() })
+  type Tally = ReturnType<typeof tallyOf>
+  const add = (t: Tally, p: number, lines: number) => {
+    const lang = hist.langs[p]
+    if (lang) t.lang.set(lang, (t.lang.get(lang) ?? 0) + lines)
+    const who = authorName(hist, frame.author[p])
+    // A file git has never seen is left out rather than folded into a name — the same thing
+    // the live walk does with a missing author, one surface over.
+    if (who) t.author.set(who, (t.author.get(who) ?? 0) + lines)
+  }
+  /** Every live file under `d`, for a directory that is being folded whole. */
+  const foldDir = (t: Tally, d: number): void => {
+    for (const p of shape.files[d]) {
+      const lines = fileLoc[p]
+      if (lines > 0) add(t, p, lines)
+    }
+    for (const k of shape.kids[d]) foldDir(t, k)
+  }
+  const settle = (t: Tally): Folded => ({
+    lang: [...t.lang.entries()],
+    author: [...t.author.entries()],
+  })
 
   /** Descend while there is something worth drawing, and roll up what there is not. */
   const walk = (d: number, into: Node): void => {
@@ -1661,6 +1716,7 @@ export function frameTree(
     let restFiles = 0
     let restB = false
     let restE = false
+    const rest = tallyOf()
     const cut =
       inScope && (forced.has(d) || shape.path[d].startsWith(`${scope}/`)) ? scopeMin : minLoc
     for (const k of shape.kids[d]) {
@@ -1674,6 +1730,7 @@ export function frameTree(
       }
       restLines += lines
       restFiles += dirFiles[k]
+      foldDir(rest, k)
       restB = restB || dirBirth[k] === 1
       restE = restE || dirEdit[k] === 1
     }
@@ -1686,11 +1743,14 @@ export function frameTree(
       }
       restLines += lines
       restFiles += 1
+      add(rest, p, lines)
       const born = frame.pathBornAt[p]
       restB = restB || restBirth[p] === 1 || (born !== NO_AT && inStep(born, since, frame.at))
       restE = restE || restEdit[p] === 1
     }
-    if (restLines > 0) into.children.push(crowd(d, restLines, restFiles, restB, restE))
+    if (restLines > 0) {
+      into.children.push(crowd(d, restLines, restFiles, restB, restE, settle(rest)))
+    }
   }
   walk(0, root)
 

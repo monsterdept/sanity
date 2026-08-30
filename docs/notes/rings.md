@@ -148,10 +148,25 @@ Three things came out of it and are on main:
   most of why this read as a data problem for two days. The marker is `rest`: the backend
   never sets it and the layout mints its own after this walk, so a node carrying one in the
   tree is a roll-up and nothing else.
-  Their lines go into no bucket at all rather than into an absence, because a stand-in has no
-  value to put anywhere and `no history for these lines` is false — the history exists, the
-  frame simply did not materialise the functions holding it. The count is on the wedge's card,
-  which is where a roll-up's own answer belongs. One consequence stated out loud: the rim's
+  **Skipping them outright was the first repair and it went one step too far.** With the
+  roll-ups gone the distribution was drawn over whatever the frame happened to materialise, so
+  ceph's `src/pybind` — 71% Python and 29% TypeScript, measured — came out as 100% TypeScript
+  over 517 of its 195,516 lines, with the file count admitting 183 where the directory holds
+  1,152. A biased sample stated with total confidence is the failure `histogramsFor` opens by
+  naming, and it is worse than the mislabelled absence it replaced, because nothing about it
+  looks wrong.
+  **So the fold carries a tally of what it dropped** — see `Node.folded`. Per FILE, which is
+  what makes it affordable: a language and an author are facts about a file, so a fold that
+  already visits every file it drops can total them on the way past, against the alternative
+  of materialising per-function columns for everything the picture is not drawing — the work
+  the fold exists to avoid. It is also the grain the LIVE map answers at whenever a ring has
+  not arrived, so the two pictures agree rather than one of them guessing finer.
+  **Only the categorical lenses, and the rest still say nothing.** An age or a churn band is a
+  fact about a FUNCTION and the frame carries no per-file dates, so a roll-up under those
+  lenses keeps its lines out of the distribution entirely — the honest half of the original
+  behaviour without the label that was the dishonest half. Giving them a tally means giving
+  the frame a per-file touch date, which is a new array on every checkpoint; worth doing, not
+  done here. One consequence stated out loud: the rim's
   total is now further from the wedge's line count than it was, so the tooltip stopped saying
   `% of this directory` — a rim has always counted function lines, and in a replay most of a
   wedge can be folded away.
