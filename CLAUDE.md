@@ -56,6 +56,10 @@ the map went on looking like a map.
   count. It used to take its largest member's name and color, which drew a tail of 209 people
   as one person and made it the widest band on the wedge. Only sub-pixel runs merge, and only
   with each other — a wide band that absorbs its neighbours is wider than the value it names.
+- **A roll-up stand-in is a count, not a member of a distribution.** `aggregate` skips them;
+  so must any walk that buckets. A replay folds most of a frame into them, so counting their
+  lines as an absence drew ceph's own history as `no git history` — worse the further the
+  story ran, which is what disguised a drawing bug as a data one. `rest` is the marker.
 - **A band says what it knows, never what the repo is.** `no git history` is a fact about a
   folder; a per-function null under Age or Churn means this map has no history for those
   lines, which on a traced repo is a different sentence entirely. Repo-level answers go on the

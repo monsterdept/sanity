@@ -74,6 +74,13 @@ export function WedgeTip({
   share?: number
   /** The segment of this container's rim the pointer is over — see `hoverSlice`.
    *
+   *  **The share is of the DISTRIBUTION, not of the directory, and it now says so.** It read
+   *  `% of this directory` over a denominator that was never the directory's lines: a rim
+   *  counts function lines, and a file's total includes everything between its functions. The
+   *  gap widened the moment roll-up stand-ins stopped being counted — in a replay most of a
+   *  wedge can be folded away — so a number that was a little off became a number that was
+   *  answering a different question.
+   *
    *  **The rim answers before the wedge does, because it is the finer question.** A
    *  directory's rim is a distribution of what is inside it, and pointing at one band of it
    *  is asking about that band; answering with the directory's own totals would be replying
@@ -231,8 +238,8 @@ export function WedgeTip({
             </span>
           </div>
           <p className="mono mt-0.5 text-[10px] leading-snug text-[var(--muted-foreground)]">
-            {slice.lines.toLocaleString()} lines · {Math.round(slice.share * 100)}% of this
-            directory
+            {slice.lines.toLocaleString()} lines · {Math.round(slice.share * 100)}% of what is
+            measured here
           </p>
         </div>
       )}

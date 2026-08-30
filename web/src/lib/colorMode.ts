@@ -1216,6 +1216,27 @@ function contribute(
   span: number,
   put: Put,
 ): void {
+  // **A roll-up stand-in is a COUNT, and a count is not a member of a distribution.**
+  //
+  // `aggregate` already skips these — "rolled into their parent they would dilute its real
+  // numbers with zeroes" — and this is the same node meeting the same argument one surface
+  // over. It was not skipped here, and under a REPLAY that is most of the picture: a frame
+  // folds every function too thin to draw into one stand-in per file (`history.ts`'s
+  // `standIn`), which carries their combined LINES and, by design, no reading at all. Every
+  // one of them landed in the absence bucket.
+  //
+  // So ceph's last frame drew as 94% `no git history` — 890,200 lines of it — while the same
+  // repo with the replay closed was fully coloured, and while the panel beside it listed
+  // 90,878 functions with ages. It got worse the further the story ran, because the later the
+  // frame the more functions there are to fold, which is exactly backwards from a bug about
+  // missing history and is what makes it read as a data problem rather than a drawing one.
+  //
+  // The lines are not counted in some other bucket instead: a stand-in has no value to put
+  // anywhere, and `no history for these lines` is false — the history exists, the frame just
+  // did not materialise the functions holding it. What the roll-up knows is its count, and
+  // that is on the wedge's own card. `rest` is the marker because nothing but a roll-up ever
+  // carries one: the backend never sets it, and the layout's own are minted after this walk.
+  if (n.rest !== undefined) return
   // A FILE is a reading of its own under Docs — its header — so it is a row here beside
   // the functions, and the buckets count what the list under them counts. Only Docs:
   // `legible` and `trap` are never sent on a file reading (see `FILE_ASK`), and the other

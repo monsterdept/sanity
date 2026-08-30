@@ -113,7 +113,29 @@ Three things came out of it and are on main:
   to change with it is that the unranked now share a single bucket key (`OTHER_KEY`) instead
   of each keeping their own: a fold that leaves two hundred rows all named differently is not
   a fold, and it was what handed the rim two hundred sub-pixel bands to merge back together.
-    **A band says what it knows, never what the repo is.** Age and Churn labelled a function
+    **A roll-up stand-in is a COUNT, and a count is not a member of a distribution.** This is
+  the one that produced the report, and it is a REPLAY bug wearing a scan bug's clothes. A
+  frame folds every function too thin to draw into one stand-in per file — `history.ts`'s
+  `standIn`, which carries their combined lines and, by design, no reading — and `contribute`
+  counted every one of those lines as an absence. `aggregate` already skips these nodes for
+  the same reason, in the same words; the bucketing walk never learned it.
+  What it looked like: ceph's replay drew as `no git history` over a repo with 123,000
+  commits, 890,200 lines of it in `src` alone, while the same repo with the replay CLOSED was
+  fully coloured and the panel beside it listed 90,878 functions with ages. The give-away is
+  that it is a GRADIENT — an early frame is almost entirely coloured, a middle frame has grey
+  through its inner rings, the last is mostly grey — because the later the frame the more
+  functions there are to fold. A bug about missing history would run the other way, which is
+  most of why this read as a data problem for two days. The marker is `rest`: the backend
+  never sets it and the layout mints its own after this walk, so a node carrying one in the
+  tree is a roll-up and nothing else.
+  Their lines go into no bucket at all rather than into an absence, because a stand-in has no
+  value to put anywhere and `no history for these lines` is false — the history exists, the
+  frame simply did not materialise the functions holding it. The count is on the wedge's card,
+  which is where a roll-up's own answer belongs. One consequence stated out loud: the rim's
+  total is now further from the wedge's line count than it was, so the tooltip stopped saying
+  `% of this directory` — a rim has always counted function lines, and in a replay most of a
+  wedge can be folded away.
+  **A band says what it knows, never what the repo is.** Age and Churn labelled a function
   with no git `no git history` — a claim about the REPO made from a per-function null. On
   ceph that drew as 94% of `src` having no git in it, with the commit log open in the panel
   beside it and 123,000 commits in the header. Measured end to end, every backend path fills

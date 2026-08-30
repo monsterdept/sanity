@@ -170,6 +170,43 @@ console.log('absence — a band says what it knows, not what the repo is')
   check('a dated function is not an absence', rows[0].label === 'today', rows[0].label)
 }
 
+console.log('roll-ups — a count is not a member of a distribution')
+{
+  /** What a REPLAY frame folds a file's undrawable functions into: their combined lines,
+   *  a count, and by design no reading at all. See `history.ts`'s `standIn`. */
+  const standIn = (loc: number, count: number): Node =>
+    ({ kind: 'func', loc, rest: count, children: [], excluded: false, score: null }) as unknown as Node
+  const dated = (loc: number): Node =>
+    ({
+      kind: 'func',
+      loc,
+      children: [],
+      excluded: false,
+      score: { commits: 3, ageDays: 400, lastTouchedDays: 0.5 },
+    }) as unknown as Node
+  const file = (kids: Node[]): Node =>
+    ({ kind: 'file', loc: 0, excluded: false, funcs: 0, children: kids }) as unknown as Node
+  const dir = (kids: Node[]): Node =>
+    ({ kind: 'dir', loc: 0, excluded: false, children: kids }) as unknown as Node
+
+  // The shape of ceph's last frame: a little drawn code, and a great deal folded away.
+  const rows = bucketsFor(dir([file([dated(100), standIn(890_200, 4_000)])]), 'age')
+  const absent = rows.find((b) => b.label === 'history not read')
+  check('a roll-up is not an absence', absent === undefined, absent?.lines)
+  check('and its lines are not counted anywhere', rows.reduce((n, b) => n + b.lines, 0) === 100)
+  check('the drawn function still is', rows[0]?.label === 'today', rows[0]?.label)
+
+  // Under Blame too: the per-directory `crowd` stand-in is a file with no author, and it
+  // was landing in `not in git` with every line it stands for.
+  const blame = bucketsFor(
+    dir([
+      ({ kind: 'file', loc: 500, excluded: false, funcs: 3, rest: 12, children: [], lastAuthor: null }) as unknown as Node,
+    ]),
+    'blame',
+  )
+  check('a crowd of files is not `not in git`', blame.length === 0, blame.map((b) => b.label))
+}
+
 if (failed > 0) {
   console.error(`\n${failed} check(s) failed`)
   process.exit(1)
