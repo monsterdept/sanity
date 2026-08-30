@@ -180,7 +180,27 @@ Three things came out of it and are on main:
   at the first seek past a checkpoint.
   Callers, Reach, Clones and the reading lenses still say nothing about a roll-up. There is
   nothing at file resolution to answer them with, and a band invented for a fold is a reading
-  nobody took. One consequence stated out loud: the rim's
+  nobody took.
+  **Per file is a coarsening, and it was measured before it was accepted.** A folded line gets
+  its FILE's date where the live map would give it its function's, and the file's date is its
+  most recent — so the error has one direction, toward fresh. Measured on ceph at the fold's
+  own cut (`frame.lines / 4000`, about 375 lines there): **93.5% of folded lines land in the
+  right band, 6.05% are one band too fresh, 0.47% are two, and nothing is further.**
+  **The reason is not the one you would guess, and the guess was made and was wrong.** It is
+  not that a thin file has few functions — ceph's median is EIGHT, and 88% of its files hold
+  more than one. It is that a thin file is edited as a unit: its functions were touched by the
+  same commits, so they fall in the same band whatever resolution you ask at. A repo whose
+  small files are edited piecemeal would not behave this way, and the number to re-measure is
+  this one.
+  Against that, per function costs a push per live function per frame — 113,000 on ceph
+  against 6,000 file entries — in the one loop `history.ts` has been rewritten twice to
+  protect, and it buys back six per cent of folded lines by a single adjacent band. Not worth
+  it, and this is written down so it does not have to be argued again.
+  **Churn is NOT covered by that measurement.** A file's commit count is the UNION of its
+  functions', not the max, so per file overstates rather than merely coarsens — a different
+  shape from Age, and the six per cent does not transfer. It could not be measured the same
+  way: the scan carries commit counts, not the commit SETS a union needs, so answering it
+  means driving a real frame. Open, and known to be open. One consequence stated out loud: the rim's
   total is now further from the wedge's line count than it was, so the tooltip stopped saying
   `% of this directory` — a rim has always counted function lines, and in a replay most of a
   wedge can be folded away.
