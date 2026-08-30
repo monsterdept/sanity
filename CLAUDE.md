@@ -74,9 +74,15 @@ the map went on looking like a map.
 - **A roll-up carries a tally, or it says nothing — it never says what it cannot know.**
   A replay folds most of a frame into stand-ins (`rest` is the marker). Counting their lines
   as an absence drew ceph's own history as `no git history`; dropping them instead drew 0.27%
-  of `src/pybind` as 100% of it. So the fold totals what it drops, per FILE, and lenses with
-  no tally — Age, Churn — keep their lines out of the distribution rather than inventing a
-  band. `aggregate` already skipped these nodes; any walk that buckets must too.
+  of `src/pybind` as 100% of it. So the fold totals what it drops, per FILE — language, author,
+  and `[days, commits, churn, lines]` for the two git ramps — and `contribute` bands it by
+  calling itself, so a folded file and a drawn one cannot fall in different bands. Lenses with
+  nothing at file resolution to answer them keep saying nothing. `aggregate` already skipped
+  these nodes; any walk that buckets must too.
+- **A new frame array is a new checkpoint field, in the same commit.** `bank` and `thaw` are
+  explicit lists, so a field left out comes back EMPTY on a backward seek — which reads as a
+  valid answer, not a failure. `replay-check` compares forward, backward and cold fold field by
+  field; anything a frame writes belongs in its fingerprint.
 - **A band says what it knows, never what the repo is.** `no git history` is a fact about a
   folder; a per-function null under Age or Churn means this map has no history for those
   lines, which on a traced repo is a different sentence entirely. Repo-level answers go on the

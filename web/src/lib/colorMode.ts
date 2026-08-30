@@ -1249,16 +1249,60 @@ function contribute(
   // mints its own after this walk.
   if (n.rest !== undefined) {
     if (outOfScope) return
-    const folded = mode === 'language' ? n.folded?.lang : mode === 'blame' ? n.folded?.author : undefined
-    if (!folded) return
-    for (const [key, lines] of folded) {
-      const rank = ranks?.get(key)
-      // Never listed, only counted: these lines have no node to point at, which is the same
-      // contract `contributeCols`'s stand-in works to — see `put` in `bucketsFor`.
-      const stand = { synthetic: true, kind: 'func', loc: lines, children: [] }
-      if (rank === undefined) put(OTHER_KEY, OTHER_LABEL, OTHER, stand as unknown as Node)
-      else put(key, key, slotColor(rank), stand as unknown as Node)
+    const held = n.folded
+    if (!held) return
+    // Never listed, only counted: these lines have no node to point at, which is the same
+    // contract `contributeCols`'s stand-in works to — see `put` in `bucketsFor`. One object,
+    // mutated per entry, for the reason that one does it: a fresh node per folded file, per
+    // frame, is an allocation this codebase has already paid for once.
+    const stand: {
+      synthetic: true
+      kind: 'func'
+      loc: number
+      score?: {
+        commits: number
+        churn: number
+        ageDays: number | null
+        lastTouchedDays: number | null
+      }
+      children: Node[]
+    } = { synthetic: true, kind: 'func', loc: 0, children: [] }
+    if (mode === 'language' || mode === 'blame') {
+      for (const [key, lines] of mode === 'language' ? held.lang : held.author) {
+        const rank = ranks?.get(key)
+        stand.loc = lines
+        if (rank === undefined) put(OTHER_KEY, OTHER_LABEL, OTHER, stand as unknown as Node)
+        else put(key, key, slotColor(rank), stand as unknown as Node)
+      }
+      return
     }
+    if (mode === 'age' || mode === 'churn') {
+      // **Through `contribute` itself, so a folded file and a drawn one cannot fall in
+      // different bands.** The tally is `[days, commits, lines]` per file and the branches
+      // below already know what to do with exactly that; running it back through them is the
+      // same trick `contributeCols` plays for a file whose ring never arrived, and it is what
+      // keeps one definition of a band rather than two.
+      for (let i = 0; i < held.time.length; i += 4) {
+        const days = held.time[i]
+        stand.loc = held.time[i + 3]
+        // `-1` is a file the replayed window never saw touched. Undated rather than dropped:
+        // the lines are real, and the window's own rule is that nothing before it makes a
+        // claim about its age — which is the absence bucket, not a band.
+        stand.score =
+          days < 0
+            ? undefined
+            : {
+                commits: held.time[i + 1],
+                churn: held.time[i + 2],
+                ageDays: days,
+                lastTouchedDays: days,
+              }
+        contribute(stand as unknown as Node, false, mode, ranks, span, put)
+      }
+      return
+    }
+    // Callers, Reach, Clones and the reading lenses: a roll-up has nothing to say and says
+    // nothing. Its lines stay out of the distribution rather than inventing a band.
     return
   }
   // A FILE is a reading of its own under Docs — its header — so it is a row here beside

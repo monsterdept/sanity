@@ -214,7 +214,13 @@ console.log("roll-ups — and a count that knows what it holds says so")
    *  TypeScript; drawn from what survives the fold alone it is 100% TypeScript. */
   const drawn = (loc: number, lang: string): Node =>
     ({ kind: 'file', loc, lang, excluded: false, funcs: 1, children: [] }) as unknown as Node
-  const crowd = (loc: number, count: number, lang: [string, number][]): Node =>
+  const crowd = (
+    loc: number,
+    count: number,
+    lang: [string, number][],
+    /** `[days, commits, churn, lines]` per folded file — see `Folded.time`. */
+    time: number[] = [],
+  ): Node =>
     ({
       kind: 'file',
       loc,
@@ -224,7 +230,7 @@ console.log("roll-ups — and a count that knows what it holds says so")
       lang: null,
       lastAuthor: null,
       children: [],
-      folded: { lang, author: [] },
+      folded: { lang, author: [], time },
     }) as unknown as Node
   const dir = (kids: Node[]): Node =>
     ({ kind: 'dir', loc: 0, excluded: false, children: kids }) as unknown as Node
@@ -279,11 +285,63 @@ console.log("roll-ups — and a count that knows what it holds says so")
     ranks,
   )
   check(
-    'age counts only what it has a reading for',
+    'a fold with no time tally still says nothing',
     aged.reduce((n, b) => n + b.lines, 0) === 517,
     aged.map((b) => [b.label, b.lines]),
   )
-  check('and does not invent a band for the fold', aged.length === 1 && aged[0].label === 'today')
+  check('and does not invent a band for it', aged.length === 1 && aged[0].label === 'today')
+}
+
+console.log('roll-ups — and the time tally puts a folded file in its own band')
+{
+  const crowd = (loc: number, count: number, time: number[]): Node =>
+    ({
+      kind: 'file',
+      loc,
+      excluded: false,
+      funcs: 0,
+      rest: count,
+      lang: null,
+      lastAuthor: null,
+      children: [],
+      folded: { lang: [], author: [], time },
+    }) as unknown as Node
+  const dir = (kids: Node[]): Node =>
+    ({ kind: 'dir', loc: 0, excluded: false, children: kids }) as unknown as Node
+
+  // Four folded files: one touched today, one this quarter, one long ago, and one the
+  // replayed window never saw touched at all.
+  const folded = crowd(1_000, 4, [
+    0.5, 9, 0.9, 100,
+    45, 2, 0.2, 200,
+    900, 0, 0, 300,
+    -1, 0, 0, 400,
+  ])
+
+  const aged = bucketsFor(dir([folded]), 'age')
+  const at = (label: string) => aged.find((b) => b.label === label)?.lines ?? 0
+  check('every folded line is placed', aged.reduce((n, b) => n + b.lines, 0) === 1_000)
+  check('today', at('today') === 100, at('today'))
+  check('this quarter', at('this quarter') === 200, at('this quarter'))
+  check('older', at('older') === 300, at('older'))
+  // The window's own rule: nothing before it makes a claim about its age. Undated, not banded.
+  check('and the undated one is an absence', at('history not read') === 400, at('history not read'))
+  // Absence sorts last however the rest is ordered — see `sortBuckets`.
+  check('which sorts last', aged[aged.length - 1].label === 'history not read')
+
+  // Churn reads the same tally through the same branch, so the two cannot disagree about
+  // which file is busy.
+  const churn = bucketsFor(dir([folded]), 'churn')
+  const busy = churn.find((b) => b.label === '3–9 commits')
+  check('churn bands the same fold', busy?.lines === 100, churn.map((b) => [b.label, b.lines]))
+  // An empty fill is a ramped bucket whose mean never arrived — see `bucketsFor`. It is what
+  // a folded file would draw if the tally carried a band but no ramp value, which is why the
+  // churn number rides in the tally rather than being derived where it is read.
+  check(
+    'and a band it can colour',
+    !!busy && busy.fill !== '' && busy.fill.includes('--churn'),
+    busy?.fill,
+  )
 }
 
 if (failed > 0) {

@@ -161,12 +161,26 @@ Three things came out of it and are on main:
   of materialising per-function columns for everything the picture is not drawing — the work
   the fold exists to avoid. It is also the grain the LIVE map answers at whenever a ring has
   not arrived, so the two pictures agree rather than one of them guessing finer.
-  **Only the categorical lenses, and the rest still say nothing.** An age or a churn band is a
-  fact about a FUNCTION and the frame carries no per-file dates, so a roll-up under those
-  lenses keeps its lines out of the distribution entirely — the honest half of the original
-  behaviour without the label that was the dishonest half. Giving them a tally means giving
-  the frame a per-file touch date, which is a new array on every checkpoint; worth doing, not
-  done here. One consequence stated out loud: the rim's
+  **Age and Churn needed the frame to learn something new, and it did.** A language and an
+  author are facts about a file, so the fold could already total them; a band is a fact about a
+  FUNCTION, and there was nothing at file resolution to total. So the frame keeps `pathTs` and
+  a `pathHits` ring per path — stamped in the same loop that already writes `author[p]`, from
+  the same list of paths a commit touched, one write per file per commit. The tally then
+  carries `[days, commits, churn, lines]` per folded file, RAW: a band is `colorMode`'s answer
+  and a ramp needs a span the fold has never heard of, so the fold reports what it measured
+  and `contribute` bands it by calling itself — one definition of a band rather than two.
+  The churn ramp rides in the tally rather than being recomputed where it is read, because its
+  saturation is the replay's own; without it the bucket has a band and no mean, and a ramped
+  bucket with no mean draws an EMPTY fill, which is a segment nobody can see rather than an
+  error anybody can.
+  **A checkpoint carries both new arrays, and that is the part with teeth.** A field left out
+  of `bank` comes back empty rather than missing, and empty reads as a valid answer — a folded
+  directory with no age at all, rather than one that failed to thaw. `replay-check` renders
+  `folded` into its fingerprint for exactly this: drop the two arrays from `thaw` and it fails
+  at the first seek past a checkpoint.
+  Callers, Reach, Clones and the reading lenses still say nothing about a roll-up. There is
+  nothing at file resolution to answer them with, and a band invented for a fold is a reading
+  nobody took. One consequence stated out loud: the rim's
   total is now further from the wedge's line count than it was, so the tooltip stopped saying
   `% of this directory` — a rim has always counted function lines, and in a replay most of a
   wedge can be folded away.

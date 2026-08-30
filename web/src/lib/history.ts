@@ -251,6 +251,23 @@ interface Frame {
    *  in. A file is on screen exactly while the count is above zero — see `enter`. */
   pathLive: Uint32Array
   pathBornAt: Int32Array
+  /** path index → when a commit last touched this FILE, and the same recent-touch ring the
+   *  functions keep, one row per path.
+   *
+   *  **A file-level answer to a question the map asks per function, and the reason is the
+   *  fold.** A frame rolls every file too thin to draw into one stand-in, and a stand-in with
+   *  only a line count made the rim describe whatever survived and call it the directory —
+   *  ceph's `src/pybind` drawn as 100% TypeScript over 0.3% of itself. Language and author
+   *  are facts about a file, so the fold could already total them; an age and a churn band are
+   *  facts about a FUNCTION, and the frame had nothing at file resolution to total.
+   *
+   *  Now it has. Kept in the same loop that already stamps `author[p]`, from the same list of
+   *  paths the commit touched, so it costs one write per file per commit. It is a COARSER
+   *  answer than a drawn function's — a file's date, not each function's — and that is
+   *  exactly the trade the live map already makes when a ring has not arrived. */
+  pathTs: Uint32Array
+  pathHits: Uint32Array
+  pathHitLen: Uint8Array
   /** The same pair for directories, keyed by the directory INDEX `Shape` interns.
    *
    *  Strings before, which cost a hash per ancestor per arrival and a `Map` copy per
@@ -331,6 +348,9 @@ function blank(hist: Tables): Frame {
     hitLen: new Uint8Array(n),
     pathLive: new Uint32Array(hist.paths.length),
     pathBornAt: new Int32Array(hist.paths.length).fill(NO_AT),
+    pathTs: new Uint32Array(hist.paths.length).fill(NO_TS),
+    pathHits: new Uint32Array(hist.paths.length * CHURN_MEMORY),
+    pathHitLen: new Uint8Array(hist.paths.length),
     dirLive: new Uint32Array(shape.path.length),
     dirBornAt: new Int32Array(shape.path.length).fill(NO_AT),
     author: new Int32Array(hist.paths.length).fill(NO_AUTHOR),
@@ -502,7 +522,21 @@ function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): boolea
     }
     for (const [f, packed] of c.read ?? []) frame.graded[f] = packed
     for (const f of c.unread ?? []) frame.graded[f] = NO_GRADE
-    for (const p of c.files) frame.author[p] = who
+    for (const p of c.files) {
+      frame.author[p] = who
+      frame.pathTs[p] = c.ts
+      // The same ring the functions keep, for the same reason: churn is commits inside a
+      // window, and a running count cannot be advanced because old touches fall OUT of it as
+      // the playhead moves. See `Frame.hits`.
+      const base = p * CHURN_MEMORY
+      let len = frame.pathHitLen[p]
+      if (len >= CHURN_MEMORY) {
+        frame.pathHits.copyWithin(base, base + 1, base + CHURN_MEMORY)
+        len = CHURN_MEMORY - 1
+      }
+      frame.pathHits[base + len] = c.ts
+      frame.pathHitLen[p] = len + 1
+    }
   }
   // One pass for the whole step: drop what left, merge in what arrived. Both sides are
   // ascending — `order` by construction and the arrivals by sorting once — so this is a
@@ -585,6 +619,14 @@ interface Checkpoint {
   hits: Uint32Array
   pathLive: Uint32Array
   pathBornAt: Int32Array
+  /** The file-level pair, compacted the way the function hits are — see `bank`. Carried
+   *  because a checkpoint is the whole frame: a field left out here is a field that comes
+   *  back EMPTY after a backward seek, and empty reads as a valid answer. That is the hazard
+   *  `treecache`'s version list exists for, and it is worse here because nothing versions a
+   *  checkpoint — it is simply wrong, once, in a direction nobody looks. */
+  pathTs: Uint32Array
+  pathHits: Uint32Array
+  pathHitLen: Uint8Array
   author: Int32Array
   dirLive: Uint32Array
   dirBornAt: Int32Array
@@ -602,10 +644,25 @@ function freeze(frame: Frame): Checkpoint {
     const base = f * CHURN_MEMORY
     for (let i = 0; i < len; i++) hits[w++] = frame.hits[base + i]
   }
+  // The file ring, compacted exactly as the function ring above it is: `pathHitLen[p]` stamps
+  // per path, in path order, so `thaw` can lay them back down in the same order.
+  let pathTotal = 0
+  for (let p = 0; p < frame.pathHitLen.length; p++) pathTotal += frame.pathHitLen[p]
+  const pathHits = new Uint32Array(pathTotal)
+  let pw = 0
+  for (let p = 0; p < frame.pathHitLen.length; p++) {
+    const len = frame.pathHitLen[p]
+    if (len === 0) continue
+    const base = p * CHURN_MEMORY
+    for (let i = 0; i < len; i++) pathHits[pw++] = frame.pathHits[base + i]
+  }
   return {
     at: frame.at,
     ts: frame.ts,
     lines: frame.lines,
+    pathTs: frame.pathTs.slice(),
+    pathHits,
+    pathHitLen: frame.pathHitLen.slice(),
     loc: frame.loc.slice(),
     live: frame.live.slice(),
     touched: frame.touched.slice(),
@@ -625,6 +682,15 @@ function freeze(frame: Frame): Checkpoint {
 }
 
 function thaw(cp: Checkpoint): Frame {
+  const paths = cp.pathHitLen.length
+  const pathHits = new Uint32Array(paths * CHURN_MEMORY)
+  let pr = 0
+  for (let p = 0; p < paths; p++) {
+    const len = cp.pathHitLen[p]
+    if (len === 0) continue
+    const base = p * CHURN_MEMORY
+    for (let i = 0; i < len; i++) pathHits[base + i] = cp.pathHits[pr++]
+  }
   const n = cp.hitLen.length
   const hits = new Uint32Array(n * CHURN_MEMORY)
   const order: number[] = []
@@ -651,6 +717,9 @@ function thaw(cp: Checkpoint): Frame {
     hitLen: cp.hitLen.slice(),
     pathLive: cp.pathLive.slice(),
     pathBornAt: cp.pathBornAt.slice(),
+    pathTs: cp.pathTs.slice(),
+    pathHits,
+    pathHitLen: cp.pathHitLen.slice(),
     dirLive: cp.dirLive.slice(),
     dirBornAt: cp.dirBornAt.slice(),
     author: cp.author.slice(),
@@ -1630,10 +1699,9 @@ export function frameTree(
     // `lastAuthor` instead — this stand-in IS one file — but then `contribute` would need two
     // rules for one kind of node, and the one it reached for would depend on which sort of
     // roll-up had been built. One rule, one field.
-    stand.folded = {
-      lang: hist.langs[p] ? [[hist.langs[p], lines]] : [],
-      author: stand.lastAuthor ? [[stand.lastAuthor, lines]] : [],
-    }
+    const t = tallyOf()
+    add(t, p, lines)
+    stand.folded = settle(t)
     return stand
   }
 
@@ -1687,7 +1755,11 @@ export function frameTree(
    * file's ring has not arrived — a file's author and its language are its own — so the two
    * pictures answer at the same grain rather than one of them guessing finer.
    */
-  const tallyOf = () => ({ lang: new Map<string, number>(), author: new Map<string, number>() })
+  const tallyOf = () => ({
+    lang: new Map<string, number>(),
+    author: new Map<string, number>(),
+    time: [] as number[],
+  })
   type Tally = ReturnType<typeof tallyOf>
   const add = (t: Tally, p: number, lines: number) => {
     const lang = hist.langs[p]
@@ -1696,6 +1768,24 @@ export function frameTree(
     // A file git has never seen is left out rather than folded into a name — the same thing
     // the live walk does with a missing author, one surface over.
     if (who) t.author.set(who, (t.author.get(who) ?? 0) + lines)
+    // Counted at read time rather than carried, the same way a function's is: the window
+    // moves with the playhead, so a touch that counted last frame may have aged out of this
+    // one. See `Frame.pathHits`.
+    const ts = frame.pathTs[p]
+    let commits = 0
+    if (ts !== NO_TS) {
+      const base = p * CHURN_MEMORY
+      const len = frame.pathHitLen[p]
+      for (let i = 0; i < len; i++) {
+        if (daysBetween(frame.ts, frame.pathHits[base + i]) <= CHURN_WINDOW_DAYS) commits++
+      }
+    }
+    t.time.push(
+      ts === NO_TS ? -1 : daysBetween(frame.ts, ts),
+      commits,
+      Math.min(1, commits / CHURN_SATURATION),
+      lines,
+    )
   }
   /** Every live file under `d`, for a directory that is being folded whole. */
   const foldDir = (t: Tally, d: number): void => {
@@ -1708,6 +1798,7 @@ export function frameTree(
   const settle = (t: Tally): Folded => ({
     lang: [...t.lang.entries()],
     author: [...t.author.entries()],
+    time: t.time,
   })
 
   /** Descend while there is something worth drawing, and roll up what there is not. */

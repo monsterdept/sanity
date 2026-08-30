@@ -292,6 +292,25 @@ export interface Folded {
   /** Lines by last author, for Blame. `null` keys — a file git has never seen — are left out
    *  rather than folded into a name, the same way the live walk treats them. */
   author: [string, number][]
+  /** Age and Churn, as flat quads of `[days since touched, commits in the window, churn,
+   *  lines]`, one per folded FILE.
+   *
+   *  The churn ramp rides along rather than being derived where it is read: it is
+   *  `commits / CHURN_SATURATION`, and that saturation is the REPLAY's own — see `scoreInto`,
+   *  which builds a drawn function's score from the same number. Recomputing it in
+   *  `colorMode` would be a second copy of a constant that has already moved once.
+   *
+   *  **Raw rather than banded, because the bands are not the fold's to decide.** A band is
+   *  `colorMode`'s answer and a ramp needs the repo's age span, which the fold has never
+   *  heard of; totalling into bands here would put a second copy of `AGE_BANDS` in the one
+   *  place nobody would think to look when the first copy moved. So the fold reports what it
+   *  measured and `contribute` bands it exactly as it bands a function.
+   *
+   *  Flat, not tuples: one array of numbers per stand-in rather than a thousand two-element
+   *  arrays, on a structure rebuilt every frame. `-1` days is a file the replayed window never
+   *  saw touched, which lands in the absence bucket the same way an undated function does —
+   *  the window's own doctrine, that nothing before it makes a claim about its age. */
+  time: number[]
 }
 
 export interface Cols {

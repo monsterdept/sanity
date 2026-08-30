@@ -206,6 +206,16 @@ function render(node: Node, out: string[], depth = 0): void {
       node.agent
         ? `agent[${node.agent.predicted ?? '-'}/${node.agent.documented ?? '-'}/${node.agent.legible ?? '-'}/${node.agent.trap ?? '-'}]`
         : 'agent=-',
+      // **What a roll-up stands for, because a checkpoint has to carry it too.** The tally is
+      // built from `pathTs` and `pathHits`, which a backward seek restores from a checkpoint
+      // — and a field left out of `bank` comes back EMPTY rather than missing, which reads as
+      // a valid answer: a folded directory with no age at all rather than one that failed to
+      // thaw. Rendered here so the three folds have to agree about it like everything else.
+      node.folded
+        ? `folded[${node.folded.lang.map(([k, v]) => `${k}:${v}`).join(',')}|${node.folded.author
+            .map(([k, v]) => `${k}:${v}`)
+            .join(',')}|${node.folded.time.join(',')}]`
+        : 'folded=-',
     ].join(' '),
   )
   for (const c of node.children) render(c, out, depth + 1)
