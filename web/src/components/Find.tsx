@@ -103,12 +103,26 @@ export function Find({
       onClose()
       return
     }
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    // **Tab walks the results, and above all it does not leave.** It is the key that OPENS
+    // this panel, so it arrives here more than any other — and unhandled it is still the
+    // browser's focus key: pressing it twice on an empty field walked focus out into the
+    // chrome and left a caret sitting in some label across the window. A panel that owns the
+    // keyboard has to own the key that would take the keyboard away from it.
+    //
+    // Bound to the same movement the arrows make rather than to something of its own. In a
+    // finder they are the same gesture — next, previous — and a Tab that did a third thing
+    // would be a third thing to learn on the one panel nobody reads instructions for.
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Tab') {
+      // Before the empty check, unlike the arrows' own behaviour below: with nothing typed
+      // there is nothing to move through, and the answer is to do NOTHING rather than to
+      // hand the keypress back to the browser, which is where the caret came from.
       e.preventDefault()
       if (hits.length === 0) return
       // Clamped rather than wrapped. A list you can fall off the bottom of and reappear at
       // the top of is one where holding the key down never tells you it has ended.
-      setAt((i) => Math.min(hits.length - 1, Math.max(0, i + (e.key === 'ArrowDown' ? 1 : -1))))
+      // Shift-Tab reverses, the way Shift-Tab always has.
+      const down = e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)
+      setAt((i) => Math.min(hits.length - 1, Math.max(0, i + (down ? 1 : -1))))
       return
     }
     if (e.key === 'Enter' && hits[at]) {
