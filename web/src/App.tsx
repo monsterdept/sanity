@@ -1769,6 +1769,31 @@ export default function App() {
   // because it is also the way back out.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // **Tab opens Find, which is the one bare key in the app and needs its own guard.**
+      // Every other shortcut here takes Cmd, and the comment above says why: a bare key is a
+      // character, and one text field would turn a shortcut into a bug. Tab is not a
+      // character — it is the focus key — so the hazard is the other one: taken
+      // unconditionally it would make every button in the chrome unreachable from the
+      // keyboard, and it would fight the Find pane's own input.
+      //
+      // So it is refused in the two places Tab already means something. Inside any text entry
+      // it stays Tab. With the pane already open it stays Tab, because that is where moving
+      // between the field and its results is the whole gesture — and a key that opens what is
+      // open is a key that does nothing.
+      if (e.key === 'Tab' && !e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey) {
+        const at = e.target as HTMLElement | null
+        const typing =
+          !!at &&
+          (at.isContentEditable ||
+            at.tagName === 'INPUT' ||
+            at.tagName === 'TEXTAREA' ||
+            at.tagName === 'SELECT')
+        if (!typing && !finding) {
+          e.preventDefault()
+          setFinding(true)
+        }
+        return
+      }
       if (!e.metaKey || e.altKey || e.ctrlKey) return
       // Before the shift guard and before the replay guard, and both are deliberate: `+` is
       // Shift-`=` on most layouts, so a handler that refuses Shift never sees it, and a
@@ -1809,7 +1834,9 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
     // `locks` is read inside, so the handler has to be rebuilt when it moves — a listener
     // closed over last render's locks would let ⌘1 into a lens the strip has since locked.
-  }, [historyOn, toggleHistory, locks])
+    // `finding` for the same reason one line up: a handler closed over a closed pane would
+    // swallow the Tab that the open one wants.
+  }, [historyOn, toggleHistory, locks, finding])
 
   /** Ask for the rings the map is about to draw.
    *
