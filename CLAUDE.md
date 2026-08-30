@@ -62,6 +62,11 @@ the map went on looking like a map.
   traced signature mixes HEAD and would make `warm` call a warm repo cold. `slim()` is
   idempotent for the same reason: a second slim used to return empty columns, which a rim
   drops silently rather than drawing as an absence.
+- **A shortcut does what the control does — never less.** The keyboard refused a locked lens
+  on the ground that the strip refused it too; the strip had since been made click-through and
+  said so in its own comment, so ⌘1 was dead on a repo where clicking Surprise worked. The
+  guards are `lib/keys.ts` now, a pure function, because a keyboard map is a pile of early
+  returns whose ORDER is the behaviour: `just keys-check` presses every key in every state.
 - **The end of a replay is the live map.** One ranking and one spelling per lens, in both
   modes: blame ranks over `stats.authors` everywhere, and a language is named by `Lang::label`
   on both sides of the wire. Two of each is a split brain that recolours the whole map the
@@ -108,8 +113,9 @@ These are the ones with a body count. Each is written up in its note.
   `just scan <path>` (headless scorer — fastest way to test a metric change),
   `just cli <verb> <path>`, `just tokens` (before and after touching tool descriptions),
   `just expiry` (does this release expire readings), `just history <repo>`,
-  `just rim-check` (what a rim segment may claim — the frontend has no test framework, so a
-  drawing rule that can be wrong invisibly gets a bundled script).
+  `just rim-check` (what a rim segment may claim) and `just keys-check` (every shortcut, in
+  every state) — the frontend has no test framework, so a rule that can be wrong invisibly
+  gets a bundled script.
 - **Never launch the app yourself** — `just dev` opens a window; that is the human's to run.
 - **Check that a regression test fails without its fix.** Where threads make the
   discriminating moment unstageable, pin the arithmetic instead and label the threaded test

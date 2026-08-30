@@ -1,0 +1,88 @@
+/**
+ * What a keypress means, decided once and testable.
+ *
+ * **This was eleven early returns inside a `useEffect`, and it broke without anybody being
+ * able to see how.** Adding Tab to it — the first bare key in an app whose every other
+ * shortcut takes Cmd — was enough to make the lens digits stop answering, and the only way to
+ * find out which return was eating them was to read the pile again. A keyboard map is exactly
+ * the kind of thing that looks obviously correct and is not: the order of the guards IS the
+ * behaviour, and nothing about reading them top to bottom tells you what a given press does.
+ *
+ * So the decision is a pure function of a press and the state around it, and
+ * `scripts/keys-check.ts` presses every key in every state. The effect is left with one job:
+ * turn an `Act` into a call.
+ */
+
+import { MODE_LABEL, type ColorMode } from './colorMode'
+
+/** The keys the app claims, in the order the switcher lists the lenses. */
+export const LENS_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-'] as const
+
+/** Only what the decision depends on. A `KeyboardEvent` would work and would also drag a DOM
+ *  into the harness for four booleans and a string. */
+export interface Press {
+  key: string
+  meta: boolean
+  alt: boolean
+  ctrl: boolean
+  shift: boolean
+}
+
+/**
+ * The world the press lands in.
+ *
+ * **Two things it deliberately does NOT contain: which lenses are locked, and whether a
+ * replay is up.** Both used to be here, refusing the digit — on the stated ground that a
+ * locked lens is not selectable in the strip either, and that the shortcut IS the switcher.
+ * The first half of that stopped being true: the strip was made click-through, and says so in
+ * its own comment — *a locked lens is still a place you can stand, and what it has to say
+ * there is said by the map rather than by a control refusing to be pressed.* The keyboard was
+ * never told, so on a repo with no readings ⌘1 was dead while clicking Surprise worked, and
+ * during a replay every digit was dead while every tab was clickable.
+ *
+ * That is the app's own rule read backwards. A control disabled in one place and live on the
+ * keyboard is not disabled — and a control LIVE in one place and dead on the keyboard is a
+ * shortcut that lies. Whether a lens has anything to show is the map's answer to give, and it
+ * gives it: that is what `Locked` and `replayNote` are for.
+ */
+export interface Where {
+  /** Focus is in a field, so a bare key is a character and belongs to whoever is typing. */
+  typing: boolean
+  /** The find pane is up and owns its own keyboard — see `Find`. */
+  finding: boolean
+}
+
+export type Act =
+  | { do: 'find' }
+  | { do: 'history' }
+  | { do: 'lens'; mode: ColorMode }
+  | null
+
+/**
+ * **Tab first, because it is the only key here that does not take Cmd**, and last in effect,
+ * because it hands every modified press straight on. The old shape put it first too and that
+ * was right; what it got wrong was being unable to prove it.
+ *
+ * The rest in the order they were already in: `+` before the Shift guard, since `+` IS
+ * Shift-`=` and a toggle that only works one way is a door that locks behind you; Find before
+ * the replay guard, because a key that does nothing explains nothing.
+ */
+export function actOf(e: Press, w: Where): Act {
+  if (e.key === 'Tab' && !e.meta && !e.alt && !e.ctrl && !e.shift) {
+    // Inside a field, and inside the pane it opens, Tab stays Tab — the pane moves through
+    // its own results with it, and a field needs it to leave.
+    if (w.typing || w.finding) return null
+    return { do: 'find' }
+  }
+  if (!e.meta || e.alt || e.ctrl) return null
+  if (e.key === '+' || e.key === '=') return { do: 'history' }
+  if (e.key === 'f') return { do: 'find' }
+  if (e.shift) return null
+  const i = LENS_KEYS.indexOf(e.key as (typeof LENS_KEYS)[number])
+  if (i === -1) return null
+  const modes = Object.keys(MODE_LABEL) as ColorMode[]
+  if (i >= modes.length) return null
+  // Whatever the strip would do on a click — see `Where`. ⌘- is the browser's zoom, so a
+  // digit is always ours whether or not the lens has anything to say.
+  return { do: 'lens', mode: modes[i] }
+}

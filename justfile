@@ -92,6 +92,7 @@ test:
     cd web && npm run build
     just replay-check
     just rim-check
+    just keys-check
     cd src-tauri && cargo test
     cd src-tauri && cargo clippy --all-targets -- -D warnings
 
@@ -163,6 +164,19 @@ rim-check:
     cd web
     out="$(mktemp -d)/rim-check.mjs"
     ./node_modules/.bin/esbuild scripts/rim-check.ts --bundle --format=esm \
+        --platform=node --outfile="$out" --log-level=warning
+    node "$out"
+
+# Every shortcut, in every state — see `web/scripts/keys-check.ts`.
+#
+# A keyboard map is a pile of early returns whose ORDER is the behaviour, and adding one key
+# to it silently cost the lens digits. Bundled and run like the other two checks.
+keys-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd web
+    out="$(mktemp -d)/keys-check.mjs"
+    ./node_modules/.bin/esbuild scripts/keys-check.ts --bundle --format=esm \
         --platform=node --outfile="$out" --log-level=warning
     node "$out"
 

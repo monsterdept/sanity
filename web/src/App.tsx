@@ -86,6 +86,7 @@ import {
   ageSpanOf,
   type ColorMode,
 } from './lib/colorMode'
+import { actOf } from './lib/keys'
 import { dismissSplash } from './lib/splash'
 import { mark, marked } from './lib/stopwatch'
 import { loadTheme, saveTheme, watchSystemTheme, type Theme } from './lib/theme'
@@ -1769,74 +1770,35 @@ export default function App() {
   // because it is also the way back out.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // **Tab opens Find, which is the one bare key in the app and needs its own guard.**
-      // Every other shortcut here takes Cmd, and the comment above says why: a bare key is a
-      // character, and one text field would turn a shortcut into a bug. Tab is not a
-      // character — it is the focus key — so the hazard is the other one: taken
-      // unconditionally it would make every button in the chrome unreachable from the
-      // keyboard, and it would fight the Find pane's own input.
-      //
-      // So it is refused in the two places Tab already means something. Inside any text entry
-      // it stays Tab. With the pane already open it stays Tab, because that is where moving
-      // between the field and its results is the whole gesture — and a key that opens what is
-      // open is a key that does nothing.
-      if (e.key === 'Tab' && !e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey) {
-        const at = e.target as HTMLElement | null
-        const typing =
-          !!at &&
-          (at.isContentEditable ||
-            at.tagName === 'INPUT' ||
-            at.tagName === 'TEXTAREA' ||
-            at.tagName === 'SELECT')
-        if (!typing && !finding) {
-          e.preventDefault()
-          setFinding(true)
-        }
-        return
-      }
-      if (!e.metaKey || e.altKey || e.ctrlKey) return
-      // Before the shift guard and before the replay guard, and both are deliberate: `+` is
-      // Shift-`=` on most layouts, so a handler that refuses Shift never sees it, and a
-      // toggle that only works one way is a door that locks behind you.
-      if (e.key === '+' || e.key === '=') {
-        e.preventDefault()
-        toggleHistory()
-        return
-      }
-      // Find, on the key every editor and every browser has trained into the hand. It sits
-      // with the lens digits rather than in a listener of its own because they share the one
-      // rule that matters here: Cmd is what keeps a shortcut from being a character. Live
-      // during a replay, unlike the digits — the panel is what explains why it cannot search
-      // one, and a key that does nothing explains nothing.
-      if (e.key === 'f') {
-        e.preventDefault()
-        setFinding(true)
-        return
-      }
-      if (e.shiftKey) return
-      // Pinned while the replay is up, for the same reason the switcher is grayed: the
-      // shortcut is the switcher, and a control that is disabled in one place and live on
-      // the keyboard is not disabled.
-      if (historyOn) return
-      const modes = Object.keys(MODE_LABEL) as ColorMode[]
-      // Cmd-0 is the TENTH, which is the convention every tab strip uses and the only place
-      // to put a tenth lens: renumbering the row to fit nine would mean choosing a lens to
-      // have no shortcut, and the row's order carries meaning — see `MODE_LABEL`.
-      const i = e.key === '0' ? 9 : e.key === '-' ? 10 : Number(e.key) - 1
-      if (!Number.isInteger(i) || i < 0 || i >= modes.length) return
+      // **What the press MEANS is decided in `lib/keys.ts`, and this only carries it out.**
+      // It was eleven early returns in here, and adding one key to the pile silently cost the
+      // lens digits — with no way to see which return had eaten them but to read the pile
+      // again. The order of the guards is the behaviour, so the guards are a function now and
+      // `just keys-check` presses every key in every state.
+      const at = e.target as HTMLElement | null
+      const act = actOf(
+        { key: e.key, meta: e.metaKey, alt: e.altKey, ctrl: e.ctrlKey, shift: e.shiftKey },
+        {
+          typing:
+            !!at &&
+            (at.isContentEditable ||
+              at.tagName === 'INPUT' ||
+              at.tagName === 'TEXTAREA' ||
+              at.tagName === 'SELECT'),
+          finding,
+        },
+      )
+      if (!act) return
+      // Every act claims its key. `⌘-` is the browser's zoom and Tab is its focus walk, so a
+      // shortcut that decided to do nothing must still not let those through.
       e.preventDefault()
-      // A locked lens is not selectable in the strip, so it is not selectable here either:
-      // a control disabled in one place and live on the keyboard is not disabled.
-      if (locks[modes[i]]) return
-      setMode(modes[i])
+      if (act.do === 'find') setFinding(true)
+      else if (act.do === 'history') toggleHistory()
+      else setMode(act.mode)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-    // `locks` is read inside, so the handler has to be rebuilt when it moves — a listener
-    // closed over last render's locks would let ⌘1 into a lens the strip has since locked.
-    // `finding` for the same reason one line up: a handler closed over a closed pane would
-    // swallow the Tab that the open one wants.
-  }, [historyOn, toggleHistory, locks, finding])
+  }, [toggleHistory, finding])
 
   /** Ask for the rings the map is about to draw.
    *
