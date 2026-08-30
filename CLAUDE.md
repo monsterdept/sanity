@@ -56,6 +56,10 @@ the map went on looking like a map.
   count. It used to take its largest member's name and color, which drew a tail of 209 people
   as one person and made it the widest band on the wedge. Only sub-pixel runs merge, and only
   with each other — a wide band that absorbs its neighbours is wider than the value it names.
+- **A band says what it knows, never what the repo is.** `no git history` is a fact about a
+  folder; a per-function null under Age or Churn means this map has no history for those
+  lines, which on a traced repo is a different sentence entirely. Repo-level answers go on the
+  lens (`locks`), once, beside the button that fixes them — never repeated on every segment.
 - **How many colors a lens spends is the reader's choice, not a constant.** The palette went
   4 → 8 → 16 → 64 chasing two incompatible readings; `CAPS` lets the reader pick. Apply a cap
   to the RANKS and nowhere else — every surface already treats an unranked category as

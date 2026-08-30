@@ -1128,6 +1128,31 @@ export interface Bucket {
   lines: number
 }
 
+/**
+ * What Age and Churn call a function they have no git for.
+ *
+ * **It said `no git history`, which is a claim about the REPO made from a per-function
+ * null.** On ceph — 123,000 commits, the log open in the panel beside it — 94% of `src`
+ * drew as a repo with no git in it. The two absences are opposite statements and the app
+ * already knows the difference: `locks` in `App.tsx` asks whether the trace has been read
+ * BEFORE it says a folder has no history, with a comment saying exactly why that order
+ * matters. A band that hardcodes the second one contradicts the lens's own explanation and
+ * the header above it at the same time.
+ *
+ * So the band stops making a repo-level claim at all. What is true of the band is that this
+ * map does not carry history for these lines — whether nobody has traced the repo, or the
+ * tree in the window predates the trace, or there is genuinely no git — and WHICH of those
+ * belongs where the app already puts it: once, on the lens, in a sentence with the button
+ * that answers it. Repeating a guess at the cause on every segment is how the map came to
+ * disagree with its own sidebar.
+ *
+ * `withoutHistory` on `ScanStats` is the field that means the repo-level fact. It is still
+ * unwired, and this is deliberately NOT the place to wire it: it would take a sixth
+ * parameter through `contribute`, `bucketsFor` and `histogramsFor` to say something the
+ * lens says better one surface up.
+ */
+const NO_HISTORY = 'history not read'
+
 /** Churn bands, in the order the panel lists them — busiest first, because that is the end
  *  of this ramp anyone opens the mode to find. Upper bound is exclusive.
  *
@@ -1333,7 +1358,7 @@ function contribute(
           CHURN_BANDS.find((b) => s.commits >= b.min) ?? CHURN_BANDS[CHURN_BANDS.length - 1]
         put(band.label, band.label, '', n, s.churn)
       } else {
-        put(UNKNOWN, 'no git history', 'var(--unanalyzed)', n)
+        put(UNKNOWN, NO_HISTORY, 'var(--unanalyzed)', n)
       }
     } else {
       if (s && s.lastTouchedDays !== null) {
@@ -1341,7 +1366,7 @@ function contribute(
         const band = AGE_BANDS.find((b) => d < b.under) ?? AGE_BANDS[AGE_BANDS.length - 1]
         put(band.label, band.label, '', n, ageRamp(d, span))
       } else {
-        put(UNKNOWN, 'no git history', 'var(--unanalyzed)', n)
+        put(UNKNOWN, NO_HISTORY, 'var(--unanalyzed)', n)
       }
     }
   }

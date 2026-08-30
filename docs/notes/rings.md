@@ -113,6 +113,22 @@ Three things came out of it and are on main:
   to change with it is that the unranked now share a single bucket key (`OTHER_KEY`) instead
   of each keeping their own: a fold that leaves two hundred rows all named differently is not
   a fold, and it was what handed the rim two hundred sub-pixel bands to merge back together.
+    **A band says what it knows, never what the repo is.** Age and Churn labelled a function
+  with no git `no git history` — a claim about the REPO made from a per-function null. On
+  ceph that drew as 94% of `src` having no git in it, with the commit log open in the panel
+  beside it and 123,000 commits in the header. Measured end to end, every backend path fills
+  every function: untraced scan 0%, after `deepen` 100%, and the columns the window receives
+  100%. So the data was right and the words were wrong. The distinction the band was trying
+  to make already exists one surface up — `locks` asks whether the trace has been read BEFORE
+  it says a folder has no history, with a comment on why that order matters — and it belongs
+  there, once, beside the button that answers it. `ScanStats::withoutHistory` stays unwired on
+  purpose: it would take a sixth parameter through `contribute`, `bucketsFor` and
+  `histogramsFor` to say something the lens says better.
+  Two things the measurement turned up on the way and neither is fixed: the traced tree is
+  never written to disk — `treecache::save` runs only inside `scan()`, before `deepen` — so
+  the stored map is untraced by construction and every launch re-derives what somebody already
+  paid for; and `slim()` on an already-slim tree returns EMPTY columns rather than the ones it
+  has, because `Cols::of` reads children a slim file no longer holds.
     **Surprise is the one lens whose pane breakdown is not `bucketsFor`** — it is `Spread`,
   counted in `summarize` by FUNCTION rather than by line, because its rows are lists somebody
   clicks. The rim reproduces its categories, colours and order and differs in exactly one

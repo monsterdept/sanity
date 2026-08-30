@@ -1,5 +1,5 @@
 /**
- * What a rim segment is allowed to claim.
+ * What a band on the map is allowed to claim.
  *
  * The rim is a distribution drawn as bands, and the two ways it can lie are both invisible
  * on screen: a band can be WIDER than the value it names, and a band can NAME something it
@@ -11,12 +11,18 @@
  * into one run captioned with its largest member's name, in that member's color, wider than
  * either real author — and the lead author absorbed his neighbour on the way past.
  *
+ * The second half is the same subject one step earlier: what a band SAYS. Age and Churn
+ * labelled a function with no git `no git history`, which is a statement about the repo made
+ * from a per-function null — and on ceph, 123,000 commits with the log open beside it, that
+ * drew as a repo with no git in it.
+ *
  * Run it with `just rim-check`. No repo, no window, no framework: one bundle of one file, the
  * same shape `replay-check` takes and for the same reason.
  */
 import { rimRuns } from '../src/lib/rim'
-import { OTHER } from '../src/lib/colorMode'
+import { OTHER, bucketsFor } from '../src/lib/colorMode'
 import type { Slice } from '../src/lib/colorMode'
+import type { Node } from '../src/lib/api'
 
 let failed = 0
 function check(what: string, ok: boolean, saw?: unknown) {
@@ -125,6 +131,43 @@ console.log('degenerate inputs say nothing rather than guessing')
   check('no lines', rimRuns([at('nobody', 0)], A0, A1, FLOOR, true) === null)
   const one = rimRuns([at('solo', 5)], A0, A1, FLOOR, true)!
   check('a lone slice is itself', one.runs.length === 1 && one.runs[0].named)
+}
+
+console.log('absence — a band says what it knows, not what the repo is')
+{
+  /** One file holding two functions, neither of which the trace has reached. `funcs: 0` so
+   *  the walk reads these function nodes rather than the columns a fetched-ring file has. */
+  const func = (loc: number, touched: number | null): Node =>
+    ({
+      kind: 'func',
+      loc,
+      children: [],
+      excluded: false,
+      score: { commits: 0, ageDays: touched === null ? null : 1, lastTouchedDays: touched },
+    }) as unknown as Node
+  const dir = (kids: Node[]): Node =>
+    ({ kind: 'dir', loc: 0, excluded: false, children: kids }) as unknown as Node
+  const file = (kids: Node[]): Node =>
+    ({ kind: 'file', loc: 0, excluded: false, funcs: 0, children: kids }) as unknown as Node
+
+  for (const mode of ['age', 'churn'] as const) {
+    const rows = bucketsFor(dir([file([func(100, null), func(50, null)])]), mode)
+    const absent = rows.find((b) => b.lines === 150)!
+    // The claim the map is not entitled to make. `locks` in App.tsx is where the repo-level
+    // answer lives, because only that surface can tell an untraced repo from a folder with
+    // no git — and it says so once, beside the button that fixes it.
+    check(
+      `${mode}: the band does not call the repo ungitted`,
+      !absent.label.includes('no git history'),
+      absent.label,
+    )
+    check(`${mode}: it says what it does know`, absent.label === 'history not read', absent.label)
+  }
+
+  // A function the trace HAS reached must still land in a real band, or the fix above would
+  // have been to relabel everything.
+  const rows = bucketsFor(dir([file([func(100, 0.5)])]), 'age')
+  check('a dated function is not an absence', rows[0].label === 'today', rows[0].label)
 }
 
 if (failed > 0) {
