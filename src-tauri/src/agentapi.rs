@@ -6149,6 +6149,13 @@ fn trace_within_budget(
                     );
                 (reached, (done, considered))
             };
+            // **Banked, so the next launch draws what this just paid for.** The stored map
+            // comes from `scan()`, which runs before this and therefore stores an untraced
+            // tree; without this the log walk is re-derived every launch and, worse, the map
+            // drawn from cache in the meantime has no git in it at all. See `treecache::redraw`.
+            if reached != crate::trace::Depth::Untraced {
+                crate::treecache::redraw(repo, scan);
+            }
             TraceState { depth: reached, resolved, pending: None, running: None, stop }
         }
         // Nothing is hidden by declining: the map is drawn, the row says what history would

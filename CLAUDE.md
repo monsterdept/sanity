@@ -56,6 +56,12 @@ the map went on looking like a map.
   count. It used to take its largest member's name and color, which drew a tail of 209 people
   as one person and made it the widest band on the wedge. Only sub-pixel runs merge, and only
   with each other — a wide band that absorbs its neighbours is wider than the value it names.
+- **A tree written before the trace is an untraced tree.** `treecache::save` runs inside
+  `scan()`, which the app calls at `Depth::Untraced`; `redraw` banks the drawable half again
+  once the trace lands, carrying the stored signature over rather than recomputing it — a
+  traced signature mixes HEAD and would make `warm` call a warm repo cold. `slim()` is
+  idempotent for the same reason: a second slim used to return empty columns, which a rim
+  drops silently rather than drawing as an absence.
 - **A roll-up stand-in is a count, not a member of a distribution.** `aggregate` skips them;
   so must any walk that buckets. A replay folds most of a frame into them, so counting their
   lines as an absence drew ceph's own history as `no git history` — worse the further the

@@ -959,7 +959,19 @@ impl Node {
             funcs: if self.kind == NodeKind::File { self.children.len() as u32 } else { 0 },
             // Built here rather than in `aggregate`, because this is the one place that has
             // the functions in hand and is about to drop them.
-            cols: if self.kind == NodeKind::File { Some(Cols::of(&self.children)) } else { None },
+            //
+            // **Idempotent, because slimming a slim tree is now a thing that happens.** The
+            // drawable half is written twice — once by the scan, once again when the trace
+            // lands (see `treecache::redraw`) — and a second `slim()` over a tree whose files
+            // have already given up their children handed `Cols::of` an empty slice and got
+            // back empty columns. Not `-1`s, which the lenses draw as an absence: NOTHING, so
+            // a rim would silently omit every line in the file and re-proportion itself around
+            // the ones left. Keep what we already hold when there is nothing to rebuild from.
+            cols: match self.kind {
+                NodeKind::File if self.children.is_empty() => self.cols.clone(),
+                NodeKind::File => Some(Cols::of(&self.children)),
+                _ => None,
+            },
             children: if self.kind == NodeKind::File {
                 Vec::new()
             } else {
@@ -1012,6 +1024,36 @@ mod tests {
             source: Source::Model,
             analyzed_share: 1.0,
         }
+    }
+
+    /// Slimming a slim tree keeps its columns instead of emptying them.
+    ///
+    /// **The drawable half is written twice now** — once by the scan, again when the trace
+    /// lands — so a tree that has already given up its function children can be handed back
+    /// to `slim`. `Cols::of` over an empty slice returns EMPTY columns, not absent ones, and
+    /// a file with empty columns contributes nothing at all to a distribution: the rim would
+    /// silently drop every line in it and re-proportion itself around what was left. Nothing
+    /// fails, nothing logs, and the picture is wrong.
+    #[test]
+    fn slimming_twice_keeps_the_columns() {
+        let mut func = Node::dir("f.rs#go", "go");
+        func.kind = NodeKind::Func;
+        func.loc = 10;
+        func.score = Some(score(0.0, 0.0, 0.0, 100.0));
+        let mut file = Node::dir("f.rs", "f.rs");
+        file.kind = NodeKind::File;
+        file.children = vec![func];
+
+        let once = file.slim();
+        let cols = once.cols.as_ref().expect("a slim file carries columns");
+        assert_eq!(cols.loc, vec![10], "one function, one column entry");
+
+        let twice = once.slim();
+        assert_eq!(
+            twice.cols.as_ref().map(|c| c.loc.clone()),
+            Some(vec![10]),
+            "and slimming it again is the identity, not an erasure"
+        );
     }
 
     /// A function node with the wiring counts a scan would give it.

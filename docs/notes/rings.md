@@ -113,7 +113,27 @@ Three things came out of it and are on main:
   to change with it is that the unranked now share a single bucket key (`OTHER_KEY`) instead
   of each keeping their own: a fold that leaves two hundred rows all named differently is not
   a fold, and it was what handed the rim two hundred sub-pixel bands to merge back together.
-    **A roll-up stand-in is a COUNT, and a count is not a member of a distribution.** This is
+    **The stored map now carries the history somebody paid for.** `treecache::save` runs inside
+  `scan()`, and the app always calls `scan()` at `Depth::Untraced` and deepens afterwards — so
+  `Cols::of` stamped `-1, -1` on every function on its way to disk and the trace lived only in
+  memory. Measured on ceph: all 113,322 functions in the stored tree, no history. What `stale`
+  drew at the next launch, before the restore reached that repo, was 123,000 commits' worth of
+  history drawn as though there were none.
+  `redraw` writes the drawable half again once a trace lands. Only that half, deliberately: the
+  whole tree is 36MB on ceph and its extra content is the function nodes, which `deepen` refills
+  in about two seconds from caches that already exist — tens of megabytes per repo to save that
+  is a bad trade, and the slim half is the one that gets DRAWN before anything else exists.
+  **The signature is carried over rather than recomputed**, which is the subtle part: it mixes
+  `depth.tag()` and, when traced, HEAD, so a signature taken after the trace would not match the
+  one `scan()` computes at `Depth::Untraced` next launch — `warm` would call a warm repo cold
+  and offer a large one a rescan it does not need. Keeping the stored header says what is true:
+  same files, same parser, best map we have. Nothing reads the slim record's TREE but `stale`,
+  which never consults the signature.
+  **And `slim` is idempotent now, because slimming a slim tree is a thing that happens.** It
+  handed `Cols::of` an empty slice and got back EMPTY columns — not `-1`s, which draw as an
+  absence, but nothing, so a rim would drop every line in the file and re-proportion around what
+  was left. Nothing fails and nothing logs; the picture is just wrong.
+  **A roll-up stand-in is a COUNT, and a count is not a member of a distribution.** This is
   the one that produced the report, and it is a REPLAY bug wearing a scan bug's clothes. A
   frame folds every function too thin to draw into one stand-in per file — `history.ts`'s
   `standIn`, which carries their combined lines and, by design, no reading — and `contribute`

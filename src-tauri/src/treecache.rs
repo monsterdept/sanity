@@ -321,6 +321,60 @@ fn links_path(repo: &Path) -> Option<PathBuf> {
     path_for(repo).map(|p| p.with_extension("links.bin"))
 }
 
+/// The drawable half again, now that the trace has landed.
+///
+/// **The stored map was untraced by construction and nobody noticed for months.** `save` runs
+/// inside `scan()`, and the app always calls `scan()` at `Depth::Untraced` and deepens
+/// afterwards — so `Cols::of` stamped `-1, -1` on every function on its way to disk, and the
+/// history somebody had paid for lived only in memory. What `stale` then drew at the next
+/// launch, before the restore reached that repo, was a map with no age, no churn and no author
+/// in it. On ceph that is a picture of 123,000 commits' worth of history, drawn as though
+/// there were none.
+///
+/// **Only the drawable half, and deliberately.** The whole tree is 36MB on ceph and its extra
+/// content is the function nodes, which `deepen` refills in about two seconds from caches that
+/// already exist — paying tens of megabytes per repo to save that is a bad trade. The slim
+/// half is the one that gets DRAWN before anything else exists, so it is the half where being
+/// untraced shows.
+///
+/// **The signature is carried over rather than recomputed**, which is the one subtle thing
+/// here. `signature` mixes `depth.tag()` and, for a traced tree, HEAD — so a signature taken
+/// now would not match the one `scan()` will compute at `Depth::Untraced` on the next launch,
+/// and `warm` would report a cold repo and put a large one behind a "shall I scan this?"
+/// prompt it does not need. Keeping the stored signature says exactly what is true: these are
+/// the same files, parsed by the same build, and this is the best map we have of them.
+/// Nothing reads the slim record's TREE except `stale`, which does not consult the signature
+/// at all — `warm` reads the record for its header and throws the tree away.
+///
+/// Does nothing when there is no record yet: the scan writes one, and this only ever improves
+/// what is already there.
+pub fn redraw(repo: &Path, scan: &Scan) {
+    let Some(path) = slim_path(repo) else { return };
+    // Its own header, so this cannot invent a signature or a parse version — see above.
+    let Some(held) = read_slim(repo) else { return };
+    let Ok(bytes) = bincode::serde::encode_to_vec(
+        Cached {
+            version: VERSION,
+            signature: held.signature,
+            parse: held.parse,
+            scan: Scan {
+                root: scan.root.slim(),
+                stats: scan.stats.clone(),
+                links: Default::default(),
+            },
+        },
+        config(),
+    ) else {
+        return;
+    };
+    let tmp = path.with_extension("tmp");
+    if std::fs::write(&tmp, bytes).is_ok() {
+        // Renamed rather than written in place, the same rule `save` follows and for the same
+        // reason: a launch that read a half-written tree would draw a repo with a hole in it.
+        let _ = std::fs::rename(&tmp, &path);
+    }
+}
+
 /// Keep this tree for next time. A failed write costs a derivation, never an answer, so
 /// nothing is reported — the same rule the timeline cache follows.
 pub fn save(repo: &Path, signature: u64, scan: &Scan) {
@@ -429,6 +483,117 @@ mod tests {
              only would leave a tail behind and still decode"
         );
         assert_eq!(back.links.len(), links.len(), "and the same functions came back");
+    }
+
+    /// The stored map carries the history somebody paid for.
+    ///
+    /// **`save` runs inside `scan()`, which the app calls at `Depth::Untraced`** — so the tree
+    /// that reaches disk has `-1` in every function's history column, and `stale` draws that at
+    /// the next launch. This pins the repair: after a trace lands, the drawable half holds the
+    /// traced numbers, and it still answers `warm` for the signature the scan will ask with.
+    #[test]
+    fn the_stored_map_keeps_what_the_trace_read() {
+        // **Its own data home, and that is not tidiness.** Slots live under `data_dir()`,
+        // which is the user's real cache unless `SANITY_DATA_DIR` says otherwise — so without
+        // this the test writes into it, and `save`'s own `prune_slots` runs against whatever
+        // else is in there. It also takes the env lock, which is what stops this racing the
+        // other tests that move the same variable out from under it.
+        let _home = crate::agentapi::tests::data_home();
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let repo = dir.path();
+        let sig = 42;
+
+        // What a scan stores: a file whose one function has no history yet.
+        let mut untraced = scan_of(None);
+        super::save(repo, sig, &untraced);
+        let drawn = super::stale(repo).expect("the scan wrote a drawable half");
+        assert_eq!(
+            touched_of(&drawn),
+            vec![-1],
+            "an untraced scan stores an untraced map — this is the state the repair starts from"
+        );
+
+        // What the trace then learns, landed on the live tree. Both fields, because
+        // `Cols::of` gates the whole column on `age_days` — "does this repo have history for
+        // this function at all" — and writes the date only once that says yes.
+        let score = untraced.root.children[0].children[0].score.as_mut().expect("a score");
+        score.age_days = Some(100.0);
+        score.last_touched_days = Some(3.0);
+        super::redraw(repo, &untraced);
+
+        let drawn = super::stale(repo).expect("still a drawable half");
+        assert_eq!(touched_of(&drawn), vec![3], "and now it carries what the trace read");
+        assert!(
+            super::slim(repo, sig).is_some(),
+            "under the signature the scan will ask with, or a large repo is offered a rescan it \
+             does not need — `redraw` carries the header over rather than recomputing it"
+        );
+    }
+
+    /// `redraw` has nothing to improve until a scan has written something.
+    #[test]
+    fn redrawing_before_a_scan_writes_nothing() {
+        let _home = crate::agentapi::tests::data_home();
+        let dir = tempfile::tempdir().expect("a temp dir");
+        super::redraw(dir.path(), &scan_of(Some(3.0)));
+        assert!(super::stale(dir.path()).is_none(), "no record, and none invented");
+    }
+
+    /// One file, one function, with or without a last-touched date.
+    fn scan_of(touched: Option<f32>) -> crate::scan::Scan {
+        let mut func = crate::model::Node::dir("f.rs#go", "go");
+        func.kind = crate::model::NodeKind::Func;
+        func.path = "f.rs".into();
+        func.loc = 10;
+        func.line = Some(1);
+        func.end_line = Some(9);
+        func.score = Some(crate::model::Score {
+            surprise: 0.0,
+            documented: 0.0,
+            churn: 0.0,
+            age_days: touched.map(|_| 100.0),
+            commits: 0,
+            all_commits: None,
+            last_touched_days: touched,
+            provenance: crate::model::Provenance::None,
+            hot_share: 0.0,
+            source: crate::model::Source::Proxy,
+            analyzed_share: 0.0,
+        });
+        let mut file = crate::model::Node::dir("f.rs", "f.rs");
+        file.kind = crate::model::NodeKind::File;
+        file.path = "f.rs".into();
+        file.loc = 10;
+        file.children = vec![func];
+        let mut root = crate::model::Node::dir("", "repo");
+        root.loc = 10;
+        root.children = vec![file];
+        crate::scan::Scan {
+            root,
+            stats: crate::scan::ScanStats {
+                commits: 0,
+                files_scanned: 1,
+                files_skipped: 0,
+                functions: 1,
+                authors: Vec::new(),
+                without_history: false,
+                model: "test".into(),
+                calls_resolved: 0,
+                calls_unresolved: 0,
+            },
+            links: Default::default(),
+        }
+    }
+
+    /// The `touched` column of every file in a stored map — the field this is all about.
+    fn touched_of(scan: &crate::scan::Scan) -> Vec<i32> {
+        let mut out = Vec::new();
+        scan.root.visit(&mut |n| {
+            if let Some(c) = n.cols.as_ref() {
+                out.extend(c.touched.iter().copied());
+            }
+        });
+        out
     }
 
     /// What the drawable half costs to read, against the whole tree. Ignored: a measurement,

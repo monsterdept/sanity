@@ -558,6 +558,12 @@ pub async fn trace_project(
     // Banked, so reopening the app restores what this press bought rather than asking for it
     // again — see `KnownProject::trace_depth`.
     crate::reports::note_trace(&key, reached.tag_str());
+    // And banked in the MAP, so the next launch draws the history rather than re-deriving it
+    // behind a picture that has none — see `treecache::redraw`. The depth note above says this
+    // repo was traced; without this the tree on disk says otherwise.
+    if reached != crate::trace::Depth::Untraced {
+        crate::treecache::redraw(&root, &project.scan);
+    }
     project.scanned = project.scanned.wrapping_add(1);
     Ok(started.elapsed().as_secs_f32())
 }
