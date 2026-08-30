@@ -14,6 +14,7 @@ import { unreadable } from '../lib/api'
 import { CHROME_INK } from '../lib/ink'
 import { arcPath, layout, tileFunctions, type Wedge } from '../lib/sunburst'
 import { RINGS_DEFAULT } from '../lib/rings'
+import { rimRuns as runsOf } from '../lib/rim'
 import { FileZoom, fanOf } from './FileZoom'
 import { arcOf, sectorOf, type Sector } from '../lib/fan'
 import { elide } from '../lib/text'
@@ -982,65 +983,17 @@ function SunburstView({
    * a second pass that re-derived the widths would eventually disagree with the picture
    * about which value the pointer is over, which is worse than saying nothing.
    *
-   * **Merged, never dropped, and never drawn under a pixel.** Ordered by the lens's own
-   * scale, a run of tiny segments is a run of ADJACENT values — neighbouring bands on a
-   * ramp, or the tail of the rank order on a categorical lens — which is exactly what the
-   * legend already folds into `other`. Merging keeps the widths summing to the wedge, where
-   * dropping would silently re-proportion the rim; the colour follows the largest member, so
-   * every colour on the rim is one some wedge in it is wearing, and the LABEL follows it too
-   * — a merged run names the biggest thing in it and says how many else are there.
+   * Geometry only. What a segment is, what merges with what, and what a merged one is
+   * allowed to claim all live in `lib/rim.ts`, where a harness can reach them.
    */
   const rimRuns = (node: Node, g: Geo) => {
     const slices = hist?.get(node.id)
-    if (!slices || slices.length === 0) return null
-    const total = slices.reduce((sum, s) => sum + s.lines, 0)
-    if (total <= 0) return null
+    if (!slices) return null
     const band = rimBand(g)
-    const span = band.a1 - band.a0
     const floor = (MIN_ARC_PX * (unitsPerPx ?? 1)) / Math.max(band.r1, 1)
-    const runs: {
-      fill: string
-      label: string
-      lines: number
-      /** How many slices this run stands for, so a merged one can say so. */
-      held: number
-      widest: number
-      merged: boolean
-      a0: number
-      a1: number
-    }[] = []
-    for (const s of slices) {
-      const wide = (span * s.lines) / total >= floor
-      const last = runs[runs.length - 1]
-      if (wide || !last) {
-        runs.push({
-          fill: s.fill,
-          label: s.label,
-          lines: s.lines,
-          held: 1,
-          widest: s.lines,
-          merged: !wide,
-          a0: 0,
-          a1: 0,
-        })
-        continue
-      }
-      if (last.merged && s.lines > last.widest) {
-        last.fill = s.fill
-        last.label = s.label
-        last.widest = s.lines
-      }
-      last.lines += s.lines
-      last.held += 1
-      last.merged = true
-    }
-    let a = band.a0
-    for (const r of runs) {
-      r.a0 = a
-      a += (span * r.lines) / total
-      r.a1 = a
-    }
-    return { runs, total, band }
+    // Whether this lens's segments are NAMES rather than points on a scale — see `runsOf`.
+    const cut = runsOf(slices, band.a0, band.a1, floor, mode === 'blame' || mode === 'language')
+    return cut && { ...cut, band }
   }
 
   const dirRim = (
@@ -1735,8 +1688,10 @@ function SunburstView({
       lines: run.lines,
       share: run.lines / cut.total,
       // A merged run is several values wearing the biggest one's colour, and the card has to
-      // say so or it reports a share as though one person held it.
+      // say so or it reports a share as though one person held it. A categorical merge names
+      // none of them and says so in its own label instead — see `rimRuns`.
       held: run.held,
+      named: run.named,
     }
   }, [hoverNode, target, box.w, box.h, pos.x, pos.y, moving, hist, unitsPerPx, rim])
 

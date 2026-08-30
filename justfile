@@ -91,6 +91,7 @@ test:
     # TypeScript type-check gate, and tauri-build reads web/dist while compiling src-tauri.
     cd web && npm run build
     just replay-check
+    just rim-check
     cd src-tauri && cargo test
     cd src-tauri && cargo clippy --all-targets -- -D warnings
 
@@ -147,6 +148,21 @@ replay-check:
     cd web
     out="$(mktemp -d)/replay-check.mjs"
     ./node_modules/.bin/esbuild scripts/replay-check.ts --bundle --format=esm \
+        --platform=node --outfile="$out" --log-level=warning
+    node "$out"
+
+# What a rim segment is allowed to claim — see `web/scripts/rim-check.ts`.
+#
+# The two ways a distribution drawn as bands can lie are both invisible on screen: a band
+# wider than the value it names, and a band naming something it is not. Both shipped. Bundled
+# and run the way `replay-check` is, for the same reason — the frontend has no test framework
+# and one bundle of one file is a smaller thing to keep working than one nothing else uses.
+rim-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd web
+    out="$(mktemp -d)/rim-check.mjs"
+    ./node_modules/.bin/esbuild scripts/rim-check.ts --bundle --format=esm \
         --platform=node --outfile="$out" --log-level=warning
     node "$out"
 

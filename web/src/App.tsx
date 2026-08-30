@@ -79,6 +79,7 @@ import {
   RAMP_ENDS,
   rampOf,
   rankCategories,
+  capRanks,
   REPLAY,
   slotColor,
   replayNote,
@@ -96,8 +97,9 @@ import { SideBar } from './components/SideBar'
 // which walks the column rather than re-deriving the ladder from `trace_depth`.
 import { phasesOf } from './components/Phases'
 import { Overlay } from './components/Overlay'
-import { BandWidth, RingCount } from './components/Rings'
+import { BandWidth, ColorCount, RingCount } from './components/Rings'
 import { loadRings, saveRings } from './lib/rings'
+import { isCapped, loadCap, saveCap, type Capped } from './lib/palette'
 import { ReadDialog } from './components/ReadDialog'
 
 /** Files that have to have arrived before the assembling map is drawn — see `shapeRoot`. */
@@ -396,6 +398,24 @@ export default function App() {
     setRings(n)
     saveRings(n)
   }, [])
+  /** How many colors each categorical lens spends — see `lib/palette.ts`. A display
+   *  preference like the ring count, read once and written back on every change, and held
+   *  per lens because the two lenses are asking different questions of it.
+   *
+   *  Both are loaded up front rather than the current one being loaded when the lens changes:
+   *  the map is redrawn by the value, so a lens switch that had to go to storage first would
+   *  paint one frame under the other lens's cap. */
+  const [caps, setCaps] = useState<Record<Capped, number>>(() => ({
+    blame: loadCap('blame'),
+    language: loadCap('language'),
+  }))
+  const chooseCap = useCallback(
+    (m: Capped) => (n: number) => {
+      setCaps((c) => ({ ...c, [m]: n }))
+      saveCap(m, n)
+    },
+    [],
+  )
 
   /** What each project was last looking at, so coming back to one is coming back.
    *
@@ -2058,10 +2078,16 @@ export default function App() {
     if (!at) return undefined
     // The fallback is the old behaviour, for a backend too old to send the list: ranking what
     // is on screen is wrong in a way somebody can see, where an empty map is not.
-    if (viewMode === 'blame' && authorRank) return authorRank
-    if (viewMode === 'language' && langRank) return langRank
-    return rankCategories(at, viewMode)
-  }, [focus, tree, viewMode, authorRank, langRank])
+    //
+    // **The cap is applied HERE and nowhere else.** Everything downstream — the wedges, the
+    // rim, the panel's breakdown, the legend, the movie key — already agrees that a category
+    // with no rank is `other`, so dropping the entries past the cap is the whole of what the
+    // control has to do. See `capRanks`.
+    const cap = isCapped(viewMode) ? caps[viewMode] : Infinity
+    if (viewMode === 'blame' && authorRank) return capRanks(authorRank, cap)
+    if (viewMode === 'language' && langRank) return capRanks(langRank, cap)
+    return capRanks(rankCategories(at, viewMode), cap)
+  }, [focus, tree, viewMode, authorRank, langRank, caps])
   /** The key a movie carries, for whichever lens it is being recorded in.
    *
    *  **Built here because this is the side that knows the ranking.** `movie.ts` draws it into
@@ -2098,12 +2124,16 @@ export default function App() {
         }
       }
       const cats = legendFor(at, m)
+      // Capped like the map's own ranking — a film is a recording of what was on screen, and
+      // a key naming sixteen people over a picture drawing eight is the legend-disagrees-with-
+      // the-map failure this file has already paid for twice.
+      const cap = isCapped(m) ? caps[m] : Infinity
       const slots =
-        m === 'blame' && authorRank
-          ? authorRank
+        (m === 'blame' && authorRank
+          ? capRanks(authorRank, cap)
           : m === 'language' && langRank
-            ? langRank
-            : rankCategories(at, m)
+            ? capRanks(langRank, cap)
+            : capRanks(rankCategories(at, m), cap)) ?? new Map<string, number>()
       const named = cats
         .filter((c) => (slots.get(c) ?? Number.MAX_SAFE_INTEGER) < NAMED)
         .sort((a, b) => (slots.get(a) ?? 0) - (slots.get(b) ?? 0))
@@ -2119,7 +2149,7 @@ export default function App() {
         ramp: null,
       }
     },
-    [focus, tree, authorRank, langRank],
+    [focus, tree, authorRank, langRank, caps],
   )
   keyNow.current = keyFor
   /** Stable across renders, and current when called — see `keyNow`. */
@@ -2560,6 +2590,17 @@ export default function App() {
                     layout and they mean there exactly what they mean anywhere else — which
                     is not true of the lens beside them. */}
                 <RingCount rings={rings} onRings={chooseRings} />
+                {/* Only on the lenses that have categories to spend colors on — see
+                    `ColorCount`. It sits after the ring count because it is the narrower
+                    statement of the same kind: how much of the picture is drawn, then how
+                    finely what is drawn is told apart. */}
+                {isCapped(viewMode) && (
+                  <ColorCount
+                    mode={viewMode}
+                    cap={caps[viewMode]}
+                    onCap={chooseCap(viewMode)}
+                  />
+                )}
                 <BandWidth share={band} onShare={setBand} />
                 {/* Between what is ON the map and the door out of it. Find is neither an
                     encoding nor a change of subject — it is a way of getting somewhere in

@@ -77,7 +77,43 @@ Three things came out of it and are on main:
   protects the list rather than the palette. The legend says the tail's shades repeat, once,
   where the claim is made; it counts the coloured tail WITHOUT a swatch, because it has no one
   colour to show, and keeps a neutral row for what is actually neutral.
-  **Surprise is the one lens whose pane breakdown is not `bucketsFor`** — it is `Spread`,
+  **A merged rim segment claimed to be a person, and it was the widest band on the wedge.**
+  The rim draws one band per bucket and merges whatever falls under a pixel — right, because
+  dropping would silently re-proportion the wedge — but the merge took the largest member's
+  color AND its label, and it merged into whatever run came last whether or not that run was
+  itself sub-pixel. Two lies followed, both invisible on screen. A real top-ranked author
+  absorbed the thin segments behind him and came out wider than his own lines. And on
+  kibana's `x-pack/platform` the tail — two hundred and nine people, each sub-pixel, a quarter
+  of a million lines between them — merged into one band captioned `Andreana Malama`, in
+  Andreana Malama's slot color, the LARGEST segment on the wedge and built entirely out of
+  segments too small to draw. It looked like a finding about a person and it was a rendering
+  artefact, in every wedge at once.
+  Now only sub-pixel runs merge, and only with each other; a categorical merge goes to the
+  structural neutral and is labelled with its count, because a band of two hundred people is
+  `other` and `other` is what this app calls it everywhere else. A ramped merge still keeps
+  the largest member's color — there the neighbours really are adjacent on one scale, and the
+  color between them is on it — and still says how many bands it stands for. The sizing rule
+  moved to `lib/rim.ts` so `just rim-check` can reach it: the failure mode is arithmetic that
+  looks fine, so a harness that knows the numbers behind the picture is the only thing that
+  can see it.
+  **The number of colors is a control, which is what finally settled the palette argument.**
+  It had been four, eight, sixteen, sixty-four, and every move fixed one repo and broke
+  another — because the question has two right answers. Somebody studying who owns a codebase
+  wants eight colors and a tail called `other`, and that IS the reading. Somebody looking at
+  the shape of a four-hundred-author repo wants all four hundred colored, knows it is
+  confetti, and is asking for confetti. `CAPS` lets them say which, per lens and stored like
+  the ring count, defaulting to the full palette so nothing moved for anyone who does not
+  touch it. It does not reverse the recycling note above; it makes it the default rather than
+  the rule.
+  **The cap is applied to the RANKS and nowhere else.** Every surface here already agrees that
+  a category with no rank is `other` — the wedge, the rim, the pane, the legend, the movie key
+  — so dropping the entries past the cap is the whole of the mechanism. A `cap` parameter on
+  the six functions that read a ranking would be six chances for one of them to be handed a
+  different number, which is the drift this file records twice already. The one thing that had
+  to change with it is that the unranked now share a single bucket key (`OTHER_KEY`) instead
+  of each keeping their own: a fold that leaves two hundred rows all named differently is not
+  a fold, and it was what handed the rim two hundred sub-pixel bands to merge back together.
+    **Surprise is the one lens whose pane breakdown is not `bucketsFor`** — it is `Spread`,
   counted in `summarize` by FUNCTION rather than by line, because its rows are lists somebody
   clicks. The rim reproduces its categories, colours and order and differs in exactly one
   stated way: segments are lines, like every other rim, because a wedge's width is lines and

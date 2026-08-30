@@ -18,7 +18,7 @@ alternative was built and thrown away, and the note is the only record of that.
 | [budgets.md](docs/notes/budgets.md) | Scan / trace / read, estimates against a budget, the sidebar row |
 | [assessments.md](docs/notes/assessments.md) | `.sanity/`, keys, staleness, `SPEC`, provenance |
 | [mcp.md](docs/notes/mcp.md) | The tool contract, batching, queue, endpoint routing |
-| [rings.md](docs/notes/rings.md) | Drilling, ring count, rim histograms, folding |
+| [rings.md](docs/notes/rings.md) | Drilling, ring count, rim histograms, the color cap, folding |
 | [panel.md](docs/notes/panel.md) | The detail pane, per-lens sections, code tiles |
 | [history.md](docs/notes/history.md) | Replay, timeline cache, movie export |
 | [conventions.md](docs/notes/conventions.md) | Stack, commands, languages, cache versioning, release gates |
@@ -46,6 +46,21 @@ Anyone can draw a treemap of LOC. The second encoding is what makes this worth b
 - **Ask which model reads before the first wave** — Sonnet unless told otherwise, and don't
   ask if they already named one. **Never mix models within one repo.**
 
+## Rules the picture breaks quietly
+
+A wrong color is not a crash. Every one of these shipped, and shipped for months, because
+the map went on looking like a map.
+
+- **A merged rim segment names nobody.** The rim merges sub-pixel bands, and a merge is not a
+  value: on a categorical lens it is `other` in the structural neutral, labelled with its
+  count. It used to take its largest member's name and color, which drew a tail of 209 people
+  as one person and made it the widest band on the wedge. Only sub-pixel runs merge, and only
+  with each other — a wide band that absorbs its neighbours is wider than the value it names.
+- **How many colors a lens spends is the reader's choice, not a constant.** The palette went
+  4 → 8 → 16 → 64 chasing two incompatible readings; `CAPS` lets the reader pick. Apply a cap
+  to the RANKS and nowhere else — every surface already treats an unranked category as
+  `other`, and a `cap` argument on six functions is six chances to disagree.
+
 ## Rules that cost a repo its data when broken
 
 These are the ones with a body count. Each is written up in its note.
@@ -72,7 +87,9 @@ These are the ones with a body count. Each is written up in its note.
 - `just check` (Rust + TS type-check), `just test` (full CI-equivalent; passing ⟹ CI passes),
   `just scan <path>` (headless scorer — fastest way to test a metric change),
   `just cli <verb> <path>`, `just tokens` (before and after touching tool descriptions),
-  `just expiry` (does this release expire readings), `just history <repo>`.
+  `just expiry` (does this release expire readings), `just history <repo>`,
+  `just rim-check` (what a rim segment may claim — the frontend has no test framework, so a
+  drawing rule that can be wrong invisibly gets a bundled script).
 - **Never launch the app yourself** — `just dev` opens a window; that is the human's to run.
 - **Check that a regression test fails without its fix.** Where threads make the
   discriminating moment unstageable, pin the arithmetic instead and label the threaded test

@@ -87,6 +87,10 @@ export function WedgeTip({
     /** How many values this segment stands for — see `rimRuns`. More than one when the
      *  picture had no room to draw them apart. */
     held: number
+    /** Whether `label` names one of them. A categorical merge names none — its label is
+     *  already `209 others` — so appending `+208 more` there would say the count twice and
+     *  disagree with itself about which number is the members. */
+    named: boolean
   } | null
 }) {
   const c = colorFor(n, mode, ranks, ageSpan)
@@ -205,9 +209,10 @@ export function WedgeTip({
           the fine one is available without drilling.
 
           A merged run says how many it stands for rather than naming one of them — see
-          `rimRuns`, which lets the biggest member give the run its colour and its label. It
-          would otherwise report a share as though one value held it, which is the same
-          overstatement the legend's `other` row was making until tonight. */}
+          `rimRuns`. On a ramp it keeps the biggest member's color and adds `+N more`; on a
+          categorical lens it is `other` outright, color and label both, because a band of
+          two hundred people captioned with one of their names is the same overstatement the
+          legend's `other` row was making until tonight. */}
       {slice && (
         <div className="mb-1.5 border-b border-[var(--border)] pb-1.5">
           <div className="flex items-baseline gap-1.5">
@@ -217,7 +222,7 @@ export function WedgeTip({
             />
             <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-snug">
               {elide(slice.label, FITS_SMALL)}
-              {slice.held > 1 && (
+              {slice.held > 1 && slice.named && (
                 <span className="font-normal text-[var(--muted-foreground)]">
                   {' '}
                   +{slice.held - 1} more

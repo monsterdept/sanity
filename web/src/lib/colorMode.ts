@@ -425,6 +425,19 @@ const CATEGORICAL = [
 ]
 export const OTHER = 'var(--structure)'
 export const OTHER_LABEL = 'other'
+/**
+ * The one bucket everybody past the palette's reach falls into.
+ *
+ * **A key of its own, because `other` is not a value and must not be spelled like one.** The
+ * tail used to keep each member's own key and merely take the neutral fill, so a breakdown of
+ * kibana held two hundred grey rows all called something different — and the rim, which draws
+ * one segment per row, cut two hundred sub-pixel bands out of a neutral it then had to merge
+ * back together at draw time. One fold, stated once, in the walk both surfaces share.
+ *
+ * Kept out of the namespace real keys live in for the reason `UNKNOWN` is, and written as the
+ * escape for the reason `UNKNOWN` is: an author genuinely called `other` is a person.
+ */
+export const OTHER_KEY = '\u0000other'
 /** How many categories get a color of their own. Exported because the legend has to know
  *  which ones have one — it counted to four itself once, and a legend with its own copy of
  *  the palette's size is a legend that can disagree with the map. */
@@ -530,6 +543,10 @@ export function isAuthor(key: string | null): key is string {
  *
  * Stable across a replay by construction: this is a pure function of a ranking computed once
  * over the whole log, so a person's colour does not move as the story runs.
+ *
+ * **All of the above is the DEFAULT, and it is now a default rather than a rule.** A reader
+ * who wants the tail merged says so with the color cap and gets one neutral `other` — which
+ * is the arrangement this note rejects, correctly, as an answer for everybody. See `CAPS`.
  */
 export function slotColor(rank: number): string {
   if (rank < CATEGORICAL.length) return CATEGORICAL[rank]
@@ -541,6 +558,61 @@ export function slotColor(rank: number): string {
  *  The legend says so once rather than every segment carrying a mark. */
 export function shared(rank: number): boolean {
   return rank >= CATEGORICAL.length
+}
+
+/**
+ * How many categories get a color of their own — the reader's choice, not a constant.
+ *
+ * **This is the number the palette notes above have been arguing about since it was four,
+ * and the argument was never settleable because it has two right answers.** Somebody
+ * studying who owns a codebase wants eight colors and a tail called `other`: the picture
+ * then says "these are the major contributors and everything else", which is a claim they
+ * can act on. Somebody looking at the SHAPE of a four-hundred-author repo wants every one of
+ * them colored, knows the result is confetti, and is asking for confetti — a crowd that
+ * looks like a crowd is the reading. Neither is wrong and no constant serves both, which is
+ * why every move of the constant fixed one repo and broke another.
+ *
+ * So it is a control, on `lib/rings.ts`'s own test for whether something should be: the
+ * reader can see the consequence immediately, in the picture, and decide. `Infinity` is the
+ * default and is exactly what shipped before this existed — the full palette with recycling
+ * past it — so nothing moves until somebody asks it to.
+ *
+ * **This does not reverse `slotColor`'s note; it settles it.** That note rejected folding the
+ * tail into one neutral, on the ground that a repeated color says more than a shared grey.
+ * Still true, and still the default. What it could not say is that the reader might be asking
+ * the OTHER question, where the tail is precisely the part they want merged and named as
+ * merged. The cap is how they say which.
+ *
+ * The steps stop at 64 because that is the palette — past it `slotColor` recycles, and a step
+ * called 128 would be a control offering colors that do not exist. `Infinity` is named `all`
+ * for the same reason: it is honest about being a rule rather than a count.
+ */
+export const CAPS = [4, 8, 16, 32, 64, Infinity] as const
+export const CAP_DEFAULT = Infinity
+
+/**
+ * The ranking with everyone past `cap` dropped.
+ *
+ * **Applied to the RANKS rather than threaded through the six places that read them.** Every
+ * surface here already agrees on one rule — an unranked category is `other` — so removing an
+ * entry is the whole of what a cap has to do: the wedge greys, `contribute` folds it into
+ * `OTHER_KEY`, the legend counts it in its neutral row, and the movie key inherits all three.
+ * A `cap` parameter on `colorFor`, `contribute`, `bucketsFor`, `histogramsFor`, `legendFor`
+ * and `keyFor` would be six chances for one of them to be handed a different number.
+ *
+ * A pure function of the ranking, so a replay is as stable under a cap as without one: a
+ * person's color still cannot move as the story runs, and the tail they fall into is the
+ * same tail in every frame.
+ */
+export function capRanks(
+  ranks: Map<string, number> | undefined,
+  cap: number,
+): Map<string, number> | undefined {
+  if (!ranks || !Number.isFinite(cap)) return ranks
+  if (ranks.size <= cap) return ranks
+  const m = new Map<string, number>()
+  for (const [k, r] of ranks) if (r < cap) m.set(k, r)
+  return m
 }
 
 /** One of a replay's two flashes: the token, flat, for as long as the flash lasts.
@@ -1137,7 +1209,10 @@ function contribute(
     const key = mode === 'blame' ? n.lastAuthor : n.lang
     if (key && (mode !== 'blame' || isAuthor(key))) {
       const rank = ranks?.get(key)
-      put(key, key, rank === undefined ? OTHER : slotColor(rank), n)
+      // Past the cap there is no rank, and everyone there is ONE row in the structural
+      // neutral rather than a row apiece wearing it — see `OTHER_KEY`.
+      if (rank === undefined) put(OTHER_KEY, OTHER_LABEL, OTHER, n)
+      else put(key, key, slotColor(rank), n)
     } else if (mode === 'blame' && key) {
       put('\u0000uncommitted', 'uncommitted lines', 'var(--unanalyzed)', n)
     } else {
@@ -1238,7 +1313,10 @@ function contribute(
       const key = mode === 'blame' ? n.lastAuthor : n.lang
       if (key && (mode !== 'blame' || isAuthor(key))) {
         const rank = ranks?.get(key)
-        put(key, key, rank === undefined ? OTHER : slotColor(rank), n)
+        // Past the cap there is no rank, and everyone there is ONE row in the structural
+        // neutral rather than a row apiece wearing it — see `OTHER_KEY`.
+        if (rank === undefined) put(OTHER_KEY, OTHER_LABEL, OTHER, n)
+        else put(key, key, slotColor(rank), n)
       } else if (mode === 'blame' && key) {
         // Written to but not committed. Its own row, because "these lines are yours and
         // unsaved" and "this file is not in git" are different things to be told.
@@ -1446,7 +1524,18 @@ export function sortBuckets<T extends { key: string; lines: number }>(
   }
   // Whatever the mode could not color goes last whichever way the rest is sorted: it is
   // the one row that is not a value, and interleaving it by size would read as one.
-  return [...rows.filter((b) => b.key !== UNKNOWN), ...rows.filter((b) => b.key === UNKNOWN)]
+  //
+  // `other` is the same argument one step weaker, so it takes the same place one step
+  // earlier: it is not a value either — it is a count of the values there was no color
+  // left for — but it IS about code somebody wrote, where the absence row is about code
+  // nothing is known of. Sorted by size it would routinely lead a blame breakdown, which is
+  // a tail claiming to be the story. See `OTHER_KEY`.
+  const rank = (b: { key: string }) => (b.key === UNKNOWN ? 2 : b.key === OTHER_KEY ? 1 : 0)
+  return [
+    ...rows.filter((b) => rank(b) === 0),
+    ...rows.filter((b) => rank(b) === 1),
+    ...rows.filter((b) => rank(b) === 2),
+  ]
 }
 
 /**
