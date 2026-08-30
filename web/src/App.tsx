@@ -2006,42 +2006,46 @@ export default function App() {
     return node
   }, [filled, stack])
 
-  /** Author → colour slot. **Held still while a replay runs, ranked where you stand when one
-   *  is not.**
+  /** Author → colour slot, ranked once over the whole log and used everywhere.
    *
-   *  The two halves answer different questions and neither answer works for the other.
+   *  **It was two rankings, and the second one was a split brain nobody had named.** Replaying
+   *  used `stats.authors`; standing still used the lines under your feet. Same people, same
+   *  spelling, different slots — so opening History recoloured the entire cast, and the last
+   *  frame of a story disagreed with the same repo sitting still. That is the invariant this
+   *  now holds: **the end of the replay is the live map.** A story that arrives somewhere
+   *  other than where you already were is not the same repo told forwards.
    *
-   *  **Replaying, a person is an IDENTITY.** Somebody whose colour changes as the story
-   *  advances is not one, and three rules were tried before this that each went grey
-   *  somewhere. Ranking every frame recoloured the cast as it ran. Seeding from today's
-   *  ranking made the opening grey, because the people who start a repo are rarely its
-   *  biggest authors by the end — ceph's `rgw` opened on six authors and drew `other (6)`.
-   *  Assigning by arrival made the ENDING grey: the first sixteen held the palette forever
-   *  and their lines are gone by 2026, so a frame with seventy-three people on screen had
-   *  none of them coloured. All three derived identity from whatever happened to be visible.
+   *  **Replaying, a person is an IDENTITY**, and three rules were tried before this that each
+   *  went grey somewhere. Ranking every frame recoloured the cast as it ran. Seeding from
+   *  today's ranking made the opening grey, because the people who start a repo are rarely its
+   *  biggest by the end — ceph's `rgw` opened on six authors and drew `other (6)`. Assigning
+   *  by arrival made the ENDING grey: the first sixteen held the palette forever and their
+   *  lines are gone by 2026. All three derived identity from whatever happened to be visible.
    *  `stats.authors` is the whole repo's cast, ranked once over the whole log, so a person's
-   *  place in it does not depend on the playhead.
+   *  place in it does not depend on the playhead — and now does not depend on the drill
+   *  either.
    *
-   *  **Live, a person is a CATEGORY OF THE PICTURE IN FRONT OF YOU**, and the repo-wide order
-   *  spends the palette on the wrong people. Standing in one directory of kibana, its
-   *  sixteen biggest authors are not the repo's sixteen biggest — so the wedges you came to
-   *  look at drew in the shared neutral while the colours went to people with nothing on
-   *  screen. The map was grey about exactly the thing being asked about. So it is ranked over
-   *  the drill, which is the rule `langRank` already follows, and drilling recolours: that is
-   *  the price, and it buys a directory whose people are actually distinguishable.
+   *  **What this gives up is real and it was chosen with the cost in front of us.** Live, a
+   *  person used to be a category of the picture in front of you: standing in one directory of
+   *  kibana, its biggest authors are not the repo's, so a repo-wide order spends the named
+   *  slots on people with nothing on screen. That argument was written when past the palette
+   *  was one shared neutral, and it is why drilling recoloured. It no longer ends in grey —
+   *  sixty-four colours recycling out to a thousand mean a drilled directory's people still
+   *  get colours of their own, they just do not get NAMED in a legend that holds sixteen. A
+   *  caption is the price now; it used to be the picture.
    *
-   *  The live tree, never the frame — a replay hands `focus` a new tree thirty times a second
-   *  and that is the recolouring this exists to prevent. The fallback is `stats.authors`, for
-   *  a view that has no ranking to give: at the root of a large repo the rings are not fetched
-   *  and files carry the answer, and a tree that yields nothing at all must not go grey. */
+   *  The remaining fallback is for a repo whose backend sent no cast at all — an older build,
+   *  or one with no history — where ranking what is on screen is the only ranking there is.
+   *  `langRank` still ranks over the drill: a language is genuinely a property of the code in
+   *  front of you and there is no cast of them spanning a story, so the two lenses differ here
+   *  on purpose rather than by neglect. */
   const authorRank = useMemo(() => {
     const cast = scan?.stats.authors ?? []
-    const wide = cast.length > 0 ? new Map(cast.map((name, i) => [name, i])) : null
-    if (replaying) return wide
-    if (!liveFocus) return wide
+    if (cast.length > 0) return new Map(cast.map((name, i) => [name, i]))
+    if (!liveFocus) return null
     const here = rankCategories(liveFocus, 'blame')
-    return here.size > 0 ? here : wide
-  }, [scan, replaying, liveFocus])
+    return here.size > 0 ? here : null
+  }, [scan, liveFocus])
   /** Language → colour slot, ranked over the VIEW but not over the FRAME.
    *
    *  **A language is a category of the picture in front of you and that is why it is ranked

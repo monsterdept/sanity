@@ -86,7 +86,73 @@ pub enum Lang {
     Jq,
 }
 
+/// A node's language on the wire, spelled the way a person reads it.
+///
+/// **One vocabulary, because two of them silently recoloured the map.** `Lang`'s derived
+/// serialization is `rename_all = "lowercase"`, so a scan told the window `cpp`; the replay's
+/// tables name the same language through [`Lang::label`], so a frame told it `C++`. Every
+/// colour a lens gives out is keyed on that string, and nothing joins two spellings — so on
+/// ceph the twelve live languages held slots 0..11 and every language in the replay was read
+/// as one the map had never seen, taking a colour from the tail of the palette. Turning
+/// History on recoloured the whole map, and the last frame of a story disagreed with the same
+/// repo standing still.
+///
+/// The label wins because it is the half a person reads: `C++`, `JavaScript`, `PowerShell`
+/// rather than `cpp`, `javascript`, `powershell`, which are a serde attribute leaking into a
+/// legend. Nothing in the window ever compared against the lowercase form — every use of
+/// `lang` is a swatch, a caption or a key — so the join was the only thing it was doing.
+///
+/// **Scoped to this field on purpose.** `Lang` is stored in `scancache::Entry` too, and that
+/// cache memoises `git blame`: changing the enum's own representation would move its slot and
+/// buy a repo the size of ceph an hours-long re-blame to fix the spelling of a caption. Here
+/// it costs a tree cache, which is a rescan the parse cache already makes cheap.
+///
+/// An unreadable name deserializes to `None` rather than failing the record: a tree written
+/// by a build that knew a language this one does not is still a map, and one wedge saying
+/// nothing about its language is a smaller loss than the whole repo saying nothing at all.
+mod lang_label {
+    use super::Lang;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(lang: &Option<Lang>, s: S) -> Result<S::Ok, S::Error> {
+        lang.map(|l| l.label()).serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Lang>, D::Error> {
+        Ok(Option::<String>::deserialize(d)?.and_then(|s| Lang::from_label(&s)))
+    }
+}
+
 impl Lang {
+    /// Every language, once.
+    ///
+    /// **Only here so a name can be read back into a variant.** `label` is the one place a
+    /// language is NAMED, and an inverse written as a second match would be a second list of
+    /// those names — the drift this codebase has paid for twice. Searching this instead means
+    /// there is still exactly one spelling of "C++" in the program.
+    ///
+    /// A linear scan over sixty-three entries, run once per file when a cached tree is read.
+    /// Measured against ceph's 6,142 files it is not on any profile; a map would be a second
+    /// structure to keep in step for no gain anyone can measure.
+    pub const ALL: &'static [Lang] = &[
+        Lang::Rust, Lang::TypeScript, Lang::Tsx, Lang::JavaScript, Lang::Python, Lang::Go,
+        Lang::Swift, Lang::C, Lang::Cpp, Lang::Java, Lang::Kotlin, Lang::CSharp, Lang::Ruby,
+        Lang::Php, Lang::Lua, Lang::Elixir, Lang::Scala, Lang::Dart, Lang::Zig, Lang::ObjC,
+        Lang::Shell, Lang::Sql, Lang::GdScript, Lang::GdShader, Lang::Haskell, Lang::Nix,
+        Lang::PowerShell, Lang::Solidity, Lang::R, Lang::OCaml, Lang::OCamlLex, Lang::Cmake,
+        Lang::Julia, Lang::Erlang, Lang::Pascal, Lang::Clojure, Lang::FSharp, Lang::Groovy,
+        Lang::Elm, Lang::Fortran, Lang::Starlark, Lang::Verilog, Lang::SystemVerilog,
+        Lang::Gleam, Lang::Odin, Lang::Perl, Lang::VisualBasic, Lang::Elisp, Lang::Qml,
+        Lang::Scheme, Lang::Racket, Lang::CommonLisp, Lang::Cfml, Lang::Glsl, Lang::Hlsl,
+        Lang::Slang, Lang::Ada, Lang::D, Lang::Vhdl, Lang::Zsh, Lang::Luau, Lang::Prolog,
+        Lang::Jq,
+    ];
+
+    /// A name back into a language. The exact inverse of [`Lang::label`], by construction.
+    pub fn from_label(name: &str) -> Option<Lang> {
+        Lang::ALL.iter().copied().find(|l| l.label() == name)
+    }
+
     /// Extension → language. Deliberately conservative: an unrecognized extension is
     /// `None`, never a guess, because mis-parsing a file invents functions that aren't
     /// there and those go straight into the score.
@@ -478,6 +544,7 @@ pub struct Node {
     /// node, and a missing extent must not read as a small one.
     #[serde(default)]
     pub bytes: Option<u32>,
+    #[serde(with = "lang_label")]
     pub lang: Option<Lang>,
     /// Who last committed to this file.
     ///
@@ -1054,6 +1121,62 @@ mod tests {
             Some(vec![10]),
             "and slimming it again is the identity, not an erasure"
         );
+    }
+
+    /// The scan and the replay name a language the same way.
+    ///
+    /// **This is the split brain, pinned.** A frame's language comes from `Lang::label`
+    /// (`history.rs`), a scanned node's from serializing `Node::lang`, and every colour the
+    /// Language lens gives out is keyed on that string. While the two disagreed — `C++`
+    /// against `cpp` — no language in a replay could be matched to the one on the live map,
+    /// so all of them took colours from the tail of the palette and the picture recoloured the
+    /// moment History opened.
+    #[test]
+    fn a_language_has_one_name() {
+        for lang in Lang::ALL {
+            let mut node = Node::dir("f", "f");
+            node.kind = NodeKind::File;
+            node.lang = Some(*lang);
+            let json = serde_json::to_value(&node).expect("a node serializes");
+            assert_eq!(
+                json["lang"].as_str(),
+                Some(lang.label()),
+                "the window is told a language by the name the replay uses for it"
+            );
+            // And back, or a cached tree loses the language it was written with.
+            let back: Node = serde_json::from_value(json).expect("and reads back");
+            assert_eq!(back.lang, Some(*lang), "round trip");
+        }
+    }
+
+    /// `from_label` searches `ALL`, so a language missing from it cannot be read back.
+    ///
+    /// The match is what makes this worth having: it does not compile until every variant is
+    /// accounted for, so adding a language and forgetting `ALL` fails here rather than in a
+    /// cached tree six months later, silently, as one grey wedge.
+    #[test]
+    fn every_language_is_in_all() {
+        for lang in Lang::ALL {
+            #[deny(unreachable_patterns)]
+            let known = match lang {
+                Lang::Rust | Lang::TypeScript | Lang::Tsx | Lang::JavaScript | Lang::Python => true,
+                Lang::Go | Lang::Swift | Lang::C | Lang::Cpp | Lang::Java | Lang::Kotlin => true,
+                Lang::CSharp | Lang::Ruby | Lang::Php | Lang::Lua | Lang::Elixir => true,
+                Lang::Scala | Lang::Dart | Lang::Zig | Lang::ObjC | Lang::Shell | Lang::Sql => true,
+                Lang::GdScript | Lang::GdShader | Lang::Haskell | Lang::Nix => true,
+                Lang::PowerShell | Lang::Solidity | Lang::R | Lang::OCaml | Lang::OCamlLex => true,
+                Lang::Cmake | Lang::Julia | Lang::Erlang | Lang::Pascal | Lang::Clojure => true,
+                Lang::FSharp | Lang::Groovy | Lang::Elm | Lang::Fortran | Lang::Starlark => true,
+                Lang::Verilog | Lang::SystemVerilog | Lang::Gleam | Lang::Odin | Lang::Perl => true,
+                Lang::VisualBasic | Lang::Elisp | Lang::Qml | Lang::Scheme | Lang::Racket => true,
+                Lang::CommonLisp | Lang::Cfml | Lang::Glsl | Lang::Hlsl | Lang::Slang => true,
+                Lang::Ada | Lang::D | Lang::Vhdl | Lang::Zsh | Lang::Luau => true,
+                Lang::Prolog | Lang::Jq => true,
+            };
+            assert!(known);
+            assert_eq!(Lang::from_label(lang.label()), Some(*lang), "{}", lang.label());
+        }
+        assert_eq!(Lang::ALL.len(), 63, "every variant, once — see the match above");
     }
 
     /// A function node with the wiring counts a scan would give it.

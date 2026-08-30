@@ -12,17 +12,45 @@ second metric, and the line between those is the whole design.
   that frame's own date*, which is a fact about the commit stream and the only thing this
   module reads. Greyed rather than hidden: remove the switcher and the rings are recoloured
   with nothing on screen saying by what.
-- **A category's colour is held still while a replay runs and ranked where you stand when one
-  is not.** Those are two questions wearing one name. Replaying, a person is an IDENTITY, and
-  three rules were tried that each went grey somewhere: ranking every frame recoloured the cast
-  as it ran; seeding from today's ranking made the OPENING grey, because the people who start a
-  repo are rarely its biggest by the end (ceph's `rgw` drew `other (6)`); assigning by arrival
-  made the ENDING grey, the first sixteen holding the palette until their lines were gone. All
-  three derived identity from whatever happened to be visible, so a replay uses `stats.authors`,
-  ranked once over the whole log. **Live it is the opposite**: standing in one kibana directory,
-  its biggest authors are not the repo's, so the palette went to people with nothing on screen
-  and the wedges being asked about drew neutral. Ranked over the drill, which is the rule
-  `langRank` already followed — and drilling then recolours, which is the price.
+- **The end of the replay is the live map.** A story that arrives somewhere other than where
+  you already were is not the same repo told forwards, and for a long time it was not: blame
+  ranked one way replaying and another way standing still, so opening History recoloured the
+  entire cast. Same people, same spelling, different slots. It was two questions wearing one
+  name and nobody had noticed they gave different answers.
+  Replaying, a person is an IDENTITY, and three rules were tried that each went grey somewhere:
+  ranking every frame recoloured the cast as it ran; seeding from today's ranking made the
+  OPENING grey, because the people who start a repo are rarely its biggest by the end (ceph's
+  `rgw` drew `other (6)`); assigning by arrival made the ENDING grey, the first sixteen holding
+  the palette until their lines were gone. All three derived identity from whatever happened to
+  be visible, so the ranking is `stats.authors` — the whole repo's cast, ranked once over the
+  whole log, independent of the playhead.
+  **That ranking is now the live one too, and the argument it displaced is written down here
+  because it was right when it was made.** Live, a person was a category of the picture in
+  front of you: standing in one kibana directory, its biggest authors are not the repo's, so a
+  repo-wide order spends the named slots on people with nothing on screen and the wedges you
+  came to look at drew neutral. What changed is the palette. That was written when past the
+  named slots was one shared grey; it is now sixty-four colours recycling out to a thousand, so
+  a drilled directory's people still get colours of their own — they just do not get NAMED in a
+  legend that holds sixteen. The price used to be the picture and is now a caption, which is
+  what makes the invariant affordable. If a drilled repo reads as anonymous, this is the trade
+  to revisit first.
+  **`langRank` still ranks over the drill, and that is not an inconsistency.** A language is
+  genuinely a property of the code in front of you and there is no cast of languages spanning a
+  story to rank against; its history tail exists for the opposite case, a language the repo has
+  since migrated off, which has no wedge at HEAD to be ranked by.
+  **A language has ONE name, and it did not for months.** A scanned node's language crossed
+  the wire through `Lang`'s derived `rename_all = "lowercase"` (`cpp`); a frame's came from
+  `Lang::label` (`C++`). Every colour a categorical lens gives out is keyed on that string and
+  nothing joined the two spellings, so on ceph the twelve live languages held slots 0..11 and
+  every language in a replay was read as one the map had never seen — taking a tail colour, in
+  an order that had nothing to do with size. It looked like a palette bug and it was a
+  vocabulary bug. The label wins because it is the half a person reads, and it is applied to
+  `Node::lang` alone rather than to the enum: `Lang` is stored in `scancache::Entry` too, and
+  that cache memoises `git blame` — changing its representation would buy a repo the size of
+  ceph an hours-long re-blame to fix the spelling of a caption. Here it costs a tree cache,
+  which is a rescan the parse cache already makes cheap. `treecache::VERSION` 8 → 9 in the same
+  commit, because a version-8 tree holds the old spelling and it would read back as no language
+  at all.
   **A legend may never invent a rank the map does not use.** It filled gaps from its own ordering
   (`?? categories.indexOf(c)`), and `stats.authors` is CAPPED, so on a big repo it named eleven
   people in eleven colours over a picture where every one of them was the shared neutral — the

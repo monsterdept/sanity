@@ -76,7 +76,13 @@ use std::path::{Path, PathBuf};
 ///    back to a flat rim exactly where the histogram is worth the most: the repos too large
 ///    to have fetched their rings. It is the `#[serde(default)]` hazard in its usual shape —
 ///    a missing field reading as a valid value — and the reason this list exists.
-const VERSION: u32 = 8;
+/// 9: `Node::lang` is written as the name a person reads — `C++`, not `cpp` — because the
+///    replay's tables always named a language that way and the two spellings never joined,
+///    so every language in a story took a colour the live map had never given it. See
+///    `model::lang_label`. A version-8 tree holds the old spelling, which would deserialize
+///    to `None` and leave the Language lens with nothing to say about any file: the same
+///    hazard as 8, one field over, and the reason this is a bump rather than a quiet edit.
+const VERSION: u32 = 9;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.
