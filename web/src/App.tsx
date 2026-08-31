@@ -98,6 +98,7 @@ import { SideBar } from './components/SideBar'
 // which walks the column rather than re-deriving the ladder from `trace_depth`.
 import { phasesOf } from './components/Phases'
 import { Overlay } from './components/Overlay'
+import { HelpButton, LensHelp } from './components/LensHelp'
 import { BandWidth, ColorCount, RingCount } from './components/Rings'
 import { loadRings, saveRings } from './lib/rings'
 import { isCapped, loadCap, saveCap, type Capped } from './lib/palette'
@@ -369,6 +370,9 @@ export default function App() {
   /** Whether the finder is up. Session state and nothing more — a search box that
    *  remembered it was open would greet a launch with a panel over the map. */
   const [finding, setFinding] = useState(false)
+  /** Whether the lens help is up — see `LensHelp`. Session state: it is a thing you read
+   *  once, not a preference. */
+  const [helping, setHelping] = useState(false)
   const [stack, setStack] = useState<string[]>([])
   /** A function to scroll to once the code view is up.
    *
@@ -2573,20 +2577,33 @@ export default function App() {
                   window's statement of what color means, and removing it would leave the
                   rings recolored with nothing on screen saying by what. Grayed, with the
                   reason in the tooltip, it still answers the question. */}
+                {/* **Three groups, separated rather than spaced.** The row holds three
+                    different kinds of statement and an even gap made them read as eight
+                    peers: what the color MEANS, what is ON the map, and the two doors out of
+                    the picture you are in. A rule between groups is what says a lens and a
+                    ring count are not the same sort of choice.
+
+                    Help sits with the switcher because what it explains IS the switcher —
+                    eleven vocabularies that cannot be guessed. A help button parked in a
+                    corner is one nobody presses at the moment they need it. */}
                 <ModeSwitcher mode={viewMode} onMode={setMode} locked={locks} />
+                <HelpButton on={helping} onOpen={() => setHelping(true)} />
+
+                <Divider />
+
                 {/* **In the room the lens strip gave up.** These went to the crumb bar when
                     eleven tabs owned this row — see `ModeSwitcher`, which is one pulldown
                     now. They belong here: the lens says what the map is COLOURED by, and
-                    these two say what is ON it, which is the same kind of statement about
-                    the same picture. The crumb bar is about where you are standing in it.
-                    Both stay live during a replay, because a frame is drawn by the same
+                    these say what is ON it, which is the same kind of statement about the
+                    same picture. The crumb bar is about where you are standing in it.
+                    All stay live during a replay, because a frame is drawn by the same
                     layout and they mean there exactly what they mean anywhere else — which
                     is not true of the lens beside them. */}
                 <RingCount rings={rings} onRings={chooseRings} />
                 {/* Only on the lenses that have categories to spend colors on — see
-                    `ColorCount`. It sits after the ring count because it is the narrower
-                    statement of the same kind: how much of the picture is drawn, then how
-                    finely what is drawn is told apart. */}
+                    `ColorCount`. With the ring count and the band because it is the same
+                    kind of statement: how much of the picture is drawn, and how finely what
+                    is drawn is told apart. */}
                 {isCapped(viewMode) && (
                   <ColorCount
                     mode={viewMode}
@@ -2595,17 +2612,20 @@ export default function App() {
                   />
                 )}
                 <BandWidth share={band} onShare={setBand} />
-                {/* Between what is ON the map and the door out of it. Find is neither an
-                    encoding nor a change of subject — it is a way of getting somewhere in
-                    the picture you already have — so it sits after the two controls that
-                    shape that picture and before the one that replaces it. */}
-                <FindButton on={finding} onOpen={() => setFinding(true)} />
+
+                <Divider />
+
+                {/* The two doors. History replaces the subject — the repo as it stood rather
+                    than as it stands — and Find gets you somewhere inside the subject you
+                    already have. Both leave the picture you were looking at, which is what
+                    puts them together and after everything that shapes it. */}
                 <HistoryToggle
                   on={historyOn}
                   busy={historyBusy}
                   traced={(activeProject?.replayed ?? 0) > 0}
                   onToggle={toggleHistory}
                 />
+                <FindButton on={finding} onOpen={() => setFinding(true)} />
               </div>
             )}
           </TopRow>
@@ -2631,6 +2651,10 @@ export default function App() {
               onClose={() => setFinding(false)}
               onPick={flyTo}
             />
+
+            {/* Mounted only while it is up, unlike `Find`, which holds an index it does not
+                want to rebuild. This one is static text and its cost is its own markup. */}
+            {helping && <LensHelp onClose={() => setHelping(false)} />}
 
             {/* `data-chart` is how the key finds the circle it has to wrap around — see
                 `useMapEdge`. A marker rather than a class name because the class list here is
@@ -3257,6 +3281,25 @@ function ProgressPane({ progress, label }: { progress: Progress | null; label?: 
  * Lit while the panel is up, so the button and the panel are visibly one thing rather than
  * two ways in.
  */
+/** A hairline between groups of controls in the top row.
+ *
+ *  **Separation, not more gap.** The row carries three kinds of statement — what the color
+ *  means, what is on the map, and the two ways out of the picture — and spacing them further
+ *  apart only makes eight peers with awkward holes in the middle. A rule is the one mark that
+ *  says "these belong together and those do not" without taking a control's worth of width.
+ *
+ *  Sized to the pills rather than to the row, so it reads as a divider between buttons and not
+ *  as a border on the bar. */
+function Divider() {
+  return (
+    <span
+      aria-hidden
+      className="mx-0.5 h-4 w-px shrink-0"
+      style={{ background: 'color-mix(in oklch, var(--foreground) 16%, transparent)' }}
+    />
+  )
+}
+
 function FindButton({ on, onOpen }: { on: boolean; onOpen: () => void }) {
   return (
     <button

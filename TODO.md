@@ -1,24 +1,3 @@
-# TODO — a help window for the eleven lenses
-
-**Users cannot be expected to infer our exact terms, and some of them are not inferable.**
-`mundane / typical / quirky / obscure`, `clean / nuanced / tangled / unclear`, `traces to 4
-commits` against `27 commits in 90d`, "too small to compare" as distinct from "no clone in
-this repo" — every one of those is a deliberate distinction and none of them are guessable.
-
-**Two things surfaced while drafting it that the window will have to handle.** The first is
-that some names mislead: the lens called Age paints recency while a field called `age_days`
-means what a person means by age, and the panel already prints the better words (*Last
-touched*, *First seen*). The second is that Surprise is documented as needing a second axis,
-and the app has no way to cross two lenses — so the help either explains that you cross them
-by switching, which works only because nothing moves between lenses and is stated nowhere,
-or the product answers it properly first.
-
-**It also has to explain the units.** This app counts lines in some places and functions or
-files in others — the standing decision was to explain that rather than force one unit
-everywhere, and this is where the explaining goes.
-
----
-
 # TODO — Blame colours by who touched it last, not by who wrote it
 
 **The lens is not wrong; the word people read it as is.** On ceph, `Edwin Rodriguez` leads
