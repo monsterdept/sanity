@@ -239,7 +239,18 @@ export function HistoryBar({
   }, [playing, index, pos, last, frames, onIndex, onPlaying, exporting])
 
   return (
-    <div className="shrink-0 border-t border-[var(--border)] bg-[var(--card)] px-3 py-2">
+    /* **The same material as the toolbar, so it reads as that chrome continued.**
+     *
+     * It was `--card` over a `--border` rule, which is the panel surface: a third material in
+     * a window that has two, sitting under the map like a drawer that had opened. The toolbar
+     * is `--sidebar` — see `.chrome-surface`, whose gradient has settled to flat by the time it
+     * is this far down — so the transport now takes the same ground and the window has chrome
+     * top and bottom with the picture between them.
+     *
+     * **No rule against the canvas, because `TopRow` has none either.** Where chrome meets the
+     * map at the top, the surface change IS the edge; a border here and not there would make
+     * the bottom of the window look like a different kind of boundary from the top. */
+    <div className="shrink-0 bg-[var(--sidebar)] px-3 py-2">
       <div className="flex items-center gap-3">
         <button
           onClick={toggle}
