@@ -39,14 +39,18 @@ writing the help first means writing it twice.
 
 # TODO — Blame colours by who touched it last, not by who wrote it
 
-**One whitespace sweep repaints 642 files, and this is measured rather than feared.** On
-ceph, `Edwin Rodriguez` leads the Authors panel — ahead of Sage Weil, who has 27,493 commits
-to Edwin's 56. The cause is one commit, `c8c1019d196`, "Add missing blank line after comment
-block": 642 files changed, 642 insertions. `Node::last_author` is `newest.author` — the author
-of the single most recently touched LINE — so he is now the recorded owner of `hello_world.cc`,
-`fusetrace_ll.cc`, `SimpleRADOSStriper.cc` and everything else that commit brushed. Git agrees
-with the map. The map is faithfully reporting a signal that does not mean what the lens is
-called.
+**The lens is not wrong; the word people read it as is.** On ceph, `Edwin Rodriguez` leads
+the Authors panel — ahead of Sage Weil, who has 27,493 commits to Edwin's 56 — because of one
+commit, `c8c1019d196`, "Add missing blank line after comment block": 642 files changed, 642
+insertions. `Node::last_author` is `newest.author`, the author of the most recently touched
+LINE, so he is the last toucher of `hello_world.cc`, `fusetrace_ll.cc`, `SimpleRADOSStriper.cc`
+and everything else that sweep brushed.
+
+**And that is TRUE.** `git blame` says the same thing; he really does hold that blame today.
+The lens is called Blame and it reports blame, faithfully. What it does not report is
+OWNERSHIP, which is what people open it for — and the two agree right up until somebody runs a
+formatter. So this is not a bug to fix so much as a second reading to add, and a name to be
+careful with.
 
 **The legend and the panel already disagree about it in the same window.** The map's key lists
 Sage Weil first, because it follows `stats.authors` — commit order over the whole log. The
@@ -64,11 +68,12 @@ of the first. Whichever it paints, the other belongs in the panel — and "how m
 is a third reading again, which is the contention signal `docs/notes/time.md` records as
 measured nowhere.
 
-**Separately, the panel's rows are sorted by one number and labelled with another.**
-`sortBuckets` orders blame by `b.lines`; the row prints `b.count`. That is why the column
-reads 1,819 · 1,019 · 985 · 216 · 86 · 309 — not descending, because it was never sorted by
-what it shows. Whichever number the row should carry, it has to be the one the list is
-ordered by, and everything else in this app is weighted in lines.
+**The panel's rows printed one number and were sorted by another — fixed.** `sortBuckets`
+orders blame by `b.lines` while the row printed `b.count`, which is why the column read
+1,819 · 1,019 · 985 · 216 · 86 · 309. It shows lines now; the count moved to the row's tooltip.
+**The wider inconsistency is still open**: this app counts lines in some places and functions
+or files in others, and the standing decision was to explain that rather than force one unit
+everywhere. That explanation is the help window, which does not exist yet.
 
 ---
 

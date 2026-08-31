@@ -393,12 +393,22 @@ function Buckets({
               >
                 {b.label}
               </span>
-              {/* How many are IN it, not how many can be listed. The two differ on a repo
-                  whose function rings have not been fetched — see `Bucket.count` — and the
-                  number a breakdown row owes you is the size of the slice. What the list
-                  below can show is said by the list below. */}
-              <span className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
-                {b.count.toLocaleString()}
+              {/* **Lines, because lines are what the list is SORTED by.** It printed
+                  `count` — functions, or files on a repo whose rings have not been fetched —
+                  while `sortBuckets` ordered blame by lines, so the column read 1,819 · 1,019
+                  · 985 · 216 · 86 · 309: not descending, because it was never sorted by what
+                  it showed. A number that does not explain its own order is worse than no
+                  number.
+                  Lines is the half to keep. It is what the bar above is drawn in, what a
+                  wedge's width means, and the more informative of the two — "who owns 1,800
+                  lines" is a fact, "who owns 1,800 functions" is a fact about how the code
+                  was chopped up. The count is not lost: it is on the row's own tooltip, next
+                  to the share it explains. */}
+              <span
+                className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]"
+                title={`${b.count.toLocaleString()} ${b.count === 1 ? 'item' : 'items'} · ${b.lines.toLocaleString()} lines`}
+              >
+                {b.lines.toLocaleString()}
               </span>
             </button>
           )
