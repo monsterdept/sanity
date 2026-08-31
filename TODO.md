@@ -1,3 +1,38 @@
+# TODO — Clones should report near-copies, not only exact ones
+
+**The finding it cannot currently make is the one people have.** `clones.rs` matches exact
+after normalisation — identifiers and literals flattened, comments dropped — and says so:
+"a copy one statement apart is NOT [caught], and there is no threshold to tune that would
+catch it. That is the trade taken deliberately." The trade bought precision, and it costs the
+common case: the twelfth handler that drifted by a line.
+
+**The threshold that objection says does not exist has been written and calibrated for years.**
+`heuristic::distinctiveness` is `1 - linmap(max jaccard over 3-gram shingles, 0.08, 0.55)`,
+with the band measured and a stated reading — "above 0.55 overlap it is the same function".
+So the missing tier already has a similarity measure and a defended cut-off.
+
+**What it does NOT have is scope, and that is the actual work.** Distinctiveness compares a
+function against same-file peers, or the directory's when a file holds one function
+(`scan.rs`, `Fidelity::Full` branch). Clones is repo-wide by construction: one hash per
+function, grouped by hash, O(n). Fuzzy repo-wide is neither — all-pairs Jaccard over a
+repo's functions is quadratic, which is why the exact-hash version was the one that shipped.
+Doing this properly means MinHash or another LSH over the existing shingles, and that is a
+design decision rather than a wiring job. **Do not estimate it from the file-local cost.**
+
+**Nothing computes distinctiveness today.** The app scans at `Fidelity::Ordering`, where the
+term returns `UNDECIDED` outright; `Fidelity::Full` was reachable only from the headless
+scorer, and that was deleted along with the local model. Both remaining callers are in
+`#[cfg(test)]`. The code is live in tests and nowhere else — confirm it still measures what it
+claims before building on it.
+
+**Exact and near must stay two answers, not one count.** The lens already separates "no clone
+in this repo" from "too small to compare", for the reason the whole map is built on: a
+confident answer and an approximate one are different claims and a reader has to be able to
+tell which they were given. A merged "7 clones" that is four certain and three maybe is the
+kind of number this app exists not to print.
+
+---
+
 # TODO — the map is silent about what it could not read
 
 Found while fixing a Windows CI failure, by grep and by measurement rather than by
