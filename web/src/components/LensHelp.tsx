@@ -1,100 +1,131 @@
-import { useEffect } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { Overlay } from './Overlay'
 
 /**
- * Reference for the eleven lenses: what each one measures, and the values it prints.
+ * The lens reference, in the panel.
  *
- * **Its job is definition, not persuasion.** Every lens has a vocabulary that cannot be
- * inferred from the map — `mundane / typical / quirky / obscure` is not the same scale as
- * `clean / nuanced / tangled / unclear`, `traces to 4 commits` is a different quantity from
- * `27 commits in 90d`, and "too small to compare" is deliberately distinct from "no clone in
- * this repo". Those distinctions are what makes a reading trustworthy, and they were only
- * discoverable by hovering.
+ * **Its source is `docs/lenses.md` and the two are kept in step by hand.** The prose is edited
+ * there because it is prose; this file is what puts swatches next to it, and a swatch is the
+ * half that cannot live in Markdown. If they drift, the Markdown is the one that is right.
  *
- * **Ordered by what a reader needs first.** Which passes unlock which lenses comes before the
- * lenses themselves: on a repository that has only been scanned, seven of the eleven are
- * locked, and knowing why is more useful than knowing what the locked ones would have shown.
- *
- * Swatches reference the map's own custom properties rather than copying their values, so a
- * ramp edited in `index.css` changes here in the same commit.
+ * Every swatch references the map's own custom properties rather than copying their values, so
+ * a ramp edited in `index.css` changes here in the same commit. A key that can disagree with
+ * the picture it explains is worse than no key.
  */
 
-/** One lens's key, drawn the way that lens draws itself. */
-function Ramp({ from, to, ends }: { from: string; to: string; ends: [string, string] }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <div
-        className="h-4 rounded-[2px]"
-        style={{ background: `linear-gradient(90deg, ${from}, ${to})` }}
-      />
-      <div className="mono flex justify-between text-[9px] text-[var(--muted-foreground)]">
-        <span>{ends[0]}</span>
-        <span>{ends[1]}</span>
-      </div>
-    </div>
-  )
-}
+/* ── Pieces ──────────────────────────────────────────────────────────────── */
 
-function Swatches({ fills, ends }: { fills: string[]; ends: [string, string] }) {
+function Group({ n, title, children }: { n: number; title: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex gap-[3px]">
-        {fills.map((f) => (
-          <span key={f} className="h-4 flex-1 rounded-[2px]" style={{ background: f }} />
-        ))}
-      </div>
-      <div className="mono flex justify-between text-[9px] text-[var(--muted-foreground)]">
-        <span>{ends[0]}</span>
-        <span>{ends[1]}</span>
-      </div>
-    </div>
-  )
-}
-
-function Lens({
-  name,
-  hint,
-  children,
-  words,
-}: {
-  name: string
-  hint: string
-  /** The key — a ramp, a row of bands, or a mark. */
-  children: React.ReactNode
-  /** The exact words this lens prints, which is what somebody came here for. */
-  words: string
-}) {
-  return (
-    <div className="grid grid-cols-[7rem_1fr] items-start gap-x-3 gap-y-1 py-2">
-      <div className="pt-[2px]">{children}</div>
-      <div>
-        <div className="flex items-baseline gap-2">
-          <span className="text-[12px] font-semibold">{name}</span>
-          <span className="mono text-[10px] text-[var(--muted-foreground)]">{hint}</span>
-        </div>
-        <p className="mono mt-0.5 text-[10px] leading-relaxed text-[var(--muted-foreground)]">
-          {words}
-        </p>
-      </div>
-    </div>
-  )
-}
-
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="mt-4 first:mt-0">
-      <h3 className="border-b border-[var(--border)] pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-        {title}
+    <section className="mt-5 first:mt-0">
+      <h3 className="flex items-baseline gap-2 border-b border-[var(--border)] pb-1">
+        <span className="mono text-[10px] text-[var(--muted-foreground)]">{n}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider">{title}</span>
       </h3>
-      <div className="divide-y divide-[var(--border)]">{children}</div>
+      {children}
     </section>
   )
 }
 
+/** A two-column rule table — the shape most of this document is. */
+function Rules({ rows }: { rows: [string, ReactNode][] }) {
+  return (
+    <dl className="mt-2 grid grid-cols-[7rem_1fr] gap-x-3 border-collapse text-[10px] leading-relaxed">
+      {rows.map(([k, v]) => (
+        <div key={k} className="col-span-2 grid grid-cols-subgrid border-t border-[var(--border)] py-1.5 first:border-t-0">
+          <dt className="font-semibold text-[var(--foreground)]">{k}</dt>
+          <dd className="text-[var(--muted-foreground)]">{v}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+function Note({ children }: { children: ReactNode }) {
+  return <p className="mt-2 text-[10px] leading-relaxed text-[var(--muted-foreground)]">{children}</p>
+}
+
+function B({ children }: { children: ReactNode }) {
+  return <b className="font-semibold text-[var(--foreground)]">{children}</b>
+}
+
+function Ramp({ from, to }: { from: string; to: string }) {
+  return (
+    <div className="h-4 w-full rounded-[2px]" style={{ background: `linear-gradient(90deg, ${from}, ${to})` }} />
+  )
+}
+
+function Steps({ fills }: { fills: string[] }) {
+  return (
+    <div className="flex w-full gap-[3px]">
+      {fills.map((f) => (
+        <span key={f} className="h-4 flex-1 rounded-[2px]" style={{ background: f }} />
+      ))}
+    </div>
+  )
+}
+
+function Chip({ fill, label }: { fill: string; label: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="h-3 w-3 shrink-0 rounded-[2px]" style={{ background: fill }} />
+      <span className="mono text-[9px] text-[var(--muted-foreground)]">{label}</span>
+    </div>
+  )
+}
+
+/** One lens: its key on the left, its definition on the right. */
+function Lens({
+  name,
+  swatch,
+  measures,
+  values,
+  ramp,
+  needs,
+  children,
+}: {
+  name: string
+  swatch: ReactNode
+  measures: ReactNode
+  values?: string
+  ramp?: string
+  needs: string
+  children?: ReactNode
+}) {
+  return (
+    <div className="grid grid-cols-[8rem_1fr] items-start gap-x-4 gap-y-2 border-t border-[var(--border)] py-3 first:border-t-0">
+      <div className="flex flex-col gap-1.5 pt-[3px]">
+        {swatch}
+        <span className="text-[12px] font-semibold leading-none">{name}</span>
+        <span className="mono text-[9px] text-[var(--muted-foreground)]">needs {needs}</span>
+      </div>
+      <div className="text-[10px] leading-relaxed text-[var(--muted-foreground)]">
+        <p>
+          <B>Measures</B> {measures}
+        </p>
+        {values && (
+          <p className="mono mt-1 text-[9px]">
+            <span className="not-italic text-[var(--foreground)]">values </span>
+            {values}
+          </p>
+        )}
+        {ramp && (
+          <p className="mono text-[9px]">
+            <span className="text-[var(--foreground)]">ramp </span>
+            {ramp}
+          </p>
+        )}
+        {children && <div className="mt-1.5">{children}</div>}
+      </div>
+    </div>
+  )
+}
+
+/* ── The panel ───────────────────────────────────────────────────────────── */
+
 export function LensHelp({ onClose }: { onClose: () => void }) {
-  // Escape closes, the same as the finder's. Handled here rather than in `lib/keys.ts`
-  // because that decides what a key means for the MAP; a modal owns its own keyboard while
-  // it is up, which is the rule `Find` already follows on its field.
+  // Escape closes. Handled here rather than in `lib/keys.ts` because that decides what a key
+  // means for the MAP; a modal owns its own keyboard while it is up, the rule `Find` follows.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -109,217 +140,393 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
   return (
     <Overlay onClose={onClose}>
       <div
-        className="flex max-h-[82vh] w-full max-w-2xl flex-col rounded-xl border border-[var(--border)] bg-[var(--card)]"
+        className="flex max-h-[86vh] w-full max-w-3xl flex-col rounded-xl border border-[var(--border)] bg-[var(--card)]"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="shrink-0 border-b border-[var(--border)] px-5 pb-3 pt-4">
           <h2 className="text-sm font-semibold">Lenses</h2>
-          <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-            One drawing, eleven measurements. A wedge is always as wide as the code it holds;
-            the lens sets its color and nothing else.
-          </p>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 [overscroll-behavior:contain]">
-          <Group title="What unlocks each lens">
-            <div className="grid gap-2 py-2 text-[10px] leading-relaxed text-[var(--muted-foreground)]">
-              <p>
-                Three passes produce everything the map can show. A lens with no data behind it
-                is locked and names the pass that would fill it.
-              </p>
-              <dl className="grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-1.5">
-                <dt className="text-[var(--foreground)]">Scan</dt>
-                <dd>
-                  Parses the repository into files and functions. Runs when a project is
-                  opened. Unlocks <b className="font-semibold">Language</b> and{' '}
-                  <b className="font-semibold">Clones</b>.
-                </dd>
-                <dt className="text-[var(--foreground)]">Trace</dt>
-                <dd>
-                  Reads the commit log, and per-line history where asked for it. Unlocks{' '}
-                  <b className="font-semibold">Blame</b>, <b className="font-semibold">Churn</b>{' '}
-                  and <b className="font-semibold">Age</b>.
-                </dd>
-                <dt className="text-[var(--foreground)]">Read</dt>
-                <dd>
-                  Agents read each function and file a report. Unlocks{' '}
-                  <b className="font-semibold">Surprise</b>,{' '}
-                  <b className="font-semibold">Legibility</b>,{' '}
-                  <b className="font-semibold">Docs</b> and <b className="font-semibold">Traps</b>.
-                </dd>
-                <dt className="text-[var(--foreground)]">—</dt>
-                <dd>
-                  <b className="font-semibold">Callers</b> and{' '}
-                  <b className="font-semibold">Reach</b> require the language&rsquo;s call
-                  syntax, which is implemented for some grammars and not others. No pass
-                  unlocks them.
-                </dd>
-              </dl>
-            </div>
+        {/* Inline `code` is scoped here rather than styled globally: this is the only surface
+            that sets a value in running prose, and a global rule would reach the code view,
+            which has its own type. */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 [overscroll-behavior:contain] [&_code]:rounded-[2px] [&_code]:bg-[var(--secondary)] [&_code]:px-1 [&_code]:py-px [&_code]:font-mono [&_code]:text-[9px] [&_code]:text-[var(--foreground)]">
+          <Group n={1} title="The drawing">
+            <Note>
+              The map is a sunburst of the repository. The center is the project root; each ring
+              out is one level deeper in the directory tree. A wedge is a directory, a file, or a
+              function.
+            </Note>
+            <Rules
+              rows={[
+                ['Width', 'Lines of code. Identical in every lens.'],
+                ['Color', 'Set by the lens. Nothing else changes when you switch lenses.'],
+                ['Gray', 'Not measured. Not zero.'],
+                [
+                  'Directories',
+                  "No value of their own. A directory's band shows the distribution of values inside it, so a directory holding both old and new code shows both rather than an average.",
+                ],
+                [
+                  'Ramps',
+                  'Run dim to bright. The sidebar breakdown runs the other way, loudest first, so the two orders are deliberately opposite.',
+                ],
+                ['Totals', 'In lines.'],
+                [
+                  'Sidebar asides',
+                  <>
+                    Lens-dependent. Churn shows <code>N commits</code>, Callers{' '}
+                    <code>N callers</code> (or <code>calls N</code> where it has none), Reach the
+                    mirror of that, Clones <code>1 of N</code> or <code>unique</code>. Every other
+                    lens shows <code>N lines</code>.
+                  </>,
+                ],
+              ]}
+            />
+            <Note>
+              <B>Stale readings.</B> Surprise, Legibility, Docs and Traps come from a reader
+              looking at a specific body of code. When that body changes, the reading is discarded
+              and the wedge shows as unmeasured rather than carrying a grade forward onto changed
+              code.
+            </Note>
+            <Note>
+              A function's hash covers its own documentation, its body, and the file header.
+              Editing the module header expires every reading in that file. Changing a sibling
+              function does not. Whitespace is split out before hashing, so reformatting the
+              repository does not expire anything.
+            </Note>
           </Group>
 
-          <Group title="Reading the map">
-            <div className="grid gap-1.5 py-2 text-[10px] leading-relaxed text-[var(--muted-foreground)]">
-              <p>
-                <b className="text-[var(--foreground)]">Width is lines of code, in every
-                lens.</b>{' '}
-                Switching lens changes color only, so a wedge stays in the same place at the
-                same size.
-              </p>
-              <p>
-                <b className="text-[var(--foreground)]">Gray means not measured</b>, never
-                zero. Each measurement returns no value rather than a default when it has
-                insufficient evidence.
-              </p>
-              <p>
-                <b className="text-[var(--foreground)]">A directory has no value of its own.</b>{' '}
-                Its band shows the distribution of the values inside it, so a directory
-                containing both old and new code shows both rather than an average.
-              </p>
-              <p>
-                <b className="text-[var(--foreground)]">Totals are in lines; counts are in the
-                finest unit available</b>{' '}
-                — functions where the code has been parsed into functions, files where it has
-                not.
-              </p>
-              <p>
-                <b className="text-[var(--foreground)]">A reading expires when its code
-                changes.</b>{' '}
-                Surprise, Legibility, Docs and Traps show a stale wedge as unmeasured rather
-                than keeping a grade taken against a body that has since moved.
-              </p>
-            </div>
+          <Group n={2} title="Passes">
+            <Note>
+              Three passes produce the data. A lens with no data behind it is locked and names the
+              pass that would fill it.
+            </Note>
+            <Rules
+              rows={[
+                [
+                  'Scan',
+                  <>
+                    Parses the repository into files and functions. Runs when a project is opened.
+                    Unlocks <B>Language</B> and <B>Clones</B>.
+                  </>,
+                ],
+                [
+                  'Trace',
+                  <>
+                    Reads the commit log, plus per-line history where a lens needs it. Unlocks{' '}
+                    <B>Blame</B>, <B>Churn</B> and <B>Age</B>.
+                  </>,
+                ],
+                [
+                  'Read',
+                  <>
+                    Agents read each function and file a report. Unlocks <B>Surprise</B>,{' '}
+                    <B>Legibility</B>, <B>Docs</B> and <B>Traps</B>.
+                  </>,
+                ],
+              ]}
+            />
+            <Note>
+              <B>Callers</B> and <B>Reach</B> are not unlocked by a pass. They need the language's
+              call syntax, which is implemented for most grammars but not all. Where it is
+              missing, the lens says so rather than reporting zero.
+            </Note>
+            <Note>
+              <B>Files without an extension are not scanned at all.</B> <code>Makefile</code>,{' '}
+              <code>justfile</code> and <code>Dockerfile</code> are absent from the map rather than
+              drawn uncolored, and they are not in any total. There is no shebang detection.
+            </Note>
           </Group>
 
-          <Group title="Scales — a value along a ramp">
+          <Group n={3} title="Lenses at a glance">
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full border-collapse text-[10px]">
+                <thead>
+                  <tr className="text-left text-[var(--muted-foreground)]">
+                    {['Lens', 'Kind', 'Measures', 'Needs'].map((h) => (
+                      <th key={h} className="border-b border-[var(--border)] pb-1 pr-3 font-semibold">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="text-[var(--muted-foreground)]">
+                  {(
+                    [
+                      ['Surprise', 'Scale', 'Predictability', 'Read'],
+                      ['Legibility', 'Scale', 'Reading difficulty', 'Read'],
+                      ['Docs', 'Scale', 'Documentation coverage', 'Read'],
+                      ['Churn', 'Scale', 'Commits behind the code', 'Trace'],
+                      ['Age', 'Scale', 'Time since last change', 'Trace'],
+                      ['Callers', 'Count', 'Incoming calls', 'Call syntax'],
+                      ['Reach', 'Count', 'Outgoing calls', 'Call syntax'],
+                      ['Traps', 'Mark', 'Reported hazards', 'Read'],
+                      ['Clones', 'Mark', 'Duplicated bodies', 'Scan'],
+                      ['Blame', 'Category', 'Last committer', 'Trace'],
+                      ['Language', 'Category', 'Source language', 'Scan'],
+                    ] as const
+                  ).map(([lens, kind, measures, needs]) => (
+                    <tr key={lens} className="border-b border-[var(--border)] last:border-b-0">
+                      <td className="py-1 pr-3 font-semibold text-[var(--foreground)]">{lens}</td>
+                      <td className="py-1 pr-3">{kind}</td>
+                      <td className="py-1 pr-3">{measures}</td>
+                      <td className="py-1">{needs}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Note>
+              <B>Scales</B> place a value along a ramp. <B>Counts</B> use four steps. <B>Marks</B>{' '}
+              are present or absent. <B>Categories</B> are names with no order; colors are assigned
+              by size, largest first.
+            </Note>
+          </Group>
+
+          <Group n={4} title="Scales">
             <Lens
               name="Surprise"
-              hint="predictability"
-              words="How much of a function's body a reader failed to predict from its surroundings, before being allowed to read it. Values: mundane · typical · quirky · obscure. Documentation reaches the reader before it predicts, so an explanation that helps lowers the score; one a model could reproduce from the body does not."
+              needs="Read"
+              swatch={<Ramp from="var(--heat-0)" to="var(--heat-4)" />}
+              measures="how much of a function's body the reader failed to predict from its surroundings, before being allowed to read the body itself."
+              values="mundane · typical · quirky · obscure"
+              ramp="mundane (dim) → obscure (bright)"
             >
-              <Ramp from="var(--heat-0)" to="var(--heat-4)" ends={['mundane', 'obscure']} />
+              The reader sees the documentation before it predicts. A comment that genuinely
+              explains the code lowers the score. A comment a model could reproduce from the body
+              alone does not.
             </Lens>
             <Lens
               name="Legibility"
-              hint="reading difficulty"
-              words="The reader's assessment of the body after reading it. Values: clean · nuanced · tangled · unclear. Independent of Surprise: code can be unpredictable and clearly written."
+              needs="Read"
+              swatch={<Ramp from="var(--legible-0)" to="var(--legible-4)" />}
+              measures="the reader's assessment of the body after reading it."
+              values="clean · nuanced · tangled · unclear"
+              ramp="clean (dim) → unclear (bright)"
             >
-              <Ramp from="var(--legible-0)" to="var(--legible-4)" ends={['clean', 'unclear']} />
+              Independent of Surprise. Code can be unpredictable and clearly written.
             </Lens>
             <Lens
               name="Docs"
-              hint="documentation coverage"
-              words="How much of the body the documentation covers, displayed as the gap — bright is undocumented. Values: full · decent · some · none. Documentation a model could reproduce from the body alone is graded none."
+              needs="Read"
+              swatch={<Ramp from="var(--docs-0)" to="var(--docs-4)" />}
+              measures="how much of the body the documentation covers, displayed as the gap."
+              values="full · decent · some · none"
+              ramp="covered (dim) → undocumented (bright)"
             >
-              <Ramp from="var(--docs-0)" to="var(--docs-4)" ends={['covered', 'undocumented']} />
+              Documentation a model could reproduce from the body alone is graded{' '}
+              <code>none</code>.
             </Lens>
             <Lens
               name="Churn"
-              hint="commits behind the code"
-              words="For a function, the number of distinct commits its current lines come from. For a file, commits in the last 90 days. These are different quantities and the tooltip states which. Values: 10+ commits · 3–9 · 1–2 · no commits found."
+              needs="Trace"
+              swatch={<Ramp from="var(--churn-0)" to="var(--churn-4)" />}
+              measures="for a function, the number of distinct commits its current lines come from. For a file, the number of commits in the last 90 days."
+              values="no commits found · 1–2 · 3–9 · 10+"
+              ramp="settled (dim) → churning (bright)"
             >
-              <Ramp from="var(--churn-0)" to="var(--churn-4)" ends={['settled', 'churning']} />
+              Functions and files are measuring different quantities. The tooltip states which one
+              applies.
             </Lens>
             <Lens
               name="Age"
-              hint="time since last change"
-              words="Days since the most recent commit to touch the code. Values: today · this week · this month · this quarter · older. Brightest is most recent."
-            >
-              <Ramp from="var(--age-0)" to="var(--age-4)" ends={['old', 'recent']} />
-            </Lens>
+              needs="Trace"
+              swatch={<Ramp from="var(--age-0)" to="var(--age-4)" />}
+              measures="days since the most recent commit to touch the code."
+              values="older · this quarter · this month · this week · today"
+              ramp="old (dim) → recent (bright)"
+            />
           </Group>
 
-          <Group title="Counts — four steps, one edge from each end">
+          <Group n={5} title="Counts">
             <Lens
               name="Callers"
-              hint="incoming calls"
-              words="Call sites within this repository. Values: no in-repo caller · 1 · 2–5 · 6+. Calls from outside the repository are not counted, so entry points and public APIs appear uncalled."
+              needs="call syntax"
+              swatch={
+                <Steps
+                  fills={[
+                    'var(--callers-0)',
+                    'var(--callers-1)',
+                    'var(--callers-2)',
+                    'var(--callers-4)',
+                  ]}
+                />
+              }
+              measures="call sites within this repository."
+              values="no in-repo caller · 1 · 2–5 · 6+"
             >
-              <Swatches
-                fills={[
-                  'var(--callers-0)',
-                  'var(--callers-1)',
-                  'var(--callers-2)',
-                  'var(--callers-4)',
-                ]}
-                ends={['none', '6+']}
-              />
+              Calls from outside the repository are not counted. Entry points and public APIs
+              appear uncalled.
             </Lens>
             <Lens
               name="Reach"
-              hint="outgoing calls"
-              words="In-repo functions this one calls, in the same four steps. Where the language's call syntax is not implemented, the lens reports that rather than reporting zero."
-            >
-              <Swatches
-                fills={['var(--reach-0)', 'var(--reach-1)', 'var(--reach-2)', 'var(--reach-4)']}
-                ends={['none', '6+']}
-              />
-            </Lens>
+              needs="call syntax"
+              swatch={
+                <Steps
+                  fills={['var(--reach-0)', 'var(--reach-1)', 'var(--reach-2)', 'var(--reach-4)']}
+                />
+              }
+              measures="in-repo functions this one calls."
+              values="none · 1 · 2–5 · 6+"
+            />
           </Group>
 
-          <Group title="Marks — present or absent, not graded">
+          <Group n={6} title="Marks">
+            <Note>
+              A mark is present or absent — there is no partial value and no ramp. Containers are
+              never tinted under a mark lens. A mark inside a directory is drawn as a dot on that
+              directory's ring.
+            </Note>
             <Lens
               name="Traps"
-              hint="reported hazards"
-              words="A reader flagged something likely to catch out the next person editing this code. Marked rather than graded: there is no partial value. An unmarked wedge means no trap was reported, which is not the same as none existing."
+              needs="Read"
+              swatch={
+                <div className="flex flex-col gap-1">
+                  <Chip fill="var(--trap)" label="trap" />
+                  <Chip fill="var(--structure)" label="none found" />
+                  <Chip fill="var(--unanalyzed)" label="not read" />
+                </div>
+              }
+              measures="whether a reader flagged something likely to catch out the next person editing this code."
+              values="trap · no trap reported · not read yet"
             >
-              <div className="flex items-center gap-1.5">
-                <span className="h-3 w-3 rounded-full" style={{ background: 'var(--trap)' }} />
-                <span className="mono text-[9px] text-[var(--muted-foreground)]">a trap</span>
-              </div>
+              <code>no trap reported</code> means a reader looked and found nothing.{' '}
+              <code>not read yet</code> means no reader has looked. The two are different neutrals
+              and can be told apart on the map. A clean wedge is not proof that no trap exists.
             </Lens>
             <Lens
               name="Clones"
-              hint="duplicated bodies"
-              words="Functions whose bodies are identical once identifiers and literals are flattened and comments dropped. Values: 2 clones · 3–5 · 6+ · no clone in this repo · too small to compare. A near-copy differing by one statement is not detected. Bodies below the token floor are never compared, reported separately from finding no clone."
+              needs="Scan"
+              swatch={
+                <div className="flex flex-col gap-1">
+                  <Chip fill="var(--clone)" label="a clone" />
+                  <Chip fill="var(--structure)" label="no clone" />
+                  <Chip fill="var(--unanalyzed)" label="too small" />
+                </div>
+              }
+              measures="functions whose bodies are identical once identifiers and literals are flattened and comments dropped."
+              values="a clone · no clone in this repo · too small to compare"
             >
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="h-3 w-3 rounded-[2px]" style={{ background: 'var(--clone)' }} />
-                  <span className="mono text-[9px] text-[var(--muted-foreground)]">a clone</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className="h-3 w-3 rounded-[2px]"
-                    style={{ background: 'var(--unanalyzed)' }}
-                  />
-                  <span className="mono text-[9px] text-[var(--muted-foreground)]">too small</span>
-                </div>
-              </div>
+              Every clone draws the same color regardless of how many copies exist. The size of the
+              group appears in the label as <code>1 of N clones</code> and in the sidebar
+              breakdown, not in the color.
+              <br />
+              A near-copy differing by one statement is not detected. Bodies below the token floor
+              are never compared and are reported separately from finding no clone.
             </Lens>
           </Group>
 
-          <Group title="Categories — a name, with no order implied">
+          <Group n={7} title="Categories">
             <Lens
               name="Blame"
-              hint="last committer"
-              words="The author of the most recently changed line. This is last modification, not authorship: a formatting change across many files makes its author the recorded value for all of them. Colors are assigned by size, largest first; how many get one is set by the colors control and the remainder are grouped as “other”. Uncommitted lines and untracked files are shown as themselves."
+              needs="Trace"
+              swatch={
+                <Steps
+                  fills={['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-4)', 'var(--cat-5)']}
+                />
+              }
+              measures="the author of the most recently changed line."
             >
-              <div className="flex gap-[3px]">
-                {['--cat-1', '--cat-2', '--cat-3', '--cat-4', '--cat-5'].map((c) => (
-                  <span
-                    key={c}
-                    className="h-4 flex-1 rounded-[2px]"
-                    style={{ background: `var(${c})` }}
-                  />
-                ))}
-              </div>
+              This is last modification, not authorship. A formatting change across many files
+              makes its author the recorded value for all of them.
+              <br />
+              How many authors get their own color is set by the <B>colors</B> control. The legend
+              names the top 16. Below that there are two different remainders:
+              <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                <li>
+                  <code>N more · shades repeat</code> — authors who still have a color, recycled
+                  from the unnamed part of the palette. Counted without a swatch because there is
+                  no single color to show.
+                </li>
+                <li>
+                  <code>other (N)</code> — authors with no rank at all, either past the color cap
+                  or unranked. Drawn in the structural neutral.
+                </li>
+              </ul>
+              Uncommitted lines and untracked files are shown as themselves.
             </Lens>
             <Lens
               name="Language"
-              hint="source language"
-              words="The file's language, determined by extension. Colors assigned the same way as Blame. Useful for locating language boundaries, which often do not follow directory names."
+              needs="Scan"
+              swatch={
+                <Steps fills={['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-4)']} />
+              }
+              measures="the file's language, by extension."
             >
-              <div className="flex gap-[3px]">
-                {['--cat-1', '--cat-2', '--cat-3', '--cat-4'].map((c) => (
-                  <span
-                    key={c}
-                    className="h-4 flex-1 rounded-[2px]"
-                    style={{ background: `var(${c})` }}
-                  />
-                ))}
-              </div>
+              Useful for locating language boundaries, which often do not follow directory names.
+              <br />
+              <code>.h</code> is mapped to C++ unconditionally, so C headers report as C++.
             </Lens>
+          </Group>
+
+          <Group n={8} title="Controls">
+            <Rules
+              rows={[
+                [
+                  'Lens',
+                  'Picks the measurement that sets color. Locked lenses name the pass that would unlock them.',
+                ],
+                [
+                  'Colors',
+                  'Blame and Language only. Sets how many categories get their own color before the rest are grouped.',
+                ],
+                ['Rings', 'How many levels deep the sunburst draws from the current root.'],
+                [
+                  'Band',
+                  'How much of each directory wedge is given over to the distribution band showing the values inside it. At 0% the band is at its minimum width, a few pixels; it is never off.',
+                ],
+                ['Up', 'Moves the root one level toward the repository root.'],
+                ['Search', 'Finds a file or function by name.'],
+              ]}
+            />
+            <h4 className="mt-4 text-[11px] font-semibold">History</h4>
+            <Note>Replays the repository's commits in order, redrawing the map at each step.</Note>
+            <Note>
+              <B>Age and Churn become relative to the playhead</B> rather than to today, so a
+              function committed the day before the frame you are looking at reads as recent.
+            </Note>
+            <Note>
+              The speed control sets how long the whole visible story takes in wall-clock seconds,
+              not how fast individual commits pass:
+            </Note>
+            <div className="mono mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-[var(--muted-foreground)]">
+              {[
+                ['0.3x', '100s'],
+                ['1x', '30s'],
+                ['3x', '10s'],
+                ['5x', '6s'],
+                ['10x', '3s'],
+              ].map(([label, wall]) => (
+                <span key={label}>
+                  <span className="text-[var(--foreground)]">{label}</span> {wall}
+                </span>
+              ))}
+            </div>
+            <Note>
+              The story is the commits <B>in the current scope</B>. Drill into a directory and 1x
+              is still 30 seconds, now spent on that directory's history alone.
+            </Note>
+            <Note>
+              The <B>bolt</B> toggles whether the commit under the playhead flashes what it
+              touched. The <B>camera</B> exports the replay as a movie.
+            </Note>
+          </Group>
+
+          <Group n={9} title="Status readouts">
+            <Rules
+              rows={[
+                [
+                  'too thin',
+                  'Wedges narrower than one pixel at their own ring’s radius, so they are culled. Moves with both window size and ring count. They are still in every total.',
+                ],
+                ['stale', 'Readings discarded because their code changed. See 1.'],
+                ['unread', 'Functions or files no reader has looked at yet.'],
+              ]}
+            />
+            <Note>
+              A breakdown header reading <code>N of M</code> means the bucket holds M, of which
+              M − N cannot be listed because the window has not fetched the file ring they live in.
+            </Note>
           </Group>
         </div>
 
@@ -340,18 +547,16 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
 /**
  * The way in, beside the lens switcher.
  *
- * Next to the switcher rather than off in the corner with the window chrome, because what it
- * explains is the switcher: eleven questions whose vocabularies are the reason to trust any
- * of them. A help button parked away from the thing it is about is a help button nobody
- * presses at the moment they need it.
+ * Next to the switcher rather than off with the window chrome, because what it explains is the
+ * switcher. A help button parked in a corner is one nobody presses at the moment they need it.
  */
 export function HelpButton({ on, onOpen }: { on: boolean; onOpen: () => void }) {
   return (
     <button
       type="button"
       onClick={onOpen}
-      aria-label="What the colors mean"
-      title="What the colors mean"
+      aria-label="Lens reference"
+      title="Lens reference"
       className="flex items-center rounded-full px-2 py-[3px] transition-colors"
       style={{
         background: on ? 'var(--accent)' : 'color-mix(in oklch, var(--foreground) 8%, transparent)',
@@ -359,8 +564,7 @@ export function HelpButton({ on, onOpen }: { on: boolean; onOpen: () => void }) 
         boxShadow: on ? '0 1px 2px rgb(0 0 0 / 0.25)' : undefined,
       }}
     >
-      {/* Drawn, not a glyph, and sized to the pills' line box — the argument `FindButton`
-          makes at length, and the reason this row's controls all stand the same height. */}
+      {/* Drawn, not a glyph, and sized to the pills' line box — see `FindButton`. */}
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
         <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.5" />
         <path
