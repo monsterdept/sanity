@@ -82,7 +82,11 @@ use std::path::{Path, PathBuf};
 ///    `model::lang_label`. A version-8 tree holds the old spelling, which would deserialize
 ///    to `None` and leave the Language lens with nothing to say about any file: the same
 ///    hazard as 8, one field over, and the reason this is a bump rather than a quiet edit.
-const VERSION: u32 = 9;
+/// 10: `ScanStats::unscanned` — the tally of the files the walk saw and did not scan. It is
+///    `#[serde(default)]`, so a version-9 record loads with an EMPTY tally: not "not
+///    measured" but "nothing was dropped", which is a confident answer nobody computed and
+///    the same hazard as 8 and 9 one field further along.
+const VERSION: u32 = 10;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.
@@ -580,6 +584,7 @@ mod tests {
                 commits: 0,
                 files_scanned: 1,
                 files_skipped: 0,
+                unscanned: Default::default(),
                 functions: 1,
                 authors: Vec::new(),
                 without_history: false,

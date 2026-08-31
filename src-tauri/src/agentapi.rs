@@ -2157,6 +2157,8 @@ async fn open_project(
     // to size the job from — so it has to be the whole job, not the function half of it.
     let files = count_files(&scan);
     let shape = shape_of(&scan);
+    // Before `scan` is handed to the project, like `shape` above it.
+    let unscanned = unscanned_of(&scan);
 
     let mut s = lock(&state);
     // Reloaded from `.sanity/` against the fresh tree rather than carried over from the
@@ -2247,6 +2249,12 @@ async fn open_project(
         // numbers instead of a guess. Nobody shipping this tool can know which of these
         // directories is worth a reading; somebody who has just read the repo can ask.
         "shape": shape,
+        // **What is NOT on that map.** A repo the scanner mostly cannot parse still draws a
+        // well-formed sunburst — point it at 110 `.scad` files and 3 `.rb` and it draws the
+        // three Ruby files — and every count above is over the part it could read. Two lists,
+        // never added together: `unparsed` is a grammar this tool does not have, `skipped` is
+        // a language it has and declined. See `unscanned_of`.
+        "unscanned": unscanned,
         "sanityignore": if excluded > 0 {
             "In effect — `excluded` above is what it set aside."
         } else {
@@ -2633,6 +2641,44 @@ fn shape_of(scan: &Scan) -> Vec<serde_json::Value> {
             serde_json::json!({ "dir": dir, "functions": kept, "excluded": dropped })
         })
         .collect()
+}
+
+/// What the walk left out, as two lists rather than a share.
+///
+/// **A percentage here would be the frightening number that means nothing.** Measured over
+/// text files the unscanned part of a repo is routinely a third of it, and almost all of that
+/// is lockfiles, Markdown, JSON and YAML — none of which has a function unit. "110 .scad files
+/// not parsed" is a sentence somebody can act on; "30% unmeasured" is a verdict nobody asked
+/// this tool to reach. Mechanism here, judgement from the reader, decision with the human —
+/// the division `.sanityignore` already runs on.
+///
+/// Capped, and the remainder is COUNTED rather than dropped. `shape_of` truncates to fifteen
+/// directories and says so nowhere in what it emits, which leaves a reader proposing a
+/// `.sanityignore` unable to see what was withheld; this is the same hazard `peers_omitted`
+/// exists to close, so the omission is a field.
+fn unscanned_of(scan: &Scan) -> serde_json::Value {
+    /// Enough to show the shape of a repo's gaps without spending a reader's context on the
+    /// tail of one-file extensions, which is where this list gets long and stops informing.
+    const ROWS: usize = 12;
+    let u = &scan.stats.unscanned;
+    let unparsed: Vec<serde_json::Value> = u
+        .unparsed
+        .iter()
+        .take(ROWS)
+        .map(|k| serde_json::json!({ "ext": k.ext, "files": k.files }))
+        .collect();
+    serde_json::json!({
+        "unparsed": unparsed,
+        "unparsed_omitted": u.unparsed.len().saturating_sub(unparsed.len()),
+        // Images, fonts, media and compiled output, kept out of the list above so it can
+        // answer the question it is for. Reported so the filter is visible rather than felt.
+        "assets": u.assets,
+        "skipped": u
+            .skipped
+            .iter()
+            .map(|s| serde_json::json!({ "reason": s.reason, "files": s.files }))
+            .collect::<Vec<_>>(),
+    })
 }
 
 /// Hand out the next few functions worth assessing, from the active project.
@@ -5076,6 +5122,14 @@ pub struct ProjectSummary {
     /// it — the sidebar's `81/377` is a claim about coverage, and a denominator that
     /// silently shrank is the same lie as a reading that outlived its code.
     pub excluded: usize,
+    /// What the walk saw and did not scan — see [`crate::scan::Unscanned`].
+    ///
+    /// **`None` is "nobody has looked", not "nothing was dropped".** The rows for a project
+    /// that has not been scanned zero every other count on the stated ground that a guess
+    /// would be read as a measurement; an empty `Unscanned` is worse than a guess, because
+    /// an empty list of gaps is a confident claim that there are none. So the absence is
+    /// carried in the type rather than spelled as emptiness.
+    pub unscanned: Option<crate::scan::Unscanned>,
     /// Functions and files too large for a reading to be taken over — see
     /// [`Node::unreadable`]. Out of the denominator like `excluded` and counted apart from
     /// it: the sidebar must not say a repo is fully read while holding work no run can
@@ -5237,6 +5291,7 @@ impl ProjectList {
                 let Counts { kept: functions, excluded, oversize } = count_funcs(&p.scan);
                 let files = count_files(&p.scan).kept;
                 ProjectSummary {
+                    unscanned: Some(p.scan.stats.unscanned.clone()),
                     trace_depth: p.trace.depth,
                     trace_cost: p.trace.pending.clone(),
                     tracing_history: p.trace.running.clone(),
@@ -5348,6 +5403,8 @@ impl ProjectList {
                         scan_cost: Some(cost.clone()),
                         functions: 0,
                         files: 0,
+                        // Not walked yet, so there is no tally — see the field.
+                        unscanned: None,
                         scanned: 0,
                         excluded: 0,
                         oversize: 0,
@@ -5406,6 +5463,8 @@ impl ProjectList {
                         // read as a measurement.
                         functions: 0,
                         files: 0,
+                        // Not walked yet, so there is no tally — see the field.
+                        unscanned: None,
                         // Nothing has been scanned, so there is no revision to report. The
                         // window reads a change in this as "refetch"; starting at zero means
                         // the first real scan is a change from it.

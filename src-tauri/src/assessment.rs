@@ -2133,6 +2133,7 @@ mod tests {
                 commits: 0,
                 files_scanned: 0,
                 files_skipped: 0,
+                unscanned: Default::default(),
                 functions: funcs.len(),
                 authors: Vec::new(),
                 without_history: true,

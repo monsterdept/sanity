@@ -24,6 +24,40 @@ const MAX_FILE_BYTES: u64 = 1_000_000;
 /// reliable cross-language tell; a `// @generated` marker convention is not universal.
 const MINIFIED_LINE_BYTES: usize = 2_000;
 
+/// Extensions that are not code and never will be, so a missing grammar is not what they mean.
+///
+/// **Kept out of [`Unscanned::unparsed`] because that list has exactly one job: telling you
+/// which grammar is worth adding.** Measured across this machine's projects, the kinds with a
+/// function unit that sanity cannot read are `.erb`, `.scad` and `justfile` — and every one of
+/// them sits below the images in its own repo. `attic` reports 819 distinct kinds led by
+/// Markdown, WebP and PNG; a list ranked purely by count buries the one row somebody would act
+/// on under the ones nobody can.
+///
+/// **This is the same kind of list as [`VENDORED`], and it is a list for the same reason.**
+/// Whether `tests-unit/` is noise is a judgement about a specific codebase and the tool
+/// provider cannot make it. Whether a PNG has functions in it is not a judgement at all.
+/// The line is what somebody shipping the tool can know without seeing the repo.
+///
+/// They are COUNTED, in [`Unscanned::assets`], rather than dropped on the floor: a filter
+/// nobody can see is how an instrument comes to overstate its own coverage, which is the
+/// argument `calls_resolved` and `excluded` are both already built on.
+const ASSETS: &[&str] = &[
+    // Images
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "icns", "tiff", "tif", "svg", "avif",
+    "heic",
+    // Fonts
+    "ttf", "otf", "woff", "woff2", "eot",
+    // Audio and video
+    "mp3", "mp4", "wav", "flac", "ogg", "webm", "mov", "avi", "mkv", "aac", "m4a",
+    // Archives and compiled output
+    "zip", "gz", "tgz", "bz2", "xz", "zst", "tar", "7z", "rar", "jar", "so", "dylib", "dll",
+    "exe", "bin", "wasm", "pyc", "pyo", "class", "o", "a", "pdb",
+    // Documents and design files
+    "pdf", "psd", "sketch", "ai", "eps",
+    // Binary data
+    "db", "sqlite", "sqlite3", "parquet",
+];
+
 /// Path segments whose contents are somebody else's code.
 ///
 /// .gitignore catches most of it, but plenty of projects *commit* their vendored
@@ -156,7 +190,21 @@ pub const AUTHOR_SLOTS: usize = 1024;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanStats {
     pub files_scanned: usize,
+    /// Collected files that then failed to parse.
+    ///
+    /// **Not "everything the scan did not read", and the name has invited that reading.** Its
+    /// denominator is the output of [`walk_files`], so every file dropped by the walk itself
+    /// — no grammar, oversize, vendored — is already gone before this is measured and can
+    /// never appear here. Those are [`ScanStats::unscanned`], counted separately because they
+    /// are a different claim: this is a file the tool tried to read, those are files it never
+    /// opened.
     pub files_skipped: usize,
+    /// What the walk saw and did not scan — see [`Unscanned`].
+    ///
+    /// `#[serde(default)]` so a record written before this existed still loads, which makes
+    /// it a format change: `treecache::VERSION` moved in the same commit.
+    #[serde(default)]
+    pub unscanned: Unscanned,
     pub functions: usize,
     /// True when the repo has no usable git history, so the stability axis is missing
     /// and every quadrant verdict is really only half a verdict. The UI must say so —
@@ -454,14 +502,87 @@ fn shape_of(files: &[ParsedFile]) -> Vec<ShapeFile> {
         .collect()
 }
 
-/// Collect the parseable source files under `root`.
+/// One kind of file the walk saw and could not parse, with how many there were.
+///
+/// Keyed by extension, or by the whole filename when there is none — `justfile`,
+/// `Makefile` and `Dockerfile` are the extensionless files anybody would want a grammar
+/// for, and folding them into one `(no extension)` row would hide exactly the ones worth
+/// knowing about.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnparsedKind {
+    pub ext: String,
+    pub files: usize,
+}
+
+/// Files of a language this tool CAN read, dropped anyway, by why.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkippedKind {
+    pub reason: String,
+    pub files: usize,
+}
+
+/// What the walk saw and did not scan.
+///
+/// **A repo the scanner mostly cannot parse used to draw a confident map.** Point sanity at a
+/// project of 110 `.scad` files and 3 `.rb` and it drew the three Ruby files: a well-formed
+/// sunburst that was wrong about most of the repo, with nothing on screen saying so. That is
+/// the hazard the no-git-history warning exists for, reached through a different door — and
+/// this door had no warning on it, because the files were dropped inside a `filter_map` and
+/// nothing counted them.
+///
+/// **Two lists rather than one number, and no percentage anywhere.** Measured over text
+/// files, the unscanned share is 30% of this repo and 37% of a sibling, and it is lockfiles,
+/// Markdown, JSON and YAML almost everywhere — none of which has a function unit, and
+/// Markdown already reaches the metric through the prompt. A headline "30% unmeasured" is a
+/// frightening number that means nothing, which is a term claiming confidence it has not got
+/// run in reverse. "110 `.scad` files not parsed" supports a decision instead.
+///
+/// The two lists are different claims and must not be added together. [`Self::unparsed`] is
+/// the tool having no grammar; [`Self::skipped`] is a language it reads perfectly well,
+/// refused on size or on somebody else having written it. A reader can act on the first by
+/// asking for a grammar and on the second by moving a file, and a merged count answers
+/// neither.
+///
+/// `.gitignore` is not in here on purpose: a file the repo itself says is not source is the
+/// user's own stated intent, not the tool being quiet about a gap.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Unscanned {
+    /// No grammar for it. Most files first, then by name so a tie does not reshuffle.
+    ///
+    /// Assets are not in here — see [`ASSETS`]. This list answers "which grammar is worth
+    /// adding", and a kind that could never have one is not an answer to it.
+    pub unparsed: Vec<UnparsedKind>,
+    /// A known language, dropped anyway. Most files first.
+    pub skipped: Vec<SkippedKind>,
+    /// Files that are not code at all — see [`ASSETS`].
+    ///
+    /// One number rather than a list, because there is nothing to act on: the shape of a
+    /// repo's images does not change what anybody would do. It is here at all so the filter
+    /// above it is visible, which is the difference between a list that leaves something out
+    /// and a list that hides it.
+    pub assets: usize,
+}
+
+/// Collect the parseable source files under `root`, and a tally of what was left behind.
 ///
 /// `ignore::WalkBuilder` honors .gitignore/.ignore for free — the same matcher ripgrep
 /// uses. This is not a nicety: without it `node_modules` and `target` are the two
 /// biggest wedges in every JavaScript and Rust project on earth, and the picture says
 /// nothing about the code the user wrote.
-pub(crate) fn collect_files(root: &Path) -> Vec<(PathBuf, Lang)> {
-    ignore::WalkBuilder::new(root)
+///
+/// **The tally costs nothing.** These entries are already walked and already discarded; the
+/// only new work is incrementing a counter on the way past, which is why this can be the
+/// same pass rather than a second one. It replaced a `filter_map` whose six separate `?`
+/// returns were all spelled the same way, so no caller could tell a file with no extension
+/// from a megabyte of generated client.
+pub(crate) fn walk_files(root: &Path) -> (Vec<(PathBuf, Lang)>, Unscanned) {
+    let mut kept: Vec<(PathBuf, Lang)> = Vec::new();
+    let mut unparsed: std::collections::HashMap<String, usize> = Default::default();
+    let mut oversize = 0usize;
+    let mut vendored_files = 0usize;
+    let mut assets = 0usize;
+
+    let walk = ignore::WalkBuilder::new(root)
         .hidden(true)
         .git_ignore(true)
         .git_global(true)
@@ -471,22 +592,78 @@ pub(crate) fn collect_files(root: &Path) -> Vec<(PathBuf, Lang)> {
         // tarball, a worktree, or a project whose history hasn't been created yet still
         // has a .gitignore that says which files are not the user's code.
         .require_git(false)
-        .build()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
-        .filter_map(|e| {
-            let path = e.path();
-            let ext = path.extension()?.to_str()?;
-            let lang = Lang::from_extension(ext)?;
-            let size = e.metadata().ok()?.len();
-            let vendored = path
-                .strip_prefix(root)
-                .unwrap_or(path)
-                .components()
-                .any(|c| VENDORED.contains(&c.as_os_str().to_string_lossy().as_ref()));
-            (size <= MAX_FILE_BYTES && !vendored).then(|| (path.to_path_buf(), lang))
-        })
-        .collect()
+        .build();
+
+    for e in walk.filter_map(Result::ok) {
+        if !e.file_type().is_some_and(|t| t.is_file()) {
+            continue;
+        }
+        let path = e.path();
+        let vendored = path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .components()
+            .any(|c| VENDORED.contains(&c.as_os_str().to_string_lossy().as_ref()));
+        let lang = path.extension().and_then(|x| x.to_str()).and_then(Lang::from_extension);
+        let Some(lang) = lang else {
+            // **Somebody else's unreadable files are not this repo's gap.** A vendored tree
+            // is mostly JSON, Markdown and licences, and counting those here would bury the
+            // repo's own `.scad` under ten thousand rows about `node_modules`. The known
+            // languages in there are still counted, below, because "3,000 vendored JS files"
+            // is a fact about this map; "3,000 vendored .md" is not.
+            if !vendored {
+                // The extension as written. `Lang::from_extension` is a case-sensitive table,
+                // so lowercasing here would report `.JSON` as a kind that was tried and is
+                // not — see `model::from_extension`.
+                let key = match path.extension().and_then(|x| x.to_str()) {
+                    Some(ext) => ext.to_string(),
+                    None => path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+                };
+                // Matched case-insensitively, unlike the grammar table: `.PNG` is a picture in
+                // any spelling, where a `.R` that is not `.r` is a question about which
+                // language somebody meant and is left for `from_extension` to refuse.
+                if ASSETS.contains(&key.to_ascii_lowercase().as_str()) {
+                    assets += 1;
+                } else if !key.is_empty() {
+                    *unparsed.entry(key).or_default() += 1;
+                }
+            }
+            continue;
+        };
+        if vendored {
+            vendored_files += 1;
+            continue;
+        }
+        // A file whose metadata will not read is not counted anywhere: nothing is known
+        // about it, including whether it was worth mentioning, and inventing a row for it
+        // would be the instrument reporting its own stumble as a property of the repo.
+        let Some(size) = e.metadata().ok().map(|m| m.len()) else { continue };
+        if size > MAX_FILE_BYTES {
+            oversize += 1;
+            continue;
+        }
+        kept.push((path.to_path_buf(), lang));
+    }
+
+    let mut rows: Vec<UnparsedKind> =
+        unparsed.into_iter().map(|(ext, files)| UnparsedKind { ext, files }).collect();
+    rows.sort_by(|a, b| b.files.cmp(&a.files).then_with(|| a.ext.cmp(&b.ext)));
+
+    let mut skipped: Vec<SkippedKind> = Vec::new();
+    if oversize > 0 {
+        skipped.push(SkippedKind { reason: "larger than 1 MB".into(), files: oversize });
+    }
+    if vendored_files > 0 {
+        skipped.push(SkippedKind { reason: "vendored path".into(), files: vendored_files });
+    }
+    skipped.sort_by_key(|a| std::cmp::Reverse(a.files));
+
+    (kept, Unscanned { unparsed: rows, skipped, assets })
+}
+
+/// Just the files — for callers that only need the list, such as a signature or a size.
+pub(crate) fn collect_files(root: &Path) -> Vec<(PathBuf, Lang)> {
+    walk_files(root).0
 }
 
 /// Forward slashes on every platform: node ids are built from these, and a scan on
@@ -1170,7 +1347,7 @@ pub fn scan(
     // seconds under one word, `walking`, while it did three unrelated things: a filesystem
     // walk, a `git log` over five thousand commits, and a 300MB cache read.
     on_progress(Progress::phase("walking the repo"));
-    let files = collect_files(root);
+    let (files, unscanned) = walk_files(root);
     let total_found = files.len();
     lap("walk");
 
@@ -1542,6 +1719,7 @@ pub fn scan(
         stats: ScanStats {
             files_scanned,
             files_skipped: total_found.saturating_sub(files_scanned),
+            unscanned,
             functions,
             without_history: history.is_empty(),
             // Capped where the palette stops meaning anything — see `ScanStats::authors`.
@@ -1616,6 +1794,79 @@ mod tests {
         fs::create_dir_all(dir.path().join("vendor")).unwrap();
         fs::write(dir.path().join("vendor/huge.rs"), "fn vendored() { }\n").unwrap();
         dir
+    }
+
+    /// The walk counts what it could not parse apart from what it refused, and both apart
+    /// from somebody else's code.
+    ///
+    /// **Written because the old `filter_map` spelled six different refusals the same way.**
+    /// Every drop was a bare `?`, so a repo of 110 `.scad` files and 3 `.rb` drew the three
+    /// Ruby files and said nothing about the rest. The three counters are three different
+    /// claims and the test pins the boundaries between them, not just their totals: a grammar
+    /// this tool does not have, a language it has and declined to read, and a vendored tree
+    /// that is neither.
+    #[test]
+    fn the_walk_counts_what_it_could_not_parse_apart_from_what_it_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let at = |p: &str| dir.path().join(p);
+        fs::create_dir_all(at("src")).unwrap();
+        fs::create_dir_all(at("shapes")).unwrap();
+        // `third_party` rather than `node_modules`: a global gitignore excludes the latter on
+        // most machines, so the walker drops it before `VENDORED` is ever consulted and the
+        // test would pass or fail on the developer's git config. That is also precisely why
+        // `VENDORED` is a second line rather than the first — see its own doc.
+        fs::create_dir_all(at("third_party")).unwrap();
+        fs::write(at("src/a.rs"), "fn add(a: u32) -> u32 { a + 1 }\n").unwrap();
+        fs::write(at("shapes/one.scad"), "module one() { }\n").unwrap();
+        fs::write(at("shapes/two.scad"), "module two() { }\n").unwrap();
+        fs::write(at("justfile"), "check:\n\tcargo check\n").unwrap();
+        // A language the tool reads perfectly well, in a tree somebody else wrote.
+        fs::write(at("third_party/dep.js"), "function dep() { }\n").unwrap();
+        // Unparseable AND vendored: counted nowhere, or every repo's own gap is buried under
+        // ten thousand rows about its dependencies.
+        fs::write(at("third_party/readme.md"), "# dep\n").unwrap();
+        // Not code in any repo, so it is a count and never a row: it cannot be the grammar
+        // anybody is missing, and ranked by count it would outnumber the ones that can.
+        fs::write(at("shapes/render.png"), "not source").unwrap();
+        // A different basename, not just a different case: the mac filesystem is
+        // case-insensitive, so `render.png` and `RENDER.PNG` are one file and the test would
+        // pin nothing.
+        fs::write(at("shapes/PREVIEW.PNG"), "not source").unwrap();
+        // Over `MAX_FILE_BYTES`, and Rust, so it can only land in the refused list.
+        fs::write(at("src/generated.rs"), "// ".to_string() + &"x".repeat(1_000_001)).unwrap();
+
+        let (kept, un) = walk_files(dir.path());
+
+        let names: Vec<String> =
+            kept.iter().map(|(p, _)| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, vec!["a.rs"], "only the one parseable, in-scope, small file");
+
+        let unparsed: Vec<(&str, usize)> =
+            un.unparsed.iter().map(|u| (u.ext.as_str(), u.files)).collect();
+        assert_eq!(
+            unparsed,
+            vec![("scad", 2), ("justfile", 1)],
+            "most files first; an extensionless file is keyed by its whole name, which is the \
+             only way `justfile` is ever visible as a grammar worth having"
+        );
+        assert!(
+            !un.unparsed.iter().any(|u| u.ext == "md"),
+            "a vendored Markdown file is not this repo's missing grammar"
+        );
+        assert_eq!(un.assets, 2, "both spellings of an image, counted and never listed");
+        assert!(
+            !un.unparsed.iter().any(|u| u.ext.eq_ignore_ascii_case("png")),
+            "an image is not a grammar anybody is missing, in either spelling"
+        );
+
+        let skipped: Vec<(&str, usize)> =
+            un.skipped.iter().map(|s| (s.reason.as_str(), s.files)).collect();
+        assert_eq!(
+            skipped,
+            vec![("larger than 1 MB", 1), ("vendored path", 1)],
+            "a known language dropped on size and one dropped on provenance are two reasons, \
+             and neither is a missing grammar"
+        );
     }
 
     /// The neighbour table is built by the scan that produced the tree, and describes the
