@@ -8,6 +8,12 @@ import { Overlay } from './Overlay'
  * because it is prose; this file is what puts swatches next to it, and a swatch is the half that
  * cannot live in Markdown. Where both carry a sentence, the Markdown is right.
  *
+ * **In the switcher's order, which is the order somebody will look them up in.** It was the
+ * source document's grouping — every scale, then every count, then the marks — which reads well
+ * as a document and badly as a lookup: you arrive knowing the name you saw in the pulldown, and
+ * hunting for it in a different sequence is the one thing a reference must not make you do. The
+ * kinds still cluster, because the switcher is itself ordered by kind.
+ *
  * **Only the lenses, and no section furniture.** The document also covers the drawing, the
  * passes, the controls and the status readouts; carrying those here made the panel long enough
  * that the entry somebody opened it for was below the fold. What is left is a lookup. The kinds
@@ -162,24 +168,30 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
             <code>none</code>.
           </Lens>
           <Lens
-            name="Churn"
-            needs="Trace"
-            swatch={<Ramp from="var(--churn-0)" to="var(--churn-4)" />}
-            measures="for a function, the number of distinct commits its current lines come from. For a file, the number of commits in the last 90 days."
-            values="no commits found · 1–2 · 3–9 · 10+"
-            ramp="settled (dim) → churning (bright)"
+            name="Traps"
+            needs="Read"
+            swatch={<Steps fills={['var(--trap)', 'var(--structure)', 'var(--unanalyzed)']} />}
+            measures="whether a reader flagged something likely to catch out the next person editing this code."
+            values="trap · no trap reported · not read yet"
           >
-            Functions and files are measuring different quantities. The tooltip states which one
-            applies.
+            <code>no trap reported</code> means a reader looked and found nothing.{' '}
+            <code>not read yet</code> means no reader has looked. The two are different neutrals
+            and can be told apart on the map. A clean wedge is not proof that no trap exists.
           </Lens>
           <Lens
-            name="Age"
-            needs="Trace"
-            swatch={<Ramp from="var(--age-0)" to="var(--age-4)" />}
-            measures="days since the most recent commit to touch the code."
-            values="older · this quarter · this month · this week · today"
-            ramp="old (dim) → recent (bright)"
-          />
+            name="Clones"
+            needs="Scan"
+            swatch={<Steps fills={['var(--clone)', 'var(--structure)', 'var(--unanalyzed)']} />}
+            measures="functions whose bodies are identical once identifiers and literals are flattened and comments dropped."
+            values="a clone · no clone in this repo · too small to compare"
+          >
+            Every clone draws the same color regardless of how many copies exist. The size of the
+            group appears in the label as <code>1 of N clones</code> and in the sidebar
+            breakdown, not in the color.
+            <br />
+            A near-copy differing by one statement is not detected. Bodies below the token floor
+            are never compared and are reported separately from finding no clone.
+          </Lens>
           <Lens
             name="Callers"
             needs="call syntax"
@@ -210,31 +222,6 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
             measures="in-repo functions this one calls."
             values="none · 1 · 2–5 · 6+"
           />
-          <Lens
-            name="Traps"
-            needs="Read"
-            swatch={<Steps fills={['var(--trap)', 'var(--structure)', 'var(--unanalyzed)']} />}
-            measures="whether a reader flagged something likely to catch out the next person editing this code."
-            values="trap · no trap reported · not read yet"
-          >
-            <code>no trap reported</code> means a reader looked and found nothing.{' '}
-            <code>not read yet</code> means no reader has looked. The two are different neutrals
-            and can be told apart on the map. A clean wedge is not proof that no trap exists.
-          </Lens>
-          <Lens
-            name="Clones"
-            needs="Scan"
-            swatch={<Steps fills={['var(--clone)', 'var(--structure)', 'var(--unanalyzed)']} />}
-            measures="functions whose bodies are identical once identifiers and literals are flattened and comments dropped."
-            values="a clone · no clone in this repo · too small to compare"
-          >
-            Every clone draws the same color regardless of how many copies exist. The size of the
-            group appears in the label as <code>1 of N clones</code> and in the sidebar
-            breakdown, not in the color.
-            <br />
-            A near-copy differing by one statement is not detected. Bodies below the token floor
-            are never compared and are reported separately from finding no clone.
-          </Lens>
           <Lens
             name="Blame"
             needs="Trace"
@@ -275,6 +262,25 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
             <br />
             <code>.h</code> is mapped to C++ unconditionally, so C headers report as C++.
           </Lens>
+          <Lens
+            name="Churn"
+            needs="Trace"
+            swatch={<Ramp from="var(--churn-0)" to="var(--churn-4)" />}
+            measures="for a function, the number of distinct commits its current lines come from. For a file, the number of commits in the last 90 days."
+            values="no commits found · 1–2 · 3–9 · 10+"
+            ramp="settled (dim) → churning (bright)"
+          >
+            Functions and files are measuring different quantities. The tooltip states which one
+            applies.
+          </Lens>
+          <Lens
+            name="Age"
+            needs="Trace"
+            swatch={<Ramp from="var(--age-0)" to="var(--age-4)" />}
+            measures="days since the most recent commit to touch the code."
+            values="older · this quarter · this month · this week · today"
+            ramp="old (dim) → recent (bright)"
+          />
         </div>
 
         <footer className="flex shrink-0 justify-end border-t border-[var(--border)] px-5 py-3">
