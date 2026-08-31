@@ -4,18 +4,20 @@ import { Overlay } from './Overlay'
 /**
  * The lens reference: eleven rows, each with its own key beside it.
  *
- * **`docs/lenses.md` is the source and this is the lens half of it.** The prose is edited there
- * because it is prose; this file is what puts swatches next to it, and a swatch is the half that
- * cannot live in Markdown. Where both carry a sentence, the Markdown is right.
+ * **There is nothing upstream of this file.** The prose and the swatches live together here, so
+ * a sentence is edited here and a claim here is the claim the reader gets. This header used to
+ * name a Markdown source that overrode it on any sentence they both carried; there is no such
+ * document, and a reference implementation that is not in the repo is a place for the two to
+ * disagree unobserved.
  *
- * **In the switcher's order, which is the order somebody will look them up in.** It was the
- * source document's grouping — every scale, then every count, then the marks — which reads well
- * as a document and badly as a lookup: you arrive knowing the name you saw in the pulldown, and
+ * **In the switcher's order, which is the order somebody will look them up in.** It was grouped
+ * by kind once — every scale, then every count, then the marks — which reads well as a document
+ * and badly as a lookup: you arrive knowing the name you saw in the pulldown, and
  * hunting for it in a different sequence is the one thing a reference must not make you do. The
  * kinds still cluster, because the switcher is itself ordered by kind.
  *
- * **Only the lenses, and no section furniture.** The document also covers the drawing, the
- * passes, the controls and the status readouts; carrying those here made the panel long enough
+ * **Only the lenses, and no section furniture.** The drawing, the passes, the controls and the
+ * status readouts all want explaining too, and carrying them here made the panel long enough
  * that the entry somebody opened it for was below the fold. What is left is a lookup. The kinds
  * are not labelled because the swatch says which — a ramp, four steps, or a set of chips — and a
  * heading that repeats what the picture already shows is a row of nothing between the reader and
@@ -248,6 +250,11 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
                 or unranked. Drawn in the structural neutral.
               </li>
             </ul>
+            The legend and the panel are ordered by two different things. The legend ranks the
+            whole repo's cast by commits, once, so a color does not move when you drill or
+            replay; the panel ranks by the lines each person holds under the cursor, which is
+            the number its rows print. On a big repo they disagree, and both are right.
+            <br />
             Uncommitted lines and untracked files are shown as themselves.
           </Lens>
           <Lens

@@ -107,8 +107,16 @@ pub struct History {
     /// `authorRank` in the window.
     ///
     /// Commits rather than lines, because this walk counts commits and a second pass over
-    /// `git log --numstat` to weigh them would cost more than the ordering is worth. What the
-    /// order decides is only who gets the better-separated end of the palette.
+    /// `git log --numstat` to weigh them would cost more than the ordering is worth.
+    ///
+    /// **What the order decides is not only the palette, and saying so here was how the
+    /// window came to disagree with itself.** It also decides which sixteen people the legend
+    /// NAMES and the order it names them in — so a person with one enormous whitespace sweep
+    /// can be the widest band on a drilled wedge, and the first row of the panel, while
+    /// sitting nowhere in the key. That is a chosen cost, argued at `authorRank` in the
+    /// window: an identity that does not move is worth more than a caption that is always
+    /// about what is on screen. The panel is where the other reading lives, ordered by lines
+    /// — see `sortBuckets`, which spells out why the two orders differ on purpose.
     authors: Vec<String>,
 }
 

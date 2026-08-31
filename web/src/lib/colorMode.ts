@@ -1595,8 +1595,22 @@ export function sortBuckets<T extends { key: string; lines: number }>(
   mode: ColorMode,
 ): T[] {
   if (mode === 'blame' || mode === 'language') {
-    // By lines, matching `legendFor` — so the panel lists them in the order the map's own
-    // legend does, and the biggest slice of the picture is the first row in both.
+    // By lines, because the row PRINTS lines. A column of numbers not in their own order
+    // reads as a bug, and it was one: these rows sorted by `lines` while printing `count`.
+    //
+    // **This deliberately does not match the legend, and this comment used to claim it did.**
+    // It said "matching `legendFor`" — half true, which is worse than wrong. `legendFor` does
+    // return line order, and then `ColorKey` re-sorts it into slot order before drawing, for
+    // its own reason: a legend that reordered as a replay ran would animate its own ranking,
+    // which is the bug `authorRank` exists to have killed.
+    //
+    // The two surfaces answer two questions and the orders follow from that. A legend is a
+    // KEY, ordered by the repo-wide all-time cast (`stats.authors`, ranked by COMMITS) so a
+    // person's place in it does not move when you drill or when the playhead does. This is a
+    // DISTRIBUTION of what is under the cursor, ordered by how much of that picture each
+    // person holds — LINES, here, not everywhere. On ceph the two disagree loudly and both
+    // are right: one 642-file whitespace sweep makes somebody the first row here who is
+    // nowhere near the first sixteen there.
     rows.sort((a, b) => b.lines - a.lines)
   } else if (mode === 'traps') {
     // Traps first: it is the only row anybody opens this lens to find.

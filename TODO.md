@@ -13,15 +13,26 @@ OWNERSHIP, which is what people open it for — and the two agree right up until
 formatter. So this is not a bug to fix so much as a second reading to add, and a name to be
 careful with.
 
-**The legend and the panel already disagree about it in the same window.** The map's key lists
-Sage Weil first, because it follows `stats.authors` — commit order over the whole log. The
-Authors panel lists Edwin first, because it sorts by lines whose last toucher he is. Two
-orderings of one cast, side by side, and the more prominent one is wrong.
+**The legend and the panel order the same cast differently, and that part is settled.** The
+key lists people in slot order — `stats.authors`, the repo-wide all-time cast ranked by
+COMMITS — because a person's colour and place must not move when you drill or when a replay
+runs. The panel lists them by LINES held under the cursor, because that is the row's own
+number. Two questions, two orders, both right; what was wrong was `sortBuckets` claiming in a
+comment that it matched the legend, and `History::authors` saying the ranking decided "only"
+the palette. Both fixed, and each now points at the other.
 
-**The data already exists and does not reach the node.** `blame.rs` computes
-`RangeDetail::authors` — `Contributor { author, lines }`, most lines first — so who wrote how
-much is known per range and is fetched only for a selected function. What crosses to the map
-is one name.
+**What that leaves visible is a chosen cost, not a bug.** On ceph the widest band on a drilled
+wedge can belong to somebody the key does not name at all — Edwin has 56 commits against Sage
+Weil's 27,493, so he is nowhere near the sixteen named slots while holding the first row of
+the panel. `authorRank` argues that trade explicitly: an identity that does not move is worth
+more than a caption that is always about what is on screen. What a reader can now do is look
+it up: the Blame entry in `LensHelp` says what each of the two lists is ordered by, which was
+the question underneath this the whole time.
+
+**The data for the second reading already exists and does not reach the node.** `blame.rs`
+computes `RangeDetail::authors` — `Contributor { author, lines }`, most lines first — so who
+wrote how much is known per range and is fetched only for a selected function. What crosses to
+the map is one name.
 
 **Two readings, and they should not be conflated.** Who owns this (most lines) and who
 touched it last are different questions; the lens currently offers the second under the name
@@ -34,7 +45,11 @@ orders blame by `b.lines` while the row printed `b.count`, which is why the colu
 1,819 · 1,019 · 985 · 216 · 86 · 309. It shows lines now; the count moved to the row's tooltip.
 **The wider inconsistency is still open**: this app counts lines in some places and functions
 or files in others, and the standing decision was to explain that rather than force one unit
-everywhere. That explanation is the help window, which does not exist yet.
+everywhere. The help window exists — `LensHelp` — but it is a lens reference and nothing else,
+deliberately: it was scoped to the eleven entries because carrying the drawing, the passes and
+the controls too pushed the row somebody opened it for below the fold. So the units
+explanation has a window and still has no home in it, and giving it one is a question about
+that scope rather than about building a window.
 
 ---
 
