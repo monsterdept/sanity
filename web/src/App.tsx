@@ -2572,7 +2572,9 @@ export default function App() {
         <div className="flex min-w-0 flex-1 flex-col">
           <TopRow>
             {focus && (
-              <div className="flex items-center gap-2">
+              /* Full width, so the spacers have room to push into — see `Spacer`, which also
+                 keeps the strip draggable now that a child covers all of it. */
+              <div className="flex w-full items-center gap-2 px-3">
                 {/* Disabled rather than hidden while the replay is up. The switcher is the
                   window's statement of what color means, and removing it would leave the
                   rings recolored with nothing on screen saying by what. Grayed, with the
@@ -2589,7 +2591,7 @@ export default function App() {
                 <ModeSwitcher mode={viewMode} onMode={setMode} locked={locks} />
                 <HelpButton on={helping} onOpen={() => setHelping(true)} />
 
-                <Divider />
+                <Spacer />
 
                 {/* **In the room the lens strip gave up.** These went to the crumb bar when
                     eleven tabs owned this row — see `ModeSwitcher`, which is one pulldown
@@ -2613,7 +2615,7 @@ export default function App() {
                 )}
                 <BandWidth share={band} onShare={setBand} />
 
-                <Divider />
+                <Spacer />
 
                 {/* The two doors. History replaces the subject — the repo as it stood rather
                     than as it stands — and Find gets you somewhere inside the subject you
@@ -3281,23 +3283,21 @@ function ProgressPane({ progress, label }: { progress: Progress | null; label?: 
  * Lit while the panel is up, so the button and the panel are visibly one thing rather than
  * two ways in.
  */
-/** A hairline between groups of controls in the top row.
+/** The growing gap between groups of controls in the top row.
  *
- *  **Separation, not more gap.** The row carries three kinds of statement — what the color
- *  means, what is on the map, and the two ways out of the picture — and spacing them further
- *  apart only makes eight peers with awkward holes in the middle. A rule is the one mark that
- *  says "these belong together and those do not" without taking a control's worth of width.
+ *  **The bar is three groups pinned to three places, not eight peers in a huddle.** What the
+ *  color means goes hard left, what is ON the map floats in the middle, and the two doors out
+ *  of the picture go hard right — so each group has a fixed address and the eye learns where
+ *  to reach rather than reading the row every time. A hairline was the first version and it
+ *  separated the groups without placing them; the width the row already had was doing nothing.
  *
- *  Sized to the pills rather than to the row, so it reads as a divider between buttons and not
- *  as a border on the bar. */
-function Divider() {
-  return (
-    <span
-      aria-hidden
-      className="mx-0.5 h-4 w-px shrink-0"
-      style={{ background: 'color-mix(in oklch, var(--foreground) 16%, transparent)' }}
-    />
-  )
+ *  **It carries the drag region, which is the whole reason this is a component.** `TopRow` is
+ *  a Tauri drag handle and Tauri drags only when the EVENT TARGET carries the attribute — so
+ *  a full-width child would take the entire titlebar out of the window's grip. These spacers
+ *  are the empty chrome between the controls; they are exactly what should still be draggable,
+ *  and now they are the only part of the row that is. */
+function Spacer() {
+  return <span data-tauri-drag-region aria-hidden className="min-w-4 flex-1" />
 }
 
 function FindButton({ on, onOpen }: { on: boolean; onOpen: () => void }) {
