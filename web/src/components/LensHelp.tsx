@@ -29,6 +29,13 @@ function Ramp({ from, to }: { from: string; to: string }) {
   )
 }
 
+/** A row of flat colors — four bands, three mark states, or the head of a categorical palette.
+ *
+ *  **The mark lenses use this too, and label nothing.** They carried a legend, a swatch and a
+ *  word per state, and were the only rows in the panel that did: every ramp shows two hundred
+ *  colors and names none of them, so the two that named three read as a different kind of entry
+ *  rather than a different kind of lens. The words are still on the `values` line, which is
+ *  where every other row keeps them. */
 function Steps({ fills }: { fills: string[] }) {
   return (
     <div className="flex w-full gap-[3px]">
@@ -39,14 +46,6 @@ function Steps({ fills }: { fills: string[] }) {
   )
 }
 
-function Chip({ fill, label }: { fill: string; label: string }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="h-3 w-3 shrink-0 rounded-[2px]" style={{ background: fill }} />
-      <span className="mono text-[9px] text-[var(--muted-foreground)]">{label}</span>
-    </div>
-  )
-}
 
 /** One lens: its key on the left, its definition on the right. */
 function Lens({
@@ -214,13 +213,7 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
           <Lens
             name="Traps"
             needs="Read"
-            swatch={
-              <div className="flex flex-col gap-1">
-                <Chip fill="var(--trap)" label="trap" />
-                <Chip fill="var(--structure)" label="none found" />
-                <Chip fill="var(--unanalyzed)" label="not read" />
-              </div>
-            }
+            swatch={<Steps fills={['var(--trap)', 'var(--structure)', 'var(--unanalyzed)']} />}
             measures="whether a reader flagged something likely to catch out the next person editing this code."
             values="trap · no trap reported · not read yet"
           >
@@ -231,13 +224,7 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
           <Lens
             name="Clones"
             needs="Scan"
-            swatch={
-              <div className="flex flex-col gap-1">
-                <Chip fill="var(--clone)" label="a clone" />
-                <Chip fill="var(--structure)" label="no clone" />
-                <Chip fill="var(--unanalyzed)" label="too small" />
-              </div>
-            }
+            swatch={<Steps fills={['var(--clone)', 'var(--structure)', 'var(--unanalyzed)']} />}
             measures="functions whose bodies are identical once identifiers and literals are flattened and comments dropped."
             values="a clone · no clone in this repo · too small to compare"
           >
