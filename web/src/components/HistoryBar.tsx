@@ -283,19 +283,32 @@ export function HistoryBar({
           aria-label="commit"
         />
 
-        <div className="flex shrink-0 items-center gap-0.5">
+        {/* **The top row's recessed track, because this is the same kind of control.** Five
+            rates, one of them chosen, is a control with a POSITION — which is what the ring
+            count's track already says with its inset shadow, and what five loose words in a
+            row said with nothing. The selected rate takes the same lit pill every toggle up
+            there takes when it is on, so "chosen" looks the same everywhere in the window. */}
+        <div
+          className="flex shrink-0 items-center gap-0.5 rounded-full p-[3px]"
+          style={{
+            background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
+            boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
+          }}
+        >
           {DURATIONS.map((d) => (
             <button
               key={d}
               onClick={() => onDuration(d)}
+              aria-pressed={d === duration}
               // The seconds are the fact and the multiple is the label: somebody deciding
               // whether to watch wants to know it is a hundred seconds, not that it is
               // three times slower than something they have not seen yet.
               title={`Play the whole history in about ${pace(d)}`}
-              className="mono rounded px-1.5 py-0.5 text-[10px] transition-colors"
+              className="mono rounded-full px-2 py-[2px] text-[10px] leading-none transition-colors"
               style={{
-                background: d === duration ? 'var(--secondary)' : 'transparent',
-                color: d === duration ? 'var(--foreground)' : 'var(--muted-foreground)',
+                background: d === duration ? 'var(--accent)' : 'transparent',
+                color: d === duration ? 'var(--accent-foreground)' : 'var(--muted-foreground)',
+                boxShadow: d === duration ? '0 1px 2px rgb(0 0 0 / 0.25)' : undefined,
               }}
             >
               {speed(d)}
@@ -320,10 +333,15 @@ export function HistoryBar({
               ? 'Flashes on: the commit under the playhead lights what it touched'
               : 'Flashes off: the lens alone, moving'
           }
-          className="mono shrink-0 rounded px-1.5 py-0.5 text-[10px] transition-colors"
+          // A pill that lights when it is on — the shape every toggle in the top row takes,
+          // so a switch looks like a switch wherever it is in the window.
+          className="mono flex h-5 shrink-0 items-center rounded-full px-2 text-[10px] leading-none transition-colors"
           style={{
-            background: flashes ? 'var(--secondary)' : 'transparent',
-            color: flashes ? 'var(--foreground)' : 'var(--muted-foreground)',
+            background: flashes
+              ? 'var(--accent)'
+              : 'color-mix(in oklch, var(--foreground) 8%, transparent)',
+            color: flashes ? 'var(--accent-foreground)' : 'var(--muted-foreground)',
+            boxShadow: flashes ? '0 1px 2px rgb(0 0 0 / 0.25)' : undefined,
           }}
         >
           flash
@@ -341,7 +359,13 @@ export function HistoryBar({
           }}
           title="Export the replay as a movie"
           aria-label="Export the replay as a movie"
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+          // `FindButton`'s pill exactly: an icon action in the same clothes wherever it sits.
+          // **Sized to the row's line box, not to its type** — the argument `FindButton` makes
+          // at length. Every control in this row is pinned to `h-5` for the same reason: a
+          // pill three pixels shorter than its neighbours reads as a smaller button rather
+          // than as a smaller glyph.
+          className="flex h-5 shrink-0 items-center rounded-full px-2 text-[var(--muted-foreground)] transition-colors"
+          style={{ background: 'color-mix(in oklch, var(--foreground) 8%, transparent)' }}
         >
           <svg viewBox="0 0 12 12" className="h-3.5 w-3.5" fill="none" stroke="currentColor">
             <rect x="0.9" y="2.6" width="7" height="6.8" rx="1.2" strokeWidth="1.2" />
