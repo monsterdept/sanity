@@ -110,18 +110,6 @@ palette cmd="verify" *args:
 expiry *refs:
     @python3 scripts/expiry-check.py {{refs}}
 
-# Score a repo from the command line, no window. The fastest way to check whether the
-# metric is doing anything real on a codebase you know — `just scan ../slooth`. Prints
-# the hottest wedges, which is the only output that matters before the UI exists.
-scan path="." *flags="":
-    #!/usr/bin/env bash
-    # Resolved to an absolute path BEFORE the cd: the crate lives in src-tauri/, so a
-    # relative argument would otherwise be interpreted from there and `just scan .`
-    # would quietly scan src-tauri instead of the repo you're standing in.
-    set -euo pipefail
-    target="$(cd "{{path}}" && pwd)"
-    cd src-tauri && cargo run --quiet --bin sanity-scan -- "$target" {{flags}}
-
 # Replay a repo's history headlessly — `just history ../slooth`. The app is the human's
 # to open, so this is how a change to the commit walk gets checked: it prints how many
 # commits replayed, how many functions survive to HEAD, and the busiest frames. A rename

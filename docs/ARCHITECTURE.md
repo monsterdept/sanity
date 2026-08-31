@@ -22,8 +22,9 @@ Feed a function its name, signature and neighbours; measure how surprised the mo
 the body. Low surprise is scaffolding. High surprise is where the decisions are.
 
 The app scores with **`HeuristicModel`** — no model, no download, no network — and takes
-its real measurement from readers over MCP. `local.rs` keeps a no-server scorer behind a
-feature flag for `just scan`, which is where metric work belongs.
+its real measurement from readers over MCP. The proxy's only surviving job is ORDERING: it
+decides which functions a reader is offered first. It never reaches the map, because
+`Source::Proxy` is refused a colour.
 
 The heuristic is an honest **proxy** and the UI names whichever ran. It exists because a
 tool that shows nothing until you install a 4GB model is a tool nobody sees the point of.
@@ -50,8 +51,9 @@ It worked and it was measured. It was removed anyway, because configuring an end
 a model is **configuration, not revelation** — and the question it approximated ("could a
 model have predicted this?") is answered better and more directly by an agent that tries.
 
-**The findings outlive the code.** Measured on krapow against ranking overlap with a plain
-`wc -l` sort — the yardstick `sanity-scan` prints, where the offline proxy scores 9/15:
+**The findings outlive the code**, though the instrument that produced them does not:
+measured on krapow against ranking overlap with a plain `wc -l` sort, where the offline proxy
+scored 9/15.
 
 | variant | hot lines | vs `wc -l` | verdict |
 |---|---|---|---|
@@ -169,7 +171,7 @@ trace.rs      the depths, the budget, and the fold that lands history on a drawn
 edges.rs      call sites → who calls whom, and how far the call travels
 clones.rs     normalised bodies → which functions are copies of each other
 links.rs      the two above, kept, so the panel can answer "which fourteen"
-model.rs      the tree, LOC-weighted aggregation, temperature, quadrants
+model.rs      the tree, LOC-weighted aggregation, temperature
 ```
 
 Two decisions worth knowing:
@@ -192,8 +194,9 @@ small fraction of a codebase is where the thinking lives, and no linear rescalin
 bell is anything but a bell.
 
 `heuristic::calibrate` fixes both with a monotonic curve (it changes no ordering). The
-band and exponent are measured, not tuned by eye. **`just scan <repo>` prints the
-histogram — that is the instrument, and it is the first thing to look at.** A flat or
+band and exponent are measured, not tuned by eye. **Monotonic is the point and also the
+catch: the proxy now only orders the reading queue, and a curve that changes no ordering
+cannot change what a queue does.** A flat or
 saturated spread means the metric separates nothing and the rankings below it are
 decoration.
 

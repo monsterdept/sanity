@@ -238,8 +238,8 @@ second metric, and the line between those is the whole design.
   file wedge makes one ring in; the warning against a file's author standing in for a FUNCTION
   is about a real function, and this node IS the file.
 - `just history <repo>` is the headless check, and it is UNCACHED by default: a run that
-  answers from a file is not a run of the thing being checked. `--files` reconciles its
-  totals against `just scan`, which is how the mascot bundle was found.
+  answers from a file is not a run of the thing being checked. `--files` prints per-file
+  totals to reconcile against the app, which is how the mascot bundle was found.
 - **The export records the map on screen; it does not draw a second one.** `movie.ts` copies
   the live `svg[data-sunburst]` per frame and rasterizes it — a Canvas2D renderer of the same
   rings would be a picture nobody has checked against the one being replayed, and the two

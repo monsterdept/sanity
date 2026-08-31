@@ -28,8 +28,6 @@ pub mod harness;
 pub mod heuristic;
 pub mod history;
 pub mod links;
-#[cfg(feature = "local-model")]
-pub mod local;
 pub mod mcp;
 pub mod model;
 pub mod parse;

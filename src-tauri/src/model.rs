@@ -364,22 +364,6 @@ impl Provenance {
     }
 }
 
-/// The four corners of surprise × stability. Surprise alone can't tell a subtle
-/// algorithm from an incomprehensible mess — both are unpredictable. Age and churn
-/// separate them, and the pair is what makes the metric actionable instead of merely
-/// interesting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Quadrant {
-    /// High surprise, old and stable. Load-bearing decisions. Document, don't touch.
-    CrownJewel,
-    /// High surprise, churning. The mess.
-    Trouble,
-    /// Low surprise, lots of it. Scaffolding that could be generated or collapsed.
-    Bloat,
-    /// Low surprise, small. Fine. Gray it out and never mention it again.
-    Quiet,
-}
 
 /// Which instrument produced a leaf's score.
 ///
@@ -478,24 +462,6 @@ impl Score {
         self.surprise.clamp(0.0, 1.0)
     }
 
-    /// Old and unchanged reads as settled; young or busy reads as in-flight. The
-    /// threshold is deliberately generous — a quarter without a change is a long time
-    /// in a repo being actively vibe-coded, which is the audience.
-    pub fn is_stable(&self) -> bool {
-        self.churn < 0.25 && self.age_days.is_some_and(|d| d > 90.0)
-    }
-
-    pub fn quadrant(&self, loc: u32) -> Quadrant {
-        // "Bloat" is the only quadrant that consults size, because it is the only claim
-        // that is *about* size: predictable code is only a problem when there's a lot.
-        const BULKY: u32 = 40;
-        match (self.surprise >= HOT, self.is_stable()) {
-            (true, true) => Quadrant::CrownJewel,
-            (true, false) => Quadrant::Trouble,
-            (false, _) if loc >= BULKY => Quadrant::Bloat,
-            (false, _) => Quadrant::Quiet,
-        }
-    }
 }
 
 /// One wedge. Directories contain files contain functions; the sunburst renders this
@@ -1250,15 +1216,6 @@ mod tests {
         assert!((score(0.8, 0.5, 0.0, 0.0).temperature() - 0.8).abs() < 1e-6);
     }
 
-    #[test]
-    fn quadrants_split_on_surprise_and_stability() {
-        assert_eq!(score(0.9, 0.0, 0.0, 400.0).quadrant(10), Quadrant::CrownJewel);
-        assert_eq!(score(0.9, 0.0, 0.9, 400.0).quadrant(10), Quadrant::Trouble);
-        // Young code can't be a crown jewel however surprising — nobody has survived it yet.
-        assert_eq!(score(0.9, 0.0, 0.0, 3.0).quadrant(10), Quadrant::Trouble);
-        assert_eq!(score(0.1, 0.0, 0.0, 400.0).quadrant(500), Quadrant::Bloat);
-        assert_eq!(score(0.1, 0.0, 0.0, 400.0).quadrant(4), Quadrant::Quiet);
-    }
 
     #[test]
     fn a_directory_reports_the_share_of_it_that_is_hot_not_the_mean() {

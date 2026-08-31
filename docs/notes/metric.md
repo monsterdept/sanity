@@ -40,9 +40,13 @@ model can predict from its context.** Everything below defends that.
 
 The app scores with the offline proxy and takes its actual measurement from agents over
 MCP. **There is no model path in the app** — `OllamaModel` was removed, endpoint and all,
-because configuring a model is configuration rather than revelation. `local.rs` keeps a
-no-server scorer behind `--features local-metal` for `just scan`; that is where metric
-work belongs.
+because configuring a model is configuration rather than revelation, and `local.rs` followed
+it: local models were tried as readers and found lacking, and the headless scorer that was
+their only caller went too. Metric work is agentic readers now.
+
+**What the proxy is still for is ORDER.** It decides which functions a reader is offered
+first and nothing else — `Source::Proxy` is refused a colour, so the number never reaches
+the map. Judge a change to it by whether the queue puts better candidates first.
 
 Forced decoding was real and was measured — on krapow it scored **6/15** against a raw
 `wc -l` sort where the proxy scores 9/15, and the cobra boilerplate four earlier designs
@@ -68,7 +72,9 @@ token whether or not the code was predictable.
 
 `heuristic::calibrate` maps the raw mix onto the reported scale. It is monotonic — it
 changes no ordering — but the band and exponent are a standing claim about real code,
-measured on tally, slooth and krapow. **`just scan <repo>` prints a histogram; read it
-before and after touching those constants.** A flat or saturated spread means the metric
-is measuring nothing and the rankings are decoration.
+measured on tally, slooth and krapow. **Monotonic is now the whole problem with it: the
+proxy only orders the queue, and a curve that changes no ordering changes nothing a queue
+does.** The band and the exponent shaped a number that was once painted and no longer is.
+Vestigial, still in the live path, and worth removing deliberately rather than by
+accident.
 

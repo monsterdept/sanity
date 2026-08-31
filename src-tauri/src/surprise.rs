@@ -154,32 +154,9 @@ impl Reading {
     }
 }
 
-/// Bits per token → the 0..1 surprise scale.
-///
-/// Unlike the heuristic's calibration this is not spreading a bell — surprisal is already
-/// a meaningful, unbounded quantity, and all this does is choose where the interesting
-/// band sits. Highly predictable code runs well under a bit per token; code the model
-/// genuinely did not expect runs several bits. Measured on krapow with devstral.
-/// Only the local scorer produces bits now that the Ollama path is gone, and that is
-/// behind a feature flag — so this is too, rather than sitting here as dead code.
-#[cfg(feature = "local-model")]
-pub(crate) fn calibrate_surprisal(bits: f32) -> f32 {
-    const PREDICTABLE: f32 = 0.5;
-    const UNEXPECTED: f32 = 4.0;
-    ((bits - PREDICTABLE) / (UNEXPECTED - PREDICTABLE)).clamp(0.0, 1.0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[cfg(feature = "local-model")]
-    #[test]
-    fn predictable_code_is_cold_and_unexpected_code_is_hot() {
-        assert_eq!(calibrate_surprisal(0.2), 0.0);
-        assert_eq!(calibrate_surprisal(9.0), 1.0);
-        assert!(calibrate_surprisal(1.0) < calibrate_surprisal(3.0));
-    }
 
     #[test]
     fn the_heuristic_model_passes_the_proxy_through_untouched() {

@@ -19,6 +19,7 @@ alternative was built and thrown away, and the note is the only record of that.
 | [assessments.md](docs/notes/assessments.md) | `.sanity/`, keys, staleness, `SPEC`, provenance |
 | [mcp.md](docs/notes/mcp.md) | The tool contract, batching, queue, endpoint routing |
 | [rings.md](docs/notes/rings.md) | Drilling, ring count, rim histograms, the color cap, folding |
+| [time.md](docs/notes/time.md) | What Churn and Age are FOR, and why what they measure isn't it |
 | [panel.md](docs/notes/panel.md) | The detail pane, per-lens sections, code tiles |
 | [history.md](docs/notes/history.md) | Replay, timeline cache, movie export |
 | [conventions.md](docs/notes/conventions.md) | Stack, commands, languages, cache versioning, release gates |
@@ -40,9 +41,12 @@ Anyone can draw a treemap of LOC. The second encoding is what makes this worth b
 - **Never let a term claim confidence it hasn't got.** Every measurement returns `UNDECIDED`
   (0.5) when out of evidence — and don't "fix" the resulting compounding with a global
   length penalty, which just measures length again.
-- **There is no model path in the app.** `local.rs` behind `--features local-metal` is where
-  metric work belongs. **Do not rebuild forced decoding or body-diffing** — both were
-  measured and failed; `surprise.rs` carries the table.
+- **There is no model path in the app, and no local one either.** Local scoring (`local.rs`,
+  `llama-cpp-4`, the `local-*` features) was deleted: local models were tried as readers and
+  found lacking, and the headless scorer that was their only caller went with them. The proxy
+  survives for one job — ordering which functions a reader is offered first. **Do not rebuild
+  forced decoding or body-diffing** — both were measured and failed; `surprise.rs` carries the
+  table.
 - **Ask which model reads before the first wave** — Sonnet unless told otherwise, and don't
   ask if they already named one. **Never mix models within one repo.**
 
@@ -116,7 +120,6 @@ These are the ones with a body count. Each is written up in its note.
 ## Working here
 
 - `just check` (Rust + TS type-check), `just test` (full CI-equivalent; passing ⟹ CI passes),
-  `just scan <path>` (headless scorer — fastest way to test a metric change),
   `just cli <verb> <path>`, `just tokens` (before and after touching tool descriptions),
   `just expiry` (does this release expire readings), `just history <repo>`,
   `just rim-check` (what a rim segment may claim) and `just keys-check` (every shortcut, in

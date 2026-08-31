@@ -7,8 +7,6 @@
   sidecar. Same as tally.
 - `just check` (Rust + TS type-check), `just test` (the full CI-equivalent, in CI's
   order — web build + `cargo test` + clippy `-D warnings`; passing ⟹ CI passes).
-  `just scan <path>` is the headless scorer and the fastest way to test a change to the
-  metric.
 - **Some rules cannot be regression-tested with threads. Pin the arithmetic instead.** The
   standing rule is that a regression test must fail without its fix; two written this way did
   not, and the reason generalises. A scheduling rule's discriminating moment — an incumbent one
@@ -47,7 +45,7 @@
   the release, not in the tap — the tap holds no hand-written file to keep in step. A
   direct download gets the app's own "Install `sanity` command" instead, which symlinks
   into `/usr/local/bin` or `~/.local/bin`. **Never tell anyone to put `Contents/MacOS` on their
-  PATH** — `sanity-scan`, `sanity-history`, `sanity-sample` and `sanity-tokens` live there
+  PATH** — `sanity-history`, `sanity-sample` and `sanity-tokens` live there
   too — and never an alias, which no script can see.
 - `web/src/lib/mascot.js` is a committed placeholder. `just mascot` replaces it with the
   real bundle from the private lapbar/neo-mascots repo; the placeholder exists so a
@@ -171,8 +169,9 @@
   of it can see that the parser moved. So a repo scanned before the change keeps serving the
   old answer until somebody edits the files, and nothing says so. Mapping `.h` to C++ took
   one repo from 1,682 functions to 1,724 while the app went on reporting 1,682 from an
-  hour-old cache — and `just scan`, which is uncached by design, reported the truth, so the
-  two disagreed with no way to tell which was live. History is the worse half: a timeline is
+  hour-old cache, with nothing on screen saying which number was live. (The uncached
+  headless scorer that caught it is gone; `just history --files` is the surviving uncached
+  check.) History is the worse half: a timeline is
   EXTENDED, so mismatched frames would be appended to matched ones and produce a story that
   never happened. The constant lives in `parse.rs`, next to the things that break it, and it
   covers a new `Lang` or extension mapping, `func_kinds`, `call_sites`, `name_node`,

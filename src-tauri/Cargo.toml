@@ -50,13 +50,6 @@ tree-sitter-javascript = "0.25.0"
 tree-sitter-python = "0.25.0"
 tree-sitter-go = "0.25.0"
 dirs = "6.0.0"
-# Local scoring. Optional and off by default: it compiles llama.cpp from source, which
-# dominates build time, and `just check` should stay fast.
-#
-# GPU backends are picked per platform by the `local-*` features below. Metal on Apple,
-# Vulkan elsewhere — deliberately NOT CUDA, which would put a toolkit install between the
-# user and a working app on every Linux and Windows machine.
-llama-cpp-4 = { version = "0.5.0", default-features = false, optional = true }
 axum = "0.8.9"
 # `process` and `time`: `sanity check` spawns readers and waves them. See `harness.rs`.
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "process", "time", "signal"] }
@@ -130,21 +123,10 @@ tempfile = "3"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
-# Score locally instead of over HTTP. See `local.rs` — one forward pass per function
-# rather than one per token, which is ~15x Ollama's grammar-constrained path.
-local-model = ["dep:llama-cpp-4"]
-local-metal = ["local-model", "llama-cpp-4/metal"]
-local-vulkan = ["local-model", "llama-cpp-4/vulkan"]
 
 [[bin]]
 name = "sanity"
 path = "src/main.rs"
-
-# The headless scorer. Same code path as the app, no window — this is what you run
-# against a repo you know well to find out whether the metric separates anything.
-[[bin]]
-name = "sanity-scan"
-path = "src/bin/scan.rs"
 
 # What a reader pays for the parts of its context we write. Separate from the scorer
 # because it answers a different question and must not slow that one down.
