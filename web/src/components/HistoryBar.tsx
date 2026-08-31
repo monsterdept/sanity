@@ -335,7 +335,8 @@ export function HistoryBar({
           }
           // A pill that lights when it is on — the shape every toggle in the top row takes,
           // so a switch looks like a switch wherever it is in the window.
-          className="mono flex h-5 shrink-0 items-center rounded-full px-2 text-[10px] leading-none transition-colors"
+          aria-label="Flash what each commit touched"
+          className="flex h-5 shrink-0 items-center rounded-full px-2 transition-colors"
           style={{
             background: flashes
               ? 'var(--accent)'
@@ -344,7 +345,16 @@ export function HistoryBar({
             boxShadow: flashes ? '0 1px 2px rgb(0 0 0 / 0.25)' : undefined,
           }}
         >
-          flash
+          {/* A bolt, drawn and filled. Filled because this is a state rather than an object —
+              the same reason the play triangle is solid and the export camera is stroked: one
+              is what the transport IS doing, the other is a thing you can go and do.
+
+              Drawn rather than an emoji or a font glyph, on `FindButton`'s argument: at
+              fourteen pixels a system glyph is whatever is installed, and this row now has
+              three icons that have to look like one family. Sized to the camera beside it. */}
+          <svg viewBox="0 0 12 12" className="h-3.5 w-3.5" aria-hidden>
+            <path d="M6.8 1 L2.6 6.6 H5.4 L5.2 11 L9.4 5.4 H6.6 Z" fill="currentColor" />
+          </svg>
         </button>
 
         {/* Beside the lengths rather than beside the play button, because that is what it
