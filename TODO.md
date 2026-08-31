@@ -1,3 +1,82 @@
+# TODO — the lens switcher should group by what each lens needs
+
+**Eleven lenses are shown as eleven peers, and they are not.** Four of them need a reading,
+three need git, two need the language's call shape, and two need nothing but the scan. The
+app already computes exactly that — `locks` in `App.tsx` decides it per lens, with the
+sentence that would open each one — and then the switcher lists all eleven flat, so which
+half of the product is available is something you find out by clicking.
+
+**Grouped, the strip answers three questions at once**: what is ready now, what one button
+would unlock, and what this language cannot answer at all. Ungrouped, eleven padlocks are
+eleven separate small disappointments and the reason for each is in a tooltip.
+
+**It also makes a real gap visible.** On a repo nobody has read, what survives says nothing
+about the code's own shape — Language, Clones, Callers, Reach, Blame, Churn, Age will tell
+you who wrote it, when, in what language and how it is wired, and nothing about what it IS.
+That is worth seeing before deciding whether to add a twelfth lens to fill it.
+
+---
+
+# TODO — a help window for the eleven lenses
+
+**Users cannot be expected to infer our exact terms, and some of them are not inferable.**
+`mundane / typical / quirky / obscure`, `clean / nuanced / tangled / unclear`, `traces to 4
+commits` against `27 commits in 90d`, "too small to compare" as distinct from "no clone in
+this repo" — every one of those is a deliberate distinction and none of them are guessable.
+
+**Two things surfaced while drafting it that the window will have to handle.** The first is
+that some names mislead: the lens called Age paints recency while a field called `age_days`
+means what a person means by age, and the panel already prints the better words (*Last
+touched*, *First seen*). The second is that Surprise is documented as needing a second axis,
+and the app has no way to cross two lenses — so the help either explains that you cross them
+by switching, which works only because nothing moves between lenses and is stated nowhere,
+or the product answers it properly first.
+
+**Order it after the switcher grouping.** Grouping changes what the help has to explain, and
+writing the help first means writing it twice.
+
+---
+
+# TODO — Blame colours by who touched it last, not by who wrote it
+
+**One typo fix repaints a file.** `Node::last_author` is `newest.author` — the author of the
+single most recently touched LINE in the range. A function ninety per cent written by one
+person and last touched by another for a one-line fix is drawn entirely as the second person.
+As an ownership map that is the wrong reading, and ownership is what people open this lens
+for.
+
+**The data already exists and does not reach the node.** `blame.rs` computes
+`RangeDetail::authors` — `Contributor { author, lines }`, most lines first — so who wrote how
+much is known per range and is fetched only for a selected function. What crosses to the map
+is one name.
+
+**Two readings, and they should not be conflated.** Who owns this (most lines) and who
+touched it last are different questions; the lens currently offers the second under the name
+of the first. Whichever it paints, the other belongs in the panel — and "how many hands"
+is a third reading again, which is the contention signal `docs/notes/time.md` records as
+measured nowhere.
+
+---
+
+# TODO — Age paints recency; what it is for is dust
+
+**The lens is a well-built answer to the question we did not want asked.** Bright is recent,
+bands run most-recent-first, and the house rule puts the loud end first — all consistent, all
+pointing at "where work has happened lately", which the History view already gives you.
+
+**Inverting it does not work and the number says so.** On ceph, 90,878 of 94,362 functions
+are "older" — 96%. Dusty as a raw age reading is the default state of code, and a lens that
+lights 96% of the map is saying nothing loudly.
+
+**So Age needs a partner, not a direction**, and the candidates are already measured: old and
+surprising is code nobody remembers how to read; old and heavily called is load-bearing and
+unexamined; old and undocumented is the handover risk. Which one it should be is the
+decision, and it runs into the same missing capability the help entry hits — nothing here can
+cross two lenses. Reasoning, purposes and what Churn needs alongside it are in
+`docs/notes/time.md`.
+
+---
+
 # TODO — Clones should report near-copies, not only exact ones
 
 **The finding it cannot currently make is the one people have.** `clones.rs` matches exact
