@@ -2579,33 +2579,22 @@ export default function App() {
                   window's statement of what color means, and removing it would leave the
                   rings recolored with nothing on screen saying by what. Grayed, with the
                   reason in the tooltip, it still answers the question. */}
-                {/* **Three groups, separated rather than spaced.** The row holds three
-                    different kinds of statement and an even gap made them read as eight
-                    peers: what the color MEANS, what is ON the map, and the two doors out of
-                    the picture you are in. A rule between groups is what says a lens and a
-                    ring count are not the same sort of choice.
+                {/* **Two kinds of choice, and the row is arranged by which is which.**
+                    What the color MEANS goes left; what the picture IS — how much of the
+                    tree, how thick a band — floats in the middle; the two doors out of it go
+                    right.
 
-                    Help sits with the switcher because what it explains IS the switcher —
-                    eleven vocabularies that cannot be guessed. A help button parked in a
-                    corner is one nobody presses at the moment they need it. */}
-                <ModeSwitcher mode={viewMode} onMode={setMode} locked={locks} />
+                    Help leads, because it explains the control it sits before and a question
+                    mark after the thing it answers reads as an afterthought. It is also the
+                    one control here that is about the app rather than about this repo, which
+                    is the corner of a toolbar it belongs in. */}
                 <HelpButton on={helping} onOpen={() => setHelping(true)} />
-
-                <Spacer />
-
-                {/* **In the room the lens strip gave up.** These went to the crumb bar when
-                    eleven tabs owned this row — see `ModeSwitcher`, which is one pulldown
-                    now. They belong here: the lens says what the map is COLOURED by, and
-                    these say what is ON it, which is the same kind of statement about the
-                    same picture. The crumb bar is about where you are standing in it.
-                    All stay live during a replay, because a frame is drawn by the same
-                    layout and they mean there exactly what they mean anywhere else — which
-                    is not true of the lens beside them. */}
-                <RingCount rings={rings} onRings={chooseRings} />
-                {/* Only on the lenses that have categories to spend colors on — see
-                    `ColorCount`. With the ring count and the band because it is the same
-                    kind of statement: how much of the picture is drawn, and how finely what
-                    is drawn is told apart. */}
+                <ModeSwitcher mode={viewMode} onMode={setMode} locked={locks} />
+                {/* **With the lens, because it is a lens control.** It only exists on the two
+                    categorical lenses, and what it changes is what a color MEANS — eight
+                    people and a gray "other", or four hundred and confetti. That is the
+                    switcher's kind of statement, not the ring count's: rings and band change
+                    the geometry, and this changes the encoding. */}
                 {isCapped(viewMode) && (
                   <ColorCount
                     mode={viewMode}
@@ -2613,6 +2602,18 @@ export default function App() {
                     onCap={chooseCap(viewMode)}
                   />
                 )}
+
+                <Spacer />
+
+                {/* **In the room the lens strip gave up.** These went to the crumb bar when
+                    eleven tabs owned this row — see `ModeSwitcher`, which is one pulldown
+                    now. They belong here: the lens says what the map is COLOURED by, and
+                    these say how much of it is DRAWN, which is a statement about the same
+                    picture from the other side. The crumb bar is about where you are standing
+                    in it. Both stay live during a replay, because a frame is drawn by the
+                    same layout and they mean there exactly what they mean anywhere else —
+                    which is not true of the lens beside them. */}
+                <RingCount rings={rings} onRings={chooseRings} />
                 <BandWidth share={band} onShare={setBand} />
 
                 <Spacer />
