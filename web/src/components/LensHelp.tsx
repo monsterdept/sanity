@@ -2,17 +2,21 @@ import { useEffect } from 'react'
 import { Overlay } from './Overlay'
 
 /**
- * What the colors mean, in the app's own words.
+ * Reference for the eleven lenses: what each one measures, and the values it prints.
  *
- * **Every lens here has a vocabulary that cannot be guessed.** `mundane / typical / quirky /
- * obscure` is not `clean / nuanced / tangled / unclear`, `traces to 4 commits` is a different
- * quantity from `27 commits in 90d`, and "too small to compare" is deliberately not "no clone
- * in this repo". Those distinctions are the whole reason to trust the map, and until now the
- * only way to learn them was to hover everything.
+ * **Its job is definition, not persuasion.** Every lens has a vocabulary that cannot be
+ * inferred from the map — `mundane / typical / quirky / obscure` is not the same scale as
+ * `clean / nuanced / tangled / unclear`, `traces to 4 commits` is a different quantity from
+ * `27 commits in 90d`, and "too small to compare" is deliberately distinct from "no clone in
+ * this repo". Those distinctions are what makes a reading trustworthy, and they were only
+ * discoverable by hovering.
  *
- * The swatches are the map's own custom properties rather than copies of their values, so a
- * ramp that moves in `index.css` moves here in the same commit — a key that can disagree with
- * the picture is worse than no key.
+ * **Ordered by what a reader needs first.** Which passes unlock which lenses comes before the
+ * lenses themselves: on a repository that has only been scanned, seven of the eleven are
+ * locked, and knowing why is more useful than knowing what the locked ones would have shown.
+ *
+ * Swatches reference the map's own custom properties rather than copying their values, so a
+ * ramp edited in `index.css` changes here in the same commit.
  */
 
 /** One lens's key, drawn the way that lens draws itself. */
@@ -109,83 +113,127 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         <header className="shrink-0 border-b border-[var(--border)] px-5 pb-3 pt-4">
-          <h2 className="text-sm font-semibold">What the colors mean</h2>
+          <h2 className="text-sm font-semibold">Lenses</h2>
           <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-            One drawing, eleven questions. The shape never changes — every wedge is as wide as
-            the code it holds — so switching lenses asks a different question of the same
-            picture, and a wedge you noticed under one is in the same place under the next.
+            One drawing, eleven measurements. A wedge is always as wide as the code it holds;
+            the lens sets its color and nothing else.
           </p>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 [overscroll-behavior:contain]">
-          {/* The three facts that hold whatever lens is on. */}
-          <div className="mb-4 grid gap-2 rounded-md bg-[var(--secondary)] p-3 text-[10px] leading-relaxed text-[var(--muted-foreground)]">
-            <p>
-              <b className="text-[var(--foreground)]">Width is always lines.</b> No lens moves a
-              wedge, in any view.
-            </p>
-            <p>
-              <b className="text-[var(--foreground)]">Gray is not zero.</b> It means nobody has
-              measured this. Every reading here says “undecided” when it runs out of evidence
-              rather than filling the gap with a number.
-            </p>
-            <p>
-              <b className="text-[var(--foreground)]">A folder has no reading of its own.</b> Its
-              band is the distribution of what is inside it, so a directory that is half ancient
-              and half rewritten last week reads as two colors rather than as neither.
-            </p>
-            <p>
-              <b className="text-[var(--foreground)]">Counts are in lines; totals are in
-              whatever unit exists.</b> A breakdown row is weighted in lines, because that is
-              what a wedge’s width means. Alongside it you will see functions where the code has
-              been read into functions, and files where it has not — the same population,
-              counted in the finest unit available.
-            </p>
-          </div>
+          <Group title="What unlocks each lens">
+            <div className="grid gap-2 py-2 text-[10px] leading-relaxed text-[var(--muted-foreground)]">
+              <p>
+                Three passes produce everything the map can show. A lens with no data behind it
+                is locked and names the pass that would fill it.
+              </p>
+              <dl className="grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-1.5">
+                <dt className="text-[var(--foreground)]">Scan</dt>
+                <dd>
+                  Parses the repository into files and functions. Runs when a project is
+                  opened. Unlocks <b className="font-semibold">Language</b> and{' '}
+                  <b className="font-semibold">Clones</b>.
+                </dd>
+                <dt className="text-[var(--foreground)]">Trace</dt>
+                <dd>
+                  Reads the commit log, and per-line history where asked for it. Unlocks{' '}
+                  <b className="font-semibold">Blame</b>, <b className="font-semibold">Churn</b>{' '}
+                  and <b className="font-semibold">Age</b>.
+                </dd>
+                <dt className="text-[var(--foreground)]">Read</dt>
+                <dd>
+                  Agents read each function and file a report. Unlocks{' '}
+                  <b className="font-semibold">Surprise</b>,{' '}
+                  <b className="font-semibold">Legibility</b>,{' '}
+                  <b className="font-semibold">Docs</b> and <b className="font-semibold">Traps</b>.
+                </dd>
+                <dt className="text-[var(--foreground)]">—</dt>
+                <dd>
+                  <b className="font-semibold">Callers</b> and{' '}
+                  <b className="font-semibold">Reach</b> require the language&rsquo;s call
+                  syntax, which is implemented for some grammars and not others. No pass
+                  unlocks them.
+                </dd>
+              </dl>
+            </div>
+          </Group>
 
-          <Group title="Five scales — a wedge sits somewhere along a ramp">
+          <Group title="Reading the map">
+            <div className="grid gap-1.5 py-2 text-[10px] leading-relaxed text-[var(--muted-foreground)]">
+              <p>
+                <b className="text-[var(--foreground)]">Width is lines of code, in every
+                lens.</b>{' '}
+                Switching lens changes color only, so a wedge stays in the same place at the
+                same size.
+              </p>
+              <p>
+                <b className="text-[var(--foreground)]">Gray means not measured</b>, never
+                zero. Each measurement returns no value rather than a default when it has
+                insufficient evidence.
+              </p>
+              <p>
+                <b className="text-[var(--foreground)]">A directory has no value of its own.</b>{' '}
+                Its band shows the distribution of the values inside it, so a directory
+                containing both old and new code shows both rather than an average.
+              </p>
+              <p>
+                <b className="text-[var(--foreground)]">Totals are in lines; counts are in the
+                finest unit available</b>{' '}
+                — functions where the code has been parsed into functions, files where it has
+                not.
+              </p>
+              <p>
+                <b className="text-[var(--foreground)]">A reading expires when its code
+                changes.</b>{' '}
+                Surprise, Legibility, Docs and Traps show a stale wedge as unmeasured rather
+                than keeping a grade taken against a body that has since moved.
+              </p>
+            </div>
+          </Group>
+
+          <Group title="Scales — a value along a ramp">
             <Lens
               name="Surprise"
-              hint="what a reader didn’t see coming"
-              words="mundane · typical · quirky · obscure — how much of the body a reader failed to predict before it was allowed to look. Absence: not measured yet."
+              hint="predictability"
+              words="How much of a function's body a reader failed to predict from its surroundings, before being allowed to read it. Values: mundane · typical · quirky · obscure. Documentation reaches the reader before it predicts, so an explanation that helps lowers the score; one a model could reproduce from the body does not."
             >
               <Ramp from="var(--heat-0)" to="var(--heat-4)" ends={['mundane', 'obscure']} />
             </Lens>
             <Lens
               name="Legibility"
-              hint="what reading it was actually like"
-              words="clean · nuanced · tangled · unclear — graded after the body was read. Obscure but clean is a new idea well expressed; obscure and unclear is where to start."
+              hint="reading difficulty"
+              words="The reader's assessment of the body after reading it. Values: clean · nuanced · tangled · unclear. Independent of Surprise: code can be unpredictable and clearly written."
             >
               <Ramp from="var(--legible-0)" to="var(--legible-4)" ends={['clean', 'unclear']} />
             </Lens>
             <Lens
               name="Docs"
-              hint="what nobody has explained"
-              words="full · decent · some · none — shown as the GAP, so bright is unexplained. A doc a model could regenerate from the body counts as none, and a doc whose code moved on reads hot."
+              hint="documentation coverage"
+              words="How much of the body the documentation covers, displayed as the gap — bright is undocumented. Values: full · decent · some · none. Documentation a model could reproduce from the body alone is graded none."
             >
               <Ramp from="var(--docs-0)" to="var(--docs-4)" ends={['covered', 'undocumented']} />
             </Lens>
             <Lens
               name="Churn"
-              hint="how much it has changed lately"
-              words="10+ commits · 3–9 · 1–2 · no commits found. On a function this is the commits its surviving lines trace back to; on a file it is commits in the last 90 days. The tooltip says which."
+              hint="commits behind the code"
+              words="For a function, the number of distinct commits its current lines come from. For a file, commits in the last 90 days. These are different quantities and the tooltip states which. Values: 10+ commits · 3–9 · 1–2 · no commits found."
             >
               <Ramp from="var(--churn-0)" to="var(--churn-4)" ends={['settled', 'churning']} />
             </Lens>
             <Lens
               name="Age"
-              hint="how long since anyone touched it"
-              words="today · this week · this month · this quarter · older. Bright is recent. Absence: history not read."
+              hint="time since last change"
+              words="Days since the most recent commit to touch the code. Values: today · this week · this month · this quarter · older. Brightest is most recent."
             >
               <Ramp from="var(--age-0)" to="var(--age-4)" ends={['old', 'recent']} />
             </Lens>
           </Group>
 
-          <Group title="Two counts — the same edge, read from both ends">
+          <Group title="Counts — four steps, one edge from each end">
             <Lens
               name="Callers"
-              hint="how many things call it"
-              words="6+ callers · 2–5 · 1 · no in-repo caller. In-repo only: an entry point or something called from outside reads as uncalled, which is not a claim it is dead."
+              hint="incoming calls"
+              words="Call sites within this repository. Values: no in-repo caller · 1 · 2–5 · 6+. Calls from outside the repository are not counted, so entry points and public APIs appear uncalled."
             >
               <Swatches
                 fills={[
@@ -199,8 +247,8 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
             </Lens>
             <Lens
               name="Reach"
-              hint="how much it calls out to"
-              words="calls 6+ · 2–5 · 1 · none. High reach is orchestration, low reach is a leaf. Absence: calls not resolved here — this language’s call shape is not read."
+              hint="outgoing calls"
+              words="In-repo functions this one calls, in the same four steps. Where the language's call syntax is not implemented, the lens reports that rather than reporting zero."
             >
               <Swatches
                 fills={['var(--reach-0)', 'var(--reach-1)', 'var(--reach-2)', 'var(--reach-4)']}
@@ -209,24 +257,21 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
             </Lens>
           </Group>
 
-          <Group title="Two marks — a thing is either there or it is not">
+          <Group title="Marks — present or absent, not graded">
             <Lens
               name="Traps"
-              hint="what will bite whoever edits it next"
-              words="A dot, not a shade: there is no such thing as a partial trap. Everything else is “no trap reported”, which is not the same as “safe”."
+              hint="reported hazards"
+              words="A reader flagged something likely to catch out the next person editing this code. Marked rather than graded: there is no partial value. An unmarked wedge means no trap was reported, which is not the same as none existing."
             >
               <div className="flex items-center gap-1.5">
-                <span
-                  className="h-3 w-3 rounded-full"
-                  style={{ background: 'var(--trap)' }}
-                />
+                <span className="h-3 w-3 rounded-full" style={{ background: 'var(--trap)' }} />
                 <span className="mono text-[9px] text-[var(--muted-foreground)]">a trap</span>
               </div>
             </Lens>
             <Lens
               name="Clones"
-              hint="what is a clone of something else"
-              words="6+ clones · 3–5 · 2 · no clone in this repo · too small to compare. The last is its own answer: a four-line body was never compared, and calling it unique would be a claim nobody checked."
+              hint="duplicated bodies"
+              words="Functions whose bodies are identical once identifiers and literals are flattened and comments dropped. Values: 2 clones · 3–5 · 6+ · no clone in this repo · too small to compare. A near-copy differing by one statement is not detected. Bodies below the token floor are never compared, reported separately from finding no clone."
             >
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-1.5">
@@ -244,11 +289,11 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
             </Lens>
           </Group>
 
-          <Group title="Two names — a category, with no order to imply">
+          <Group title="Categories — a name, with no order implied">
             <Lens
               name="Blame"
-              hint="who committed to it last"
-              words="A color per person, biggest first, and the count is yours to set — a few plus a gray “other” is the major contributors; all of them is confetti, which is the right answer to “how crowded is this”. LAST committer, not owner: a formatting sweep makes its author the last toucher of everything it brushed."
+              hint="last committer"
+              words="The author of the most recently changed line. This is last modification, not authorship: a formatting change across many files makes its author the recorded value for all of them. Colors are assigned by size, largest first; how many get one is set by the colors control and the remainder are grouped as “other”. Uncommitted lines and untracked files are shown as themselves."
             >
               <div className="flex gap-[3px]">
                 {['--cat-1', '--cat-2', '--cat-3', '--cat-4', '--cat-5'].map((c) => (
@@ -262,8 +307,8 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
             </Lens>
             <Lens
               name="Language"
-              hint="what it is written in"
-              words="The same palette over a different question. Good for finding where a repo’s language boundaries actually fall, which is often not where the directory names suggest."
+              hint="source language"
+              words="The file's language, determined by extension. Colors assigned the same way as Blame. Useful for locating language boundaries, which often do not follow directory names."
             >
               <div className="flex gap-[3px]">
                 {['--cat-1', '--cat-2', '--cat-3', '--cat-4'].map((c) => (
@@ -275,32 +320,6 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
                 ))}
               </div>
             </Lens>
-          </Group>
-
-          <Group title="Before a lens can answer">
-            <div className="grid gap-1.5 py-2 text-[10px] leading-relaxed text-[var(--muted-foreground)]">
-              <p>
-                <b className="text-[var(--foreground)]">Surprise · Legibility · Docs · Traps</b> —
-                need a reading. Press Read on the project.
-              </p>
-              <p>
-                <b className="text-[var(--foreground)]">Blame · Churn · Age</b> — need the
-                repository’s history read. Press Trace.
-              </p>
-              <p>
-                <b className="text-[var(--foreground)]">Callers · Reach</b> — need this language’s
-                call shape, which exists for some grammars and not others.
-              </p>
-              <p>
-                <b className="text-[var(--foreground)]">Language · Clones</b> — need nothing
-                beyond the scan.
-              </p>
-              <p className="mt-1">
-                A lens with nothing in it is locked and says what would open it, rather than
-                drawing an empty map — showing unread code as blank is the one thing this
-                instrument is built not to do.
-              </p>
-            </div>
           </Group>
         </div>
 
