@@ -78,13 +78,13 @@ function Lens({
         </p>
         {values && (
           <p className="mono mt-1 text-[9px]">
-            <span className="not-italic text-[var(--foreground)]">values </span>
+            <span className="not-italic text-[var(--foreground)]">Values </span>
             {values}
           </p>
         )}
         {ramp && (
           <p className="mono text-[9px]">
-            <span className="text-[var(--foreground)]">ramp </span>
+            <span className="text-[var(--foreground)]">Ramp </span>
             {ramp}
           </p>
         )}
