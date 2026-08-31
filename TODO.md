@@ -39,11 +39,19 @@ writing the help first means writing it twice.
 
 # TODO — Blame colours by who touched it last, not by who wrote it
 
-**One typo fix repaints a file.** `Node::last_author` is `newest.author` — the author of the
-single most recently touched LINE in the range. A function ninety per cent written by one
-person and last touched by another for a one-line fix is drawn entirely as the second person.
-As an ownership map that is the wrong reading, and ownership is what people open this lens
-for.
+**One whitespace sweep repaints 642 files, and this is measured rather than feared.** On
+ceph, `Edwin Rodriguez` leads the Authors panel — ahead of Sage Weil, who has 27,493 commits
+to Edwin's 56. The cause is one commit, `c8c1019d196`, "Add missing blank line after comment
+block": 642 files changed, 642 insertions. `Node::last_author` is `newest.author` — the author
+of the single most recently touched LINE — so he is now the recorded owner of `hello_world.cc`,
+`fusetrace_ll.cc`, `SimpleRADOSStriper.cc` and everything else that commit brushed. Git agrees
+with the map. The map is faithfully reporting a signal that does not mean what the lens is
+called.
+
+**The legend and the panel already disagree about it in the same window.** The map's key lists
+Sage Weil first, because it follows `stats.authors` — commit order over the whole log. The
+Authors panel lists Edwin first, because it sorts by lines whose last toucher he is. Two
+orderings of one cast, side by side, and the more prominent one is wrong.
 
 **The data already exists and does not reach the node.** `blame.rs` computes
 `RangeDetail::authors` — `Contributor { author, lines }`, most lines first — so who wrote how
@@ -55,6 +63,12 @@ touched it last are different questions; the lens currently offers the second un
 of the first. Whichever it paints, the other belongs in the panel — and "how many hands"
 is a third reading again, which is the contention signal `docs/notes/time.md` records as
 measured nowhere.
+
+**Separately, the panel's rows are sorted by one number and labelled with another.**
+`sortBuckets` orders blame by `b.lines`; the row prints `b.count`. That is why the column
+reads 1,819 · 1,019 · 985 · 216 · 86 · 309 — not descending, because it was never sorted by
+what it shows. Whichever number the row should carry, it has to be the one the list is
+ordered by, and everything else in this app is weighted in lines.
 
 ---
 

@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-947 of 947 read · 158 surprising
+925 of 925 read · 153 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -1500,67 +1500,6 @@ What this is and how to add to it: [README.md](README.md)
 - found: Parses repo/out/n args, runs the shared scan::scan over the repo with ephemeral memos and Ordering fidelity to get all_tasks, then strides evenly through the task list to pick ~n of them spread across the whole set (not random sampling), slices each function's body directly from the file by line range, and writes a paired NN_head.md (name/owner/signature/docs/peers) and NN_body.txt (source) per exercise to the output directory.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 - note: I predicted random sampling but it actually uses even striding (len/want) through the task list, and re-slices bodies live from disk rather than from any stored snapshot.
-
-## src-tauri/src/bin/scan.rs
-
-### the file itself
-- spec 3 · read at `2a8ca448e274` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T05:02:49Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: CLI binary `main` that takes a repo path, runs the same scan/score pipeline as the app (scan::scan) headlessly, and prints a human-readable report to help a developer sanity-check the surprise metric: a histogram of scores (histogram), wiring/call-graph stats (wiring), clone-detection stats (copies), a baseline sanity check comparing against some expected/prior distribution (baseline_check), and a ranked list of the hottest functions labeled by score quadrant (quadrant_label), with long names/docs truncated (truncate) and output organized into labeled sections (section) so the top surprises can be eyeballed against what the developer already knows about the repo.
-- found: Headless CLI scorer matching the prediction closely: parses path/--local, runs scan::scan at full fidelity with ephemeral memos, prints headline stats (files/functions/lines/% hot), then a temperature histogram, wiring stats (call resolution %, orphans, caller-count bands, locality deciles), clone/copies group-size stats, a baseline_check that specifically tests metric-ranking-vs-raw-size-ranking overlap as a falsification test, and two ranked sections (hottest, bulkiest-predictable) formatted via section/quadrant_label/truncate.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: legible/trap are N/A for this file-level task; values are placeholders since the schema requires them.
-
-### `main`
-- spec 3 · read at `af07567e0776` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:39:11Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Parses a repo path from CLI args, runs the scanner over it computing surprise scores for every function, then prints a formatted report to stdout using the peer helpers — a histogram of scores, wiring/copies stats, a baseline_check sanity check, and per-function sections labeled by quadrant_label with names truncated — so a human can visually confirm the highest-surprise functions are the ones they'd expect.
-- found: Parses PATH and --local WEIGHTS args (falling back to HeuristicModel unless built with local-model feature), runs a full-fidelity scan, collects all Func nodes, prints summary stats (files/functions/lines, % hot lines by temperature), then calls the peer helpers (histogram, wiring, copies, baseline_check) and finally two ranked sections (HOTTEST and BULKIEST PREDICTABLE) sorted by temperature×lines and Bloat-quadrant lines respectively.
-- predicted: most · documented: none · derivable: yes · legible: most · trap: no
-- note: Missed the --local/local-model feature-gated model selection and the specific temperature×lines and Bloat-quadrant ranking formulas, but got the overall report structure right.
-
-### `histogram`
-- spec 2 · read at `4c74b4d20fb0` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:53:07Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Buckets the surprise scores of funcs into fixed-width ranges (e.g. 0.0-0.1 ... 0.9-1.0), counts how many fall in each bucket, and prints an ASCII bar chart to stdout showing the distribution — evidence of whether the metric spreads scores out (long cold tail, thin hot end) or piles everything into one bucket.
-- found: Buckets each node's temperature (0-1, missing score treated as 0.0) into 10 deciles, then prints a scaled unicode bar chart (relative to the peak bucket) with counts, labeled "TEMPERATURE SPREAD".
-- predicted: full · documented: some · derivable: no · legible: full · trap: no
-
-### `wiring` — QUIRKY
-- spec 3 · read at `52ca8e68966b` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:48:29Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: This CLI function computes and prints the three calibration numbers described in the docs — coverage, resolution, and unreferenced percentage — from the funcs slice and ScanStats, likely printing a warning if any falls below a usability threshold, and probably lists the top unreferenced functions as the actionable finding.
-- found: Prints resolution/coverage/unreferenced percentages, then renders an ASCII bar-chart histogram of caller counts by band (0,1,2,3-5,6-15,16+), then computes per-function locality gap and renders a second ASCII bar-chart of its decile distribution — early-returning with a gray-lens message if no functions have caller data or none are wired.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
-- note: The two ASCII histograms (caller-count bands and locality-gap deciles) are the bulk of the function and weren't guessable from the name/docs alone — they're what actually lets a human eyeball whether the distribution is a usable ramp or flat/saturated.
-
-### `copies`
-- spec 3 · read at `a20f08146b60` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T05:04:51Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Groups the given functions by a shape/similarity signature (likely a precomputed hash on Node), then prints a report of clone-group sizes as a distribution rather than a single count — e.g. listing groups sorted by size, so a human can see whether there's one large N-way clone group vs many small pairs. May also print example function names/locations for the largest groups to let a developer sanity check whether MIN_SHAPE_TOKENS is set correctly.
-- found: Prints a "COPIES" report: percent of functions big enough to compare, percent that are clones, then buckets clone groups into size bands (2, 3-5, 6-15, 16+) with an ASCII bar histogram, and finally names the single biggest clone group's example member.
-- predicted: most · documented: none · derivable: yes · legible: most · trap: no
-- note: I called the overall shape (group-size distribution + biggest-group example) but missed the concrete band buckets and ASCII bar rendering, plus the comparable/cloned percentage stats up front.
-
-### `baseline_check`
-- spec 3 · read at `7880792fd405` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:46:42Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Sorts the given functions by the real metric (temperature * lines) to get the top-K, then separately sorts the same slice by line count alone to get its own top-K, computes the overlap (set intersection size) between the two top-K lists, and prints that overlap count/percentage as a warning-style line — high overlap meaning the metric adds nothing beyond raw size.
-- found: Guards on having at least 15 functions, then takes the top-15 IDs sorted by temperature*loc versus top-15 by loc alone, counts the overlap, and prints a tiered qualitative verdict (0-6/7-11/12-15 shared) about whether the metric is doing real work versus just recovering size.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-
-### `section`
-- spec 3 · read at `a7cc9bd8f056` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:43:22Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Prints a section header using `title`, then sorts `funcs` in place by the `rank` closure (descending), and prints a short list of the top entries (name + rank value, maybe truncated to some fixed count) to stdout as part of the CLI scan report.
-- found: Sorts funcs descending by rank score, prints a header, then for up to 15 entries with rank>0 prints a formatted row: temperature percentage, truncated name, LOC, quadrant label, and file:line location.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-
-### `quadrant_label`
-- spec 2 · read at `db90c53d6314` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:05:42Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A simple match over the Quadrant enum variants (likely combining high/low surprise with documented/undocumented) returning human-readable static strings like "hot, undocumented" / "hot, documented" / "cold, undocumented" / "cold, documented" for use in the CLI's report/histogram output.
-- found: A match over Quadrant returning static labels: CrownJewel -> "crown-jewel", Trouble -> "trouble", Bloat -> "bloat", Quiet -> "quiet".
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Got the mechanism (trivial enum-to-string match) right but guessed the wrong axis pairing — it's named/themed (crown-jewel/trouble/bloat/quiet) rather than a literal documented×surprise cross-product I imagined.
-
-### `truncate`
-- spec 2 · read at `93d56c49406a` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:44:38Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Truncates a string to at most n characters, likely appending "…" or "..." if it was longer, used for printing headless-scan output like function names/paths without overflowing terminal width. Probably handles char boundaries safely rather than byte slicing.
-- found: Truncates a string to n chars max, char-wise (not byte-wise) to avoid panicking on UTF-8 boundaries, appending "…" when truncated.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ## src-tauri/src/bin/tokens.rs
 
@@ -4043,61 +3982,6 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: The doc's "before an edit" scenario isn't literally tested here; the test just covers wrong-line and wrong-file cases, both collapsing to the same None outcome.
 
-## src-tauri/src/local.rs
-
-### the file itself
-- spec 2 · read at `286441edffd6` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:18:01Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Implements an on-machine scoring backend (alternative to the Ollama/HTTP path) that loads a local LLM directly via a Rust inference crate, discovers available local model files on disk, and computes per-token surprisal for an entire function body in a single forward pass with logits requested at every position, avoiding the per-token generation cost of the HTTP path. Exposes a LocalModel type (load/label/is_model/surprisal/surprise) plus discover_models and score_one entry points mirroring the interface the rest of the app expects from any scoring backend.
-- found: local.rs implements local scoring via llama_cpp_4: LocalModel loads a GGUF and spawns a dedicated owner thread (context is !Send) that receives scoring jobs over a channel; score_one tokenizes prefix+body, decodes in one batch requesting logits only over the body span, and computes mean bits-per-token surprisal via log-softmax. discover_models scans Ollama's blob store directory for files over 100MB as a cheap way to find already-downloaded weights, with no format/magic-number check.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-
-### `load`
-- spec 3 · read at `8c523f909942` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:43:57Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Opens the GGUF file at path using a llama.cpp binding, builds a model + context, and spawns a dedicated OS thread that owns that context since llama contexts aren't Send/thread-safe for concurrent use. Sets up an mpsc channel between the returned LocalModel handle and that thread so callers can send scoring requests, and returns the LocalModel struct wrapping the sender plus a derived label (e.g. filename stem).
-- found: Derives a label from the filename, spawns an owner thread that loads the backend/model/context (leaking backend and model to 'static since LlamaContext borrows the model and the struct would be self-referential otherwise), sends the load result back over a one-shot ready channel so load() can return a proper Result synchronously, then loops receiving (prefix, body) scoring jobs off an mpsc channel and replying via a oneshot reply channel per job until all senders drop. Returns LocalModel{label, jobs: Mutex<Sender<Job>>}.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: The Box::leak-to-'static trick for the self-referential model/context pair, plus the separate ready_rx handshake to surface async load errors synchronously, aren't obvious from the signature/docs alone.
-
-### `surprisal` — OBSCURE
-- spec 2 · read at `476dc5b143b1` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:04:37Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Locks the model behind a mutex, then tokenizes prefix+body (prefix as context, body as the target text), runs one decode pass requesting logits at every position, and computes -log2(P(actual token)) averaged over just the body's tokens (excluding prefix tokens), returning the mean as bits/token in Some, or None on tokenization/scoring failure.
-- found: It doesn't compute anything itself — it packages (prefix, body) into a job, sends it over an mpsc channel to a worker (guarded by a mutex on the sender side), and blocks on a reply channel for the result, returning None if any step fails.
-- predicted: none · documented: some · derivable: no · legible: full · trap: no
-- note: I predicted the mutex directly guarded the matmul/decode computation in this function; actually this function only dispatches a job to a separate worker thread via channels and blocks for the reply — the real computation lives elsewhere (likely score_one).
-
-### `score_one`
-- spec 2 · read at `7e93f16195bd` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:54:53Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Tokenizes prefix + body, runs one `decode` call on the full sequence with logits requested at every position (getting P(token | prior tokens) for the whole body in a single forward pass instead of Ollama's one-pass-per-token trick), then sums/averages the negative log-probabilities of the body's actual tokens into a surprisal score. Returns None if tokenization, context capacity, or decode fails.
-- found: Tokenizes prefix/body separately, rejects bodies under 8 tokens, truncates the body to at most half of MAX_TOKENS and trims the context (never the body) to fill remaining room, then does a single decode requesting logits only at the positions needed to predict each body token (not every position, for speed), computes log-softmax manually with a max-subtraction for numerical stability, and returns the average surprisal in bits per token.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: I assumed logits were requested at every position; it actually only requests them at the specific positions needed to score body tokens, which the comment says roughly triples cost if done naively over full context.
-
-### `label`
-- spec 2 · read at `4f50426f582a` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:09:58Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Trivial accessor returning a human-readable identifier for this local model, likely the model's file/name string (perhaps prefixed like "local:<name>") used for display or cache keying — one line delegating to a stored field.
-- found: Returns a clone of the self.label field — a stored string, not derived from a model name field or prefix as I guessed.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: I guessed a name/prefix-derived string; it's just a stored `label` field, so I got the shape right but the specific field wrong.
-
-### `is_model`
-- spec 2 · read at `67310d59233c` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:13:18Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: A trivial trait-implementation marker: returns `true` (hardcoded) to identify that this scorer is a local, in-process model (as opposed to a remote/API-based one), likely used by calling code to decide which code path or UI messaging to use.
-- found: Returns hardcoded `true`, a trait-implementation marker identifying this scorer as a local model.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-
-### `surprise`
-- spec 2 · read at `b4a87facc399` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:50:28Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Calls self.surprisal(item) to get the model's real per-token logprob-based surprisal score for the item's body text, then wraps it into a Reading (score, source='model', etc.), using `proxy` as a fallback value if surprisal computation fails or as a comparison/blend factor rather than the primary score.
-- found: Builds a prefix from item.context + item.signature (matching the HTTP backend's conditioning context), calls self.surprisal(prefix, item.body); if Some(bits), returns Reading::plain(calibrate_surprisal(bits)); if None, falls back to Reading::plain(proxy).
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-
-### `discover_models`
-- spec 2 · read at `6300ccb643a9` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:45:04Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Locates the Ollama blob store directory (likely ~/.ollama/models/blobs or similar), lists its entries, and filters for files whose size exceeds a 100 MB threshold, treating those as model weight files. Returns the resulting paths as a Vec<PathBuf>, with no format/magic-number validation.
-- found: Reads ~/.ollama/models/blobs, keeps entries over 100MB as presumed model weights (no format check), and returns the sorted list of paths.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: The docs handed to me essentially stated the implementation (100MB threshold, no format check) rather than describing intent, so this one was pre-solved by the doc text itself.
-
 ## src-tauri/src/main.rs
 
 ### the file itself — QUIRKY
@@ -4283,10 +4167,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/model.rs
 
 ### the file itself
-- spec 3 · served in 3 parts · read at `d217fd73a0de` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:48:07Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: This file defines the core tree/wedge data model shared across the backend: the Node struct (directory/file/function) with its score, language, provenance and column-stat fields, plus the aggregation logic that rolls function-level stats (score, temperature, hot_share) up into files and directories, language lookup helpers, and serialization. It also contains a battery of descriptively-named unit tests asserting the aggregation invariants called out in the file doc (hot_share weighting, unreadable subtrees, quadrant splits, etc).
-- found: Defines the core tree data model: NodeKind/Lang/Provenance/Quadrant/Source enums, the Node struct (dir/file/function wedge with all its metadata, wiring, clone and score fields), the Cols struct for cheap per-file function-column stats, Score with temperature/is_stable/quadrant, and Node methods (dir constructor, aggregate for LOC-weighted roll-up of scores and wiring counts, unreadable, visit, slim to drop function children, functions_of for batched lookups). Followed by an extensive #[cfg(test)] module of descriptively-named tests pinning aggregation invariants (LOC-weighting, hot_share over analyzed lines only, wiring summed not averaged, absence vs zero, language round-trip, idempotent slim).
-- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+- spec 3 · served in 3 parts · read at `95e6394a39fb` · commit `6deb237` · read by claude-sonnet-5 · via claude · when 2026-08-31T03:36:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This file defines the core shared data model for the visualization tool: a Node tree (dir/file) that aggregates per-function Scores (temperature = "surprise", distinct from LOC/size) up through directories, a Lang enum for language detection from file extensions/labels, a Provenance enum (e.g. human vs model-authored) with weighting that affects scoring, and Cols for column layout. It implements serialize/deserialize for persisting this model, and aggregation logic (Node::aggregate, Node::visit, Node::slim) that rolls up hot-share/temperature through the tree using LOC-weighted, edge-based (not child-count) rules, treating unreadable subtrees as absent rather than zero. The bulk of the file is unit tests (the snake_case peers) asserting these aggregation invariants.
+- found: The file defines the core shared model: Lang (language enum with extension/label mapping and conservative heuristics for ambiguous extensions), Provenance and Source enums for explanation trustworthiness, Score (surprise/temperature vs hot_share, documented, churn, age, commits, wiring/clone-group counts), Node (the wedge tree with dir/file/func kinds, carrying extent in bytes, signature/owner for reader identification, wiring and clone metadata), Cols (columnized per-function stats for distributions without full function nodes), and Node methods: dir() constructor, aggregate() (LOC-weighted, edge-summed roll-up of scores and wiring up the tree, absence-preserving), unreadable(), visit(), slim() (drops function children but keeps rolled-up columns/scores, verbose full-struct construction to avoid O(n^2) clone), and functions_of() (batched function lookup by path in one tree walk). Extensive tests assert aggregation invariants. My prediction covered the shape (Node tree, Score with temperature/hot_share distinction, Lang, Provenance, aggregation being LOC-weighted and edge-based) but missed most of the actual richness: the wiring/reach fields (incident/away/resolvable/orphans/sinks), clone-group fields, the Cols columnar distribution mechanism and its rationale, the extent-in-bytes/signature/owner fields for reader-facing reveal, and the historical bugs the extensive comments describe (label vs lowercase serialization mismatch, slim-twice bug, wiring-mean-vs-sum bug).
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+- note: The comments are unusually rich with post-mortem narrative (specific repos like ceph/kibana/htop, specific past bugs and their consequences) that a header-only summary would never convey — this is a case where per-item docs carry far more signal than any file-level docstring could.
 
 ### `serialize`
 - spec 3 · read at `1b5cde81fa57` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:49:05Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -4332,18 +4217,6 @@ What this is and how to add to it: [README.md](README.md)
 - found: Returns self.surprise clamped to [0.0, 1.0].
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: Missed the clamp, which is a real detail (guards against a surprise value going out of the valid color range) but a minor one.
-
-### `is_stable`
-- spec 2 · read at `09cb01dcd499` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:04:26Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Returns true if self.age (in days) is at least some generous threshold like 90 days (a quarter), indicating the code hasn't changed recently and reads as settled rather than in-flight.
-- found: Requires BOTH churn < 0.25 AND age_days > 90 (via is_some_and, so None age is not stable) — I only predicted the age half, missing the churn condition and the Option-handling default.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `quadrant` — QUIRKY
-- spec 2 · read at `7cff2a45459f` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:41:57Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Combines temperature (surprise) and is_stable() to classify the score into one of four Quadrant variants (hot/unstable, hot/stable, cold/unstable, cold/stable). The loc parameter guards against very small or unanalyzed wedges, returning a neutral/no-heat quadrant when there isn't enough analyzed code to trust the reading.
-- found: Classifies into one of four named quadrants (CrownJewel, Trouble, Bloat, Quiet) based on (surprise >= HOT, is_stable()); loc only matters in the not-hot case as a size threshold (BULKY=40) distinguishing Bloat from Quiet, not as a data-sufficiency guard.
-- predicted: some · documented: none · derivable: no · legible: full · trap: no
 
 ### `of`
 - spec 3 · read at `479ef9ed0f5c` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:40Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -4440,13 +4313,6 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Unit test constructing a Score with high surprise and full/good documentation coverage, then asserting Score::temperature equals the surprise value unchanged — proving that having documentation does not lower the reported temperature, since a well-documented surprising function is still surprising code.
 - found: Unit test asserting Score::temperature equals the surprise value (first score() arg) regardless of the second arg (documentation-related), across a couple of value combinations, confirming documentation does not discount temperature.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `quadrants_split_on_surprise_and_stability` — QUIRKY
-- spec 2 · read at `ed9fa2e5401e` · commit `9ea3e1f` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T22:04:10Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Constructs several Score instances with varying temperature/surprise and stability values and asserts that Score::quadrant returns the expected one of four quadrant labels for each combination (high surprise + low stability, high surprise + high stability, etc.).
-- found: Tests Score::quadrant(loc_threshold) against named quadrants (CrownJewel, Trouble, Bloat, Quiet), showing quadrant depends on surprise, stability, age, AND a size/LOC threshold parameter — richer than the two-axis model I predicted, plus a special case where young code can't be a CrownJewel regardless of surprise.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
-- note: I only predicted two input axes (surprise, stability); the real function also takes an external LOC threshold and treats code age as a gating condition, not just an axis.
 
 ### `a_directory_reports_the_share_of_it_that_is_hot_not_the_mean`
 - spec 2 · read at `de33883da0fd` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:02:43Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -5654,10 +5520,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/surprise.rs
 
 ### the file itself
-- spec 2 · read at `75a0de2ab589` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:05:40Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Defines a SurpriseModel trait (min_lines, is_model methods) implemented by HeuristicModel, which passes the offline heuristic.rs proxy through untouched as a no-model/no-network fallback. Also defines a Reading struct with a plain() constructor representing a scored function/reading, and a calibrate_surprisal function that normalizes raw surprisal values onto the product's temperature scale.
-- found: Defines an Item struct (the context bundle a scorer sees: name, signature, body, peers, doc, context, lines), the SurpriseModel trait (label, surprise, min_lines, is_model with defaults), HeuristicModel which passes the precomputed heuristic proxy straight through as Reading::plain, a Hotspot struct capturing contrastive surprisal evidence, the Reading struct (surprise + hotspots) with a plain() constructor, and a feature-gated calibrate_surprisal mapping bits-per-token to the 0..1 scale. Extensive doc comments explain why a prior forced-decoding/Ollama model-scoring approach was removed in favor of MCP-based agent readers.
-- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+- spec 3 · read at `8ec9bbb95d8a` · commit `6deb237` · read by claude-sonnet-5 · via claude · when 2026-08-31T03:36:43Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Defines the SurpriseModel trait (min_lines, is_model) as the pluggable abstraction for scoring code surprise, and HeuristicModel, a no-ML/no-network proxy implementation (label, surprise methods) that estimates boilerplate-ness heuristically. Also defines a Reading result type with a `plain` constructor, and includes a test verifying the heuristic model passes its proxy value through untouched.
+- found: Defines the Item struct (the context bundle a scorer sees: name, signature, body, peers, lines, doc, context), the SurpriseModel trait (label, surprise, min_lines, is_model), HeuristicModel (a pass-through proxy implementation), Hotspot and Reading (the result type with contrastive evidence), plus a test. Extensive module docs explain the now-removed OllamaModel forced-decoding approach, why it was abandoned in favor of MCP-based agent readers, and empirical findings about what scoring approaches failed.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: I predicted the trait/HeuristicModel/Reading correctly but completely missed the Item and Hotspot structs, which are a large fraction of the file's actual content.
 
 ### `min_lines` — QUIRKY
 - spec 2 · read at `87f752bfa9dd` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:46:37Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -5689,19 +5556,6 @@ What this is and how to add to it: [README.md](README.md)
 - expected: A small constructor that wraps a raw surprise f32 value into a Reading struct, filling in other fields (like documentation info or explanation text) with defaults/None since this is a "plain" reading with no extra context.
 - found: Constructs a Reading with the given surprise value and an empty hotspots vector.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-
-### `calibrate_surprisal`
-- spec 2 · read at `c5251cafb465` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:04:53Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Maps a bits-per-token surprisal value to the 0..1 surprise scale via a simple monotonic transform — likely a linear rescale between two calibrated bit thresholds, clamped to [0,1], since the doc says this only positions where the interesting band sits rather than reshaping the distribution like the heuristic's calibration does.
-- found: Linear rescale of bits from [0.5, 4.0] to [0,1], clamped at the ends.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-
-### `predictable_code_is_cold_and_unexpected_code_is_hot` — QUIRKY
-- spec 2 · read at `a685216cfeda` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:04:59Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: A test that feeds two contrasting code snippets (one boilerplate/predictable, one unusual) through the surprise calculation (likely HeuristicModel::surprise or calibrate_surprisal) and asserts the predictable snippet gets a lower surprise score than the unexpected one, confirming the core 'boilerplate is cold, novel code is hot' definition.
-- found: Tests calibrate_surprisal directly on raw numeric inputs, not code snippets: checks low input (0.2) clamps to 0.0, high input (9.0) clamps to 1.0, and that the function is monotonic between two mid-range values (1.0 < 3.0 in output).
-- predicted: some · documented: none · derivable: no · legible: full · trap: no
-- note: I assumed the test would run actual code snippets through a surprise model; it actually tests the calibration/clamping function directly on raw float inputs.
 
 ### `the_heuristic_model_passes_the_proxy_through_untouched`
 - spec 2 · read at `840042693013` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:43:17Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
