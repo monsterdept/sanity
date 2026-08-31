@@ -1,22 +1,3 @@
-# TODO — the lens switcher should group by what each lens needs
-
-**Eleven lenses are shown as eleven peers, and they are not.** Four of them need a reading,
-three need git, two need the language's call shape, and two need nothing but the scan. The
-app already computes exactly that — `locks` in `App.tsx` decides it per lens, with the
-sentence that would open each one — and then the switcher lists all eleven flat, so which
-half of the product is available is something you find out by clicking.
-
-**Grouped, the strip answers three questions at once**: what is ready now, what one button
-would unlock, and what this language cannot answer at all. Ungrouped, eleven padlocks are
-eleven separate small disappointments and the reason for each is in a tooltip.
-
-**It also makes a real gap visible.** On a repo nobody has read, what survives says nothing
-about the code's own shape — Language, Clones, Callers, Reach, Blame, Churn, Age will tell
-you who wrote it, when, in what language and how it is wired, and nothing about what it IS.
-That is worth seeing before deciding whether to add a twelfth lens to fill it.
-
----
-
 # TODO — a help window for the eleven lenses
 
 **Users cannot be expected to infer our exact terms, and some of them are not inferable.**
@@ -32,8 +13,9 @@ and the app has no way to cross two lenses — so the help either explains that 
 by switching, which works only because nothing moves between lenses and is stated nowhere,
 or the product answers it properly first.
 
-**Order it after the switcher grouping.** Grouping changes what the help has to explain, and
-writing the help first means writing it twice.
+**It also has to explain the units.** This app counts lines in some places and functions or
+files in others — the standing decision was to explain that rather than force one unit
+everywhere, and this is where the explaining goes.
 
 ---
 
