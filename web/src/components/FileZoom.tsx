@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { type Node } from '../lib/api'
 import { clsx } from '../lib/cn'
-import { colorFor, type ColorMode, paintsFromReadings } from '../lib/colorMode'
+import { colorFor, type Views, type ColorMode, paintsFromReadings } from '../lib/colorMode'
 import { CHROME_INK } from '../lib/ink'
 import { arcPath, tileFunctions, type Slot } from '../lib/sunburst'
 import { arcOf, center, fanFor, lerpSector, place, room, type Arc, type Sector } from '../lib/fan'
@@ -51,9 +51,9 @@ export interface FileZoomProps {
   selected: Node | null
   mode: ColorMode
   ranks?: Parameters<typeof colorFor>[2]
-  /** The repo's age span — see `ageSpanOf`. A file opened out of its wedge is the same
+  /** How Age is calibrated and which of its two dates it paints — see `AgeView`. A file opened out of its wedge is the same
    *  functions, so it cannot be on a different scale from the ring it came from. */
-  ageSpan?: number
+  views?: Views
   minPatchArea?: number
   /** User units to a screen pixel, for the roll-up texture's legibility floor. */
   unitsPerPx?: number | null
@@ -91,7 +91,7 @@ export function FileZoom({
   selected,
   mode,
   ranks,
-  ageSpan,
+  views,
   minPatchArea,
   unitsPerPx,
   paneAspect,
@@ -119,9 +119,9 @@ export function FileZoom({
 
   const fills = useMemo(() => {
     const m = new Map<string, ReturnType<typeof colorFor>>()
-    for (const c of cells) m.set(c.node.id, colorFor(c.node, mode, ranks, ageSpan))
+    for (const c of cells) m.set(c.node.id, colorFor(c.node, mode, ranks, views))
     return m
-  }, [cells, mode, ranks, ageSpan])
+  }, [cells, mode, ranks, views])
 
   if (cells.length === 0) return null
 

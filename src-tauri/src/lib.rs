@@ -24,6 +24,7 @@ pub mod cli;
 pub mod clones;
 pub mod commands;
 pub mod edges;
+pub mod edits;
 pub mod harness;
 pub mod heuristic;
 pub mod history;

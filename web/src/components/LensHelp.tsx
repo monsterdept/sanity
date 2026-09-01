@@ -299,10 +299,16 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
             name="Age"
             needs="Trace"
             swatch={<Ramp from="var(--age-0)" to="var(--age-4)" />}
-            measures="days since the most recent commit to touch the code."
+            measures="days since the newest line here was written — or, on the other setting, since the oldest line here was."
             values="older · this quarter · this month · this week · today"
             ramp="old (dim) → recent (bright)"
-          />
+          >
+            Two dates, one ramp, and the switch beside the lens says which. The newest line is
+            where work has been happening; the oldest is what has been standing here a long
+            while. On code rewritten last week out of lines from 2014 they disagree by a decade,
+            and the second is the one that finds what nobody has been near. Lines, not code:
+            a wholesale rewrite leaves nothing behind saying when the code was first written.
+          </Lens>
         </div>
 
         <footer className="flex shrink-0 justify-end border-t border-[var(--border)] px-5 py-3">

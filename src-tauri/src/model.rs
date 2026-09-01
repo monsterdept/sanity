@@ -400,22 +400,38 @@ pub struct Score {
     /// Now the reader with the docs in hand grades them, and the grade is shown rather
     /// than folded into the color.
     pub documented: f32,
-    /// 0..1 — commits touching this code in the churn window, normalized across the repo.
-    pub churn: f32,
+    /// 0..1 — how fast this code is changing, one value per window in
+    /// [`crate::scan::Stats::churn_windows`].
+    ///
+    /// **Four, because the window is the reader's choice and the answer cannot be re-derived
+    /// from one of them.** A file's rate at thirty days does not follow from its rate at
+    /// ninety, and a DIRECTORY's is a line-weighted mean of its children's — so a window
+    /// switched in the browser would need the whole tree re-aggregated in Rust and sent back.
+    /// Four floats a node is 16 bytes, which on the largest repo tried is under 4MB; the round
+    /// trip is a redraw of everything.
+    ///
+    /// All four are zero where the timeline has not been walked. That is not "settled" and
+    /// nothing may draw it as such — see `Stats::churned`, which is where the repo says whether
+    /// this was measured at all. A per-node absence would be that answer repeated on every
+    /// segment, which is the thing `CLAUDE.md` names.
+    pub churn: [f32; 4],
     /// Days since the code first appeared. `None` when there is no git history.
     pub age_days: Option<f32>,
     /// The raw count behind `churn`. Shown to the user instead of the normalized figure,
     /// because a number of commits is a fact and a percentage of a saturation constant is
     /// not.
     ///
-    /// **It counts a different thing on a function than on a file, and every consumer has to
-    /// say which.** A file's is commits in the 90-day window; a function's is how many
-    /// distinct commits its current lines trace back to, because a window per function needs
-    /// `git log -L` — see `blame.rs`, which states the difference and asks the UI not to
-    /// present the two as one number. The UI can tell them apart from `kind` and nothing
-    /// else, which is why this stayed one field: two fields, one of them always zero, is an
-    /// invitation to add them up.
-    pub commits: u32,
+    /// **It counted a different thing on a function than on a file, and no longer does.** A
+    /// file's was commits in the ninety-day window and a function's was how many distinct
+    /// commits its current lines traced back to — one ramp over two quantities, which the UI
+    /// had to caption its way out of. Both are now the same question at both resolutions:
+    /// commits that CHANGED this, inside the window, counted off the timeline. See `edits.rs`
+    /// for why blame could never answer it and `docs/notes/time.md` for how it came to.
+    ///
+    /// One entry per window in [`crate::scan::Stats::churn_windows`], and zeroes where the
+    /// timeline has not been walked — see `churn` above for why the absence is stated once,
+    /// on the repo, rather than on every node.
+    pub commits: [u32; 4],
     /// Every commit that has ever touched this path, or `None` where git has never seen it.
     ///
     /// The figure a header wants: `commits` is a RATE over a window and this is a SIZE. A
@@ -714,9 +730,13 @@ pub struct Node {
 pub struct Cols {
     /// Lines per function, which is what every bucket is weighted by.
     pub loc: Vec<u32>,
-    /// `Score::commits` — on a function, the commits its lines trace back to. `-1` where
-    /// the repo has no history.
-    pub commits: Vec<i32>,
+    /// `Score::commits`, one entry per window — see `crate::scan::ScanStats::churn_windows`.
+    ///
+    /// `[-1; 4]` where the repo has no history, which every lens draws as an absence rather
+    /// than as a zero. **All four rather than the rung in use**, because the rung is a live
+    /// choice in the window and a file banded from its columns must not report one horizon's
+    /// count while the map around it is painted at another.
+    pub commits: Vec<[i32; 4]>,
     /// `Score::last_touched_days`, rounded. `-1` where the repo has no history.
     pub touched: Vec<i32>,
     /// In-repo callers, `-1` where this language's calls were never parsed — the absence
@@ -739,12 +759,21 @@ impl Cols {
             // `-1` is "no history", which the lens draws as an absence. A repo with no git
             // gives every function the same -1 and the map says so once, rather than
             // drawing a ring of confident zeros.
+            //
+            // **All four windows, and carrying only the default one was tried and was wrong.**
+            // The argument for one was size: a column is a fallback for a file whose ring never
+            // arrived, and four counts per function quadruples the widest structure the app
+            // sends. The argument against is that it is not a fallback, it is a WRONG ANSWER —
+            // a file banded from its columns would report its ninety-day count while the map
+            // around it was painted at thirty, and nothing on screen would say so. Measured, the
+            // cost is about 1.4MB on the largest repo tried, which is the price of the band
+            // being the band it claims to be.
             let (commits, touched) = match f.score {
                 Some(s) if s.age_days.is_some() => (
-                    s.commits as i32,
+                    s.commits.map(|n| n as i32),
                     s.last_touched_days.map(|d| d.round() as i32).unwrap_or(-1),
                 ),
-                _ => (-1, -1),
+                _ => ([-1; 4], -1),
             };
             c.commits.push(commits);
             c.touched.push(touched);
@@ -861,7 +890,8 @@ impl Node {
         }
 
         let mut w = 0.0f32;
-        let (mut surprise, mut documented, mut churn) = (0.0f32, 0.0f32, 0.0f32);
+        let (mut surprise, mut documented) = (0.0f32, 0.0f32);
+        let mut churn = [0.0f32; 4];
         let mut hot = 0.0f32;
         let mut analyzed = 0.0f32;
         let mut age: Option<f32> = None;
@@ -872,7 +902,9 @@ impl Node {
             w += cw;
             surprise += s.surprise * cw;
             documented += s.documented * cw;
-            churn += s.churn * cw;
+            for (into, from) in churn.iter_mut().zip(s.churn.iter()) {
+                *into += from * cw;
+            }
             // A leaf contributes all of its lines or none of them; a parent contributes
             // whatever share its own subtree worked out. Either way this is a weighted
             // mean of a 0..1 share, so it composes to any depth.
@@ -916,13 +948,13 @@ impl Node {
             self.score = Some(Score {
                 surprise: surprise / w,
                 documented: documented / w,
-                churn: churn / w,
+                churn: churn.map(|c| c / w),
                 age_days: age,
                 // Distinct commits touching anything inside — filled in from the git
                 // history after the tree is built, because a commit that touches twelve
                 // files in one directory is ONE commit for that directory and only the
                 // log pass still knows that. Summing the children would report twelve.
-                commits: 0,
+                commits: [0; 4],
                 // Same story, same filler: `apply_dir_history` sets both from the log pass.
                 all_commits: None,
                 last_touched_days: touched,
@@ -1086,9 +1118,9 @@ mod tests {
         Score {
             surprise,
             documented,
-            churn,
+            churn: [churn; 4],
             age_days: Some(age),
-            commits: 0,
+            commits: [0; 4],
             all_commits: None,
             last_touched_days: None,
             provenance: Provenance::Source,

@@ -14,8 +14,12 @@ import {
   type Grade,
   type Node,
   type Ramp,
+  type Score,
   HEAT_WORDS,
   type AgentReport,
+  type ChurnWindows,
+  churnSaturation,
+  TIME_STRIDE,
 } from './api'
 import { inkOn } from './ink'
 
@@ -466,7 +470,21 @@ export const RAMP_ENDS: Partial<Record<ColorMode, [string, string]>> = {
   // the only lens whose input is the GAP. See the `--docs-*` ramp.
   docs: ['covered', 'undocumented'],
   churn: ['settled', 'churning'],
+  // Age's bright end depends on which date it is painting — see `rampEnds`. The entry is the
+  // `touched` reading, which is the one this lens has always shown.
   age: ['old', 'recent'],
+}
+
+/** The two ends, with Age's second reading resolved.
+ *
+ *  **`old → recent` and `old → new` are not the same scale said twice.** Under `touched` the
+ *  bright end is where work has been happening; under `born` it is code that did not exist
+ *  until lately. Same colours, same direction, different claim — and the key is the only
+ *  thing on screen that says which, so it cannot go on printing one lens's words over the
+ *  other's picture. */
+export function rampEnds(mode: ColorMode, read: AgeRead): [string, string] | undefined {
+  if (mode === 'age') return read === 'oldest' ? ['long-standing', 'new'] : ['old', 'recent']
+  return RAMP_ENDS[mode]
 }
 
 /** Which ramp a lens walks, for anything drawing a key beside it.
@@ -667,6 +685,118 @@ export function ageSpanOf(root: Node): number {
   return Math.max(root.score?.ageDays ?? 0, 0)
 }
 
+/** Which end of a body's own history Age paints — the newest line in it, or the oldest.
+ *
+ *  **Both were already measured, and the lens only ever showed one of them.** Every node
+ *  carries `lastTouchedDays` and `ageDays` — when a commit last touched this body, and when
+ *  the oldest surviving part of it first appeared — and the lens has always painted the
+ *  first. `docs/notes/time.md` calls that the rejected reading: recency is *where work has
+ *  happened*, which the History view already gives you, while the question the lens is FOR
+ *  is dusty code, which is the second date. Rather than flipping the lens from one to the
+ *  other and making the note's argument for it in one direction only, the reader picks.
+ *
+ *  It is not a ramp direction. Reversing the ramp paints the same number the other way up;
+ *  these are two different numbers about the same body, and on a file rewritten last week out
+ *  of code from 2014 they disagree by a decade.
+ *
+ *  **Named for the LINE, not for the code.** `newest`/`oldest` rather than
+ *  `touched`/`first seen`, because the second pair claims more than blame can see: per-line
+ *  provenance holds the last commit to touch each line, so a body rewritten wholesale has
+ *  nothing left saying when it was first written. The oldest line standing here is a fact.
+ *  When this function first appeared is not — see `blame.rs`. */
+export type AgeRead = 'newest' | 'oldest'
+
+/** The Age lens's whole calibration, as one value.
+ *
+ *  **One parameter rather than two, and that is the `cap` lesson.** The span and the reading
+ *  are both inputs to the same ramp and they are threaded through the same six components; as
+ *  two arguments they are six chances for a caller to pass the span and forget the reading,
+ *  and the symptom would be a tooltip disagreeing with the wedge it is over about which date
+ *  it is showing. Prepared once in `App` and passed where the span was already passed. */
+export interface AgeView {
+  /** How far back this repo goes, from `ageSpanOf(root)` — see `ageRamp`. */
+  span: number
+  read: AgeRead
+}
+
+/** The reading a caller gets when it has a node but no view — today's behaviour, on the
+ *  short end of the old fixed scale. */
+export const AGE_DEFAULT: AgeView = { span: SPAN_UNKNOWN_DAYS, read: 'newest' }
+
+/** How Churn is calibrated: which horizon, out of the four this repo can offer.
+ *
+ *  **The ladder is the repo's own and is NOT a constant.** A fixed 30/60/90/180 goes inert on
+ *  a young project — sanity at 27 days returned the identical 271 commits at all four — so
+ *  `edits::windows_for` scales it to a repo that cannot fill it, and every caption naming a
+ *  window has to read it from here. A tooltip saying `90d` over a repo whose widest horizon is
+ *  27 days is the map claiming a measurement nobody took. */
+export interface ChurnView {
+  /** The four windows, in days — `Stats.churnWindows`. */
+  windows: ChurnWindows
+  /** Which rung, 0..3. */
+  at: number
+  /** Whether the timeline has been walked at all.
+   *
+   *  **False is not zero churn, and this is the only place that distinction lives.** Until the
+   *  walk has run every `Score.churn` is zero, because the count comes from the timeline and
+   *  nothing else can produce it; painting that would draw an unwalked repo and a settled one
+   *  in the same colour. So the lens says so once, here, and the map paints nothing. */
+  measured: boolean
+}
+
+/** Both lenses' calibration, as one value threaded on one prop.
+ *
+ *  **One bag, because the alternative is one prop per lens and the next lens makes three.**
+ *  Age needed a span and a reading, Churn needs a ladder and a rung, and every component
+ *  between `App` and a wedge passes them through untouched. Two props were already two chances
+ *  to thread half of it; the symptom would be a tooltip and the wedge under it disagreeing
+ *  about which window they are describing, which reads as a wrong number rather than a
+ *  wrong window. */
+export interface Views {
+  age: AgeView
+  churn: ChurnView
+}
+
+/** Which rung a repo is painted at when nobody has chosen.
+ *
+ *  The middle-high one, which on a repo old enough to fill the ladder is ninety days — what
+ *  Churn has always meant here. The twin of `edits::DEFAULT_WINDOW`. */
+export const CHURN_DEFAULT_WINDOW = 2
+
+/** What a caller with a node but no calibration gets: the old fixed scale, and a Churn that
+ *  says it has measured nothing. */
+export const VIEWS_DEFAULT: Views = {
+  age: AGE_DEFAULT,
+  churn: { windows: [30, 60, 90, 180], at: CHURN_DEFAULT_WINDOW, measured: false },
+}
+
+
+/** The days this reading is about, or null where this node cannot answer it. */
+export function ageOf(s: Score, read: AgeRead): number | null {
+  return read === 'oldest' ? s.ageDays : s.lastTouchedDays
+}
+
+/** What the wedge says out loud, for the reading it is painted in. The two sentences have to
+ *  differ in more than a number: `12d` under one reading is when somebody last typed here and
+ *  under the other is when the oldest line still standing here was written.
+ *
+ *  **`oldest line`, never `first seen`.** It was `first seen`, which is a claim this
+ *  instrument cannot make: blame reports the last commit to touch each LINE, so a function
+ *  rewritten wholesale has no surviving trace of when it was first written and reads as
+ *  young. `blame.rs` says so on `RangeHistory::age_days` — "a lower bound, not the truth" —
+ *  and the label has to say the same thing. The oldest line here is a fact; when this code
+ *  first appeared is not one we hold. */
+export function ageLabel(d: number, read: AgeRead): string {
+  const when = d < 1 ? 'today' : `${Math.round(d)}d ago`
+  return read === 'oldest' ? `oldest line ${when}` : `newest line ${when}`
+}
+
+/** The words the bands take, which is the same list of boundaries read two ways — see
+ *  `AGE_BANDS`. */
+export function ageBandNoun(read: AgeRead): string {
+  return read === 'oldest' ? 'oldest line' : 'newest line'
+}
+
 /** Older reads cooler, across the span the REPO actually covers.
  *
  *  It was a fixed 366 days, and on a young project that is a scale with nothing on it: this
@@ -833,10 +963,11 @@ export function colorFor(
   node: Node,
   mode: ColorMode,
   ranks?: Map<string, number>,
-  /** The repo's own span for the age ramp, from `ageSpanOf(root)`. Optional because a
-   *  caller that has a node but not the tree it came from should still get a color —
-   *  it falls back to the floor, which is the old fixed scale's short end. */
-  ageSpan?: number,
+  /** How Age and Churn are calibrated — see `Views`. Optional because a caller that has a
+   *  node but not the tree it came from should still get a colour; it falls back to
+   *  `VIEWS_DEFAULT`, which is the old fixed age scale read as recency and a Churn that says
+   *  it has measured nothing. */
+  views?: Views,
 ): (Paint & { label: string }) | null {
   const s = node.score
 
@@ -1051,29 +1182,43 @@ export function colorFor(
   }
 
   if (mode === 'churn') {
-    if (!s || s.ageDays === null) return null
+    // **The gate is `lastTouchedDays`, and it used to be `ageDays`.** The two are null
+    // together on the live map — both come from the same blame range or the same missing
+    // path — so this asked "does this repo have history" through whichever one was handy.
+    // It stopped being handy the moment Age started PAINTING `ageDays`: a replay stand-in
+    // for a file the story never saw arrive now reports a null birth and a real touch date,
+    // which is the truth about it and which under the old gate would have silently switched
+    // Churn off over the folded half of every frame.
+    if (!s || s.lastTouchedDays === null) return null
+    const w = views?.churn ?? VIEWS_DEFAULT.churn
+    // **Nothing painted until the timeline has been walked.** Every count is zero until then,
+    // and zero is a finding — nobody has touched this — which is the one thing it must not be
+    // read as here. Said once, on the lens, beside the button that runs the walk; the map goes
+    // to the structural neutral, exactly as it does for a repo with no git at all.
+    if (!w.measured) return null
     return {
-      ...ramped(s.churn, 'churn'),
-      // **One ramp, two quantities, and the label is the only thing that says which.** A
-      // file's is commits in the 90-day window; a function's is how many distinct commits
-      // its current lines trace back to, because blame is all a per-function answer can be
-      // built from — see `blame.rs`. The wedge said `27 commits in 90d` about a range whose
-      // file had two.
-      label:
-        node.kind === 'func'
-          ? `traces to ${s.commits} ${s.commits === 1 ? 'commit' : 'commits'}`
-          : s.commits > 0
-            ? `${s.commits} commits in 90d`
-            : 'untouched in 90d',
+      ...ramped(s.churn[w.at], 'churn'),
+      // **One quantity now, at both resolutions, and the label no longer has to disambiguate.**
+      // It read `traces to 4 commits` on a function and `27 commits in 90d` on its file,
+      // because blame and the log walk were answering different questions under one ramp. Both
+      // are the same question off the timeline: commits that CHANGED this, inside the window.
+      //
+      // The window is named from the repo's own ladder, never as a constant — see `ChurnView`.
+      label: churnLabel(s.commits[w.at], w.windows[w.at]),
     }
   }
 
   if (mode === 'age') {
-    if (!s || s.lastTouchedDays === null) return null
-    const d = s.lastTouchedDays
+    const view = views?.age ?? AGE_DEFAULT
+    // Null under one reading and not the other is an ordinary state rather than an edge: a
+    // replayed file that predates the window has been touched and was never seen to arrive.
+    // The wedge goes uncoloured for the reading it cannot answer and keeps its colour under
+    // the other, which is the whole doctrine — absence is stated, never filled in.
+    const d = s ? ageOf(s, view.read) : null
+    if (d === null) return null
     return {
-      ...ramped(ageRamp(d, ageSpan ?? SPAN_UNKNOWN_DAYS), 'age'),
-      label: d < 1 ? 'touched today' : `touched ${Math.round(d)}d ago`,
+      ...ramped(ageRamp(d, view.span), 'age'),
+      label: ageLabel(d, view.read),
     }
   }
 
@@ -1153,6 +1298,27 @@ export interface Bucket {
  */
 const NO_HISTORY = 'history not read'
 
+/** What a wedge is filed under when the timeline has not been walked.
+ *
+ *  **A different sentence from `NO_HISTORY`, deliberately.** "History not read" is a fact
+ *  about this folder — git knows nothing about these lines. This one is a fact about the
+ *  TRACE: the repo has history and nobody has counted how often each function changed yet, and
+ *  the button that fixes it is in the sidebar. Drawing them as one bucket would tell somebody
+ *  their repo has no git when what it has is unfinished work. */
+const NOT_WALKED = 'timeline not walked'
+
+/** What a churn wedge says out loud: a count, and the window it counts inside.
+ *
+ *  The window comes from the repo's own ladder every time — never a constant. A tooltip
+ *  reading `90d` on a project whose widest horizon is 27 days is the map naming a measurement
+ *  nobody took, which is the failure mode a scaled ladder introduces and the only one it
+ *  introduces. */
+export function churnLabel(commits: number, days: number): string {
+  const window = `${days}d`
+  if (commits === 0) return `unchanged in ${window}`
+  return `${commits} ${commits === 1 ? 'change' : 'changes'} in ${window}`
+}
+
 /** Churn bands, in the order the panel lists them — busiest first, because that is the end
  *  of this ramp anyone opens the mode to find. Upper bound is exclusive.
  *
@@ -1185,6 +1351,38 @@ const AGE_BANDS: { label: string; under: number }[] = [
   { label: 'older', under: Infinity },
 ]
 
+/** A stand-in's score: the fields it actually measured, and "no claim" for the rest.
+ *
+ *  **A whole `Score`, so the compiler is the thing that notices when one grows a field.** The
+ *  stand-ins are cast through `unknown` — they are not nodes, they are counts wearing a node's
+ *  shape so `contribute` can band them by the same rule it bands a real one — and a cast is a
+ *  hole in exactly the direction that matters: `Score` gained `churn` as a per-window array,
+ *  `contributeCols` went on building an inline object without it, and `tsc` had nothing to say.
+ *  It crashed on the first Churn render over a file whose ring had not arrived, which is most
+ *  files on a large repo.
+ *
+ *  Filling every field here rather than in each caller means the next field added to `Score`
+ *  breaks this one function, in a build, instead of one surface at runtime. The values are the
+ *  ones that mean nobody looked: `analyzedShare` 0 is what `isAnalyzed` refuses to colour, and
+ *  `provenance: 'none'` claims no documentation. */
+function standScore(measured: {
+  commits: ChurnWindows
+  churn: ChurnWindows
+  ageDays: number | null
+  lastTouchedDays: number | null
+}): Score {
+  return {
+    ...measured,
+    surprise: 0,
+    documented: 0,
+    allCommits: null,
+    provenance: 'none',
+    hotShare: 0,
+    source: 'proxy',
+    analyzedShare: 0,
+  }
+}
+
 /** One node's own contribution to a breakdown, reported through `put`.
  *
  *  **Extracted so that a breakdown of one subtree and a breakdown of every subtree are the
@@ -1213,9 +1411,12 @@ function contribute(
   outOfScope: boolean,
   mode: ColorMode,
   ranks: Map<string, number> | undefined,
-  span: number,
+  /** Both lenses' calibration — see `Views` for why they travel as one value. */
+  view: Views,
   put: Put,
 ): void {
+  const { span, read } = view.age
+  const churn = view.churn
   // **A roll-up stand-in is a COUNT, and a count is not a member of a distribution.**
   //
   // `aggregate` already skips these — "rolled into their parent they would dilute its real
@@ -1259,12 +1460,7 @@ function contribute(
       synthetic: true
       kind: 'func'
       loc: number
-      score?: {
-        commits: number
-        churn: number
-        ageDays: number | null
-        lastTouchedDays: number | null
-      }
+      score?: Score
       children: Node[]
     } = { synthetic: true, kind: 'func', loc: 0, children: [] }
     if (mode === 'language' || mode === 'blame') {
@@ -1278,26 +1474,42 @@ function contribute(
     }
     if (mode === 'age' || mode === 'churn') {
       // **Through `contribute` itself, so a folded file and a drawn one cannot fall in
-      // different bands.** The tally is `[days, commits, lines]` per file and the branches
-      // below already know what to do with exactly that; running it back through them is the
-      // same trick `contributeCols` plays for a file whose ring never arrived, and it is what
-      // keeps one definition of a band rather than two.
-      for (let i = 0; i < held.time.length; i += 4) {
-        const days = held.time[i]
-        stand.loc = held.time[i + 3]
-        // `-1` is a file the replayed window never saw touched. Undated rather than dropped:
-        // the lines are real, and the window's own rule is that nothing before it makes a
-        // claim about its age — which is the absence bucket, not a band.
+      // different bands.** The tally is a `TimeRow` per file and the branches below already
+      // know what to do with exactly that; running it back through them is the same trick
+      // `contributeCols` plays for a file whose ring never arrived, and it is what keeps one
+      // definition of a band rather than two.
+      for (let i = 0; i < held.time.length; i += TIME_STRIDE) {
+        const touched = held.time[i]
+        const born = held.time[i + 1]
+        stand.loc = held.time[i + 2]
+        const commits = held.time.slice(i + 3, i + 7) as ChurnWindows
+        // `-1` is a file the replayed window never saw touched, or never saw arrive — every
+        // file in the opening state is the second. Undated rather than dropped: the lines are
+        // real, and the window's own rule is that nothing before it makes a claim about its
+        // age, which is the absence bucket and not a band.
+        //
+        // **Reported separately, where they used to be one number twice.** The fold carried a
+        // touch date and wrote it into both fields, which was harmless while `ageDays` was
+        // only a gate and is a lie the moment Age paints it — a file from the truncated prefix
+        // would have been banded as *oldest line* on the day the story happened to reach it.
         stand.score =
-          days < 0
+          touched < 0 && born < 0
             ? undefined
-            : {
-                commits: held.time[i + 1],
-                churn: held.time[i + 2],
-                ageDays: days,
-                lastTouchedDays: days,
-              }
-        contribute(stand as unknown as Node, false, mode, ranks, span, put)
+            : standScore({
+                commits,
+                // **Derived here rather than carried, and that changed owner rather than
+                // moving.** The row used to bring its own ramp value so `colorMode` would not
+                // hold a second copy of `CHURN_SATURATION` — right while that constant was the
+                // replay's private business. It is `api.ts`'s now, shared with the live map,
+                // because a repo picks its own windows and the two halves must agree about
+                // what saturates one. One owner, so deriving is the single-source version.
+                churn: commits.map((n, w) =>
+                  Math.min(1, n / churnSaturation(churn.windows[w])),
+                ) as ChurnWindows,
+                ageDays: born < 0 ? null : born,
+                lastTouchedDays: touched < 0 ? null : touched,
+              })
+        contribute(stand as unknown as Node, false, mode, ranks, view, put)
       }
       return
     }
@@ -1441,17 +1653,23 @@ function contribute(
         put(UNKNOWN, mode === 'blame' ? 'not in git' : 'unknown', 'var(--unanalyzed)', n)
       }
     } else if (mode === 'churn') {
-      // Same gate `colorFor` uses, so a wedge the map left gray is not given a band here.
-      if (s && s.ageDays !== null) {
-        const band =
-          CHURN_BANDS.find((b) => s.commits >= b.min) ?? CHURN_BANDS[CHURN_BANDS.length - 1]
-        put(band.label, band.label, '', n, s.churn)
+      // Same gates `colorFor` uses, so a wedge the map left gray is not given a band here:
+      // the repo-level one first — an unwalked timeline has no counts, only zeroes — and then
+      // the per-node date, which moved off `ageDays` for the reason spelled out there.
+      if (!churn.measured) {
+        put(UNKNOWN, NOT_WALKED, 'var(--unanalyzed)', n)
+      } else if (s && s.lastTouchedDays !== null) {
+        const at = s.commits[churn.at]
+        const band = CHURN_BANDS.find((b) => at >= b.min) ?? CHURN_BANDS[CHURN_BANDS.length - 1]
+        put(band.label, band.label, '', n, s.churn[churn.at])
       } else {
         put(UNKNOWN, NO_HISTORY, 'var(--unanalyzed)', n)
       }
     } else {
-      if (s && s.lastTouchedDays !== null) {
-        const d = s.lastTouchedDays
+      // The reading the map is painted in, or the band list describes a different question
+      // from the colours beside it — see `AgeView`.
+      const d = s ? ageOf(s, read) : null
+      if (d !== null) {
         const band = AGE_BANDS.find((b) => d < b.under) ?? AGE_BANDS[AGE_BANDS.length - 1]
         put(band.label, band.label, '', n, ageRamp(d, span))
       } else {
@@ -1477,7 +1695,7 @@ function contributeCols(
   file: Node,
   mode: ColorMode,
   ranks: Map<string, number> | undefined,
-  span: number,
+  view: Views,
   put: Put,
 ): void {
   // **Only the lenses the columns can actually answer.**
@@ -1506,7 +1724,7 @@ function contributeCols(
     synthetic: true
     kind: 'func'
     loc: number
-    score?: { commits: number; ageDays: number | null; lastTouchedDays: number | null }
+    score?: Score
     callers?: number
     calls?: number
     cloneSize?: number
@@ -1519,21 +1737,30 @@ function contributeCols(
     // `-1` is the absence every column encodes, and each lens already has a branch for it:
     // no history, calls never parsed, a body never compared. Restoring it as `undefined`
     // rather than as a zero is the whole point of the sentinel.
+    const counts = c.commits[i] ?? [-1, -1, -1, -1]
     stand.score =
-      c.commits[i] < 0 && c.touched[i] < 0
+      counts[0] < 0 && c.touched[i] < 0
         ? undefined
-        : {
-            commits: Math.max(0, c.commits[i]),
+        : standScore({
+            commits: counts.map((n) => Math.max(0, n)) as ChurnWindows,
+            // **The ramp, which this stand-in used to omit entirely and got away with because
+            // it is cast through `unknown`.** The churn branch reads it to colour the band, so
+            // an absent one is not a missing colour — it is a crash on the first Churn render
+            // over a file whose ring has not arrived, which is most files on a large repo.
+            // Derived here from the shared `churnSaturation`, exactly as the fold derives it.
+            churn: counts.map((n, w) =>
+              Math.min(1, Math.max(0, n) / churnSaturation(view.churn.windows[w])),
+            ) as ChurnWindows,
             // `ageDays` is the gate `contribute` checks for "this repo has history", and
             // its VALUE is unused there — the bands read `commits` and `lastTouchedDays`.
             ageDays: 0,
             lastTouchedDays: c.touched[i] < 0 ? null : c.touched[i],
-          }
+          })
     stand.callers = c.callers[i] < 0 ? undefined : c.callers[i]
     stand.calls = c.calls[i] < 0 ? undefined : c.calls[i]
     stand.comparable = c.clones[i] < 0 ? undefined : 1
     stand.cloneSize = c.clones[i] > 0 ? c.clones[i] : undefined
-    contribute(stand as unknown as Node, false, mode, ranks, span, put)
+    contribute(stand as unknown as Node, false, mode, ranks, view, put)
   }
 }
 
@@ -1552,7 +1779,7 @@ function contributeCols(
  * three readings out of forty functions would draw as fully read — a coverage claim off a
  * filtered list, which is the failure `work_left` exists to prevent, one surface over.
  */
-function contributeHeld(file: Node, mode: ColorMode, span: number, put: Put): void {
+function contributeHeld(file: Node, mode: ColorMode, view: Views, put: Put): void {
   if (mode !== 'legible' && mode !== 'docs' && mode !== 'traps' && mode !== 'surprise') return
   const held = file.pending
   if (!held || held.length === 0) return
@@ -1571,14 +1798,14 @@ function contributeHeld(file: Node, mode: ColorMode, span: number, put: Put): vo
     stand.agent = r
     stand.agentStale = r.stale === true
     read += stand.loc
-    contribute(stand as unknown as Node, false, mode, undefined, span, put)
+    contribute(stand as unknown as Node, false, mode, undefined, view, put)
   }
   const rest = file.loc - read
   if (rest > 0) {
     stand.loc = rest
     stand.agent = undefined
     stand.agentStale = false
-    contribute(stand as unknown as Node, false, mode, undefined, span, put)
+    contribute(stand as unknown as Node, false, mode, undefined, view, put)
   }
 }
 
@@ -1694,14 +1921,19 @@ export function bucketsFor(
   root: Node,
   mode: ColorMode,
   ranks?: Map<string, number>,
-  /** The REPO's span, when the caller has it. `root` here is whatever is on screen, which
-   *  under a drill is one directory — deriving the span from it would put the panel on a
-   *  different scale from the map beside it the moment you drilled in. */
-  ageSpan?: number,
+  /** How Age and Churn are calibrated — see `Views`. `root` here is whatever is on screen,
+   *  which under a drill is one directory: deriving the age span from it would put the panel
+   *  on a different scale from the map beside it the moment you drilled in, and taking either
+   *  reading from anywhere but the caller would have the rows answering a different question
+   *  from the wedges. */
+  views?: Views,
 ): Bucket[] {
   // The caller's span when there is one, and this subtree's only as a fallback for a caller
   // that has no tree above it.
-  const span = ageSpan ?? ageSpanOf(root)
+  const view: Views = {
+    age: views?.age ?? { span: ageSpanOf(root), read: 'newest' },
+    churn: views?.churn ?? VIEWS_DEFAULT.churn,
+  }
   const bucket = new Map<string, Bucket>()
   /** Ramp inputs per bucket, kept only long enough to average them into a fill. */
   const ramps = new Map<string, number[]>()
@@ -1741,15 +1973,15 @@ export function bucketsFor(
    *  with nothing failing. Identical at runtime, legible in the source. */
   const walk = (n: Node, out: boolean) => {
     const outOfScope = out || n.excluded
-    contribute(n, outOfScope, mode, ranks, span, put)
+    contribute(n, outOfScope, mode, ranks, view, put)
     // **The pane has the same hole the rim had.** Its breakdown is built by walking function
     // nodes, so on a repo whose rings have not been fetched it listed nothing — an empty
     // `COMMITS BEHIND THESE LINES` over a directory with four thousand files. Same columns,
     // same fix, and it has to be the same call or the pane and the rim would be two answers
     // about one population again.
     if (n.kind === 'file' && !outOfScope && n.funcs > 0) {
-      contributeCols(n, mode, ranks, span, put)
-      contributeHeld(n, mode, span, put)
+      contributeCols(n, mode, ranks, view, put)
+      contributeHeld(n, mode, view, put)
     }
     n.children.forEach((c) => walk(c, outOfScope))
   }
@@ -1803,7 +2035,7 @@ export function histogramsFor(
   root: Node,
   mode: ColorMode,
   ranks?: Map<string, number>,
-  ageSpan?: number,
+  views?: Views,
   /** Which containers are worth ANSWERING for — the ones the layout drew.
    *
    *  **The walk has to cover the whole subtree; the answer does not.** Completeness is why
@@ -1823,7 +2055,10 @@ export function histogramsFor(
   // dots on the map. A histogram of "contains a trap" is a share, which is the thing those
   // two lenses are written not to say.
   if (mode === 'traps' || mode === 'clones') return out
-  const span = ageSpan ?? ageSpanOf(root)
+  const view: Views = {
+    age: views?.age ?? { span: ageSpanOf(root), read: 'newest' },
+    churn: views?.churn ?? VIEWS_DEFAULT.churn,
+  }
 
   interface Tally {
     key: string
@@ -1904,13 +2139,13 @@ export function histogramsFor(
         sum: ramp ?? 0,
         n: ramp === undefined ? 0 : 1,
       })
-    contribute(node, outOfScope, mode, ranks, span, put)
+    contribute(node, outOfScope, mode, ranks, view, put)
     // A file that still holds its functions answers through them; one that does not answers
     // through its columns and its held readings. Never both — `funcs` is zero exactly when
     // the ring has arrived.
     if (node.kind === 'file' && !outOfScope && node.funcs > 0) {
-      contributeCols(node, mode, ranks, span, put)
-      contributeHeld(node, mode, span, put)
+      contributeCols(node, mode, ranks, view, put)
+      contributeHeld(node, mode, view, put)
     }
     // A file whose ring has not arrived is a hole unless this lens lets it answer for
     // itself. An excluded one is not a hole: it is deliberately out of the population, and

@@ -1038,6 +1038,53 @@ textarea,
   }
 }
 
+/* A doc that says nothing the code didn't.
+ *
+ * **Its own class, where the clone reuses the trap's, and the reduced-motion rule is the
+ * whole reason.** Traps and Clones can drop their animation entirely because the colour is
+ * still there underneath — trap pink is the loudest thing in its lens. This one has no colour
+ * to fall back on: `derivable` forces `documented` to `none` (see `reportGrades`), so a
+ * worthless comment is painted in exactly the same undocumented tone as no comment at all.
+ * That is the finding, and turning the animation off would erase it rather than quiet it.
+ *
+ * So under reduced motion it settles — a fixed, visibly thinner wedge, still telling the two
+ * apart with no movement. The same answer `wedge-reading` gives to the same question one
+ * block down, and for the same reason: a marker whose meaning is not in the hue cannot be
+ * expressed by removing it.
+ *
+ * **Deeper than the trap's breath, where the first version was shallower.** The reasoning for
+ * shallow was that Docs can qualify a third of a repo where a trap is a handful, so a whole
+ * map pumping at the trap's depth would read as a fault in the app. That is a real risk and it
+ * was answered at the wrong end: at 0.72 the mark could not be seen without leaning into the
+ * screen, which is a marker that does not mark. A thing worth drawing is worth drawing at a
+ * depth somebody notices from a normal distance, and the density is answered by the switch
+ * beside the lens — that is what the switch is FOR.
+ *
+ * Slower than the trap, though. The trap's 1.8s is an alarm about a handful of wedges; this is
+ * a survey mark over a population, and at that rate a map of them shimmers. Long and deep
+ * reads as breathing where short and deep reads as flashing. */
+@keyframes derivable-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.34;
+  }
+}
+
+.derivable-pulse {
+  animation: derivable-pulse 2.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .derivable-pulse {
+    animation: none;
+    /* The swing's midpoint: unmistakably not a full wedge, and holding still. */
+    opacity: 0.67;
+  }
+}
+
 /* A wedge out with a reader.
  *
  * The same argument as `trap-pulse` next door — a CSS animation costs nothing per frame,

@@ -244,6 +244,29 @@ pub struct ScanStats {
     /// own — `git log --no-merges` is what the walk asks for, for that reason — so counting
     /// them here was measuring one thing and reporting it against another.
     pub commits: usize,
+    /// The four churn windows this repo offers, in days — see `edits::windows_for`.
+    ///
+    /// **Not a constant, because a fixed ladder goes inert on a young repo.** Measured: sanity
+    /// at 27 days returned the identical 271 commits at 30, 60, 90 and 180 days. So the ladder
+    /// scales to a repo that cannot fill it, and the window a reader picks has to be NAMED from
+    /// here rather than assumed — a lens captioned `90d` over a repo whose widest horizon is 27
+    /// is the map claiming a measurement nobody took.
+    #[serde(default)]
+    pub churn_windows: [u32; 4],
+    /// Whether the timeline has been walked, so `Score::churn` and `Score::commits` are
+    /// measurements rather than zeroes.
+    ///
+    /// **The absence, stated once, on the repo.** Churn counts how many times each function has
+    /// actually changed, which only the timeline can answer — blame keeps one commit per line
+    /// and a body rewritten in place erases its own history. Until `Depth::Edits` has run there
+    /// is no such count, and every node reads zero. Zero is not "settled": a lens that painted
+    /// it would report an unwalked repo and a quiet one in the same colour, which is precisely
+    /// the failure `without_history` above exists to prevent one field over.
+    ///
+    /// Repo-level, and consulted in ONE place — the lens's lock, beside the button that fixes
+    /// it. A per-node flag would be this answer repeated on every segment.
+    #[serde(default)]
+    pub churned: bool,
     /// Everyone who has ever committed here, most commits first — see `churn::History`.
     ///
     /// **The window colours a person by their position in this list, and by nothing else.**
@@ -1062,8 +1085,8 @@ fn score_dir(
     // functions that are usually in different directories, so it cannot be found from
     // inside one.
     copies: &crate::clones::Copies,
-    history: &History,
-    blame: &Blame,
+    // The log walk, the per-line blame and the timeline's edit counts — see `trace::Histories`.
+    hist: crate::trace::Histories,
     fidelity: Fidelity,
 ) -> Vec<(String, Node)> {
     let dir_prints: Vec<&Fingerprint> = files.iter().flat_map(|f| f.prints.iter()).collect();
@@ -1075,7 +1098,7 @@ fn score_dir(
             // One lookup for the file, one per function under it — and the SAME one a
             // deferred trace uses, so a map drawn with git in hand and one that gets git
             // afterwards cannot come out different. See `trace::apply`.
-            let file_trace = crate::trace::FileTrace::of(&file.rel_path, history, blame);
+            let file_trace = crate::trace::FileTrace::of(&file.rel_path, hist);
 
             let ords = ordinals(&file.funcs);
             let children: Vec<Node> = file
@@ -1091,7 +1114,7 @@ fn score_dir(
                         commits,
                         last_touched_days,
                         last_author,
-                    } = file_trace.func(func.start_line, func.end_line);
+                    } = file_trace.func(&func.name, ords[i], func.start_line, func.end_line);
                     // Same-file peers when there are any; otherwise the directory's.
                     let peers: Vec<&Fingerprint> = if fidelity == Fidelity::Ordering {
                         Vec::new()
@@ -1574,7 +1597,7 @@ pub fn scan(
     // is that the scan has hung. A phase boundary the viewer can see is worth a bar that
     // restarts; a false start is a smaller lie than a false estimate.
     let blamed = AtomicUsize::new(0);
-    let blame = if depth == crate::trace::Depth::Lines {
+    let blame = if depth.blames() {
         Blame::read(root, &for_blame, &history, scans, cancel, &|path: &str| {
             on_progress(
                 Progress::counting(
@@ -1592,6 +1615,23 @@ pub fn scan(
         // and Churn, and honestly so.
         Blame::default()
     };
+
+    // **The timeline, at the deepest rung only.** A different quantity from the two above it
+    // rather than a finer reading of them — see `trace::Depth::Edits` and `edits.rs`. A stopped
+    // walk yields `None` and the scan carries on without it, which is the same absence a repo
+    // that has never been asked for one shows.
+    let walked = if depth.counts_edits() {
+        crate::edits::gather(root, cancel, &|p| on_progress(p.step(3)))
+    } else {
+        None
+    };
+    let edits_now = crate::churn::now_secs();
+    let edits = walked.as_ref().map(|e| crate::edits::At {
+        edits: e,
+        now: edits_now,
+        windows: e.windows,
+    });
+    let hist = crate::trace::Histories { history: &history, blame: &blame, edits };
 
     lap("blame");
     if cancel.load(Ordering::Relaxed) {
@@ -1649,7 +1689,7 @@ pub fn scan(
         .par_iter()
         .enumerate()
         .map(|(di, parsed)| {
-            let out = score_dir(parsed, offsets[di], &wiring, &copies, &history, &blame, fidelity);
+            let out = score_dir(parsed, offsets[di], &wiring, &copies, hist, fidelity);
             // After the directory rather than during it: `score_dir` is one call per
             // directory and splitting it to report inside would be reshaping the work to
             // suit the narration. At `Full` fidelity a big directory is the slow unit here,
@@ -1683,7 +1723,7 @@ pub fn scan(
         collapse_chains(child);
     }
     tree.aggregate();
-    crate::trace::apply_dir_history(&mut tree, &history);
+    crate::trace::apply_dir_history(&mut tree, &history, edits);
     lap("tree");
 
     // ── The model pass, in priority order ────────────────────────────────────────
@@ -1797,7 +1837,7 @@ pub fn scan(
         tree.aggregate();
         // `aggregate` rebuilds every directory score from its children, which zeroes the
         // commit counts again — so this has to follow EVERY aggregate, not just the first.
-        crate::trace::apply_dir_history(&mut tree, &history);
+        crate::trace::apply_dir_history(&mut tree, &history, edits);
     }
 
     let mut functions = 0;
@@ -1821,6 +1861,13 @@ pub fn scan(
             unscanned,
             functions,
             without_history: history.is_empty(),
+            // The ladder this repo can answer, whether or not it has been walked — a control
+            // has to be able to name its rungs before there is anything behind them.
+            churn_windows: walked
+                .as_ref()
+                .map(|e| e.windows)
+                .unwrap_or_else(|| crate::edits::windows_for(crate::edits::span_days(root))),
+            churned: walked.is_some(),
             // Capped where the palette stops meaning anything — see `ScanStats::authors`.
             authors: history.authors().iter().take(AUTHOR_SLOTS).cloned().collect(),
             // Out of the walk that just ran rather than a `git rev-list` of its own — see

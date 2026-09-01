@@ -143,15 +143,25 @@ console.log('absence — a band says what it knows, not what the repo is')
       loc,
       children: [],
       excluded: false,
-      score: { commits: 0, ageDays: touched === null ? null : 1, lastTouchedDays: touched },
+      score: {
+        commits: [0, 0, 0, 0],
+        churn: [0, 0, 0, 0],
+        ageDays: touched === null ? null : 1,
+        lastTouchedDays: touched,
+      },
     }) as unknown as Node
   const dir = (kids: Node[]): Node =>
     ({ kind: 'dir', loc: 0, excluded: false, children: kids }) as unknown as Node
   const file = (kids: Node[]): Node =>
     ({ kind: 'file', loc: 0, excluded: false, funcs: 0, children: kids }) as unknown as Node
 
+  /** A repo whose timeline HAS been walked, so Churn's own absence is not in the way. */
+  const walked = {
+    age: { span: 900, read: 'newest' as const },
+    churn: { windows: [30, 60, 90, 180] as [number, number, number, number], at: 2, measured: true },
+  }
   for (const mode of ['age', 'churn'] as const) {
-    const rows = bucketsFor(dir([file([func(100, null), func(50, null)])]), mode)
+    const rows = bucketsFor(dir([file([func(100, null), func(50, null)])]), mode, undefined, walked)
     const absent = rows.find((b) => b.lines === 150)!
     // The claim the map is not entitled to make. `locks` in App.tsx is where the repo-level
     // answer lives, because only that surface can tell an untraced repo from a folder with
@@ -162,6 +172,20 @@ console.log('absence — a band says what it knows, not what the repo is')
       absent.label,
     )
     check(`${mode}: it says what it does know`, absent.label === 'history not read', absent.label)
+  }
+
+  // **And Churn has a second absence, which must not be spelled like the first.** "History not
+  // read" is a fact about a FOLDER — git knows nothing about these lines. An unwalked timeline
+  // is a fact about the TRACE: the repo has history and nobody has counted how often each
+  // function changed. Drawing them alike would tell somebody their repo has no git when what it
+  // has is unfinished work, which is the mirror of the `no git history` claim above.
+  {
+    const rows = bucketsFor(dir([file([func(100, 0.5)])]), 'churn')
+    check(
+      'churn: an unwalked timeline is its own absence',
+      rows[0].label === 'timeline not walked',
+      rows[0].label,
+    )
   }
 
   // A function the trace HAS reached must still land in a real band, or the fix above would
@@ -218,7 +242,7 @@ console.log("roll-ups — and a count that knows what it holds says so")
     loc: number,
     count: number,
     lang: [string, number][],
-    /** `[days, commits, churn, lines]` per folded file — see `Folded.time`. */
+    /** `TimeRow` per folded file — see `Folded.time`. */
     time: number[] = [],
   ): Node =>
     ({
@@ -292,6 +316,68 @@ console.log("roll-ups — and a count that knows what it holds says so")
   check('and does not invent a band for it', aged.length === 1 && aged[0].label === 'today')
 }
 
+console.log('columns — a file whose ring never arrived still bands, and does not throw')
+{
+  // **The path that crashed.** A file too small to have had its functions fetched carries
+  // `cols` instead of children, and `contributeCols` rebuilds a stand-in from them. Its inline
+  // score was missing `churn` — a field `Score` had grown and a cast through `unknown` hid —
+  // so the first Churn render over such a file threw `undefined is not an object`. Nothing in
+  // `tsc` could see it and nothing here exercised it.
+  //
+  // On a large repo most files are in this state, so this is not an edge: it is the common
+  // case for the lens that had just been rewritten.
+  const withCols = (loc: number, commits: [number, number, number, number][]): Node =>
+    ({
+      kind: 'file',
+      loc,
+      excluded: false,
+      funcs: commits.length,
+      children: [],
+      cols: {
+        loc: commits.map(() => loc / commits.length),
+        commits,
+        touched: commits.map(() => 3),
+        callers: commits.map(() => -1),
+        calls: commits.map(() => -1),
+        clones: commits.map(() => -1),
+      },
+    }) as unknown as Node
+  const dir = (kids: Node[]): Node =>
+    ({ kind: 'dir', loc: 0, excluded: false, children: kids }) as unknown as Node
+  const ladder = { windows: [30, 60, 90, 180] as [number, number, number, number], measured: true }
+  const file = withCols(200, [
+    [1, 2, 3, 4],
+    [8, 16, 24, 40],
+  ])
+
+  for (const at of [0, 1, 2, 3]) {
+    const views = { age: { span: 900, read: 'newest' as const }, churn: { ...ladder, at } }
+    const rows = bucketsFor(dir([file]), 'churn', undefined, views)
+    check(
+      `columns band at rung ${at}`,
+      rows.reduce((n, b) => n + b.lines, 0) === 200,
+      rows.map((b) => [b.label, b.lines]),
+    )
+    // Every band a column produces has to carry a colour, or the rim draws a segment the
+    // ramp never filled — the same check the fold gets below.
+    check(
+      `and every rung's bands are coloured`,
+      rows.every((b) => b.fill !== ''),
+      rows.map((b) => [b.label, b.fill]),
+    )
+  }
+
+  // The rung is the rung: the busy function is `10+` at the widest window and lower at the
+  // narrowest, which is the whole reason the columns carry four counts rather than one.
+  const bandAt = (at: number) => {
+    const views = { age: { span: 900, read: 'newest' as const }, churn: { ...ladder, at } }
+    const rows = bucketsFor(dir([file]), 'churn', undefined, views)
+    return rows.find((b) => b.lines === 100)?.label
+  }
+  check('a narrow window bands the busy function lower', bandAt(0) === '3–9 commits', bandAt(0))
+  check('and a wide one bands it higher', bandAt(3) === '10+ commits', bandAt(3))
+}
+
 console.log('roll-ups — and the time tally puts a folded file in its own band')
 {
   const crowd = (loc: number, count: number, time: number[]): Node =>
@@ -309,16 +395,27 @@ console.log('roll-ups — and the time tally puts a folded file in its own band'
   const dir = (kids: Node[]): Node =>
     ({ kind: 'dir', loc: 0, excluded: false, children: kids }) as unknown as Node
 
-  // Four folded files: one touched today, one this quarter, one long ago, and one the
-  // replayed window never saw touched at all.
+  // Four folded files, as `[touched, born, lines, c30, c60, c90, c180]` — see `TimeRow`. One
+  // touched today out of code from long ago, one touched this quarter that the replayed
+  // window never saw ARRIVE (every file in the opening state is this), one long ago on both
+  // readings, and one the window never saw touched at all.
+  //
+  // The commit counts rise with the window, as a real file's do: what is being pinned below is
+  // that the rung the caller asks for is the rung that gets banded.
   const folded = crowd(1_000, 4, [
-    0.5, 9, 0.9, 100,
-    45, 2, 0.2, 200,
-    900, 0, 0, 300,
-    -1, 0, 0, 400,
+    0.5, 900, 100, 3, 6, 9, 18,
+    45, -1, 200, 0, 1, 2, 4,
+    900, 900, 300, 0, 0, 0, 0,
+    -1, -1, 400, 0, 0, 0, 0,
   ])
+  /** The repo's ladder, and a walk that has run — without `measured` the lens paints nothing. */
+  const ladder = { windows: [30, 60, 90, 180] as const, at: 2, measured: true }
+  const views = (read: 'newest' | 'oldest') => ({
+    age: { span: 900, read },
+    churn: { ...ladder, windows: [...ladder.windows] as [number, number, number, number] },
+  })
 
-  const aged = bucketsFor(dir([folded]), 'age')
+  const aged = bucketsFor(dir([folded]), 'age', undefined, views('newest'))
   const at = (label: string) => aged.find((b) => b.label === label)?.lines ?? 0
   check('every folded line is placed', aged.reduce((n, b) => n + b.lines, 0) === 1_000)
   check('today', at('today') === 100, at('today'))
@@ -329,9 +426,30 @@ console.log('roll-ups — and the time tally puts a folded file in its own band'
   // Absence sorts last however the rest is ordered — see `sortBuckets`.
   check('which sorts last', aged[aged.length - 1].label === 'history not read')
 
+  // **The same fold, read by the other date.** The point of the fifth number: a file touched
+  // today out of code from 2014 is `today` under one reading and `older` under the other, and
+  // before the fold carried a birth date the roll-up had only one number and wrote it into
+  // both fields — so this row would have been banded `today` on both.
+  const oldest = bucketsFor(dir([folded]), 'age', undefined, views('oldest'))
+  const wasOldest = (label: string) => oldest.find((b) => b.label === label)?.lines ?? 0
+  check('every folded line is placed under the other reading',
+    oldest.reduce((n, b) => n + b.lines, 0) === 1_000)
+  check('oldest line long ago', wasOldest('older') === 400, wasOldest('older'))
+  // Touched this quarter and never seen to arrive: the window's rule says nothing about when
+  // it was written, so it is an absence HERE and a band under `touched`. One file, two
+  // honest answers, which is the whole reason the two dates are separate fields.
+  check('and a file the window never saw arrive is an absence',
+    wasOldest('history not read') === 600, wasOldest('history not read'))
+
   // Churn reads the same tally through the same branch, so the two cannot disagree about
   // which file is busy.
-  const churn = bucketsFor(dir([folded]), 'churn')
+  //
+  // **And it is gated on the TOUCH date, which is what keeps that file banded.** The gate was
+  // `ageDays` while `ageDays` was only ever a copy of the touch date; now that the fold
+  // reports a real birth, an opening-state file has a null birth and a real touch, and a
+  // churn gate still reading `ageDays` would drop it — 200 lines here, and most of every
+  // frame on a repo whose story starts partway in.
+  const churn = bucketsFor(dir([folded]), 'churn', undefined, views('newest'))
   const busy = churn.find((b) => b.label === '3–9 commits')
   check('churn bands the same fold', busy?.lines === 100, churn.map((b) => [b.label, b.lines]))
   // An empty fill is a ramped bucket whose mean never arrived — see `bucketsFor`. It is what
@@ -342,6 +460,13 @@ console.log('roll-ups — and the time tally puts a folded file in its own band'
     !!busy && busy.fill !== '' && busy.fill.includes('--churn'),
     busy?.fill,
   )
+  // **The row that pins the gate.** Touched this quarter, never seen to ARRIVE — an
+  // opening-state file. Its birth is null and its touch is real, so a churn gate reading the
+  // birth drops it into `history not read` and reports a busy file as an unwalked one. This
+  // is the check that fails if the gate moves back to `ageDays`.
+  const early = churn.find((b) => b.label === '1–2 commits')
+  check('and an opening-state file is still banded by its commits',
+    early?.lines === 200, churn.map((b) => [b.label, b.lines]))
 }
 
 if (failed > 0) {

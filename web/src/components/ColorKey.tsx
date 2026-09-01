@@ -6,7 +6,8 @@ import {
   OTHER_LABEL,
   NAMED,
   shared,
-  RAMP_ENDS,
+  rampEnds,
+  type AgeRead,
   rampOf,
   slotColor,
   modeToken,
@@ -79,11 +80,15 @@ export interface Locked {
  *  lie — "owner" has no order, so showing a gradient would invent one. */
 function Legend({
   mode,
+  ageRead,
   categories,
   ranks,
   edge: card,
 }: {
   mode: ColorMode
+  /** Which of Age's two dates the map is painted in — the key names the ramp's ends and the
+   *  ends are not the same words for both. See `rampEnds`. */
+  ageRead: AgeRead
   categories: string[]
   /** Category → slot, the SAME map the wedges are painted from — see `rankCategories`.
    *
@@ -306,7 +311,7 @@ function Legend({
     )
   }
 
-  const [lo, hi] = RAMP_ENDS[mode] ?? ['', '']
+  const [lo, hi] = rampEnds(mode, ageRead) ?? ['', '']
   const ramp: Ramp = rampOf(mode)
   // Spans the widget rather than sitting in a fixed 96px well in the middle of it. The
   // ramp is the scale for the control directly above, and a short bar floating inside a
@@ -590,6 +595,7 @@ const RIBBON =
 /** The key, boxed to match the switcher so the two read as a pair across the graph. */
 export function ColorLegend({
   mode,
+  ageRead = 'newest',
   categories,
   ranks,
   stale = 0,
@@ -597,6 +603,8 @@ export function ColorLegend({
   at,
 }: {
   mode: ColorMode
+  /** Which of Age's two dates the map is painted in — see `Legend`. */
+  ageRead?: AgeRead
   categories: string[]
   /** The slot map the wedges use — see `Legend`. */
   ranks?: Map<string, number>
@@ -633,7 +641,7 @@ export function ColorLegend({
     // Fixed width so the shape has slack to take back: a key that shrinks to its longest line
     // is already as short as it can be, and shortening one line just moves a name to the next.
     <div ref={box} className="max-w-[420px] text-right">
-      <Legend mode={mode} categories={categories} ranks={ranks} edge={edge} />
+      <Legend mode={mode} ageRead={ageRead} categories={categories} ranks={ranks} edge={edge} />
       {paintsFromReadings(mode) && (stale > 0 || unread > 0) && (
         /* The two things the ramp above cannot explain: a wedge can be hatched, or it can
            be uncolored. Both are absences of a reading rather than positions on the

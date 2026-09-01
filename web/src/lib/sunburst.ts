@@ -1,4 +1,4 @@
-import { HOT, showsShare, temperature, type Node } from './api'
+import { HOT, showsShare, temperature, type ChurnWindows, type Node } from './api'
 
 export interface Wedge {
   node: Node
@@ -427,10 +427,14 @@ function aggregate(fns: Node[], filePath: string): Node {
         : {
             surprise: mean((f) => f.score!.surprise),
             documented: mean((f) => f.score!.documented),
-            churn: mean((f) => f.score!.churn),
+            // Per window — see `Score.churn`. A stand-in answers whichever rung the map is
+            // painted at, so it has to carry all four for the same reason a real node does.
+            churn: [0, 1, 2, 3].map((w) => mean((f) => f.score!.churn[w])) as ChurnWindows,
             ageDays: mean((f) => f.score!.ageDays ?? 0),
             lastTouchedDays: mean((f) => f.score!.lastTouchedDays ?? 0),
-            commits: Math.round(mean((f) => f.score!.commits)),
+            commits: [0, 1, 2, 3].map((w) =>
+              Math.round(mean((f) => f.score!.commits[w])),
+            ) as ChurnWindows,
             allCommits: null,
             provenance: s.provenance,
             hotShare: w === 0 ? 0 : hotLoc / w,

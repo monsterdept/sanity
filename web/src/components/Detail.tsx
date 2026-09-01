@@ -1,6 +1,6 @@
 import { Summary } from './Summary'
 import { Bloom } from './Bloom'
-import { colorFor, paintsFromReadings, type ColorMode } from '../lib/colorMode'
+import { ageOf, colorFor, paintsFromReadings, VIEWS_DEFAULT, type Views, type ColorMode } from '../lib/colorMode'
 import { READ_CEILING, unreadable } from '../lib/api'
 import { elide } from '../lib/text'
 import { FAMILY } from '../lib/labelStyle'
@@ -9,12 +9,19 @@ import { Counts } from './Counts'
 import { isAnalyzed, readingWords, wedgeHeat, type Node, trapOf } from '../lib/api'
 
 /** What the list ranks by, per mode — the same quantity the ring is colored by. */
-function rank(n: Node, mode: ColorMode): number {
+function rank(n: Node, mode: ColorMode, views: Views): number {
   const s = n.score
   if (!s) return -1
-  if (mode === 'churn') return s.ageDays === null ? -1 : s.churn
-  // Recent is the bright end of the age ramp, so recent sorts first.
-  if (mode === 'age') return s.lastTouchedDays === null ? -1 : -s.lastTouchedDays
+  // The gate `colorFor` uses, which moved off `ageDays` when Age started painting it — and
+  // the WINDOW the map is painted at, or this list ranks by a horizon nobody is looking at.
+  if (mode === 'churn')
+    return s.lastTouchedDays === null ? -1 : s.churn[views.churn.at]
+  // Recent is the bright end of the age ramp, so recent sorts first — under WHICHEVER date
+  // the map is painted in, or the list opens on a different row from the one the eye is on.
+  if (mode === 'age') {
+    const d = ageOf(s, views.age.read)
+    return d === null ? -1 : -d
+  }
   // Both wiring lenses rank by their own bright end, so the list opens on what the map is
   // shouting about: the unreferenced first, and the most far-flung first.
   if (mode === 'callers') return n.callers == null ? -1 : 1 / (1 + n.callers)
@@ -28,12 +35,13 @@ function rank(n: Node, mode: ColorMode): number {
 /** The one number worth a column, per mode. Units are carried on the value rather than
  *  in a header, because the column is eight characters wide and a header would not fit
  *  the word it needed. */
-function measure(n: Node, mode: ColorMode): string | null {
+function measure(n: Node, mode: ColorMode, views: Views): string | null {
   const s = n.score
   // Blame has no number. An author is a category, not a quantity, and the row's swatch
   // already carries it — a line count beside it answers a question nobody asked here.
   if (mode === 'blame') return null
-  if (mode === 'churn') return s && s.ageDays !== null ? `${s.commits}\u00d7` : '\u2014'
+  if (mode === 'churn')
+    return s && s.lastTouchedDays !== null ? `${s.commits[views.churn.at]}\u00d7` : '\u2014'
   if (mode === 'callers') return n.callers == null ? '\u2014' : `${n.callers}\u00d7`
   if (mode === 'reach') return n.calls == null ? '\u2014' : `\u2192${n.calls}`
   if (mode === 'clones') {
@@ -41,8 +49,9 @@ function measure(n: Node, mode: ColorMode): string | null {
     return n.cloneSize == null ? '1\u00d7' : `${n.cloneSize}\u00d7`
   }
   if (mode === 'age') {
-    if (!s || s.lastTouchedDays === null) return '\u2014'
-    return s.lastTouchedDays < 1 ? 'today' : `${Math.round(s.lastTouchedDays)}d ago`
+    const d = s ? ageOf(s, views.age.read) : null
+    if (d === null) return '\u2014'
+    return d < 1 ? 'today' : `${Math.round(d)}d ago`
   }
   // The reading itself, not the line count. Lines were the complement to the swatch —
   // color is surprise, width is lines, the invariant side by side — but it made Surprise
@@ -100,25 +109,28 @@ function Contents({
   node,
   mode,
   ranks,
-  ageSpan,
+  views,
   onSelect,
   onDrill,
 }: {
   node: Node
   mode: ColorMode
   ranks?: Map<string, number>
-  ageSpan?: number
+  views?: Views
   onSelect?: (n: Node) => void
   onDrill?: (n: Node) => void
 }) {
   if (node.children.length === 0) return null
+  // The reading the map is painted in, or this list ranks and reports a different date from
+  // the wedges it sits beside — see `AgeView`.
+  const read = views ?? VIEWS_DEFAULT
   // Ordered and measured by whatever the ring is currently colored by. The list was
   // always sorted by surprise and always trailed a line count, so in Churn mode it sat
   // beside a blue ring ranking things by a quantity the ring was not showing — two
   // answers to one question, in the same panel, disagreeing.
   const rows = [...node.children].sort((a, b) => {
     const seen = (n: Node) => (isAnalyzed(n) ? 1 : 0)
-    return seen(b) - seen(a) || rank(b, mode) - rank(a, mode) || b.loc - a.loc
+    return seen(b) - seen(a) || rank(b, mode, read) - rank(a, mode, read) || b.loc - a.loc
   })
   const label = node.kind === 'dir' ? 'Contents' : 'Functions'
 
@@ -144,14 +156,14 @@ function Contents({
         >
           <span
             className="h-2 w-2 shrink-0 translate-y-px rounded-[2px]"
-            style={{ background: colorFor(c, mode, ranks, ageSpan)?.fill ?? 'var(--unanalyzed)' }}
+            style={{ background: colorFor(c, mode, ranks, views)?.fill ?? 'var(--unanalyzed)' }}
           />
           <span className="mono flex-1 truncate text-[11px]">{c.name}</span>
           {/* Never shrinks, and the name gives way — this column is the mode's own
               quantity and is the reason to be reading the list at all. */}
-          {measure(c, mode) !== null && (
+          {measure(c, mode, read) !== null && (
             <span className="mono shrink-0 text-[10px] tabular-nums text-[var(--muted-foreground)]">
-              {measure(c, mode)}
+              {measure(c, mode, read)}
             </span>
           )}
         </button>
@@ -168,7 +180,7 @@ export function Detail({
   model,
   mode,
   ranks,
-  ageSpan,
+  views,
   onSelect,
   onDrill,
   owners,
@@ -186,8 +198,8 @@ export function Detail({
   model: string | null
   mode: ColorMode
   ranks?: Map<string, number>
-  /** The repo's age span — see `ageSpanOf`. */
-  ageSpan?: number
+  /** How Age is calibrated and which of its two dates it paints — see `AgeView`. */
+  views?: Views
   onSelect?: (n: Node) => void
   onDrill?: (n: Node) => void
   /** The containers between the repo and this node, outermost first — see `owners` in
@@ -222,7 +234,7 @@ export function Detail({
         // The pane describes the picture, so it has to know which picture is on screen.
         mode={mode}
         ranks={ranks}
-        ageSpan={ageSpan}
+        views={views}
         onSelect={onSelect}
         onDrill={onDrill}
       />
@@ -356,7 +368,7 @@ export function Detail({
         repo={null}
         mode={mode}
         ranks={ranks}
-        ageSpan={ageSpan}
+        views={views}
         onSelect={onSelect}
         onDrill={onDrill}
         path={pathLine}
@@ -469,7 +481,7 @@ export function Detail({
           node={node}
           mode={mode}
           ranks={ranks}
-          ageSpan={ageSpan}
+          views={views}
           onSelect={onSelect}
           onDrill={onDrill}
         />

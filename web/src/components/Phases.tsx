@@ -40,14 +40,7 @@ import { Sprig } from './Sprig'
  *  that out a second time from `trace_depth` is two implementations of one answer with the
  *  unwatched one free to go wrong. */
 export type PhaseAction =
-  | 'scan'
-  | 'trace'
-  | 'replay'
-  | 'read'
-  | 'stop-scan'
-  | 'stop-trace'
-  | 'stop-replay'
-  | 'stop-read'
+  'scan' | 'trace' | 'replay' | 'read' | 'stop-scan' | 'stop-trace' | 'stop-replay' | 'stop-read'
 
 interface Phase {
   key: 'scan' | 'trace' | 'read'
@@ -216,36 +209,36 @@ export function phasesOf(p: ProjectSummary, replayBlocked = false): Phase[] {
           : `${p.run?.live ?? 0} reading · ${compact(p.assessed)} of ${compact(total)}`,
       }
     : !scanned
-    ? {
-        key: 'read',
-        fill: [0],
-        na: true,
-        note: 'scanning is required first',
-      }
-    : p.assessed >= total && total > 0
       ? {
           key: 'read',
-          fill: [1],
-          done: 'Read',
-          // The same shape the other two finished notes take: what there is, not that it is
-          // done — the tick says that. `none stale` is worth the words because it is the half
-          // of "finished" that expires: a corpus is only current until somebody edits a body.
-          note: `${compact(p.assessed)} readings · none stale`,
+          fill: [0],
+          na: true,
+          note: 'scanning is required first',
         }
-      : {
-          key: 'read',
-          fill: [total > 0 ? p.assessed / total : 0],
-          verb: 'Read',
-          act: 'read',
-          // **Three disjoint numbers, never two that overlap.** It read `140 to read · 66
-          // stale`, and stale readings ARE part of that 140 — `assessed` excludes them
-          // everywhere — so the pair invited subtracting one from the other to find the
-          // remainder. Split at the source instead: never read, and read but expired.
-          note:
-            p.stale > 0
-              ? `${compact(total - p.assessed - p.stale)} unread · ${compact(p.stale)} stale`
-              : `${compact(total - p.assessed)} to read`,
-        }
+      : p.assessed >= total && total > 0
+        ? {
+            key: 'read',
+            fill: [1],
+            done: 'Read',
+            // The same shape the other two finished notes take: what there is, not that it is
+            // done — the tick says that. `none stale` is worth the words because it is the half
+            // of "finished" that expires: a corpus is only current until somebody edits a body.
+            note: `${compact(p.assessed)} readings · none stale`,
+          }
+        : {
+            key: 'read',
+            fill: [total > 0 ? p.assessed / total : 0],
+            verb: 'Read',
+            act: 'read',
+            // **Three disjoint numbers, never two that overlap.** It read `140 to read · 66
+            // stale`, and stale readings ARE part of that 140 — `assessed` excludes them
+            // everywhere — so the pair invited subtracting one from the other to find the
+            // remainder. Split at the source instead: never read, and read but expired.
+            note:
+              p.stale > 0
+                ? `${compact(total - p.assessed - p.stale)} unread · ${compact(p.stale)} stale`
+                : `${compact(total - p.assessed)} to read`,
+          }
 
   return [scan, trace, read]
 }
@@ -277,8 +270,18 @@ function traceOf(p: ProjectSummary, scanned: boolean, replayBlocked: boolean): P
   /** The three chambers, in the order the work happens: the commit log, per-line blame, the
    *  replay. Named rather than indexed, because `[1, 0.4, 0]` at four call sites below is three
    *  facts nobody can check by reading. */
-  const gauge = (log: number, blame: number, story: number) => [log, blame, story]
-  const none = gauge(0, 0, 0)
+  // **Four chambers, and the third one is new.** The trace ladder gained a rung: counting how
+  // many times each function has actually changed, which only the timeline can say. It sits
+  // after blame and before the story because it is a bounded walk — a hundred and eighty days
+  // rather than the whole history — and because it is what Churn waits on, where the story is
+  // what History waits on. See `trace::Depth::Edits` and `edits.rs`.
+  const gauge = (log: number, blame: number, edits: number, story: number) => [
+    log,
+    blame,
+    edits,
+    story,
+  ]
+  const none = gauge(0, 0, 0, 0)
 
   if (!scanned) {
     return { key: 'trace', fill: none, na: true, note: 'scanning is required first' }
@@ -297,25 +300,27 @@ function traceOf(p: ProjectSummary, scanned: boolean, replayBlocked: boolean): P
   const running = p.tracing_history
   if (running) {
     const part = running.total > 0 ? running.done / running.total : 0
-    // Step 2 is the blame pass; anything else reporting here is the log walk, which is step 1
-    // and is the only other thing `deepen` runs. An older backend sends no step at all, and
-    // falls to the log walk, which is where a trace with no per-file count must be.
+    // The step the pass sets on its own progress — 1 the log walk, 2 the blame pass, 3 the
+    // edits walk. An older backend sends no step at all and falls to the log walk, which is
+    // where a trace with no per-file count must be.
     const blaming = running.step === 2
+    const counting = running.step === 3
     return {
       key: 'trace',
-      fill: blaming ? gauge(1, part, 0) : gauge(part, 0, 0),
+      fill: counting ? gauge(1, 1, part, 0) : blaming ? gauge(1, part, 0, 0) : gauge(part, 0, 0, 0),
       verb: 'Stop',
       act: 'stop-trace',
-      note: blaming
-        ? `${compact(running.done)} / ${compact(running.total)} files blamed`
-        : running.total > 0
-          ? `${compact(running.done)} / ${compact(running.total)} commits read`
-          : // No denominator yet: the estimate could not price this repo without walking it,
-            // which is the case `Estimate::commits` is null for. A noun beats `0 / 0`.
-            'reading the commit log',
+      note: counting
+        ? `${compact(running.done)} / ${compact(running.total)} commits counted`
+        : blaming
+          ? `${compact(running.done)} / ${compact(running.total)} files blamed`
+          : running.total > 0
+            ? `${compact(running.done)} / ${compact(running.total)} commits read`
+            : // No denominator yet: the estimate could not price this repo without walking it,
+              // which is the case `Estimate::commits` is null for. A noun beats `0 / 0`.
+              'reading the commit log',
     }
   }
-
 
   if (p.trace_cost) {
     return {
@@ -339,7 +344,7 @@ function traceOf(p: ProjectSummary, scanned: boolean, replayBlocked: boolean): P
   if (blamed < 1) {
     return {
       key: 'trace',
-      fill: gauge(1, blamed, 0),
+      fill: gauge(1, blamed, 0, 0),
       verb: 'Trace',
       act: 'trace',
       // **What depth 2 buys, in the plainest words available.** It said "still on their
@@ -350,12 +355,31 @@ function traceOf(p: ProjectSummary, scanned: boolean, replayBlocked: boolean): P
     }
   }
 
+  // **The rung Churn waits on, and it is offered by name.** Until it has run, every churn count
+  // in the repo is zero — blame keeps one commit per LINE, so a body rewritten in place erases
+  // its own history and no amount of blaming can say how often it changed. The lens is locked
+  // meanwhile rather than painting those zeroes, and this is the button that lock points at.
+  //
+  // The note prices it in commits rather than seconds because that is what the walk is bounded
+  // by and what the row's other chambers already speak in. Nearly free where somebody has
+  // already walked the whole story — `edits::gather` counts a banked timeline where it lies
+  // rather than re-walking it.
+  if (p.trace_depth !== 'edits') {
+    return {
+      key: 'trace',
+      fill: gauge(1, 1, 0, 0),
+      verb: 'Trace',
+      act: 'trace',
+      note: 'count how often each function changes',
+    }
+  }
+
   const told = p.commits > 0 ? p.replayed / p.commits : 0
   const unreplayed = Math.max(0, p.commits - p.replayed)
   if (p.tracing) {
     return {
       key: 'trace',
-      fill: gauge(1, 1, told),
+      fill: gauge(1, 1, 1, told),
       verb: 'Stop',
       act: 'stop-replay',
       note: `${compact(p.replayed)} / ${compact(p.commits)} commits walked`,
@@ -364,7 +388,7 @@ function traceOf(p: ProjectSummary, scanned: boolean, replayBlocked: boolean): P
   if (unreplayed > 0) {
     return {
       key: 'trace',
-      fill: gauge(1, 1, told),
+      fill: gauge(1, 1, 1, told),
       // **One word for the whole column: `Trace`.** This step used to relabel itself `Replay`,
       // on the argument that walking every commit for the first time is a different act from
       // pressing play on a built timeline — true, and beside the point at the size of a pill.
@@ -385,7 +409,7 @@ function traceOf(p: ProjectSummary, scanned: boolean, replayBlocked: boolean): P
   }
   return {
     key: 'trace',
-    fill: gauge(1, 1, 1),
+    fill: gauge(1, 1, 1, 1),
     done: 'Trace',
     // **Numbers, and not the word `read`.** It said "read to the line, every commit replayed",
     // which spends the line on a claim the tick already makes — and borrows the third phase's

@@ -1,5 +1,7 @@
 import { RINGS_MAX, RINGS_MIN } from '../lib/rings'
-import { CAPS } from '../lib/colorMode'
+import { CAPS, modeToken, type AgeRead } from '../lib/colorMode'
+import { inkOn } from '../lib/ink'
+import { useState } from 'react'
 import { capLabel, type Capped } from '../lib/palette'
 
 /**
@@ -167,6 +169,279 @@ export function ColorCount({
       >
         +
       </button>
+    </div>
+  )
+}
+
+/**
+ * Whether a directory's rim carries the pointing marks — see `Sunburst`'s `dots`.
+ *
+ * **A switch rather than a stepper, because there is nothing to step through.** Its two
+ * neighbours in this bar count something; this asks one yes/no question about one lens, and
+ * a stepper over `on`/`off` is a control that looks like it has a range.
+ *
+ * It exists because a dot is opaque and a directory with a hundred of them wears a dotted
+ * line across the band that is trying to show you something else. Turning them off does not
+ * turn anything off on the map — the trapped function still pulses, the clone still wears
+ * its colour — it drops the container's *out this way* pointer and leaves the rim to draw
+ * what every other lens draws on it.
+ *
+ * Shown only on Traps and Clones, for the reason `ColorCount` is shown only on the
+ * categorical lenses: no other lens puts a mark there, so anywhere else this is an inert
+ * control, and an inert control is worse than no control.
+ */
+export function MarkerToggle({
+  mode,
+  on,
+  onToggle,
+}: {
+  /** The lens whose marks these are — it colours the glyph. */
+  mode: 'traps' | 'clones'
+  on: boolean
+  onToggle: (v: boolean) => void
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={() => onToggle(!on)}
+      title={
+        on
+          ? 'Hide the marks on the folder rims. The map keeps every one of them where it actually is — this only drops the folder saying which way to look.'
+          : 'Show, on each folder rim, which way to look for what this lens marks. One dot per thing found underneath, on the radial it lies out along.'
+      }
+      className="flex items-center gap-1.5 rounded-full px-2 py-[3px] text-[11px] leading-none transition-colors"
+      style={{
+        background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
+        boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
+        color: on ? 'var(--foreground)' : 'var(--muted-foreground)',
+      }}
+    >
+      {/* The control says what it does by drawing it: three dots, in the mark's own colour
+          when they are on and in the muted ink when they are not. A checkbox glyph would
+          need the word to carry the whole meaning, and the word here is `markers`, which
+          could mean anything on a map made of colour. */}
+      <svg width="17" height="5" viewBox="0 0 17 5" aria-hidden>
+        {[2.5, 8.5, 14.5].map((cx) => (
+          <circle
+            key={cx}
+            cx={cx}
+            cy="2.5"
+            r="2"
+            fill={on ? `var(${modeToken(mode)})` : 'currentColor'}
+            opacity={on ? 1 : 0.45}
+          />
+        ))}
+      </svg>
+      markers
+    </button>
+  )
+}
+
+/**
+ * Which of Age's two dates the lens paints — see `AgeRead`.
+ *
+ * **Two segments in the track rather than a pulldown, and that is the argument `ModeSwitcher`
+ * makes in reverse.** Eleven alternatives stopped fitting beside the thing they qualify and
+ * became a menu; two of them fit with room to spare, and a segmented control earns its width
+ * exactly when it can show the alternatives — which here is the whole point, because nobody
+ * arrives at this lens knowing there are two readings of it. A menu would hide the second one
+ * behind a click, and the second one is the reading the lens is FOR.
+ *
+ * The words are the ones the wedges say. The pressed segment reads `oldest line` and a tooltip
+ * reads `oldest line 412d ago` — the same sentence at two sizes, so the control does not have
+ * to be translated into the map. See `ageLabel`, which is where both come from.
+ *
+ * **And they name the LINE rather than the code.** `first seen` was the first spelling and it
+ * claimed what blame cannot see: per-line provenance holds the last commit to touch each line,
+ * so a body rewritten wholesale reads as young and its true first appearance is gone. The
+ * oldest line standing here is a fact; when this was written is not one we hold.
+ */
+export function AgeReading({ read, onRead }: { read: AgeRead; onRead: (r: AgeRead) => void }) {
+  const opts: { key: AgeRead; word: string; title: string }[] = [
+    {
+      key: 'newest',
+      word: 'newest',
+      title:
+        'Colour by the NEWEST line here — how long since a commit last touched this body. Bright is recent: where work has been happening.',
+    },
+    {
+      key: 'oldest',
+      word: 'oldest',
+      title:
+        'Colour by the OLDEST line still standing here. Cold is code nobody has been near in a long while — a different question from what has been touched lately, and on a body rewritten last week out of lines from 2014 the two disagree by a decade. The oldest LINE, not when the code first appeared: a wholesale rewrite leaves nothing behind saying when it was written.',
+    },
+  ]
+  return (
+    <div
+      className="flex items-center gap-0.5 rounded-full p-[3px]"
+      style={{
+        background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
+        boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
+      }}
+    >
+      {opts.map((o) => {
+        const on = read === o.key
+        return (
+          <button
+            key={o.key}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onRead(o.key)}
+            title={o.title}
+            className="rounded-full px-2 py-[3px] text-[11px] leading-none transition-colors"
+            // The chosen segment wears the lens's own colour, the way the switcher's trigger
+            // does: this row already says what the map is coloured by, and the sub-reading is
+            // a statement about the same colour rather than a second, unrelated control.
+            style={
+              on
+                ? { background: 'var(--age-4)', color: inkOn('--age-4'), fontWeight: 600 }
+                : { color: 'var(--muted-foreground)' }
+            }
+          >
+            {/* **The noun rides on the chosen segment only.** Both halves carrying it reads as
+                two nouns to compare — `newest line` against `oldest line` — when what is being
+                compared is the adjective and the noun is the same in both. On the pressed one
+                it completes the sentence the wedges are saying; on the other it is a word the
+                eye has to skip to reach the choice. */}
+            {on ? `${o.word} line` : o.word}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * Whether a doc that says nothing the code didn't is marked — see `.derivable-pulse`.
+ *
+ * **A switch on the one thing the Docs ramp cannot say.** A reader who judges a comment
+ * `derivable` — regenerable from the body it sits on — has that grade forced to `none`
+ * (`reportGrades`), which is right: it explains nothing that was not already there, so it
+ * cools no wedge. What it costs is the difference between a function nobody has documented
+ * and one somebody has documented uselessly, and those want different work. The first needs
+ * a sentence written. The second needs one deleted first, by whoever can tell that it is
+ * safe to delete — which is more work, not less, and the map was drawing it as the same job.
+ *
+ * The same shape as `MarkerToggle` next door, because it is the same kind of control: a
+ * yes/no about one lens, sitting beside the lens, drawing what it does rather than naming it.
+ */
+export function DerivableToggle({ on, onToggle }: { on: boolean; onToggle: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={() => onToggle(!on)}
+      title={
+        on
+          ? 'Stop marking docs that say nothing the code didn’t. They keep the undocumented colour either way — this only drops the breath that tells them apart from a function nobody has written about.'
+          : 'Mark docs a reader judged derivable — regenerable from the body they sit on. They are painted as undocumented, correctly, and this is the only thing on the map that says a comment is there at all.'
+      }
+      className="flex items-center gap-1.5 rounded-full px-2 py-[3px] text-[11px] leading-none transition-colors"
+      style={{
+        background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
+        boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
+        color: on ? 'var(--foreground)' : 'var(--muted-foreground)',
+      }}
+    >
+      {/* The glyph breathes when the marking is on, on the same class the wedges take — so the
+          control is a sample of the thing it switches rather than a word about it. Under
+          reduced motion it settles exactly as they do, which is the whole point of that rule
+          living on the class and not on the wedge. */}
+      <svg width="14" height="9" viewBox="0 0 14 9" aria-hidden className={on ? 'derivable-pulse' : undefined}>
+        <rect x="0" y="0.5" width="14" height="1.6" rx="0.8" fill="currentColor" />
+        <rect x="0" y="3.7" width="10" height="1.6" rx="0.8" fill="currentColor" opacity={0.75} />
+        <rect x="0" y="6.9" width="12" height="1.6" rx="0.8" fill="currentColor" opacity={0.5} />
+      </svg>
+      derivable
+    </button>
+  )
+}
+
+/**
+ * Which horizon Churn counts inside — one of the four this repo can offer.
+ *
+ * **A pulldown, where its three neighbours are steppers and segments, and the reason is that
+ * the rungs are not a scale.** `RingCount` steps because five rings and six rings are
+ * neighbours on one axis; `AgeReading` is two segments because two alternatives fit. Four
+ * windows are four different questions about the same repo, their labels are variable-width
+ * because the ladder is the repo's own, and a stepper over them would invite the reading that
+ * you are turning a dial up rather than asking something else.
+ *
+ * **The rungs are named in days and the days come from the repo.** A fixed 30/60/90/180 goes
+ * inert on a young project — measured on this one at 27 days old, all four windows returned the
+ * identical 271 commits — so `edits::windows_for` scales the ladder to a repo that cannot fill
+ * it. What that costs is that `90d` here and `90d` in another repo are not always the same
+ * choice; what it buys is four choices that do something. Age already made that trade and said
+ * why: cross-repo comparison was never something this app offered.
+ */
+export function ChurnWindow({
+  windows,
+  at,
+  onPick,
+}: {
+  /** The four rungs, in days — `Stats.churnWindows`. */
+  windows: readonly number[]
+  at: number
+  onPick: (i: number) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const label = (d: number) => (d === 1 ? '1 day' : d < 90 ? `${d} days` : `${d}d`)
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        title="How far back Churn counts. Four horizons, scaled to how long this repo has existed — a fixed ladder says the same thing four times on a young project."
+        className="flex items-center gap-1.5 rounded-full px-2 py-[3px] text-[11px] leading-none text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+        style={{
+          background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
+          boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
+        }}
+      >
+        <span className="tabular-nums">{label(windows[at] ?? 90)}</span>
+        {/* The switcher's caret, drawn rather than set in the font — at this size a chevron
+            glyph and a triangle are the same shape and one of them depends on what the system
+            has installed. See `ModeSwitcher`. */}
+        <svg width="7" height="4" viewBox="0 0 7 4" aria-hidden>
+          <path d="M0 0 L3.5 4 L7 0 Z" fill="currentColor" />
+        </svg>
+      </button>
+      {open && (
+        <>
+          {/* One click anywhere closes, including the click that chooses something else in the
+              bar — the same backdrop the lens switcher uses, and for the same reason: without
+              it, opening the menu is a commitment. */}
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div
+            role="listbox"
+            className="absolute left-0 top-full z-50 mt-1 min-w-32 rounded-md border border-[var(--border)] bg-[var(--card)] py-1 text-[12px] shadow-lg"
+          >
+            {windows.map((d, i) => (
+              <button
+                key={i}
+                role="option"
+                aria-selected={i === at}
+                onClick={() => {
+                  onPick(i)
+                  setOpen(false)
+                }}
+                className="flex w-full items-center gap-2 px-3 py-1 text-left tabular-nums hover:bg-[var(--secondary)]"
+                style={{
+                  color: i === at ? 'var(--foreground)' : 'var(--muted-foreground)',
+                  fontWeight: i === at ? 600 : 400,
+                }}
+              >
+                {label(d)}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }

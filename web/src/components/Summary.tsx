@@ -10,7 +10,7 @@ import {
   type Grade,
   type Node,
 } from '../lib/api'
-import { bucketsFor, colorFor, type Bucket, type ColorMode } from '../lib/colorMode'
+import { ageOf, bucketsFor, colorFor, VIEWS_DEFAULT, type AgeRead, type Views, type Bucket, type ColorMode } from '../lib/colorMode'
 import { Counts } from './Counts'
 
 /** The order every breakdown in this app reads in: the LOUD end first.
@@ -45,7 +45,17 @@ const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
   // their lines trace back to. The 90-day window is the FILE's quantity, and it has its own
   // section in the pane — see `blame.rs`.
   churn: 'Commits behind these lines',
-  age: 'Last touched',
+  // Age reads two dates and the heading has to say which one is under it — see `AgeView`.
+  // Filled in by `breakdownTitle`, because a `Record` cannot hold a value that depends on a
+  // control; the entry stays so the exhaustive map still fails when a lens is added.
+  age: 'Newest line',
+}
+
+/** The heading, with the one lens whose rows depend on a reading resolved. */
+function breakdownTitle(mode: ColorMode, read: AgeRead): string {
+  if (mode === 'surprise') return 'Surprise'
+  if (mode === 'age') return read === 'oldest' ? 'Oldest line' : 'Newest line'
+  return BREAKDOWN_TITLE[mode as Exclude<ColorMode, 'surprise'>]
 }
 
 /** Height of one row, in pixels, and it is a contract rather than a style.
@@ -75,15 +85,16 @@ const ROW_H = 20
  * anything: it is the map's other axis, the one that decides how much of the picture each
  * row is, and it is the only way to tell the big function in a bucket from the small one.
  */
-function rowNote(n: Node, mode: ColorMode): string {
+function rowNote(n: Node, mode: ColorMode, views: Views): string {
   const s = n.score
   if (mode === 'age') {
-    if (!s || s.lastTouchedDays === null) return '—'
-    return s.lastTouchedDays < 1 ? 'today' : `${Math.round(s.lastTouchedDays)}d ago`
+    const d = s ? ageOf(s, views.age.read) : null
+    if (d === null) return '—'
+    return d < 1 ? 'today' : `${Math.round(d)}d ago`
   }
-  // Guarded on `ageDays` and printing `commits`, which is deliberate and reads as a mismatch
+  // Guarded on a DATE and printing `commits`, which is deliberate and reads as a mismatch
   // until you know why: `commits` is 0 both for a file nobody has touched this quarter and
-  // for one git has never heard of, and only `ageDays` tells those apart. The em dash means
+  // for one git has never heard of, and only a date tells those apart. The em dash means
   // "no history"; a zero means "no commits in the window".
   //
   // A reader flagged the mismatch, I wrote a comment claiming I had fixed it, and a later
@@ -91,8 +102,19 @@ function rowNote(n: Node, mode: ColorMode): string {
   // right to. The guard was correct all along; what was missing was the sentence saying so.
   // The rows are FUNCTIONS, so this is the commits their lines trace back to and not a
   // window — see `blame.rs` and `CHURN_BANDS`. It read `in 90d`, which the number is not.
-  if (mode === 'churn')
-    return s && s.ageDays !== null ? `${s.commits} ${s.commits === 1 ? 'commit' : 'commits'}` : '—'
+  //
+  // The date it guards on is `lastTouchedDays`, and it was `ageDays` until Age began painting
+  // that field: the two are null together everywhere on the live map, and a replay stand-in
+  // for a file that predates the window now honestly reports a null BIRTH and a real touch,
+  // which under the old guard would have blanked Churn over the folded half of every frame.
+  if (mode === 'churn') {
+    if (!s || s.lastTouchedDays === null) return '—'
+    // The window the map is painted at, named by the caller: the ladder is the repo's own and
+    // a row saying `in 90d` on a project whose widest horizon is 27 days would be inventing a
+    // measurement. See `churnLabel`, which both this and the wedge come out of.
+    const n = s.commits[views.churn.at]
+    return `${n} ${n === 1 ? 'change' : 'changes'}`
+  }
   // Both wiring lenses are grouped by a value that leaves something open, so both print the
   // part the heading does not carry. Under `2–5 callers` the exact count is what the band
   // rounded off; under `most of it leaves` the fact behind the band is the two counts it came
@@ -140,6 +162,7 @@ function ListWindow({
   goTo,
   paint,
   mode,
+  rowViews,
 }: {
   rows: Node[]
   onSelect?: (n: Node) => void
@@ -150,6 +173,9 @@ function ListWindow({
   paint?: (n: Node) => { fill: string }
   /** Which lens the trailing column should answer for. */
   mode: ColorMode
+  /** How the calibrated lenses are set — see `Views`. Passed rather than defaulted, so a list
+   *  cannot print a date, or a window, the map is not painted in. */
+  rowViews: Views
 }) {
   const box = useRef<HTMLDivElement | null>(null)
   const [view, setView] = useState({ top: 0, h: 0 })
@@ -198,7 +224,7 @@ function ListWindow({
             <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: fill }} />
             <span className="mono flex-1 truncate text-[11px]">{h.name}</span>
             <span className="mono shrink-0 truncate text-[10px] text-[var(--muted-foreground)]">
-              {rowNote(h, mode)}
+              {rowNote(h, mode, rowViews)}
             </span>
           </button>
         )
@@ -438,7 +464,7 @@ export function Summary({
   repo,
   mode,
   ranks,
-  ageSpan,
+  views,
   onSelect,
   onDrill,
   path,
@@ -465,16 +491,16 @@ export function Summary({
   mode: ColorMode
   /** Category → color slot, so a row's swatch is the wedge's own color. */
   ranks?: Map<string, number>
-  /** The repo's age span — see `ageSpanOf`. Threaded rather than derived from `node`,
+  /** How Age is calibrated and which of its two dates it paints — see `AgeView`. Threaded rather than derived from `node`,
    *  which is the drilled-into subtree and would put this panel on its own scale. */
-  ageSpan?: number
+  views?: Views
   onSelect?: (n: Node) => void
   onDrill?: (n: Node) => void
 }) {
   const s = summarize(node)
   const buckets = useMemo(
-    () => bucketsFor(node, mode, ranks, ageSpan),
-    [node, mode, ranks, ageSpan],
+    () => bucketsFor(node, mode, ranks, views),
+    [node, mode, ranks, views],
   )
   // Go to it AND open the file around it: a name in this list is useless if clicking it
   // selects something off-screen. Drill first so the map moves, then select so the panel
@@ -553,7 +579,7 @@ export function Summary({
                   which names the CATEGORY of thing being counted rather than what is being
                   asked about them — the one heading in the pane that did not answer "which
                   lens am I looking at". */}
-              {lens ? BREAKDOWN_TITLE[mode as Exclude<ColorMode, 'surprise'>] : 'Surprise'}
+              {breakdownTitle(lens ? mode : 'surprise', views?.age.read ?? 'newest')}
             </p>
             {lens ? (
               <Buckets buckets={buckets} picked={bucket?.key ?? null} onPick={setPickedBucket} />
@@ -620,8 +646,9 @@ export function Summary({
                   onSelect={onSelect}
                   goTo={goTo}
                   mode={mode}
+                  rowViews={views ?? VIEWS_DEFAULT}
                   paint={(n) => ({
-                    fill: colorFor(n, mode, ranks, ageSpan)?.fill ?? 'var(--unanalyzed)',
+                    fill: colorFor(n, mode, ranks, views)?.fill ?? 'var(--unanalyzed)',
                   })}
                 />
               </div>
@@ -652,7 +679,13 @@ export function Summary({
                 reason: uniform height is what lets the first visible index be arithmetic
                 instead of measurement, and the two spacers hold the scrollbar at the size
                 the whole list would have had. */}
-                <ListWindow rows={list} onSelect={onSelect} goTo={goTo} mode={mode} />
+                <ListWindow
+                  rows={list}
+                  onSelect={onSelect}
+                  goTo={goTo}
+                  mode={mode}
+                  rowViews={views ?? VIEWS_DEFAULT}
+                />
               </div>
             )}
       </div>

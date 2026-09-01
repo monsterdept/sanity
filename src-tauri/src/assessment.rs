@@ -206,10 +206,28 @@ pub fn packed(r: &crate::agentapi::Report) -> u16 {
             Some(crate::agentapi::Grade::Full) => 4,
         }
     }
+    // **Three states, not a flag, and the third one is what makes this free to add.** Bits 10
+    // and 11 read 0 on every timeline banked before they existed, and 0 has to mean "this
+    // walk was never asked" rather than "no" — a boolean here would have every stored reading
+    // in every cached story asserting that its docs are not derivable, which is a default
+    // being silently believed as a value. That is the hazard `Bank::taken_at` is written
+    // against, and unlike that field a `false` here IS readable as an answer. So: 0 unknown,
+    // 1 no, 2 yes. An old story marks nothing and says nothing, which is the same absence a
+    // repo nobody has read shows, and it repairs itself on the next trace rather than costing
+    // every user their timeline to a format bump.
+    //
+    // `grades()` above has already applied the forcing this flag causes — a derivable doc is
+    // packed as `documented: none`. What travels here is the REASON, which the ramp cannot
+    // show: see `.derivable-pulse`.
+    let derivable = if r.derivable { 2u16 } else { 1 };
     let (predicted, documented) = r.grades();
     let legible = if legible_current(r.spec) { r.legible } else { None };
     let trap = r.trap && trap_current(r.spec);
-    g(Some(predicted)) | (g(documented) << 3) | (g(legible) << 6) | (u16::from(trap) << 9)
+    g(Some(predicted))
+        | (g(documented) << 3)
+        | (g(legible) << 6)
+        | (u16::from(trap) << 9)
+        | (derivable << 10)
 }
 
 pub fn dated_axis(r: &crate::agentapi::Report) -> bool {
@@ -2131,6 +2149,8 @@ mod tests {
             root,
             stats: crate::scan::ScanStats {
                 commits: 0,
+                churn_windows: [30, 60, 90, 180],
+                churned: false,
                 files_scanned: 0,
                 files_skipped: 0,
                 unscanned: Default::default(),
@@ -2200,6 +2220,35 @@ mod tests {
 
     /// The whole point, exercised end to end: write the repo's assessment, read it back,
     /// and confirm a reading survives the source moving down the file.
+    /// **A story banked before the derivable bits existed must not assert an answer.**
+    ///
+    /// Zero is what every reading in every cached timeline reads for bits 10 and 11, and the
+    /// one thing it must not mean is `no`. There is no format bump behind this — the whole
+    /// reason for three states rather than a flag is that a bump would cost every user their
+    /// traced story to buy a pulse — so this test is the only thing standing between an old
+    /// timeline and a map confidently reporting that nobody's docs are derivable.
+    #[test]
+    fn an_unpacked_zero_is_not_an_answer_about_derivable() {
+        let bits = |packed: u16| (packed >> 10) & 3;
+        assert_eq!(bits(0), 0, "an old story says nothing, and nothing is not `no`");
+
+        let mut r = report("f", "");
+        r.derivable = true;
+        assert_eq!(bits(packed(&r)), 2, "a derivable doc says so");
+        r.derivable = false;
+        assert_eq!(bits(packed(&r)), 1, "and one that is not says THAT, rather than nothing");
+
+        // The forcing still travels with it: what the ramp paints is unchanged, and only the
+        // reason is new — see `packed`.
+        r.derivable = true;
+        r.documented = Some(crate::agentapi::Grade::Full);
+        assert_eq!(
+            (packed(&r) >> 3) & 7,
+            1,
+            "a derivable doc is packed as `none` however it was graded"
+        );
+    }
+
     #[test]
     fn writes_and_reloads_a_repo_assessment() {
         let tmp = std::env::temp_dir().join(format!("sanity-assess-{}", std::process::id()));

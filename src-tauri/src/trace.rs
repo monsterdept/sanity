@@ -65,6 +65,19 @@ pub enum Depth {
     Files,
     /// Per-line blame as well, so the same four facts resolve to the function.
     Lines,
+    /// The timeline as well: how many times each function has actually CHANGED.
+    ///
+    /// **Not a finer answer to the same question — a different question, and the only rung
+    /// here that is.** `Files` and `Lines` are two resolutions of one set of facts: a file's
+    /// age is its functions' ages read coarsely. This rung adds a quantity neither of the
+    /// others holds at any resolution, because neither instrument can see it. Blame keeps one
+    /// commit per LINE, so a body whose same ten lines were rewritten forty times reports the
+    /// handful that survived; the timeline diffs functions by body hash at every commit and
+    /// counts all forty. See `edits.rs`, which measures the gap, and `docs/notes/time.md`.
+    ///
+    /// It is the deepest rung because it is the most expensive: 16s on godot and 32s on
+    /// ladybird for a hundred and eighty days, against a log walk of well under a second.
+    Edits,
 }
 
 impl Depth {
@@ -74,7 +87,25 @@ impl Depth {
             Depth::Untraced => "untraced",
             Depth::Files => "files",
             Depth::Lines => "lines",
+            Depth::Edits => "edits",
         }
+    }
+
+    /// Does a trace to this depth run the per-line blame pass?
+    ///
+    /// **The ladder is CUMULATIVE, and asking `== Depth::Lines` is how that gets forgotten.**
+    /// Every rung includes the ones below it: `Edits` is a repo blamed AND counted, not a repo
+    /// counted instead of blamed. Both gates were an equality against `Lines` and adding a
+    /// fourth rung silently turned the blame pass off — the trace ran, `resolved` stayed at
+    /// zero, and the row went on offering "304 files to blame" however many times it was
+    /// pressed. It is asked here so a fifth rung cannot repeat it.
+    pub fn blames(self) -> bool {
+        matches!(self, Depth::Lines | Depth::Edits)
+    }
+
+    /// Does it walk the timeline for how often each function has changed? See `edits.rs`.
+    pub fn counts_edits(self) -> bool {
+        matches!(self, Depth::Edits)
     }
 
     /// What a cache has to key on to tell two depths apart — see `treecache::signature`.
@@ -83,6 +114,7 @@ impl Depth {
             Depth::Untraced => b"untraced",
             Depth::Files => b"files",
             Depth::Lines => b"lines",
+            Depth::Edits => b"edits",
         }
     }
 }
@@ -409,7 +441,7 @@ pub fn deepen(
     // the files it covers, `absorb` is a union rather than a merge of two opinions, and `apply`
     // is idempotent by construction — the files not yet reached simply keep falling back to
     // their file's numbers, which is exactly what depth 1 already means.
-    let blame = if depth == Depth::Lines && !stop.load(std::sync::atomic::Ordering::Relaxed) {
+    let blame = if depth.blames() && !stop.load(std::sync::atomic::Ordering::Relaxed) {
         let files = blamable(scan, scans);
         let total = files.len();
         let step = (total / PUBLISH_STEPS).max(PUBLISH_FLOOR);
@@ -434,17 +466,44 @@ pub fn deepen(
             acc.absorb(part);
             // Landed and handed over before the next chunk starts. The final `apply` below
             // still runs — it is idempotent, and it is what covers the un-chunked paths.
-            apply(scan, &history, &acc);
+            apply(scan, &history, &acc, None);
             on_publish(scan);
         }
         acc
     } else {
         Blame::default()
     };
+    // **The third phase, and the only one that adds a quantity rather than a resolution.**
+    // Depth 1 and depth 2 are one set of facts read coarsely and then finely; this walks the
+    // timeline to find out how many times each function has actually CHANGED, which neither of
+    // the others holds at any resolution — see `Depth::Edits` and `edits.rs`.
+    //
+    // Last, because it is the most expensive: 16s on godot and 32s on ladybird for a hundred
+    // and eighty days. Its own step on the bar for the reason the blame pass has one — a phase
+    // boundary the viewer can see is worth a bar that restarts, and a walk this long appearing
+    // as a stall in the previous phase is the lie that naming was written to remove.
+    let walked = if depth.counts_edits() {
+        crate::edits::gather(repo, stop, &|p| {
+            on_progress(p.step(3));
+        })
+    } else {
+        None
+    };
+    let now = crate::churn::now_secs();
+    let at = walked.as_ref().map(|e| crate::edits::At {
+        edits: e,
+        now,
+        windows: e.windows,
+    });
     // Applied even when it was stopped: what depth 1 read is a whole answer at its own
     // resolution, and a partial blame is every file that WAS read — the rest fall back to
     // their file's numbers, which is the same absence `FileTrace::func` handles everywhere.
-    apply(scan, &history, &blame);
+    //
+    // A STOPPED edits walk is different and is applied as nothing: `gather` returns `None`
+    // rather than a partial count, because half a timeline reports a busy repo as a quiet one
+    // and there is no per-node absence that says so. The depth it reports is `Lines`, which is
+    // what it actually reached.
+    apply(scan, &history, &blame, at);
     // What it resolved, out of what it was asked to. Reported rather than rounded, so a stopped
     // pass says where it got to and a resumed one starts from a number somebody can see moving.
     //
@@ -459,9 +518,14 @@ pub fn deepen(
             considered += 1;
         }
     });
+    // **Off `blames()`, not off an equality with `Lines`.** This was the third gate written as
+    // `depth == Depth::Lines` and the last one to be found: the blame pass ran perfectly at the
+    // new deepest rung and then reported that it had resolved nothing, so the sidebar divided
+    // by a numerator of zero and offered `304 files to blame` however many times it was
+    // pressed. A dead button, a finished repo, and no error anywhere.
     let resolved = match depth {
-        Depth::Lines if !stop.load(std::sync::atomic::Ordering::Relaxed) => considered,
-        Depth::Lines => blame.len(),
+        d if d.blames() && !stop.load(std::sync::atomic::Ordering::Relaxed) => considered,
+        d if d.blames() => blame.len(),
         _ => 0,
     };
     // **The depth REACHED, which is not always the depth asked for.** Callers used to work this
@@ -469,11 +533,40 @@ pub fn deepen(
     // for the one case it was written for and silently wrong for the new one: a stop inside the
     // log walk reaches nothing at all, and that branch would have banked it as `files`. The
     // pass is the only thing that knows how far it got, so it is the thing that says.
+    let stopped = stop.load(std::sync::atomic::Ordering::Relaxed);
     let reached = match depth {
-        Depth::Lines if stop.load(std::sync::atomic::Ordering::Relaxed) => Depth::Files,
+        Depth::Lines if stopped => Depth::Files,
+        // **A stopped edits walk reports the depth it actually reached, which is `Lines`.**
+        // The blame pass can be stopped and still counts, because what it finished is per file
+        // and the rest fall back honestly. A half-walked timeline cannot: a function whose
+        // commits the walk had not got to yet is indistinguishable from one nobody has
+        // touched, and the map would draw a busy repo as settled with nothing saying why.
+        Depth::Edits if walked.is_none() => {
+            if stopped {
+                Depth::Files
+            } else {
+                Depth::Lines
+            }
+        }
+        Depth::Edits if stopped => Depth::Lines,
         d => d,
     };
     (reached, resolved, considered)
+}
+
+/// The repo's history at every resolution the scan has.
+///
+/// **One value because they are one subject read three ways, and because they travel
+/// together.** The log walk answers per file, blame answers per line, and the timeline answers
+/// how often a body has changed; every consumer below this point wants whichever of them can
+/// speak to the node in front of it, and passing them separately had `score_dir` at eight
+/// arguments with the third one about to be forgotten somewhere.
+#[derive(Clone, Copy)]
+pub(crate) struct Histories<'a> {
+    pub history: &'a History,
+    pub blame: &'a Blame,
+    /// `None` until the timeline has been walked — see `Depth::Edits`.
+    pub edits: Option<crate::edits::At<'a>>,
 }
 
 /// One file's history, looked up once and asked about many functions.
@@ -483,34 +576,43 @@ pub fn deepen(
 /// once and its functions' numbers one apiece, and [`apply`] has to do the same or a repo the
 /// size of kibana pays 121,447 lookups it does not need.
 pub(crate) struct FileTrace<'a> {
-    churn: f32,
+    path: &'a str,
     age_days: Option<f32>,
-    commits: u32,
     last_touched_days: Option<f32>,
     last_author: Option<String>,
     blame: Option<&'a FileBlame>,
+    /// How often each function here has actually changed — see `edits.rs`. `None` until the
+    /// timeline has been walked, which is `Depth::Edits`.
+    edits: Option<crate::edits::At<'a>>,
     now: i64,
 }
 
 /// What one function's history says, at whatever resolution is available.
 pub(crate) struct FuncTrace {
-    pub churn: f32,
+    /// One rate per window — see `Score::churn`. All zeroes where the timeline has not been
+    /// walked, which is an absence the REPO states once and no node repeats.
+    pub churn: [f32; 4],
     pub age_days: Option<f32>,
-    pub commits: u32,
+    pub commits: [u32; 4],
     pub last_touched_days: Option<f32>,
     pub last_author: Option<String>,
 }
 
 impl<'a> FileTrace<'a> {
-    pub(crate) fn of(path: &str, history: &History, blame: &'a Blame) -> FileTrace<'a> {
+    pub(crate) fn of(path: &'a str, h: Histories<'a>) -> FileTrace<'a> {
+        let Histories { history, blame, edits } = h;
         FileTrace {
-            churn: history.churn_of(path),
+            path,
             age_days: history.age_of(path),
-            commits: history.commits_of(path),
             last_touched_days: history.last_touched_of(path),
             last_author: history.last_author_of(path),
             blame: blame.get(path),
-            now: blame.now,
+            edits,
+            // A blame pass stamps its own clock and every age is measured from it. With no
+            // blame there is no stamp, and a zero would date every window to 1970 — so the
+            // edits windows fall back to asking the machine, which costs one syscall per file
+            // on a depth that has not run the pass this reads from anyway.
+            now: if blame.now != 0 { blame.now } else { crate::churn::now_secs() },
         }
     }
 
@@ -523,22 +625,41 @@ impl<'a> FileTrace<'a> {
     /// This function's own history where blame could read it, the file's otherwise — an
     /// untracked file, a repo without git, a range the blame no longer covers, or a repo
     /// traced only to depth 1 should cost RESOLUTION, not the axis.
-    pub(crate) fn func(&self, start: u32, end: u32) -> FuncTrace {
+    pub(crate) fn func(&self, name: &str, ord: usize, start: u32, end: u32) -> FuncTrace {
+        // **Churn comes off the timeline where there is one, and the other three never do.**
+        // The edits walk is bounded by the churn window, so it cannot say when a function
+        // nobody has touched in a year first appeared or who last touched it — those stay
+        // blame's, which reads every line's whole provenance. What it CAN say, and what blame
+        // cannot say at all, is how many times this body has changed: blame keeps one commit
+        // per line, so a body rewritten in place reports the few that survived. See `edits.rs`
+        // for the measurement of that gap and `docs/notes/time.md` for why it matters.
+        // **Zero where the timeline has not been walked, and zero is not "settled".** Blame's
+        // surviving-commit count used to fill this in, which is how one ramp came to paint two
+        // quantities: a body rewritten in place reports the handful of commits whose lines
+        // happen to survive, which is not a frequency and cannot be compared to one. It is a
+        // real reading — how many hands are layered in the code in front of you — and it wants
+        // a lens of its own rather than this one's. `docs/notes/time.md` carries the argument.
+        //
+        // What says "not measured" is `Stats::churned`, once, on the repo, beside the button
+        // that fixes it. Repeating it on every node is the thing `CLAUDE.md` forbids.
+        let counts = self.edits.map(|e| e.func(self.path, name, ord));
+        let churn = match (self.edits, counts) {
+            (Some(e), Some(n)) => e.rates(n),
+            _ => [0.0; 4],
+        };
+        let commits = counts.unwrap_or([0; 4]);
         match self.blame.and_then(|b| b.range(start, end, self.now)) {
             Some(h) => FuncTrace {
-                // `TRACE_SATURATION`, not the window's: this count is commits surviving in
-                // the body, which is a different quantity from commits in ninety days — see
-                // `blame.rs`.
-                churn: (h.commits as f32 / crate::blame::TRACE_SATURATION).clamp(0.0, 1.0),
+                churn,
                 age_days: Some(h.age_days),
-                commits: h.commits,
+                commits,
                 last_touched_days: Some(h.last_touched_days),
                 last_author: Some(h.last_author.clone()).filter(|a| !a.is_empty()),
             },
             None => FuncTrace {
-                churn: self.churn,
+                churn,
                 age_days: self.age_days,
-                commits: self.commits,
+                commits,
                 last_touched_days: self.last_touched_days,
                 last_author: self.last_author.clone(),
             },
@@ -551,13 +672,28 @@ impl<'a> FileTrace<'a> {
 /// **Idempotent, and it has to be**: a repo traced to depth 1 is traced again to depth 2 over
 /// the same tree, and the second landing must not read the first one's output as input. Every
 /// field written here is written from `history` and `blame` alone; nothing accumulates.
-pub fn apply(scan: &mut Scan, history: &History, blame: &Blame) {
-    apply_to(&mut scan.root, history, blame);
+pub fn apply(
+    scan: &mut Scan,
+    history: &History,
+    blame: &Blame,
+    edits: Option<crate::edits::At>,
+) {
+    apply_to(&mut scan.root, history, blame, edits);
     // `aggregate` rebuilds every container score from its children, which zeroes the commit
     // counts — so crediting the directories has to FOLLOW it, every time, and that is why the
     // two are one call rather than two things a caller has to remember to pair.
     scan.root.aggregate();
-    apply_dir_history(&mut scan.root, history);
+    apply_dir_history(&mut scan.root, history, edits);
+    // **The repo-level answers go on the SCAN, here, not only in `scan()`.** A deferred trace
+    // lands on a tree that was built without git, and everything below this line exists because
+    // the fields it fills would otherwise keep whatever the scan wrote — which for a deepen is
+    // whatever the shallower pass wrote. `churned` is the newest of them and it was the one
+    // that made this visible: the edits walk ran, every node got its counts, and the lens
+    // stayed locked because the flag the lock reads had never moved off `false`.
+    scan.stats.churned = edits.is_some();
+    if let Some(e) = &edits {
+        scan.stats.churn_windows = e.windows;
+    }
     scan.stats.authors =
         history.authors().iter().take(crate::scan::AUTHOR_SLOTS).cloned().collect();
     scan.stats.without_history = history.is_empty();
@@ -570,17 +706,39 @@ pub fn apply(scan: &mut Scan, history: &History, blame: &Blame) {
     scan.stats.commits = history.total_commits_of("").unwrap_or(0) as usize;
 }
 
-fn apply_to(node: &mut Node, history: &History, blame: &Blame) {
+fn apply_to(
+    node: &mut Node,
+    history: &History,
+    blame: &Blame,
+    edits: Option<crate::edits::At>,
+) {
     // Looked up per FILE and used for every function under it — see `FileTrace`.
     if node.kind == NodeKind::File {
-        let file = FileTrace::of(&node.path, history, blame);
+        let file = FileTrace::of(&node.path, Histories { history, blame, edits });
         node.last_author = file.last_author();
-        for child in &mut node.children {
+        // **The same ordinal the scan assigns, from the same rule.** A reading is keyed on
+        // `(path, name, ord)` and ord is a function's position among its file's same-named
+        // twins — so it has to be counted over the file's functions in file order, exactly as
+        // `scan::ordinals` does it. Counted here rather than read off the node, because a
+        // node id embeds a line number and is the one thing that must never key anything
+        // durable.
+        let mut seen: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        let ords: Vec<usize> = node
+            .children
+            .iter()
+            .map(|c| {
+                let n = seen.entry(c.name.as_str()).or_insert(0);
+                let this = *n;
+                *n += 1;
+                this
+            })
+            .collect();
+        for (i, child) in node.children.iter_mut().enumerate() {
             if child.kind != NodeKind::Func {
                 continue;
             }
             let (Some(start), Some(end)) = (child.line, child.end_line) else { continue };
-            let t = file.func(start, end);
+            let t = file.func(&child.name, ords[i], start, end);
             child.last_author = t.last_author.clone();
             if let Some(score) = child.score.as_mut() {
                 score.churn = t.churn;
@@ -595,7 +753,7 @@ fn apply_to(node: &mut Node, history: &History, blame: &Blame) {
         }
     }
     for child in &mut node.children {
-        apply_to(child, history, blame);
+        apply_to(child, history, blame, edits);
     }
 }
 
@@ -619,10 +777,26 @@ fn apply_to(node: &mut Node, history: &History, blame: &Blame) {
 /// in two separate runs, and both were caught by the `File` arm — which is the instrument
 /// reporting a name that undersells its function, so the doc says it rather than an inline
 /// comment inside the body where a reader predicting from the outside never sees it.
-pub(crate) fn apply_dir_history(node: &mut Node, history: &History) {
+pub(crate) fn apply_dir_history(
+    node: &mut Node,
+    history: &History,
+    edits: Option<crate::edits::At>,
+) {
     if node.kind == NodeKind::Dir || node.kind == NodeKind::File {
         if let Some(score) = node.score.as_mut() {
-            score.commits = history.commits_of(&node.path);
+            // The timeline's count where there is one, and the log walk's otherwise. Both
+            // answer the same question — distinct commits touching this path inside the
+            // window, a container counting a commit once — so this is a resolution swap and
+            // not a change of quantity, which is what makes the fallback honest rather than
+            // two numbers wearing one name. See `edits::Edits::path`.
+            // Zeroes without a walk, for the reason `FileTrace::func` states: the log walk's
+            // own per-file count is a real number over a real window, but it is a FILE
+            // resolution answer to a question the map now asks per function, and half a lens
+            // painted is worse than a lens that says it has not been measured.
+            score.commits = match &edits {
+                Some(e) => e.path(&node.path),
+                None => [0; 4],
+            };
             // The lifetime total comes from the same place and for the same reason: a directory
             // counts a commit once, and only the log pass still knows which commit touched what.
             // A function keeps `None` — see `Score::all_commits`.
@@ -630,7 +804,7 @@ pub(crate) fn apply_dir_history(node: &mut Node, history: &History) {
         }
     }
     for child in &mut node.children {
-        apply_dir_history(child, history);
+        apply_dir_history(child, history, edits);
     }
 }
 
@@ -689,7 +863,7 @@ mod tests {
         let mut steps = Vec::new();
         for chunk in files.chunks(1) {
             acc.absorb(Blame::read(dir.path(), chunk, &history, &scans, &stop, &|_| {}));
-            apply(&mut scan, &history, &acc);
+            apply(&mut scan, &history, &acc, None);
             steps.push(acc.len());
         }
         assert!(steps.len() > 1, "more than one landing: {steps:?}");
@@ -720,8 +894,8 @@ mod tests {
 
         let mut a = scan.clone();
         let mut b = scan.clone();
-        apply(&mut a, &history, &whole);
-        apply(&mut b, &history, &chunked);
+        apply(&mut a, &history, &whole, None);
+        apply(&mut b, &history, &chunked, None);
         same(&rows(&a), &rows(&b));
     }
 
@@ -742,7 +916,7 @@ mod tests {
     }
 
     /// Every git-derived field, per node, in tree order.
-    type Row = (String, f32, Option<f32>, u32, Option<u32>, Option<f32>, Option<String>);
+    type Row = (String, [f32; 4], Option<f32>, [u32; 4], Option<u32>, Option<f32>, Option<String>);
 
     fn rows(scan: &crate::scan::Scan) -> Vec<Row> {
         let mut out = Vec::new();
@@ -772,7 +946,9 @@ mod tests {
         assert_eq!(a.len(), b.len(), "a deferred trace reached a different set of nodes");
         for (x, y) in a.iter().zip(b.iter()) {
             assert_eq!(x.0, y.0, "tree order moved");
-            assert!((x.1 - y.1).abs() < 0.001, "{}: churn {} vs {}", x.0, x.1, y.1);
+            for (i, (p, q)) in x.1.iter().zip(y.1.iter()).enumerate() {
+                assert!((p - q).abs() < 0.001, "{}: churn[{i}] {p} vs {q}", x.0);
+            }
             match (x.2, y.2) {
                 (Some(p), Some(q)) => assert!((p - q).abs() < 0.001, "{}: age {p} vs {q}", x.0),
                 (p, q) => assert_eq!(p, q, "{}: age", x.0),
@@ -817,8 +993,12 @@ mod tests {
         let dir = repo();
         let inline = scan_of(dir.path(), Depth::Lines);
         let before = rows(&inline);
+        // **Age and an author, not a commit count.** Churn moved off this rung: a count of
+        // changes comes from the timeline, which is `Depth::Edits`, and at `Lines` every
+        // `commits` is legitimately zero. Guarding on it here would have this test pass by
+        // measuring nothing — which is exactly what it exists to rule out.
         assert!(
-            before.iter().any(|r| r.3 > 0),
+            before.iter().any(|r| r.2.is_some() && r.6.is_some()),
             "the fixture has to have history in it, or this test proves nothing"
         );
 
@@ -829,12 +1009,14 @@ mod tests {
         let untraced = rows(&deferred);
         assert_ne!(untraced, before, "an untraced scan has to differ from a traced one");
         assert!(
-            untraced.iter().all(|r| r.1 == 0.0 && r.2.is_none() && r.3 == 0 && r.6.is_none()),
+            untraced
+                .iter()
+                .all(|r| r.1 == [0.0; 4] && r.2.is_none() && r.3 == [0; 4] && r.6.is_none()),
             "an untraced scan must claim nothing about history, not claim zero"
         );
 
         let (history, blame) = read_trace(dir.path(), &deferred);
-        apply(&mut deferred, &history, &blame);
+        apply(&mut deferred, &history, &blame, None);
         same(&before, &rows(&deferred));
     }
 
@@ -936,6 +1118,172 @@ mod tests {
         assert!(matches!(go(dir.path()), Go::Run(Depth::Files)));
     }
 
+    /// **The whole point of `Depth::Edits`, end to end through a real scan.**
+    ///
+    /// A body rewritten in place twelve times. At `Lines` the map reports blame's sedimentation
+    /// count — the two commits whose lines happen to have survived — and at `Edits` it reports
+    /// the twelve edits that actually happened. Same repo, same function, same wedge: the
+    /// number changes because the instrument did.
+    ///
+    /// `edits.rs` pins the two instruments against each other in isolation. This pins that the
+    /// deeper one is what a scan at that depth actually puts on the node, which is the part a
+    /// misthreaded argument anywhere between `gather` and `Score` would break silently — the
+    /// map would go on drawing, in the wrong number.
+    #[test]
+    fn the_deepest_rung_reports_edits_where_the_one_below_it_reports_survivors() {
+        let _home = crate::agentapi::tests::data_home();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git = |args: &[&str]| {
+            Command::new("git").arg("-C").arg(dir.path()).args(args).output().expect("git runs");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        for i in 0..12 {
+            std::fs::write(dir.path().join("a.rs"), format!("fn only() {{\n    let x = {i};\n}}\n"))
+                .expect("writes");
+            git(&["add", "-A"]);
+            git(&["commit", "-q", "-m", &format!("c{i}")]);
+        }
+
+        let read = |depth: Depth| -> (bool, [u32; 4], [u32; 4]) {
+            let scan = scan_of(dir.path(), depth);
+            let mut found = None;
+            scan.root.visit(&mut |n| {
+                if n.kind == NodeKind::Func && n.name == "only" {
+                    found = n.score.as_ref().map(|s| s.commits);
+                }
+            });
+            (scan.stats.churned, scan.stats.churn_windows, found.expect("the function is drawn"))
+        };
+
+        let (churned, windows, commits) = read(Depth::Lines);
+        assert!(!churned, "the timeline has not been walked, and the repo says so");
+        assert_eq!(
+            commits,
+            [0; 4],
+            "and every node reads zero rather than reporting blame's surviving-commit count \
+             as though it were a frequency — the two-quantities-one-ramp bug this rung exists \
+             to end. What stops zero being read as `settled` is `churned`, above."
+        );
+        // The ladder is offered before it is filled: a control has to name its rungs whether or
+        // not there is anything behind them. This repo was created seconds ago, so its whole
+        // life is one day and every rung is that day — see `edits::windows_for`.
+        assert_eq!(windows, [1; 4], "a repo born today still gets four windows, not four zeroes");
+
+        let (churned, _, commits) = read(Depth::Edits);
+        assert!(churned, "the walk ran, so the numbers are measurements");
+        assert_eq!(
+            commits,
+            [12; 4],
+            "twelve rewrites of one body is twelve, at every window that reaches them. Blame, \
+             asked about the same lines, sees two: the signature and the brace are the first \
+             commit's, the body line is the last one's, and the ten between left nothing \
+             behind. `edits.rs` pins that contrast against the instrument itself."
+        );
+    }
+
+    /// **Every rung includes the ones below it.**
+    ///
+    /// Shipped broken: both the scan's blame gate and the deferred trace's asked `depth ==
+    /// Depth::Lines`, so requesting the new deepest rung turned the blame pass OFF. The trace
+    /// ran, `resolved` stayed at zero, and the sidebar went on offering "304 files to blame"
+    /// however many times it was pressed — a button that looked dead and a repo that could not
+    /// be finished. Nothing errored; the ladder simply stopped being a ladder.
+    ///
+    /// Pinned on the predicates rather than on a scan, because the arithmetic is the bug: a
+    /// fifth rung added to `blames` reads as one line here and as a dead button in the window.
+    #[test]
+    fn the_ladder_is_cumulative() {
+        assert!(!Depth::Untraced.blames(), "nothing is blamed before git is read");
+        assert!(!Depth::Files.blames(), "the log walk is per file and blames nothing");
+        assert!(Depth::Lines.blames());
+        assert!(Depth::Edits.blames(), "counting edits does not replace blaming lines");
+
+        assert!(!Depth::Untraced.counts_edits());
+        assert!(!Depth::Files.counts_edits());
+        assert!(!Depth::Lines.counts_edits(), "the timeline walk is its own rung");
+        assert!(Depth::Edits.counts_edits());
+    }
+
+    /// The same claim through the real trace, on the number the sidebar actually divides.
+    ///
+    /// **`resolved`, not the authors on the tree.** A function in an unblamed file still gets an
+    /// author — its FILE's, from the log walk, which is `FileTrace::func`'s fallback working as
+    /// designed — so counting authors cannot tell a blamed repo from an unblamed one and a test
+    /// that did would have passed straight through this bug. What cannot be faked is the count
+    /// of files the pass resolved, which is the numerator of `304 files to blame`.
+    #[test]
+    fn the_deepest_rung_still_blames_every_file() {
+        let _home = crate::agentapi::tests::data_home();
+        let dir = repo();
+        let resolved_at = |depth: Depth| {
+            let (scores, scans) = crate::scan::Memos::ephemeral();
+            let mut scan = scan_of(dir.path(), Depth::Untraced);
+            let _ = (scores, &scans);
+            let (reached, resolved, considered) = deepen(
+                dir.path(),
+                &mut scan,
+                depth,
+                &scans,
+                &std::sync::atomic::AtomicBool::new(false),
+                &|_| {},
+                &|_| {},
+            );
+            (reached, resolved, considered)
+        };
+        let (_, lines_done, lines_seen) = resolved_at(Depth::Lines);
+        assert!(lines_seen > 0, "the fixture has files to blame, or this proves nothing");
+
+        let (reached, edits_done, edits_seen) = resolved_at(Depth::Edits);
+        assert_eq!(reached, Depth::Edits, "the walk finished, so it reports the rung it reached");
+        assert_eq!(
+            (edits_done, edits_seen),
+            (lines_done, lines_seen),
+            "the deepest rung blames everything the one below it does. Skipped here, `resolved` \
+             stays at zero and the sidebar offers `N files to blame` forever, however many \
+             times it is pressed."
+        );
+    }
+
+    /// **A DEFERRED trace has to move the repo-level flag, not only the nodes.**
+    ///
+    /// The app never scans at `Depth::Edits` — it scans untraced and deepens, which is a
+    /// different code path from a fresh scan and the one every press of Trace actually takes.
+    /// Shipped broken once: the walk ran, every node got its counts, and the lens stayed locked
+    /// because `Stats::churned` was written only by `scan()` and a deepen never touched it.
+    /// Nothing failed, nothing logged, and the map went on looking like a map — which is the
+    /// class of bug `CLAUDE.md` opens with.
+    #[test]
+    fn a_deferred_edits_walk_tells_the_repo_and_not_just_the_nodes() {
+        let _home = crate::agentapi::tests::data_home();
+        let dir = repo();
+        let mut scan = scan_of(dir.path(), Depth::Untraced);
+        assert!(!scan.stats.churned, "an untraced scan has counted nothing");
+
+        let history = crate::churn::read(dir.path());
+        apply(&mut scan, &history, &Blame::default(), None);
+        assert!(!scan.stats.churned, "and a trace without the walk still has not");
+
+        let walked = crate::edits::gather(
+            dir.path(),
+            &std::sync::atomic::AtomicBool::new(false),
+            &|_| {},
+        )
+        .expect("nobody stopped it");
+        let at = crate::edits::At {
+            edits: &walked,
+            now: crate::churn::now_secs(),
+            windows: walked.windows,
+        };
+        apply(&mut scan, &history, &Blame::default(), Some(at));
+        assert!(scan.stats.churned, "the walk ran, so the lens has something to paint");
+        assert_eq!(
+            scan.stats.churn_windows, walked.windows,
+            "and the repo names the ladder it was actually counted at"
+        );
+    }
+
     /// Depth 2 lands on a tree depth 1 already touched, so a second landing must read only the
     /// trace it was given — never the fields the last one wrote.
     #[test]
@@ -944,9 +1292,9 @@ mod tests {
         let dir = repo();
         let mut scan = scan_of(dir.path(), Depth::Untraced);
         let (history, blame) = read_trace(dir.path(), &scan);
-        apply(&mut scan, &history, &blame);
+        apply(&mut scan, &history, &blame, None);
         let once = rows(&scan);
-        apply(&mut scan, &history, &blame);
+        apply(&mut scan, &history, &blame, None);
         same(&once, &rows(&scan));
     }
 }

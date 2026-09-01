@@ -38,9 +38,15 @@ export function Counts({
   /** Every commit that ever touched this path. Absent on a function and on anything git has
    *  never seen — see `Score.allCommits`. */
   const all = s?.allCommits ?? null
-  /** A function's own figure: the commits its lines trace back to. `ageDays` is the gate
-   *  because without history there is no answer, and `commits` would read as a flat 0. */
-  const traced = node.kind === 'func' && s && s.ageDays !== null ? s.commits : null
+  // **A function used to print `traces to 4 commits` here and no longer prints anything.**
+  // That figure was blame's: how many distinct commits the lines standing here came from,
+  // which is not how many times this body has been edited and was never comparable to the
+  // file-level number beside it. Churn is one quantity now, off the timeline, and it is a RATE
+  // over a window — which belongs on the lens that names its window, not in a header whose job
+  // is to say what a thing IS. See `edits.rs` and `docs/notes/time.md`.
+  //
+  // So a function shows its lines and nothing else, which is honest: its lifetime commit count
+  // needs `git log -L`, a process apiece, and this app does not spend that.
   return (
     /* One shape for what a thing IS: lines, functions, commits — the same three the history
        header prints, so switching between them is not switching layouts. `compactCount`
@@ -59,14 +65,7 @@ export function Counts({
           {' '}
           · {compactCount(all)} {all === 1 ? 'commit' : 'commits'}
         </span>
-      ) : (
-        traced !== null && (
-          <span title="Blame reports the last commit to touch each line, so this is how many distinct commits the lines standing here came from — not how many edits this function has seen. A per-function history needs `git log -L`, which follows a moving line range through every diff.">
-            {' '}
-            · traces to {compactCount(traced)} {traced === 1 ? 'commit' : 'commits'}
-          </span>
-        )
-      )}
+      ) : null}
       {/* Never on its own line and never omitted: `functions` is what the readings below are
           counted against, and a denominator somebody narrowed months ago has to be visible
           beside it. */}

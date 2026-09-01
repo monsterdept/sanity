@@ -41,6 +41,7 @@ import {
   type ProjectSummary,
   type Scan,
   type Upgrade,
+  type ChurnWindows,
 } from './lib/api'
 import {
   frameTree,
@@ -76,7 +77,7 @@ import {
   paintsFromReadings,
   paintsFromWiring,
   NAMED,
-  RAMP_ENDS,
+  rampEnds,
   rampOf,
   rankCategories,
   capRanks,
@@ -84,6 +85,11 @@ import {
   slotColor,
   replayNote,
   ageSpanOf,
+  AGE_DEFAULT,
+  CHURN_DEFAULT_WINDOW,
+  VIEWS_DEFAULT,
+  type AgeRead,
+  type Views,
   type ColorMode,
 } from './lib/colorMode'
 import { actOf } from './lib/keys'
@@ -99,7 +105,15 @@ import { SideBar } from './components/SideBar'
 import { phasesOf } from './components/Phases'
 import { Overlay } from './components/Overlay'
 import { HelpButton, LensHelp } from './components/LensHelp'
-import { BandWidth, ColorCount, RingCount } from './components/Rings'
+import {
+  AgeReading,
+  BandWidth,
+  ChurnWindow,
+  ColorCount,
+  DerivableToggle,
+  MarkerToggle,
+  RingCount,
+} from './components/Rings'
 import { loadRings, saveRings } from './lib/rings'
 import { isCapped, loadCap, saveCap, type Capped } from './lib/palette'
 import { ReadDialog } from './components/ReadDialog'
@@ -394,6 +408,17 @@ export default function App() {
   /** **TEMPORARY** — see `BandWidth`. Session state, not stored: the control is expected to
    *  go away once it has told us what `DIR_RIM_PX` should be. */
   const [band, setBand] = useState(0)
+  /** Whether the folder rims carry Traps' and Clones' pointing marks — see `MarkerToggle`
+   *  and `Sunburst`'s `dots`. On by default, because the mark is what makes those two lenses
+   *  findable from the middle of the map; session state rather than stored, because it is a
+   *  thing you turn off to look under the dots for a moment, not a way you keep the app.
+   *  One flag for both lenses: they are the same mark in two colours, and a reader who turned
+   *  it off on Clones did not mean "and leave it on when I look at Traps". */
+  const [markers, setMarkers] = useState(true)
+  /** Whether Docs marks a doc that says nothing the code didn't — see `DerivableToggle`.
+   *  On by default, because the thing it marks is invisible without it. Session state, like
+   *  the marks above: it is something you quiet while you read, not a way you keep the app. */
+  const [derivable, setDerivable] = useState(true)
   /** **TEMPORARY** — whether a replay flashes what each commit touched. See `HistoryBar`'s
    *  own button, and `frameTree`, which is where it takes effect: with the flashes off the
    *  frame carries no event at all, so the map, the roll-up stand-ins and the escalation all
@@ -1471,6 +1496,12 @@ export default function App() {
             drilled,
             staged && paneSide > 0 ? staged.px / paneSide : 1,
             flashes,
+            // **The repo's own ladder, or the frame counts a window the live map does not
+            // offer.** A 27-day project's rungs are its own days; a frame fixed at ninety
+            // would band its whole history as one window while the switcher beside it showed
+            // four, and Churn would mean two different things depending on whether History
+            // was open. That split has happened here before, over blame ranks.
+            churnWindows,
           )
         : null,
     // The NAME, not the project row. `listProjects` hands back fresh objects every poll,
@@ -1668,6 +1699,12 @@ export default function App() {
    *  repo's git history, this language's wiring — and the order matters: a replay's limits
    *  are true whatever the repo holds, so they are asked first.
    */
+  /** This repo's churn ladder, in days — see `ChurnView`. Its own memo because the replay
+   *  needs it too, and a fresh array per render would refold every frame. */
+  const churnWindows = useMemo<ChurnWindows>(
+    () => scan?.stats.churnWindows ?? VIEWS_DEFAULT.churn.windows,
+    [scan],
+  )
   const locks = useMemo(() => {
     const out: Partial<Record<ColorMode, Locked>> = {}
     for (const m of Object.keys(MODE_LABEL) as ColorMode[]) {
@@ -1702,6 +1739,20 @@ export default function App() {
         out[m] = {
           why: `${MODE_LABEL[m]} reads git, and this folder has no history.`,
           keyed: false,
+        }
+      } else if (m === 'churn' && !(scan?.stats.churned ?? false)) {
+        // **Last of the git three, because it is the narrowest claim.** The two above are
+        // about the repo's history existing and having been read at all; this one is about a
+        // second walk that only Churn needs. Blame keeps one commit per LINE, so a body
+        // rewritten in place erases its own history and no amount of blame can say how often
+        // it changed — only the timeline can, by diffing functions at every commit. See
+        // `edits.rs`.
+        //
+        // `keyed`, because the button that fixes it is the same Trace: the ladder now has a
+        // fourth rung and pressing it again takes the next one.
+        out[m] = {
+          why: 'Churn counts how many times each function has actually changed, which only the timeline can say — blame keeps one commit per line, so a body rewritten in place erases its own history. Press Trace on the project to walk it.',
+          keyed: true,
         }
       }
     }
@@ -2101,12 +2152,17 @@ export default function App() {
    *  and asks it again at every commit; a plain `useCallback` closes over the tree it was
    *  built with, so every frame of a twenty-minute film would carry the key of the frame the
    *  dialog opened on. The ref is what makes "ask again" mean "ask about now". */
+  /** Which of Age's two dates the lens paints — see `AgeRead`. Session state, not stored: it
+   *  is a question you ask of the repo in front of you ("what here is dusty" against "what
+   *  here moved lately"), not a way you keep the app. */
+  const [ageRead, setAgeRead] = useState<AgeRead>('newest')
+
   const keyNow = useRef<(m: ColorMode) => MovieKey | null>(() => null)
   const keyFor = useCallback(
     (m: ColorMode): MovieKey | null => {
       const at = focus ?? tree
       if (!at) return null
-      const ends = RAMP_ENDS[m]
+      const ends = rampEnds(m, ageRead)
       if (ends) {
         return {
           title: MODE_LABEL[m],
@@ -2146,7 +2202,7 @@ export default function App() {
         ramp: null,
       }
     },
-    [focus, tree, authorRank, langRank, caps],
+    [focus, tree, authorRank, langRank, caps, ageRead],
   )
   keyNow.current = keyFor
   /** Stable across renders, and current when called — see `keyNow`. */
@@ -2156,6 +2212,33 @@ export default function App() {
    *  colour is a flare measured in commits, not a position on this scale — see
    *  `Score.recency`. */
   const ageSpan = useMemo(() => (tree ? ageSpanOf(tree) : undefined), [tree])
+  /** Which churn window the map is painted at — an index into this repo's own ladder, which
+   *  is `Stats.churnWindows` and is NOT a constant. Session state: a horizon is something you
+   *  change to look at the same repo differently, not a way you keep the app. */
+  const [churnAt, setChurnAt] = useState(CHURN_DEFAULT_WINDOW)
+  /** Both calibrated lenses as one value, so a caller cannot thread half of it — see `Views`.
+   *  Memoised because `Sunburst` is a `memo` and a fresh object per render would make that
+   *  memo do nothing. */
+  const lensViews = useMemo<Views>(
+    () => ({
+      // `AGE_DEFAULT.span` where there is no tree to measure, not zero: zero is a repo with
+      // no span, which `ageRamp` reads as "everything here is younger than a day".
+      age: { span: ageSpan ?? AGE_DEFAULT.span, read: ageRead },
+      churn: {
+        // The repo's own ladder, or the full one where there is no scan yet — a control has
+        // to be able to name its rungs before anything has been walked.
+        windows: scan?.stats.churnWindows ?? VIEWS_DEFAULT.churn.windows,
+        // Clamped, because the ladder can be shorter than the index somebody left on it: a
+        // young repo's rungs are its own days, and switching projects must not leave the map
+        // painted at a rung this one does not have.
+        at: Math.min(Math.max(churnAt, 0), 3),
+        // **The one place the absence lives.** Until the timeline is walked every count is
+        // zero, and zero is a finding — see `ChurnView.measured`.
+        measured: scan?.stats.churned ?? false,
+      },
+    }),
+    [ageSpan, ageRead, churnAt, scan],
+  )
   /** Stable identities, because an inline lambda makes the memo below do nothing. */
   const pick = useCallback((n: Node) => setPicked(n), [])
   const clearPick = useCallback(() => setPicked(null), [])
@@ -2608,6 +2691,50 @@ export default function App() {
                     onCap={chooseCap(viewMode)}
                   />
                 )}
+                {/* **Beside the lens for the same reason, and only on the two lenses that
+                    mark anything.** Traps and Clones are the lenses with no quantity in them:
+                    they put a dot on a folder's rim saying *out this way*, and on a folder
+                    holding hundreds those dots are a dotted line across the band. This drops
+                    the pointers and leaves everything they point AT exactly where it is —
+                    which makes it a statement about the encoding, like the cap above it, and
+                    not about the geometry, like the two after the spacer.
+
+                    Keyed off `viewMode` rather than `mode`, so a replay that cannot paint
+                    Clones does not offer a switch for marks it is not drawing. */}
+                {(viewMode === 'traps' || viewMode === 'clones') && (
+                  <MarkerToggle mode={viewMode} on={markers} onToggle={setMarkers} />
+                )}
+                {/* **The third lens control, and the same rule places it.** Age measures two
+                    dates and has always painted one of them; this says which, so it changes
+                    what a colour MEANS and belongs left of the spacer with the cap and the
+                    marks rather than right of it with the geometry.
+
+                    On `viewMode`, so a replay that cannot paint Age does not offer a choice
+                    between two readings of nothing. Inside a replay it CAN: a frame carries
+                    both dates per drawn function and, since the fold carries a birth date per
+                    file too, per stand-in as well — see `Frame.pathBorn`. */}
+                {viewMode === 'age' && <AgeReading read={ageRead} onRead={setAgeRead} />}
+                {/* **The fourth lens control, in the same slot and on the same rule.** What it
+                    changes is what a colour MEANS on this lens — specifically, that one of
+                    Docs' colours is standing for two different findings. Keyed off `viewMode`
+                    like the others, and it works in a replay: the frames carry the readings
+                    the repo held at each commit, `derivable` among them. */}
+                {viewMode === 'docs' && (
+                  <DerivableToggle on={derivable} onToggle={setDerivable} />
+                )}
+                {/* **With the lens, because the horizon is what the colour MEANS.** Churn is a
+                    rate, and a rate without a window named is a number with no unit — the
+                    thing this bar already refuses to print. Offered even before the timeline
+                    has been walked: the ladder is a fact about how long the repo has existed,
+                    and a control that appeared only after a minute of walking would be a
+                    choice nobody knew they had. */}
+                {viewMode === 'churn' && (
+                  <ChurnWindow
+                    windows={lensViews.churn.windows}
+                    at={lensViews.churn.at}
+                    onPick={setChurnAt}
+                  />
+                )}
 
                 <Spacer />
 
@@ -2707,7 +2834,7 @@ export default function App() {
                     // whole tree even when the view is drilled into one directory. Scoping it
                     // to `focus` would make a wedge change color on the way in, which is the
                     // one thing drilling must not do.
-                    ageSpan={ageSpan}
+                    views={lensViews}
                     // **Never into a replay**, and this is the creature's argument running the
                     // other way. A lease says a reader is opening THIS function right now, and
                     // the marker is keyed by path — `path` for the file, `path#name` for the
@@ -2742,6 +2869,11 @@ export default function App() {
                     onSide={setPaneSide}
                     rings={rings}
                     rimShare={band}
+                    // Only here. The scan-time map below has no readings and no clone columns,
+                    // so it has no marks to suppress, and a prop that can never matter is a
+                    // second place to keep in step for nothing.
+                    markers={markers}
+                    derivable={derivable}
                     onWantRings={wantRings}
                     sortBy={headOrder}
                     onSelect={pick}
@@ -2816,6 +2948,11 @@ export default function App() {
                 <div className="absolute bottom-2 right-2 z-20">
                   <ColorLegend
                     mode={viewMode}
+                    // The key names the ramp's ends and Age has two sets of them — see
+                    // `rampEnds`. A key reading `old → recent` over a map painted by birth
+                    // date is the legend disagreeing with the picture, which is the one
+                    // thing a key must never do.
+                    ageRead={ageRead}
                     // From `focus`, like the ranks it has to agree with — a legend naming
                     // eight authors the rings in front of you do not contain is annotating a
                     // picture nobody is looking at. The comment below said this before the
@@ -2928,7 +3065,7 @@ export default function App() {
               model={scan?.stats.model ?? null}
               mode={viewMode}
               ranks={ranks}
-              ageSpan={ageSpan}
+              views={lensViews}
               onSelect={setPicked}
               onDrill={drill}
               owners={owners}

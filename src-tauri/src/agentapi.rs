@@ -6188,11 +6188,26 @@ fn trace_within_budget(
             // says no where the cache cannot serve it, which keeps a dropped cache from
             // spending minutes at launch on work nobody re-requested.
             let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-            if banked == Some("lines")
+            if matches!(banked, Some("lines") | Some("edits"))
                 && crate::trace::depth1(repo, &stop, &|_| {})
                     .is_some_and(|h| crate::trace::relines(scan, scans, &h))
             {
                 depth = crate::trace::Depth::Lines;
+                // **And the deepest rung, on the same rule: restored only if it is already
+                // counted.** The edits store is keyed on HEAD, so an unchanged repo answers in
+                // milliseconds — 45ms measured on godot against a 17s walk — and a repo whose
+                // HEAD has moved prices as a walk, which is a decision for the person at the
+                // window rather than something a launch does on their behalf. `estimate`
+                // reports zero for exactly the first case.
+                //
+                // Without this, restarting dropped a repo out of `Depth::Edits` and the Churn
+                // lens locked itself again on a repo somebody had already traced — the same
+                // shape of loss `relines` exists to prevent one rung up, and it shipped for
+                // the same reason: the list of depths that can be restored was written when
+                // there were only three.
+                if banked == Some("edits") && crate::edits::estimate(repo).0 <= 0.0 {
+                    depth = crate::trace::Depth::Edits;
+                }
             }
             let (reached, resolved) = {
                 let (reached, done, considered) =

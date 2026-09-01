@@ -1,5 +1,5 @@
 import { isAnalyzed, type Node } from '../lib/api'
-import { colorFor, paintsFromReadings, saysNothing, type ColorMode } from '../lib/colorMode'
+import { colorFor, paintsFromReadings, saysNothing, type Views, type ColorMode } from '../lib/colorMode'
 import { unreadable } from '../lib/api'
 import { elide } from '../lib/text'
 
@@ -45,7 +45,7 @@ export function WedgeTip({
   box,
   mode,
   ranks,
-  ageSpan,
+  views,
   folded,
   share,
   slice,
@@ -58,8 +58,8 @@ export function WedgeTip({
   box: { w: number; h: number }
   mode: ColorMode
   ranks?: Map<string, number>
-  /** The repo's age span, so the tooltip's swatch is the color the wedge is wearing. */
-  ageSpan?: number
+  /** How the two calibrated lenses are set, so the tooltip's swatch is the colour the wedge is wearing — see `Views`. */
+  views?: Views
   /** Whether this node is folded shut, for geometries that fold. `undefined` means the
    *  geometry has no such gesture, and the card offers none — an affordance named in a
    *  view that does not have it is worse than silence. */
@@ -100,7 +100,7 @@ export function WedgeTip({
     named: boolean
   } | null
 }) {
-  const c = colorFor(n, mode, ranks, ageSpan)
+  const c = colorFor(n, mode, ranks, views)
   const sc = n.score
   /** **"Not measured yet" is a fact about a READING, and most lenses are not readings.**
    *

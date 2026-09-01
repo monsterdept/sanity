@@ -484,9 +484,14 @@ pub async fn trace_project(
     let want = match depth.as_deref() {
         Some("files") => crate::trace::Depth::Files,
         Some("lines") => crate::trace::Depth::Lines,
+        Some("edits") => crate::trace::Depth::Edits,
+        // **One rung at a time, and the ladder now has four.** Asking for the next depth is
+        // what the Trace button means; jumping from nothing to the timeline would charge
+        // somebody a minute of walking for a press that has always meant "read the log".
         _ => match at {
             crate::trace::Depth::Untraced => crate::trace::Depth::Files,
-            _ => crate::trace::Depth::Lines,
+            crate::trace::Depth::Files => crate::trace::Depth::Lines,
+            _ => crate::trace::Depth::Edits,
         },
     };
     let (mut scan, stop) = {

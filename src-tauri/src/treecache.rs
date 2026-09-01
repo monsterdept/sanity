@@ -93,7 +93,15 @@ use std::path::{Path, PathBuf};
 /// 12: `Unscanned::assets` became `not_code` and took prose, configuration and markup with
 ///    it. A rename is a format change like any other — a version-11 record has the old key,
 ///    which now deserializes to zero and reports a repo where nothing was filtered.
-const VERSION: u32 = 12;
+/// 13: Churn became a count off the timeline instead of blame's surviving commits, so
+///    `Score::churn` and `Score::commits` are now one value per WINDOW and `Cols::commits`
+///    with them. A version-12 record cannot deserialize those at all and would simply be
+///    refused — but `ScanStats` also gained `churn_windows` and `churned`, both
+///    `#[serde(default)]`, and those are the hazard in its usual shape: an old record would
+///    load with a ladder of `[0, 0, 0, 0]` and the window pulldown would offer four rungs of
+///    "0 days", each of them a horizon nothing can fall inside. Same shape as 8, 9, 10 and 11
+///    and the reason this list exists.
+const VERSION: u32 = 13;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.
@@ -567,9 +575,9 @@ mod tests {
         func.score = Some(crate::model::Score {
             surprise: 0.0,
             documented: 0.0,
-            churn: 0.0,
+            churn: [0.0; 4],
             age_days: touched.map(|_| 100.0),
-            commits: 0,
+            commits: [0; 4],
             all_commits: None,
             last_touched_days: touched,
             provenance: crate::model::Provenance::None,
@@ -589,6 +597,8 @@ mod tests {
             root,
             stats: crate::scan::ScanStats {
                 commits: 0,
+                churn_windows: [30, 60, 90, 180],
+                churned: false,
                 files_scanned: 1,
                 files_skipped: 0,
                 unscanned: Default::default(),

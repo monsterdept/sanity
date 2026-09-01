@@ -6,23 +6,59 @@ import { listen } from '@tauri-apps/api/event'
 export type NodeKind = 'dir' | 'file' | 'func'
 export type Provenance = 'none' | 'source' | 'history' | 'human'
 
+/** A value per churn window — always four, in the order of `Stats.churnWindows`. */
+export type ChurnWindows = [number, number, number, number]
+
+/** Commits inside a ninety-day window at which code counts as fully churning.
+ *
+ *  Absolute, matching `churn::CHURN_SATURATION`. Normalizing against the repo's own busiest
+ *  file is the trap that constant is written against: one generated artefact becomes the
+ *  denominator and squashes everything hand-written to nothing.
+ *
+ *  **Here rather than in `history.ts`, because it stopped being the replay's private business.**
+ *  The live map is painted from Rust's arithmetic and a replay frame from the browser's, so a
+ *  second copy of this number means a repo changes colour the moment History opens — which is
+ *  the split-brain `CLAUDE.md` names, and it had already happened once for blame ranks. */
+const CHURN_SATURATION = 8
+
+/** How many commits saturate a window of `days`, so the colour is a RATE and not a count.
+ *
+ *  The twin of `edits::saturation_for` in Rust and it has to stay the twin. `CHURN_SATURATION`
+ *  is documented as "roughly a commit a week over the quarter" — a rate said as a count,
+ *  because the window used to be a constant. Now that a repo picks its own, holding the count
+ *  fixed would make every widening of the horizon brighten the whole map, and three of the four
+ *  rungs would be changing exposure rather than asking a different question.
+ *
+ *  Floored at one: on a one-day window a fraction of a commit would saturate anything that
+ *  moved at all, and every touched wedge would read as maximally churning. */
+export function churnSaturation(days: number): number {
+  return Math.max((CHURN_SATURATION * days) / 90, 1)
+}
+
 export interface Score {
   /** 0..1 — how unpredictable the body is given its name and signature. */
   surprise: number
   /** 0..1 — how much of that surprise the attached docs actually account for. */
   documented: number
-  churn: number
+  /** 0..1 — how fast this is changing, one per window in `Stats.churnWindows`.
+   *
+   *  Four, because the window is a live choice and the answer cannot be re-derived from one
+   *  of them: a directory's is a line-weighted mean of its children's, so switching would
+   *  mean re-aggregating the whole tree in Rust and sending it back. See `Score::churn`.
+   *
+   *  All zeroes where the timeline has not been walked, which is NOT "settled" — `Stats.churned`
+   *  is where the repo says whether this was measured, once, for the lens's lock to read. */
+  churn: ChurnWindows
   ageDays: number | null
   lastTouchedDays: number | null
-  /** The raw count behind `churn` — and it counts a different thing on a function than on
-   *  a file, which every consumer has to say out loud.
+  /** The raw count behind `churn`, one per window.
    *
-   *  A file or directory: commits in the 90-day window, a RATE. A function: how many
-   *  distinct commits its current lines trace back to, because a window per function needs
-   *  `git log -L` and that is a process apiece. The two are told apart by `Node.kind` and by
-   *  nothing else — see `Score::commits` in Rust, and `blame.rs`, which asks the UI not to
-   *  present them as one number. */
-  commits: number
+   *  **It used to count a different thing on a function than on a file** — a file's was
+   *  commits in the window and a function's was how many distinct commits its lines traced
+   *  back to, one ramp over two quantities. Both are the same question now at both
+   *  resolutions: commits that CHANGED this, inside the window, off the timeline. See
+   *  `edits.rs` for why blame could never answer it. */
+  commits: ChurnWindows
   /** Every commit that has ever touched this path, or `null`.
    *
    *  What a header means by "commits": a SIZE, where `commits` is a rate over a window. Null
@@ -306,8 +342,7 @@ export interface Folded {
   /** Lines by last author, for Blame. `null` keys — a file git has never seen — are left out
    *  rather than folded into a name, the same way the live walk treats them. */
   author: [string, number][]
-  /** Age and Churn, as flat quads of `[days since touched, commits in the window, churn,
-   *  lines]`, one per folded FILE.
+  /** Age and Churn, as flat runs of `TIME_STRIDE` numbers — `TimeRow`, one per folded FILE.
    *
    *  The churn ramp rides along rather than being derived where it is read: it is
    *  `commits / CHURN_SATURATION`, and that saturation is the REPLAY's own — see `scoreInto`,
@@ -327,9 +362,41 @@ export interface Folded {
   time: number[]
 }
 
+/** How many numbers `Folded.time` spends per file.
+ *
+ *  **A name rather than a literal, because it has changed and the two ends of it live in
+ *  different files.** It was four; Age's second reading needed the birth date and made it
+ *  five, and the writer (`history.ts`) and the reader (`colorMode.ts`) each had the stride
+ *  written into a loop. A run-length mismatch here does not throw — it reads the next file's
+ *  touch date as this one's line count and bands the frame out of numbers that are all real
+ *  and all in the wrong slots, which is exactly the class of wrongness this app is built to
+ *  refuse to ship quietly. */
+/** One folded file's answer to Age and Churn.
+ *
+ *  **The churn RAMP no longer rides along, and that is a change of ownership rather than a
+ *  saving.** It used to, on the argument that deriving `commits / CHURN_SATURATION` where it is
+ *  read would put a second copy of a constant in `colorMode` — true while the constant was the
+ *  replay's private business. It is `api.ts`'s now (`churnSaturation`), shared by the live map
+ *  and the frame, because a repo picks its own windows and the two halves must not disagree
+ *  about what saturates one. With one owner, deriving at read time is the single-source
+ *  version, and the row carries four counts instead of a count and a ramp.
+ *
+ *  `-1` for either date means the replayed window never saw it: never touched, or never seen to
+ *  arrive. Both are undated rather than dropped — see `contribute`. */
+export type TimeRow = [
+  touched: number,
+  born: number,
+  lines: number,
+  commits30: number,
+  commits60: number,
+  commits90: number,
+  commits180: number,
+]
+export const TIME_STRIDE: TimeRow['length'] = 7
+
 export interface Cols {
   loc: number[]
-  commits: number[]
+  commits: ChurnWindows[]
   touched: number[]
   callers: number[]
   calls: number[]
@@ -366,6 +433,19 @@ export interface ScanStats {
   /** Commits reachable from HEAD. 0 when there is no history — the header reads that as
    *  "say nothing" rather than as a repo with no commits. */
   commits: number
+  /** The four churn windows THIS repo offers, in days — see `edits::windows_for`.
+   *
+   *  Not a constant: a fixed 30/60/90/180 goes inert on a young repo, where all four return
+   *  the same count. So the ladder scales to a repo that cannot fill it, and every caption
+   *  naming a window has to name it from here. */
+  churnWindows: ChurnWindows
+  /** Whether the timeline has been walked, so `Score.churn` and `Score.commits` are
+   *  measurements rather than zeroes.
+   *
+   *  **The absence, stated once.** Until it is true the lens is locked and paints nothing:
+   *  zero is not "settled", and a lens that drew it would report an unwalked repo and a quiet
+   *  one in the same colour. Read in one place — the lock — never per node. */
+  churned: boolean
   /** Everyone who has committed here, most commits first, capped at what the palette holds.
    *
    *  **This is the only thing that decides a person's colour.** Ranking authors by what they
@@ -414,9 +494,9 @@ export interface Progress {
 interface WireScore {
   surprise: number
   documented: number
-  churn: number
+  churn: ChurnWindows
   age_days: number | null
-  commits: number
+  commits: ChurnWindows
   /** Optional because a scan taken by an older backend does not carry it — see
    *  `Score.allCommits`, where the absence and a zero are different answers. */
   all_commits?: number | null
@@ -472,6 +552,8 @@ interface WireScan {
     functions: number
     without_history: boolean
     commits?: number
+    churn_windows?: ChurnWindows
+    churned?: boolean
     authors?: string[]
     model: string
     calls_resolved?: number
@@ -872,7 +954,7 @@ export interface ProjectSummary {
    *  `untraced` means the wedges carry no age, churn or author at all. That is NOT the same
    *  sentence as "this folder has no git history", and the two must never render alike: one
    *  is a fact about the repo, the other is work nobody has paid for yet. */
-  trace_depth: 'untraced' | 'files' | 'lines'
+  trace_depth: 'untraced' | 'files' | 'lines' | 'edits'
   /** What reading more of it would cost, when that is more than the budget spends unasked.
    *
    *  Present means the map is deliberately incomplete and somebody has to say go. Null means
@@ -1815,6 +1897,10 @@ function toScan(w: WireScan): Scan {
       functions: w.stats.functions,
       withoutHistory: w.stats.without_history,
       commits: w.stats.commits ?? 0,
+      // A backend that predates the ladder sends neither, and the pair defaults to "not
+      // measured, on the full ladder" — which locks the lens rather than painting zeroes.
+      churnWindows: w.stats.churn_windows ?? [30, 60, 90, 180],
+      churned: w.stats.churned ?? false,
       authors: w.stats.authors ?? [],
       model: w.stats.model,
       callsResolved: w.stats.calls_resolved,
@@ -1878,7 +1964,7 @@ function reaggregate(node: Node, children: Node[]): Node {
   let w = 0
   let surprise = 0
   let documented = 0
-  let churn = 0
+  const churn: ChurnWindows = [0, 0, 0, 0]
   let hot = 0
   let analyzed = 0
   let age: number | null = null
@@ -1891,7 +1977,7 @@ function reaggregate(node: Node, children: Node[]): Node {
     w += cw
     surprise += c.score.surprise * cw
     documented += c.score.documented * cw
-    churn += c.score.churn * cw
+    for (let i = 0; i < 4; i++) churn[i] += c.score.churn[i] * cw
     if (c.kind === 'func') {
       if (c.score.source === 'model' || c.score.source === 'agent') {
         analyzed += cw
@@ -1929,7 +2015,7 @@ function reaggregate(node: Node, children: Node[]): Node {
         ? {
             surprise: surprise / w,
             documented: documented / w,
-            churn: churn / w,
+            churn: churn.map((c) => c / w) as ChurnWindows,
             ageDays: age,
             // Commits are NOT recomputed here: a directory has no single commit count
             // and summing children double-counts a commit that touched twelve files.
@@ -1937,7 +2023,7 @@ function reaggregate(node: Node, children: Node[]): Node {
             // knows the distinct set — so carry that value rather than zeroing it, or
             // every re-aggregated directory reports zero commits while its churn bar
             // sits at 72.
-            commits: node.score?.commits ?? 0,
+            commits: node.score?.commits ?? [0, 0, 0, 0],
             // Carried for the same reason and with the same danger: a directory's total
             // counts a commit once, and summing children would count it once per file.
             allCommits: node.score?.allCommits ?? null,

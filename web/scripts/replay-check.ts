@@ -201,7 +201,7 @@ function render(node: Node, out: string[], depth = 0): void {
       `birthBelow=${node.birthBelow ?? '-'}`,
       `touchBelow=${node.touchBelow ?? '-'}`,
       s
-        ? `score[surprise=${s.surprise.toFixed(6)} documented=${s.documented.toFixed(6)} churn=${s.churn.toFixed(6)} age=${s.ageDays?.toFixed(6) ?? '-'} touch=${s.lastTouchedDays?.toFixed(6) ?? '-'} commits=${s.commits} hot=${s.hotShare?.toFixed(6) ?? '-'} analyzed=${s.analyzedShare?.toFixed(6) ?? '-'} source=${s.source} appeared=${s.appeared ?? '-'} edited=${s.edited ?? '-'}]`
+        ? `score[surprise=${s.surprise.toFixed(6)} documented=${s.documented.toFixed(6)} churn=${s.churn.map((c) => c.toFixed(6)).join('/')} age=${s.ageDays?.toFixed(6) ?? '-'} touch=${s.lastTouchedDays?.toFixed(6) ?? '-'} commits=${s.commits.join('/')} hot=${s.hotShare?.toFixed(6) ?? '-'} analyzed=${s.analyzedShare?.toFixed(6) ?? '-'} source=${s.source} appeared=${s.appeared ?? '-'} edited=${s.edited ?? '-'}]`
         : 'score=-',
       node.agent
         ? `agent[${node.agent.predicted ?? '-'}/${node.agent.documented ?? '-'}/${node.agent.legible ?? '-'}/${node.agent.trap ?? '-'}]`

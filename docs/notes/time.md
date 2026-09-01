@@ -42,14 +42,117 @@ And two readings deliberately rejected, both of which the History view already g
 - Churn as *where work has gone recently*.
 - Age as *where work has happened recently*.
 
-## What they measure today
+## Churn: resolved, and how
+
+**Churn now means frequency, off the timeline.** `edits.rs` counts, per function and per path,
+the days each was changed on, out of the timeline's hash-diffed `Delta::set`. That is
+`Depth::Edits`, the fourth rung of the trace ladder, and it is the only rung that adds a
+quantity rather than a resolution.
+
+What follows is the record of why it took three instruments to get there, because the second
+one looked right for months.
+
+### Blame was never chosen over the timeline
+
+`blame.rs` landed 2026-08-04. `history.rs` landed 2026-08-08. The timeline did not exist when
+churn moved to blame, and the commit that introduced it scoped itself to the replay in its own
+title — *"The repo has a history, and the rings can grow through it — but not a colour"*. Nobody
+went back. There was no argument for blame over the timeline; there was an ordering.
+
+### What blame could not see, measured
+
+Blame keeps one commit per LINE. A body whose same lines are rewritten repeatedly reports only
+the commits that happen to have survived, so the metric is not merely un-windowed — for the
+hotspot question it is close to anti-correlated. Measured on this repo with `git log -L` against
+`git blame`:
+
+| range | real edits | surviving commits | seen |
+|---|---|---|---|
+| `CLAUDE.md` L30–50 | 47 | 2 | 4% |
+| `CLAUDE.md` L95–115 | 47 | 2 | 4% |
+| `CLAUDE.md` whole | 55 | 10 | 18% |
+| `.sanity/README.md` | 48 | 7 | 14% |
+
+A function one person keeps rewriting scored the same as one nobody had touched. A function
+assembled once out of twelve commits touching twelve different lines scored 12.
+
+`edits.rs` pins this as a test: a body rewritten in place twelve times counts 12, and blame
+asked about the same lines says 2 — the signature and the closing brace are the first commit's,
+the body line is the last one's, and the ten between left nothing behind.
+
+### And the drift nobody decided
+
+`trace::apply_to` writes scores only on FUNCTIONS; file and directory scores come from
+`aggregate`, the line-weighted mean of their children. So when functions moved to blame,
+sedimentation propagated up the tree and the ninety-day window stopped painting anything at all.
+It survived only as `Score::commits`, the raw number in the tooltip. Nothing chose that; it fell
+out of the aggregate.
+
+### What it costs
+
+The walk is bounded by the widest window, which is what makes it affordable: ladybird is 81,770
+commits and 6,022 of them are in the last hundred and eighty days. Measured, cold:
+
+| repo | commits in window | walk | cached |
+|---|---|---|---|
+| sanity | 254 | 0.1s | 45ms |
+| godot | 1,803 | 16–19s | 45ms |
+| ladybird | 6,022 | 32s | — |
+
+Twentyfold spread in seconds-per-commit (godot 9.36ms measured, sanity 0.4ms), so the rate is
+banked per repo like `churn::Bank::rate`. A full History timeline, where one exists, is counted
+where it lies rather than re-walked.
+
+It is a priced phase and nothing runs it unasked. That follows `history::warm`'s standing rule —
+*sanity will keep a timeline you have asked for current, and will never make one you have not* —
+and until it has run, Churn is **locked**, not painted: every count is zero, and zero is a
+finding. `Stats::churned` is that answer, stated once on the repo beside the button that fixes
+it.
+
+### The window is the repo's own
+
+A fixed 30/60/90/180 goes inert on exactly the repos this app is for. Measured:
+
+| repo | life | 30d | 60d | 90d | 180d |
+|---|---|---|---|---|---|
+| sanity | 27d | 271 | 271 | 271 | 271 |
+| krapow | 109d | 0 | 0 | 0 | 59 |
+| godot | 4891d | 140 | 500 | 783 | 1803 |
+
+Four choices and one answer on this repo; three empty maps on a dormant one. So `windows_for`
+scales the ladder to a project that cannot fill it — sanity offers 4/9/13/27 days — which is the
+argument `ageSpanOf` already makes: *in a repo three days old, the thing written on day one
+really has been left alone for two thirds of the project's life.*
+
+**Capped at the top, though, and the asymmetry is the point.** Age normalizes to the whole life
+because *old* is relative to the project. Churn means *lately*: half of kibana's life is six and
+a half years, which is precisely the window `CHURN_WINDOW_DAYS` says calls a whole repo stable.
+Proportional at the young end, capped at the old one.
+
+The saturation anchor scales with the window (`saturation_for`), so the colour is a rate rather
+than a count — otherwise widening the horizon just brightens the map and three of the four rungs
+change exposure instead of asking a different question.
+
+What this costs is comparability: a window here and a window in an older repo are not the same
+window. Age already paid that knowingly, and said why — cross-repo comparison was never
+something this app offered.
+
+### What is left over
+
+**Sedimentation is a real reading and it no longer has a lens.** "How many hands are layered in
+the code in front of you" is a genuine question that blame answers cheaply and the timeline does
+not; it was removed from the churn axis because it was wearing another question's name, not
+because it was wrong. If it comes back it comes back as its own lens with its own word.
+
+## What they measured, and how that read
 
 - **Age paints recency, and it is the rejected reading exactly.** `--age-4`, the brightest
   stop, is the RECENT end; `RAMP_ENDS` reads `['old', 'recent']`; `AGE_BANDS` is documented
   "most recent first"; and the house rule is that the loud end leads. Every one of those is
   consistent with the others, which is why nobody noticed — the lens is a well-built answer to
   the question we did not want asked.
-- **Churn counts a different thing depending on what you point at, and the ramp hides it.**
+- ~~**Churn counts a different thing depending on what you point at, and the ramp hides it.**~~
+  *Fixed — see above. Kept because the shape of the mistake is the useful part.*
   `Score::commits` is a 90-day rate on a file and, on a function, the distinct commits its
   surviving lines trace back to — `model.rs` says so, and `blame.rs` "asks the UI not to
   present the two as one number". The tooltip complies: `27 commits in 90d` against `traces to
@@ -104,12 +207,21 @@ weekly is not the coordination problem a file six teams touch quarterly is.
 
 ## Where this leaves it
 
-Open, deliberately, and recorded rather than half-fixed. The order the work would go in:
+1. ~~Churn means frequency, sourced from the timeline rather than from blame.~~ **Done** — see
+   *Churn: resolved*. It did not split in two: how often is the lens, and how many hands is a
+   reading with no lens rather than half of this one.
+2. **Age is now two readings** rather than one, which is not the crossing this note asked for and
+   is the honest half of it. The lens paints either the newest line here or the oldest — both
+   were always measured, and it only ever showed the first, which is the rejected reading named
+   above. The switch is beside the lens.
 
-1. Churn means frequency, sourced from the timeline rather than from blame, and probably splits
-   in two — how often, and how many hands.
-2. Age is crossed rather than inverted, because the raw reading is nearly constant on any real
-   repository.
+   It is deliberately NOT called *first seen*: blame reports the last commit to touch each line,
+   so a body rewritten wholesale has nothing left saying when it was written. `oldest line` is a
+   fact; when this code first appeared is not one we hold.
 
-Neither is a rename, and neither should be started by adjusting a ramp direction and calling it
-done.
+   **The crossing is still open.** Old AND surprising, old AND heavily called, old AND
+   undocumented are three different worries, all three measured, and none of them crossed with
+   age anywhere. This app still has no way to cross two lenses at all, and that is the thing to
+   build next — not a third reading of age.
+
+Neither was a rename, and neither was started by adjusting a ramp direction and calling it done.

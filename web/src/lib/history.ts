@@ -1,7 +1,16 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { GRADE_DOCUMENTED, GRADE_SURPRISE } from './api'
-import type { AgentReport, Folded, Grade, Node, Progress, Score } from './api'
+import { GRADE_DOCUMENTED, GRADE_SURPRISE, churnSaturation } from './api'
+import type {
+  AgentReport,
+  ChurnWindows,
+  Folded,
+  Grade,
+  Node,
+  Progress,
+  Score,
+  TimeRow,
+} from './api'
 import type { Deltas, Tables } from './timeline'
 
 /**
@@ -125,13 +134,6 @@ function daysBetween(now: number, then: number): number {
   return Math.max(0, (now - then) / 86_400)
 }
 
-/** Commits inside this window count toward a frame's churn — the same 90 days
- *  `churn.rs` uses, so the number means the same thing in both views. */
-const CHURN_WINDOW_DAYS = 90
-/** Commits in the window at which a file counts as fully churning. Absolute, matching
- *  `churn::CHURN_SATURATION`; normalizing against the repo's own busiest file is the trap
- *  that module is written up against. */
-const CHURN_SATURATION = 8
 /** Touches remembered per function. Past `CHURN_SATURATION` the churn scale is pinned, so
  *  a deeper memory costs bytes and answers nothing. */
 const CHURN_MEMORY = 16
@@ -266,6 +268,20 @@ interface Frame {
    *  answer than a drawn function's — a file's date, not each function's — and that is
    *  exactly the trade the live map already makes when a ring has not arrived. */
   pathTs: Uint32Array
+  /** path index → when this FILE first appeared within the replayed window, epoch seconds.
+   *
+   *  **The file-level twin of `born`, and it exists for the same reason `pathTs` does — the
+   *  fold.** A stand-in has to be able to answer the lens it is standing in for, and Age
+   *  answers two questions now (see `AgeView`): when was this last touched, and when did it
+   *  first appear. `pathTs` covers the first. Without this the second had nothing at file
+   *  resolution, and a roll-up with nothing to say has to say nothing — which on a frame that
+   *  folds most of the repo means the rim describes the drawn minority and calls it the
+   *  directory. That failure has a name in `CLAUDE.md` and it is `src/pybind`.
+   *
+   *  `NO_TS` for a file in the opening state, deliberately, exactly as `pathTs` is: everything
+   *  in the truncated prefix predates the window, and the honest answer to when it arrived is
+   *  that this story never saw it arrive. It draws undated rather than dated to frame one. */
+  pathBorn: Uint32Array
   pathHits: Uint32Array
   pathHitLen: Uint8Array
   /** The same pair for directories, keyed by the directory INDEX `Shape` interns.
@@ -349,6 +365,7 @@ function blank(hist: Tables): Frame {
     pathLive: new Uint32Array(hist.paths.length),
     pathBornAt: new Int32Array(hist.paths.length).fill(NO_AT),
     pathTs: new Uint32Array(hist.paths.length).fill(NO_TS),
+    pathBorn: new Uint32Array(hist.paths.length).fill(NO_TS),
     pathHits: new Uint32Array(hist.paths.length * CHURN_MEMORY),
     pathHitLen: new Uint8Array(hist.paths.length),
     dirLive: new Uint32Array(shape.path.length),
@@ -398,13 +415,16 @@ function opening(hist: Tables): Frame {
  * flashed a stripe from the middle of the map to the rim and the picture said "a lot
  * happened here" about a commit that touched one function.
  */
-function enter(frame: Frame, shape: Shape, p: number, at: number): void {
+function enter(frame: Frame, shape: Shape, p: number, at: number, ts: number): void {
   // Nothing above the function has arrived unless the FILE has: a function added to a file
   // that was already on screen changes no container's presence, and the dir counts were not
   // touched. Reading them anyway would re-birth a directory whose one file just gained a
   // second function.
   if (!census(frame, shape, p)) return
   frame.pathBornAt[p] = at
+  // The date beside the position, for the reason `born` sits beside `bornAt`: one is what the
+  // fold says out loud and the other is where the flash goes, and neither converts.
+  frame.pathBorn[p] = ts
   // A count of exactly one, after counting this file in, means this file is the first thing
   // in that directory — so the directory arrived with it.
   for (const d of shape.ancestors[p]) {
@@ -437,6 +457,7 @@ function leave(frame: Frame, shape: Shape, p: number): void {
   frame.pathLive[p] = live
   if (live > 0) return
   frame.pathBornAt[p] = NO_AT
+  frame.pathBorn[p] = NO_TS
   for (const d of shape.ancestors[p]) {
     const n = frame.dirLive[d] > 0 ? frame.dirLive[d] - 1 : 0
     frame.dirLive[d] = n
@@ -491,7 +512,7 @@ function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): boolea
         if (!gone.delete(f)) added.add(f)
         frame.born[f] = c.ts
         frame.bornAt[f] = i
-        enter(frame, shape, hist.funcs[f].path, i)
+        enter(frame, shape, hist.funcs[f].path, i, c.ts)
       }
       // The ring, oldest first. A full one shifts by one rather than growing — see
       // `Frame.hits`, and `CHURN_MEMORY` for why sixteen is all anybody can see.
@@ -625,6 +646,9 @@ interface Checkpoint {
    *  `treecache`'s version list exists for, and it is worse here because nothing versions a
    *  checkpoint — it is simply wrong, once, in a direction nobody looks. */
   pathTs: Uint32Array
+  /** The file-level birth dates — see `Frame.pathBorn`, and the paragraph above for why a
+   *  frame array that is not banked comes back as a confident wrong answer. */
+  pathBorn: Uint32Array
   pathHits: Uint32Array
   pathHitLen: Uint8Array
   author: Int32Array
@@ -675,6 +699,7 @@ function freeze(frame: Frame): Checkpoint {
     hits,
     pathLive: frame.pathLive.slice(),
     pathBornAt: frame.pathBornAt.slice(),
+    pathBorn: frame.pathBorn.slice(),
     author: frame.author.slice(),
     dirLive: frame.dirLive.slice(),
     dirBornAt: frame.dirBornAt.slice(),
@@ -717,6 +742,7 @@ function thaw(cp: Checkpoint): Frame {
     hitLen: cp.hitLen.slice(),
     pathLive: cp.pathLive.slice(),
     pathBornAt: cp.pathBornAt.slice(),
+    pathBorn: cp.pathBorn.slice(),
     pathTs: cp.pathTs.slice(),
     pathHits,
     pathHitLen: cp.pathHitLen.slice(),
@@ -742,6 +768,7 @@ function weigh(cp: Checkpoint): number {
     cp.hits.byteLength +
     cp.pathLive.byteLength +
     cp.pathBornAt.byteLength +
+    cp.pathBorn.byteLength +
     cp.author.byteLength +
     cp.dirLive.byteLength +
     cp.dirBornAt.byteLength
@@ -921,6 +948,11 @@ function readingInto(into: AgentReport | null, packed: number): AgentReport {
   r.documented = gradeAt(packed, 3)
   r.legible = gradeAt(packed, 6)
   r.trap = ((packed >> 9) & 1) === 1
+  // Three states — see `assessment::packed`. A story banked before these bits existed reads
+  // 0 for every reading, which is "never asked", and `undefined` is how this report says
+  // that everywhere else. It marks nothing rather than asserting that nothing is derivable.
+  const derivable = (packed >> 10) & 3
+  r.derivable = derivable === 0 ? undefined : derivable === 2
   return r
 }
 
@@ -937,6 +969,10 @@ function scoreInto(
   /** The frame's packed reading, or `NO_GRADE` — never `undefined`. A dense store has no
    *  hole to hand out. */
   packed: number,
+  /** This repo's churn windows, in days — see `ChurnView`. The frame answers all four, for
+   *  the reason the live map does: which one is being looked at is a live choice, and a
+   *  replay that answered only the current one would have to refold on every press. */
+  windows: ChurnWindows,
 ): Score {
   const touched = frame.touched[f]
   const at = frame.bornAt[f]
@@ -946,24 +982,29 @@ function scoreInto(
   // that counted last frame may have aged out of this one.
   const base = f * CHURN_MEMORY
   const len = frame.hitLen[f]
-  let commits = 0
+  const commits: ChurnWindows = [0, 0, 0, 0]
   for (let i = 0; i < len; i++) {
-    if (daysBetween(frame.ts, frame.hits[base + i]) <= CHURN_WINDOW_DAYS) commits++
+    const age = daysBetween(frame.ts, frame.hits[base + i])
+    for (let w = 0; w < 4; w++) if (age <= windows[w]) commits[w]++
   }
   const s: Score = into ?? {
     surprise: 0,
     documented: 0,
-    churn: 0,
+    churn: [0, 0, 0, 0],
     ageDays: null,
     lastTouchedDays: null,
-    commits: 0,
+    commits: [0, 0, 0, 0],
     allCommits: null,
     provenance: 'history',
     hotShare: 0,
     source: 'proxy',
     analyzedShare: 0,
   }
-  s.churn = Math.min(1, commits / CHURN_SATURATION)
+  // Each window against its own anchor, so the colour is a rate — the same arithmetic
+  // `edits::saturation_for` does on the live side, out of the same `churnSaturation`.
+  s.churn = commits.map((n, w) =>
+    Math.min(1, n / churnSaturation(windows[w])),
+  ) as ChurnWindows
   s.ageDays = born === NO_TS ? null : daysBetween(frame.ts, born)
   s.lastTouchedDays = touched === NO_TS ? null : daysBetween(frame.ts, touched)
   s.commits = commits
@@ -1012,10 +1053,10 @@ function aggregate(node: Node, appearedOf: (id: string) => number | null): void 
   node.touchBelow = touchBelow
 
   let w = 0
-  let churn = 0
+  const churn: ChurnWindows = [0, 0, 0, 0]
   let age: number | null = null
   let touched: number | null = null
-  let commits = 0
+  const commits: ChurnWindows = [0, 0, 0, 0]
   // **Two reading roll-ups, because two lenses ask a container for a number rather than
   // walking it.** Legibility and Docs answer a directory by walking its children for their
   // grades, which a frame's nodes now carry; Surprise asks the container itself, via
@@ -1036,8 +1077,14 @@ function aggregate(node: Node, appearedOf: (id: string) => number | null): void 
     readLines += (s.analyzedShare ?? 0) * c.loc
     const cw = Math.max(c.loc, 1)
     w += cw
-    churn += s.churn * cw
-    commits = Math.max(commits, s.commits)
+    for (let i = 0; i < 4; i++) {
+      churn[i] += s.churn[i] * cw
+      // The MAX rather than a sum, per window, exactly as it was for the one: a commit that
+      // touched twelve files in this directory is one commit for it, and summing the children
+      // would report twelve. The largest child's count is the honest floor a frame can offer
+      // without the distinct set, which only the walk still holds.
+      commits[i] = Math.max(commits[i], s.commits[i])
+    }
     if (s.ageDays !== null) age = age === null ? s.ageDays : Math.max(age, s.ageDays)
     if (s.lastTouchedDays !== null)
       touched = touched === null ? s.lastTouchedDays : Math.min(touched, s.lastTouchedDays)
@@ -1058,11 +1105,11 @@ function aggregate(node: Node, appearedOf: (id: string) => number | null): void 
   const s = node.score ?? {
     surprise: 0,
     documented: 0,
-    churn: 0,
+    churn: [0, 0, 0, 0] as ChurnWindows,
     allCommits: null,
     ageDays: null,
     lastTouchedDays: null,
-    commits: 0,
+    commits: [0, 0, 0, 0] as ChurnWindows,
     provenance: 'history',
     hotShare: 0,
     source: 'proxy',
@@ -1070,7 +1117,7 @@ function aggregate(node: Node, appearedOf: (id: string) => number | null): void 
     appeared: null,
     edited: null,
   }
-  s.churn = churn / w
+  s.churn = churn.map((c) => c / w) as ChurnWindows
   // A replay has none. The timeline holds which commits touched what, so this is
   // derivable — but it would be a count as of the FRAME, and every other number here is
   // already that. Left absent rather than filled with today's answer about a past commit.
@@ -1200,10 +1247,10 @@ function flashOnly(birth: boolean, edit: boolean): Score | null {
   return {
     surprise: 0,
     documented: 0,
-    churn: 0,
+    churn: [0, 0, 0, 0],
     ageDays: null,
     lastTouchedDays: null,
-    commits: 0,
+    commits: [0, 0, 0, 0],
     allCommits: null,
     provenance: 'history',
     hotShare: 0,
@@ -1427,6 +1474,15 @@ export function frameTree(
    *  places is four places to forget, and this way the stand-ins, the escalation and the
    *  per-function scores all go quiet together because they were always reading one clock. */
   flashes: boolean = true,
+  /** This repo's churn windows, in days — see `ChurnView` and `edits::windows_for`.
+   *
+   *  **Passed in rather than assumed, because the ladder is a fact about the repo.** A frame
+   *  that counted a fixed ninety days would band a 27-day project's whole history as one
+   *  window while the live map beside it offered four, and the two would disagree about what
+   *  Churn means the moment History opened — the split brain `CLAUDE.md` names, which has
+   *  already happened once over blame ranks. Defaulted to the full ladder for a caller that
+   *  has no scan in hand, which is only the harnesses. */
+  windows: ChurnWindows = [30, 60, 90, 180],
 ): Node {
   const frame = replay(hist, deltas, index)
   if (!flashes) since = index
@@ -1580,7 +1636,7 @@ export function frameTree(
     // commit that wrote it is outside the window, and the honest answer is that we do not know.
     node.lastAuthor = authorName(hist, frame.funcAuthor[f])
     const packed = frame.graded[f]
-    node.score = scoreInto(node.score, frame, f, since, packed)
+    node.score = scoreInto(node.score, frame, f, since, packed, windows)
     // The reading itself, for the two lenses that read it as a report rather than as a
     // number. Cleared when this frame has none, or a pooled node keeps the last one's.
     node.agent = packed === NO_GRADE ? undefined : readingInto(node.agent ?? null, packed)
@@ -1772,20 +1828,31 @@ export function frameTree(
     // moves with the playhead, so a touch that counted last frame may have aged out of this
     // one. See `Frame.pathHits`.
     const ts = frame.pathTs[p]
-    let commits = 0
+    const commits: ChurnWindows = [0, 0, 0, 0]
     if (ts !== NO_TS) {
       const base = p * CHURN_MEMORY
       const len = frame.pathHitLen[p]
       for (let i = 0; i < len; i++) {
-        if (daysBetween(frame.ts, frame.pathHits[base + i]) <= CHURN_WINDOW_DAYS) commits++
+        const age = daysBetween(frame.ts, frame.pathHits[base + i])
+        for (let w = 0; w < 4; w++) if (age <= windows[w]) commits[w]++
       }
     }
-    t.time.push(
+    const born = frame.pathBorn[p]
+    // **Typed as `TimeRow` rather than pushed loose, and that is the whole guard.** The reader
+    // is in another file and steps by `TIME_STRIDE`; a row that is one number short does not
+    // throw, it reads the next file's touch date as this one's line count and bands the frame
+    // out of numbers that are all real and all in the wrong slots. Both ends are pinned to
+    // this tuple, so the stride cannot move at one end only.
+    const row: TimeRow = [
       ts === NO_TS ? -1 : daysBetween(frame.ts, ts),
-      commits,
-      Math.min(1, commits / CHURN_SATURATION),
+      // `-1` is a file this story never saw ARRIVE, which is every file in the opening state:
+      // undated, the same absence `pathTs` reports, and never dated to frame one. Age's second
+      // reading needs it — see `AgeView`.
+      born === NO_TS ? -1 : daysBetween(frame.ts, born),
       lines,
-    )
+      ...commits,
+    ]
+    t.time.push(...row)
   }
   /** Every live file under `d`, for a directory that is being folded whole. */
   const foldDir = (t: Tally, d: number): void => {

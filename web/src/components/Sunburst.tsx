@@ -7,6 +7,7 @@ import {
   histogramsFor,
   REPLAY,
   type Slice,
+  type Views,
   type ColorMode,
   paintsFromReadings,
 } from '../lib/colorMode'
@@ -436,7 +437,7 @@ function SunburstView({
   reading,
   mode,
   ranks,
-  ageSpan,
+  views,
   onUp,
   mascot,
   morph,
@@ -446,6 +447,8 @@ function SunburstView({
   onSide,
   rings = RINGS_DEFAULT,
   rimShare = 0,
+  markers = true,
+  derivable = true,
   onWantRings,
 }: {
   root: Node
@@ -455,9 +458,9 @@ function SunburstView({
   onClear: () => void
   mode: ColorMode
   ranks?: Map<string, number>
-  /** The repo's age span — see `ageSpanOf`. Comes from the whole tree, not from `root`,
+  /** How Age is calibrated and which of its two dates it paints — see `AgeView`. Comes from the whole tree, not from `root`,
    *  so drilling into a directory does not recalibrate the colors on the way in. */
-  ageSpan?: number
+  views?: Views
   /** Undefined at the top level, which is what disables the hub's go-up affordance. */
   onUp?: () => void
   /** The creature in the middle of the hub, and what it is doing.
@@ -511,6 +514,31 @@ function SunburstView({
    *  a guess with a number on it. Expected to collapse back into `DIR_RIM_PX` once it has
    *  answered its question. */
   rimShare?: number
+  /** Whether a directory's rim carries the pointing marks — see `dots`.
+   *
+   *  Only Traps and Clones put anything there, and this is only ever offered on those two:
+   *  a switch for marks that cannot exist is an inert control, which is the argument
+   *  `ColorCount` is made of. Off, the rim falls through to what every other lens draws on
+   *  it, so the picture underneath the dots is legible without them — which is the whole
+   *  point of being able to turn them off, since a dot is opaque and a dense directory
+   *  wears a dotted line across the band it is trying to show you.
+   *
+   *  It does not touch the marks on the things THEMSELVES: a trapped function still pulses
+   *  and a clone still wears its colour. Those are the reading; these are the pointer to
+   *  where the reading is. */
+  markers?: boolean
+  /** Whether a doc that says nothing the code didn't is marked — see `.derivable-pulse`.
+   *
+   *  Docs only, and it exists because that lens cannot say this with colour. `derivable`
+   *  forces `documented` to `none` (`reportGrades`), so a comment a model could regenerate
+   *  from the body is painted in the same tone as no comment at all — which is right for the
+   *  ramp, since neither explains anything, and wrong for a reader, because the two want
+   *  different work. One needs writing; the other needs deleting and then writing.
+   *
+   *  On by default. The distinction is one the lens is otherwise failing to make, so the
+   *  quiet default would be the one that keeps something hidden; the switch is there for a
+   *  repo where enough of the map qualifies that the movement is the loudest thing on it. */
+  derivable?: boolean
   /** Which files the map has somewhere to draw the insides of.
    *
    *  A file's ring of functions is fetched on demand, and the window decided which by a
@@ -944,16 +972,16 @@ function SunburstView({
     () =>
       replaying && REPLAY[mode] !== 'live'
         ? new Map<string, Slice[]>()
-        : histogramsFor(root, mode, ranks, ageSpan, drawnDirs),
-    [root, mode, ranks, ageSpan, replaying, drawnDirs],
+        : histogramsFor(root, mode, ranks, views, drawnDirs),
+    [root, mode, ranks, views, replaying, drawnDirs],
   )
 
   const fills = useMemo(() => {
     const m = new Map<string, ReturnType<typeof colorFor>>()
     for (const w of wedges)
-      if (w.node.kind !== 'func') m.set(w.node.id, colorFor(w.node, mode, ranks, ageSpan))
+      if (w.node.kind !== 'func') m.set(w.node.id, colorFor(w.node, mode, ranks, views))
     return m
-  }, [wedges, mode, ranks, ageSpan])
+  }, [wedges, mode, ranks, views])
 
   /** The rim band in user units, including the cut that separates it from its own plate.
    *  Capped at the ring so a very shallow tree cannot produce a band wider than the wedge
@@ -1473,6 +1501,7 @@ function SunburstView({
    *  apart are one fat dot, and a run of them is a dotted line that reads as a rim. */
   const dots = useMemo(() => {
     if (mode !== 'traps' && mode !== 'clones') return null
+    if (!markers) return null
     // Traps replays — a frame carries its grades — and Clones does not, which is what
     // `REPLAY` already says about both. See `hist`, which takes the same gate.
     if (replaying && REPLAY[mode] !== 'live') return null
@@ -1562,7 +1591,7 @@ function SunburstView({
     walk(root)
     return at
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [root, mode, target, band, minPatchArea, replaying])
+  }, [root, mode, markers, target, band, minPatchArea, replaying])
 
   /** A replay's events, moved to the nearest wedge that is actually drawn.
    *
@@ -1837,7 +1866,7 @@ function SunburstView({
         {moving &&
           leaving.current.map((x) => {
             const g = lerpGeo(x.from, x.to, e)
-            const c = colorFor(x.node, mode, ranks, ageSpan)
+            const c = colorFor(x.node, mode, ranks, views)
             const plate = x.node.kind === 'dir' ? null : c
             return (
               <g key={`leaving-${x.node.id}`}>
@@ -1867,7 +1896,7 @@ function SunburstView({
             coring.current &&
             (() => {
               const g = lerpGeo(coring.current.from, coring.current.to, e)
-              const c = colorFor(coring.current.node, mode, ranks, ageSpan)
+              const c = colorFor(coring.current.node, mode, ranks, views)
               return (
                 <g>
                   <path
@@ -1904,7 +1933,7 @@ function SunburstView({
                 selected={null}
                 mode={mode}
                 ranks={ranks}
-                ageSpan={ageSpan}
+                views={views}
                 minPatchArea={minPatchArea}
                 onSelect={() => {}}
                 onDrill={() => {}}
@@ -1923,7 +1952,7 @@ function SunburstView({
               selected={selected}
               mode={mode}
               ranks={ranks}
-              ageSpan={ageSpan}
+              views={views}
               minPatchArea={minPatchArea}
               onSelect={onSelect}
               onDrill={onDrill}
@@ -2016,7 +2045,19 @@ function SunburstView({
                       />
                     )}
                     <path
-                      className="wedge"
+                      // **The file's own header is a reading too**, so a file whose doc comment
+                      // says nothing the code didn't breathes exactly as a function does. Under
+                      // Docs a file IS a row in the breakdown — see `contributeHeld` — and
+                      // marking only the functions would leave the one doc a reader is most
+                      // likely to have written unmarked.
+                      className={clsx(
+                        'wedge',
+                        mode === 'docs' &&
+                          derivable &&
+                          w.node.agent?.derivable === true &&
+                          !w.node.agentStale &&
+                          'derivable-pulse',
+                      )}
                       // A file occupies exactly ONE band, like a directory. Its functions are
                       // inset inside that band, so the file's own fill shows as a rim around
                       // them — the containment is drawn, not implied by adjacency.
@@ -2173,7 +2214,7 @@ function SunburstView({
               const { r0, r1, fa0, fa1 } = tile
               return tileFunctions(w.node.children, r0, r1, fa0, fa1, { minPatchArea }).map(
                 (slot) => {
-                  const c = colorFor(slot.node, mode, ranks, ageSpan)
+                  const c = colorFor(slot.node, mode, ranks, views)
                   const isSel = selected?.id === slot.node.id
                   const isHover = hover?.node.id === slot.node.id
                   const d = arcPath(slot.a0, slot.a1, slot.r0, slot.r1)
@@ -2195,6 +2236,17 @@ function SunburstView({
                           // The same breath for the same reason — copies are 1–8% of a repo, which
                           // is the density where a colour alone means hunting. See `--clone`.
                           mode === 'clones' && slot.node.cloneSize != null && 'trap-pulse',
+                          // A doc that adds nothing, on the lens that paints it as no doc at
+                          // all. Its own class rather than the trap's, because this one has no
+                          // colour underneath it to survive reduced motion — see
+                          // `.derivable-pulse`. Stale readings are left alone, the same rule
+                          // the trap breath follows: a grade describing a body that has since
+                          // changed does not get to mark the body that is there now.
+                          mode === 'docs' &&
+                            derivable &&
+                            slot.node.agent?.derivable === true &&
+                            !slot.node.agentStale &&
+                            'derivable-pulse',
                         )}
                         d={d}
                         fill={c ? c.fill : 'var(--unanalyzed)'}
@@ -2689,7 +2741,7 @@ function SunburstView({
           box={box}
           mode={mode}
           ranks={ranks}
-          ageSpan={ageSpan}
+          views={views}
           folded={hover.node.kind === 'dir' ? collapsed.has(hover.node.id) : undefined}
           // What this handle is standing in for, so the share is one hover away from the
           // mark that suppressed it rather than only in the corner.
@@ -2817,7 +2869,7 @@ function SunburstView({
  * dialog is such a change, and pressing Read took about a second to show anything: the
  * cost was never the dialog, it was the map being rebuilt behind it.
  *
- * Memo only pays if the props are stable, so the call site memoises `ranks` and `ageSpan`
+ * Memo only pays if the props are stable, so the call site memoises `ranks` and `age`
  * and passes callbacks through `useCallback`. An inline lambda here silently undoes all of
  * this — the component still re-renders, and nothing looks wrong until somebody times a
  * click. That is the same failure mode as the poll rebuilding the frame tree because
