@@ -271,6 +271,35 @@ const MARGIN = 0.05
  *  `unitsPerPx`, which is worth doing if this ever needs to be exact. */
 const CHROME_BOTTOM = 0.03
 
+/** `n` out of `of`, as a share, for the corner chip — or nothing when there is no `of`.
+ *
+ *  **Precision follows the value, because one fixed width is wrong at both ends.** Two
+ *  decimals everywhere prints `92.30%`, which reads as a measurement to the hundredth that
+ *  nobody took; none at all prints `0%` for fifteen thousand files, which is worse than
+ *  silence because it is a confident nothing. So the digits appear where they carry the
+ *  meaning and stop where they stop.
+ *
+ *  A share that would round away entirely is printed as `<0.01%` rather than `0.00%`: the
+ *  finding at that size is that it is small, and rounding a real count to zero is the same
+ *  lie the empty-tally case is. And an unknown denominator prints NOTHING — a bare count is
+ *  incomplete, where a count beside a share of an unknown whole is wrong. */
+/** `n` things, with its share of whatever it is a share OF.
+ *
+ *  The three clauses in this chip have three different denominators — files that look like
+ *  source, files the map holds, directories — and the counts are not comparable across them.
+ *  Naming each whole on screen was tried and is not worth its width: a percentage beside a
+ *  count is enough to read, and the chip is a caveat rather than a table. */
+function outOf(n: number, of: number, noun: string): string {
+  return `${n.toLocaleString()} ${noun}${n === 1 ? '' : 's'}${share(n, of)}`
+}
+
+function share(n: number, of: number): string {
+  if (of <= 0) return ''
+  const p = (n / of) * 100
+  if (p > 0 && p < 0.01) return ' (<0.01%)'
+  return ` (${p >= 10 ? p.toFixed(0) : p >= 1 ? p.toFixed(1) : p.toFixed(2)}%)`
+}
+
 /** How strongly each level carries the heat ramp.
  *
  *  Directories were zeroed here, on the argument that a directory's color is `hotShare` —
@@ -642,6 +671,25 @@ function SunburstView({
    *  than in the app's drill stack — and it survives drilling, so a directory you closed
    *  stays closed when you come back past it. */
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  /** Everything under the focus, at any depth — the denominator the corner chip needs.
+   *
+   *  Its own walk because `layout` has a different job and a different reach: that one stops
+   *  at `maxDepth`, since a node past the last ring is neither drawn nor culled, so a total
+   *  taken from it would omit exactly the deep tail that makes a share worth printing.
+   *
+   *  The root itself is not a directory of its own here: it is the thing the share is ABOUT,
+   *  and counting it would make a repo with no subdirectories report one. */
+  const under = useMemo(() => {
+    const n = { files: 0, dirs: 0 }
+    const walk = (x: Node) => {
+      if (x.kind === 'file') n.files += 1
+      else if (x.kind === 'dir') n.dirs += 1
+      x.children.forEach(walk)
+    }
+    root.children.forEach(walk)
+    return n
+  }, [root])
+
   const { wedges, hidden } = useMemo(
     () => layout(root, rings, { collapsed, minAngleAt, handleAngleAt, sortBy }),
     [root, rings, collapsed, minAngleAt, handleAngleAt, sortBy],
@@ -1804,7 +1852,12 @@ function SunburstView({
               </g>
             )
           })}
-        <g ref={art} style={moving ? { pointerEvents: 'none' } : undefined}>
+        {/* `data-rings` is how the colour key finds the circle it wraps around. This group
+            is the FITTED composition — every transform that places the map on screen is on
+            it — so its client rect is the drawn disc itself, at whatever size and offset the
+            current view put it. See `useMapEdge`, which used to estimate this from the pane
+            and now measures it. */}
+        <g ref={art} data-rings style={moving ? { pointerEvents: 'none' } : undefined}>
           {/* The directory you opened, shrinking into the middle it is about to be.
             Inside the fitted group, because it IS the arriving level's own hub and the box
             should be drawn around where it lands. Painted before everything else so it
@@ -2644,11 +2697,27 @@ function SunburstView({
         />
       )}
 
-      {(hidden.files + hidden.dirs > 0 || collapsed.size > 0) && (
+      {/* Every count in the chip below is meaningless without the number it is out of.
+          15,777 is 0.26% of one repo and 92.3% of another, and those are opposite findings
+          wearing the same digits — which is this app's own rule about denominators nobody
+          can see, applied to its own caption.
+
+          Counted here rather than in `layout`, which cannot answer it: that walk stops at
+          `maxDepth`, so anything past the last ring is neither drawn nor culled and would be
+          missing from a total it computed. A share is only honest against its whole
+          population. */}
+      {(hidden.files + hidden.dirs > 0 || collapsed.size > 0 || (root.unparsed ?? 0) > 0) && (
         /* Never let the picture imply it showed everything.
            Two different omissions live here and they are not the same kind of thing.
            Wedges too thin to draw are the tool's doing and there is nothing to be done
-           about them, so they are stated and left. A FOLDED directory is the reader's own
+           about them, so they are stated and left. Files the walk could not parse are the
+           tool's doing too, and they are a heavier claim than the other two: a thin wedge is
+           still counted in every total above it, where an unreadable file is in no
+           denominator anywhere. A repo of 110 `.scad` files and 3 `.rb` drew three files and
+           said nothing, which is the confident-looking half-verdict the no-git-history
+           warning already exists to prevent, reached through a door that had no warning on
+           it. From `root`, so it scopes to the drill the way `hidden` does — see
+           `Node::unparsed`, which is rolled up for exactly this. A FOLDED directory is the reader's own
            doing — and it was missing from this note entirely, which is the worse of the
            two: option-clicking a subtree shut removes it from the picture with no standing
            record that it is gone, and the count of what the map is showing quietly stops
@@ -2659,7 +2728,20 @@ function SunburstView({
            Boxed in the corner rather than floated under the graph: it is a caveat about
            the picture, so it reads as a note attached to it and not a caption of it. */
         <div className="absolute bottom-2 left-2 flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-[11px] text-[var(--muted-foreground)]">
-          <span>
+          {/* **One clause on the first line, the rest on the second, and the reason is the
+              shape of the hole it sits in.** The map is a circle in a rectangle, so the
+              negative space at this corner WIDENS as it goes down — the arc curves away from
+              the bottom-left as it descends. A single 450px line runs out along the widest
+              part of the picture; two lines put the short clause where the room is narrow and
+              everything else where the room is. The legend does the same thing on the other
+              side by measuring the arc (`useMapEdge`), which is worth remembering if this
+              ever needs to be exact rather than merely true.
+
+              `CHROME_BOTTOM` is untouched: it reserves room under the COMPOSITION, and the
+              second line grows into a corner the rings were never reaching. If that ever
+              stops holding, the fix is the one that constant's own doc asks for — measure
+              the overlay and convert through `unitsPerPx` — not a bigger fraction. */}
+          <span className="flex flex-col">
             {[
               // **Named and priced, not counted.** `1 dir folded` was enough while a fold
               // only hid a subtree's insides; now it hands that subtree's angle to its
@@ -2673,13 +2755,41 @@ function SunburstView({
                     ? `${foldedInfo.name} folded`
                     : `${foldedInfo.count.toLocaleString()} dirs folded`
                 }${foldedInfo.share >= 0.005 ? ` — ${Math.round(foldedInfo.share * 100)}% of this view` : ''}`,
+              // Undefined, not zero, on a replayed frame and on a scan still streaming its
+              // shape: neither knows what the walk could not read, so neither says. See
+              // `Node.unparsed`.
+              (root.unparsed ?? 0) > 0 &&
+                // Out of every file that LOOKS like source here — the ones drawn plus the
+                // ones that could not be read. Not out of the drawn files alone, which would
+                // put the part outside the map over a denominator that excludes it and let
+                // the share run past 100%.
+                //
+                // A third population is in neither: files the parser opened and got nothing
+                // from (`ScanStats::files_skipped`, 1,671 of ceph's 7,813) become no node, so
+                // they are missing from the denominator and the share reads a few points high
+                // — 16% against a true 13% there. Counting them would mean carrying that
+                // number per node too, which is more machinery than three points is worth;
+                // the direction of the error is stated here instead of implied.
+                `${outOf(root.unparsed!, under.files + root.unparsed!, 'file')} not parsed`,
               hidden.files > 0 &&
-                `${hidden.files.toLocaleString()} file${hidden.files === 1 ? '' : 's'} too thin`,
+                // Out of the drawn population only: a culled wedge is a file the map HAS and
+                // did not show, so the files it could not read are not part of this question.
+                `${outOf(hidden.files, under.files, 'file')} too thin`,
               hidden.dirs > 0 &&
-                `${hidden.dirs.toLocaleString()} dir${hidden.dirs === 1 ? '' : 's'} too thin`,
+                `${outOf(hidden.dirs, under.dirs, 'dir')} too thin`,
             ]
-              .filter(Boolean)
-              .join(' · ')}
+              .filter((c): c is string => typeof c === 'string')
+              // The first alone, then everything else together. Not a wrap: a wrap breaks
+              // wherever the width runs out, which puts half of one count on each line and
+              // reads as a rendering fault. The break is between clauses or it is nowhere.
+              .reduce<string[]>(
+                (lines, clause, i) =>
+                  i === 0 ? [clause] : [lines[0], lines[1] ? `${lines[1]} · ${clause}` : clause],
+                [],
+              )
+              .map((line) => (
+                <span key={line}>{line}</span>
+              ))}
           </span>
           {collapsed.size > 0 && (
             <button

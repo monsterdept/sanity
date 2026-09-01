@@ -24,7 +24,7 @@ const MAX_FILE_BYTES: u64 = 1_000_000;
 /// reliable cross-language tell; a `// @generated` marker convention is not universal.
 const MINIFIED_LINE_BYTES: usize = 2_000;
 
-/// Extensions that are not code and never will be, so a missing grammar is not what they mean.
+/// Extensions with no function unit, so a missing grammar is not what they mean.
 ///
 /// **Kept out of [`Unscanned::unparsed`] because that list has exactly one job: telling you
 /// which grammar is worth adding.** Measured across this machine's projects, the kinds with a
@@ -35,13 +35,25 @@ const MINIFIED_LINE_BYTES: usize = 2_000;
 ///
 /// **This is the same kind of list as [`VENDORED`], and it is a list for the same reason.**
 /// Whether `tests-unit/` is noise is a judgement about a specific codebase and the tool
-/// provider cannot make it. Whether a PNG has functions in it is not a judgement at all.
-/// The line is what somebody shipping the tool can know without seeing the repo.
+/// provider cannot make it. Whether a PNG has functions in it is not a judgement at all,
+/// and neither does a YAML file, an RST page or a stylesheet. The line is what somebody
+/// shipping the tool can know without seeing the repo.
 ///
-/// They are COUNTED, in [`Unscanned::assets`], rather than dropped on the floor: a filter
+/// **Prose and configuration belong here as much as images do, which took a measurement to
+/// see.** The first version of this list was pictures only, and on ceph that left 4,743
+/// files reported as unparsed — of which `yaml` 1702, `rst` 618, `scss` 360, `html` 348 and
+/// `txt` 314 were five kinds and most of the total. None of them is a grammar anybody is
+/// missing. A stylesheet has rules and a YAML file has keys; neither has a function, so no
+/// grammar would put either on this map. Markdown least of all: it already reaches the
+/// metric through the prompt, where it is graded as documentation.
+///
+/// Notebooks are deliberately NOT here. An `.ipynb` is JSON on disk and code in fact, so it
+/// is a grammar worth wanting and belongs in the list that says so.
+///
+/// They are COUNTED, in [`Unscanned::not_code`], rather than dropped on the floor: a filter
 /// nobody can see is how an instrument comes to overstate its own coverage, which is the
 /// argument `calls_resolved` and `excluded` are both already built on.
-const ASSETS: &[&str] = &[
+const NOT_CODE: &[&str] = &[
     // Images
     "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "icns", "tiff", "tif", "svg", "avif",
     "heic",
@@ -56,6 +68,15 @@ const ASSETS: &[&str] = &[
     "pdf", "psd", "sketch", "ai", "eps",
     // Binary data
     "db", "sqlite", "sqlite3", "parquet",
+    // Prose. Markdown is graded as documentation through the prompt, not parsed for
+    // functions, so its absence from the map is not a gap in the map.
+    "md", "mdx", "markdown", "rst", "txt", "adoc", "asciidoc", "org", "tex",
+    // Configuration and data. Keys and values, never callables.
+    "json", "jsonc", "json5", "jsonl", "yaml", "yml", "toml", "ini", "cfg", "conf",
+    "properties", "env", "lock", "snap", "csv", "tsv", "editorconfig",
+    // Markup and styling. Rules and elements, and the same answer for the same reason.
+    "xml", "xsd", "xsl", "html", "htm", "css", "scss", "sass", "less", "styl",
+    "plist", "pbxproj", "xcworkspacedata", "entitlements", "storyboard", "xib",
 ];
 
 /// Path segments whose contents are somebody else's code.
@@ -530,12 +551,21 @@ pub struct SkippedKind {
 /// this door had no warning on it, because the files were dropped inside a `filter_map` and
 /// nothing counted them.
 ///
-/// **Two lists rather than one number, and no percentage anywhere.** Measured over text
-/// files, the unscanned share is 30% of this repo and 37% of a sibling, and it is lockfiles,
+/// **Two lists rather than one number, and no percentage HERE.** Measured over text files,
+/// the unscanned share is 30% of this repo and 37% of a sibling, and it is lockfiles,
 /// Markdown, JSON and YAML almost everywhere — none of which has a function unit, and
 /// Markdown already reaches the metric through the prompt. A headline "30% unmeasured" is a
 /// frightening number that means nothing, which is a term claiming confidence it has not got
 /// run in reverse. "110 `.scad` files not parsed" supports a decision instead.
+///
+/// **That argument is about a verdict, not about a denominator, and it was over-applied.**
+/// A bare count has the opposite problem: 15,777 files is 0.26% of one repo and 92.3% of
+/// another, and those are opposite findings wearing the same digits — which is the rule
+/// `calls_resolved` and `excluded` are both built on, that a denominator nobody can see is
+/// how an instrument overstates its own coverage. So the window's corner chip prints a share
+/// beside each count, against a stated population it can name. What stays refused is the
+/// single repo-wide "unmeasured" figure over lines, which is a grade nobody asked for. These
+/// lists stay counts: an agent reading them can divide, and cannot un-round.
 ///
 /// The two lists are different claims and must not be added together. [`Self::unparsed`] is
 /// the tool having no grammar; [`Self::skipped`] is a language it reads perfectly well,
@@ -549,18 +579,19 @@ pub struct SkippedKind {
 pub struct Unscanned {
     /// No grammar for it. Most files first, then by name so a tie does not reshuffle.
     ///
-    /// Assets are not in here — see [`ASSETS`]. This list answers "which grammar is worth
-    /// adding", and a kind that could never have one is not an answer to it.
+    /// Kinds with no function unit are not in here — see [`NOT_CODE`]. This list answers
+    /// "which grammar is worth adding", and a kind that could never have one is not an
+    /// answer to it.
     pub unparsed: Vec<UnparsedKind>,
     /// A known language, dropped anyway. Most files first.
     pub skipped: Vec<SkippedKind>,
-    /// Files that are not code at all — see [`ASSETS`].
+    /// Files with no function unit — see [`NOT_CODE`].
     ///
-    /// One number rather than a list, because there is nothing to act on: the shape of a
-    /// repo's images does not change what anybody would do. It is here at all so the filter
-    /// above it is visible, which is the difference between a list that leaves something out
-    /// and a list that hides it.
-    pub assets: usize,
+    /// One number rather than a list, because there is nothing to act on: no grammar would
+    /// put a stylesheet or a changelog on this map. It is here at all so the filter above it
+    /// is visible, which is the difference between a list that leaves something out and a
+    /// list that hides it.
+    pub not_code: usize,
 }
 
 /// Collect the parseable source files under `root`, and a tally of what was left behind.
@@ -575,12 +606,24 @@ pub struct Unscanned {
 /// same pass rather than a second one. It replaced a `filter_map` whose six separate `?`
 /// returns were all spelled the same way, so no caller could tell a file with no extension
 /// from a megabyte of generated client.
-pub(crate) fn walk_files(root: &Path) -> (Vec<(PathBuf, Lang)>, Unscanned) {
+pub(crate) struct Walk {
+    pub files: Vec<(PathBuf, Lang)>,
+    pub unscanned: Unscanned,
+    /// Unparsed files per repo-relative directory, for stamping onto the tree.
+    ///
+    /// Not part of [`Unscanned`] and never cached: once `stamp_unparsed` has run, the tree
+    /// carries these numbers and is the only copy anything reads. A second copy in the stats
+    /// would be a second answer to one question, kept up to date by nobody.
+    pub by_dir: std::collections::HashMap<String, u32>,
+}
+
+pub(crate) fn walk_files(root: &Path) -> Walk {
     let mut kept: Vec<(PathBuf, Lang)> = Vec::new();
     let mut unparsed: std::collections::HashMap<String, usize> = Default::default();
     let mut oversize = 0usize;
     let mut vendored_files = 0usize;
-    let mut assets = 0usize;
+    let mut not_code = 0usize;
+    let mut by_dir: std::collections::HashMap<String, u32> = Default::default();
 
     let walk = ignore::WalkBuilder::new(root)
         .hidden(true)
@@ -622,10 +665,19 @@ pub(crate) fn walk_files(root: &Path) -> (Vec<(PathBuf, Lang)>, Unscanned) {
                 // Matched case-insensitively, unlike the grammar table: `.PNG` is a picture in
                 // any spelling, where a `.R` that is not `.r` is a question about which
                 // language somebody meant and is left for `from_extension` to refuse.
-                if ASSETS.contains(&key.to_ascii_lowercase().as_str()) {
-                    assets += 1;
+                if NOT_CODE.contains(&key.to_ascii_lowercase().as_str()) {
+                    not_code += 1;
                 } else if !key.is_empty() {
                     *unparsed.entry(key).or_default() += 1;
+                    // Where it was, so the corner chip can scope to the drill. Forward
+                    // slashes and repo-relative, the spelling every node id already uses —
+                    // see `rel`. The root's own files key on the empty string.
+                    let dir = path
+                        .parent()
+                        .and_then(|d| d.strip_prefix(root).ok())
+                        .map(|d| d.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/"))
+                        .unwrap_or_default();
+                    *by_dir.entry(dir).or_default() += 1;
                 }
             }
             continue;
@@ -658,12 +710,43 @@ pub(crate) fn walk_files(root: &Path) -> (Vec<(PathBuf, Lang)>, Unscanned) {
     }
     skipped.sort_by_key(|a| std::cmp::Reverse(a.files));
 
-    (kept, Unscanned { unparsed: rows, skipped, assets })
+    Walk { files: kept, unscanned: Unscanned { unparsed: rows, skipped, not_code }, by_dir }
+}
+
+/// Put each directory's unreadable-file count on the node that stands for it.
+///
+/// **A directory that holds nothing parseable has no node**, so its count cannot land where
+/// it belongs — a repo of 110 `.scad` files in `shapes/` and 3 `.rb` at the root has no
+/// `shapes/` wedge to hang anything on. Those walk up to the nearest ancestor that does
+/// exist, the root at worst. Nothing is ever dropped and nothing invents a wedge: the total
+/// is whole at every level, and only its depth is approximate, erring toward the root.
+///
+/// Run before [`Node::aggregate`], which is what turns these per-directory numbers into the
+/// rolled-up [`Node::unparsed`] the window reads.
+fn stamp_unparsed(tree: &mut Node, by_dir: &std::collections::HashMap<String, u32>) {
+    for (dir, n) in by_dir {
+        let mut at = &mut *tree;
+        if !dir.is_empty() {
+            for seg in dir.split('/') {
+                // `position` then index, rather than borrowing inside the search: a directory
+                // whose child is missing stops here, which IS the nearest-ancestor rule.
+                let Some(i) = at
+                    .children
+                    .iter()
+                    .position(|c| c.kind == NodeKind::Dir && c.name == seg)
+                else {
+                    break;
+                };
+                at = &mut at.children[i];
+            }
+        }
+        at.unparsed_here += n;
+    }
 }
 
 /// Just the files — for callers that only need the list, such as a signature or a size.
 pub(crate) fn collect_files(root: &Path) -> Vec<(PathBuf, Lang)> {
-    walk_files(root).0
+    walk_files(root).files
 }
 
 /// Forward slashes on every platform: node ids are built from these, and a scan on
@@ -1050,6 +1133,9 @@ fn score_dir(
                     let copy = copies.at(base + fi, i);
 
                     let node = Node {
+                        // A function is not a file and cannot hold one that failed to parse.
+                        unparsed_here: 0,
+                        unparsed: 0,
                         // Only `slim` builds these, from the functions it is dropping. A
                         // full tree has the functions themselves and needs no columns.
                         cols: None,
@@ -1130,6 +1216,10 @@ fn score_dir(
             (
                 file.rel_path.clone(),
                 Node {
+                    // A file that parsed. The ones that did not are counted on the directory
+                    // above them, because they have no node of their own.
+                    unparsed_here: 0,
+                    unparsed: 0,
                     cols: None,
                     id: file.rel_path.clone(),
                     name,
@@ -1301,6 +1391,12 @@ fn collapse_chains(node: &mut Node) {
         node.name = format!("{}/{}", node.name, child.name);
         node.id = child.id.clone();
         node.path = child.path.clone();
+        // **Carried, because this is the one field here that nothing recomputes.** `loc` and
+        // every score on the node being absorbed are rebuilt by `aggregate` a few lines
+        // later, so dropping them is free; `unparsed_here` is stamped once from the walk and
+        // would simply be gone. Two directories become one wedge and the files neither of
+        // them could read are still under it.
+        node.unparsed_here += child.unparsed_here;
         node.children = std::mem::take(&mut child.children);
     }
 }
@@ -1347,7 +1443,7 @@ pub fn scan(
     // seconds under one word, `walking`, while it did three unrelated things: a filesystem
     // walk, a `git log` over five thousand commits, and a 300MB cache read.
     on_progress(Progress::phase("walking the repo"));
-    let (files, unscanned) = walk_files(root);
+    let Walk { files, unscanned, by_dir: unparsed_dirs } = walk_files(root);
     let total_found = files.len();
     lap("walk");
 
@@ -1580,6 +1676,9 @@ pub fn scan(
     // Collapse the children, never the root: the root wedge is the repo, and a project
     // whose sources all live under one `src/` would otherwise have its own name replaced
     // by that directory's.
+    // Before the chains collapse, so a directory is still addressable by its own segments —
+    // and before `aggregate`, which is what rolls these up into `Node::unparsed`.
+    stamp_unparsed(&mut tree, &unparsed_dirs);
     for child in &mut tree.children {
         collapse_chains(child);
     }
@@ -1796,6 +1895,50 @@ mod tests {
         dir
     }
 
+    /// The count reaches the tree, rolls up, and survives a directory that has no wedge.
+    ///
+    /// **The hazard is the KeyV2 shape: 110 `.scad` files and 3 `.rb`.** A directory holding
+    /// nothing parseable gets no node, so its files have nowhere of their own to be counted —
+    /// and dropping them there is the whole bug, since that directory is precisely the one
+    /// the reader needs to hear about. They land on the nearest ancestor instead. The root
+    /// total must be whole either way, or the chip understates exactly the repo it exists for.
+    #[test]
+    fn what_could_not_be_read_reaches_the_tree_even_with_no_wedge_to_land_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let at = |p: &str| dir.path().join(p);
+        fs::create_dir_all(at("src")).unwrap();
+        // Parseable, so `src/` is a node.
+        fs::write(at("src/a.rs"), "fn add(a: u32) -> u32 { a + 1 }\n").unwrap();
+        fs::write(at("src/notes.md"), "# notes\n").unwrap();
+        // NOTHING parseable in here, so there is no `shapes/` node to hold these.
+        fs::create_dir_all(at("shapes")).unwrap();
+        fs::write(at("shapes/one.scad"), "module one() { }\n").unwrap();
+        fs::write(at("shapes/two.scad"), "module two() { }\n").unwrap();
+
+        let scan = run(dir.path());
+
+        // The Markdown is not in this number: it has no function unit, so it is not a
+        // grammar anybody is missing — see `NOT_CODE`. The two `.scad` are.
+        assert_eq!(scan.root.unparsed, 2, "every missing grammar, wherever it could be put");
+        assert_eq!(
+            scan.stats.unscanned.unparsed.iter().map(|k| k.files).sum::<usize>(),
+            2,
+            "the tree and the stats count the same files, or one of the two is lying"
+        );
+        let src = scan
+            .root
+            .children
+            .iter()
+            .find(|c| c.name.starts_with("src"))
+            .expect("src has a parseable file and therefore a wedge");
+        assert_eq!(src.unparsed, 0, "the Markdown beside the Rust is not a missing grammar");
+
+        // Idempotent: the trace lands and aggregates a second time — see `unparsed_here`.
+        let mut again = scan;
+        again.root.aggregate();
+        assert_eq!(again.root.unparsed, 2, "a second aggregate is not a second count");
+    }
+
     /// The walk counts what it could not parse apart from what it refused, and both apart
     /// from somebody else's code.
     ///
@@ -1820,6 +1963,9 @@ mod tests {
         fs::write(at("shapes/one.scad"), "module one() { }\n").unwrap();
         fs::write(at("shapes/two.scad"), "module two() { }\n").unwrap();
         fs::write(at("justfile"), "check:\n\tcargo check\n").unwrap();
+        // Prose, and not vendored: the assertion below is about Markdown having no function
+        // unit, not about where it sits.
+        fs::write(at("src/notes.md"), "# notes\n").unwrap();
         // A language the tool reads perfectly well, in a tree somebody else wrote.
         fs::write(at("third_party/dep.js"), "function dep() { }\n").unwrap();
         // Unparseable AND vendored: counted nowhere, or every repo's own gap is buried under
@@ -1835,7 +1981,7 @@ mod tests {
         // Over `MAX_FILE_BYTES`, and Rust, so it can only land in the refused list.
         fs::write(at("src/generated.rs"), "// ".to_string() + &"x".repeat(1_000_001)).unwrap();
 
-        let (kept, un) = walk_files(dir.path());
+        let Walk { files: kept, unscanned: un, by_dir } = walk_files(dir.path());
 
         let names: Vec<String> =
             kept.iter().map(|(p, _)| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
@@ -1851,13 +1997,20 @@ mod tests {
         );
         assert!(
             !un.unparsed.iter().any(|u| u.ext == "md"),
-            "a vendored Markdown file is not this repo's missing grammar"
+            "Markdown has no function unit and is graded through the prompt, so it is never \
+             a grammar anybody is missing — vendored or not"
         );
-        assert_eq!(un.assets, 2, "both spellings of an image, counted and never listed");
+        assert_eq!(un.not_code, 3, "two images and the Markdown: counted, never listed");
         assert!(
             !un.unparsed.iter().any(|u| u.ext.eq_ignore_ascii_case("png")),
             "an image is not a grammar anybody is missing, in either spelling"
         );
+
+        // Keyed by the directory the file was in, so the corner chip can scope to a drill.
+        // `shapes/` holds both `.scad` files and neither of the PNGs beside them.
+        assert_eq!(by_dir.get("shapes"), Some(&2), "counted where they were, not at the root");
+        assert_eq!(by_dir.get(""), Some(&1), "the root's own `justfile`");
+        assert_eq!(by_dir.get("third_party"), None, "a vendored tree is not a gap of ours");
 
         let skipped: Vec<(&str, usize)> =
             un.skipped.iter().map(|s| (s.reason.as_str(), s.files)).collect();

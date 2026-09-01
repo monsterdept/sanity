@@ -659,6 +659,30 @@ pub struct Node {
     /// The bucketable numbers of this FILE's functions, as columns — see [`Cols`].
     #[serde(default)]
     pub cols: Option<Cols>,
+    /// Files in THIS directory the walk could not parse — see [`crate::scan::Unscanned`].
+    ///
+    /// Its own field so that [`Node::aggregate`] is idempotent. That function rebuilds every
+    /// container from its children and is called more than once — the trace lands and calls
+    /// it again — so a single field holding "mine plus everyone below me" would double on the
+    /// second pass or be erased on it, depending which way it was written. This one is set at
+    /// build and never touched again; [`Self::unparsed`] is the derived one.
+    #[serde(default)]
+    pub unparsed_here: u32,
+    /// Files under this node the walk could not parse, this directory's own included.
+    ///
+    /// **The number the corner chip reads, and it has to scope the way its neighbours do.**
+    /// That chip already reports wedges too thin to draw, which is computed per VIEW: drill
+    /// into `src/` and it describes `src/`. A repo-wide count sitting beside it would be
+    /// right at the root and quietly wrong at every depth below, next to two numbers that
+    /// updated — a band claiming something it cannot know. Rolled up here so it is a property
+    /// of the node like `loc`, correct wherever the reader is standing.
+    ///
+    /// A file dropped from a directory that holds no parseable file at all has no node to be
+    /// counted on. It lands on the nearest ancestor that does exist, which is the root at
+    /// worst — see `scan::stamp_unparsed`. So the total is always whole; only its depth is
+    /// approximate, and it errs toward the root rather than inventing a wedge.
+    #[serde(default)]
+    pub unparsed: u32,
 }
 
 /// A file's functions, reduced to the numbers a distribution is built from.
@@ -742,6 +766,9 @@ impl Cols {
 impl Node {
     pub fn dir(path: &str, name: &str) -> Node {
         Node {
+            // Stamped after the tree exists — see `scan::stamp_unparsed`.
+            unparsed_here: 0,
+            unparsed: 0,
             id: path.to_string(),
             name: name.to_string(),
             kind: NodeKind::Dir,
@@ -785,6 +812,9 @@ impl Node {
     /// like it's on fire, and the map stops meaning anything at the outer rings.
     pub fn aggregate(&mut self) {
         if self.children.is_empty() {
+            // A leaf still answers for itself: a directory whose every file was unreadable
+            // has no children to sum and is exactly the case worth reporting.
+            self.unparsed = self.unparsed_here;
             return;
         }
         for c in &mut self.children {
@@ -794,6 +824,10 @@ impl Node {
         if self.kind != NodeKind::Func {
             self.loc = self.children.iter().map(|c| c.loc).sum();
         }
+        // Mine plus everyone below me, from the field that is never rewritten — see
+        // `unparsed_here`, which is why running this twice lands on the same number.
+        self.unparsed =
+            self.unparsed_here + self.children.iter().map(|c| c.unparsed).sum::<u32>();
 
         // The wiring counts, summed rather than averaged. A directory's locality is
         // `sum(away) / sum(incident)` over everything underneath it, not the mean of its
@@ -950,6 +984,11 @@ impl Node {
         // holds none of them. It made switching projects cost more than the scan it was
         // avoiding. Verbose beats quadratic.
         Node {
+            // Carried, never recomputed: `slim` drops the functions under a file, and the
+            // files the walk could not read were never among them. Zeroing here would make a
+            // slim tree — which is what a cache hands back — report a repo with no gaps.
+            unparsed_here: self.unparsed_here,
+            unparsed: self.unparsed,
             id: self.id.clone(),
             name: self.name.clone(),
             kind: self.kind,

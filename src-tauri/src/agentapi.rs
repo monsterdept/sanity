@@ -2670,9 +2670,10 @@ fn unscanned_of(scan: &Scan) -> serde_json::Value {
     serde_json::json!({
         "unparsed": unparsed,
         "unparsed_omitted": u.unparsed.len().saturating_sub(unparsed.len()),
-        // Images, fonts, media and compiled output, kept out of the list above so it can
-        // answer the question it is for. Reported so the filter is visible rather than felt.
-        "assets": u.assets,
+        // Images, prose, configuration and compiled output — everything with no function
+        // unit, kept out of the list above so it can answer the question it is for. Reported
+        // so the filter is visible rather than felt.
+        "not_code": u.not_code,
         "skipped": u
             .skipped
             .iter()

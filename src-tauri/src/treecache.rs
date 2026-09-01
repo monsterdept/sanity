@@ -86,7 +86,14 @@ use std::path::{Path, PathBuf};
 ///    `#[serde(default)]`, so a version-9 record loads with an EMPTY tally: not "not
 ///    measured" but "nothing was dropped", which is a confident answer nobody computed and
 ///    the same hazard as 8 and 9 one field further along.
-const VERSION: u32 = 10;
+/// 11: `Node::unparsed` and `Node::unparsed_here`, so that tally scopes to the drill instead
+///    of being one repo-wide number beside two that update. Same hazard as 10 and one level
+///    down: a version-10 tree defaults them to zero, and a wedge reporting no unreadable
+///    files under it is a claim, not a gap.
+/// 12: `Unscanned::assets` became `not_code` and took prose, configuration and markup with
+///    it. A rename is a format change like any other — a version-11 record has the old key,
+///    which now deserializes to zero and reports a repo where nothing was filtered.
+const VERSION: u32 = 12;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

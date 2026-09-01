@@ -527,32 +527,41 @@ function useMapEdge(
     // — a hole in the middle of the text rather than the map's edge at its corner.
     const pane = el?.closest('[data-chart]') as HTMLElement | null
     if (!el || !pane) return
-    // **Measured ONCE per shape, and that is not an optimisation — it is what stops this
-    // oscillating.** The key is anchored to the bottom of the pane, so a line added at the
-    // top moves its top edge UP, which moves the circle DOWN in the key's own coordinates,
-    // which changes how many lines fit. Re-measuring on every resize of the key is therefore
-    // a feedback loop with no fixed point, and under Blame — where the cast is long enough
-    // for the line count to flip — it span until the webview died.
-    //
-    // So the card is measured while it is still RECTANGULAR (no shape yet for this key), the
-    // shape is applied, and nothing measures it again until the pane or the content changes.
-    // The circle then sits a little low, by however much the shape grew the box, which is
-    // the same "roughly" the radius already carries.
+    // **Measured ONCE per shape, and that used to be what stopped this oscillating.** The
+    // key is anchored to the bottom of the pane, so a line added at the top moves its top
+    // edge UP; when the circle was DERIVED from the key's own box, that moved the circle in
+    // the key's coordinates, which changed how many lines fit — a feedback loop with no
+    // fixed point that, under Blame, span until the webview died. Measuring the map instead
+    // cuts the loop at the source: the rings do not know how tall this key is. The
+    // once-per-key guard stays because there is no reason to measure more often, not because
+    // measuring twice would now be fatal.
     if (edge?.key === key) return
-    const p = pane.getBoundingClientRect()
     const b = el.getBoundingClientRect()
-    // The rings are fitted into the square with a margin and a reserve at the bottom for
-    // this very box, so the drawn radius is a little under half the smaller side. Being a
-    // few pixels generous costs a few pixels of line; being short costs an overlap.
-    const r = (Math.min(p.width, p.height) / 2) * 0.94
+    // **The drawn composition, not an estimate of it.** This was
+    // `(Math.min(pane.width, pane.height) / 2) * 0.94` with a comment conceding the fudge —
+    // "being a few pixels generous costs a few pixels of line; being short costs an
+    // overlap" — so it was tuned to err small, which is the direction that under-curves. And
+    // it was wrong by much more than a few pixels whenever the map was not filling its pane:
+    // a drilled view, a lower ring count, a folded subtree. `viewFor` fits the composition
+    // with `MARGIN` and `CHROME_BOTTOM`, and none of that is knowable from the pane's size.
+    // The group carries every transform that places the map, so its client rect IS the disc.
+    const g = (pane.querySelector('[data-rings]') as SVGGElement | null)?.getBoundingClientRect()
+    // Degrade to a rectangle rather than to a guess: before the first paint there is no
+    // composition to wrap, and a circle invented at that moment would cut the key against
+    // nothing. The effect runs again when the key or the pane changes.
+    if (!g || g.width === 0 || g.height === 0) return
+    // The smaller half, because a composition is only square when it is a whole disc — a
+    // drill that leaves a partial ring has a wider bbox than the arc it holds, and the
+    // inscribed circle is the one that cannot overlap.
+    const r = Math.min(g.width, g.height) / 2
     // In the CARD's own coordinates. The float subtracts its padding for itself — see
     // `Legend` — because `shape-outside` measures from the float's margin box while the
     // mask measures from the card's border box.
     setEdge({
       key,
       r,
-      cx: p.left + p.width / 2 - b.left,
-      cy: p.top + p.height / 2 - b.top,
+      cx: g.left + g.width / 2 - b.left,
+      cy: g.top + g.height / 2 - b.top,
     })
   }, [box, key, edge])
 
@@ -585,6 +594,7 @@ export function ColorLegend({
   ranks,
   stale = 0,
   unread = 0,
+  at,
 }: {
   mode: ColorMode
   categories: string[]
@@ -596,11 +606,17 @@ export function ColorLegend({
   stale?: number
   /** Wedges drawn in the flat unanalyzed gray, having never been read. */
   unread?: number
+  /** The node the map is showing, as an id.
+   *
+   *  Nothing here reads it. It is in the measurement key because a drill moves and resizes
+   *  the drawn composition, which is now what the shape is cut from — and a legend still
+   *  wrapping the previous view's disc is a hole in the wrong place. */
+  at?: string
 }) {
   const box = useRef<HTMLDivElement>(null)
   // Re-measured when the lens changes or the cast does, which are the two things that change
   // the key's shape — and never for its own reflow, which is the loop.
-  const edge = useMapEdge(box, `${mode}:${categories.length}:${stale}:${unread}`)
+  const edge = useMapEdge(box, `${mode}:${categories.length}:${stale}:${unread}:${at}`)
   return (
     // The width the curve needs room to work in: a key that shrinks to its longest line has
     // no slack for the shape to take back, so the lines it shortens have nowhere to go.

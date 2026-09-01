@@ -2820,6 +2820,9 @@ export default function App() {
                     // picture disagree the moment the two orders diverge — which a held
                     // rank order during a replay guarantees they will.
                     ranks={ranks}
+                    // Not read, only keyed on: a drill moves and resizes the disc the key is
+                    // cut around, so the shape has to be measured again. See `useMapEdge`.
+                    at={focus?.id}
                     // Counted from `focus`, not the whole scan: drilled into one
                     // directory, the legend has to describe the rings in front of you or
                     // it is annotating a picture nobody is looking at.

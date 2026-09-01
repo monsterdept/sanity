@@ -167,6 +167,20 @@ export interface Node {
    *  `fileFunctions`. Zero on a file whose functions are present, where `children` is the
    *  answer, and zero on everything that is not a file. */
   funcs: number
+  /** Files under this node the walk could not parse — see `Node::unparsed` in `model.rs`.
+   *
+   *  **Optional, and its absence is the point.** A replayed frame and a scan still streaming
+   *  its shape both build nodes of their own, and neither knows what the walk could not read:
+   *  a frame is built from git history, where a file that has no grammar today has no entry
+   *  at all. Zero would say "nothing here was unreadable", which is a confident answer nobody
+   *  computed. Undefined says nothing, and the corner chip prints nothing — the same rule
+   *  every lens follows when it is out of evidence.
+   *
+   *  **Optional also means `toNode` can forget it and the compiler will not say so**, which
+   *  is how this shipped silent the first time: the field was on the interface, the wire
+   *  carried the number, and nothing copied it across. Anything added here needs a line
+   *  there. */
+  unparsed?: number
   /** This FILE's functions, reduced to the numbers a distribution is built from — see
    *  `Cols` in `model.rs`.
    *
@@ -425,6 +439,7 @@ interface WireNode {
   bytes?: number | null
   excluded?: boolean
   last_author: string | null
+  unparsed?: number
   doc?: string | null
   signature?: string | null
   owner?: string | null
@@ -535,6 +550,10 @@ function toNode(w: WireNode): Node {
     copied: w.copied ?? null,
     children: (w.children ?? []).map(toNode),
     funcs: w.funcs ?? 0,
+    // `?? undefined`, never `?? 0`: a backend that predates this field has not measured what
+    // it could not parse, and a zero would report that silence as a repo with no gaps. Same
+    // rule as `callers` above, and the same reason.
+    unparsed: w.unparsed ?? undefined,
     // Undefined rather than an empty `Cols`, so "this build sent none" and "this file has no
     // functions" stay apart — `histogramsFor` refuses to draw a distribution over a subtree
     // it cannot account for, and an empty column set would read as a file with nothing in it.
