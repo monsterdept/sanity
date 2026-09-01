@@ -370,7 +370,20 @@ function traceOf(p: ProjectSummary, scanned: boolean, replayBlocked: boolean): P
       fill: gauge(1, 1, 0, 0),
       verb: 'Trace',
       act: 'trace',
-      note: 'count how often each function changes',
+      // **Short, because the row truncates and every sibling here is short.** `304 files to
+      // blame`, `340 commits to walk`, `12k commits · 3k files blamed` — the line is one
+      // glance wide and this one ran past it into an ellipsis, which is a note that has
+      // stopped being one. Kept inside the longest that already ships — `12k commits · 3k
+      // files blamed`, 29 characters — rather than trimmed to whatever fitted the sidebar it
+      // was looked at in, because that width is draggable.
+      //
+      // No quantity, where its neighbours all have one. The number this walk is bounded by is
+      // commits inside the widest window, and pricing it costs three `git` calls — on a row
+      // that repolls twice a second, for every project in the list. The other chambers get
+      // their numbers for free from counts the scan already holds; this one would have to buy
+      // its own, which is not a trade a status line is worth. The plainest statement of what
+      // pressing it buys, then, which is what the blame note beside it was rewritten to be.
+      note: 'how often functions change',
     }
   }
 

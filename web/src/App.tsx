@@ -1479,6 +1479,24 @@ export default function App() {
    *  which is what makes the stack usable directly; `''` is the repo. */
   const drilled = stack.length > 0 ? stack[stack.length - 1] : ''
 
+  /** This repo's churn ladder, in days — see `ChurnView`.
+   *
+   *  **Above the frame tree, because a `useMemo` factory runs where it is written.** It sat
+   *  beside `locks`, two hundred lines further down, and `histRoot` reads it — so entering
+   *  History threw `Cannot access 'churnWindows' before initialization` on the first frame.
+   *  A `const` in a component body is not hoisted and a memo is not deferred.
+   *
+   *  It was also stranded between `locks`'s doc comment and `locks`, which handed that
+   *  paragraph to this declaration — the same way `parse_log`'s doc once belonged to
+   *  `credit`. A comment adjacent to a definition is that definition's.
+   *
+   *  Its own memo because the replay needs it too, and a fresh array per render would refold
+   *  every frame. */
+  const churnWindows = useMemo<ChurnWindows>(
+    () => scan?.stats.churnWindows ?? VIEWS_DEFAULT.churn.windows,
+    [scan],
+  )
+
   /** The tree for the frame under the playhead, or nothing when history is off.
    *
    *  Built fresh per frame rather than patched onto the live scan: the two hold different
@@ -1699,12 +1717,6 @@ export default function App() {
    *  repo's git history, this language's wiring — and the order matters: a replay's limits
    *  are true whatever the repo holds, so they are asked first.
    */
-  /** This repo's churn ladder, in days — see `ChurnView`. Its own memo because the replay
-   *  needs it too, and a fresh array per render would refold every frame. */
-  const churnWindows = useMemo<ChurnWindows>(
-    () => scan?.stats.churnWindows ?? VIEWS_DEFAULT.churn.windows,
-    [scan],
-  )
   const locks = useMemo(() => {
     const out: Partial<Record<ColorMode, Locked>> = {}
     for (const m of Object.keys(MODE_LABEL) as ColorMode[]) {
