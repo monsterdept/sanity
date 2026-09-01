@@ -2572,9 +2572,15 @@ export default function App() {
         <div className="flex min-w-0 flex-1 flex-col">
           <TopRow>
             {focus && (
-              /* Full width, so the spacers have room to push into — see `Spacer`, which also
-                 keeps the strip draggable now that a child covers all of it. */
-              <div className="flex w-full items-center gap-2 px-3">
+              /* Full width, so the spacers have room to push into — see `Spacer`.
+                 **And a drag region itself, because it covers the one that was there.**
+                 `TopRow` is the handle, but Tauri drags only when the EVENT TARGET carries
+                 the attribute, and this child spans the whole strip — so every pixel of it
+                 that is not a control was targeting a plain div and the titlebar had no grip
+                 left. That includes the `gap-2` between every control and the `px-3` at both
+                 ends, which is most of the empty chrome up here. Children keep taking their
+                 own clicks: a button is the target when a button is hit. */
+              <div data-tauri-drag-region className="flex w-full items-center gap-2 px-3">
                 {/* Disabled rather than hidden while the replay is up. The switcher is the
                   window's statement of what color means, and removing it would leave the
                   rings recolored with nothing on screen saying by what. Grayed, with the
@@ -3297,11 +3303,17 @@ function ProgressPane({ progress, label }: { progress: Progress | null; label?: 
  *
  *  **It carries the drag region, which is the whole reason this is a component.** `TopRow` is
  *  a Tauri drag handle and Tauri drags only when the EVENT TARGET carries the attribute — so
- *  a full-width child would take the entire titlebar out of the window's grip. These spacers
- *  are the empty chrome between the controls; they are exactly what should still be draggable,
- *  and now they are the only part of the row that is. */
+ *  a full-width child takes the entire titlebar out of the window's grip unless it carries the
+ *  attribute too, which the toolbar's own wrapper now does. These spacers are the elastic
+ *  chrome between the controls and the widest handle on the row, which is why they hold it
+ *  explicitly rather than inheriting the wrapper's. */
 function Spacer() {
-  return <span data-tauri-drag-region aria-hidden className="min-w-4 flex-1" />
+  // **`self-stretch`, or it is a hit area with no height.** An empty span in an
+  // `items-center` row is as tall as nothing at all, so the attribute was on an element that
+  // occupied a sliver across the middle of the strip: the drag worked, on a few pixels,
+  // which reads exactly like it not working. Stretching it to the row makes the elastic gap
+  // the full-height handle it looks like.
+  return <span data-tauri-drag-region aria-hidden className="min-w-4 flex-1 self-stretch" />
 }
 
 function FindButton({ on, onOpen }: { on: boolean; onOpen: () => void }) {
