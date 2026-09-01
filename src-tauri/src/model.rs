@@ -123,6 +123,84 @@ mod lang_label {
     }
 }
 
+/// Every language this parser reads, and the extensions each answers to.
+///
+/// **One table, both directions.** `from_extension` reads it and so does `Lang::extensions`,
+/// which is what lets the app SAY what it can read — see the languages sheet in the window.
+/// Two matches would be two tables, and the one nobody calls is the one that goes wrong.
+///
+/// Order is the order they were added and nothing reads it: the sheet sorts by name. One row
+/// per language, pinned by a test — two rows would make `extensions` return whichever came
+/// first, which is how `.h` alone came back as everything C++ answers to.
+pub const LANGS: &[(Lang, &[&str])] = &[
+    (Lang::Rust, &["rs"]),
+    (Lang::TypeScript, &["ts", "mts", "cts"]),
+    (Lang::Tsx, &["tsx"]),
+    (Lang::JavaScript, &["js", "mjs", "cjs", "jsx"]),
+    (Lang::Python, &["py", "pyi"]),
+    (Lang::Go, &["go"]),
+    (Lang::Swift, &["swift"]),
+    (Lang::C, &["c"]),
+    // `.h` rides with C++ rather than C, and the reason is asymmetry rather than a claim:
+    // a C header parses under the C++ grammar and yields the same functions, where the C
+    // grammar on real C++ headers INVENTS them. `conventions.md` has the measurement.
+    (Lang::Cpp, &["cc", "cpp", "cxx", "hpp", "hh", "hxx", "h"]),
+    (Lang::Java, &["java"]),
+    (Lang::Kotlin, &["kt", "kts"]),
+    (Lang::CSharp, &["cs"]),
+    (Lang::Ruby, &["rb"]),
+    (Lang::Php, &["php"]),
+    (Lang::Lua, &["lua"]),
+    (Lang::Elixir, &["ex", "exs"]),
+    (Lang::Scala, &["scala", "sc"]),
+    (Lang::Dart, &["dart"]),
+    (Lang::Zig, &["zig"]),
+    (Lang::ObjC, &["m", "mm"]),
+    (Lang::Shell, &["sh", "bash"]),
+    (Lang::Zsh, &["zsh"]),
+    (Lang::Sql, &["sql"]),
+    (Lang::GdScript, &["gd"]),
+    (Lang::GdShader, &["gdshader"]),
+    (Lang::Haskell, &["hs", "lhs"]),
+    (Lang::Nix, &["nix"]),
+    (Lang::PowerShell, &["ps1", "psm1", "psd1"]),
+    (Lang::Solidity, &["sol"]),
+    (Lang::R, &["r", "R"]),
+    (Lang::OCaml, &["ml", "mli"]),
+    (Lang::OCamlLex, &["mll"]),
+    (Lang::Cmake, &["cmake"]),
+    (Lang::Julia, &["jl"]),
+    (Lang::Erlang, &["erl", "hrl"]),
+    (Lang::Pascal, &["pas", "pp"]),
+    (Lang::Clojure, &["clj", "cljs", "cljc"]),
+    (Lang::FSharp, &["fs", "fsi", "fsx"]),
+    (Lang::Groovy, &["groovy", "gradle"]),
+    (Lang::Elm, &["elm"]),
+    (Lang::Fortran, &["f90", "f95", "f03", "f08"]),
+    (Lang::Starlark, &["bzl", "star"]),
+    (Lang::Verilog, &["v", "vh"]),
+    (Lang::SystemVerilog, &["sv", "svh"]),
+    (Lang::Gleam, &["gleam"]),
+    (Lang::Odin, &["odin"]),
+    (Lang::Perl, &["pl", "pm"]),
+    (Lang::Prolog, &["pro", "prolog"]),
+    (Lang::VisualBasic, &["vb"]),
+    (Lang::Elisp, &["el"]),
+    (Lang::Qml, &["qml"]),
+    (Lang::Scheme, &["scm", "ss"]),
+    (Lang::Racket, &["rkt"]),
+    (Lang::CommonLisp, &["lisp", "lsp"]),
+    (Lang::Cfml, &["cfc", "cfm"]),
+    (Lang::Glsl, &["glsl", "vert", "frag", "geom", "comp"]),
+    (Lang::Hlsl, &["hlsl", "hlsli"]),
+    (Lang::Slang, &["slang"]),
+    (Lang::Ada, &["adb", "ads"]),
+    (Lang::D, &["d"]),
+    (Lang::Vhdl, &["vhd", "vhdl"]),
+    (Lang::Luau, &["luau"]),
+    (Lang::Jq, &["jq"]),
+];
+
 impl Lang {
     /// Every language, once.
     ///
@@ -156,98 +234,19 @@ impl Lang {
     /// Extension → language. Deliberately conservative: an unrecognized extension is
     /// `None`, never a guess, because mis-parsing a file invents functions that aren't
     /// there and those go straight into the score.
+    /// The language a file extension names, or `None` where this parser has no grammar for it.
+    ///
+    /// **A lookup over [`LANGS`], not a match of its own.** The reverse direction — which
+    /// extensions a language answers to — is wanted by the window, which has to be able to say
+    /// what it can read; two matches would be two tables and the second one would drift. One
+    /// linear scan of 64 entries per file is nothing beside parsing the file.
     pub fn from_extension(ext: &str) -> Option<Lang> {
-        Some(match ext {
-            "rs" => Lang::Rust,
-            "ts" | "mts" | "cts" => Lang::TypeScript,
-            "tsx" => Lang::Tsx,
-            "js" | "mjs" | "cjs" | "jsx" => Lang::JavaScript,
-            "py" | "pyi" => Lang::Python,
-            "go" => Lang::Go,
-            "swift" => Lang::Swift,
-            // `.h` is C++, and this is the one shared extension that is not a coin-flip.
-            // The two grammars fail asymmetrically: C++ is very nearly a superset, so a C
-            // header parses under it and yields the same functions, while the C grammar on
-            // a C++ header invents them. Measured on a real repo's headers — `namespace
-            // godot { … }` came out as a 131-line function called `godot`, `T v{};` as a
-            // function called `v`, a class as a 197-line function whose span ran to the end
-            // of four unrelated siblings, and another class truncated to its first inline
-            // member so the reader could not see what it was asked to grade. Twelve
-            // "functions" from 583 lines, none of them real. The reverse direction cost
-            // nothing: htop, 151 files of C, parses to the same 1,426 functions either way.
-            // Same reasoning as `.zsh` taking the zsh grammar over bash.
-            //
-            // `.m` is Objective-C rather than MATLAB for a different reason — that tie has
-            // no superset to break it, so it goes to the language this tool's repos use.
-            "c" => Lang::C,
-            "h" => Lang::Cpp,
-            "cc" | "cpp" | "cxx" | "hpp" | "hh" | "hxx" => Lang::Cpp,
-            "java" => Lang::Java,
-            "kt" | "kts" => Lang::Kotlin,
-            "cs" => Lang::CSharp,
-            "rb" => Lang::Ruby,
-            "php" => Lang::Php,
-            "lua" => Lang::Lua,
-            "ex" | "exs" => Lang::Elixir,
-            "scala" | "sc" => Lang::Scala,
-            "dart" => Lang::Dart,
-            "zig" => Lang::Zig,
-            "m" | "mm" => Lang::ObjC,
-            "sh" | "bash" => Lang::Shell,
-            // `.zsh` used to parse as bash. Zsh's own grammar is a superset, so this only
-            // ever finds more — but it is a behavior change on repos that already scan.
-            "zsh" => Lang::Zsh,
-            "sql" => Lang::Sql,
-            "gd" => Lang::GdScript,
-            "gdshader" => Lang::GdShader,
-            "hs" | "lhs" => Lang::Haskell,
-            "nix" => Lang::Nix,
-            "ps1" | "psm1" | "psd1" => Lang::PowerShell,
-            "sol" => Lang::Solidity,
-            // Both cases: `from_extension` is handed the extension verbatim, and `.R` is
-            // as conventional as `.r` in that community.
-            "r" | "R" => Lang::R,
-            "ml" | "mli" => Lang::OCaml,
-            "mll" => Lang::OCamlLex,
-            "cmake" => Lang::Cmake,
-            "jl" => Lang::Julia,
-            "erl" | "hrl" => Lang::Erlang,
-            "pas" | "pp" => Lang::Pascal,
-            "clj" | "cljs" | "cljc" => Lang::Clojure,
-            "fs" | "fsi" | "fsx" => Lang::FSharp,
-            "groovy" | "gradle" => Lang::Groovy,
-            "elm" => Lang::Elm,
-            "f90" | "f95" | "f03" | "f08" => Lang::Fortran,
-            "bzl" | "star" => Lang::Starlark,
-            // `.v` is Verilog rather than the V language, and `.sv` is SystemVerilog.
-            // Verilog is the overwhelmingly more common owner of the extension, and a
-            // guess between them would invent functions in whichever repo lost — so V is
-            // deliberately absent rather than fighting over `.v`.
-            "v" | "vh" => Lang::Verilog,
-            "sv" | "svh" => Lang::SystemVerilog,
-            "gleam" => Lang::Gleam,
-            "odin" => Lang::Odin,
-            // `.pl` is Perl, not Prolog, for the same reason `.v` is Verilog. Prolog keeps
-            // its unambiguous spellings.
-            "pl" | "pm" => Lang::Perl,
-            "pro" | "prolog" => Lang::Prolog,
-            "vb" => Lang::VisualBasic,
-            "el" => Lang::Elisp,
-            "qml" => Lang::Qml,
-            "scm" | "ss" => Lang::Scheme,
-            "rkt" => Lang::Racket,
-            "lisp" | "lsp" => Lang::CommonLisp,
-            "cfc" | "cfm" => Lang::Cfml,
-            "glsl" | "vert" | "frag" | "geom" | "comp" => Lang::Glsl,
-            "hlsl" | "hlsli" => Lang::Hlsl,
-            "slang" => Lang::Slang,
-            "adb" | "ads" => Lang::Ada,
-            "d" => Lang::D,
-            "vhd" | "vhdl" => Lang::Vhdl,
-            "luau" => Lang::Luau,
-            "jq" => Lang::Jq,
-            _ => return None,
-        })
+        LANGS.iter().find(|(_, exts)| exts.contains(&ext)).map(|(lang, _)| *lang)
+    }
+
+    /// The extensions this language answers to — the other direction of [`LANGS`].
+    pub fn extensions(self) -> &'static [&'static str] {
+        LANGS.iter().find(|(l, _)| *l == self).map(|(_, e)| *e).unwrap_or(&[])
     }
 
     pub fn label(&self) -> &'static str {

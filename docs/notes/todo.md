@@ -6,7 +6,7 @@ leaves this file by being built or by being written up in the note it belongs to
 
 ## In-product documentation of what the parser can read
 
-The app knows exactly which languages it reads, which of them resolve calls (28 of ~60), and
+The app knows exactly which languages it reads, which of them resolve calls (57 of 63), and
 which extensions it deliberately refuses — `.m` is Objective-C so MATLAB ships nowhere, `.v` is
 Verilog so V does not, and `conventions.md` records why each was decided rather than guessed.
 None of that is reachable from inside the app.
@@ -24,14 +24,35 @@ Java, C# and Ruby. Every other language returns `None`, which the lens draws gre
 Swift, Kotlin, PHP, Scala, Elixir, Zig, Lua, Haskell, Shell and Objective-C are all absent, and
 several of them are what somebody's whole project is in.
 
-This is the live gap in the newest lens, and it is the one that decides whether it works on a
-given repo rather than in principle. Adding one is small: a list of node kinds, read off a real
-parse, plus a line in `kinds::branch_kinds_are_real` which fails if any of them is not a kind
-that grammar emits. The test is the whole safety net — a kind that does not exist matches
-nothing and looks exactly like a language whose code never branches.
+**Thirty of sixty-three now**, up from eleven: Swift, Kotlin, PHP, Scala, Dart, Lua, Zig,
+Shell, Zsh, Perl, Objective-C, GDScript, Julia, Solidity, Groovy, R, OCaml, Erlang and Nix
+joined the original eleven. Each was read off a real parse and each is pinned by
+`kinds::branch_kinds_are_real`, which fails if a listed kind is not one that grammar emits — the
+whole safety net, because a kind that does not exist matches nothing and looks exactly like a
+language whose code never branches.
+
+Two are deliberately absent and the reasons are in `branch_kinds`. Elixir's `if`, `case` and
+`cond` are macros, so the grammar reports them as `call` nodes and telling them apart needs the
+callee's TEXT — a different mechanism, and the first thing here somebody would guess at rather
+than read. Haskell's forks are guards and `case` arms, and counting `case` alone charges one for
+a twelve-way dispatch, which is the cyclomatic mistake this formula exists to avoid.
+
+The rest are mostly small or single-construct languages. Adding one is a list of node kinds plus
+a line in the test.
 
 It shares a root with the item above it: the app cannot say what it can and cannot read, so a
 grey wedge is indistinguishable from a simple one until you have read `parse.rs`.
+
+## Two holes in `func_kinds`, found while testing something else
+
+Objective-C matches `method_definition` only, so a plain C function in a `.m` is found by
+nothing at all — and `.m` files routinely hold them. Groovy matches a top-level `def f()` and
+not a CLASS method, which is where most Groovy lives.
+
+Both were found by a Complexity test failing to produce a function to count, which is a poor
+way to learn it: the map has been drawing those repos as having fewer functions than they do,
+and nothing says so. The languages sheet cannot say it either — it reports what the parser can
+do with a language, not which shapes inside it are missed.
 
 ## Mode lists that are kept by hand
 
@@ -71,10 +92,18 @@ and the cost of the per-grammar table was used as a reason not to run the test. 
 needed the table — a keyword scan settles 0.2-against-0.8 fine — and the table turned out to be
 worth paying for.
 
-**Still open on it.** `&&` and `||` are not counted: the node is `binary_expression` in most
-grammars and covers `a + b` just as much, so it needs operator text per language. Leaving them
-out moved kibana's independence from 0.16 to 0.22 and changed nothing on two other repos.
-See the coverage item above for which grammars have tables.
+**Logical operators are counted now**, and it was worth the work the estimate said it might
+not be: independence from line count improved on all four repos, kibana most (0.25 → 0.18) and
+sanity, godot and ladybird to 0.16, −0.05 and 0.05. The node kind cannot distinguish `a && b`
+from `a + b` — both are `binary_expression` nearly everywhere — so the operator TEXT is read,
+and a run of one operator costs one because `a && b && c` is a single condition a reader holds.
+
+**What it turned up is the part worth keeping.** Ruby's table names its constructs `if`,
+`while`, `case` — bare words, because that is what the grammar calls them — and an anonymous
+keyword token's KIND is its own text. So the `if` KEYWORD matched too, one level inside the
+`if` it opens, and a single fork cost three. It shipped that way. Every other grammar names its
+kinds with a suffix no keyword shares, which is why nothing caught it and why `is_branch` now
+requires a NAMED node.
 
 ## The wheel is full at eleven, and the twelfth lens is standing outside it
 
@@ -92,7 +121,15 @@ what it was for eleven. That is what shipped, at 329°.
 genuinely empty region — between the clone and trap MARKS — is now taken. The next lens either
 pays the re-solve, stands outside as this one does, or is not a ramp at all.
 
-**Two gaps in the scorer, both worth closing before it is trusted again.** `--clone` is not one
-of the floors ramps are scored against, so hues 4° and 10° from it score as FREE; both were
-rejected by hand. And `start_from_pins` assumed the menu opens on a pinned hue and that no lens
-sits past the last pin — fixed here, but only because a twelfth lens made both false.
+**The scorer's gaps are closed, and closing them corrected the record.** `--clone` is now a
+floor like `--trap`, both are scored against every ramp stop rather than only the hot end, and
+`ordered_score` — which compared ramps with each other and nothing else — now rejects an
+assignment that puts a ramp inside `MARK_FLOOR` of either mark. `start_from_pins` was fixed
+earlier in the same run: it assumed the menu opens on a pinned hue and that no lens sits past
+the last pin, and a twelfth lens made both false.
+
+What it found is the opposite of what it was opened for. The two slots rejected by hand for
+sitting 4° and 10° off the clone violet score 14.0 and 14.4, above the floor and in line with
+the 13.3 the shipped palette holds against the trap. Hue degrees are not perceptual distance
+once lightness and chroma differ. The gap was real; the thing it was accused of costing was
+not, and the rejection was a judgement made by eye off a wheel.

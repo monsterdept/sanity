@@ -316,11 +316,16 @@
    * the DEFAULT lens — the one somebody is in most of the time — which is the row that earns
    * being told apart rather than blended into a sequence.
    *
-   * Chosen by scanning all 360 with the eleven held fixed, against the scorer AND against the
-   * two marks it does not check. 329 holds 16.0 to the clone mark and 14.5 to the trap, where
-   * the arc's best-scoring hues, 313 and 299, sit four and ten degrees off clone and score as
-   * free only because `--clone` is not one of the floors ramps are scored against. A cost the
-   * scorer cannot see is still a cost.
+   * Chosen by scanning all 360 with the eleven held fixed, against the scorer and against both
+   * marks: 329 holds 16.0 to the clone violet and 14.5 to the trap pink.
+   *
+   * The arc's other candidates, 313 and 299, were rejected here for sitting four and ten
+   * degrees off the clone mark — and that was measured wrong. `palette-search.py` scores both
+   * marks now and puts those two at 14.0 and 14.4, above its floor and in line with the 13.3
+   * this palette already holds against the trap. Hue degrees are not perceptual distance once
+   * lightness and chroma differ, and a saturated mark is nothing like a ramp stop. They would
+   * have been fine. 329 stays because it reads more clearly against its neighbours, not
+   * because the others were disqualified.
    *
    * The floors all still hold, and one of them moved: docs is now the tight one
    * against --trap at 16.6, down from 20.5, because rose at 17° is the closest a ramp

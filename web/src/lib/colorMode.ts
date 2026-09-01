@@ -522,12 +522,33 @@ export function rampEnds(mode: ColorMode, views: Views): [string, string] | unde
  *  The swatch has to walk the SAME ramp the wedges do, now that each reading owns a hue —
  *  otherwise the key under a blue map is an amber gradient. */
 export function rampOf(mode: ColorMode): Ramp {
-  if (mode === 'churn') return 'churn'
-  if (mode === 'tangle') return 'tangle'
-  if (mode === 'age') return 'age'
-  if (mode === 'legible') return 'legible'
-  if (mode === 'docs') return 'docs'
-  return 'heat'
+  return RAMP_OF[mode]
+}
+
+/** Which ramp each lens walks.
+ *
+ *  **A `Record`, because the fall-through was `heat` and a new lens fell into it.** The gap did
+ *  not look like a gap: Complexity drew a gold map under a green legend, because two places
+ *  asked `mode === 'churn' ? 'churn' : 'age'` and one of them fed the swatches. Both go through
+ *  here now, and a thirteenth lens fails the build rather than borrowing somebody's colours.
+ *
+ *  The four that never walk a ramp are listed anyway. Traps and Clones are MARKS — a wedge is
+ *  either marked or it is not — and Blame and Language are categorical, coloured by slot. They
+ *  are given `heat` because that is what the fall-through gave them and nothing reads it; what
+ *  matters is that they are a stated `never` rather than an omission. */
+const RAMP_OF: Record<ColorMode, Ramp> = {
+  tangle: 'tangle',
+  surprise: 'heat',
+  legible: 'legible',
+  docs: 'docs',
+  traps: 'heat',
+  clones: 'heat',
+  callers: 'callers',
+  reach: 'reach',
+  blame: 'heat',
+  language: 'heat',
+  age: 'age',
+  churn: 'churn',
 }
 
 /** The one colour that stands for a lens, as a custom-property name.
@@ -1380,22 +1401,6 @@ const NOT_WALKED = 'timeline not walked'
  *  other two this lock is `keyed: false`. */
 const NOT_COUNTED = 'language not counted'
 
-/** The bands a lens sorts its breakdown by, worst first.
- *
- *  **One place, because the alternative was a `churn ? : age` ternary and a third lens fell
- *  through it.** Complexity's rows came back ordered by `AGE_BANDS` — whose labels it shares
- *  none of, so `indexOf` returned −1 for every row and the sort became whatever order they
- *  happened to arrive in. The same ternary two lines further on picked the ramp, so the legend
- *  was green while the map was gold. Both from one binary that stopped being binary.
- *
- *  A lens with no entry gets an empty order, which leaves its rows in insertion order rather
- *  than silently sorted by another lens's list. Visible, and not wrong. */
-function bandLabels(mode: ColorMode, read: TangleRead): string[] {
-  if (mode === 'churn') return CHURN_BANDS.map((b) => b.label)
-  if (mode === 'age') return AGE_BANDS.map((b) => b.label)
-  if (mode === 'tangle') return TANGLE_BANDS[read].map((b) => b.label)
-  return []
-}
 
 /** The bands Complexity sorts into, in the words of whichever reading is on.
  *
@@ -1464,6 +1469,41 @@ export function churnLabel(commits: number, days: number): string {
  *  which on a function is the commits its lines trace back to and not a 90-day rate — the
  *  bottom band read `untouched in 90d` over code whose lines every one of them came from a
  *  commit. What a band can honestly say is how many, not when. */
+/** Which lenses a file's COLUMNS can answer — see `Cols`, which is what a file carries when
+ *  its ring of functions has not been fetched.
+ *
+ *  **The pair to `STANDS_IN`, and only honest together.** That one decides whether a file may
+ *  stand in for its functions; this one decides whether it has anything to stand in WITH. A
+ *  lens in the first and not the second is the worst of the three ways this can go wrong: the
+ *  rim draws, confidently, with every ring-less file's lines missing from it — which on a large
+ *  repo is most of the tree.
+ *
+ *  A `Record` for the same reason everything on this page is one now: it was a chain of
+ *  `mode !== …` and the twelfth lens was not in it. */
+const FROM_COLS: Record<ColorMode, boolean> = {
+  churn: true,
+  age: true,
+  tangle: true,
+  callers: true,
+  reach: true,
+  // Clones draws DOTS on the map rather than a rim, so `histogramsFor` never asks — but the
+  // pane's breakdown is `bucketsFor`, and on a repo with no rings fetched it had nothing to
+  // list at all. The columns carry the clone group size, so it can.
+  clones: true,
+  // **Out, and for two different reasons.** Blame and Language would DOUBLE every directory: a
+  // stand-in carries numbers and nothing else, so it falls to the absence bucket while the file
+  // has already answered for itself out of its own `lastAuthor` and `lang` — the real 300 lines
+  // by author, plus 300 more of `unknown`. The reading lenses are out the other way round:
+  // there is nothing in a column to answer them with, and an absence bucket would report a read
+  // repo as unread. They answer from `pending` instead — see `contributeHeld`.
+  blame: false,
+  language: false,
+  surprise: false,
+  legible: false,
+  docs: false,
+  traps: false,
+}
+
 /** **Which lenses a file can answer for when its functions have not been fetched.**
  *
  *  This is the difference between a distribution and a sample of whatever happened to be
@@ -1902,21 +1942,7 @@ function contributeCols(
   // lines by author, plus 300 more of `unknown`. The reading lenses are out for the opposite
   // reason — there is nothing in a column to answer them with, and an absence bucket would
   // report a read repo as unread.
-  if (
-    mode !== 'churn' &&
-    mode !== 'age' &&
-    // **Without this a ring-less file answered NOTHING and the rim drew anyway**, missing
-    // every line in it — see `STANDS_IN`, which is the gate that lets a file stand in and is
-    // only honest if the file actually has something to say.
-    mode !== 'tangle' &&
-    mode !== 'callers' &&
-    mode !== 'reach' &&
-    // Clones draws DOTS on the map rather than a rim, so `histogramsFor` never asks — but
-    // the pane's breakdown is `bucketsFor`, and on a repo with no rings fetched it had
-    // nothing to list at all. The columns carry the clone group size, so it can.
-    mode !== 'clones'
-  )
-    return
+  if (!FROM_COLS[mode]) return
   const c = file.cols
   if (!c) return
   const stand: {
@@ -2027,71 +2053,90 @@ function contributeHeld(file: Node, mode: ColorMode, view: Views, put: Put): voi
  *  position means nothing. On the rim it does a second job the pane does not need: a segment's
  *  POSITION is the only thing that lets two directories be compared at a glance, so it has to
  *  be a property of the lens and never of the wedge's own contents. */
+/** How each lens orders its breakdown: a list of band labels, worst first — or `'lines'` where
+ *  the rows are a cast rather than a scale.
+ *
+ *  **A `Record`, because this was nine `else if`s and a fall-through, and the fall-through is
+ *  where a new lens landed.** `indexOf` returns −1 for a key that is not in the list, so a lens
+ *  nobody added here did not sort into some sensible default — every one of its rows tied at
+ *  −1 and came out in arrival order, which reads as a shuffled panel rather than as a missing
+ *  entry. A record over `ColorMode` makes a thirteenth lens a build failure.
+ *
+ *  A function per entry rather than an array, because Complexity's words depend on which of its
+ *  two readings is on — see `TANGLE_BANDS`. Everything else ignores the argument. */
+const BUCKET_ORDER: Record<ColorMode, 'lines' | ((read: TangleRead) => readonly string[])> = {
+  // By lines, because the row PRINTS lines. A column of numbers not in their own order reads
+  // as a bug, and it was one: these rows sorted by `lines` while printing `count`.
+  //
+  // **This deliberately does not match the legend, and the comment here used to claim it did.**
+  // It said "matching `legendFor`" — half true, which is worse than wrong. `legendFor` does
+  // return line order, and then `ColorKey` re-sorts it into slot order before drawing, for its
+  // own reason: a legend that reordered as a replay ran would animate its own ranking, which is
+  // the bug `authorRank` exists to have killed.
+  //
+  // The two surfaces answer two questions and the orders follow from that. A legend is a KEY,
+  // ordered by the repo-wide all-time cast (`stats.authors`, ranked by COMMITS) so a person's
+  // place in it does not move when you drill or when the playhead does. This is a DISTRIBUTION
+  // of what you have OPEN — `Detail` hands it `focus`, so it is the wedge you drilled into or
+  // clicked, never the one the pointer happens to be over — ordered by how much of that picture
+  // each person holds: LINES, here, not everywhere. On ceph the two disagree loudly and both
+  // are right: one 642-file whitespace sweep makes somebody the first row here who is nowhere
+  // near the first sixteen there.
+  blame: 'lines',
+  language: 'lines',
+  // Traps first: it is the only row anybody opens this lens to find. One name rather than a
+  // full list, which works because an unlisted key now sorts LAST — see `rank`.
+  traps: () => ['trap'],
+  // Most-called first. It was fewest-first, on the argument that the sparse end is what people
+  // sweep for — true, and outweighed by the rule now holding every lens together: one
+  // direction, loud end leading, so a rim can be compared with the rim beside it and with the
+  // bar in the pane. See `GRADES` in `Summary.tsx`.
+  callers: () => CALLER_BANDS.map((b) => b.label),
+  // Biggest group first, on the same argument Traps makes for itself: it is the row anybody
+  // opens this lens to find, and the rows below it are context for it.
+  clones: () => [...CLONE_BANDS.map((b) => b.label), 'unique'],
+  // The direction Callers reads in — the two lenses are a pair and a reader moving between them
+  // must not have to re-learn which way a row of four runs.
+  reach: () => REACH_BANDS.map((b) => b.label),
+  // Obscure first, mundane last, then the two absences — `Spread` reads exactly this way now
+  // that `GRADES` leads with the loud end.
+  surprise: () => ['none', 'some', 'most', 'full', '\u0000expired'],
+  // Worst first, loud end first — the direction `Spread` now reads in, and every other
+  // breakdown with it. This was best-first for a while on the argument that a bar should run
+  // the way its ramp's legend runs; what settled it the other way is that the same breakdown is
+  // drawn on the map as a container's rim, where the order is a direction compared across
+  // wedges rather than a list read downward. One direction everywhere beats each lens reading
+  // the way its own legend happens to.
+  legible: () => ['none', 'some', 'most', 'full'],
+  docs: () => ['none', 'some', 'most', 'full'],
+  churn: () => CHURN_BANDS.map((b) => b.label),
+  age: () => AGE_BANDS.map((b) => b.label),
+  tangle: (read) => TANGLE_BANDS[read].map((b) => b.label),
+}
+
 export function sortBuckets<T extends { key: string; lines: number }>(
   rows: T[],
   mode: ColorMode,
   /** Which of Complexity's two readings named these bands — see `TANGLE_BANDS`. The words
    *  differ between them, so the order has to be looked up under the same one that wrote
-   *  them, or `indexOf` misses every row and the sort silently does nothing. */
+   *  them, or nothing matches and the sort silently does nothing. */
   read: TangleRead = 'weighted',
 ): T[] {
-  if (mode === 'blame' || mode === 'language') {
-    // By lines, because the row PRINTS lines. A column of numbers not in their own order
-    // reads as a bug, and it was one: these rows sorted by `lines` while printing `count`.
-    //
-    // **This deliberately does not match the legend, and this comment used to claim it did.**
-    // It said "matching `legendFor`" — half true, which is worse than wrong. `legendFor` does
-    // return line order, and then `ColorKey` re-sorts it into slot order before drawing, for
-    // its own reason: a legend that reordered as a replay ran would animate its own ranking,
-    // which is the bug `authorRank` exists to have killed.
-    //
-    // The two surfaces answer two questions and the orders follow from that. A legend is a
-    // KEY, ordered by the repo-wide all-time cast (`stats.authors`, ranked by COMMITS) so a
-    // person's place in it does not move when you drill or when the playhead does. This is a
-    // DISTRIBUTION of what you have OPEN — `Detail` hands it `focus`, so it is the wedge
-    // you drilled into or clicked, never the one the pointer happens to be over — ordered by
-    // how much of that picture each
-    // person holds — LINES, here, not everywhere. On ceph the two disagree loudly and both
-    // are right: one 642-file whitespace sweep makes somebody the first row here who is
-    // nowhere near the first sixteen there.
+  const spec = BUCKET_ORDER[mode]
+  if (spec === 'lines') {
     rows.sort((a, b) => b.lines - a.lines)
-  } else if (mode === 'traps') {
-    // Traps first: it is the only row anybody opens this lens to find.
-    rows.sort((a, b) => Number(b.key === 'trap') - Number(a.key === 'trap'))
-  } else if (mode === 'callers') {
-    // Most-called first. It was fewest-first, on the argument that the sparse end is what
-    // people sweep for — true, and outweighed by the rule now holding every lens together:
-    // one direction, loud end leading, so a rim can be compared with the rim beside it and
-    // with the bar in the pane. See `GRADES` in `Summary.tsx`.
-    const order = CALLER_BANDS.map((b) => b.label)
-    rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
-  } else if (mode === 'clones') {
-    // Biggest group first, on the same argument Traps makes for itself: it is the row
-    // anybody opens this lens to find, and the rows below it are context for it.
-    const order = [...CLONE_BANDS.map((b) => b.label), 'unique']
-    rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
-  } else if (mode === 'reach') {
-    // The direction Callers reads in — the two lenses are a pair and a reader moving between
-    // them must not have to re-learn which way a row of four runs.
-    const order = REACH_BANDS.map((b) => b.label)
-    rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
-  } else if (mode === 'surprise') {
-    // Obscure first, mundane last, then the two absences — `Spread` reads exactly this way
-    // now that `GRADES` leads with the loud end.
-    const order: string[] = ['none', 'some', 'most', 'full', '\u0000expired']
-    rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
-  } else if (mode === 'legible' || mode === 'docs') {
-    // Worst first, loud end first — the direction `Spread` now reads in, and every other
-    // breakdown with it. This was best-first for a while on the argument that a bar should
-    // run the way its ramp's legend runs; what settled it the other way is that the same
-    // breakdown is drawn on the map as a container's rim, where the order is a direction
-    // compared across wedges rather than a list read downward. One direction everywhere
-    // beats each lens reading the way its own legend happens to.
-    const order: string[] = ['none', 'some', 'most', 'full']
-    rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
   } else {
-    const order = bandLabels(mode, read)
-    rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
+    const order = spec(read)
+    // **An unlisted key sorts LAST, where `indexOf` alone put it first.** −1 is smaller than
+    // every real position, so a row this lens has no band for used to lead the panel — which
+    // is how a mismatch between the labels a lens WRITES and the labels it SORTS by showed up:
+    // not as an empty list or an error, but as a breakdown in arrival order with the odd row
+    // on top. Last is the honest place for it, and it is where the absence rows already go.
+    const rank = (k: string) => {
+      const i = order.indexOf(k)
+      return i < 0 ? order.length : i
+    }
+    rows.sort((a, b) => rank(a.key) - rank(b.key))
   }
   // Whatever the mode could not color goes last whichever way the rest is sorted: it is
   // the one row that is not a value, and interleaving it by size would read as one.

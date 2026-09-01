@@ -308,6 +308,7 @@ pub fn run() {
             commands::repo_remote,
             commands::history_deltas,
             commands::history_funcs,
+            commands::languages,
             commands::sync_theme_menu,
             commands::read_source,
             commands::open_code_window,

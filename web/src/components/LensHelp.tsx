@@ -1,6 +1,7 @@
-import { Fragment, useEffect, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { Overlay } from './Overlay'
 import { MODE_LABEL, type ColorMode } from '../lib/colorMode'
+import { languages, type LangSupport } from '../lib/api'
 
 /**
  * The lens reference: one row per lens, each with its own key beside it, in the menu's order.
@@ -323,6 +324,93 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
 /** The menu's order, which is the only order this modal may use. */
 const LENS_ORDER = Object.keys(MODE_LABEL) as ColorMode[]
 
+/** What this build can read, as a sheet.
+ *
+ *  **Three lenses go grey for three different reasons and the map cannot tell them apart.** A
+ *  wedge with no callers looks exactly like a language whose calls were never parsed; a body
+ *  that never branches looks exactly like one whose branch kinds nobody has written. The
+ *  literal node-kind matching exists to make those loud in a TEST — `conventions.md` says so —
+ *  and it was silent in the window, so the only way to know which absence you were looking at
+ *  was to read `parse.rs`.
+ *
+ *  Asked once and kept: it is a fact about the build, not about the repo that is open.
+ *
+ *  The columns are three claims and not one at three strengths, which is why they are three
+ *  columns and not a rating. Reading a language means finding its functions, which is what the
+ *  map is drawn from and what every language here can do; the other two are what the lenses
+ *  built on them need. */
+function Languages() {
+  const [langs, setLangs] = useState<LangSupport[] | null>(null)
+  useEffect(() => {
+    let live = true
+    void languages()
+      .then((l) => live && setLangs(l))
+      // A sheet that cannot load says so rather than staying blank forever: an empty list here
+      // would read as "this build reads nothing", which is a claim.
+      .catch(() => live && setLangs([]))
+    return () => {
+      live = false
+    }
+  }, [])
+
+  if (langs === null) return <p className="px-5 py-3 text-[11px] text-[var(--muted-foreground)]">reading the grammar list…</p>
+  if (langs.length === 0) {
+    return (
+      <p className="px-5 py-3 text-[11px] text-[var(--muted-foreground)]">
+        The grammar list could not be read. That is this window failing, not a repo — nothing
+        about what the parser supports has changed.
+      </p>
+    )
+  }
+  const calls = langs.filter((l) => l.calls).length
+  const branches = langs.filter((l) => l.branches).length
+  const tick = (on: boolean) => (
+    <span
+      aria-label={on ? 'yes' : 'no'}
+      style={{ color: on ? 'var(--foreground)' : 'var(--muted-foreground)' }}
+    >
+      {on ? '\u2713' : '\u2014'}
+    </span>
+  )
+  return (
+    <div className="px-5 py-3">
+      <p className="mb-3 text-[11px] leading-[1.5] text-[var(--muted-foreground)]">
+        {langs.length} languages, of which {calls} have their calls followed off the grammar and{' '}
+        {branches} have their branches counted. Where a column is blank the lens built on it
+        paints grey and says so — that is a gap in this parser, not a finding about your code.
+      </p>
+      <table className="w-full border-collapse text-[11px]">
+        <thead>
+          <tr className="text-left text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
+            <th className="border-b border-[var(--border)] pb-1 font-semibold">Language</th>
+            <th className="border-b border-[var(--border)] pb-1 font-semibold">Extensions</th>
+            {/* Named for the LENS each column decides, because that is the question somebody
+                arrives with — "why is Callers grey here" — rather than for the machinery. */}
+            <th className="border-b border-[var(--border)] pb-1 text-center font-semibold">
+              Callers · Reach
+            </th>
+            <th className="border-b border-[var(--border)] pb-1 text-center font-semibold">
+              Complexity
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {langs.map((l) => (
+            <tr key={l.name} className="align-top">
+              <td className="whitespace-nowrap py-[3px] pr-3">{l.name}</td>
+              <td className="mono py-[3px] pr-3 text-[10px] text-[var(--muted-foreground)]">
+                {l.extensions.map((e) => `.${e}`).join(' ')}
+              </td>
+              <td className="py-[3px] text-center">{tick(l.calls)}</td>
+              <td className="py-[3px] text-center">{tick(l.branches)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export function LensHelp({ onClose }: { onClose: () => void }) {
   // Escape closes. Handled here rather than in `lib/keys.ts` because that decides what a key
   // means for the MAP; a modal owns its own keyboard while it is up, the rule `Find` follows.
@@ -337,6 +425,8 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  const [tab, setTab] = useState<'lenses' | 'languages'>('lenses')
+
   return (
     <Overlay onClose={onClose}>
       <div
@@ -344,21 +434,58 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         <header className="shrink-0 border-b border-[var(--border)] px-5 pb-3 pt-4">
-          <h2 className="text-sm font-semibold">Lenses</h2>
+          <h2 className="text-sm font-semibold">{tab === 'lenses' ? 'Lenses' : 'What it reads'}</h2>
           <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-            The map is a project's structure: directories, files, functions. A wedge's width is its
-            share of the <B>lines of code</B>. The lens sets color and nothing else, and non-code is
-            not drawn.
+            {tab === 'lenses' ? (
+              <>
+                The map is a project's structure: directories, files, functions. A wedge's width
+                is its share of the <B>lines of code</B>. The lens sets color and nothing else,
+                and non-code is not drawn.
+              </>
+            ) : (
+              <>
+                Every language this build has a grammar for, and what it can do with each. A lens
+                paints grey where its column is blank — that is this parser's limit, and it is
+                not a finding about the code.
+              </>
+            )}
           </p>
+          {/* Two tabs rather than one long scroll: the second sheet answers a question somebody
+              arrives with mid-map ("why is this grey"), and burying it under twelve lens
+              entries is the same as not having it. */}
+          <div className="mt-3 flex gap-1">
+            {(['lenses', 'languages'] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setTab(k)}
+                aria-pressed={tab === k}
+                className="rounded-full px-2.5 py-[3px] text-[11px] leading-none transition-colors"
+                style={
+                  tab === k
+                    ? { background: 'var(--accent)', color: 'var(--accent-foreground)', fontWeight: 600 }
+                    : { color: 'var(--muted-foreground)' }
+                }
+              >
+                {k === 'lenses' ? 'Lenses' : 'Languages'}
+              </button>
+            ))}
+          </div>
         </header>
 
         {/* Inline `code` is scoped here rather than styled globally: this is the only surface
             that sets a value in running prose, and a global rule would reach the code view,
             which has its own type. */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 [overscroll-behavior:contain] [&_code]:rounded-[2px] [&_code]:bg-[var(--secondary)] [&_code]:px-1 [&_code]:py-px [&_code]:font-mono [&_code]:text-[9px] [&_code]:text-[var(--foreground)]">
-          {LENS_ORDER.map((m) => (
-            <Fragment key={m}>{ENTRIES[m]}</Fragment>
-          ))}
+        <div className="min-h-0 flex-1 overflow-y-auto [overscroll-behavior:contain] [&_code]:rounded-[2px] [&_code]:bg-[var(--secondary)] [&_code]:px-1 [&_code]:py-px [&_code]:font-mono [&_code]:text-[9px] [&_code]:text-[var(--foreground)]">
+          {tab === 'lenses' ? (
+            <div className="px-5 py-3">
+              {LENS_ORDER.map((m) => (
+                <Fragment key={m}>{ENTRIES[m]}</Fragment>
+              ))}
+            </div>
+          ) : (
+            <Languages />
+          )}
         </div>
 
         <footer className="flex shrink-0 justify-end border-t border-[var(--border)] px-5 py-3">

@@ -20,7 +20,7 @@
  * same shape `replay-check` takes and for the same reason.
  */
 import { rimRuns } from '../src/lib/rim'
-import { OTHER, bucketsFor, histogramsFor } from '../src/lib/colorMode'
+import { OTHER, bucketsFor, histogramsFor, sortBuckets } from '../src/lib/colorMode'
 import type { Slice } from '../src/lib/colorMode'
 import type { Node } from '../src/lib/api'
 
@@ -315,6 +315,31 @@ console.log("roll-ups — and a count that knows what it holds says so")
     aged.map((b) => [b.label, b.lines]),
   )
   check('and does not invent a band for it', aged.length === 1 && aged[0].label === 'today')
+}
+
+console.log('a row this lens has no band for sorts LAST, not first')
+{
+  // **`indexOf` returns −1, which is smaller than every real position.** So a key a lens has
+  // no band for used to lead the panel — and that is not a hypothetical: it is exactly how the
+  // labels-vs-order mismatch showed up when Complexity was sorting by Age's band list. Every
+  // row tied at −1, the sort did nothing, and the breakdown came out in arrival order with the
+  // odd one on top. Nothing was empty and nothing threw.
+  const rows = [
+    { key: 'as expected', lines: 10 },
+    { key: 'not a band this lens has', lines: 10 },
+    { key: 'far above normal', lines: 10 },
+  ]
+  const out = sortBuckets([...rows], 'tangle', 'weighted')
+  check(
+    'the loud band still leads',
+    out[0].key === 'far above normal',
+    out.map((r) => r.key),
+  )
+  check(
+    'and the stranger goes to the back',
+    out[out.length - 1].key === 'not a band this lens has',
+    out.map((r) => r.key),
+  )
 }
 
 console.log('a container draws its distribution, not its mean')

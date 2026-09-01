@@ -282,9 +282,22 @@ MARKS = {"trap": {"light": "#ff4f95", "dark": "#ff5ea1"},
          "clone": {"light": "#b026ff", "dark": "#bd5cff"}}
 
 BARRED = None
-# Drawn over the same wedges as every ramp, so both are floors rather than preferences.
+# Drawn over the same wedges as every ramp, so these are floors rather than preferences.
 NEUTRAL = {"light": "#b3aca3", "dark": "#4a4642"}
 TRAP = {"light": "#ff4f95", "dark": "#ff5ea1"}
+# **`--clone` is a floor too, and it was missing.** It is drawn exactly where `--trap` is — a
+# mark over a wedge — so a ramp could be placed beside it and nothing here would say so.
+#
+# What closing the gap actually showed is worth writing down, because it contradicts the reason
+# it was opened. Adding a twelfth ramp, the two best-scoring menu slots put it at 313 and 299,
+# four and ten degrees off the clone violet in HUE — and those were rejected by hand as a place
+# the search was hiding a lens. Scored, they come back at 14.0 and 14.4, above this floor and
+# in line with the 13.3 the shipped palette holds against the trap. They were fine. Hue degrees
+# are not perceptual distance when the lightness and chroma differ, and a mark is nothing like a
+# ramp stop: judging that by eye off the wheel was the error, not the search.
+#
+# The gap is still real and still worth closing. It just did not cost what it was accused of.
+CLONE = {"light": "#b026ff", "dark": "#bd5cff"}
 # The directory fill IS drawn over the same wedges as every ramp, so it is a floor — it was
 # missing from the first version of this search, which duly recommended a colour one step from
 # a thing the map already draws. A constraint you forget is not a constraint the picture
@@ -311,7 +324,8 @@ def ramp(hue):
 def margins(hues):
     """Six worst-case contrasts, in the order the tuple unpacks.
 
-    (cold pair, hot pair, cold-vs-neutral, hot-vs-trap, any-vs-structure, any-vs-mark).
+    (cold pair, hot pair, cold-vs-neutral, any-vs-trap, any-vs-clone, any-vs-structure,
+    any-vs-mark).
     It named the first four for a while, and a caller unpacking by the docstring was two
     short — the two it left out are the ones the floors below actually reject on.
     """
@@ -326,10 +340,14 @@ def margins(hues):
         default=math.inf,
     )
     vs_neutral = min(plain(r[0], n) for r in ramps.values() for n in NEUTRAL.values())
-    vs_trap = min(plain(r[4], t) for r in ramps.values() for t in TRAP.values())
+    # Both marks, and against EVERY stop rather than only the hot one. A mark sits over a wedge
+    # at whatever the ramp put there, so the pair that matters is the closest pair anywhere on
+    # the ramp — the hot end is where a clash was noticed once, not where it is bounded.
+    vs_trap = min(plain(c, t) for r in ramps.values() for c in r for t in TRAP.values())
+    vs_clone = min(plain(c, t) for r in ramps.values() for c in r for t in CLONE.values())
     vs_struct = min(plain(c, v) for r in ramps.values() for c in r for v in STRUCTURE.values())
     vs_mark = min(plain(c, v) for r in ramps.values() for c in r for v in MARK.values())
-    return cold, hot, vs_neutral, vs_trap, vs_struct, vs_mark
+    return cold, hot, vs_neutral, vs_trap, vs_clone, vs_struct, vs_mark
 
 
 def legal(hue):
@@ -424,6 +442,12 @@ def chips(hues):
     return out
 
 
+# How close a ramp may come to a mark drawn over the same wedges. Twelve, which is under the
+# 13.4 the shipped palette holds and well over the four degrees the unguarded search was happy
+# to recommend — a floor to reject on rather than a target to optimise toward.
+MARK_FLOOR = 12.0
+
+
 def ordered_score(hues):
     """(objective, cold, hot, chip) for one assignment.
 
@@ -438,7 +462,23 @@ def ordered_score(hues):
     c = chips(hues)
     cs = list(c)
     chip = min(plain(c[a], c[b]) for i, a in enumerate(cs) for b in cs[i + 1:])
-    return min(cold, hot * 0.75, chip * 0.6), cold, hot, chip
+    # **The marks, which this scored against not at all.** `ordered_score` compared ramps with
+    # each other and nothing else, so a ramp could sit four degrees from the clone violet and
+    # come back as the best assignment on the board — which is exactly what it did. The floors
+    # are what `margins` has always enforced for `add`; ordering had its own scorer and quietly
+    # did without them.
+    #
+    # A FLOOR rather than a term: below it an assignment is not worth ranking, and above it a
+    # further degree of separation from a mark buys nothing the ramps themselves need. Weighted
+    # in would let a very good spread pay for hiding one lens under a mark.
+    marks = min(
+        plain(stop, m)
+        for r in ramps.values()
+        for stop in r
+        for m in list(TRAP.values()) + list(CLONE.values())
+    )
+    obj = min(cold, hot * 0.75, chip * 0.6)
+    return (obj if marks >= MARK_FLOOR else obj - (MARK_FLOOR - marks)), cold, hot, chip
 
 
 def descending(hues):
@@ -558,7 +598,7 @@ def verify():
     comparing margins to one decimal would fail on rounding while comparing them loosely would
     pass on nonsense. Channel-exact-to-one is the property that actually says this script models
     the palette."""
-    cold, hot, vn, vt, vs, vm = margins(SHIPPED)
+    cold, hot, vn, vt, vc, vs, vm = margins(SHIPPED)
     print(f"shipped {len(SHIPPED)}:")
     worst_step = 0
     for k, h in SHIPPED.items():
@@ -573,7 +613,8 @@ def verify():
     print(f"\nworst cold pair      {cold:.1f}   (index.css says 8.2, churn against age)")
     print(f"worst hot pair       {hot:.1f}   (index.css says 13.5, reach against callers)")
     print(f"cold vs unanalyzed   {vn:.1f}   (index.css says worst 11.5, heat)")
-    print(f"hot vs trap          {vt:.1f}   (index.css says docs is tight at 16.6)")
+    print(f"any stop vs trap     {vt:.1f}   (floor {MARK_FLOOR}; a mark is drawn over a wedge)")
+    print(f"any stop vs clone    {vc:.1f}   (floor {MARK_FLOOR}; it was not scored at all before)")
     print(f"any stop vs structure {vs:.1f}   (floor {STRUCTURE_FLOOR}; --structure is on the map)")
     print(f"any stop vs agent-mark {vm:.1f}   (reported, NOT a floor — see MARK)")
     ok = worst_step <= 1

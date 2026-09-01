@@ -6,6 +6,29 @@ import { listen } from '@tauri-apps/api/event'
 export type NodeKind = 'dir' | 'file' | 'func'
 export type Provenance = 'none' | 'source' | 'history' | 'human'
 
+/** What this build can do with one language — see `parse::LangSupport`.
+ *
+ *  Three different claims rather than one at three strengths: a grammar that finds functions
+ *  may not resolve calls, and one that resolves calls may have no branch table. 63 read, 57
+ *  resolve calls, 30 count branches — and those are pinned by a test, because the first two
+ *  were quoted from a grep and both were wrong. */
+export interface LangSupport {
+  /** What a person calls it — `C++`, not `cpp`. */
+  name: string
+  extensions: string[]
+  /** Decides Callers and Reach. */
+  calls: boolean
+  /** Decides Complexity — see `parse::branch_kinds`. */
+  branches: boolean
+}
+
+/** Every language this build reads, sorted by name.
+ *
+ *  A fact about the BUILD rather than about a repo, so it takes no path and is asked once. */
+export function languages(): Promise<LangSupport[]> {
+  return invoke<LangSupport[]>('languages')
+}
+
 /** A value per churn window — always four, in the order of `Stats.churnWindows`. */
 export type ChurnWindows = [number, number, number, number]
 

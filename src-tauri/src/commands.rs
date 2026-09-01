@@ -35,6 +35,20 @@ pub struct ScanRequest {
 /// JSON, which the webview parses in well under a frame — and the sunburst cannot draw a
 /// single ring until it knows the totals anyway, because every wedge's angle depends on
 /// its siblings' lines. Streaming would buy nothing and cost the ability to render.
+/// What this parser can read, and what it can do with each language.
+///
+/// **A static fact about the build, not about a repo**, which is why it takes no path and never
+/// touches disk. The window asks once and keeps it.
+///
+/// It exists because three lenses go grey for three different reasons and the map cannot tell
+/// them apart on its own: a function nothing calls looks like a language whose calls were never
+/// parsed, and a body that never branches looks like one whose branch kinds nobody wrote. The
+/// literal node-kind matching makes those loud in a test and said nothing in the app.
+#[tauri::command]
+pub fn languages() -> Vec<crate::parse::LangSupport> {
+    crate::parse::language_support()
+}
+
 #[tauri::command]
 pub async fn scan_repo(
     app: AppHandle,

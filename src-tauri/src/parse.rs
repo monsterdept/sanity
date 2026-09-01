@@ -197,7 +197,7 @@ fn language(lang: Lang) -> tree_sitter::Language {
 /// answer is not wrong-looking, it is a confident zero under the Reach lens, and the only
 /// thing that can tell the caches it moved is this number. No reading expires — a body's
 /// text is untouched, so `reading_hash` does not move.
-pub const PARSE_VERSION: u32 = 5;
+pub const PARSE_VERSION: u32 = 6;
 
 /// The oldest [`PARSE_VERSION`] whose parse OUTPUT is identical to this one's.
 ///
@@ -1189,6 +1189,130 @@ fn branch_kinds(lang: Lang) -> Option<&'static [&'static str]> {
         // Ruby names its control flow with bare words: `if`, `while`, `case` are the node
         // kinds themselves. `when` is a case arm and is left out with every other language's.
         Lang::Ruby => &["if", "elsif", "unless", "while", "until", "for", "case", "rescue"],
+        Lang::Swift => &[
+            "if_statement",
+            "for_statement",
+            "while_statement",
+            "repeat_while_statement",
+            "switch_statement",
+            "catch_block",
+            // A `guard` is a fork whose other arm always leaves. Counted, because the reader
+            // still has to hold "what if this fails" — which is the thing being measured.
+            "guard_statement",
+            "ternary_expression",
+        ],
+        Lang::Kotlin => &[
+            "if_expression",
+            "for_statement",
+            "while_statement",
+            "do_while_statement",
+            "when_expression",
+            "catch_block",
+        ],
+        Lang::Php => &[
+            "if_statement",
+            "else_if_clause",
+            "for_statement",
+            "foreach_statement",
+            "while_statement",
+            "do_statement",
+            "switch_statement",
+            "catch_clause",
+            "conditional_expression",
+        ],
+        Lang::Scala => &[
+            "if_expression",
+            "for_expression",
+            "while_expression",
+            "match_expression",
+            "catch_clause",
+        ],
+        Lang::Dart => &[
+            "if_statement",
+            "for_statement",
+            "while_statement",
+            "do_statement",
+            "switch_statement",
+            "catch_clause",
+            "conditional_expression",
+        ],
+        Lang::Lua => &[
+            "if_statement",
+            "elseif_statement",
+            "for_statement",
+            "while_statement",
+            "repeat_statement",
+        ],
+        Lang::Zig => &["if_statement", "for_statement", "while_statement", "switch_expression"],
+        Lang::Shell | Lang::Zsh => &[
+            "if_statement",
+            "elif_clause",
+            "for_statement",
+            "while_statement",
+            "case_statement",
+        ],
+        Lang::Perl => &[
+            "if_statement",
+            "elsif_clause",
+            "unless_statement",
+            "while_statement",
+            "until_statement",
+            // The grammar's own name for a C-style `for`. Odd, and read off a real parse.
+            "for_statement_2",
+        ],
+        Lang::ObjC => &[
+            "if_statement",
+            "for_statement",
+            "while_statement",
+            "do_statement",
+            "switch_statement",
+            "catch_clause",
+            "conditional_expression",
+        ],
+        Lang::GdScript => &[
+            "if_statement",
+            "elif_clause",
+            "for_statement",
+            "while_statement",
+            "match_statement",
+        ],
+        Lang::Julia => &[
+            "if_statement",
+            "elseif_clause",
+            "for_statement",
+            "while_statement",
+            "catch_clause",
+        ],
+        Lang::Solidity => &[
+            "if_statement",
+            "for_statement",
+            "while_statement",
+            "do_while_statement",
+            "catch_clause",
+        ],
+        Lang::Groovy => &[
+            "if_statement",
+            "enhanced_for_statement",
+            "while_statement",
+            "switch_expression",
+            "catch_clause",
+        ],
+        Lang::R => &["if_statement", "for_statement", "while_statement", "repeat_statement"],
+        Lang::OCaml => &["if_expression", "match_expression"],
+        Lang::Erlang => &["case_expr"],
+        // A `let … in` is not a fork and `if` is the only one Nix has. One kind is a small
+        // table and still a true one — the lens will report most Nix as unbranching because
+        // most Nix is.
+        Lang::Nix => &["if_expression"],
+        // **Elixir is deliberately absent and this is where somebody will look for it.** Its
+        // `if`, `case`, `cond` and `unless` are macros, so the grammar reports them as `call`
+        // nodes with a `do_block` — indistinguishable from any other call without matching on
+        // the callee's TEXT, which is a different mechanism from a kind table and would be the
+        // first thing here to guess rather than read. Better absent and saying so.
+        //
+        // Haskell is out for the neighbouring reason: its forks are guards and `case` arms, and
+        // `case` alone counts one for a twelve-way dispatch, which is the cyclomatic mistake
+        // this formula exists to avoid.
         _ => return None,
     })
 }
@@ -1199,20 +1323,93 @@ fn branch_kinds(lang: Lang) -> Option<&'static [&'static str]> {
 /// The nesting term is what separates this from a branch count, and it is the whole reason the
 /// lens is worth drawing: three sequential `if`s cost three, three nested ones cost six, and
 /// the second is the one that is hard to read.
-fn cognitive_of(root: TsNode, lang: Lang) -> Option<u32> {
+/// The operators that fork control flow without a statement: `&&`, `||`, and their spellings.
+///
+/// **Matched on the operator TEXT, because the node kind cannot tell them apart.** Nearly every
+/// grammar calls `a && b` and `a + b` the same thing — `binary_expression`, `binary`,
+/// `infix_expression` — so a kind table counts arithmetic as branching or counts neither. The
+/// text is the only place the distinction lives, and reading it is one slice of the source per
+/// binary node rather than a second walk.
+///
+/// A sequence of the SAME operator costs one, which is the published rule and the reason this
+/// is not simply "count the operators": `a && b && c && d` is one condition a reader holds, and
+/// charging four would make a guard clause look like a nest. The change of operator is what
+/// costs — `a && b || c` is two.
+const LOGICAL: &[&str] = &["&&", "||", "and", "or", "andalso", "orelse"];
+
+/// Which node kinds might BE a logical operator, per grammar. Empty where the language has no
+/// such node or spells its operators as words the walk already sees as branch kinds.
+fn binary_kinds(lang: Lang) -> &'static [&'static str] {
+    match lang {
+        Lang::Rust | Lang::Ruby | Lang::Scala => &["binary_expression", "binary"],
+        Lang::TypeScript | Lang::Tsx | Lang::JavaScript | Lang::Php | Lang::Dart => {
+            &["binary_expression"]
+        }
+        Lang::Python => &["boolean_operator"],
+        Lang::Go | Lang::C | Lang::Cpp | Lang::ObjC | Lang::Solidity | Lang::Zig => {
+            &["binary_expression"]
+        }
+        Lang::Java | Lang::CSharp | Lang::Kotlin | Lang::Groovy => &["binary_expression"],
+        Lang::Swift => &["prefix_expression", "conjunction_expression", "disjunction_expression"],
+        _ => &[],
+    }
+}
+
+/// Does this node introduce a logical operator the one before it did not?
+///
+/// The parent test is what makes a run of one operator cost one: `a && b && c` nests
+/// left-associatively, so the inner node has the same operator as its parent and is free.
+fn logical_fork(n: TsNode, src: &str, kinds: &[&str]) -> bool {
+    if !kinds.contains(&n.kind()) {
+        return false;
+    }
+    let op = |x: TsNode| -> Option<&'static str> {
+        let mut c = x.walk();
+        let mut found = None;
+        for k in x.children(&mut c) {
+            if k.is_named() {
+                continue;
+            }
+            if let Some(t) = src.get(k.byte_range()) {
+                if let Some(hit) = LOGICAL.iter().find(|l| **l == t) {
+                    found = Some(*hit);
+                    break;
+                }
+            }
+        }
+        found
+    };
+    let Some(mine) = op(n) else { return false };
+    // Swift spells them as their own kinds, with no operator token to read.
+    n.parent().and_then(op).is_none_or(|up| up != mine)
+}
+
+fn cognitive_of(root: TsNode, lang: Lang, src: &str) -> Option<u32> {
     let kinds = branch_kinds(lang)?;
+    let ops = binary_kinds(lang);
     let mut cur = root.walk();
     let (mut total, mut nesting) = (0u32, 0u32);
     // Whether the node the cursor is on nests what follows it: a fork does, and a CONTINUATION
     // of a fork does not — see `chains`.
-    let nests = |n: TsNode| kinds.contains(&n.kind()) && !chains(n);
+    // **Named nodes only, and a bare-word grammar is why.** An anonymous token's KIND is its
+    // own text, so Ruby — whose constructs are `if`, `while`, `case` rather than
+    // `if_statement` — matched the `if` KEYWORD as well as the `if` it opens. One fork cost
+    // three: the statement, plus the token charged a level deeper for sitting inside it. It
+    // shipped that way and no test caught it, because every other table names its kinds with a
+    // suffix no keyword shares.
+    let is_branch = |n: TsNode| n.is_named() && kinds.contains(&n.kind());
+    let nests = |n: TsNode| is_branch(n) && !chains(n);
     let charge = |n: TsNode, nesting: u32| -> u32 {
-        if !kinds.contains(&n.kind()) {
-            0
-        } else if chains(n) {
+        if is_branch(n) {
+            if chains(n) { 1 } else { 1 + nesting }
+        } else if logical_fork(n, src, ops) {
+            // **Flat, never nested.** A `&&` inside three loops is not three times harder to
+            // read than one at the top; what nesting charges for is the state a reader carries,
+            // and an operator adds a condition rather than a level. The published formula
+            // charges these one apiece for the same reason.
             1
         } else {
-            1 + nesting
+            0
         }
     };
     loop {
@@ -1251,8 +1448,21 @@ fn cognitive_of(root: TsNode, lang: Lang) -> Option<u32> {
 /// Two spellings, because grammars split on this. Python and Ruby give the continuation its own
 /// kind; the C family nests a whole `if` inside an `else`, so the tell is the parent.
 fn chains(n: TsNode) -> bool {
-    matches!(n.kind(), "elif_clause" | "elsif")
+    // Its own kind, where a grammar gives the continuation one.
+    matches!(
+        n.kind(),
+        "elif_clause" | "elsif" | "else_if_clause" | "elseif_clause" | "elseif_statement"
+            | "elsif_clause"
+    )
+        // Wrapped in an else, which is how the C family spells it: `else_clause(if_statement)`.
         || n.parent().is_some_and(|p| matches!(p.kind(), "else_clause" | "else"))
+        // **Or PRECEDED by a bare `else` token, which is a third shape and not a variation on
+        // the second.** Swift emits `(if_statement … (else) (if_statement …))`: no wrapper at
+        // all, the else is an anonymous sibling and the continuation's parent is the `if` it
+        // continues. Under the parent rule alone that read as a fork nested inside a fork, so a
+        // three-way chain cost 6 instead of 3 — the flattest shape in the language reporting as
+        // the most tangled, quietly.
+        || n.prev_sibling().is_some_and(|p| p.kind() == "else")
 }
 
 fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
@@ -1292,7 +1502,7 @@ fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
         end_line: node.end_position().row as u32 + 1,
         calls,
         shape: shape_of(node, body_start, body_end),
-        cognitive: cognitive_of(node, lang),
+        cognitive: cognitive_of(node, lang, src),
     })
 }
 
@@ -1411,6 +1621,41 @@ fn shape_of(node: TsNode, body_start: usize, body_end: usize) -> Option<u64> {
 /// decision, kept in step by a test that has to be remembered. Here there is nothing to keep
 /// in step. Adding a language to `call_sites` turns its lenses on, and that is the only way
 /// to turn them on.
+/// What this parser can do with one language, for the sheet that says so in the window.
+///
+/// **Three different claims and they are not the same one at three strengths.** A grammar that
+/// finds functions may not resolve calls, and one that resolves calls may have no branch table:
+/// 63 languages are read, 57 resolve calls, 30 count branches. A wedge drawn grey under Callers
+/// or Complexity is one of those absences and, until this existed, was indistinguishable from a
+/// function nothing calls or a body that never forks — which is the failure the literal kind
+/// matching is careful to make loud in a test and was silent about in the app.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LangSupport {
+    /// What a person calls it — `C++`, not `cpp`.
+    pub name: &'static str,
+    pub extensions: &'static [&'static str],
+    /// Can its calls be followed off the grammar? Decides Callers and Reach.
+    pub calls: bool,
+    /// Are its branch kinds written down? Decides Complexity — see `branch_kinds`.
+    pub branches: bool,
+}
+
+/// Every language, sorted by name, with what this parser can do with each.
+pub fn language_support() -> Vec<LangSupport> {
+    let mut out: Vec<LangSupport> = crate::model::LANGS
+        .iter()
+        .map(|(lang, exts)| LangSupport {
+            name: lang.label(),
+            extensions: exts,
+            calls: resolves_calls(*lang),
+            branches: branch_kinds(*lang).is_some(),
+        })
+        .collect();
+    out.sort_by_key(|l| l.name.to_ascii_lowercase());
+    out
+}
+
 pub fn resolves_calls(lang: Lang) -> bool {
     !call_sites(lang).is_empty()
 }
@@ -1795,6 +2040,82 @@ fn walk_calls(
 ///
 /// `cargo test --lib parse::kinds -- --ignored --nocapture`
 #[cfg(test)]
+mod languages {
+    use super::*;
+
+    /// **Both directions come from one table, and this is what says so.**
+    ///
+    /// `from_extension` and `Lang::extensions` are the two halves of `LANGS`, and the window now
+    /// prints the second half as a claim about what this app can read. If they could disagree,
+    /// the sheet would list an extension that opens nothing — which is worse than not having a
+    /// sheet, because it is a promise.
+    #[test]
+    fn every_extension_round_trips() {
+        for (lang, exts) in crate::model::LANGS {
+            assert!(!exts.is_empty(), "{lang:?} answers to no extension");
+            for ext in *exts {
+                assert_eq!(
+                    Lang::from_extension(ext),
+                    Some(*lang),
+                    "`.{ext}` is listed under {lang:?} and opens something else"
+                );
+            }
+            assert_eq!(lang.extensions(), *exts);
+        }
+    }
+
+    /// No extension may be claimed twice. A duplicate is not a tie — the first arm wins and the
+    /// second language silently ships nowhere, which is exactly the failure `conventions.md`
+    /// records for `.m` and `.v` and decided by hand rather than by accident.
+    /// One row per language. Two would make `extensions` return whichever came first — which
+    /// it did: C++ had `.h` in an arm of its own and reported that as everything it reads.
+    #[test]
+    fn no_language_has_two_rows() {
+        // By label rather than by the variant: `Lang` is not `Hash` and does not need to be
+        // for one test. Two rows for one language are two rows whatever they are keyed on.
+        let mut seen: std::collections::HashSet<&str> = Default::default();
+        for (lang, _) in crate::model::LANGS {
+            assert!(seen.insert(lang.label()), "{lang:?} has more than one row in LANGS");
+        }
+    }
+
+    #[test]
+    fn no_extension_is_claimed_twice() {
+        let mut seen: std::collections::HashMap<&str, Lang> = Default::default();
+        for (lang, exts) in crate::model::LANGS {
+            for ext in *exts {
+                if let Some(first) = seen.insert(ext, *lang) {
+                    panic!("`.{ext}` is claimed by both {first:?} and {lang:?}");
+                }
+            }
+        }
+    }
+
+    /// The sheet's three columns are three different claims, and the counts are the ones the
+    /// note quotes. A drop here means a language lost a capability without anybody saying so.
+    #[test]
+    fn the_sheet_counts_what_it_says_it_counts() {
+        let all = language_support();
+        assert_eq!(all.len(), crate::model::LANGS.len());
+        assert!(all.windows(2).all(|w| w[0].name.to_lowercase() <= w[1].name.to_lowercase()));
+        let calls = all.iter().filter(|l| l.calls).count();
+        let branches = all.iter().filter(|l| l.branches).count();
+        // Pinned at what ships rather than at a floor: a language quietly LOSING a capability
+        // is the regression worth catching, and `>= 11` would have passed while nineteen of
+        // them fell off.
+        // Pinned at what ships rather than at a floor. A floor of `>= 11` was here first and
+        // it would have passed while nineteen languages fell off — and the number it was
+        // guarding was wrong anyway: "28 resolve calls" came from counting `Lang::` in
+        // `call_sites`, which undercounts every `A | B =>` arm. It is 57. A count worth
+        // quoting is worth taking from the function that answers it.
+        assert_eq!(all.len(), 63, "languages read");
+        assert_eq!(calls, 57, "languages whose calls resolve");
+        assert_eq!(branches, 30, "languages with a branch table");
+        assert!(branches <= calls, "a branch table without a call table is worth a look");
+    }
+}
+
+#[cfg(test)]
 mod kinds {
     use super::*;
 
@@ -1853,6 +2174,89 @@ mod kinds {
                  until v\n end\n for i in list\n end\n case d\n when 1\n end\n \
                  begin\n rescue\n end\nend\n",
             ),
+            (
+                Lang::Swift,
+                "func f() {\n if a { } else if b { }\n for x in y { }\n while c { }\n \
+                 repeat { } while d\n switch e { case 1: break }\n guard g else { return }\n \
+                 do { } catch { }\n let h = a ? b : c\n}\n",
+            ),
+            (
+                Lang::Kotlin,
+                "fun f() {\n if (a) { } else if (b) { }\n for (x in y) { }\n while (c) { }\n \
+                 do { } while (d)\n when (e) { 1 -> {} }\n try { } catch (x: E) { }\n}\n",
+            ),
+            (
+                Lang::Php,
+                "<?php\nfunction f() {\n if ($a) { } elseif ($b) { }\n for (;;) { }\n \
+                 foreach ($y as $x) { }\n while ($c) { }\n do { } while ($d);\n \
+                 switch ($e) { case 1: break; }\n try { } catch (E $x) { }\n \
+                 $g = $a ? $b : $c;\n}\n",
+            ),
+            (
+                Lang::Scala,
+                "object K { def f(): Unit = {\n if (a) { } else if (b) { }\n for (x <- y) { }\n \
+                 while (c) { }\n e match { case 1 => () }\n try { } catch { case x: E => () }\n} }\n",
+            ),
+            (
+                Lang::Dart,
+                "void f() {\n if (a) { } else if (b) { }\n for (;;) { }\n while (c) { }\n \
+                 do { } while (d);\n switch (e) { case 1: break; }\n try { } catch (x) { }\n \
+                 var g = a ? b : c;\n}\n",
+            ),
+            (
+                Lang::Lua,
+                "function f()\n if a then elseif b then end\n for i=1,2 do end\n \
+                 while c do end\n repeat until d\nend\n",
+            ),
+            (
+                Lang::Zig,
+                "fn f() void {\n if (a) { } else if (b) { }\n while (c) { }\n \
+                 for (y) |x| { }\n switch (e) { 1 => {} }\n}\n",
+            ),
+            (
+                Lang::Shell,
+                "f() {\n if [ a ]; then :; elif [ b ]; then :; fi\n for x in y; do :; done\n \
+                 while c; do :; done\n case $e in 1) :;; esac\n}\n",
+            ),
+            (
+                Lang::Perl,
+                "sub f {\n if ($a) { } elsif ($b) { }\n for (my $i = 0; ; ) { }\n \
+                 while ($c) { }\n unless ($d) { }\n until ($e) { }\n}\n",
+            ),
+            (
+                Lang::ObjC,
+                "void f(void) {\n if (a) { } else if (b) { }\n for (;;) { }\n while (c) { }\n \
+                 do { } while (d);\n switch (e) { case 1: break; }\n @try { } @catch (id x) { }\n \
+                 int g = a ? b : c;\n}\n",
+            ),
+            (
+                Lang::GdScript,
+                "func f():\n\tif a:\n\t\tpass\n\telif b:\n\t\tpass\n\tfor x in y:\n\t\tpass\n\t\
+                 while c:\n\t\tpass\n\tmatch e:\n\t\t1:\n\t\t\tpass\n",
+            ),
+            (
+                Lang::Julia,
+                "function f()\n if a\n elseif b\n end\n for x in y\n end\n while c\n end\n \
+                 try\n catch e\n end\nend\n",
+            ),
+            (
+                Lang::Solidity,
+                "contract K { function f() public {\n if (a) { } else if (b) { }\n for (;;) { }\n \
+                 while (c) { }\n do { } while (d);\n try this.g() { } catch { }\n} }\n",
+            ),
+            (
+                Lang::Groovy,
+                "class K { def f() {\n if (a) { } else if (b) { }\n for (x in y) { }\n \
+                 while (c) { }\n switch (e) { case 1: break }\n try { } catch (E x) { }\n} }\n",
+            ),
+            (
+                Lang::R,
+                "f <- function() {\n if (a) { } else if (b) { }\n for (x in y) { }\n \
+                 while (c) { }\n repeat { break }\n}\n",
+            ),
+            (Lang::OCaml, "let f x =\n  if a then 1 else 2;\n  match x with\n  | 1 -> 2\n  | _ -> 3\n"),
+            (Lang::Erlang, "f(X) ->\n  case X of\n    1 -> ok;\n    _ -> no\n  end.\n"),
+            (Lang::Nix, "{ f = x: if a then 1 else 2; }\n"),
         ];
         for (lang, src) in cases {
             let tree = sexp(*lang, src);
@@ -1926,14 +2330,180 @@ mod kinds {
         assert_eq!(chain, 3, "three questions asked in a row");
     }
 
+    /// **An `else if` chain costs one per question in every language that spells it its own
+    /// way.** Five grammars give the continuation its own kind — `else_if_clause`,
+    /// `elseif_clause`, `elseif_statement`, `elsif_clause`, `elif_clause` — and a kind missing
+    /// from `chains` is not an error: it is counted as a fork INSIDE the one before it, so a
+    /// four-way chain reads 1+2+2+2 = 7 and the flattest shape in the language reports as the
+    /// most tangled. Silent, and backwards.
+    #[test]
+    fn a_chain_costs_one_per_question_in_every_spelling() {
+        let cases: &[(Lang, &str)] = &[
+            (Lang::Python, "def f():\n  if a:\n    pass\n  elif b:\n    pass\n  elif c:\n    pass\n"),
+            (Lang::Php, "<?php\nfunction f() { if ($a) { } elseif ($b) { } elseif ($c) { } }\n"),
+            (Lang::Lua, "function f()\n if a then elseif b then elseif c then end\nend\n"),
+            (Lang::Perl, "sub f { if ($a) { } elsif ($b) { } elsif ($c) { } }\n"),
+            (Lang::Julia, "function f()\n if a\n elseif b\n elseif c\n end\nend\n"),
+            (
+                Lang::GdScript,
+                "func f():\n\tif a:\n\t\tpass\n\telif b:\n\t\tpass\n\telif c:\n\t\tpass\n",
+            ),
+            // The C-family spelling: an `if` nested inside an `else`, caught by the parent rule
+            // rather than by kind. Same three questions, same three.
+            (Lang::Swift, "func f() { if a { } else if b { } else if c { } }\n"),
+            (Lang::Kotlin, "fun f() { if (a) { } else if (b) { } else if (c) { } }\n"),
+            (Lang::Dart, "void f() { if (a) { } else if (b) { } else if (c) { } }\n"),
+        ];
+        for (lang, src) in cases {
+            assert_eq!(cog(src, *lang), 3, "{lang:?}: three questions asked in a row");
+        }
+    }
+
+    /// One `if` around one statement is one, whatever the syntax around it. The floor every
+    /// table has to hold, and the cheapest way for a wrong kind to show itself.
+    #[test]
+    fn one_fork_is_one_in_every_language_with_a_table() {
+        let cases: &[(Lang, &str)] = &[
+            // Ruby leads, because it is the grammar whose bare-word kinds made a single fork
+            // cost three — the `if` KEYWORD is a node whose kind is `if` too. See `is_branch`.
+            (Lang::Ruby, "def f\n if a\n z\n end\nend\n"),
+            (Lang::Swift, "func f() { if a { z() } }\n"),
+            (Lang::Kotlin, "fun f() { if (a) { z() } }\n"),
+            (Lang::Php, "<?php\nfunction f() { if ($a) { z(); } }\n"),
+            (Lang::Scala, "object K { def f(): Unit = { if (a) { z() } } }\n"),
+            (Lang::Dart, "void f() { if (a) { z(); } }\n"),
+            (Lang::Lua, "function f()\n if a then z() end\nend\n"),
+            (Lang::Zig, "fn f() void { if (a) { z(); } }\n"),
+            (Lang::Shell, "f() {\n if [ a ]; then z; fi\n}\n"),
+            (Lang::Perl, "sub f { if ($a) { z(); } }\n"),
+            // A METHOD, because `func_kinds` matches `method_definition` for Objective-C and
+            // a plain C function in a `.m` is found by nothing. See `todo.md`.
+            (Lang::ObjC, "@implementation K\n- (void)f {\n  if (a) { z(); }\n}\n@end\n"),
+            (Lang::GdScript, "func f():\n\tif a:\n\t\tz()\n"),
+            (Lang::Julia, "function f()\n if a\n z()\n end\nend\n"),
+            (Lang::Solidity, "contract K { function f() public { if (a) { z(); } } }\n"),
+            (Lang::R, "f <- function() { if (a) { z() } }\n"),
+            (Lang::OCaml, "let f x = if a then 1 else 2\n"),
+            (Lang::Nix, "{ f = x: if a then 1 else 2; }\n"),
+        ];
+        for (lang, src) in cases {
+            assert_eq!(cog(src, *lang), 1, "{lang:?}: one `if` is one fork");
+        }
+    }
+
+    /// **A logical operator is a fork, and a RUN of one is a single fork.**
+    ///
+    /// `a && b && c && d` is one condition a reader holds; charging four would make a guard
+    /// clause read as tangled as a four-deep nest. What costs is the change of operator, which
+    /// is where the reader has to stop and work out the precedence.
+    #[test]
+    fn a_run_of_one_operator_costs_one_and_a_mix_costs_more() {
+        let one = "fn f() { if a && b && c && d { z(); } }";
+        let mix = "fn f() { if a && b || c { z(); } }";
+        assert_eq!(cog(one, Lang::Rust), 2, "the `if`, plus one for the whole `&&` run");
+        assert_eq!(cog(mix, Lang::Rust), 3, "the `if`, plus one per operator where they change");
+    }
+
+    /// Arithmetic is not branching, and the node kind cannot tell the difference — `a + b` and
+    /// `a && b` are both `binary_expression` in nearly every grammar. This is why the operator
+    /// text is read rather than the kind matched.
+    #[test]
+    fn arithmetic_is_not_a_fork() {
+        assert_eq!(cog("fn f() { let x = a + b * c - d; }", Lang::Rust), 0);
+        assert_eq!(cog("function f() { const x = a + b * c - d; }", Lang::TypeScript), 0);
+        assert_eq!(cog("def f():\n  x = a + b * c\n", Lang::Python), 0);
+    }
+
+    /// Flat, never nested: an operator adds a condition rather than a level, so the same `&&`
+    /// costs the same at the top of a body and three loops down.
+    #[test]
+    fn an_operator_costs_the_same_however_deep_it_sits() {
+        let shallow = cog("fn f() { if a && b { z(); } }", Lang::Rust);
+        let deep = cog("fn f() { for x in y { while w { if a && b { z(); } } } }", Lang::Rust);
+        assert_eq!(shallow, 2, "the `if` is 1 and the `&&` is 1");
+        // for(1) + while(1+1) + if(1+2) + the operator(1)
+        assert_eq!(deep, 7);
+        assert_eq!(deep - shallow, 5, "the operator itself did not get more expensive");
+    }
+
+    /// The languages that spell their operators as words, and the one that gives them their own
+    /// node kinds. Read off real parses like every other table here.
+    #[test]
+    fn logical_operators_count_in_the_languages_that_have_them() {
+        let cases: &[(Lang, &str, u32)] = &[
+            (Lang::Python, "def f():\n  if a and b:\n    pass\n", 2),
+            (Lang::TypeScript, "function f() { if (a && b) { z(); } }", 2),
+            (Lang::Go, "func f() {\n if a && b {\n }\n}\n", 2),
+            (Lang::Cpp, "void f() { if (a && b) { z(); } }", 2),
+            (Lang::Ruby, "def f\n if a && b\n end\nend\n", 2),
+            (Lang::Php, "<?php\nfunction f() { if ($a && $b) { z(); } }\n", 2),
+        ];
+        for (lang, src, want) in cases {
+            assert_eq!(cog(src, *lang), *want, "{lang:?}");
+        }
+    }
+
     /// A language nobody has written branch kinds for reports NOTHING, never zero — see
     /// `branch_kinds`. Zero would draw it as code that never forks.
     #[test]
     fn a_language_without_a_table_says_so() {
         assert!(branch_kinds(Lang::Rust).is_some());
-        let untaught = parse_functions(Lang::Lua, "function f()\n if a then end\nend\n");
+        // Elixir, which is absent on purpose — its `if` is a macro and arrives as a `call`.
+        // See `branch_kinds`, where that is written down.
+        assert!(branch_kinds(Lang::Elixir).is_none());
+        let untaught = parse_functions(Lang::Elixir, "def f do\n  if a do\n  end\nend\n");
         if let Some(f) = untaught.into_iter().next() {
             assert_eq!(f.cognitive, None, "no table means no claim, not a claim of zero");
+        }
+    }
+
+    /// Distinct node kinds a snippet yields, filtered to what looks like control flow — the
+    /// shortlist a `branch_kinds` entry is chosen FROM, read off a real parse rather than
+    /// remembered. `cargo test --lib parse::kinds::shortlist -- --ignored --nocapture`
+
+
+
+
+    #[test]
+    #[ignore = "diagnostic"]
+    fn shortlist() {
+        let want = [
+            "if", "for", "while", "switch", "case", "when", "try", "catch", "rescue", "match",
+            "loop", "unless", "until", "guard", "cond", "select", "foreach", "repeat", "elif",
+            "elsif", "do", "except", "ternary", "conditional", "branch",
+        ];
+        let cases: &[(Lang, &str)] = &[
+            (Lang::Swift, "func f() {\n if a { } else if b { }\n for x in y { }\n while c { }\n repeat { } while d\n switch e { case 1: break }\n guard g else { return }\n do { } catch { }\n let h = a ? b : c\n}\n"),
+            (Lang::Kotlin, "fun f() {\n if (a) { } else if (b) { }\n for (x in y) { }\n while (c) { }\n do { } while (d)\n when (e) { 1 -> {} }\n try { } catch (x: E) { }\n}\n"),
+            (Lang::Php, "<?php\nfunction f() {\n if ($a) { } elseif ($b) { }\n for (;;) { }\n foreach ($y as $x) { }\n while ($c) { }\n do { } while ($d);\n switch ($e) { case 1: break; }\n try { } catch (E $x) { }\n $g = $a ? $b : $c;\n}\n"),
+            (Lang::Scala, "object K { def f(): Unit = {\n if (a) { } else if (b) { }\n for (x <- y) { }\n while (c) { }\n e match { case 1 => () }\n try { } catch { case x: E => () }\n} }\n"),
+            (Lang::Dart, "void f() {\n if (a) { } else if (b) { }\n for (;;) { }\n for (var x in y) { }\n while (c) { }\n do { } while (d);\n switch (e) { case 1: break; }\n try { } catch (x) { }\n var g = a ? b : c;\n}\n"),
+            (Lang::Lua, "function f()\n if a then elseif b then end\n for i=1,2 do end\n for k,v in pairs(t) do end\n while c do end\n repeat until d\nend\n"),
+            (Lang::Elixir, "def f do\n  if a do\n  end\n  case e do\n    1 -> :ok\n  end\n  cond do\n    a -> :ok\n  end\n  unless b do\n  end\n  for x <- y do\n  end\n  try do\n  rescue\n    _ -> :ok\n  end\nend\n"),
+            (Lang::Zig, "fn f() void {\n if (a) { } else if (b) { }\n while (c) { }\n for (y) |x| { }\n switch (e) { 1 => {} }\n}\n"),
+            (Lang::Shell, "f() {\n if [ a ]; then :; elif [ b ]; then :; fi\n for x in y; do :; done\n while c; do :; done\n until d; do :; done\n case $e in 1) :;; esac\n}\n"),
+            (Lang::Haskell, "f x = case x of\n  1 -> 2\n  _ -> 3\n"),
+            (Lang::R, "f <- function() {\n if (a) { } else if (b) { }\n for (x in y) { }\n while (c) { }\n repeat { break }\n switch(e, a=1)\n}\n"),
+            (Lang::Perl, "sub f {\n if ($a) { } elsif ($b) { }\n for my $x (@y) { }\n while ($c) { }\n unless ($d) { }\n until ($e) { }\n}\n"),
+            (Lang::Groovy, "def f() {\n if (a) { } else if (b) { }\n for (x in y) { }\n while (c) { }\n switch (e) { case 1: break }\n try { } catch (E x) { }\n}\n"),
+            (Lang::ObjC, "void f(void) {\n if (a) { } else if (b) { }\n for (;;) { }\n while (c) { }\n do { } while (d);\n switch (e) { case 1: break; }\n @try { } @catch (id x) { }\n int g = a ? b : c;\n}\n"),
+            (Lang::GdScript, "func f():\n\tif a:\n\t\tpass\n\telif b:\n\t\tpass\n\tfor x in y:\n\t\tpass\n\twhile c:\n\t\tpass\n\tmatch e:\n\t\t1:\n\t\t\tpass\n"),
+            (Lang::Julia, "function f()\n if a\n elseif b\n end\n for x in y\n end\n while c\n end\n try\n catch e\n end\nend\n"),
+            (Lang::Solidity, "contract K { function f() public {\n if (a) { } else if (b) { }\n for (;;) { }\n while (c) { }\n do { } while (d);\n try this.g() { } catch { }\n} }\n"),
+            (Lang::Nix, "{ f = x: if a then 1 else 2; }\n"),
+            (Lang::Erlang, "f(X) ->\n  case X of\n    1 -> ok;\n    _ -> no\n  end.\n"),
+            (Lang::OCaml, "let f x =\n  if a then 1 else 2;\n  match x with\n  | 1 -> 2\n  | _ -> 3\n"),
+        ];
+        for (lang, src) in cases {
+            let tree = sexp(*lang, src);
+            let mut kinds: Vec<&str> = tree
+                .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .filter(|k| !k.is_empty() && want.iter().any(|w| k.contains(w)))
+                .collect();
+            kinds.sort_unstable();
+            kinds.dedup();
+            let err = if tree.contains("ERROR") { "  [SNIPPET HAS ERROR]" } else { "" };
+            println!("{:<12} {}{}", format!("{lang:?}"), kinds.join(" "), err);
         }
     }
 
