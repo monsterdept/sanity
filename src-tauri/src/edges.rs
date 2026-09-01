@@ -317,6 +317,7 @@ mod tests {
             start_line: 1,
             end_line: 2,
             shape: None,
+            cognitive: None,
             calls: calls.iter().map(|c| c.to_string()).collect(),
         }
     }

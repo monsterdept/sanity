@@ -10,7 +10,7 @@ import {
   type Grade,
   type Node,
 } from '../lib/api'
-import { ageOf, bucketsFor, colorFor, VIEWS_DEFAULT, type AgeRead, type Views, type Bucket, type ColorMode } from '../lib/colorMode'
+import { ageOf, bucketsFor, colorFor, VIEWS_DEFAULT, type Views, type Bucket, type ColorMode } from '../lib/colorMode'
 import { Counts } from './Counts'
 
 /** The order every breakdown in this app reads in: the LOUD end first.
@@ -44,6 +44,10 @@ const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
   // Not 'Commits in 90d': what is listed under it are functions, bucketed by the commits
   // their lines trace back to. The 90-day window is the FILE's quantity, and it has its own
   // section in the pane — see `blame.rs`.
+  // Filled in by `breakdownTitle`: the rows are banded in one of two vocabularies and the
+  // heading has to name the one they are actually in. The entry stays so the exhaustive map
+  // still fails when a lens is added.
+  tangle: 'Complexity',
   churn: 'Commits behind these lines',
   // Age reads two dates and the heading has to say which one is under it — see `AgeView`.
   // Filled in by `breakdownTitle`, because a `Record` cannot hold a value that depends on a
@@ -52,9 +56,12 @@ const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
 }
 
 /** The heading, with the one lens whose rows depend on a reading resolved. */
-function breakdownTitle(mode: ColorMode, read: AgeRead): string {
+function breakdownTitle(mode: ColorMode, views: Views): string {
   if (mode === 'surprise') return 'Surprise'
-  if (mode === 'age') return read === 'oldest' ? 'Oldest line' : 'Newest line'
+  if (mode === 'age') return views.age.read === 'oldest' ? 'Oldest line' : 'Newest line'
+  // Weighted rows are comparative and raw rows are absolute — see `TANGLE_BANDS`. A heading
+  // naming one over rows written in the other would describe a measurement nobody took.
+  if (mode === 'tangle') return views.tangle === 'raw' ? 'Complexity' : 'Complexity for its size'
   return BREAKDOWN_TITLE[mode as Exclude<ColorMode, 'surprise'>]
 }
 
@@ -579,7 +586,7 @@ export function Summary({
                   which names the CATEGORY of thing being counted rather than what is being
                   asked about them — the one heading in the pane that did not answer "which
                   lens am I looking at". */}
-              {breakdownTitle(lens ? mode : 'surprise', views?.age.read ?? 'newest')}
+              {breakdownTitle(lens ? mode : 'surprise', views ?? VIEWS_DEFAULT)}
             </p>
             {lens ? (
               <Buckets buckets={buckets} picked={bucket?.key ?? null} onPick={setPickedBucket} />

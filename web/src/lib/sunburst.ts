@@ -436,6 +436,18 @@ function aggregate(fns: Node[], filePath: string): Node {
               Math.round(mean((f) => f.score!.commits[w])),
             ) as ChurnWindows,
             allCommits: null,
+            // Per the same rule as everything else here: the mean over the members, and
+            // nothing where none of them had an answer to average.
+            tangle: (() => {
+              const has = read.filter((f) => f.score!.tangle)
+              if (has.length === 0) return null
+              return [0, 1].map(
+                (i) => has.reduce((n, f) => n + f.score!.tangle![i], 0) / has.length,
+              ) as [number, number]
+            })(),
+            cognitive: read.some((f) => f.score!.cognitive !== null)
+              ? read.reduce((n, f) => n + (f.score!.cognitive ?? 0), 0)
+              : null,
             provenance: s.provenance,
             hotShare: w === 0 ? 0 : hotLoc / w,
             source: s.source,

@@ -7,7 +7,8 @@ import {
   NAMED,
   shared,
   rampEnds,
-  type AgeRead,
+  VIEWS_DEFAULT,
+  type Views,
   rampOf,
   slotColor,
   modeToken,
@@ -80,15 +81,16 @@ export interface Locked {
  *  lie — "owner" has no order, so showing a gradient would invent one. */
 function Legend({
   mode,
-  ageRead,
+  views,
   categories,
   ranks,
   edge: card,
 }: {
   mode: ColorMode
-  /** Which of Age's two dates the map is painted in — the key names the ramp's ends and the
-   *  ends are not the same words for both. See `rampEnds`. */
-  ageRead: AgeRead
+  /** How the calibrated lenses are set: the key names its ramp's ends, and for Age and
+   *  Complexity the ends are different words depending on which reading is on. See
+   *  `rampEnds`. */
+  views: Views
   categories: string[]
   /** Category → slot, the SAME map the wedges are painted from — see `rankCategories`.
    *
@@ -311,7 +313,7 @@ function Legend({
     )
   }
 
-  const [lo, hi] = rampEnds(mode, ageRead) ?? ['', '']
+  const [lo, hi] = rampEnds(mode, views) ?? ['', '']
   const ramp: Ramp = rampOf(mode)
   // Spans the widget rather than sitting in a fixed 96px well in the middle of it. The
   // ramp is the scale for the control directly above, and a short bar floating inside a
@@ -343,7 +345,17 @@ function Legend({
  * tooltip naming a key that does something else is worse than a tooltip naming none. The
  * keys themselves live in `App`'s listener; this is the only place they are written down.
  */
-const shortcut = (i: number) => (i < 9 ? `${i + 1}` : i === 9 ? '0' : i === 10 ? '-' : null)
+const shortcut = (i: number) =>
+  i < 9 ? `${i + 1}` : i === 9 ? '0' : i === 10 ? '-' : i === 11 ? '=' : null
+
+/** What the menu says at the bottom.
+ *
+ *  **A key that exists and is never mentioned is a key nobody has.** Twelve lenses have twelve
+ *  keys now — `=` took the last row — so the digits are no longer the reason this line is here.
+ *  Stepping is: ⌘[ and ⌘] walk the strip and do not run out, which is the difference between a
+ *  thirteenth lens being a keyboard problem and being nothing at all. This is the one place
+ *  somebody would go looking. See `LENS_STEP`. */
+const STEP_HINT = 'or ⌘[ and ⌘] to step'
 
 /**
  * The lens, as one pulldown.
@@ -490,6 +502,11 @@ export function ModeSwitcher({
                 </button>
               )
             })}
+            <div
+              className="mt-1 border-t border-[var(--border)] px-3 pb-0.5 pt-1.5 text-[10px] text-[var(--muted-foreground)]"
+            >
+              {STEP_HINT}
+            </div>
           </div>
         </>
       )}
@@ -595,7 +612,7 @@ const RIBBON =
 /** The key, boxed to match the switcher so the two read as a pair across the graph. */
 export function ColorLegend({
   mode,
-  ageRead = 'newest',
+  views = VIEWS_DEFAULT,
   categories,
   ranks,
   stale = 0,
@@ -603,8 +620,8 @@ export function ColorLegend({
   at,
 }: {
   mode: ColorMode
-  /** Which of Age's two dates the map is painted in — see `Legend`. */
-  ageRead?: AgeRead
+  /** How the calibrated lenses are set — see `Legend`. */
+  views?: Views
   categories: string[]
   /** The slot map the wedges use — see `Legend`. */
   ranks?: Map<string, number>
@@ -641,7 +658,7 @@ export function ColorLegend({
     // Fixed width so the shape has slack to take back: a key that shrinks to its longest line
     // is already as short as it can be, and shortening one line just moves a name to the next.
     <div ref={box} className="max-w-[420px] text-right">
-      <Legend mode={mode} ageRead={ageRead} categories={categories} ranks={ranks} edge={edge} />
+      <Legend mode={mode} views={views} categories={categories} ranks={ranks} edge={edge} />
       {paintsFromReadings(mode) && (stale > 0 || unread > 0) && (
         /* The two things the ramp above cannot explain: a wedge can be hatched, or it can
            be uncolored. Both are absences of a reading rather than positions on the

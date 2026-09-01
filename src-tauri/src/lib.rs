@@ -38,6 +38,7 @@ pub mod scancache;
 pub mod screen;
 pub mod search;
 pub mod surprise;
+pub mod tangle;
 pub mod trace;
 pub mod treecache;
 pub mod watch;

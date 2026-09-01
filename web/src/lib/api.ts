@@ -67,6 +67,18 @@ export interface Score {
    *  an absence is a fact about the repo. */
   allCommits: number | null
   provenance: Provenance
+  /** How tangled this is, on the 0..1 scale the ramp paints — `[weighted, raw]`.
+   *
+   *  Weighted asks whether this is more complicated than its LENGTH suggests, which is the
+   *  finding; raw is the cognitive count itself, against an absolute bar. Both, because the
+   *  switch between them is live — see `Score::tangle` in Rust and `tangle::Bands::ramp`.
+   *
+   *  **`null` is "this grammar has no branch table", never "nothing branches here."** The lens
+   *  paints grey on it, exactly as Callers does on a language whose calls nobody taught it. */
+  tangle: [number, number] | null
+  /** The raw cognitive score behind `tangle`: every fork costs one, plus one for each fork it
+   *  nests inside. A function's own count; a container's is the SUM of everything under it. */
+  cognitive: number | null
   /** Fraction of this node's ANALYZED lines sitting in hot code. What a
    *  directory or file wedge is colored by — see `wedgeHeat`. */
   hotShare: number
@@ -397,6 +409,10 @@ export const TIME_STRIDE: TimeRow['length'] = 7
 export interface Cols {
   loc: number[]
   commits: ChurnWindows[]
+  /** `Score.tangle` per function, as `[weighted, raw]` in thousandths — `[-1, -1]` where the
+   *  language has no branch table. Integers because it is a wire format; the absence is the
+   *  same sentinel every other column here uses, and a zero would read as "never forks". */
+  tangle: [number, number][]
   touched: number[]
   callers: number[]
   calls: number[]
@@ -446,6 +462,13 @@ export interface ScanStats {
    *  zero is not "settled", and a lens that drew it would report an unwalked repo and a quiet
    *  one in the same colour. Read in one place — the lock — never per node. */
   churned: boolean
+  /** What a normal cognitive score is for a body of each size, in THIS repo — one median per
+   *  size band, `null` for a band nothing landed in. See `tangle::Bands`.
+   *
+   *  Sent so the panel and the tooltip can name what a wedge is being compared against:
+   *  "three times normal for its size" is checkable, a ramp position is not. Empty locks the
+   *  Complexity lens — it means no language here has a branch table. */
+  tangleBands: (number | null)[]
   /** Everyone who has committed here, most commits first, capped at what the palette holds.
    *
    *  **This is the only thing that decides a person's colour.** Ranking authors by what they
@@ -497,6 +520,8 @@ interface WireScore {
   churn: ChurnWindows
   age_days: number | null
   commits: ChurnWindows
+  tangle?: [number, number] | null
+  cognitive?: number | null
   /** Optional because a scan taken by an older backend does not carry it — see
    *  `Score.allCommits`, where the absence and a zero are different answers. */
   all_commits?: number | null
@@ -554,6 +579,7 @@ interface WireScan {
     commits?: number
     churn_windows?: ChurnWindows
     churned?: boolean
+    tangle_bands?: { median: (number | null)[] }
     authors?: string[]
     model: string
     calls_resolved?: number
@@ -608,6 +634,11 @@ function toNode(w: WireNode): Node {
           commits: w.score.commits,
           allCommits: w.score.all_commits ?? null,
           lastTouchedDays: w.score.last_touched_days,
+          // `?? null` and never `?? 0`, for the reason every absence here follows: a backend
+          // that predates the lens and a language nobody wrote branch kinds for are the same
+          // fact — nobody looked — and a zero would paint both as code that never forks.
+          tangle: w.score.tangle ?? null,
+          cognitive: w.score.cognitive ?? null,
           provenance: w.score.provenance,
           hotShare: w.score.hot_share,
           source: w.score.source,
@@ -1901,6 +1932,7 @@ function toScan(w: WireScan): Scan {
       // measured, on the full ladder" — which locks the lens rather than painting zeroes.
       churnWindows: w.stats.churn_windows ?? [30, 60, 90, 180],
       churned: w.stats.churned ?? false,
+      tangleBands: w.stats.tangle_bands?.median ?? [],
       authors: w.stats.authors ?? [],
       model: w.stats.model,
       callsResolved: w.stats.calls_resolved,
@@ -1965,6 +1997,12 @@ function reaggregate(node: Node, children: Node[]): Node {
   let surprise = 0
   let documented = 0
   const churn: ChurnWindows = [0, 0, 0, 0]
+  // Weighted by lines like everything else here, and over the children that HAVE an answer:
+  // a file holding one Rust function and one in a language with no branch table is half
+  // measured, and averaging the untaught half in as zero would report it as half as tangled.
+  const tangle: [number, number] = [0, 0]
+  let tw = 0
+  let cognitive: number | null = null
   let hot = 0
   let analyzed = 0
   let age: number | null = null
@@ -1978,6 +2016,13 @@ function reaggregate(node: Node, children: Node[]): Node {
     surprise += c.score.surprise * cw
     documented += c.score.documented * cw
     for (let i = 0; i < 4; i++) churn[i] += c.score.churn[i] * cw
+    if (c.score.tangle) {
+      tw += cw
+      tangle[0] += c.score.tangle[0] * cw
+      tangle[1] += c.score.tangle[1] * cw
+    }
+    // Summed, not averaged — a container's score is how many decisions are inside it.
+    if (c.score.cognitive !== null) cognitive = (cognitive ?? 0) + c.score.cognitive
     if (c.kind === 'func') {
       if (c.score.source === 'model' || c.score.source === 'agent') {
         analyzed += cw
@@ -2024,6 +2069,8 @@ function reaggregate(node: Node, children: Node[]): Node {
             // every re-aggregated directory reports zero commits while its churn bar
             // sits at 72.
             commits: node.score?.commits ?? [0, 0, 0, 0],
+            tangle: tw > 0 ? [tangle[0] / tw, tangle[1] / tw] : null,
+            cognitive,
             // Carried for the same reason and with the same danger: a directory's total
             // counts a commit once, and summing children would count it once per file.
             allCommits: node.score?.allCommits ?? null,
@@ -2210,7 +2257,7 @@ export function isAnalyzed(node: Node): boolean {
 
 /** Which ramp a reading walks. Each is five CSS stops of a single hue, sharing one
  *  lightness profile — see index.css. */
-export type Ramp = 'heat' | 'legible' | 'churn' | 'age' | 'docs' | 'reach' | 'callers'
+export type Ramp = 'heat' | 'legible' | 'churn' | 'age' | 'docs' | 'reach' | 'callers' | 'tangle'
 
 /** Interpolate a ramp's five CSS stops. Returns a `var(...)` mix so the ramps stay
  *  defined in one place (index.css) and re-theme with the rest of the app. */

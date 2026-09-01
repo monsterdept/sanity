@@ -38,6 +38,7 @@ import { inkOn } from './ink'
  *  screen the moment a project opens: what nothing calls, and what reaches out of its own
  *  neighbourhood. */
 export type ColorMode =
+  | 'tangle'
   | 'surprise'
   | 'legible'
   | 'docs'
@@ -119,6 +120,9 @@ export type ColorMode =
  *  reading taken against a body it does not hold, and a superseded axis is dropped by
  *  `packed` at the Rust end rather than shown as current. */
 export const REPLAY: Record<ColorMode, 'live' | 'cost'> = {
+  // A frame carries line counts and grades, never bodies — and complexity is read off a
+  // syntax tree. Not replayable, and the switcher says so rather than the map going grey.
+  tangle: 'cost',
   surprise: 'live',
   legible: 'live',
   docs: 'live',
@@ -143,6 +147,17 @@ export function replayNote(mode: ColorMode): string | null {
 }
 
 export const MODE_LABEL: Record<ColorMode, string> = {
+  // **First, because it is the only lens that paints on a repo nobody has done anything to.**
+  // The row used to open on Surprise, which is the best reading here and is locked until
+  // somebody has paid for readers — so the app's first impression was a grey map behind a
+  // lens that could not draw it. Complexity needs no reader, no git and no trace: it is read
+  // off the same parse that finds the functions.
+  //
+  // It also sets up the lens below it rather than competing with it. The two are independent
+  // — 0.05 and 0.06 against the real grades — so a body that is knotty and predictable, or
+  // smooth and baffling, is visible as a DISAGREEMENT the moment readings land. That is the
+  // argument for paying for them, drawn rather than asserted.
+  tangle: 'Complexity',
   surprise: 'Surprise',
   legible: 'Legibility',
   docs: 'Docs',
@@ -159,11 +174,15 @@ export const MODE_LABEL: Record<ColorMode, string> = {
   reach: 'Reach',
   blame: 'Blame',
   language: 'Language',
-  churn: 'Churn',
+  // **Age before Churn.** The two time lenses stay adjacent — that is the thing about them
+  // worth preserving — and hue follows the menu, so trading rows traded their greens too. The
+  // wheel is untouched: same hues, same order down the column, two lenses wearing each other's.
   age: 'Age',
+  churn: 'Churn',
 }
 
 export const MODE_HINT: Record<ColorMode, string> = {
+  tangle: 'how complex it is for its size',
   surprise: 'what a reader didn’t see coming',
   legible: 'what reading it was actually like',
   docs: 'what nobody has explained',
@@ -470,6 +489,10 @@ export const RAMP_ENDS: Partial<Record<ColorMode, [string, string]>> = {
   // the only lens whose input is the GAP. See the `--docs-*` ramp.
   docs: ['covered', 'undocumented'],
   churn: ['settled', 'churning'],
+  // Both readings run one way — see `Bands::ramp`, where normal is anchored at the cold end
+  // rather than in the middle. The words differ because the questions do: one is measured
+  // against the repo's own bodies of that size, the other against an absolute count.
+  tangle: ['as expected', 'far above'],
   // Age's bright end depends on which date it is painting — see `rampEnds`. The entry is the
   // `touched` reading, which is the one this lens has always shown.
   age: ['old', 'recent'],
@@ -482,8 +505,15 @@ export const RAMP_ENDS: Partial<Record<ColorMode, [string, string]>> = {
  *  until lately. Same colours, same direction, different claim — and the key is the only
  *  thing on screen that says which, so it cannot go on printing one lens's words over the
  *  other's picture. */
-export function rampEnds(mode: ColorMode, read: AgeRead): [string, string] | undefined {
-  if (mode === 'age') return read === 'oldest' ? ['long-standing', 'new'] : ['old', 'recent']
+export function rampEnds(mode: ColorMode, views: Views): [string, string] | undefined {
+  if (mode === 'age') {
+    return views.age.read === 'oldest' ? ['long-standing', 'new'] : ['old', 'recent']
+  }
+  // The same reason Age has two: the ends name what the ramp MEASURES, and Complexity measures
+  // a different thing at each end of its own switch. See `TANGLE_BANDS`.
+  if (mode === 'tangle') {
+    return views.tangle === 'raw' ? ['simple', 'very complex'] : ['as expected', 'far above']
+  }
   return RAMP_ENDS[mode]
 }
 
@@ -493,6 +523,7 @@ export function rampEnds(mode: ColorMode, read: AgeRead): [string, string] | und
  *  otherwise the key under a blue map is an amber gradient. */
 export function rampOf(mode: ColorMode): Ramp {
   if (mode === 'churn') return 'churn'
+  if (mode === 'tangle') return 'tangle'
   if (mode === 'age') return 'age'
   if (mode === 'legible') return 'legible'
   if (mode === 'docs') return 'docs'
@@ -755,7 +786,27 @@ export interface ChurnView {
 export interface Views {
   age: AgeView
   churn: ChurnView
+  /** Which of Complexity's two readings — see `TangleRead`. */
+  tangle: TangleRead
 }
+
+/** Which of Complexity's two readings the lens paints.
+ *
+ *  **`weighted` is the finding and `raw` is the number.** A longer function is naturally more
+ *  complicated, so the useful question is whether it is more complicated than its length
+ *  suggests — that is `weighted`, each body against the median of others its size in this repo.
+ *  Measured, it is independent of line count (rank correlation 0.19, −0.03, 0.07, 0.25 across
+ *  four repos, against 0.48–0.68 for the bare count) and independent of Surprise (0.05, 0.06),
+ *  so it neither restates the width nor cannibalises the lens it advertises.
+ *
+ *  `raw` is the cognitive score itself, against an absolute bar of 15 — the published default.
+ *  It answers a question `weighted` cannot: *show me everything over the line*, whatever this
+ *  repo happens to consider normal.
+ *
+ *  There is deliberately no third choice. Cyclomatic complexity — the same count without the
+ *  nesting weight — orders functions identically to this one (Spearman 0.988–0.999 on three
+ *  repos), so offering both would be two controls drawing one map. */
+export type TangleRead = 'weighted' | 'raw'
 
 /** Which rung a repo is painted at when nobody has chosen.
  *
@@ -768,6 +819,7 @@ export const CHURN_DEFAULT_WINDOW = 2
 export const VIEWS_DEFAULT: Views = {
   age: AGE_DEFAULT,
   churn: { windows: [30, 60, 90, 180], at: CHURN_DEFAULT_WINDOW, measured: false },
+  tangle: 'weighted',
 }
 
 
@@ -1208,6 +1260,19 @@ export function colorFor(
     }
   }
 
+  if (mode === 'tangle') {
+    // **`null` is a grammar nobody taught, and it must not read as simple code.** It comes
+    // straight through from `parse::branch_kinds`, which returns no table rather than an empty
+    // one for exactly this reason. Grey, like Callers on a language whose calls never resolve.
+    if (!s?.tangle) return null
+    const read = views?.tangle ?? VIEWS_DEFAULT.tangle
+    const at = read === 'raw' ? 1 : 0
+    return {
+      ...ramped(s.tangle[at], 'tangle'),
+      label: tangleLabel(s.cognitive, node.kind === 'func' ? read : 'raw'),
+    }
+  }
+
   if (mode === 'age') {
     const view = views?.age ?? AGE_DEFAULT
     // Null under one reading and not the other is an ordinary state rather than an edge: a
@@ -1307,6 +1372,79 @@ const NO_HISTORY = 'history not read'
  *  their repo has no git when what it has is unfinished work. */
 const NOT_WALKED = 'timeline not walked'
 
+/** What a wedge is filed under when its language has no branch table.
+ *
+ *  A third absence, and a different sentence again: not "this folder has no git" and not "the
+ *  timeline is unwalked" but "nobody has taught this parser where this language forks". The
+ *  fix is a table in `parse::branch_kinds`, which is nothing a user can press — so unlike the
+ *  other two this lock is `keyed: false`. */
+const NOT_COUNTED = 'language not counted'
+
+/** The bands a lens sorts its breakdown by, worst first.
+ *
+ *  **One place, because the alternative was a `churn ? : age` ternary and a third lens fell
+ *  through it.** Complexity's rows came back ordered by `AGE_BANDS` — whose labels it shares
+ *  none of, so `indexOf` returned −1 for every row and the sort became whatever order they
+ *  happened to arrive in. The same ternary two lines further on picked the ramp, so the legend
+ *  was green while the map was gold. Both from one binary that stopped being binary.
+ *
+ *  A lens with no entry gets an empty order, which leaves its rows in insertion order rather
+ *  than silently sorted by another lens's list. Visible, and not wrong. */
+function bandLabels(mode: ColorMode, read: TangleRead): string[] {
+  if (mode === 'churn') return CHURN_BANDS.map((b) => b.label)
+  if (mode === 'age') return AGE_BANDS.map((b) => b.label)
+  if (mode === 'tangle') return TANGLE_BANDS[read].map((b) => b.label)
+  return []
+}
+
+/** The bands Complexity sorts into, in the words of whichever reading is on.
+ *
+ *  **Two sets, because the two readings are not the same question and one vocabulary cannot
+ *  serve both.** Weighted compares a body with the others its size, so its words are
+ *  comparative and a verdict would be an over-claim: a twelve-line body with eight forks is far
+ *  above normal FOR ITS SIZE while being eight decision points, which is not "very complex" by
+ *  any absolute measure. Raw is a count against 15 — the published threshold — so its words are
+ *  absolute and "above normal" would be describing a comparison it never makes.
+ *
+ *  One shared set said `past normal` under both, which was wrong under raw for exactly that
+ *  reason and nothing on screen said so.
+ *
+ *  The boundaries are shared. They are positions on the 0..1 ramp, and the ramp is the same
+ *  ramp; what changes is what a position means, which is what the words carry. */
+const TANGLE_BANDS: Record<TangleRead, { label: string; min: number }[]> = {
+  weighted: [
+    { label: 'far above normal', min: 0.75 },
+    { label: 'above normal', min: 0.4 },
+    { label: 'slightly above', min: 0.05 },
+    // Where more than half of any repo sits, and named for what it IS rather than for what it
+    // lacks. `not complex` would be a verdict; being ordinary for your size is a finding.
+    { label: 'as expected', min: 0 },
+  ],
+  raw: [
+    { label: 'very complex', min: 0.75 },
+    { label: 'complex', min: 0.4 },
+    { label: 'some branching', min: 0.05 },
+    { label: 'simple', min: 0 },
+  ],
+}
+
+/** What a complexity wedge says out loud: a COUNT, never an adjective.
+ *
+ *  **The word "complexity" invites a verdict and the caption refuses to give one.** `12
+ *  decision points` is a fact somebody can go and check; `complex` is a judgement about their
+ *  code that this instrument has not earned, and the first thing anyone does with a verdict is
+ *  argue with it or game it. Same rule that puts `27 changes in 90d` on a churn wedge rather
+ *  than `churn 100%`.
+ *
+ *  A container says the total under it, which is why the weighted reading is only spoken on a
+ *  function: "for its size" is a claim about one body, and a directory is not a body of any
+ *  size. */
+function tangleLabel(cognitive: number | null, read: TangleRead): string {
+  if (cognitive === null) return 'not counted here'
+  const n = `${cognitive} decision ${cognitive === 1 ? 'point' : 'points'}`
+  return read === 'weighted' ? `${n}, for its size` : n
+}
+
 /** What a churn wedge says out loud: a count, and the window it counts inside.
  *
  *  The window comes from the repo's own ladder every time — never a constant. A tooltip
@@ -1326,6 +1464,49 @@ export function churnLabel(commits: number, days: number): string {
  *  which on a function is the commits its lines trace back to and not a 90-day rate — the
  *  bottom band read `untouched in 90d` over code whose lines every one of them came from a
  *  commit. What a band can honestly say is how many, not when. */
+/** **Which lenses a file can answer for when its functions have not been fetched.**
+ *
+ *  This is the difference between a distribution and a sample of whatever happened to be
+ *  loaded. Rings arrive per file and only for files wide enough to draw an inside, so on a
+ *  large repo most of the tree has no function nodes — and a histogram built from the handful
+ *  that do is not a quiet approximation, it is a confident picture of a biased subset. Three
+ *  files with rings, all touched last week, and the directory holding four thousand draws as
+ *  entirely fresh.
+ *
+ *  So a subtree draws its distribution only when every file in it is answered for: by its own
+ *  ring, or by itself where its own value means the same thing. Everywhere else the rim falls
+ *  back to the roll-up the backend computed over the whole subtree, which is what was drawn
+ *  before any of this existed and is complete by construction.
+ *
+ *  **A `Record`, and it was a chain of `||` until the twelfth lens was left out of it.** The
+ *  symptom was the one this whole mechanism exists to prevent, arriving through the door built
+ *  to close it: `src-tauri` drew as ONE shade of purple while the pane beside it read
+ *  2,660 / 1,693 / 3,663 / 14,727. Nothing threw, nothing was grey — the map quietly averaged.
+ *  That was the third hand-kept list of modes a new lens had to be added to and the third one
+ *  it was missed from; the others were the band order and the ramp. A `Record` over
+ *  `ColorMode` fails the build instead of the picture. */
+const STANDS_IN: Record<ColorMode, boolean> = {
+  // A file's own tangle is the mean over ALL its functions, computed in Rust rather than over
+  // whichever rings happen to have arrived, so it is complete by construction exactly as churn
+  // and age are — and `Cols::tangle` carries the per-function values so the distribution is
+  // the functions' own rather than one point per file.
+  tangle: true,
+  surprise: true,
+  legible: true,
+  docs: true,
+  // Traps and Clones never reach here: `histogramsFor` returns before it, because a container
+  // under them is a mark rather than a quantity. False rather than absent, so the record stays
+  // a statement about every lens there is.
+  traps: false,
+  clones: false,
+  callers: true,
+  reach: true,
+  blame: true,
+  language: true,
+  age: true,
+  churn: true,
+}
+
 const CHURN_BANDS: { label: string; min: number }[] = [
   { label: '10+ commits', min: 10 },
   { label: '3–9 commits', min: 3 },
@@ -1370,12 +1551,18 @@ function standScore(measured: {
   churn: ChurnWindows
   ageDays: number | null
   lastTouchedDays: number | null
+  /** Omitted by a caller with no parse behind it — a replay's fold, which carries line counts
+   *  and dates and no bodies. Null there rather than zero: a zero is a body that never forks,
+   *  which is a claim, and a fold has not measured one. */
+  tangle?: [number, number] | null
 }): Score {
   return {
+    tangle: null,
     ...measured,
     surprise: 0,
     documented: 0,
     allCommits: null,
+    cognitive: null,
     provenance: 'none',
     hotShare: 0,
     source: 'proxy',
@@ -1652,6 +1839,15 @@ function contribute(
         // `uncommitted`, which is the other thing entirely.
         put(UNKNOWN, mode === 'blame' ? 'not in git' : 'unknown', 'var(--unanalyzed)', n)
       }
+    } else if (mode === 'tangle') {
+      if (s?.tangle) {
+        const at = view.tangle === 'raw' ? 1 : 0
+        const bands = TANGLE_BANDS[view.tangle]
+        const band = bands.find((b) => s.tangle![at] >= b.min) ?? bands[bands.length - 1]
+        put(band.label, band.label, '', n, s.tangle[at])
+      } else {
+        put(UNKNOWN, NOT_COUNTED, 'var(--unanalyzed)', n)
+      }
     } else if (mode === 'churn') {
       // Same gates `colorFor` uses, so a wedge the map left gray is not given a band here:
       // the repo-level one first — an unwalked timeline has no counts, only zeroes — and then
@@ -1709,6 +1905,10 @@ function contributeCols(
   if (
     mode !== 'churn' &&
     mode !== 'age' &&
+    // **Without this a ring-less file answered NOTHING and the rim drew anyway**, missing
+    // every line in it — see `STANDS_IN`, which is the gate that lets a file stand in and is
+    // only honest if the file actually has something to say.
+    mode !== 'tangle' &&
     mode !== 'callers' &&
     mode !== 'reach' &&
     // Clones draws DOTS on the map rather than a rim, so `histogramsFor` never asks — but
@@ -1738,10 +1938,20 @@ function contributeCols(
     // no history, calls never parsed, a body never compared. Restoring it as `undefined`
     // rather than as a zero is the whole point of the sentinel.
     const counts = c.commits[i] ?? [-1, -1, -1, -1]
+    // Thousandths back to the 0..1 the ramp paints; `-1` is a language with no branch table,
+    // which `contribute` draws grey rather than cold.
+    const t = c.tangle?.[i]
+    const tangle: [number, number] | null =
+      !t || t[0] < 0 ? null : [t[0] / 1000, t[1] / 1000]
+    // **Three absences, not one.** This was `no commits AND no touch date`, which is the right
+    // question for the two git lenses and the wrong one for Complexity — that is read off the
+    // parse and does not care whether the repo has a history at all. On a repo with no git the
+    // whole score went `undefined` and every ring-less file dropped out of the rim.
     stand.score =
-      counts[0] < 0 && c.touched[i] < 0
+      counts[0] < 0 && c.touched[i] < 0 && tangle === null
         ? undefined
         : standScore({
+            tangle,
             commits: counts.map((n) => Math.max(0, n)) as ChurnWindows,
             // **The ramp, which this stand-in used to omit entirely and got away with because
             // it is cast through `unknown`.** The churn branch reads it to colour the band, so
@@ -1820,6 +2030,10 @@ function contributeHeld(file: Node, mode: ColorMode, view: Views, put: Put): voi
 export function sortBuckets<T extends { key: string; lines: number }>(
   rows: T[],
   mode: ColorMode,
+  /** Which of Complexity's two readings named these bands — see `TANGLE_BANDS`. The words
+   *  differ between them, so the order has to be looked up under the same one that wrote
+   *  them, or `indexOf` misses every row and the sort silently does nothing. */
+  read: TangleRead = 'weighted',
 ): T[] {
   if (mode === 'blame' || mode === 'language') {
     // By lines, because the row PRINTS lines. A column of numbers not in their own order
@@ -1876,7 +2090,7 @@ export function sortBuckets<T extends { key: string; lines: number }>(
     const order: string[] = ['none', 'some', 'most', 'full']
     rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
   } else {
-    const order = mode === 'churn' ? CHURN_BANDS.map((b) => b.label) : AGE_BANDS.map((b) => b.label)
+    const order = bandLabels(mode, read)
     rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
   }
   // Whatever the mode could not color goes last whichever way the rest is sorted: it is
@@ -1933,6 +2147,7 @@ export function bucketsFor(
   const view: Views = {
     age: views?.age ?? { span: ageSpanOf(root), read: 'newest' },
     churn: views?.churn ?? VIEWS_DEFAULT.churn,
+    tangle: views?.tangle ?? VIEWS_DEFAULT.tangle,
   }
   const bucket = new Map<string, Bucket>()
   /** Ramp inputs per bucket, kept only long enough to average them into a fill. */
@@ -1992,11 +2207,14 @@ export function bucketsFor(
     if (!b || vals.length === 0) continue
     const mean = vals.reduce((a, v) => a + v, 0) / vals.length
     // Every one of these walks a ramp, so the swatch is that ramp at the bucket's mean —
-    // the color in the key is a color on screen.
-    b.fill = ramped(mean, mode === 'churn' ? 'churn' : 'age').fill
+    // the color in the key is a color on screen. **Through `rampOf`, which is the one place
+    // that knows** — this was `mode === 'churn' ? 'churn' : 'age'`, a binary written when there
+    // were two banded lenses, and a third one fell straight through it: Complexity drew a gold
+    // map beside a green legend, both of them confidently.
+    b.fill = ramped(mean, rampOf(mode)).fill
   }
 
-  return sortBuckets([...bucket.values()], mode)
+  return sortBuckets([...bucket.values()], mode, view.tangle)
 }
 
 /** One segment of a directory's rim: a value, its colour, and how many lines hold it. */
@@ -2058,6 +2276,7 @@ export function histogramsFor(
   const view: Views = {
     age: views?.age ?? { span: ageSpanOf(root), read: 'newest' },
     churn: views?.churn ?? VIEWS_DEFAULT.churn,
+    tangle: views?.tangle ?? VIEWS_DEFAULT.tangle,
   }
 
   interface Tally {
@@ -2083,29 +2302,9 @@ export function histogramsFor(
     cur.n += t.n
   }
 
-  /** **Which lenses a file can answer for when its functions have not been fetched.**
-   *
-   *  This is the difference between a distribution and a sample of whatever happened to be
-   *  loaded. Rings arrive per file and only for files wide enough to draw an inside, so on
-   *  a large repo most of the tree has no function nodes — and a histogram built from the
-   *  handful that do is not a quiet approximation, it is a confident picture of a biased
-   *  subset. Three files with rings, all touched last week, and the directory holding four
-   *  thousand draws as entirely fresh.
-   *
-   *  So a subtree draws its distribution only when every file in it is answered for: by its
-   *  own ring, or by itself where its own value means the same thing. Everywhere else the
-   *  rim falls back to the roll-up the backend computed over the whole subtree, which is
-   *  what was drawn before any of this existed and is complete by construction. */
-  const standsIn =
-    mode === 'blame' ||
-    mode === 'language' ||
-    mode === 'age' ||
-    mode === 'churn' ||
-    mode === 'callers' ||
-    mode === 'reach' ||
-    mode === 'legible' ||
-    mode === 'docs' ||
-    mode === 'surprise'
+  /** Whether a file can stand in for its own functions — see `STANDS_IN`, which holds the
+   *  list and the reason it is a `Record`. */
+  const standsIn = STANDS_IN[mode]
 
   /**
    * Fold one subtree into `sink`, and answer for it if anybody asked.
@@ -2181,11 +2380,12 @@ export function histogramsFor(
               // measured.
               fill:
                 t.fill === '' && t.n > 0
-                  ? ramped(t.sum / t.n, mode === 'churn' ? 'churn' : 'age').fill
+                  ? ramped(t.sum / t.n, rampOf(mode)).fill
                   : t.fill,
               lines: t.lines,
             })),
             mode,
+            view.tangle,
           ),
         )
       }

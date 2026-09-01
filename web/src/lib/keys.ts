@@ -16,7 +16,21 @@
 import { MODE_LABEL, type ColorMode } from './colorMode'
 
 /** The keys the app claims, in the order the switcher lists the lenses. */
-export const LENS_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-'] as const
+export const LENS_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='] as const
+
+
+/** Previous and next lens, which do not run out.
+ *
+ * **The digits did.** Nine of them, then ⌘0 for the tenth and ⌘- for the eleventh, and past
+ * that `ColorKey`'s `shortcut()` returns null and says so rather than advertising a key that
+ * selects something else. A twelfth lens therefore arrived with no way to reach it from the
+ * keyboard at all — and worse, inserting one anywhere but the end SHIFTS every digit after it,
+ * so the eleventh lens somebody had learned silently became unreachable.
+ *
+ * Stepping is the shape that survives a twelfth lens and a thirteenth. The digits stay for the
+ * ones that have them: a key somebody has learned is not worth taking away, and these are
+ * additive. */
+export const LENS_STEP: Record<string, -1 | 1> = { '[': -1, ']': 1 }
 
 /** Only what the decision depends on. A `KeyboardEvent` would work and would also drag a DOM
  *  into the harness for four booleans and a string. */
@@ -56,6 +70,8 @@ export type Act =
   | { do: 'find' }
   | { do: 'history' }
   | { do: 'lens'; mode: ColorMode }
+  /** Move one lens along the strip, wrapping. See `LENS_STEP`. */
+  | { do: 'step'; by: -1 | 1 }
   | null
 
 /**
@@ -75,9 +91,23 @@ export function actOf(e: Press, w: Where): Act {
     return { do: 'find' }
   }
   if (!e.meta || e.alt || e.ctrl) return null
-  if (e.key === '+' || e.key === '=') return { do: 'history' }
+  // **History takes the SHIFTED key, and a bare `=` is the twelfth lens.**
+  //
+  // It answered to `⌘+` and `⌘=` alike, because `+` IS Shift-`=` and the unshifted spelling was
+  // free. It stopped being free when a twelfth lens arrived and `=` was the only key left
+  // sitting with the digits. `+` is what the key reports with Shift on most layouts and `=`
+  // with Shift on some, so both spellings of the shifted press still mean History; the bare one
+  // falls through to the lenses below.
+  //
+  // The ordering carries this: it runs BEFORE the Shift guard, so an `=` branch that forgot to
+  // check Shift would swallow the last lens and nothing on screen would say so.
+  if (e.key === '+' || (e.key === '=' && e.shift)) return { do: 'history' }
   if (e.key === 'f') return { do: 'find' }
   if (e.shift) return null
+  // Before the digits, and it costs them nothing — `[` and `]` are not in `LENS_KEYS` and
+  // never were. See `LENS_STEP` for why stepping exists at all.
+  const step = LENS_STEP[e.key]
+  if (step) return { do: 'step', by: step }
   const i = LENS_KEYS.indexOf(e.key as (typeof LENS_KEYS)[number])
   if (i === -1) return null
   const modes = Object.keys(MODE_LABEL) as ColorMode[]

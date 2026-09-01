@@ -1,5 +1,5 @@
 import { RINGS_MAX, RINGS_MIN } from '../lib/rings'
-import { CAPS, modeToken, type AgeRead } from '../lib/colorMode'
+import { CAPS, modeToken, type AgeRead, type TangleRead } from '../lib/colorMode'
 import { inkOn } from '../lib/ink'
 import { useState } from 'react'
 import { capLabel, type Capped } from '../lib/palette'
@@ -64,8 +64,10 @@ export function RingCount({ rings, onRings }: { rings: number; onRings: (n: numb
 }
 
 /**
- * **TEMPORARY.** How thick the directory rim is, from what it has always been to the whole
- * ring — see `Sunburst`'s `rimShare`.
+ * How thick the directory rim is, from what it has always been to the whole ring — see
+ * `Sunburst`'s `rimShare`, which carries the argument for why a fifth is the default and why
+ * the whole band is not a matter of taste: the rim reads by arc LENGTH, and filling the band
+ * turns its segments into areas, which is the encoding the map already spends on lines.
  *
  * A slider rather than a stepper, which is the opposite of the choice next to it and for the
  * opposite reason: the ring count is a small set of discrete answers somebody picks between,
@@ -73,9 +75,10 @@ export function RingCount({ rings, onRings }: { rings: number; onRings: (n: numb
  * looking — the rim became a distribution tonight and how much room a distribution wants is
  * a question about real repos, not one a constant can answer before anybody has looked.
  *
- * Deliberately unlabelled beyond `band` and a percentage, and deliberately not stored: it is
- * expected to collapse back into `DIR_RIM_PX` once it has told us what it is worth, and a
- * preference that outlives its control is worse than no preference.
+ * Deliberately unlabelled beyond `band` and a percentage, and deliberately not stored: a
+ * preference that outlives its control is worse than no preference. It stays a control because
+ * the right value is still worth looking at on repos of different shapes — but the default is
+ * now argued rather than open, so this is for looking rather than for deciding.
  */
 export function BandWidth({ share, onShare }: { share: number; onShare: (v: number) => void }) {
   return (
@@ -442,6 +445,79 @@ export function ChurnWindow({
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+/**
+ * Which of Complexity's two readings the map paints — see `TangleRead`.
+ *
+ * **Two segments, the same shape as `AgeReading`, and for the same reason: two alternatives
+ * fit beside the lens they qualify.** What separates them is what they are measured against.
+ * *Weighted* compares a body with the others its size in this repo, which is the finding — a
+ * longer function is naturally more complicated, so the useful question is whether it is more
+ * complicated than its length suggests. *Raw* is the count itself against an absolute bar, for
+ * the reader who wants everything over the line whatever this codebase considers normal.
+ *
+ * There is no third segment. Cyclomatic complexity — the same forks without the nesting weight
+ * — orders functions identically to this one, measured at 0.988–0.999 across three repos, so a
+ * segment for it would be a control that draws the map it is already showing.
+ */
+export function TangleReading({
+  read,
+  onRead,
+}: {
+  read: TangleRead
+  onRead: (r: TangleRead) => void
+}) {
+  const opts: { key: TangleRead; word: string; title: string }[] = [
+    {
+      key: 'weighted',
+      word: 'weighted',
+      title:
+        'Colour by how complex this is FOR ITS SIZE — each body against the median of the others its length in this repo. A long function is naturally more complicated; this asks whether it is more complicated than that.',
+    },
+    {
+      key: 'raw',
+      word: 'raw',
+      title:
+        'Colour by the count itself: every fork costs one, plus one for each fork it is nested inside. Measured against an absolute bar of 15, the published default — which is what you want when triaging against a line rather than against this repo.',
+    },
+  ]
+  return (
+    <div
+      className="flex items-center gap-0.5 rounded-full p-[3px]"
+      style={{
+        background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
+        boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
+      }}
+    >
+      {opts.map((o) => {
+        const on = read === o.key
+        return (
+          <button
+            key={o.key}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onRead(o.key)}
+            title={o.title}
+            className="rounded-full px-2 py-[3px] text-[11px] leading-none transition-colors"
+            // The pressed segment wears the lens's own colour, as `AgeReading` does: this row
+            // already says what the map is coloured by, and the sub-reading is a statement
+            // about that same colour rather than an unrelated control.
+            style={
+              on
+                ? { background: 'var(--tangle-3)', color: inkOn('--tangle-3'), fontWeight: 600 }
+                : { color: 'var(--muted-foreground)' }
+            }
+          >
+            {/* The noun rides on the chosen segment only — see `AgeReading`, which explains
+                why: both halves carrying it reads as two nouns to compare when what is being
+                compared is the adjective. */}
+            {on ? `${o.word} count` : o.word}
+          </button>
+        )
+      })}
     </div>
   )
 }

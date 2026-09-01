@@ -228,6 +228,7 @@ pub(crate) mod tests {
             end_line: line + 4,
             calls: calls.iter().map(|c| c.to_string()).collect(),
             shape,
+            cognitive: None,
         }
     }
 

@@ -89,6 +89,7 @@ import {
   CHURN_DEFAULT_WINDOW,
   VIEWS_DEFAULT,
   type AgeRead,
+  type TangleRead,
   type Views,
   type ColorMode,
 } from './lib/colorMode'
@@ -108,6 +109,7 @@ import { HelpButton, LensHelp } from './components/LensHelp'
 import {
   AgeReading,
   BandWidth,
+  TangleReading,
   ChurnWindow,
   ColorCount,
   DerivableToggle,
@@ -401,13 +403,27 @@ export default function App() {
   // One geometry, five encodings. The sunburst was never the thing worth swapping out —
   // what changes the question is what the color MEANS, and the same rings answer five
   // different ones depending on that.
-  const [mode, setMode] = useState<ColorMode>('surprise')
+  // **Complexity, because it is the one lens that can draw a repo the moment it is opened.**
+  // Surprise is the better reading and it is locked until somebody has run readers, so opening
+  // on it meant the app's first frame was a grey map behind a lens that could not paint it.
+  // See `MODE_LABEL`, where the same argument decides the menu order.
+  const [mode, setMode] = useState<ColorMode>('tangle')
   /** How many rings the map draws — see `lib/rings.ts`. A display preference, so it is read
    *  from storage once and written back on every change, and it is NOT per project. */
   const [rings, setRings] = useState(loadRings)
-  /** **TEMPORARY** — see `BandWidth`. Session state, not stored: the control is expected to
-   *  go away once it has told us what `DIR_RIM_PX` should be. */
-  const [band, setBand] = useState(0)
+  /** How much of each ring a directory's own band takes — see `Sunburst`'s `rimShare`, which
+   *  carries the argument. Session state, not stored.
+   *
+   *  **A fifth, and the two ends are wrong in opposite directions.** At zero the rim is a few
+   *  pixels and a container's distribution is drawn where nobody looks, with its flat mean
+   *  behind: `sanity`'s `src-tauri` read as one shade of purple while the pane beside it showed
+   *  2,660 / 1,693 / 3,663 / 14,727. At one the segments stop being arc LENGTHS and become
+   *  areas — and area is the encoding this map already spends on lines, so a proportion
+   *  silently turns into a quantity.
+   *
+   *  A fifth is enough to read four bands off a directory and little enough that the band is
+   *  obviously a summary of the wedge rather than a measurement of its own. */
+  const [band, setBand] = useState(0.2)
   /** Whether the folder rims carry Traps' and Clones' pointing marks — see `MarkerToggle`
    *  and `Sunburst`'s `dots`. On by default, because the mark is what makes those two lenses
    *  findable from the middle of the map; session state rather than stored, because it is a
@@ -1752,6 +1768,15 @@ export default function App() {
           why: `${MODE_LABEL[m]} reads git, and this folder has no history.`,
           keyed: false,
         }
+      } else if (m === 'tangle' && (scan?.stats.tangleBands ?? []).every((b) => b === null)) {
+        // **A table, not a button — so this lock is not `keyed`.** Complexity is counted off
+        // the grammar, and a language nobody has written branch kinds for cannot be counted by
+        // pressing anything. The same shape as the wiring lenses' lock, which says the calls
+        // were never parsed: an absence in the instrument rather than work somebody owes.
+        out[m] = {
+          why: 'Complexity counts branches off the grammar, and none of the languages here have been taught where they fork. Nothing to press — it needs a table in the parser.',
+          keyed: false,
+        }
       } else if (m === 'churn' && !(scan?.stats.churned ?? false)) {
         // **Last of the git three, because it is the narrowest claim.** The two above are
         // about the repo's history existing and having been read at all; this one is about a
@@ -1861,11 +1886,27 @@ export default function App() {
       e.preventDefault()
       if (act.do === 'find') setFinding(true)
       else if (act.do === 'history') toggleHistory()
-      else setMode(act.mode)
+      else if (act.do === 'step') {
+        // Wrapping, where the digits' ends disable — a stepper through a RANGE stops because
+        // running past the end reads as a press that missed, and a cycle through a set does
+        // not have ends. `⌘]` from the last lens landing back on the first is the shape every
+        // tab cycle has.
+        const all = Object.keys(MODE_LABEL) as ColorMode[]
+        const at = all.indexOf(modeRef.current)
+        setMode(all[(at + act.by + all.length) % all.length])
+      } else setMode(act.mode)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [toggleHistory, finding])
+
+  /** The lens the step keys move FROM, read at press time.
+   *
+   *  A ref rather than a dependency: the listener is bound once and adding `mode` to its deps
+   *  would rebind it on every lens change, which is a `removeEventListener` and an
+   *  `addEventListener` per press for a value the handler only ever reads. */
+  const modeRef = useRef(mode)
+  modeRef.current = mode
 
   /** Ask for the rings the map is about to draw.
    *
@@ -2174,7 +2215,14 @@ export default function App() {
     (m: ColorMode): MovieKey | null => {
       const at = focus ?? tree
       if (!at) return null
-      const ends = rampEnds(m, ageRead)
+      // The whole calibration, because two lenses name their ramp's ends from it now — see
+      // `rampEnds`. Built here rather than reusing `lensViews`, which is memoised on the tree
+      // this callback deliberately does not close over; see `keyNow`.
+      const ends = rampEnds(m, {
+        age: { span: ageSpan ?? AGE_DEFAULT.span, read: ageRead },
+        churn: VIEWS_DEFAULT.churn,
+        tangle: tangleRead,
+      })
       if (ends) {
         return {
           title: MODE_LABEL[m],
@@ -2228,6 +2276,11 @@ export default function App() {
    *  is `Stats.churnWindows` and is NOT a constant. Session state: a horizon is something you
    *  change to look at the same repo differently, not a way you keep the app. */
   const [churnAt, setChurnAt] = useState(CHURN_DEFAULT_WINDOW)
+  /** Which of Complexity's two readings the map paints — see `TangleRead`. Weighted by
+   *  default, because "how complex it is FOR ITS SIZE" is the finding and the raw count is
+   *  largely a restatement of the width the map already draws. Session state, like the rest of
+   *  the lens sub-choices: something you switch to look again, not a way you keep the app. */
+  const [tangleRead, setTangleRead] = useState<TangleRead>('weighted')
   /** Both calibrated lenses as one value, so a caller cannot thread half of it — see `Views`.
    *  Memoised because `Sunburst` is a `memo` and a fresh object per render would make that
    *  memo do nothing. */
@@ -2248,8 +2301,9 @@ export default function App() {
         // zero, and zero is a finding — see `ChurnView.measured`.
         measured: scan?.stats.churned ?? false,
       },
+      tangle: tangleRead,
     }),
-    [ageSpan, ageRead, churnAt, scan],
+    [ageSpan, ageRead, churnAt, tangleRead, scan],
   )
   /** Stable identities, because an inline lambda makes the memo below do nothing. */
   const pick = useCallback((n: Node) => setPicked(n), [])
@@ -2726,6 +2780,13 @@ export default function App() {
                     both dates per drawn function and, since the fold carries a birth date per
                     file too, per stand-in as well — see `Frame.pathBorn`. */}
                 {viewMode === 'age' && <AgeReading read={ageRead} onRead={setAgeRead} />}
+                {/* **With the lens, for the reason all four of these are.** What it changes is
+                    what the colour MEANS — a count, or that count measured against what is
+                    normal for a body this size. Not the geometry, which is what lives right of
+                    the spacer. */}
+                {viewMode === 'tangle' && (
+                  <TangleReading read={tangleRead} onRead={setTangleRead} />
+                )}
                 {/* **The fourth lens control, in the same slot and on the same rule.** What it
                     changes is what a colour MEANS on this lens — specifically, that one of
                     Docs' colours is standing for two different findings. Keyed off `viewMode`
@@ -2964,7 +3025,7 @@ export default function App() {
                     // `rampEnds`. A key reading `old → recent` over a map painted by birth
                     // date is the legend disagreeing with the picture, which is the one
                     // thing a key must never do.
-                    ageRead={ageRead}
+                    views={lensViews}
                     // From `focus`, like the ranks it has to agree with — a legend naming
                     // eight authors the rings in front of you do not contain is annotating a
                     // picture nobody is looking at. The comment below said this before the

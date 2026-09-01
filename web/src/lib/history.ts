@@ -995,6 +995,12 @@ function scoreInto(
     lastTouchedDays: null,
     commits: [0, 0, 0, 0],
     allCommits: null,
+    // **A frame carries no parse.** Complexity is read off the syntax tree of the code as it
+    // stands; the timeline holds line counts and grades, not bodies. Null rather than zero, and
+    // `REPLAY` says the lens is unreplayable so the switcher explains it rather than the map
+    // going quietly grey.
+    tangle: null,
+    cognitive: null,
     provenance: 'history',
     hotShare: 0,
     source: 'proxy',
@@ -1110,6 +1116,8 @@ function aggregate(node: Node, appearedOf: (id: string) => number | null): void 
     ageDays: null,
     lastTouchedDays: null,
     commits: [0, 0, 0, 0] as ChurnWindows,
+    tangle: null,
+    cognitive: null,
     provenance: 'history',
     hotShare: 0,
     source: 'proxy',
@@ -1252,6 +1260,8 @@ function flashOnly(birth: boolean, edit: boolean): Score | null {
     lastTouchedDays: null,
     commits: [0, 0, 0, 0],
     allCommits: null,
+    tangle: null,
+    cognitive: null,
     provenance: 'history',
     hotShare: 0,
     source: 'proxy',

@@ -267,6 +267,16 @@ pub struct ScanStats {
     /// it. A per-node flag would be this answer repeated on every segment.
     #[serde(default)]
     pub churned: bool,
+    /// What counts as a normal cognitive score for a body of each size, in THIS repo — see
+    /// `tangle::Bands`.
+    ///
+    /// Sent so the panel and the tooltip can say what a wedge is being compared against.
+    /// "Three times normal for its size" is a sentence somebody can check; a bare ramp
+    /// position is not, and the number it is measured against is a fact about this codebase
+    /// rather than a constant anybody could look up. Empty where no language in the repo has
+    /// a branch table, which is what locks the lens.
+    #[serde(default)]
+    pub tangle_bands: crate::tangle::Bands,
     /// Everyone who has ever committed here, most commits first — see `churn::History`.
     ///
     /// **The window colours a person by their position in this list, and by nothing else.**
@@ -1087,6 +1097,8 @@ fn score_dir(
     copies: &crate::clones::Copies,
     // The log walk, the per-line blame and the timeline's edit counts — see `trace::Histories`.
     hist: crate::trace::Histories,
+    // What counts as normal complexity for a body this size, in this repo — see `tangle`.
+    bands: &crate::tangle::Bands,
     fidelity: Fidelity,
 ) -> Vec<(String, Node)> {
     let dir_prints: Vec<&Fingerprint> = files.iter().flat_map(|f| f.prints.iter()).collect();
@@ -1193,6 +1205,11 @@ fn score_dir(
                             churn,
                             age_days,
                             commits,
+                            // Calibrated against the other bodies this size in this repo —
+                            // see `tangle::Bands`. `None` where the grammar has no branch
+                            // table, which is not the same claim as a body that never forks.
+                            tangle: func.cognitive.map(|c| bands.ramp(func.loc(), c)),
+                            cognitive: func.cognitive,
                             // A function's lifetime count would be `git log -L`, a process
                             // apiece — see `Score::all_commits`, which is `None` here for
                             // that reason and not for want of history.
@@ -1683,13 +1700,25 @@ pub fn scan(
     // holding four hundred files and the next holding two would make a bar that jumps and
     // then stops. Files are also the unit the two phases before this counted in, so the
     // number keeps meaning the same thing across the whole scan.
+    // **Derived before anything is scored, and from every function in the repo.** The
+    // question the lens answers is "is this more complicated than others its size", so the
+    // population is the whole codebase and not the directory a wedge happens to sit in — a
+    // per-directory normal would make the same function change colour when you drilled.
+    let bands = crate::tangle::Bands::of(
+        parsed_dirs
+            .iter()
+            .flatten()
+            .flat_map(|f| f.funcs.iter())
+            .filter_map(|f| f.cognitive.map(|c| (f.loc(), c))),
+    );
+
     let scored = AtomicUsize::new(0);
     let to_score: usize = parsed_dirs.iter().map(|d| d.len()).sum();
     let per_dir: Vec<Vec<(String, Node)>> = parsed_dirs
         .par_iter()
         .enumerate()
         .map(|(di, parsed)| {
-            let out = score_dir(parsed, offsets[di], &wiring, &copies, hist, fidelity);
+            let out = score_dir(parsed, offsets[di], &wiring, &copies, hist, &bands, fidelity);
             // After the directory rather than during it: `score_dir` is one call per
             // directory and splitting it to report inside would be reshaping the work to
             // suit the narration. At `Full` fidelity a big directory is the slow unit here,
@@ -1868,6 +1897,7 @@ pub fn scan(
                 .map(|e| e.windows)
                 .unwrap_or_else(|| crate::edits::windows_for(crate::edits::span_days(root))),
             churned: walked.is_some(),
+            tangle_bands: bands.clone(),
             // Capped where the palette stops meaning anything — see `ScanStats::authors`.
             authors: history.authors().iter().take(AUTHOR_SLOTS).cloned().collect(),
             // Out of the walk that just ran rather than a `git rev-list` of its own — see
@@ -2346,6 +2376,7 @@ mod tests {
                 end_line: i as u32 * 3 + 2,
                 shape: None,
                 calls: Vec::new(),
+                cognitive: None,
             })
             .collect();
         let file = ParsedFile {

@@ -86,7 +86,15 @@ use crate::parse::FuncDef;
 /// [`ScanCache::path_for`]), which means this bump orphans every existing log rather than
 /// dropping it — one cold scan per repo, once, and no build can silently read a log whose
 /// entries do not say which parser wrote them.
-const FORMAT_VERSION: u32 = 6;
+///
+/// 7 because `FuncDef` gained `cognitive` — the branch count the Complexity lens paints, which
+/// is read off the same parse that already produces the body. `Option<u32>`, so a version-6
+/// entry would deserialize it as `None` and be indistinguishable from a language whose branch
+/// kinds nobody has written; that is the safe direction to be wrong in and it is still a
+/// format change, because a cache full of `None` would draw a repo as unsupported until
+/// something else happened to invalidate it. `PARSE_VERSION` moved with it, for the reason the
+/// paragraph above gives.
+const FORMAT_VERSION: u32 = 7;
 
 /// Stand-in oid for "not touched inside the churn window". See the module docs.
 const ANCIENT: &str = "-";
@@ -723,6 +731,7 @@ mod tests {
             start_line: 1,
             end_line: 1,
             shape: None,
+            cognitive: None,
             calls: Vec::new(),
         }
     }
@@ -795,6 +804,7 @@ mod tests {
             vec![
                 "body",
                 "calls",
+                "cognitive",
                 "doc",
                 "end_line",
                 "name",

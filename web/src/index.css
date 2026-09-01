@@ -298,6 +298,30 @@
    * number this reordering exists to protect, because the chips are the thing being
    * looked at as a set.
    *
+   * THE TWELFTH LENS IS NOT ON THE WHEEL, AND THAT IS THE WHOLE OF IT. Complexity opens the
+   * menu, because it is the only lens that paints a repo nobody has read. Hue follows the
+   * menu, so the ordering rule puts it in the arc above heat — and heat is pinned to amber
+   * because it must read as heat, so that arc is 74-114 and everything in it is gold. The
+   * colour was a THEOREM, not a choice: three constraints, one of which had to give.
+   *
+   * Unpinning age was tried and it works — `age` closes the menu and its pin was a
+   * convenience rather than a meaning — but it only widens the arc, so the first lens stays
+   * a yellow-green and the whole cool half of the palette moves to buy it: chips 13.3 to
+   * 12.4, hot 13.5 to 13.2, and six ramps recoloured under everybody who had learned them.
+   *
+   * So Complexity sits OUTSIDE the ordering instead, at 329. The eleven keep the hues they
+   * shipped with, every margin above is unchanged, and the cost is one row of the menu whose
+   * colour does not continue the run. That is a real cost and it is the smaller one: the rule
+   * exists so a set of eleven reads as ordered, and eleven of them still do. The exempt row is
+   * the DEFAULT lens — the one somebody is in most of the time — which is the row that earns
+   * being told apart rather than blended into a sequence.
+   *
+   * Chosen by scanning all 360 with the eleven held fixed, against the scorer AND against the
+   * two marks it does not check. 329 holds 16.0 to the clone mark and 14.5 to the trap, where
+   * the arc's best-scoring hues, 313 and 299, sit four and ten degrees off clone and score as
+   * free only because `--clone` is not one of the floors ramps are scored against. A cost the
+   * scorer cannot see is still a cost.
+   *
    * The floors all still hold, and one of them moved: docs is now the tight one
    * against --trap at 16.6, down from 20.5, because rose at 17° is the closest a ramp
    * has come to the alarm pink. Cold-vs-unanalyzed is unchanged at 11.5 (heat), and
@@ -344,20 +368,39 @@
   --heat-3: #d09949;
   --heat-4: #f4b04a;
 
-  /* churn — green, 145°, and it was blue at 224° for as long as this map has existed.
-   * The ordering solve moved it: churn sits at menu position 10, between the categorical
-   * pair and age, and the arc left there is green. What it gains is the pair it is now
-   * beside — churn and age are the two time lenses, ninety days and unbounded, and they
-   * read as one family. What it costs is a blue nobody had to relearn, and 8.2 between
-   * the two cold ends, which is the palette's tightest pair. It is also no
-   * longer the gamut-clamped ramp: blue ran out of sRGB around C .106 at L .804 and the
-   * hot end was pale for it; green has room and this ramp now carries its full chroma to
-   * the top. Reach inherited the clamp instead. */
-  --churn-0: #435b43;
-  --churn-1: #547954;
-  --churn-2: #639764;
-  --churn-3: #74b876;
-  --churn-4: #82d785;
+  /* churn — olive-green, 114°, and it CLOSES the menu. It was the green at 145° and traded
+   * with age when the two swapped rows: hue follows the menu here, so a swap up there IS a
+   * swap in the palette, and nothing else on the wheel moved for it. Both were blue at 224°
+   * before the ordering solve, which is a colour nobody had to relearn and the real cost of
+   * ordering; what it bought is the pair — churn and age are the two time lenses, ninety days
+   * and unbounded, and they read as one family whichever way round they sit. Neither has a
+   * claim on its particular green, which is exactly what makes trading them free.
+   *
+   * Also no longer the gamut-clamped ramp: blue ran out of sRGB around C .106 at L .804 and
+   * the hot end was pale for it. Reach inherited the clamp instead. */
+  --churn-0: #535737;
+  --churn-1: #6d7341;
+  --churn-2: #878f49;
+  --churn-3: #a4ad51;
+  --churn-4: #bec955;
+
+  /* tangle — orchid, 329°, and deliberately OFF the ordering wheel — see the note above,
+   * which carries the reasoning and the numbers. How much more complex a body is than others its
+   * size.
+   *
+   * A purple that no ramp is near: the two things within 30° of it are the trap's pink and the
+   * clone's violet, and both are MARKS with their own lightness and chroma rather than ramps
+   * climbing beside it. It holds 16.0 to clone and 14.5 to trap, checked by hand because the
+   * search scores neither.
+   *
+   * **It is the first lens, so it is the one somebody sees first**, and the ordering rule was
+   * going to make that gold — the only arc left above a pinned amber. Being outside the run is
+   * what buys a first impression that is not mustard, and it costs the other eleven nothing. */
+  --tangle-0: #624a61;
+  --tangle-1: #855f82;
+  --tangle-2: #a873a4;
+  --tangle-3: #cd8ac9;
+  --tangle-4: #f09deb;
 
   /* legible — warm orange, 47°. Its own hue, not surprise's amber, and that is the whole point:
    * the pair is meant to be TOGGLED, and a blink comparison between two identically
@@ -398,13 +441,15 @@
   --docs-3: #e5858a;
   --docs-4: #ffa1a5;
 
-  --age-0: #535737; /* age — olive-green, 114°, and PINNED through the ordering solve: it
-                     * closes the menu either way, so it had no reason to move. Its
-                     * neighbours are surprise above at 13.1 and churn's green below. */
-  --age-1: #6d7341;
-  --age-2: #878f49;
-  --age-3: #a4ad51;
-  --age-4: #bec955;
+  --age-0: #435b43; /* age — green, 144.8°, and it was the olive at 114° until Churn took the
+                     * last row. Traded rather than re-solved: the sequence of hues down the
+                     * menu is exactly what it was, and two lenses that were already a family
+                     * are wearing each other's greens. Its neighbours are language's teal
+                     * above and churn's olive below, and neither margin moved. */
+  --age-1: #547954;
+  --age-2: #639764;
+  --age-3: #74b876;
+  --age-4: #82d785;
 
   /* reach — blue, 236°, and it was the jade at 170°. What a function calls: four bands at
    * the leaf, and above it the share of the functions underneath that call anything at all,

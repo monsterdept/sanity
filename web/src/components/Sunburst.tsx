@@ -505,14 +505,24 @@ function SunburstView({
   /** How many rings to draw. See `RINGS_DEFAULT`; the reader chooses, within
    *  `RINGS_RANGE`. */
   rings?: number
-  /** **TEMPORARY.** How far the directory rim is grown toward filling its whole ring, 0..1.
+  /** How far the directory rim is grown toward filling its whole ring, 0..1. A fifth by
+   *  default — see `App`, and the paragraph below for why the number is not a taste call.
    *
-   *  Zero is what it has always been — `DIR_RIM_PX`, a few pixels of reading on the edge a
-   *  directory shares with its contents. One is the entire band. It exists because the rim
-   *  stopped being a colour and became a histogram tonight, and nobody has yet looked at
-   *  enough repos to say how much room that wants; a constant chosen before that looking is
-   *  a guess with a number on it. Expected to collapse back into `DIR_RIM_PX` once it has
-   *  answered its question. */
+   *  Zero is what it has always been: `DIR_RIM_PX`, a few pixels on the edge a directory
+   *  shares with its contents, which is too little now that the rim carries a distribution
+   *  rather than a colour — a container's four bands drawn where nobody reads, with its flat
+   *  mean filling the space behind them.
+   *
+   *  **One is worse, and for a reason that is about encoding rather than taste.** The rim is a
+   *  stacked bar bent around a circle: what it says is carried by ARC LENGTH, each segment
+   *  against the whole, and it is a proportion. This map's own primary encoding is already
+   *  area — width is lines — so area is spoken for. Grow the rim to the whole band and its
+   *  segments stop being lengths and become large two-dimensional regions, which the eye reads
+   *  as area, which is the other encoding. The reading turns from *what share of this directory
+   *  is knotty* into *how much knotty stuff is in here*, and nothing on screen says it changed.
+   *
+   *  A fifth keeps it unmistakably a bar — one dimension carrying the value — and unmistakably
+   *  a summary of the wedge it sits on rather than a thing with a size of its own. */
   rimShare?: number
   /** Whether a directory's rim carries the pointing marks — see `dots`.
    *

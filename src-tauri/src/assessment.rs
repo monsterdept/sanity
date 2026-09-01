@@ -453,7 +453,7 @@ pub fn load(repo: &Path, scan: &Scan) -> HashMap<String, Report> {
 }
 
 /// Every entry in every shard, keyed `path#name`.
-fn read_all(dir: &Path) -> HashMap<String, Report> {
+pub(crate) fn read_all(dir: &Path) -> HashMap<String, Report> {
     let mut out = HashMap::new();
     let Ok(entries) = std::fs::read_dir(dir) else {
         return out;
@@ -2151,6 +2151,7 @@ mod tests {
                 commits: 0,
                 churn_windows: [30, 60, 90, 180],
                 churned: false,
+                tangle_bands: Default::default(),
                 files_scanned: 0,
                 files_skipped: 0,
                 unscanned: Default::default(),

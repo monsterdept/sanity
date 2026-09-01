@@ -73,6 +73,14 @@ pub struct FuncDef {
     /// measuring the language's grammar rather than the repo.
     #[serde(default)]
     pub shape: Option<u64>,
+    /// Cognitive complexity — every fork costs one, plus one for each fork it nests inside.
+    ///
+    /// **`None` means this grammar has no branch table, never "no branches".** See
+    /// `branch_kinds`: a zero here would report a language nobody taught as a language whose
+    /// code never forks, which is the shape of every bug the literal kind matching exists to
+    /// make loud. The lens paints grey on `None`, as Callers does on an unresolved language.
+    #[serde(default)]
+    pub cognitive: Option<u32>,
 }
 
 impl FuncDef {
@@ -189,7 +197,7 @@ fn language(lang: Lang) -> tree_sitter::Language {
 /// answer is not wrong-looking, it is a confident zero under the Reach lens, and the only
 /// thing that can tell the caches it moved is this number. No reading expires — a body's
 /// text is untouched, so `reading_hash` does not move.
-pub const PARSE_VERSION: u32 = 4;
+pub const PARSE_VERSION: u32 = 5;
 
 /// The oldest [`PARSE_VERSION`] whose parse OUTPUT is identical to this one's.
 ///
@@ -1080,6 +1088,173 @@ fn header_end(node: TsNode, lang: Lang) -> Option<usize> {
     }
 }
 
+/// The node kinds that FORK control flow, per grammar.
+///
+/// **`None` is "this grammar was never taught", and it is not the same as a body with no
+/// branches in it.** The Complexity lens paints grey where this returns `None`, exactly as
+/// Callers does where `resolves_calls` is false — a zero standing in for "we did not look" is
+/// how a map reports a repo as simple when nobody read it. That is why this returns an option
+/// and not an empty slice.
+///
+/// **Read off a real parse, never off memory**, and pinned by `branch_kinds_are_real` below: a
+/// kind that does not exist matches nothing and looks exactly like a language whose functions
+/// never branch, which is the failure the literal matching exists to make loud.
+///
+/// # What is counted, and what is deliberately not
+///
+/// Cognitive complexity, not cyclomatic — every fork costs one, plus one for each fork it is
+/// nested inside. The two were measured against each other on three repos and order functions
+/// identically (Spearman 0.988–0.999), so only one of them is worth a lens; this is the one
+/// whose weighting matches what a reader feels.
+///
+/// - **`else` is absent.** It is the other arm of a fork already counted, and charging for it
+///   would make `if/else` cost twice what `if` does for the same one decision.
+/// - **Case arms are absent, and the `switch` is counted once.** That IS the formula's whole
+///   argument with cyclomatic complexity: a forty-case dispatch table is long and utterly
+///   predictable, and counting each arm would put it at the top of the map.
+/// - **`&&` and `||` are absent, for now, and the cost of that is measured.** Counting them
+///   needs the operator text of a `binary_expression`, which every grammar spells differently
+///   — the node itself covers `a + b` just as much as `a && b`. Leaving them out moved the
+///   residual's independence from length by 0.16 → 0.22 on kibana and not at all on two other
+///   repos, both well inside the 0.38 the flagship lens scores. A refinement, then, with a
+///   number on it rather than a guess.
+fn branch_kinds(lang: Lang) -> Option<&'static [&'static str]> {
+    Some(match lang {
+        Lang::Rust => &[
+            "if_expression",
+            "for_expression",
+            "while_expression",
+            "loop_expression",
+            "match_expression",
+        ],
+        Lang::TypeScript | Lang::Tsx | Lang::JavaScript => &[
+            "if_statement",
+            "for_statement",
+            "for_in_statement",
+            "while_statement",
+            "do_statement",
+            "switch_statement",
+            "catch_clause",
+            "ternary_expression",
+        ],
+        // `elif_clause` is its own node rather than a nested `if`, so without it a chain of
+        // four `elif`s costs the same as one `if`. `if_clause` is the filter in a
+        // comprehension, which is a real branch written small.
+        Lang::Python => &[
+            "if_statement",
+            "elif_clause",
+            "for_statement",
+            "while_statement",
+            "except_clause",
+            "conditional_expression",
+            "if_clause",
+        ],
+        Lang::Go => &[
+            "if_statement",
+            "for_statement",
+            "expression_switch_statement",
+            "type_switch_statement",
+            "select_statement",
+        ],
+        Lang::C | Lang::Cpp => &[
+            "if_statement",
+            "for_statement",
+            "for_range_loop",
+            "while_statement",
+            "do_statement",
+            "switch_statement",
+            "catch_clause",
+            "conditional_expression",
+        ],
+        Lang::Java => &[
+            "if_statement",
+            "for_statement",
+            "enhanced_for_statement",
+            "while_statement",
+            "do_statement",
+            "switch_expression",
+            "catch_clause",
+            "ternary_expression",
+        ],
+        Lang::CSharp => &[
+            "if_statement",
+            "for_statement",
+            "foreach_statement",
+            "while_statement",
+            "do_statement",
+            "switch_statement",
+            "catch_clause",
+            "conditional_expression",
+        ],
+        // Ruby names its control flow with bare words: `if`, `while`, `case` are the node
+        // kinds themselves. `when` is a case arm and is left out with every other language's.
+        Lang::Ruby => &["if", "elsif", "unless", "while", "until", "for", "case", "rescue"],
+        _ => return None,
+    })
+}
+
+/// Cognitive complexity for one body: every fork costs one, plus one for each fork it sits
+/// inside. `None` where this grammar has no table — see [`branch_kinds`].
+///
+/// The nesting term is what separates this from a branch count, and it is the whole reason the
+/// lens is worth drawing: three sequential `if`s cost three, three nested ones cost six, and
+/// the second is the one that is hard to read.
+fn cognitive_of(root: TsNode, lang: Lang) -> Option<u32> {
+    let kinds = branch_kinds(lang)?;
+    let mut cur = root.walk();
+    let (mut total, mut nesting) = (0u32, 0u32);
+    // Whether the node the cursor is on nests what follows it: a fork does, and a CONTINUATION
+    // of a fork does not — see `chains`.
+    let nests = |n: TsNode| kinds.contains(&n.kind()) && !chains(n);
+    let charge = |n: TsNode, nesting: u32| -> u32 {
+        if !kinds.contains(&n.kind()) {
+            0
+        } else if chains(n) {
+            1
+        } else {
+            1 + nesting
+        }
+    };
+    loop {
+        if cur.goto_first_child() {
+            total += charge(cur.node(), nesting);
+            nesting += u32::from(nests(cur.node()));
+            continue;
+        }
+        loop {
+            let left = u32::from(nests(cur.node()));
+            if cur.goto_next_sibling() {
+                nesting -= left;
+                total += charge(cur.node(), nesting);
+                nesting += u32::from(nests(cur.node()));
+                break;
+            }
+            if !cur.goto_parent() {
+                return Some(total);
+            }
+            nesting -= left;
+            if cur.node().id() == root.id() {
+                return Some(total);
+            }
+        }
+    }
+}
+
+/// Is this fork a CONTINUATION of the one before it rather than a fork inside it?
+///
+/// **`else if` is one decision written twice, not a decision inside a decision.** Charged as a
+/// nest, a four-way `if/elif/elif/elif` costs 1+2+2+2 = 7 and reads as deeply tangled when it
+/// is a flat list of alternatives — the same mistake, in the other direction, that counting
+/// every `case` of a `switch` makes. The published formula charges these +1 flat, and this is
+/// where it does.
+///
+/// Two spellings, because grammars split on this. Python and Ruby give the continuation its own
+/// kind; the C family nests a whole `if` inside an `else`, so the tell is the parent.
+fn chains(n: TsNode) -> bool {
+    matches!(n.kind(), "elif_clause" | "elsif")
+        || n.parent().is_some_and(|p| matches!(p.kind(), "else_clause" | "else"))
+}
+
 fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
     let name = text(name_node(node, lang)?, src).to_string();
     let (body_start, body_end) = body_span(node, lang)?;
@@ -1117,6 +1292,7 @@ fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
         end_line: node.end_position().row as u32 + 1,
         calls,
         shape: shape_of(node, body_start, body_end),
+        cognitive: cognitive_of(node, lang),
     })
 }
 
@@ -1588,6 +1764,550 @@ fn walk_calls(
             if !cursor.goto_parent() {
                 return;
             }
+        }
+    }
+}
+
+/// Is COMPLEXITY a lens, or is it line count wearing a hat?
+///
+/// **The question this exists to answer honestly, after the first attempt got it wrong.**
+/// Nesting depth was measured across five repos and came back at 0.67–0.88 rank correlation
+/// with line count, against a bar of 0.38 — what the real Surprise grades score against the
+/// same. Depth is mostly a restatement of the width the map already draws, and it was
+/// rejected. The mistake was concluding from that that BRANCHES would fail the same way.
+///
+/// They are not the same quantity. Depth measures how much code sits inside blocks, which is
+/// volume; a two-hundred-line linear pipeline is deep and simple. Branch DENSITY measures how
+/// often control forks per line, and that same pipeline scores near zero on it. One is
+/// extensive and one is intensive, and only the first has an arithmetic reason to track size.
+///
+/// **Approximated from the body text on purpose.** Counting branches properly needs a node
+/// kind table per grammar, like `func_kinds` and `call_sites` — real work, and work this test
+/// exists to decide whether to pay for. A keyword scan is cruder: it sees `if` inside a string
+/// and misses a language whose keyword is not on the list. That is the right trade for a
+/// question of the form "is the correlation 0.3 or 0.8", where the noise would have to be
+/// enormous to move the answer between them.
+///
+/// `cargo test --release --lib parse::complexity -- --ignored --nocapture`, `CX_REPO=<path>`.
+/// Prints the real node kinds each grammar emits for control flow, because `CLAUDE.md` says
+/// to read them off a parse and never off memory: a kind that does not exist matches nothing
+/// and looks exactly like a language with no branches in it.
+///
+/// `cargo test --lib parse::kinds -- --ignored --nocapture`
+#[cfg(test)]
+mod kinds {
+    use super::*;
+
+    /// **Every kind in `branch_kinds` has to exist in the grammar it is listed under.**
+    ///
+    /// This is the same guard `func_kinds` has and it exists for the same reason: a kind that
+    /// does not exist matches nothing, and a language whose branches are never counted looks
+    /// exactly like a language whose functions never branch. Nothing errors, the map just goes
+    /// quietly and confidently wrong — and a grammar bump that renames a node does it silently
+    /// months later.
+    ///
+    /// The snippet per language has to contain one of everything the table claims. Where it
+    /// does not, the failure is this test's rather than the table's, which is the right way
+    /// round: it is a test that gets fixed by writing more code, not by deleting a kind.
+    #[test]
+    fn branch_kinds_are_real() {
+        let cases: &[(Lang, &str)] = &[
+            (
+                Lang::Rust,
+                "fn f(){ if a {} for x in y {} while c {} loop {} match m { _ => {} } }",
+            ),
+            (
+                Lang::TypeScript,
+                "function f(){ if(a){} for(;;){} for(const x of y){} while(c){} do{}while(d); \
+                 switch(e){case 1:break;} try{}catch(g){} const h = a ? b : c; }",
+            ),
+            (
+                Lang::Python,
+                "def f():\n  if a:\n    pass\n  elif b:\n    pass\n  for x in y:\n    pass\n  \
+                 while c:\n    pass\n  try:\n    pass\n  except E:\n    pass\n  \
+                 q = [z for z in r if z]\n  w = a if b else c\n",
+            ),
+            (
+                Lang::Go,
+                "func f(){\n if a {\n }\n for i := 0; ; {\n }\n switch c {\n case 1:\n }\n \
+                 switch v := x.(type) {\n case int:\n }\n select {\n }\n}\n",
+            ),
+            (
+                Lang::Cpp,
+                "void f(){ if(a){} for(;;){} for(auto x : y){} while(c){} do{}while(d); \
+                 switch(e){case 1:break;} try{}catch(...){} int g = a ? b : c; }",
+            ),
+            (
+                Lang::Java,
+                "class K{ void f(){ if(a){} for(;;){} for(String s : y){} while(c){} do{}while(d); \
+                 int r = switch(e){ default -> 1; }; try{}catch(Exception x){} int g = a ? b : c; } }",
+            ),
+            (
+                Lang::CSharp,
+                "class K{ void f(){ if(a){} for(;;){} foreach(var x in y){} while(c){} \
+                 do{}while(d); switch(e){case 1:break;} try{}catch{} var g = a ? b : c; } }",
+            ),
+            (
+                Lang::Ruby,
+                "def f\n if a\n elsif b\n end\n unless u\n end\n while c\n end\n \
+                 until v\n end\n for i in list\n end\n case d\n when 1\n end\n \
+                 begin\n rescue\n end\nend\n",
+            ),
+        ];
+        for (lang, src) in cases {
+            let tree = sexp(*lang, src);
+            let Some(kinds) = branch_kinds(*lang) else {
+                panic!("{lang:?} is in this test but has no branch table")
+            };
+            for k in kinds {
+                assert!(
+                    tree.contains(&format!("({k}")),
+                    "{lang:?}: `{k}` is not a kind this grammar emits — read it off the parse:\n{tree}"
+                );
+            }
+        }
+    }
+
+    fn sexp(lang: Lang, src: &str) -> String {
+        let mut p = tree_sitter::Parser::new();
+        p.set_language(&language(lang)).expect("grammar loads");
+        let t = p.parse(src, None).expect("parses");
+        t.root_node().to_sexp()
+    }
+
+    fn cog(src: &str, lang: Lang) -> u32 {
+        parse_functions(lang, src)
+            .into_iter()
+            .next()
+            .expect("one function")
+            .cognitive
+            .expect("a language with a branch table")
+    }
+
+    /// **The formula, as the sentence that explains it: every fork costs one, plus one for
+    /// each fork it is nested inside.** Three sequential ifs are three; three nested are six.
+    /// That difference is the entire reason this is worth a lens rather than a branch count —
+    /// the two order functions identically otherwise (0.988–0.999 measured).
+    #[test]
+    fn nesting_costs_more_than_sequence() {
+        let flat = cog("fn f(){ if a {} if b {} if c {} }", Lang::Rust);
+        let deep = cog("fn f(){ if a { if b { if c {} } } }", Lang::Rust);
+        assert_eq!(flat, 3, "one each, none of them inside another");
+        assert_eq!(deep, 6, "1 + 2 + 3");
+    }
+
+    /// **A dispatch table is not complex, and this is the claim that separates cognitive
+    /// complexity from cyclomatic.** Forty cases is one decision written out forty times; a
+    /// per-arm count would put every switch at the top of the map, which is precisely the
+    /// reading people learned to ignore in the tools that do it.
+    #[test]
+    fn a_flat_switch_costs_one() {
+        let many = cog(
+            "function f(){ switch(e){ case 1: case 2: case 3: case 4: case 5: break; } }",
+            Lang::TypeScript,
+        );
+        assert_eq!(many, 1, "one switch, whatever it dispatches on");
+        let nested = cog(
+            "function f(){ if (a) { switch(e){ case 1: break; } } }",
+            Lang::TypeScript,
+        );
+        assert_eq!(nested, 3, "the if is 1, the switch inside it is 1 + 1");
+    }
+
+    /// `else` is the other arm of a fork already counted, so `if/else` costs what `if` does.
+    /// An `elif` chain is not: each one is a new question.
+    #[test]
+    fn else_is_free_and_elif_is_not() {
+        assert_eq!(cog("fn f(){ if a {} else {} }", Lang::Rust), 1);
+        let chain = cog(
+            "def f():\n  if a:\n    pass\n  elif b:\n    pass\n  elif c:\n    pass\n",
+            Lang::Python,
+        );
+        assert_eq!(chain, 3, "three questions asked in a row");
+    }
+
+    /// A language nobody has written branch kinds for reports NOTHING, never zero — see
+    /// `branch_kinds`. Zero would draw it as code that never forks.
+    #[test]
+    fn a_language_without_a_table_says_so() {
+        assert!(branch_kinds(Lang::Rust).is_some());
+        let untaught = parse_functions(Lang::Lua, "function f()\n if a then end\nend\n");
+        if let Some(f) = untaught.into_iter().next() {
+            assert_eq!(f.cognitive, None, "no table means no claim, not a claim of zero");
+        }
+    }
+
+    #[test]
+    #[ignore = "diagnostic"]
+    fn print_control_flow_kinds() {
+        let cases: &[(Lang, &str)] = &[
+            (Lang::Rust, "fn f(){ if a {} else if b {} for x in y {} while c {} loop {} match m { _ => {} } let _ = a && b || c; }"),
+            (Lang::TypeScript, "function f(){ if(a){}else if(b){} for(;;){} for(const x of y){} while(c){} do{}while(d); switch(e){case 1:break;} try{}catch(f){} const g = a && b || c ? d : e; }"),
+            (Lang::Python, "def f():\n  if a:\n    pass\n  elif b:\n    pass\n  for x in y:\n    pass\n  while c:\n    pass\n  try:\n    pass\n  except E:\n    pass\n  z = [q for q in r if q]\n  w = a if b else c\n"),
+            (Lang::Go, "func f(){ if a {} else if b {} for i:=0;;{} switch c {case 1:} select{} }"),
+            (Lang::Cpp, "void f(){ if(a){}else if(b){} for(;;){} while(c){} do{}while(d); switch(e){case 1:break;} try{}catch(...){} int g = a && b || c ? d : e; }"),
+            (Lang::Java, "class K{ void f(){ if(a){}else if(b){} for(;;){} while(c){} switch(e){case 1:break;} try{}catch(Exception x){} int g = a && b || c ? d : e; } }"),
+            (Lang::Ruby, "def f\n if a\n elsif b\n end\n while c\n end\n case d\n when 1\n end\n begin\n rescue\n end\n x = a && b || c\nend\n"),
+            (Lang::CSharp, "class K{ void f(){ if(a){}else if(b){} for(;;){} foreach(var x in y){} while(c){} switch(e){case 1:break;} try{}catch{} var g = a && b || c ? d : e; } }"),
+        ];
+        for (lang, src) in cases {
+            println!("\n===== {lang:?}\n{}", sexp(*lang, src));
+        }
+    }
+}
+
+#[cfg(test)]
+mod complexity {
+    use super::*;
+
+    /// Every source file under `root`, skipping what a scan skips: build outputs and vendored
+    /// trees, which this walk reaches because it has no `.gitignore` reader of its own. An
+    /// earlier version of this harness measured `web/dist` and reported 4,785 JavaScript
+    /// functions against a repo that has 293 — every one a minified bundle on a single line.
+    fn walk(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+        const SKIP: &[&str] = &[
+            "node_modules", "target", "dist", "build", "out", "vendor", "vendored",
+            "third_party", "thirdparty", "venv", "site-packages", "__pycache__",
+        ];
+        let mut out = Vec::new();
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+            for e in rd.flatten() {
+                let name = e.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with('.') || SKIP.contains(&name.as_ref()) {
+                    continue;
+                }
+                let p = e.path();
+                if p.is_dir() { stack.push(p) } else { out.push(p) }
+            }
+        }
+        out
+    }
+
+    /// Spearman's rank correlation. **Rank rather than Pearson**, because the question is not
+    /// whether two measures agree on a number — they are on different scales and cannot — but
+    /// whether they ORDER functions the same way. A lens is a ramp, and a ramp is an ordering.
+    fn spearman(xs: &[u32], ys: &[u32]) -> f64 {
+        fn ranks(v: &[u32]) -> Vec<f64> {
+            let mut idx: Vec<usize> = (0..v.len()).collect();
+            idx.sort_by_key(|&i| v[i]);
+            let mut out = vec![0.0; v.len()];
+            let mut i = 0;
+            while i < idx.len() {
+                let mut j = i;
+                while j + 1 < idx.len() && v[idx[j + 1]] == v[idx[i]] {
+                    j += 1;
+                }
+                // Ties share the average of the ranks they span, which matters here: half a
+                // repo is tied at zero branches.
+                let r = (i + j) as f64 / 2.0 + 1.0;
+                for &k in &idx[i..=j] {
+                    out[k] = r;
+                }
+                i = j + 1;
+            }
+            out
+        }
+        let (rx, ry) = (ranks(xs), ranks(ys));
+        let n = xs.len() as f64;
+        let mx = rx.iter().sum::<f64>() / n;
+        let my = ry.iter().sum::<f64>() / n;
+        let (mut num, mut dx, mut dy) = (0.0, 0.0, 0.0);
+        for i in 0..xs.len() {
+            let (a, b) = (rx[i] - mx, ry[i] - my);
+            num += a * b;
+            dx += a * a;
+            dy += b * b;
+        }
+        if dx == 0.0 || dy == 0.0 { 0.0 } else { num / (dx * dy).sqrt() }
+    }
+
+    fn pct(v: &[u32], p: f64) -> u32 {
+        if v.is_empty() {
+            return 0;
+        }
+        let mut s = v.to_vec();
+        s.sort_unstable();
+        s[(((s.len() - 1) as f64) * p).round() as usize]
+    }
+
+    /// Every fork in control flow that most languages spell the same way.
+    ///
+    /// Words are matched on boundaries so `iffy` and `format` do not count; operators are
+    /// matched literally. `else` is deliberately absent — it is the other arm of a fork already
+    /// counted, and cognitive complexity charges nothing for it.
+    const BRANCH_WORDS: &[&str] = &[
+        "if", "elif", "elsif", "for", "while", "case", "when", "catch", "except", "rescue",
+        "unless", "match", "switch", "guard", "loop", "until", "foreach",
+    ];
+    const BRANCH_OPS: &[&str] = &["&&", "||"];
+
+    /// A line's branches and its indent level, or `None` where the line is a comment.
+    fn forks(line: &str) -> usize {
+        let t = line.trim();
+        if t.starts_with("//") || t.starts_with('#') || t.starts_with('*') || t.starts_with("--") {
+            return 0;
+        }
+        let mut n = 0;
+        for w in BRANCH_WORDS {
+            let mut rest = t;
+            while let Some(at) = rest.find(w) {
+                let before = rest[..at].chars().next_back();
+                let after = rest[at + w.len()..].chars().next();
+                let bounded = before.is_none_or(|c| !c.is_alphanumeric() && c != '_')
+                    && after.is_none_or(|c| !c.is_alphanumeric() && c != '_');
+                if bounded {
+                    n += 1;
+                }
+                rest = &rest[at + w.len()..];
+            }
+        }
+        for op in BRANCH_OPS {
+            n += t.matches(op).count();
+        }
+        n
+    }
+
+    /// The three readings, for one body.
+    ///
+    /// `cognitive` is the published formula, approximated: every fork costs one, plus one for
+    /// each level it is nested inside. `density` is that over the body's own length, which is
+    /// the intensive form and the one the whole question turns on.
+    fn measure(body: &str) -> (u32, u32, u32) {
+        let mut leads: Vec<(u32, usize)> = Vec::new();
+        for line in body.lines() {
+            let t = line.trim();
+            if t.is_empty() || t.chars().all(|c| "{}()[]<>,;:".contains(c)) {
+                continue;
+            }
+            let ws = line.len() - line.trim_start().len();
+            leads.push((ws as u32, forks(line)));
+        }
+        let Some(&(base, _)) = leads.first() else { return (0, 0, 0) };
+        let steps: Vec<u32> = leads.iter().map(|(w, _)| w.saturating_sub(base)).collect();
+        let unit = steps.iter().copied().filter(|d| *d > 0).fold(0u32, |a, b| {
+            fn gcd(a: u32, b: u32) -> u32 {
+                if b == 0 { a } else { gcd(b, a % b) }
+            }
+            gcd(a, b)
+        });
+        let unit = unit.max(1);
+        let branches: u32 = leads.iter().map(|(_, f)| *f as u32).sum();
+        let cognitive: u32 = leads
+            .iter()
+            .zip(&steps)
+            .map(|((_, f), step)| *f as u32 * (1 + step / unit))
+            .sum();
+        let lines = leads.len().max(1) as u32;
+        (branches, cognitive, (cognitive * 100) / lines)
+    }
+
+    #[test]
+    #[ignore = "walks a real repo; set CX_REPO"]
+    fn is_complexity_line_count_wearing_a_hat() {
+        let Ok(root) = std::env::var("CX_REPO") else { return };
+        let root = std::path::Path::new(&root);
+        let (mut br, mut cog, mut den, mut locs) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let (mut nbr, mut nden, mut nlocs, mut ncog) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let stored = crate::assessment::read_all(&crate::assessment::dir(root));
+        let (mut grade, mut gbr, mut gcog, mut gden, mut glocs) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+
+        for entry in walk(root) {
+            let Some(lang) = crate::model::Lang::from_extension(
+                entry.extension().and_then(|e| e.to_str()).unwrap_or(""),
+            ) else {
+                continue;
+            };
+            let Ok(src) = std::fs::read_to_string(&entry) else { continue };
+            if src.lines().any(|l| l.len() > 2_000) || src.len() > 1_000_000 {
+                continue;
+            }
+            let rel = entry.strip_prefix(root).unwrap_or(&entry).display().to_string();
+            let mut seen: std::collections::HashMap<String, usize> = Default::default();
+            for f in parse_functions(lang, &src) {
+                // **The real count now, off the grammar** — the keyword scan decided whether
+                // this was worth building and has no business deciding whether it works. A
+                // language with no branch table is skipped rather than counted as zero.
+                let Some(c) = f.cognitive else { continue };
+                let (b, _, _) = measure(&f.body);
+                let lines = f.body.lines().filter(|l| !l.trim().is_empty()).count().max(1) as u32;
+                let d = (c * 100) / lines;
+                // **Above the accessor floor, separately.** More than half of a C++ repo is
+                // one-line getters, which are short AND branchless by construction — so they
+                // manufacture a correlation between density and length that says nothing about
+                // whether the lens works on code anybody has to read. Ten lines is where a
+                // body stops being a field access; the split is reported both ways rather than
+                // chosen, because excluding them silently would be picking the flattering
+                // half.
+                if f.loc() >= 10 {
+                    nbr.push(b);
+                    nden.push(d);
+                    ncog.push(c);
+                    nlocs.push(f.loc());
+                }
+                br.push(b);
+                cog.push(c);
+                den.push(d);
+                locs.push(f.loc());
+                let n = seen.entry(f.name.clone()).or_insert(0);
+                let ord = *n;
+                *n += 1;
+                if let Some(r) = stored.get(&crate::assessment::key_of(&rel, &f.name, ord)) {
+                    let (predicted, _) = r.grades();
+                    grade.push(match predicted {
+                        crate::agentapi::Grade::None => 3,
+                        crate::agentapi::Grade::Some => 2,
+                        crate::agentapi::Grade::Most => 1,
+                        crate::agentapi::Grade::Full => 0,
+                    });
+                    gbr.push(b);
+                    gcog.push(c);
+                    gden.push(d);
+                    glocs.push(f.loc());
+                }
+            }
+        }
+        // Which languages have a branch table and which do not, weighted by how much code is
+        // actually in them — the number that decides whether the lens says anything on a real
+        // repo. A lens that greys three quarters of a project is a lens nobody can use.
+        {
+            let mut by: std::collections::HashMap<String, (usize, usize)> = Default::default();
+            for entry in walk(root) {
+                let Some(lang) = crate::model::Lang::from_extension(
+                    entry.extension().and_then(|e| e.to_str()).unwrap_or(""),
+                ) else {
+                    continue;
+                };
+                let Ok(src) = std::fs::read_to_string(&entry) else { continue };
+                if src.lines().any(|l| l.len() > 2_000) || src.len() > 1_000_000 {
+                    continue;
+                }
+                for f in parse_functions(lang, &src) {
+                    let e = by.entry(format!("{lang:?}")).or_default();
+                    e.0 += 1;
+                    if f.cognitive.is_none() {
+                        e.1 += 1;
+                    }
+                }
+            }
+            let total: usize = by.values().map(|v| v.0).sum();
+            let missing: usize = by.values().map(|v| v.1).sum();
+            let mut rows: Vec<_> = by.into_iter().filter(|(_, v)| v.1 > 0).collect();
+            rows.sort_by_key(|(_, v)| std::cmp::Reverse(v.1));
+            println!(
+                "\nCOVERAGE {}: {missing} of {total} functions uncounted ({:.0}%)",
+                root.display(),
+                100.0 * missing as f64 / total.max(1) as f64
+            );
+            for (name, (n, miss)) in rows.into_iter().take(8) {
+                println!("   {name:<12} {miss:>7} uncounted of {n}");
+            }
+        }
+        if locs.is_empty() {
+            println!("no functions under {}", root.display());
+            return;
+        }
+        let sp = spearman;
+        println!("\n{} — {} functions", root.display(), locs.len());
+        println!("             p50  p90  p99   max");
+        for (n, v) in [("branches ", &br), ("cognitive", &cog), ("cog/100ln", &den)] {
+            println!(
+                "  {n}  {:>4} {:>4} {:>4} {:>5}",
+                pct(v, 0.5),
+                pct(v, 0.9),
+                pct(v, 0.99),
+                v.iter().copied().max().unwrap_or(0)
+            );
+        }
+        println!(
+            "  vs lines:  branches {:.2}   cognitive {:.2}   DENSITY {:.2}",
+            sp(&br, &locs),
+            sp(&cog, &locs),
+            sp(&den, &locs)
+        );
+        // **Do cognitive and cyclomatic draw two pictures or one?** If they order functions
+        // the same way, offering both is two controls producing one map — an inert choice,
+        // which this bar refuses on the same grounds it refuses an inert lens.
+        println!("  branches vs cognitive = {:.3}", sp(&br, &cog));
+        let flat = |v: &[u32]| 100.0 * v.iter().filter(|d| **d == 0).count() as f64 / v.len() as f64;
+        println!("  at zero:   branches {:.0}%   density {:.0}%", flat(&br), flat(&den));
+        // **"Is it more complicated than its length suggests?" — the residual, not the rate.**
+        // Density divides by length, which assumes complexity scales linearly with it. Real
+        // code does not: a two-hundred-line body is not ten times as branchy as a twenty-line
+        // one, so a flat division still flatters the long and punishes the short — which is
+        // exactly the 0.19–0.28 of trend left in the density column.
+        //
+        // Compared against OTHER FUNCTIONS ITS SIZE, in this repo. Same doctrine as the age
+        // ramp and the churn ladder: calibrate to the codebase in front of you rather than to
+        // somebody else's. Buckets rather than a fitted curve because a bucket median is
+        // explainable in a sentence and a regression is not, and because the median does not
+        // care that a handful of generated files have four hundred branches.
+        if !nlocs.is_empty() {
+            let bucket = |loc: u32| match loc {
+                0..=14 => 0usize,
+                15..=24 => 1,
+                25..=49 => 2,
+                50..=99 => 3,
+                100..=199 => 4,
+                _ => 5,
+            };
+            let mut by: Vec<Vec<u32>> = vec![Vec::new(); 6];
+            for (c, l) in ncog.iter().zip(&nlocs) {
+                by[bucket(*l)].push(*c);
+            }
+            let med: Vec<u32> = by.iter().map(|v| if v.is_empty() { 1 } else { pct(v, 0.5).max(1) }).collect();
+            let resid: Vec<u32> = ncog
+                .iter()
+                .zip(&nlocs)
+                .map(|(c, l)| (c * 100) / med[bucket(*l)])
+                .collect();
+            println!(
+                "  RESIDUAL (vs median of its size band): vs lines {:.2}   p50 {}  p90 {}  p99 {}",
+                sp(&resid, &nlocs),
+                pct(&resid, 0.5),
+                pct(&resid, 0.9),
+                pct(&resid, 0.99)
+            );
+            println!("    band medians (cognitive): {med:?}");
+            if !grade.is_empty() {
+                let mut gres = Vec::new();
+                let mut gg = Vec::new();
+                for (i, l) in glocs.iter().enumerate() {
+                    if *l >= 10 {
+                        gres.push((gcog[i] * 100) / med[bucket(*l)]);
+                        gg.push(grade[i]);
+                    }
+                }
+                if !gres.is_empty() {
+                    println!("    surprise vs RESIDUAL {:.2}  ({} read fns >=10 lines)",
+                        sp(&gg, &gres), gres.len());
+                }
+            }
+        }
+        if !nlocs.is_empty() {
+            println!(
+                "  >=10 lines ({} fns, {:.0}% of all):  branches vs lines {:.2}   DENSITY vs lines {:.2}   at zero {:.0}%",
+                nlocs.len(),
+                100.0 * nlocs.len() as f64 / locs.len() as f64,
+                sp(&nbr, &nlocs),
+                sp(&nden, &nlocs),
+                flat(&nbr),
+            );
+        }
+        if !grade.is_empty() {
+            println!(
+                "  CONTROL ({} read): surprise vs lines {:.2} | vs branches {:.2} | vs cognitive {:.2} | vs DENSITY {:.2}",
+                grade.len(),
+                sp(&grade, &glocs),
+                sp(&grade, &gbr),
+                sp(&grade, &gcog),
+                sp(&grade, &gden)
+            );
         }
     }
 }

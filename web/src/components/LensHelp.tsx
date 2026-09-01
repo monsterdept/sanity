@@ -1,8 +1,9 @@
-import { useEffect, type ReactNode } from 'react'
+import { Fragment, useEffect, type ReactNode } from 'react'
 import { Overlay } from './Overlay'
+import { MODE_LABEL, type ColorMode } from '../lib/colorMode'
 
 /**
- * The lens reference: eleven rows, each with its own key beside it.
+ * The lens reference: one row per lens, each with its own key beside it, in the menu's order.
  *
  * **There is nothing upstream of this file.** The prose and the swatches live together here, so
  * a sentence is edited here and a claim here is the claim the reader gets. This header used to
@@ -33,7 +34,10 @@ function B({ children }: { children: ReactNode }) {
 
 function Ramp({ from, to }: { from: string; to: string }) {
   return (
-    <div className="h-4 w-full rounded-[2px]" style={{ background: `linear-gradient(90deg, ${from}, ${to})` }} />
+    <div
+      className="h-4 w-full rounded-[2px]"
+      style={{ background: `linear-gradient(90deg, ${from}, ${to})` }}
+    />
   )
 }
 
@@ -61,7 +65,6 @@ function Steps({ fills }: { fills: string[] }) {
     </div>
   )
 }
-
 
 /** One lens: its key on the left, its definition on the right. */
 function Lens({
@@ -122,6 +125,204 @@ function Lens({
 
 /* ── The panel ───────────────────────────────────────────────────────────── */
 
+/** Every lens, keyed by the mode it explains.
+ *
+ *  **A record rather than a run of JSX, because the order is not this file's to hold.** These
+ *  were written out in sequence and the sequence drifted twice — once when Complexity was added
+ *  to the end of the list and the top of the menu, and again when Churn and Age traded rows.
+ *  Both times the help opened on a different order from the switcher it explains, and nothing
+ *  could catch it: a list of paragraphs in the wrong order is a list of paragraphs.
+ *
+ *  Rendered in `MODE_LABEL`'s order, which is the menu's, so the two cannot disagree. A lens
+ *  added without an entry here is a hole `Record<ColorMode, …>` refuses to compile. */
+const ENTRIES: Record<ColorMode, ReactNode> = {
+  surprise: (
+    <Lens
+      name="Surprise"
+      needs="Read"
+      swatch={<Ramp from="var(--heat-0)" to="var(--heat-4)" />}
+      measures="how much of a function's body the reader failed to predict from its surroundings, before being allowed to read the body itself."
+      values="mundane · typical · quirky · obscure"
+      ramp="mundane (dim) → obscure (bright)"
+    >
+      The reader sees the documentation before it predicts. A comment that genuinely explains the
+      code lowers the score. A comment a model could reproduce from the body alone does not.
+    </Lens>
+  ),
+  legible: (
+    <Lens
+      name="Legibility"
+      needs="Read"
+      swatch={<Ramp from="var(--legible-0)" to="var(--legible-4)" />}
+      measures="what reading the body was like, by what the reader actually did: understood it in one pass, required several passes, or never got it at all."
+      values="clean · nuanced · tangled · unclear"
+      ramp="clean (dim) → unclear (bright)"
+    >
+      Independent of Surprise. Code can be unpredictable and clearly written.
+    </Lens>
+  ),
+  docs: (
+    <Lens
+      name="Docs"
+      needs="Read"
+      swatch={<Ramp from="var(--docs-0)" to="var(--docs-4)" />}
+      measures="how little of the body its documentation covers."
+      values="full · decent · some · none"
+      ramp="covered (dim) → undocumented (bright)"
+    >
+      Documentation a model could reproduce from the body alone is graded <code>none</code>.
+    </Lens>
+  ),
+  traps: (
+    <Lens
+      name="Traps"
+      needs="Read"
+      swatch={<Steps fills={['var(--unanalyzed)', 'var(--structure)', 'var(--trap)']} />}
+      measures="whether a reader flagged something likely to catch out the next person editing this code."
+      values="not read yet · no trap reported · trap"
+    >
+      A wedge marked <code>no trap reported</code> means a reader looked and found nothing, where{' '}
+      <code>not read yet</code> means no reader has looked. The two are different neutrals and can
+      be told apart on the map. A clean wedge is not proof that no trap exists.
+    </Lens>
+  ),
+  clones: (
+    <Lens
+      name="Clones"
+      needs="Scan"
+      swatch={<Steps fills={['var(--unanalyzed)', 'var(--structure)', 'var(--clone)']} />}
+      measures="functions whose bodies are identical once identifiers and literals are flattened and comments dropped."
+      values="too small to compare · no clone in this repo · a clone"
+    >
+      Every clone draws the same color regardless of how many copies exist. The size of the group
+      appears in the label as <code>1 of N clones</code> and in the sidebar breakdown, not in the
+      color.
+      <br />A near-copy differing by one statement is not detected. Bodies below the token floor are
+      never compared and are reported separately from finding no clone.
+    </Lens>
+  ),
+  callers: (
+    <Lens
+      name="Callers"
+      needs="call syntax"
+      swatch={
+        <Steps
+          fills={['var(--callers-0)', 'var(--callers-1)', 'var(--callers-2)', 'var(--callers-4)']}
+        />
+      }
+      measures="call sites within this repository: the number of locations elsewhere in the repo where the body is called."
+      values="no in-repo caller · 1 · 2–5 · 6+"
+    >
+      Calls from outside the repository are not counted. Entry points and public APIs appear
+      uncalled.
+    </Lens>
+  ),
+  reach: (
+    <Lens
+      name="Reach"
+      needs="call syntax"
+      swatch={
+        <Steps fills={['var(--reach-0)', 'var(--reach-1)', 'var(--reach-2)', 'var(--reach-4)']} />
+      }
+      measures="in-repo functions this one calls: the number of functions defined elsewhere in the repo that are called by the body."
+      values="none · 1 · 2–5 · 6+"
+    />
+  ),
+  blame: (
+    <Lens
+      name="Blame"
+      needs="Trace"
+      swatch={
+        <Steps
+          fills={['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-4)', 'var(--cat-5)']}
+        />
+      }
+      measures="the author of the most recently changed line."
+    >
+      How many authors get their own color is set by the <B>colors</B> control. The legend names the
+      top 16. Below that there are two different remainders:
+      <ul className="mt-1 list-disc space-y-0.5 pl-4">
+        <li>
+          <code>N more · shades repeat</code> — authors who still have a color, recycled from the
+          unnamed part of the palette. Counted without a swatch because there is no single color to
+          show.
+        </li>
+        <li>
+          <code>other (N)</code> — authors with no rank at all, either past the color cap or
+          unranked. Drawn in the structural neutral.
+        </li>
+      </ul>
+      The legend orders by commits over the whole repo and the panel by lines in what you have open,
+      so on a big repo they name the same people in a different order.
+      <br />
+      Uncommitted lines and untracked files are shown as themselves.
+    </Lens>
+  ),
+  language: (
+    <Lens
+      name="Language"
+      needs="Scan"
+      swatch={<Steps fills={['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-4)']} />}
+      measures="the file's language, by extension."
+    >
+      Useful for locating language boundaries, which often do not follow directory names.
+      <br />
+      <code>.h</code> is mapped to C++ unconditionally, so C headers report as C++.
+    </Lens>
+  ),
+  churn: (
+    <Lens
+      name="Churn"
+      needs="Trace"
+      swatch={<Ramp from="var(--churn-0)" to="var(--churn-4)" />}
+      measures="for a function, the number of distinct commits its current lines come from. For a file, the number of commits in the last 90 days."
+      values="no commits found · 1–2 · 3–9 · 10+"
+      ramp="settled (dim) → churning (bright)"
+    >
+      Functions and files are measuring different quantities. The tooltip states which one applies.
+    </Lens>
+  ),
+  tangle: (
+    <Lens
+      name="Complexity"
+      needs="Scan"
+      swatch={<Ramp from="var(--tangle-0)" to="var(--tangle-4)" />}
+      measures="how tangled a body is: every fork costs one, plus one for each fork it is nested inside."
+      values="as expected · slightly above · above normal · far above normal"
+      ramp="as expected (dim) → far above normal (bright)"
+    >
+      Three sequential <code>if</code>s cost three; three nested cost six. A forty-case switch costs
+      one — it is long and utterly predictable, which is the reading that separates this from a
+      branch count.
+      <br />
+      Weighted against the other bodies its size in this repo, because a longer function is
+      naturally more complicated and the useful question is whether it is more complicated than
+      that. The other setting is the raw count, against 15. Needs no reader and no git, so it paints
+      the moment a scan lands — and it is independent of Surprise, which is the point: what is
+      knotty and what is unpredictable are different findings.
+    </Lens>
+  ),
+  age: (
+    <Lens
+      name="Age"
+      needs="Trace"
+      swatch={<Ramp from="var(--age-0)" to="var(--age-4)" />}
+      measures="days since the newest line here was written — or, on the other setting, since the oldest line here was."
+      values="older · this quarter · this month · this week · today"
+      ramp="old (dim) → recent (bright)"
+    >
+      Two dates, one ramp, and the switch beside the lens says which. The newest line is where work
+      has been happening; the oldest is what has been standing here a long while. On code rewritten
+      last week out of lines from 2014 they disagree by a decade, and the second is the one that
+      finds what nobody has been near. Lines, not code: a wholesale rewrite leaves nothing behind
+      saying when the code was first written.
+    </Lens>
+  ),
+}
+
+/** The menu's order, which is the only order this modal may use. */
+const LENS_ORDER = Object.keys(MODE_LABEL) as ColorMode[]
+
 export function LensHelp({ onClose }: { onClose: () => void }) {
   // Escape closes. Handled here rather than in `lib/keys.ts` because that decides what a key
   // means for the MAP; a modal owns its own keyboard while it is up, the rule `Find` follows.
@@ -145,9 +346,9 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
         <header className="shrink-0 border-b border-[var(--border)] px-5 pb-3 pt-4">
           <h2 className="text-sm font-semibold">Lenses</h2>
           <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-            The map is a project's structure: directories, files, functions. A wedge's width
-            is its share of the <B>lines of code</B>. The lens sets color and nothing else,
-            and non-code is not drawn.
+            The map is a project's structure: directories, files, functions. A wedge's width is its
+            share of the <B>lines of code</B>. The lens sets color and nothing else, and non-code is
+            not drawn.
           </p>
         </header>
 
@@ -155,160 +356,9 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
             that sets a value in running prose, and a global rule would reach the code view,
             which has its own type. */}
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 [overscroll-behavior:contain] [&_code]:rounded-[2px] [&_code]:bg-[var(--secondary)] [&_code]:px-1 [&_code]:py-px [&_code]:font-mono [&_code]:text-[9px] [&_code]:text-[var(--foreground)]">
-          <Lens
-            name="Surprise"
-            needs="Read"
-            swatch={<Ramp from="var(--heat-0)" to="var(--heat-4)" />}
-            measures="how much of a function's body the reader failed to predict from its surroundings, before being allowed to read the body itself."
-            values="mundane · typical · quirky · obscure"
-            ramp="mundane (dim) → obscure (bright)"
-          >
-            The reader sees the documentation before it predicts. A comment that genuinely
-            explains the code lowers the score. A comment a model could reproduce from the body
-            alone does not.
-          </Lens>
-          <Lens
-            name="Legibility"
-            needs="Read"
-            swatch={<Ramp from="var(--legible-0)" to="var(--legible-4)" />}
-            measures="what reading the body was like, by what the reader actually did: understood it in one pass, required several passes, or never got it at all."
-            values="clean · nuanced · tangled · unclear"
-            ramp="clean (dim) → unclear (bright)"
-          >
-            Independent of Surprise. Code can be unpredictable and clearly written.
-          </Lens>
-          <Lens
-            name="Docs"
-            needs="Read"
-            swatch={<Ramp from="var(--docs-0)" to="var(--docs-4)" />}
-            measures="how little of the body its documentation covers."
-            values="full · decent · some · none"
-            ramp="covered (dim) → undocumented (bright)"
-          >
-            Documentation a model could reproduce from the body alone is graded{' '}
-            <code>none</code>.
-          </Lens>
-          <Lens
-            name="Traps"
-            needs="Read"
-            swatch={<Steps fills={['var(--unanalyzed)', 'var(--structure)', 'var(--trap)']} />}
-            measures="whether a reader flagged something likely to catch out the next person editing this code."
-            values="not read yet · no trap reported · trap"
-          >
-            A wedge marked <code>no trap reported</code> means a reader looked and found
-            nothing, where <code>not read yet</code> means no reader has looked. The two are
-            different neutrals and can be told apart on the map. A clean wedge is not proof
-            that no trap exists.
-          </Lens>
-          <Lens
-            name="Clones"
-            needs="Scan"
-            swatch={<Steps fills={['var(--unanalyzed)', 'var(--structure)', 'var(--clone)']} />}
-            measures="functions whose bodies are identical once identifiers and literals are flattened and comments dropped."
-            values="too small to compare · no clone in this repo · a clone"
-          >
-            Every clone draws the same color regardless of how many copies exist. The size of the
-            group appears in the label as <code>1 of N clones</code> and in the sidebar
-            breakdown, not in the color.
-            <br />
-            A near-copy differing by one statement is not detected. Bodies below the token floor
-            are never compared and are reported separately from finding no clone.
-          </Lens>
-          <Lens
-            name="Callers"
-            needs="call syntax"
-            swatch={
-              <Steps
-                fills={[
-                  'var(--callers-0)',
-                  'var(--callers-1)',
-                  'var(--callers-2)',
-                  'var(--callers-4)',
-                ]}
-              />
-            }
-            measures="call sites within this repository: the number of locations elsewhere in the repo where the body is called."
-            values="no in-repo caller · 1 · 2–5 · 6+"
-          >
-            Calls from outside the repository are not counted. Entry points and public APIs
-            appear uncalled.
-          </Lens>
-          <Lens
-            name="Reach"
-            needs="call syntax"
-            swatch={
-              <Steps
-                fills={['var(--reach-0)', 'var(--reach-1)', 'var(--reach-2)', 'var(--reach-4)']}
-              />
-            }
-            measures="in-repo functions this one calls: the number of functions defined elsewhere in the repo that are called by the body."
-            values="none · 1 · 2–5 · 6+"
-          />
-          <Lens
-            name="Blame"
-            needs="Trace"
-            swatch={
-              <Steps
-                fills={['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-4)', 'var(--cat-5)']}
-              />
-            }
-            measures="the author of the most recently changed line."
-          >
-            How many authors get their own color is set by the <B>colors</B> control. The legend
-            names the top 16. Below that there are two different remainders:
-            <ul className="mt-1 list-disc space-y-0.5 pl-4">
-              <li>
-                <code>N more · shades repeat</code> — authors who still have a color, recycled
-                from the unnamed part of the palette. Counted without a swatch because there is
-                no single color to show.
-              </li>
-              <li>
-                <code>other (N)</code> — authors with no rank at all, either past the color cap
-                or unranked. Drawn in the structural neutral.
-              </li>
-            </ul>
-            The legend orders by commits over the whole repo and the panel by lines in what
-            you have open, so on a big repo they name the same people in a different order.
-            <br />
-            Uncommitted lines and untracked files are shown as themselves.
-          </Lens>
-          <Lens
-            name="Language"
-            needs="Scan"
-            swatch={
-              <Steps fills={['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-4)']} />
-            }
-            measures="the file's language, by extension."
-          >
-            Useful for locating language boundaries, which often do not follow directory names.
-            <br />
-            <code>.h</code> is mapped to C++ unconditionally, so C headers report as C++.
-          </Lens>
-          <Lens
-            name="Churn"
-            needs="Trace"
-            swatch={<Ramp from="var(--churn-0)" to="var(--churn-4)" />}
-            measures="for a function, the number of distinct commits its current lines come from. For a file, the number of commits in the last 90 days."
-            values="no commits found · 1–2 · 3–9 · 10+"
-            ramp="settled (dim) → churning (bright)"
-          >
-            Functions and files are measuring different quantities. The tooltip states which one
-            applies.
-          </Lens>
-          <Lens
-            name="Age"
-            needs="Trace"
-            swatch={<Ramp from="var(--age-0)" to="var(--age-4)" />}
-            measures="days since the newest line here was written — or, on the other setting, since the oldest line here was."
-            values="older · this quarter · this month · this week · today"
-            ramp="old (dim) → recent (bright)"
-          >
-            Two dates, one ramp, and the switch beside the lens says which. The newest line is
-            where work has been happening; the oldest is what has been standing here a long
-            while. On code rewritten last week out of lines from 2014 they disagree by a decade,
-            and the second is the one that finds what nobody has been near. Lines, not code:
-            a wholesale rewrite leaves nothing behind saying when the code was first written.
-          </Lens>
+          {LENS_ORDER.map((m) => (
+            <Fragment key={m}>{ENTRIES[m]}</Fragment>
+          ))}
         </div>
 
         <footer className="flex shrink-0 justify-end border-t border-[var(--border)] px-5 py-3">

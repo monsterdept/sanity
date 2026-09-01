@@ -441,6 +441,27 @@ pub struct Score {
     pub all_commits: Option<u32>,
     /// Days since the most recent commit. `None` without history.
     pub last_touched_days: Option<f32>,
+    /// How tangled this is, on the 0..1 scale the ramp paints — `[weighted, raw]`.
+    ///
+    /// Two, because which one is being looked at is a live choice in the window and
+    /// re-deriving a whole tree behind a two-position switch would be a round trip per press.
+    /// Weighted asks whether this is more complicated than its LENGTH suggests, which is the
+    /// finding; raw is the count itself, for triage against an absolute bar. See
+    /// `tangle::Bands::ramp`.
+    ///
+    /// **`None` is "this grammar has no branch table", never "no branches".** It propagates
+    /// from `parse::branch_kinds` through `FuncDef::cognitive`, and the lens paints grey on it
+    /// exactly as Callers does on a language whose calls nobody taught it to follow. A zero
+    /// would report untaught as simple.
+    pub tangle: Option<[f32; 2]>,
+    /// The raw cognitive score behind `tangle` — every fork costing one, plus one for each
+    /// fork it nests inside.
+    ///
+    /// A function's own count; a container's is the SUM of everything under it, which is the
+    /// figure a header wants. Shown rather than the normalized value, for the reason
+    /// `commits` is: a count of decisions is a fact and a percentage of a saturation constant
+    /// is not.
+    pub cognitive: Option<u32>,
     pub provenance: Provenance,
     /// The fraction of this node's lines that sit in code which is hot.
     ///
@@ -747,6 +768,17 @@ pub struct Cols {
     /// Size of this function's clone group, `0` for none and `-1` for a body under the
     /// token floor, which is "never compared" rather than "unique".
     pub clones: Vec<i32>,
+    /// `Score::tangle`, as `[weighted, raw]` in thousandths — see `tangle::Bands::ramp`.
+    ///
+    /// **Integers because this is a wire format**, and `-1` for a body whose language has no
+    /// branch table, which is the absence every other column here encodes the same way. A zero
+    /// would report an untaught grammar as code that never forks.
+    ///
+    /// Carried at all because a file whose ring never arrived has to be able to answer the
+    /// Complexity question for its own functions. Without it the rim over such a file draws a
+    /// distribution that silently omits it — which on a large repo is most of the tree, and is
+    /// the exact failure `histogramsFor` opens by naming.
+    pub tangle: Vec<[i32; 2]>,
 }
 
 impl Cols {
@@ -782,6 +814,10 @@ impl Cols {
             // Three states, and the middle one is the point: `0` is "compared, no twin",
             // `-1` is "never compared". Collapsing them would let the map say a function is
             // unique when nobody looked — see `comparable`.
+            c.tangle.push(match f.score.as_ref().and_then(|s| s.tangle) {
+                Some(t) => [(t[0] * 1000.0) as i32, (t[1] * 1000.0) as i32],
+                None => [-1, -1],
+            });
             c.clones.push(match (f.comparable, f.clone_size) {
                 (None, _) => -1,
                 (Some(_), Some(n)) => n as i32,
@@ -896,6 +932,14 @@ impl Node {
         let mut analyzed = 0.0f32;
         let mut age: Option<f32> = None;
         let mut touched: Option<f32> = None;
+        // **Weighted by lines like every other roll-up, and only over the children that HAVE
+        // an answer.** A file holding one Rust function and one in a language with no branch
+        // table is half-measured, and averaging the untaught half in as zero would report it
+        // as half as tangled as it is. `tw` is the weight of what could be counted, which is
+        // not `w`.
+        let mut tangle = [0.0f32; 2];
+        let mut tw = 0.0f32;
+        let mut cognitive: Option<u32> = None;
         for c in &self.children {
             let Some(s) = c.score else { continue };
             let cw = c.loc.max(1) as f32;
@@ -932,6 +976,18 @@ impl Node {
                 analyzed += ca;
                 hot += s.hot_share * ca;
             }
+            if let Some(t) = s.tangle {
+                tw += cw;
+                for (into, from) in tangle.iter_mut().zip(t.iter()) {
+                    *into += from * cw;
+                }
+            }
+            // Summed, not averaged: a container's cognitive score is how many decisions are
+            // inside it, and a mean would report a directory of two hundred simple functions
+            // as simple in a way that hides how much there is to read.
+            if let Some(c) = s.cognitive {
+                cognitive = Some(cognitive.unwrap_or(0) + c);
+            }
             // A directory is as old as its oldest surviving code — the age of the
             // decision, not of the last file someone added next to it.
             if let Some(d) = s.age_days {
@@ -958,6 +1014,8 @@ impl Node {
                 // Same story, same filler: `apply_dir_history` sets both from the log pass.
                 all_commits: None,
                 last_touched_days: touched,
+                tangle: (tw > 0.0).then(|| tangle.map(|t| t / tw)),
+                cognitive,
                 // Provenance doesn't average — a directory containing one
                 // human-documented function is not 1/12th documented by a human. The
                 // aggregate carries the measurement; provenance stays a leaf property.
@@ -1120,6 +1178,8 @@ mod tests {
             documented,
             churn: [churn; 4],
             age_days: Some(age),
+            tangle: None,
+            cognitive: None,
             commits: [0; 4],
             all_commits: None,
             last_touched_days: None,

@@ -101,7 +101,21 @@ use std::path::{Path, PathBuf};
 ///    load with a ladder of `[0, 0, 0, 0]` and the window pulldown would offer four rungs of
 ///    "0 days", each of them a horizon nothing can fall inside. Same shape as 8, 9, 10 and 11
 ///    and the reason this list exists.
-const VERSION: u32 = 13;
+/// 14: The Complexity lens — `Score::tangle` and `Score::cognitive`, and `ScanStats` gained
+///    `tangle_bands`, what counts as a normal score for a body of each size in this repo.
+///    The score fields are `Option`, so a version-13 record refuses them outright rather than
+///    reading them wrong; the bands are `#[serde(default)]` and would load EMPTY, which the
+///    lens reads as "no language here has a branch table" and locks itself over. That is the
+///    safe direction and it is still a format change, because a repo would draw as unsupported
+///    until something unrelated dropped the cache. Same shape as every entry above it.
+/// 15: `Cols` gained `tangle`, the per-function complexity a file needs in order to answer for
+///    its own functions when its ring has not been fetched. Without it a version-14 tree loads
+///    with the field absent, every ring-less file says nothing under Complexity, and the rim
+///    over it draws a distribution missing those lines — which is the failure `histogramsFor`
+///    opens by naming, arriving through the door built to close it. `#[serde(default)]` on a
+///    `Vec` means EMPTY, and empty here reads as "no function in this file has a branch table",
+///    which is a confident answer nobody computed.
+const VERSION: u32 = 15;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.
@@ -577,6 +591,8 @@ mod tests {
             documented: 0.0,
             churn: [0.0; 4],
             age_days: touched.map(|_| 100.0),
+            tangle: None,
+            cognitive: None,
             commits: [0; 4],
             all_commits: None,
             last_touched_days: touched,
@@ -599,6 +615,7 @@ mod tests {
                 commits: 0,
                 churn_windows: [30, 60, 90, 180],
                 churned: false,
+                tangle_bands: Default::default(),
                 files_scanned: 1,
                 files_skipped: 0,
                 unscanned: Default::default(),

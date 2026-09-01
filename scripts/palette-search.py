@@ -265,9 +265,14 @@ SHIPPED_STOPS = {
 # heat, trap must read as an alarm, and clone/callers/age had no reason to move); the other
 # six are solved. Two of the eleven are not ramps at all: trap and clone are marks, and blame
 # and language are chrome-only chips at the ramps' fourth stop.
+# **Eleven, not twelve.** Complexity is deliberately outside this — see `--tangle` in
+# `index.css`. Hue follows the menu, and the first row's arc is bounded by a pinned amber, so
+# every hue the ordering could give it is gold. Adding it here and re-solving works and costs
+# the set: chips 13.3 to 12.4 and six ramps recoloured. Leaving it off costs one menu row whose
+# colour does not continue the run.
 MENU = ["heat", "legible", "docs", "trap", "clone", "callers", "reach", "blame", "language",
-        "churn", "age"]
-PINNED = {"heat": 74.0, "trap": 358.0, "clone": 309.0, "callers": 268.0, "age": 114.0}
+        "age", "churn"]
+PINNED = {"heat": 74.0, "trap": 358.0, "clone": 309.0, "callers": 268.0, "churn": 114.0}
 # The two chips with no ramp under them: the level a chip quotes is stop 3.
 CHIP_L, CHIP_C = L_PROFILE[3], C_PROFILE[3]
 CHROME = {"blame": 206.4, "language": 176.8}
@@ -460,14 +465,23 @@ def start_from_pins():
     Done on the unwrapped line rather than on the circle: the menu descends through 0 exactly
     once, so subtracting the wrap from every pin turns "between these two pins" into ordinary
     interpolation and the modulo goes back on at the end."""
-    first = MENU[0]
+    # **The anchor is the first PINNED lens, not the first menu row.** Unwrapping needs a hue
+    # to measure from and only a pin has one; assuming the menu opens on a pin held for as long
+    # as it did because it always had, and broke the moment a free lens went to the top.
+    first = next(k for k in MENU if k in PINNED)
     line = {k: PINNED[first] - (PINNED[first] - h) % 360 for k, h in PINNED.items()}
     line[first] = PINNED[first]
     at = [i for i, k in enumerate(MENU) if k in PINNED]
     hues = {}
-    for lo, hi in zip(at, at[1:]):
-        a, b = line[MENU[lo]], line[MENU[hi]]
-        for j, k in enumerate(MENU[lo + 1:hi], 1):
+    # The arc after the LAST pin closes back onto the first one a turn further down the line,
+    # and it is where a lens sitting outside every pin lives — above the first pin or below the
+    # last, which are the same arc once the menu is read as the circle it is.
+    n = len(MENU)
+    for lo, hi in zip(at, at[1:] + [at[0] + n]):
+        a = line[MENU[lo]]
+        b = line[MENU[hi % n]] - (360 if hi >= n else 0)
+        span = MENU[lo + 1:] + MENU[:hi % n] if hi >= n else MENU[lo + 1:hi]
+        for j, k in enumerate(span, 1):
             hues[k] = (a + (b - a) * j / (hi - lo)) % 360
     hues.update(PINNED)
     return hues

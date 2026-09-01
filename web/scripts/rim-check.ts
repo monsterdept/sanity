@@ -20,7 +20,7 @@
  * same shape `replay-check` takes and for the same reason.
  */
 import { rimRuns } from '../src/lib/rim'
-import { OTHER, bucketsFor } from '../src/lib/colorMode'
+import { OTHER, bucketsFor, histogramsFor } from '../src/lib/colorMode'
 import type { Slice } from '../src/lib/colorMode'
 import type { Node } from '../src/lib/api'
 
@@ -159,6 +159,7 @@ console.log('absence — a band says what it knows, not what the repo is')
   const walked = {
     age: { span: 900, read: 'newest' as const },
     churn: { windows: [30, 60, 90, 180] as [number, number, number, number], at: 2, measured: true },
+    tangle: 'weighted' as const,
   }
   for (const mode of ['age', 'churn'] as const) {
     const rows = bucketsFor(dir([file([func(100, null), func(50, null)])]), mode, undefined, walked)
@@ -316,6 +317,120 @@ console.log("roll-ups — and a count that knows what it holds says so")
   check('and does not invent a band for it', aged.length === 1 && aged[0].label === 'today')
 }
 
+console.log('a container draws its distribution, not its mean')
+{
+  // **The bug: `src-tauri` drew as ONE shade while the pane beside it showed four.** A file
+  // stands in for its own functions when its ring has not been fetched — otherwise a rim is
+  // built from whichever files happened to load, which is a biased sample drawn confidently.
+  // Which lenses may do that was a chain of `||`, and the twelfth was not in it, so every
+  // container on the map fell back to the flat roll-up. Nothing threw. It just averaged.
+  const withCols = (loc: number, tangles: [number, number][]): Node =>
+    ({
+      kind: 'file',
+      loc,
+      excluded: false,
+      funcs: tangles.length,
+      children: [],
+      score: {
+        commits: [0, 0, 0, 0],
+        churn: [0, 0, 0, 0],
+        ageDays: 1,
+        lastTouchedDays: 1,
+        tangle: [
+          tangles.reduce((n, t) => n + t[0], 0) / tangles.length,
+          tangles.reduce((n, t) => n + t[1], 0) / tangles.length,
+        ],
+        cognitive: 4,
+      },
+      cols: {
+        loc: tangles.map(() => loc / tangles.length),
+        commits: tangles.map(() => [0, 0, 0, 0]),
+        touched: tangles.map(() => 1),
+        callers: tangles.map(() => -1),
+        calls: tangles.map(() => -1),
+        clones: tangles.map(() => -1),
+        // Thousandths, the wire's own units — see `Cols::tangle`. Without these a ring-less
+        // file has nothing to say about complexity, which is the state this whole case is
+        // about: the rim used to draw anyway and quietly leave the file's lines out.
+        tangle: tangles.map((t) => [Math.round(t[0] * 1000), Math.round(t[1] * 1000)]),
+      },
+    }) as unknown as Node
+  const dir = (kids: Node[]): Node =>
+    ({ kind: 'dir', id: 'd', loc: 400, excluded: false, children: kids }) as unknown as Node
+
+  // Four files, each landing in a different band. A container over them must draw four
+  // segments, not one average.
+  const root = dir([
+    withCols(100, [[0.9, 0.9]]),
+    withCols(100, [[0.5, 0.5]]),
+    withCols(100, [[0.2, 0.2]]),
+    withCols(100, [[0, 0]]),
+  ])
+  const hist = histogramsFor(root, 'tangle', undefined, {
+    age: { span: 900, read: 'newest' as const },
+    churn: { windows: [30, 60, 90, 180] as [number, number, number, number], at: 2, measured: true },
+    tangle: 'weighted' as const,
+  })
+  const slices = hist.get('d') ?? []
+  check(
+    'a directory rim carries every band under it',
+    slices.length === 4,
+    slices.map((x) => x.label),
+  )
+  check(
+    'and they are not all one colour',
+    new Set(slices.map((x) => x.fill)).size === 4,
+    slices.map((x) => x.fill),
+  )
+}
+
+console.log('every banded lens sorts by its OWN bands and paints from its OWN ramp')
+{
+  // **The bug this is written against drew a gold map beside a green legend.** Two ternaries,
+  // `mode === 'churn' ? … : 'age'`, written when there were two banded lenses — a third fell
+  // straight through both, so Complexity took Age's ramp for its swatches and Age's band list
+  // for its order. `indexOf` returned −1 for every row, so the sort did nothing and the rows
+  // came out in arrival order. Nothing threw and the picture looked like a picture.
+  const fn = (loc: number, tangle: [number, number]): Node =>
+    ({
+      kind: 'func',
+      loc,
+      children: [],
+      excluded: false,
+      score: {
+        commits: [0, 0, 0, 0],
+        churn: [0, 0, 0, 0],
+        ageDays: 1,
+        lastTouchedDays: 1,
+        tangle,
+        cognitive: Math.round(tangle[1] * 15),
+      },
+    }) as unknown as Node
+  const dir = (kids: Node[]): Node =>
+    ({ kind: 'dir', loc: 0, excluded: false, children: kids }) as unknown as Node
+  const file = (kids: Node[]): Node =>
+    ({ kind: 'file', loc: 0, excluded: false, funcs: 0, children: kids }) as unknown as Node
+
+  const rows = bucketsFor(
+    dir([file([fn(10, [0.9, 0.9]), fn(10, [0.5, 0.5]), fn(10, [0.1, 0.1]), fn(10, [0, 0])])]),
+    'tangle',
+  )
+  // Worst first, the direction every breakdown here reads in.
+  check(
+    'complexity bands run worst first',
+    rows.map((r) => r.label).join(' · ') ===
+      'far above normal · above normal · slightly above · as expected',
+    rows.map((r) => r.label),
+  )
+  // The swatch has to be a colour that is actually on the map. Its own ramp, not the one the
+  // ternary next door happened to reach for.
+  check(
+    'and every swatch comes from the complexity ramp',
+    rows.every((r) => r.fill.includes('--tangle')),
+    rows.map((r) => [r.label, r.fill]),
+  )
+}
+
 console.log('columns — a file whose ring never arrived still bands, and does not throw')
 {
   // **The path that crashed.** A file too small to have had its functions fetched carries
@@ -351,7 +466,11 @@ console.log('columns — a file whose ring never arrived still bands, and does n
   ])
 
   for (const at of [0, 1, 2, 3]) {
-    const views = { age: { span: 900, read: 'newest' as const }, churn: { ...ladder, at } }
+    const views = {
+      age: { span: 900, read: 'newest' as const },
+      churn: { ...ladder, at },
+      tangle: 'weighted' as const,
+    }
     const rows = bucketsFor(dir([file]), 'churn', undefined, views)
     check(
       `columns band at rung ${at}`,
@@ -370,7 +489,11 @@ console.log('columns — a file whose ring never arrived still bands, and does n
   // The rung is the rung: the busy function is `10+` at the widest window and lower at the
   // narrowest, which is the whole reason the columns carry four counts rather than one.
   const bandAt = (at: number) => {
-    const views = { age: { span: 900, read: 'newest' as const }, churn: { ...ladder, at } }
+    const views = {
+      age: { span: 900, read: 'newest' as const },
+      churn: { ...ladder, at },
+      tangle: 'weighted' as const,
+    }
     const rows = bucketsFor(dir([file]), 'churn', undefined, views)
     return rows.find((b) => b.lines === 100)?.label
   }
@@ -413,6 +536,7 @@ console.log('roll-ups — and the time tally puts a folded file in its own band'
   const views = (read: 'newest' | 'oldest') => ({
     age: { span: 900, read },
     churn: { ...ladder, windows: [...ladder.windows] as [number, number, number, number] },
+    tangle: 'weighted' as const,
   })
 
   const aged = bucketsFor(dir([folded]), 'age', undefined, views('newest'))

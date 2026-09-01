@@ -33,10 +33,10 @@ console.log('the lens digits answer, and answer with the right lens')
   // the digits. Tab opens the pane, and the pane being open is a state the digits pass
   // through untouched.
   const open: Where = { ...idle, finding: true }
-  check('⌘1 still works with the find pane open', lens(actOf(cmd('1'), open)) === 'surprise')
+  check('⌘1 still works with the find pane open', lens(actOf(cmd('1'), open)) === 'tangle')
   check('⌘- still works with the find pane open', lens(actOf(cmd('-'), open)) === 'age')
   const typed: Where = { ...idle, typing: true }
-  check('⌘1 still works with a field focused', lens(actOf(cmd('1'), typed)) === 'surprise')
+  check('⌘1 still works with a field focused', lens(actOf(cmd('1'), typed)) === 'tangle')
 }
 
 console.log('Tab opens the finder, and only where Tab is free')
@@ -57,6 +57,11 @@ console.log('the two keys that are not lenses')
   // `+` is Shift-`=`, so a handler that refuses Shift never sees it — and the way back out
   // of a replay has to work from inside one.
   check('⌘+ toggles it back', actOf({ ...cmd('='), shift: true }, idle)?.do === 'history')
+  // **And a BARE `⌘=` is the twelfth lens, not a second spelling of History.** It answered to
+  // both until there were twelve lenses and only eleven digits — see `HISTORY_NEEDS_SHIFT`.
+  // The risk this pins is the ordering: the History branch runs before the Shift guard, so an
+  // `=` that forgot to check Shift would swallow the last lens and nothing would say so.
+  check('a bare ⌘= is a lens, not history', actOf(cmd('='), idle)?.do === 'lens')
 }
 
 console.log('the keyboard does what the strip does, and never less')
@@ -65,11 +70,36 @@ console.log('the keyboard does what the strip does, and never less')
   // still a place you can stand" — and the keyboard used to refuse, so on a repo with no
   // readings ⌘1 was dead while clicking Surprise worked. A shortcut that is live in one place
   // and dead in the other is a shortcut that lies.
-  check('⌘1 reaches a lens with nothing in it', lens(actOf(cmd('1'), idle)) === 'surprise')
+  //
+  // **⌘2, because Surprise moved.** Complexity took the first row — it is the one lens that
+  // paints a repo nobody has read — and Complexity is rarely the locked one, so checking ⌘1
+  // here would have quietly stopped testing what this was written for. The lens that CAN have
+  // nothing in it is the one to press.
+  check('⌘2 reaches a lens with nothing in it', lens(actOf(cmd('2'), idle)) === 'surprise')
   check('⌘- reaches one during a replay', lens(actOf(cmd('-'), idle)) === 'age')
   check('an unrelated ⌘ key is not ours', actOf(cmd('k'), idle) === null)
   check('a bare digit is a character', actOf({ ...cmd('1'), meta: false }, idle) === null)
   check('⌥⌘1 is not ours', actOf({ ...cmd('1'), alt: true }, idle) === null)
+}
+
+console.log('stepping, because the digits ran out')
+{
+  // **The twelfth lens has no digit and `shortcut()` correctly refuses to invent one**, so
+  // without stepping it is unreachable from the keyboard — and inserting a lens anywhere but
+  // the end moves every digit after it, which is what putting Complexity FIRST does to all
+  // eleven. Stepping is the shape that survives a thirteenth lens and a fourteenth.
+  const step = (k: string) => {
+    const a = actOf(cmd(k), idle)
+    return a && a.do === 'step' ? a.by : null
+  }
+  check('⌘] is the next lens', step(']') === 1)
+  check('⌘[ is the previous one', step('[') === -1)
+  // They take Cmd like every other shortcut here, or a bare bracket stops being a character.
+  check('a bare bracket is a character', actOf({ ...cmd(']'), meta: false }, idle) === null)
+  check('⇧⌘] is not ours', actOf({ ...cmd(']'), shift: true }, idle) === null)
+  // Typing in a field is the one place every Cmd shortcut still answers — see `Where` — so
+  // the brackets have to behave like the digits do rather than like Tab.
+  check('⌘] answers with a field focused', step(']') === 1)
 }
 
 if (failed > 0) {
