@@ -39,6 +39,14 @@ function Ramp({ from, to }: { from: string; to: string }) {
 
 /** A row of flat colors — four bands, three mark states, or the head of a categorical palette.
  *
+ *  **The notable end goes LAST, which is the direction every other row in this panel reads.**
+ *  Surprise runs mundane to obscure, Docs covered to undocumented, Callers none to 6+, Age old
+ *  to recent — dim first, loud last, in the swatch and in the `values` line beside it. The two
+ *  mark lenses were built the other way round and were the only rows that were, so a reader
+ *  comparing Traps with the row above it had to notice that one of them had turned around.
+ *  Reverse a swatch here and reverse its `values` in the same edit: the words sit next to the
+ *  colors and are read against them.
+ *
  *  **The mark lenses use this too, and label nothing.** They carried a legend, a swatch and a
  *  word per state, and were the only rows in the panel that did: every ramp shows two hundred
  *  colors and names none of them, so the two that named three read as a different kind of entry
@@ -84,16 +92,26 @@ function Lens({
         <p>
           <B>Measures</B> {measures}
         </p>
+        {/* **A colon, and the label carries the weight `Measures` does.** These two were
+            separated from their content by brightness alone, in the same mono face at the same
+            size — so "Values" read as the first item of its own list, and the row above it was
+            the only one whose label looked like one.
+
+            Not pills, and `Ramp` is why. Whatever marks a label here has to work for both
+            rows, and `Ramp` is a sentence — "mundane (dim) → obscure (bright)" — not a set. A
+            treatment that chips the values would make two rows of the same kind look like two
+            different kinds, which is the mistake `Steps` records the mark lenses making with
+            their own legend. A colon is the one mark that reads the same over a list and over
+            a sentence. */}
         {values && (
           <p className="mono mt-1 text-[9px]">
-            <span className="not-italic text-[var(--foreground)]">Values </span>
+            <span className="font-semibold not-italic text-[var(--foreground)]">Values:</span>{' '}
             {values}
           </p>
         )}
         {ramp && (
           <p className="mono text-[9px]">
-            <span className="text-[var(--foreground)]">Ramp </span>
-            {ramp}
+            <span className="font-semibold text-[var(--foreground)]">Ramp:</span> {ramp}
           </p>
         )}
         {children && <div className="mt-1.5">{children}</div>}
@@ -127,8 +145,9 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
         <header className="shrink-0 border-b border-[var(--border)] px-5 pb-3 pt-4">
           <h2 className="text-sm font-semibold">Lenses</h2>
           <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-            What each lens measures, the values it prints, and what has to have run before it can
-            answer. Width is always lines of code; the lens sets color and nothing else.
+            The map is a project's structure: directories, files, functions. A wedge's width
+            is its share of the <B>lines of code</B>. The lens sets color and nothing else,
+            and non-code is not drawn.
           </p>
         </header>
 
@@ -152,7 +171,7 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
             name="Legibility"
             needs="Read"
             swatch={<Ramp from="var(--legible-0)" to="var(--legible-4)" />}
-            measures="the reader's assessment of the body after reading it."
+            measures="what reading the body was like, by what the reader actually did: understood it in one pass, required several passes, or never got it at all."
             values="clean · nuanced · tangled · unclear"
             ramp="clean (dim) → unclear (bright)"
           >
@@ -162,7 +181,7 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
             name="Docs"
             needs="Read"
             swatch={<Ramp from="var(--docs-0)" to="var(--docs-4)" />}
-            measures="how much of the body the documentation covers, displayed as the gap."
+            measures="how little of the body its documentation covers."
             values="full · decent · some · none"
             ramp="covered (dim) → undocumented (bright)"
           >
@@ -172,20 +191,21 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
           <Lens
             name="Traps"
             needs="Read"
-            swatch={<Steps fills={['var(--trap)', 'var(--structure)', 'var(--unanalyzed)']} />}
+            swatch={<Steps fills={['var(--unanalyzed)', 'var(--structure)', 'var(--trap)']} />}
             measures="whether a reader flagged something likely to catch out the next person editing this code."
-            values="trap · no trap reported · not read yet"
+            values="not read yet · no trap reported · trap"
           >
-            <code>no trap reported</code> means a reader looked and found nothing.{' '}
-            <code>not read yet</code> means no reader has looked. The two are different neutrals
-            and can be told apart on the map. A clean wedge is not proof that no trap exists.
+            A wedge marked <code>no trap reported</code> means a reader looked and found
+            nothing, where <code>not read yet</code> means no reader has looked. The two are
+            different neutrals and can be told apart on the map. A clean wedge is not proof
+            that no trap exists.
           </Lens>
           <Lens
             name="Clones"
             needs="Scan"
-            swatch={<Steps fills={['var(--clone)', 'var(--structure)', 'var(--unanalyzed)']} />}
+            swatch={<Steps fills={['var(--unanalyzed)', 'var(--structure)', 'var(--clone)']} />}
             measures="functions whose bodies are identical once identifiers and literals are flattened and comments dropped."
-            values="a clone · no clone in this repo · too small to compare"
+            values="too small to compare · no clone in this repo · a clone"
           >
             Every clone draws the same color regardless of how many copies exist. The size of the
             group appears in the label as <code>1 of N clones</code> and in the sidebar
@@ -207,7 +227,7 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
                 ]}
               />
             }
-            measures="call sites within this repository."
+            measures="call sites within this repository: the number of locations elsewhere in the repo where the body is called."
             values="no in-repo caller · 1 · 2–5 · 6+"
           >
             Calls from outside the repository are not counted. Entry points and public APIs
@@ -221,7 +241,7 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
                 fills={['var(--reach-0)', 'var(--reach-1)', 'var(--reach-2)', 'var(--reach-4)']}
               />
             }
-            measures="in-repo functions this one calls."
+            measures="in-repo functions this one calls: the number of functions defined elsewhere in the repo that are called by the body."
             values="none · 1 · 2–5 · 6+"
           />
           <Lens
@@ -234,9 +254,6 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
             }
             measures="the author of the most recently changed line."
           >
-            This is last modification, not authorship. A formatting change across many files
-            makes its author the recorded value for all of them.
-            <br />
             How many authors get their own color is set by the <B>colors</B> control. The legend
             names the top 16. Below that there are two different remainders:
             <ul className="mt-1 list-disc space-y-0.5 pl-4">
@@ -250,10 +267,8 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
                 or unranked. Drawn in the structural neutral.
               </li>
             </ul>
-            The legend and the panel are ordered by two different things. The legend ranks the
-            whole repo's cast by commits, once, so a color does not move when you drill or
-            replay; the panel ranks by the lines each person holds under the cursor, which is
-            the number its rows print. On a big repo they disagree, and both are right.
+            The legend orders by commits over the whole repo and the panel by lines in what
+            you have open, so on a big repo they name the same people in a different order.
             <br />
             Uncommitted lines and untracked files are shown as themselves.
           </Lens>

@@ -113,7 +113,7 @@ function Legend({
     // a person who is second today may be the only author in the frame on screen — and a
     // legend sorted by anything else would hand the top swatch to whoever the frame happened
     // to list first. **The panel is the other order and differs from this one on purpose** —
-    // it is a distribution of what is under the cursor, by lines, where this is a key to a
+    // it is a distribution of what you have OPEN, by lines, where this is a key to a
     // cast that must not move. See `sortBuckets`.
     // **Named up to what a key can hold, coloured up to what the palette can.** The two used
     // to be one number and the palette has since gone to sixty-four: a legend that named all

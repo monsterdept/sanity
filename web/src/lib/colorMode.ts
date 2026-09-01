@@ -1607,7 +1607,9 @@ export function sortBuckets<T extends { key: string; lines: number }>(
     // The two surfaces answer two questions and the orders follow from that. A legend is a
     // KEY, ordered by the repo-wide all-time cast (`stats.authors`, ranked by COMMITS) so a
     // person's place in it does not move when you drill or when the playhead does. This is a
-    // DISTRIBUTION of what is under the cursor, ordered by how much of that picture each
+    // DISTRIBUTION of what you have OPEN — `Detail` hands it `focus`, so it is the wedge
+    // you drilled into or clicked, never the one the pointer happens to be over — ordered by
+    // how much of that picture each
     // person holds — LINES, here, not everywhere. On ceph the two disagree loudly and both
     // are right: one 642-file whitespace sweep makes somebody the first row here who is
     // nowhere near the first sixteen there.
