@@ -204,6 +204,13 @@ pub fn note_scan(key: &str, files: usize, ms: u64) {
 }
 
 /// Remember how deep this repo's history has been read — see [`KnownProject::trace_depth`].
+/// What depth the index records for this repo, by path. Diagnostics — see
+/// `trace::tests::why_no_relines`; the app reads it off `KnownProject` at launch.
+pub fn banked_depth(repo: &std::path::Path) -> Option<String> {
+    let want = repo.to_string_lossy().to_string();
+    load_index().projects.iter().find(|p| p.repo == want).and_then(|p| p.trace_depth.clone())
+}
+
 pub fn note_trace(key: &str, depth: &str) {
     let mut index = load_index();
     let Some(p) = index.projects.iter_mut().find(|p| p.key == key) else {

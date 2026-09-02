@@ -91,6 +91,35 @@ impl Depth {
         }
     }
 
+    /// The ladder as a number, so two depths can be compared without a match on every pair.
+    ///
+    /// **`Depth` deliberately derives no `Ord`.** The variants happen to be declared in
+    /// ladder order and an `Ord` would make that ordering a promise of the DECLARATION rather
+    /// than of the ladder — a reordered enum would silently reorder the rungs. This is the
+    /// claim, written down once, next to the other things the ladder knows about itself.
+    pub fn rank(self) -> u8 {
+        match self {
+            Depth::Untraced => 0,
+            Depth::Files => 1,
+            Depth::Lines => 2,
+            Depth::Edits => 3,
+        }
+    }
+
+    /// The depth a banked tag names — see [`Self::tag_str`], which writes them.
+    ///
+    /// `Untraced` for anything this build does not recognise, which is the safe direction: an
+    /// unknown tag is priced as work nobody has paid for, so the worst it costs is being asked
+    /// again. Reading it as something deeper would draw a resolution nobody bought.
+    pub fn from_tag(tag: &str) -> Depth {
+        match tag {
+            "files" => Depth::Files,
+            "lines" => Depth::Lines,
+            "edits" => Depth::Edits,
+            _ => Depth::Untraced,
+        }
+    }
+
     /// Does a trace to this depth run the per-line blame pass?
     ///
     /// **The ladder is CUMULATIVE, and asking `== Depth::Lines` is how that gets forgotten.**
@@ -469,6 +498,23 @@ pub fn deepen(
             apply(scan, &history, &acc, None);
             on_publish(scan);
         }
+        // **Flushed here, or a small repo blames itself again every launch.** `put_blame`
+        // writes into the store and only reaches disk through `touched`, which appends once
+        // `FLUSH_EVERY` keys have piled up — and the one unconditional `save` in this app is
+        // at the end of a SCAN. A trace is not a scan, so a repo with fewer than four hundred
+        // files finished its blame pass, published it to the map, and dropped every line of it
+        // on quit.
+        //
+        // It was invisible because `relines` prices the remainder against a ten-second budget
+        // and then restores anyway: under about 290 files the re-blame fits, so the repo comes
+        // back looking traced and quietly pays for it again. Past that it does not, and the row
+        // offers `N files to blame` forever — measured here at 304 files for one repo and 355
+        // for another, both just over the line, while a 1,234-file repo kept all but its last
+        // partial batch and looked perfectly healthy.
+        //
+        // Unconditional rather than gated on the stop flag: a pass that was interrupted has
+        // blamed real files, and their answers are as good as a finished pass's.
+        scans.save();
         acc
     } else {
         Blame::default()
@@ -811,6 +857,74 @@ pub(crate) fn apply_dir_history(
 
 #[cfg(test)]
 mod tests {
+
+    /// **Why does this repo not restore its blame at launch?**
+    ///
+    /// `relines` is the gate, and a launch that fails it is silent about which half failed —
+    /// the log walk coming back empty and the blame cache being cold both land on `Files`.
+    /// This asks each half separately, off the real cache and the real log walk.
+    ///
+    /// `RELINES_REPO=~/projects/x cargo test --lib trace::tests::why_no_relines -- --ignored --nocapture`
+    #[test]
+    #[ignore = "diagnostic"]
+    fn why_no_relines() {
+        let Ok(root) = std::env::var("RELINES_REPO") else { return };
+        let repo = std::path::Path::new(&root);
+        println!("  {}", repo.display());
+        println!("    banked depth  {:?}", crate::reports::banked_depth(repo));
+
+        let scans = crate::scancache::ScanCache::open(repo);
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let Some(history) = depth1(repo, &stop, &|_| {}) else {
+            println!("    depth1 returned None — the log walk found nothing, so relines is");
+            println!("    never asked and the launch settles for Files.");
+            return;
+        };
+        println!("    log walk      ok");
+
+        // The same question `relines` asks, per file, off the cache's own entry list — which
+        // is exactly the set the scan parsed.
+        let (mut files, mut missing, mut no_hash, mut no_commit) = (0, 0, 0, 0);
+        for path in scans.paths() {
+            files += 1;
+            let hash = scans.hash_of(&path).unwrap_or(0);
+            if hash == 0 {
+                no_hash += 1;
+            }
+            let last = history.last_commit_of(&path);
+            if last.is_none() {
+                no_commit += 1;
+            }
+            if !scans.has_blame(&path, hash, last) {
+                missing += 1;
+            }
+        }
+        let cost = missing as f32 * BLAME_MS_PER_FILE / 1000.0;
+        println!("    files in cache       {files}");
+        println!("    no cached hash       {no_hash}");
+        println!("    no last commit       {no_commit}");
+        println!("    blame NOT cached     {missing}");
+        println!("    would cost           {cost:.1}s against a budget of {}s", BUDGET.as_secs_f32());
+    }
+
+
+    /// Every rung round-trips through the tag the index banks, and the ladder is in order.
+    ///
+    /// **The tag is what survives a restart, so a rung missing from `from_tag` is a repo that
+    /// silently forgets it was traced.** Written as a loop over every variant rather than as
+    /// four assertions, so a fifth rung fails here rather than being read as `Untraced` on the
+    /// launch after somebody paid for it.
+    #[test]
+    fn a_banked_tag_names_the_rung_that_wrote_it() {
+        let ladder = [Depth::Untraced, Depth::Files, Depth::Lines, Depth::Edits];
+        for d in ladder {
+            assert_eq!(Depth::from_tag(d.tag_str()), d, "{d:?} does not survive its own tag");
+        }
+        for pair in ladder.windows(2) {
+            assert!(pair[0].rank() < pair[1].rank(), "the ladder is out of order at {pair:?}");
+        }
+        assert_eq!(Depth::from_tag("something a later build wrote"), Depth::Untraced);
+    }
     use super::*;
     use std::path::Path;
     use std::process::Command;
@@ -1060,6 +1174,61 @@ mod tests {
             }
         });
         assert!(missing > 0, "an empty cache holds no blame, so every file is a cost");
+    }
+
+    /// The blame a trace paid for has to survive the process that paid for it.
+    ///
+    /// **The test above passes with the bug**, and that is the point of this one: it asks the
+    /// same question of the SAME `ScanCache` object, so the answers are still sitting in
+    /// memory. `put_blame` only reaches disk through `touched`, which appends once
+    /// `FLUSH_EVERY` keys have piled up, and the one unconditional `save` was at the end of a
+    /// scan — which a trace is not. A repo with fewer than four hundred files therefore
+    /// finished its blame pass, painted the map with it, and dropped every line on quit.
+    ///
+    /// It hid behind `relines`, which priced the re-blame against a ten-second budget and
+    /// restored anyway: under about 290 files the repo came back looking traced and quietly
+    /// paid again, and past that it offered `N files to blame` at every launch forever.
+    #[test]
+    fn the_blame_a_trace_paid_for_is_still_there_next_launch() {
+        let _home = crate::agentapi::tests::data_home();
+        let dir = repo();
+        // **The ON-DISK cache for both phases, which is what the app does and what
+        // `scan_of` does not.** A blame with no parse entry beside it is dropped — the gate
+        // lives on the parse entry, so an orphan could never be invalidated — so a fixture
+        // that scans into an ephemeral cache and blames into a real one banks nothing for a
+        // reason that has nothing to do with the bug.
+        let scans = crate::scancache::ScanCache::open(dir.path());
+        let (scores, _) = crate::scan::Memos::ephemeral();
+        let mut scan = crate::scan::scan(
+            dir.path(),
+            &crate::surprise::HeuristicModel,
+            &|_| {},
+            &|_, _: &crate::surprise::Reading| {},
+            &|_| {},
+            &std::sync::atomic::AtomicBool::new(false),
+            crate::scan::Memos { scores: &scores, scans: &scans },
+            crate::scan::Fidelity::Full,
+            Depth::Untraced,
+        )
+        .expect("scans");
+        let history = crate::churn::read(dir.path());
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        deepen(dir.path(), &mut scan, Depth::Lines, &scans, &stop, &|_| {}, &|_| {});
+
+        // A fresh handle on the same repo: what the NEXT launch opens, holding only what
+        // actually reached the file.
+        let reopened = crate::scancache::ScanCache::open(dir.path());
+        let mut missing = 0;
+        scan.root.visit(&mut |n| {
+            if n.kind != NodeKind::File {
+                return;
+            }
+            let hash = reopened.hash_of(&n.path).unwrap_or(0);
+            if !reopened.has_blame(&n.path, hash, history.last_commit_of(&n.path)) {
+                missing += 1;
+            }
+        });
+        assert_eq!(missing, 0, "a trace that banked nothing is a trace nobody can restore");
     }
 
     /// **An estimate prices the work that is left, never the work in principle.**

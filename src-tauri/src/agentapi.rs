@@ -5925,7 +5925,11 @@ fn drain(
         crate::reports::note_scan(&known.key, scan.stats.files_scanned, scan_took.elapsed().as_millis() as u64);
         let pending =
             trace_within_budget(&path, &mut scan, &scans, known.trace_depth.as_deref(), &on_progress);
-        crate::reports::note_trace(&known.key, pending.depth.tag_str());
+        // **Never over what somebody already paid for** — see `banks_over`. A launch that
+        // declines to restore has priced some work, not undone it.
+        if banks_over(pending.depth, known.trace_depth.as_deref()) {
+            crate::reports::note_trace(&known.key, pending.depth.tag_str());
+        }
         let marks = stamp_marks(&path, &scan);
         let mut s = lock(state);
         settled(&mut s);
@@ -6171,6 +6175,27 @@ pub struct TraceState {
 /// The one place the gate is applied to work nobody asked for — a launch restoring projects,
 /// and a watcher noticing a repo moved. An explicit open, a CLI verb or the window's own Trace
 /// button all go through [`deepen_project`] instead, which does what it was told.
+/// May a launch's own trace outcome be banked over what the index already records?
+///
+/// **Only if it does not go backwards, and that is the whole rule.** `trace_within_budget`
+/// returns `Files` — or `Untraced` — whenever it declines to restore a deeper trace: the log
+/// walk at launch came back empty, `relines` priced the remaining blame over budget, or the
+/// repo is big enough that `go` asks before spending a minute of somebody's machine. All three
+/// are decisions about THIS LAUNCH's budget. None of them is a statement that the per-line pass
+/// somebody sat and waited for did not happen.
+///
+/// Banked anyway, they erased it, and the erasure is what made the bug permanent rather than
+/// annoying: the next launch reads `files`, so it does not even attempt the restore, so it
+/// banks `files` again. One declined launch and a repo offers `304 files to blame` forever,
+/// however many times the button is pressed — with the blame still sitting in the cache,
+/// answered and unread.
+///
+/// The `/trace` handler is deliberately NOT held to this. There, a shallower depth is what a
+/// person asked for or where their stop landed, and recording it is the point.
+fn banks_over(reached: crate::trace::Depth, banked: Option<&str>) -> bool {
+    reached.rank() >= crate::trace::Depth::from_tag(banked.unwrap_or("")).rank()
+}
+
 fn trace_within_budget(
     repo: &Path,
     scan: &mut Scan,
@@ -6400,6 +6425,33 @@ pub async fn serve(state: Shared) -> anyhow::Result<u16> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+
+    /// A launch that could not afford to restore must not erase the trace it could not afford.
+    ///
+    /// **The bug this pins was permanent, which is what made it worth a test.** Trace a repo to
+    /// `lines`, quit, reopen; if that launch declined the restore for any reason — an empty log
+    /// walk, blame priced over budget, a repo big enough to ask first — the outcome was banked
+    /// over the record, so every launch after it read `files` and never tried again. The row
+    /// offered `304 files to blame` forever, with the blame sitting in the cache, answered.
+    #[test]
+    fn a_declined_restore_does_not_forget_what_was_paid_for() {
+        use crate::trace::Depth;
+        // The failing shape, in both directions it can arrive: nothing walked, or the log
+        // walked and the blame declined.
+        assert!(!banks_over(Depth::Untraced, Some("lines")));
+        assert!(!banks_over(Depth::Files, Some("lines")));
+        assert!(!banks_over(Depth::Lines, Some("edits")));
+        // A restore that got there, or got FURTHER, is worth writing down.
+        assert!(banks_over(Depth::Lines, Some("lines")));
+        assert!(banks_over(Depth::Edits, Some("lines")));
+        // A repo nobody has traced has nothing to protect, so anything lands — including the
+        // untraced answer itself, which is what a first launch of a big repo records.
+        assert!(banks_over(Depth::Untraced, None));
+        assert!(banks_over(Depth::Files, None));
+        // A tag from a later build reads as untraced, so this build's own answer stands rather
+        // than being refused by a rung it cannot name.
+        assert!(banks_over(Depth::Files, Some("some-later-rung")));
+    }
     use super::*;
 
     fn task(path: &str, name: &str) -> Task {

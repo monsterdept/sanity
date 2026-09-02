@@ -429,6 +429,15 @@ impl ScanCache {
     /// For a trace taken AFTER the scan that parsed them: blame is keyed on
     /// `(content, last commit)`, the parse computed the content hash, and asking the file
     /// again would read every byte of the repo a second time to learn what is already here.
+    /// Every path this cache holds an entry for — the set the last scan parsed.
+    ///
+    /// For diagnostics only, which is why it copies: the hot paths ask about ONE file and a
+    /// list of every path in a repo the size of kibana is a hundred and fifty thousand
+    /// allocations to answer a question nobody asked.
+    pub fn paths(&self) -> Vec<String> {
+        self.store().as_ref().map(|s| s.entries.keys().cloned().collect()).unwrap_or_default()
+    }
+
     pub fn hash_of(&self, rel_path: &str) -> Option<u64> {
         self.store().as_ref()?.entries.get(rel_path).map(|e| e.hash)
     }
