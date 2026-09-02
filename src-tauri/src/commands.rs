@@ -944,7 +944,7 @@ pub async fn function_forks(
             None => return Ok(None),
         }
     };
-    Ok(tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || {
         // Canonicalised and checked exactly as `read_source` and `function_sources` do. A path
         // arrives from the window, and the window got it from a scan, but "it came from us" is
         // not a boundary check.
@@ -981,7 +981,7 @@ pub async fn function_forks(
         })
     })
     .await
-    .map_err(|e| e.to_string())?)
+    .map_err(|e| e.to_string())
 }
 
 /// How much of a body the panel will draw. The same figure `MAX_SNIPPET_LINES` picks for the
