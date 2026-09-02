@@ -43,16 +43,26 @@ a line in the test.
 It shares a root with the item above it: the app cannot say what it can and cannot read, so a
 grey wedge is indistinguishable from a simple one until you have read `parse.rs`.
 
-## Two holes in `func_kinds`, found while testing something else
+## Two holes in `func_kinds` — closed
 
-Objective-C matches `method_definition` only, so a plain C function in a `.m` is found by
-nothing at all — and `.m` files routinely hold them. Groovy matches a top-level `def f()` and
-not a CLASS method, which is where most Groovy lives.
+Objective-C matched `method_definition` only, so a plain C function in a `.m` was found by
+nothing at all, and `.m` files routinely hold them. Groovy matched a top-level `def f()` and
+not a CLASS method, which is where most Groovy lives. Both are listed now and both are pinned
+by a test that asserts the NAME and the BODY rather than a count.
+
+**The kind was only half of it.** Adding `function_definition` to Objective-C found the node
+and still produced nothing, because `name_node`'s ObjC arm searches direct children for an
+`identifier` — right for a method, whose selector is a bare child, and wrong for a C function,
+whose name sits inside a `function_declarator`. C and C++ already walked that chain; the arm is
+shared now, guarded on the node kind so the method keeps its own search. A kind that matches
+while `name_node` does not know it yields a function called nothing, which is why the tests
+assert the name.
 
 Both were found by a Complexity test failing to produce a function to count, which is a poor
-way to learn it: the map has been drawing those repos as having fewer functions than they do,
-and nothing says so. The languages sheet cannot say it either — it reports what the parser can
-do with a language, not which shapes inside it are missed.
+way to learn it: the map had been drawing those repos as having fewer functions than they
+have, and nothing said so. The languages sheet cannot say it either — it reports what the
+parser can do with a language, not which shapes inside it are missed. **That is the part still
+open**, and it is the same root as the two items above.
 
 ## Mode lists that are kept by hand
 
@@ -117,9 +127,15 @@ recoloured under anybody who had learned them. Standing Complexity outside the o
 one menu row whose colour does not continue the run, and nothing else — every margin is exactly
 what it was for eleven. That is what shipped, at 329°.
 
-**So a thirteenth ramp has no home.** The wheel is full: eleven hues at ~30° apart, and the one
-genuinely empty region — between the clone and trap MARKS — is now taken. The next lens either
-pays the re-solve, stands outside as this one does, or is not a ramp at all.
+**A thirteenth ramp costs about two points, which is not the same as having no home.** This
+said the wheel was full and that was written from counting gaps by eye — the same way 313° got
+rejected, and wrong the same way. Scanned properly with the twelve held fixed, the best
+thirteenth is 294°, between the clone violet and callers: it clears both marks easily (15.2 and
+25.5) and takes the set from 8.2 / 13.5 / 13.3 to 6.9 / 10.2 / 11.3.
+
+Two points at the CHIP level — what the menu is read as — is the real price, and it is a price
+rather than a wall. Worth knowing before a thirteenth lens is proposed, and worth re-measuring
+then rather than trusting this paragraph.
 
 **The scorer's gaps are closed, and closing them corrected the record.** `--clone` is now a
 floor like `--trap`, both are scored against every ramp stop rather than only the hot end, and

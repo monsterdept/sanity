@@ -185,6 +185,13 @@ fn language(lang: Lang) -> tree_sitter::Language {
 ///
 /// Cheap to be wrong in the safe direction. A needless bump costs one re-parse per repo —
 /// seconds — while a missed one is silently wrong for as long as the files sit still.
+/// 7 because `func_kinds` gained Objective-C's `function_definition` and Groovy's
+/// `method_declaration`, and `name_node` learned to walk a C declarator chain for the first of
+/// them. A `.m` or a Groovy class cached before this holds only the shapes that used to match,
+/// which is a smaller repo than the one on disk and looks exactly like a repo with fewer
+/// functions in it. **No reading expires**: the bodies that were already found are byte for
+/// byte what they were, and `key_of`'s ordinal counts occurrences of ONE NAME in a file, so a
+/// newly visible function under a different name shifts nobody's key.
 /// 4 because a formatter ran over this file. `header_end` came out with a match arm wrapped in
 /// braces — `=> end_of(x)` became `=> { end_of(x) }`, which is inert — and the point of this
 /// number is that nobody has to take that on faith: the parse is declared to have moved, every
@@ -197,7 +204,7 @@ fn language(lang: Lang) -> tree_sitter::Language {
 /// answer is not wrong-looking, it is a confident zero under the Reach lens, and the only
 /// thing that can tell the caches it moved is this number. No reading expires — a body's
 /// text is untouched, so `reading_hash` does not move.
-pub const PARSE_VERSION: u32 = 6;
+pub const PARSE_VERSION: u32 = 7;
 
 /// The oldest [`PARSE_VERSION`] whose parse OUTPUT is identical to this one's.
 ///
@@ -265,7 +272,13 @@ fn func_kinds(lang: Lang) -> &'static [&'static str] {
         Lang::Scala => &["function_definition"],
         Lang::Dart => &["function_declaration", "method_signature"],
         Lang::Zig => &["function_declaration"],
-        Lang::ObjC => &["method_definition"],
+        // **Both, because a `.m` is a C file with extra syntax.** It was `method_definition`
+        // alone, so a plain C function in an Objective-C file was found by nothing at all — and
+        // `.m` files routinely hold them, static helpers especially. The map drew those repos
+        // as smaller than they are and said nothing. `function_definition` is the same node the
+        // C grammar emits, declarator chain and all, which is why the name and body extraction
+        // already handle it.
+        Lang::ObjC => &["method_definition", "function_definition"],
         Lang::Shell => &["function_definition"],
         Lang::Sql => &["create_function"],
         // Godot has no separate constructor node — `_init` is an ordinary
@@ -275,9 +288,13 @@ fn func_kinds(lang: Lang) -> &'static [&'static str] {
         // The C-family shader languages parse exactly like C, declarator chain and all.
         Lang::Glsl | Lang::Hlsl | Lang::Slang | Lang::GdShader => &["function_definition"],
         Lang::Solidity => &["function_definition", "constructor_definition", "modifier_definition"],
-        Lang::Starlark | Lang::Julia | Lang::Perl | Lang::Zsh | Lang::Jq | Lang::Groovy => {
+        Lang::Starlark | Lang::Julia | Lang::Perl | Lang::Zsh | Lang::Jq => {
             &["function_definition"]
         }
+        // A top-level `def f()` is a `function_definition` and a CLASS method is a
+        // `method_declaration` — and only the first was listed, which is the wrong half: most
+        // Groovy lives in a class. Same shape of hole as Objective-C's, found the same way.
+        Lang::Groovy => &["function_definition", "method_declaration"],
         Lang::PowerShell => &["function_statement"],
         Lang::Cfml | Lang::Qml | Lang::Luau => &["function_declaration"],
         Lang::Gleam => &["function"],
@@ -893,7 +910,9 @@ fn name_node<'a>(node: TsNode<'a>, lang: Lang) -> Option<TsNode<'a>> {
         // declarator off an `operator_cast`: there is no name below it to walk down to,
         // only parameters, so the walk landed on `() const`. Neither failed loudly; each
         // just handed a reader a name that is not one.
-        Lang::C | Lang::Cpp => {
+        // Objective-C joins them for `function_definition`: a `.m` is a C file with extra
+        // syntax, and its plain C functions are the C node with the C declarator chain.
+        Lang::C | Lang::Cpp | Lang::ObjC if node.kind() == "function_definition" => {
             let mut n = node.child_by_field_name("declarator")?;
             loop {
                 if n.kind() == "operator_cast" {
@@ -910,12 +929,29 @@ fn name_node<'a>(node: TsNode<'a>, lang: Lang) -> Option<TsNode<'a>> {
                 }
             }
         }
+        // Everything else C and C++ name through the same chain — `declaration`,
+        // `field_declaration` and the rest — so the guard above narrows rather than replaces.
+        Lang::C | Lang::Cpp => {
+            let mut n = node.child_by_field_name("declarator")?;
+            loop {
+                if n.kind() == "operator_cast" {
+                    return Some(n);
+                }
+                let inner = n
+                    .child_by_field_name("declarator")
+                    .or_else(|| (n.kind() == "reference_declarator").then(|| n.named_child(0))?);
+                match inner {
+                    Some(i) => n = i,
+                    None => return Some(n),
+                }
+            }
+        }
         // Dart hangs the name off a signature node, with the body beside it.
         Lang::Dart => node
             .child_by_field_name("name")
             .or_else(|| node.child_by_field_name("signature")?.child_by_field_name("name")),
-        // Objective-C method definitions carry no fields at all; the selector is simply
-        // the first identifier in the node.
+        // An Objective-C METHOD carries no fields at all; the selector is simply the first
+        // identifier in the node. Its C functions are handled by the arm above.
         Lang::ObjC => node.children(&mut node.walk()).find(|c| c.kind() == "identifier"),
         // `CREATE FUNCTION x(...)` names itself through an object_reference.
         Lang::Sql => node
@@ -2457,13 +2493,42 @@ mod kinds {
         }
     }
 
+    /// **A `.m` is a C file with extra syntax, and its C functions were found by nothing.**
+    ///
+    /// `func_kinds` listed `method_definition` alone, so a static helper in an Objective-C file
+    /// — which is most of what a `.m` holds besides methods — was not a function as far as this
+    /// app was concerned. The map drew those repos as smaller than they are and nothing said
+    /// so; it surfaced only because a Complexity test could not find a function to count.
+    ///
+    /// The name and the body are asserted rather than the count, because a kind that matches
+    /// while `name_node` does not know it yields a function called nothing.
+    #[test]
+    fn objective_c_reads_its_c_functions_as_well_as_its_methods() {
+        let src = "@implementation K\n- (void)m {\n  z();\n}\n@end\n\
+                   static int helper(int a) {\n  return a;\n}\n";
+        let fs = parse_functions(Lang::ObjC, src);
+        let names: Vec<&str> = fs.iter().map(|f| f.name.as_str()).collect();
+        assert!(names.contains(&"helper"), "a plain C function in a .m: {names:?}");
+        assert!(names.iter().any(|n| n.contains('m')), "and the method is still found: {names:?}");
+        let helper = fs.iter().find(|f| f.name == "helper").expect("found above");
+        assert!(helper.body.contains("return a"), "and it carries its body: {:?}", helper.body);
+    }
+
+    /// Most Groovy lives in a class, and only the top-level shape was listed.
+    #[test]
+    fn groovy_reads_class_methods_as_well_as_top_level_ones() {
+        let src = "def top() {\n  return 1\n}\n\nclass K {\n  int inner(int a) {\n    return a\n  }\n}\n";
+        let fs = parse_functions(Lang::Groovy, src);
+        let names: Vec<&str> = fs.iter().map(|f| f.name.as_str()).collect();
+        assert!(names.contains(&"inner"), "a class method: {names:?}");
+        assert!(names.contains(&"top"), "and the top-level one still: {names:?}");
+        let inner = fs.iter().find(|f| f.name == "inner").expect("found above");
+        assert!(inner.body.contains("return a"), "and it carries its body: {:?}", inner.body);
+    }
+
     /// Distinct node kinds a snippet yields, filtered to what looks like control flow — the
     /// shortlist a `branch_kinds` entry is chosen FROM, read off a real parse rather than
     /// remembered. `cargo test --lib parse::kinds::shortlist -- --ignored --nocapture`
-
-
-
-
     #[test]
     #[ignore = "diagnostic"]
     fn shortlist() {
