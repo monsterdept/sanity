@@ -916,6 +916,97 @@ pub fn function_links(
     p.scan.links.at(&path, line)
 }
 
+/// Every decision point in one function, and what they add up to.
+///
+/// **Re-parsed on demand, from the working tree, not read out of the scan.** The sites are
+/// not stored anywhere — see `parse::forks_at` for why putting them on `FuncDef` would be two
+/// format bumps and a list per function in every repo's cache, to serve a pane that shows one
+/// function at a time.
+///
+/// It follows that this can disagree with the map, and that is the right way round: the panel
+/// is showing you the file as it is now, exactly as the doc, the blame and the neighbour
+/// snippets on that same pane already do. The count here is the count of what you are reading.
+///
+/// `None` for a language with no branch table, a file that has moved out from under the scan,
+/// or a path outside the repo. All three are absences the panel states rather than an empty
+/// list, which would read as a body that never forks.
+#[tauri::command]
+pub async fn function_forks(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    key: String,
+    path: String,
+    line: u32,
+) -> Result<Option<Forks>, String> {
+    let repo = {
+        let s = crate::agentapi::lock(&state);
+        match s.projects.get(&key) {
+            Some(p) => p.repo.clone(),
+            None => return Ok(None),
+        }
+    };
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        // Canonicalised and checked exactly as `read_source` and `function_sources` do. A path
+        // arrives from the window, and the window got it from a scan, but "it came from us" is
+        // not a boundary check.
+        let root = repo.canonicalize().ok()?;
+        let full = root.join(&path).canonicalize().ok()?;
+        if !full.starts_with(&root) {
+            return None;
+        }
+        // From the extension, the same way the scan decided this file was parseable. Not
+        // asked of the scan's node: the pane is describing the file on disk, and a scan a
+        // moment old is not the authority on what is there now.
+        let ext = path.rsplit_once('.')?.1;
+        let lang = crate::model::Lang::from_extension(ext)?;
+        let src = std::fs::read_to_string(&full).ok()?;
+        let f = crate::parse::forks_at(lang, &src, line)?;
+        // The body itself, because the panel draws every line and marks the ones that were
+        // charged — a list of only the forks is the evidence with the context cut out, and the
+        // context is what makes a nested `+3` legible as nesting.
+        let all: Vec<&str> = src.lines().collect();
+        let from = (f.start.max(1) as usize) - 1;
+        let to = (f.end.max(f.start) as usize).min(all.len());
+        // **Capped, and what was cut is said out loud.** The map's own outliers run to the low
+        // thousands of lines; past that this is a file viewer in a side pane. Silence here
+        // would make a truncated body look like a short one whose count does not add up.
+        let truncated = to - from > MAX_BODY_LINES;
+        let end = to.min(from + MAX_BODY_LINES);
+        let lines = all[from..end].iter().map(|l| l.to_string()).collect();
+        Some(Forks {
+            cognitive: f.cognitive,
+            start: f.start,
+            lines,
+            truncated,
+            forks: f.forks,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?)
+}
+
+/// How much of a body the panel will draw. The same figure `MAX_SNIPPET_LINES` picks for the
+/// same reason: past this it is a file viewer in a side pane.
+const MAX_BODY_LINES: usize = 2_000;
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Forks {
+    /// The total the sites sum to — computed in the same walk that found them, so the panel
+    /// never adds the list up itself and cannot disagree with it.
+    pub cognitive: u32,
+    /// The body's first line, one-based, so the gutter can number what it draws.
+    pub start: u32,
+    /// The body, verbatim, from `start`. Indentation kept: it is what makes the nesting a
+    /// `+3` is charged for visible without drawing it a second way.
+    pub lines: Vec<String>,
+    /// Cut at [`MAX_BODY_LINES`]. Said out loud, or a body that stops mid-function reads as a
+    /// short one whose forks do not add up.
+    pub truncated: bool,
+    /// Every charge, by line. A line can hold more than one — `if (a && b)` is two — so this
+    /// is a list rather than a value per line, and the panel sums a line's own.
+    pub forks: Vec<crate::parse::Fork>,
+}
+
 /// One function's line range, as the window asks for it.
 ///
 /// `name` rides along so the answer can say whether the span still looks like the function it

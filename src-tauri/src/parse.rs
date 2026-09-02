@@ -1420,7 +1420,127 @@ fn logical_fork(n: TsNode, src: &str, kinds: &[&str]) -> bool {
     n.parent().and_then(op).is_none_or(|up| up != mine)
 }
 
+/// What kind of decision point a charge was, so the panel can say why it cost what it did.
+///
+/// Three, because three different rules set the price and a reader looking at a `+1` beside an
+/// `else if` two levels deep is owed the reason — see `chains` and `logical_fork`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ForkKind {
+    /// A fork that nests what follows it: `1 + nesting`.
+    Fork,
+    /// A continuation of the fork before it — `else if` and its spellings. Flat `1`.
+    Chain,
+    /// A logical operator adding a condition rather than a level. Flat `1`.
+    Logic,
+}
+
+/// One decision point a body was charged for.
+///
+/// **What the Complexity panel shows its work with.** The count on its own is a number
+/// somebody has to take on faith; this is the list it is the sum of, which is the difference
+/// between a measurement and an assertion.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Fork {
+    /// One-based, so it matches what an editor and the panel's gutter both say.
+    pub line: u32,
+    pub cost: u32,
+    /// How many forks this one sits INSIDE. Not derivable from `cost`: a chain and a logical
+    /// operator are charged flat, so a `+1` three levels deep is correct and looks wrong
+    /// without this beside it.
+    pub depth: u32,
+    pub kind: ForkKind,
+}
+
+/// Every decision point in the function that STARTS at `line`, and what they add up to.
+///
+/// **Computed on demand rather than stored, and that is a deliberate refusal.** Putting the
+/// sites on `FuncDef` would be a `PARSE_VERSION` bump and a `scancache::FORMAT_VERSION` bump
+/// together, plus a list per function in every cached entry of every repo — to serve a panel
+/// that shows one function at a time. One re-parse of one file when a wedge is selected is
+/// milliseconds, and it reads the working tree, which is what every other section of that
+/// pane already does.
+///
+/// `None` where the language has no branch table or no function starts at that line. Both are
+/// absences the panel states rather than an empty list, which would read as a body that never
+/// forks.
+pub fn forks_at(lang: Lang, src: &str, line: u32) -> Option<Forked> {
+    let mut parser = Parser::new();
+    parser.set_language(&language(lang)).ok()?;
+    let tree = parser.parse(src, None)?;
+    let kinds = func_kinds(lang);
+    let node = func_node_at(tree.root_node(), kinds, line)?;
+    let mut sites = Vec::new();
+    let cognitive = cognitive_walk(node, lang, src, Some(&mut sites))?;
+    let forks = sites
+        .into_iter()
+        .map(|(line, cost, depth, kind)| Fork { line, cost, depth, kind })
+        .collect();
+    Some(Forked {
+        cognitive,
+        start: node.start_position().row as u32 + 1,
+        end: node.end_position().row as u32 + 1,
+        forks,
+    })
+}
+
+/// One function's decision points, and where its body is.
+///
+/// The span rides along because the caller draws the WHOLE body with these marked in it, and
+/// the only thing that knows where the body ends is the node this just walked.
+pub struct Forked {
+    pub cognitive: u32,
+    pub start: u32,
+    pub end: u32,
+    pub forks: Vec<Fork>,
+}
+
+/// The function node starting at `line` — the same identity `function_links` addresses one by.
+///
+/// A cursor walk rather than recursion, for the reason `collect` gives: a tree's depth is not
+/// its source's indentation, and one frame per node has overrun a worker stack here before.
+fn func_node_at<'a>(root: TsNode<'a>, kinds: &[&str], line: u32) -> Option<TsNode<'a>> {
+    let mut cur = root.walk();
+    loop {
+        let n = cur.node();
+        if kinds.contains(&n.kind()) && n.start_position().row as u32 + 1 == line {
+            return Some(n);
+        }
+        if cur.goto_first_child() {
+            continue;
+        }
+        loop {
+            if cur.goto_next_sibling() {
+                break;
+            }
+            if !cur.goto_parent() || cur.node().id() == root.id() {
+                return None;
+            }
+        }
+    }
+}
+
 fn cognitive_of(root: TsNode, lang: Lang, src: &str) -> Option<u32> {
+    cognitive_walk(root, lang, src, None)
+}
+
+/// The count, and optionally every site that made it.
+///
+/// **One walk, so the panel and the map cannot disagree.** The sites are what the number IS;
+/// computing them separately would be a second implementation of the formula whose only
+/// symptom, when it drifted, would be a panel whose rows do not add up to the figure above
+/// them — which reads as a rounding error rather than as a bug.
+///
+/// The sink is optional because the scan takes this path for every function in a repo and has
+/// no use for the list. `None` allocates nothing.
+type Site = (u32, u32, u32, ForkKind);
+fn cognitive_walk(
+    root: TsNode,
+    lang: Lang,
+    src: &str,
+    mut sites: Option<&mut Vec<Site>>,
+) -> Option<u32> {
     let kinds = branch_kinds(lang)?;
     let ops = binary_kinds(lang);
     let mut cur = root.walk();
@@ -1435,22 +1555,35 @@ fn cognitive_of(root: TsNode, lang: Lang, src: &str) -> Option<u32> {
     // suffix no keyword shares.
     let is_branch = |n: TsNode| n.is_named() && kinds.contains(&n.kind());
     let nests = |n: TsNode| is_branch(n) && !chains(n);
-    let charge = |n: TsNode, nesting: u32| -> u32 {
+    let charge = |n: TsNode, nesting: u32| -> (u32, Option<ForkKind>) {
         if is_branch(n) {
-            if chains(n) { 1 } else { 1 + nesting }
+            if chains(n) {
+                (1, Some(ForkKind::Chain))
+            } else {
+                (1 + nesting, Some(ForkKind::Fork))
+            }
         } else if logical_fork(n, src, ops) {
             // **Flat, never nested.** A `&&` inside three loops is not three times harder to
             // read than one at the top; what nesting charges for is the state a reader carries,
             // and an operator adds a condition rather than a level. The published formula
             // charges these one apiece for the same reason.
-            1
+            (1, Some(ForkKind::Logic))
         } else {
-            0
+            (0, None)
+        }
+    };
+    // Every charge goes through here, or a site list that is missing one adds up to less than
+    // the number printed above it.
+    let mut take = |n: TsNode, nesting: u32, total: &mut u32| {
+        let (cost, kind) = charge(n, nesting);
+        *total += cost;
+        if let (Some(k), Some(out)) = (kind, sites.as_deref_mut()) {
+            out.push((n.start_position().row as u32 + 1, cost, nesting, k));
         }
     };
     loop {
         if cur.goto_first_child() {
-            total += charge(cur.node(), nesting);
+            take(cur.node(), nesting, &mut total);
             nesting += u32::from(nests(cur.node()));
             continue;
         }
@@ -1458,7 +1591,7 @@ fn cognitive_of(root: TsNode, lang: Lang, src: &str) -> Option<u32> {
             let left = u32::from(nests(cur.node()));
             if cur.goto_next_sibling() {
                 nesting -= left;
-                total += charge(cur.node(), nesting);
+                take(cur.node(), nesting, &mut total);
                 nesting += u32::from(nests(cur.node()));
                 break;
             }
@@ -2514,6 +2647,55 @@ mod kinds {
         assert!(helper.body.contains("return a"), "and it carries its body: {:?}", helper.body);
     }
 
+    /// The sites the panel shows ARE the number the map paints — the sum has to close.
+    ///
+    /// **The discriminating part is the `else if`.** It is charged 1 flat while sitting one
+    /// level in, so a row showing `+1` at depth 1 is correct and looks like an off-by-one; if
+    /// the panel ever recomputes the formula instead of being handed the sites, that is the
+    /// row it will get wrong, and the totals would still agree everywhere else.
+    #[test]
+    fn every_charge_is_a_site_and_the_sites_sum_to_the_count() {
+        let src = "\
+fn f(a: u32, b: u32) -> u32 {
+    if a > 0 {
+        for _ in 0..a {
+            if b > 0 && a > b {
+                return 1;
+            }
+        }
+    } else if b > 0 {
+        return 2;
+    }
+    0
+}
+";
+        let got = super::forks_at(Lang::Rust, src, 1).expect("Rust has a table");
+        let forks = &got.forks;
+        assert_eq!(got.cognitive, forks.iter().map(|f| f.cost).sum::<u32>(), "{forks:#?}");
+        assert_eq!((got.start, got.end), (1, 12), "the body span the panel draws");
+        let at = |line: u32| forks.iter().find(|f| f.line == line).expect("charged");
+        assert_eq!((at(2).cost, at(2).depth, at(2).kind), (1, 0, super::ForkKind::Fork));
+        assert_eq!((at(3).cost, at(3).depth, at(3).kind), (2, 1, super::ForkKind::Fork));
+        assert_eq!((at(4).cost, at(4).depth, at(4).kind), (3, 2, super::ForkKind::Fork));
+        // The `&&` on the same line, flat, and the `else if` two rows out of its nest.
+        assert_eq!(forks.iter().filter(|f| f.kind == super::ForkKind::Logic).count(), 1);
+        // **`+1` at depth 1, which is the row that looks like an off-by-one and is not.** Rust
+        // spells the continuation `else_clause(if_expression)`, so the `else if` really does
+        // sit inside the `if` it continues — and is charged flat anyway, because it is one
+        // decision written twice. Cost and depth disagreeing here is the whole reason `depth`
+        // is carried rather than derived from `cost`.
+        let chain = forks.iter().find(|f| f.kind == super::ForkKind::Chain).expect("the else if");
+        assert_eq!((chain.cost, chain.depth), (1, 1), "a continuation is charged flat");
+
+    }
+
+    /// No table means no list, not an empty one — the same absence `cognitive` reports.
+    #[test]
+    fn a_language_with_no_branch_table_yields_no_sites() {
+        let src = "defmodule M do\n  def g(a) do\n    a\n  end\nend\n";
+        assert!(super::forks_at(Lang::Elixir, src, 2).is_none());
+    }
+
     /// Most Groovy lives in a class, and only the top-level shape was listed.
     #[test]
     fn groovy_reads_class_methods_as_well_as_top_level_ones() {
@@ -2737,6 +2919,77 @@ mod complexity {
             .sum();
         let lines = leads.len().max(1) as u32;
         (branches, cognitive, (cognitive * 100) / lines)
+    }
+
+    /// **Is the top size band comparing bodies that are not the same size?**
+    ///
+    /// `EDGES` is open at the top, so every body over its last edge is compared against one
+    /// median. Run against a real repo to see how wide that band actually is:
+    /// `CX_REPO=~/projects/x cargo test --lib parse::kinds::band_populations -- --ignored --nocapture`
+    #[test]
+    #[ignore = "diagnostic"]
+    fn band_populations() {
+        let Ok(root) = std::env::var("CX_REPO") else { return };
+        let root = std::path::Path::new(&root);
+        let mut pairs: Vec<(u32, u32)> = Vec::new();
+        for entry in walk(root) {
+            let Some(lang) = crate::model::Lang::from_extension(
+                entry.extension().and_then(|e| e.to_str()).unwrap_or(""),
+            ) else {
+                continue;
+            };
+            let Ok(src) = std::fs::read_to_string(&entry) else { continue };
+            if src.lines().any(|l| l.len() > 2_000) || src.len() > 1_000_000 {
+                continue;
+            }
+            for f in parse_functions(lang, &src) {
+                if let Some(c) = f.cognitive {
+                    pairs.push((f.loc(), c));
+                }
+            }
+        }
+        let show = |name: &str, edges: &[u32]| {
+            println!("\n  {name}");
+            let band = |loc: u32| edges.iter().position(|e| loc <= *e).unwrap_or(edges.len());
+            let mut by: Vec<Vec<(u32, u32)>> = vec![Vec::new(); edges.len() + 1];
+            for p in &pairs {
+                by[band(p.0)].push(*p);
+            }
+            for (i, v) in by.iter_mut().enumerate() {
+                let span = if i == edges.len() {
+                    format!("{}+", edges.last().map_or(1, |e| e + 1))
+                } else {
+                    format!("{}-{}", if i == 0 { 1 } else { edges[i - 1] + 1 }, edges[i])
+                };
+                if v.is_empty() {
+                    println!("    {span:>12} lines  —  empty");
+                    continue;
+                }
+                v.sort_by_key(|p| p.1);
+                let med = v[v.len() / 2].1;
+                let widest = v.iter().map(|p| p.0).max().unwrap_or(0);
+                let narrowest = v.iter().map(|p| p.0).min().unwrap_or(0);
+                println!(
+                    "    {span:>12} lines  {:>6} bodies  median {med:>4}  actual spread {narrowest}–{widest}",
+                    v.len()
+                );
+            }
+        };
+        println!("{} bodies counted in {}", pairs.len(), root.display());
+        show("raw populations", &crate::tangle::EDGES);
+        // And what actually ships: the same ladder after thin bands have folded into the one
+        // below them. On a small repo the top of it collapses back to a single wide band,
+        // which is the most that repo can honestly support — see `tangle::MIN_BAND`.
+        let bands = crate::tangle::Bands::of(pairs.iter().copied());
+        println!("\n  after folding (what the lens paints)");
+        for i in 0..crate::tangle::BANDS {
+            match (bands.median[i], bands.over[i]) {
+                (Some(m), Some((lo, hi))) => {
+                    println!("    band {i}: median {m:>4}, measured over bodies of {lo}-{hi} lines")
+                }
+                _ => println!("    band {i}: nothing this size here — falls back to the raw count"),
+            }
+        }
     }
 
     #[test]

@@ -518,6 +518,15 @@ export interface ScanStats {
    *  "three times normal for its size" is checkable, a ramp position is not. Empty locks the
    *  Complexity lens — it means no language here has a branch table. */
   tangleBands: (number | null)[]
+  /** The shortest and longest body each band's median was actually measured over — see
+   *  `tangle::Bands::over`.
+   *
+   *  **Not derivable from the band's own edges**, which is the only reason it crosses the
+   *  wire. A band too thin to have an opinion borrows the population of the one below it, so
+   *  in a small repo the 1600+ band is measured over everything past 199 — and a caption
+   *  reading `typical for repo (1600+ lines)` would name a population that was never used.
+   *  A lens that shows its work has to show the right work. */
+  tangleOver: ([number, number] | null)[]
   /** Everyone who has committed here, most commits first, capped at what the palette holds.
    *
    *  **This is the only thing that decides a person's colour.** Ranking authors by what they
@@ -628,7 +637,10 @@ interface WireScan {
     commits?: number
     churn_windows?: ChurnWindows
     churned?: boolean
-    tangle_bands?: { median: (number | null)[] }
+    tangle_bands?: {
+      median: (number | null)[]
+      over?: ([number, number] | null)[]
+    }
     authors?: string[]
     model: string
     calls_resolved?: number
@@ -1248,6 +1260,48 @@ export async function functionLinks(
   line: number,
 ): Promise<Related | null> {
   return invoke<Related | null>('function_links', { key, path, line })
+}
+
+/** One decision point the Complexity count was made of. Mirrors `parse::Fork`. */
+export interface Fork {
+  line: number
+  cost: number
+  /** How many forks this one sits inside. NOT derivable from `cost`: a chained `else if` and
+   *  a logical operator are charged flat, so a `+1` three levels deep is correct. */
+  depth: number
+  /** Why it cost what it did — `fork` nests, `chain` is a continuation charged flat, `logic`
+   *  is an operator adding a condition rather than a level. */
+  kind: 'fork' | 'chain' | 'logic'
+}
+
+/** One function's body and every charge in it. Mirrors `commands::Forks`.
+ *
+ *  **The total comes from the same walk that found the sites**, so the panel never adds the
+ *  list up itself. A pane that recomputed the figure from the rows it drew could only ever
+ *  agree with itself. */
+export interface Forks {
+  cognitive: number
+  /** The body's first line, one-based — what the gutter numbers from. */
+  start: number
+  /** The body verbatim, indentation kept. */
+  lines: string[]
+  /** Cut at `MAX_BODY_LINES`, and said out loud rather than left to look like a short body. */
+  truncated: boolean
+  /** Every charge, by line. A line can hold more than one — `if (a && b)` is two. */
+  forks: Fork[]
+}
+
+/** Re-parsed from the working tree on selection, never read out of the scan — see
+ *  `commands::function_forks` for why the sites are not stored.
+ *
+ *  `null` for a language with no branch table, or where no function starts at that line
+ *  because the file has moved since the scan. */
+export async function functionForks(
+  key: string,
+  path: string,
+  line: number,
+): Promise<Forks | null> {
+  return invoke<Forks | null>('function_forks', { key, path, line })
 }
 
 /** The source of one function, as the panel asks for it. Mirrors `commands::Snippet`. */
@@ -1982,6 +2036,7 @@ function toScan(w: WireScan): Scan {
       churnWindows: w.stats.churn_windows ?? [30, 60, 90, 180],
       churned: w.stats.churned ?? false,
       tangleBands: w.stats.tangle_bands?.median ?? [],
+      tangleOver: w.stats.tangle_bands?.over ?? [],
       authors: w.stats.authors ?? [],
       model: w.stats.model,
       callsResolved: w.stats.calls_resolved,

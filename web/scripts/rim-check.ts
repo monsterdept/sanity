@@ -325,14 +325,14 @@ console.log('a row this lens has no band for sorts LAST, not first')
   // row tied at −1, the sort did nothing, and the breakdown came out in arrival order with the
   // odd one on top. Nothing was empty and nothing threw.
   const rows = [
-    { key: 'as expected', lines: 10 },
+    { key: 'low', lines: 10 },
     { key: 'not a band this lens has', lines: 10 },
-    { key: 'far above normal', lines: 10 },
+    { key: 'very high', lines: 10 },
   ]
-  const out = sortBuckets([...rows], 'tangle', 'weighted')
+  const out = sortBuckets([...rows], 'tangle')
   check(
     'the loud band still leads',
-    out[0].key === 'far above normal',
+    out[0].key === 'very high',
     out.map((r) => r.key),
   )
   check(
@@ -444,7 +444,7 @@ console.log('every banded lens sorts by its OWN bands and paints from its OWN ra
   check(
     'complexity bands run worst first',
     rows.map((r) => r.label).join(' · ') ===
-      'far above normal · above normal · slightly above · as expected',
+      'very high · high · moderate · low',
     rows.map((r) => r.label),
   )
   // The swatch has to be a colour that is actually on the map. Its own ramp, not the one the

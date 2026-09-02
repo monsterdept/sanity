@@ -59,8 +59,11 @@ const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
 function breakdownTitle(mode: ColorMode, views: Views): string {
   if (mode === 'surprise') return 'Surprise'
   if (mode === 'age') return views.age.read === 'oldest' ? 'Oldest line' : 'Newest line'
-  // Weighted rows are comparative and raw rows are absolute — see `TANGLE_BANDS`. A heading
-  // naming one over rows written in the other would describe a measurement nobody took.
+  // **The only thing on screen that names the bar, and it has to stay.** The rows are degrees
+  // now — `very high` down to `low` — which is what lets one set of words serve both readings,
+  // and the cost of that is that the words no longer say which scale they are a position on.
+  // Weighted grades a body against the others its size in this repo; raw counts against 15.
+  // See `TANGLE_BANDS`.
   if (mode === 'tangle') return views.tangle === 'raw' ? 'Complexity' : 'Complexity for its size'
   return BREAKDOWN_TITLE[mode as Exclude<ColorMode, 'surprise'>]
 }

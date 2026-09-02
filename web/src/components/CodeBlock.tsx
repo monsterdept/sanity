@@ -66,6 +66,8 @@ export function CodeBlock({
   caveat,
   flush = false,
   height = 'max-h-[9.5rem]',
+  maxHeight,
+  marks,
 }: {
   code: string
   /** What this is, in the modal's header. */
@@ -86,6 +88,22 @@ export function CodeBlock({
    *  things about one function; the tile is one thing. */
   flush?: boolean
   height?: string
+  /** A cap in PIXELS, measured rather than chosen — for a box that has to end exactly where
+   *  the pane does. See `useFitToPane`: a class can only carry a constant, and the space left
+   *  under a section depends on how many lines the paragraph below it wrapped to.
+   *
+   *  Wins over `height` when set, which is why that keeps its default: the fit is measured in
+   *  a layout effect, so the first paint has no number yet and falls back to the class. */
+  maxHeight?: number
+  /** Lines worth pointing at, by FILE line — a short label and why, shown in a column of
+   *  their own with the line itself lifted out of the muted default.
+   *
+   *  **Added so Complexity could stop drawing its own code box.** It had one: a gutter, a
+   *  body and a mark per line, three-quarters of this component reimplemented next to it and
+   *  looking like it. Three panes showing a body three different ways is the shape of every
+   *  "why does this look different here" question, and the modal, the copy button, the
+   *  dedent and the tokenizer were all missing from the copy. */
+  marks?: Map<number, { label: string; why: string }>
 }) {
   // Dedented once, and what is COPIED is the dedented text too: the reason to copy a snippet
   // is to paste it somewhere that has its own margin, and pasting somebody's impl-block
@@ -104,7 +122,7 @@ export function CodeBlock({
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
 
-  const body = <Lines code={code} startLine={startLine} highlight={highlight} />
+  const body = <Lines code={code} startLine={startLine} highlight={highlight} marks={marks} />
 
   return (
     <>
@@ -124,9 +142,10 @@ export function CodeBlock({
             scrolled in the gaps between them, and past a certain density there are none. The
             default chains, which is what a code box in a sidebar is expected to do. */}
         <div
-          className={`overflow-auto bg-[var(--code)] ${height} ${
+          className={`overflow-auto bg-[var(--code)] ${maxHeight === undefined ? height : ''} ${
             flush ? '' : 'rounded-[var(--radius-sm)] border border-[var(--border)]'
           }`}
+          style={maxHeight === undefined ? undefined : { maxHeight }}
         >
           {body}
         </div>
@@ -205,16 +224,22 @@ function Lines({
   code,
   startLine,
   highlight,
+  marks,
 }: {
   code: string
   startLine?: number
   highlight: boolean
+  marks?: Map<number, { label: string; why: string }>
 }) {
   const lines = code.split('\n')
   return (
     <table className="mono w-full border-collapse text-[10.5px] leading-[1.45]">
       <tbody>
-        {lines.map((line, i) => (
+        {lines.map((line, i) => {
+          // Marks are keyed by FILE line for the same reason the gutter counts from
+          // `startLine`: a position in a box nobody can navigate to is not a position.
+          const mark = startLine === undefined ? undefined : marks?.get(startLine + i)
+          return (
           <tr key={i}>
             {startLine !== undefined && (
               <td className="select-none whitespace-pre px-2 text-right align-top text-[var(--muted-foreground)] opacity-60">
@@ -229,7 +254,13 @@ function Lines({
             <td
               className={`w-full px-2 align-top ${
                 highlight ? 'whitespace-pre' : 'whitespace-pre-wrap break-words'
-              } ${startLine === undefined ? '' : 'pl-0'}`}
+              } ${startLine === undefined ? '' : 'pl-0'} ${
+                // Marked lines come forward rather than the rest going back: an unmarked line
+                // is still code somebody is reading, and dimming three-quarters of a body to
+                // point at the other quarter makes the body unreadable to make a point about
+                // it. `marks` present at all is what shifts the baseline down.
+                marks === undefined ? '' : mark ? 'font-semibold' : 'opacity-70'
+              }`}
             >
               {highlight ? (
                 tokenize(line).map((t, j) => (
@@ -244,8 +275,17 @@ function Lines({
                 <span>{line || ' '}</span>
               )}
             </td>
+            {marks !== undefined && (
+              <td
+                className="select-none whitespace-pre px-2 text-right align-top tabular-nums"
+                title={mark?.why}
+              >
+                {mark?.label ?? ''}
+              </td>
+            )}
           </tr>
-        ))}
+          )
+        })}
       </tbody>
     </table>
   )

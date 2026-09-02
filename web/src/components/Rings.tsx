@@ -1,8 +1,23 @@
 import { RINGS_MAX, RINGS_MIN } from '../lib/rings'
-import { CAPS, modeToken, type AgeRead, type TangleRead } from '../lib/colorMode'
+import { CAPS, type AgeRead, type TangleRead } from '../lib/colorMode'
 import { inkOn } from '../lib/ink'
 import { useState } from 'react'
 import { capLabel, type Capped } from '../lib/palette'
+
+/**
+ * How tall every control in the lens row is.
+ *
+ * **Stated once, because it was being derived seven different ways.** Each of these set
+ * `py-[3px]` and let its own contents decide the rest, so the height was whatever the line box
+ * came out to: the ones carrying `leading-none` collapsed an 11px line to 11px and stood five
+ * pixels shorter than their neighbours, while the segmented pairs padded twice — once on the
+ * track, once on the button inside it — and stood taller. A row of buttons that do not agree
+ * about their own height reads as a rendering fault, and no amount of matching `py` fixes it
+ * while the contents differ: a glyph, a slider and a caret do not share a line box.
+ *
+ * So the height is declared and the contents are centred in it.
+ */
+export const CONTROL_H = 'h-[22px]'
 
 /**
  * How many rings the map draws.
@@ -29,7 +44,7 @@ export function RingCount({ rings, onRings }: { rings: number; onRings: (n: numb
     // number, and this row's other control is a bordered pill that says something different
     // — press this and the view moves.
     <div
-      className="flex items-center gap-0.5 rounded-full p-[3px]"
+      className={`flex items-center gap-0.5 rounded-full px-[3px] ${CONTROL_H}`}
       style={{
         background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
         boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
@@ -40,7 +55,7 @@ export function RingCount({ rings, onRings }: { rings: number; onRings: (n: numb
         onClick={step(-1)}
         disabled={rings <= RINGS_MIN}
         title="Fewer rings — a shallower map, with more room in each band"
-        className="rounded-full px-2 py-[3px] text-[11px] leading-none text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-30 disabled:hover:text-[var(--muted-foreground)]"
+        className="rounded-full px-2 text-[11px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-30 disabled:hover:text-[var(--muted-foreground)]"
       >
         −
       </button>
@@ -55,7 +70,7 @@ export function RingCount({ rings, onRings }: { rings: number; onRings: (n: numb
         onClick={step(1)}
         disabled={rings >= RINGS_MAX}
         title="More rings — more of the tree at once, in thinner bands"
-        className="rounded-full px-2 py-[3px] text-[11px] leading-none text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-30 disabled:hover:text-[var(--muted-foreground)]"
+        className="rounded-full px-2 text-[11px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-30 disabled:hover:text-[var(--muted-foreground)]"
       >
         +
       </button>
@@ -83,7 +98,7 @@ export function RingCount({ rings, onRings }: { rings: number; onRings: (n: numb
 export function BandWidth({ share, onShare }: { share: number; onShare: (v: number) => void }) {
   return (
     <div
-      className="flex items-center gap-1.5 rounded-full px-2 py-[3px]"
+      className={`flex items-center gap-1.5 rounded-full px-2 ${CONTROL_H}`}
       style={{
         background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
         boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
@@ -142,7 +157,7 @@ export function ColorCount({
   const noun = mode === 'blame' ? 'people' : 'languages'
   return (
     <div
-      className="flex items-center gap-0.5 rounded-full p-[3px]"
+      className={`flex items-center gap-0.5 rounded-full px-[3px] ${CONTROL_H}`}
       style={{
         background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
         boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
@@ -153,7 +168,7 @@ export function ColorCount({
         onClick={step(-1)}
         disabled={i <= 0}
         title={`Fewer colors — the major ${noun}, with everybody else in one grey "other"`}
-        className="rounded-full px-2 py-[3px] text-[11px] leading-none text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-30 disabled:hover:text-[var(--muted-foreground)]"
+        className="rounded-full px-2 text-[11px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-30 disabled:hover:text-[var(--muted-foreground)]"
       >
         −
       </button>
@@ -168,11 +183,75 @@ export function ColorCount({
         onClick={step(1)}
         disabled={i >= CAPS.length - 1}
         title={`More colors — more ${noun} told apart, and a smaller "other"`}
-        className="rounded-full px-2 py-[3px] text-[11px] leading-none text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-30 disabled:hover:text-[var(--muted-foreground)]"
+        className="rounded-full px-2 text-[11px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-30 disabled:hover:text-[var(--muted-foreground)]"
       >
         +
       </button>
     </div>
+  )
+}
+
+/**
+ * The one on/off control in the lens row.
+ *
+ * **Three of these were written separately and drifted into three shapes**: two segments for
+ * Complexity, a pill with a glyph for the marks, another for Docs. They answer the same
+ * question — is this qualifier on — and a row that spells one question three ways makes a
+ * reader learn each of them.
+ *
+ * A switch rather than a segmented pair, which is what Complexity had. Two segments earn
+ * their width when the alternatives are two different QUESTIONS, as Age's dates are; they
+ * waste it when the second segment is the first one negated, and `weighted | raw count` was
+ * that — one reading with the other as its absence.
+ *
+ * Each carries a glyph rather than a checkbox, so the control is a sample of what it switches
+ * rather than a word about it — the words here are `markers`, `derivable`, `weighted`, none of
+ * which mean anything on their own to somebody meeting the lens for the first time.
+ *
+ * **Styled as `HistoryToggle` and the transport's flash button are**, because it is the same
+ * kind of thing and the row is read left to right: lit means on, in the accent, with the
+ * weight and the shadow that go with it. These three only changed their TEXT colour, which on
+ * a control that is on reads as a control that is disabled.
+ *
+ * The metrics come from there too. They carried `leading-none`, which collapses an 11px line
+ * box to 11px where every other button in the row leaves it at the font's own 1.5 — so with
+ * identical padding they came out five pixels shorter than their neighbours.
+ */
+export function LensToggle({
+  on,
+  onToggle,
+  word,
+  title,
+  children,
+}: {
+  on: boolean
+  onToggle: (v: boolean) => void
+  word: string
+  /** What it does, in the two voices it has: on it says what turning it OFF gives you. */
+  title: string
+  /** The glyph, which is handed `on` so it can wear the lens's own colour when lit. */
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={() => onToggle(!on)}
+      title={title}
+      className={`flex items-center gap-1.5 rounded-full px-2.5 text-[11px] transition-colors ${CONTROL_H}`}
+      style={{
+        background: on
+          ? 'var(--accent)'
+          : 'color-mix(in oklch, var(--foreground) 8%, transparent)',
+        color: on ? 'var(--accent-foreground)' : 'var(--muted-foreground)',
+        fontWeight: on ? 600 : 400,
+        boxShadow: on ? '0 1px 2px rgb(0 0 0 / 0.25)' : undefined,
+      }}
+    >
+      {children}
+      {word}
+    </button>
   )
 }
 
@@ -193,33 +272,17 @@ export function ColorCount({
  * categorical lenses: no other lens puts a mark there, so anywhere else this is an inert
  * control, and an inert control is worse than no control.
  */
-export function MarkerToggle({
-  mode,
-  on,
-  onToggle,
-}: {
-  /** The lens whose marks these are — it colours the glyph. */
-  mode: 'traps' | 'clones'
-  on: boolean
-  onToggle: (v: boolean) => void
-}) {
+export function MarkerToggle({ on, onToggle }: { on: boolean; onToggle: (v: boolean) => void }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      onClick={() => onToggle(!on)}
+    <LensToggle
+      on={on}
+      onToggle={onToggle}
+      word="markers"
       title={
         on
           ? 'Hide the marks on the folder rims. The map keeps every one of them where it actually is — this only drops the folder saying which way to look.'
           : 'Show, on each folder rim, which way to look for what this lens marks. One dot per thing found underneath, on the radial it lies out along.'
       }
-      className="flex items-center gap-1.5 rounded-full px-2 py-[3px] text-[11px] leading-none transition-colors"
-      style={{
-        background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
-        boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
-        color: on ? 'var(--foreground)' : 'var(--muted-foreground)',
-      }}
     >
       {/* The control says what it does by drawing it: three dots, in the mark's own colour
           when they are on and in the muted ink when they are not. A checkbox glyph would
@@ -232,13 +295,12 @@ export function MarkerToggle({
             cx={cx}
             cy="2.5"
             r="2"
-            fill={on ? `var(${modeToken(mode)})` : 'currentColor'}
+            fill="currentColor"
             opacity={on ? 1 : 0.45}
           />
         ))}
       </svg>
-      markers
-    </button>
+    </LensToggle>
   )
 }
 
@@ -278,7 +340,7 @@ export function AgeReading({ read, onRead }: { read: AgeRead; onRead: (r: AgeRea
   ]
   return (
     <div
-      className="flex items-center gap-0.5 rounded-full p-[3px]"
+      className={`flex items-center gap-0.5 rounded-full px-[3px] ${CONTROL_H}`}
       style={{
         background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
         boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
@@ -293,7 +355,7 @@ export function AgeReading({ read, onRead }: { read: AgeRead; onRead: (r: AgeRea
             aria-pressed={on}
             onClick={() => onRead(o.key)}
             title={o.title}
-            className="rounded-full px-2 py-[3px] text-[11px] leading-none transition-colors"
+            className="rounded-full px-2 text-[11px] transition-colors"
             // The chosen segment wears the lens's own colour, the way the switcher's trigger
             // does: this row already says what the map is coloured by, and the sub-reading is
             // a statement about the same colour rather than a second, unrelated control.
@@ -332,22 +394,15 @@ export function AgeReading({ read, onRead }: { read: AgeRead; onRead: (r: AgeRea
  */
 export function DerivableToggle({ on, onToggle }: { on: boolean; onToggle: (v: boolean) => void }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      onClick={() => onToggle(!on)}
+    <LensToggle
+      on={on}
+      onToggle={onToggle}
+      word="derivable"
       title={
         on
           ? 'Stop marking docs that say nothing the code didn’t. They keep the undocumented colour either way — this only drops the breath that tells them apart from a function nobody has written about.'
           : 'Mark docs a reader judged derivable — regenerable from the body they sit on. They are painted as undocumented, correctly, and this is the only thing on the map that says a comment is there at all.'
       }
-      className="flex items-center gap-1.5 rounded-full px-2 py-[3px] text-[11px] leading-none transition-colors"
-      style={{
-        background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
-        boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
-        color: on ? 'var(--foreground)' : 'var(--muted-foreground)',
-      }}
     >
       {/* The glyph breathes when the marking is on, on the same class the wedges take — so the
           control is a sample of the thing it switches rather than a word about it. Under
@@ -358,8 +413,7 @@ export function DerivableToggle({ on, onToggle }: { on: boolean; onToggle: (v: b
         <rect x="0" y="3.7" width="10" height="1.6" rx="0.8" fill="currentColor" opacity={0.75} />
         <rect x="0" y="6.9" width="12" height="1.6" rx="0.8" fill="currentColor" opacity={0.5} />
       </svg>
-      derivable
-    </button>
+    </LensToggle>
   )
 }
 
@@ -400,7 +454,7 @@ export function ChurnWindow({
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         title="How far back Churn counts. Four horizons, scaled to how long this repo has existed — a fixed ladder says the same thing four times on a young project."
-        className="flex items-center gap-1.5 rounded-full px-2 py-[3px] text-[11px] leading-none text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+        className={`flex items-center gap-1.5 rounded-full px-2 text-[11px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] ${CONTROL_H}`}
         style={{
           background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
           boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
@@ -450,18 +504,17 @@ export function ChurnWindow({
 }
 
 /**
- * Which of Complexity's two readings the map paints — see `TangleRead`.
+ * Whether Complexity measures a body against the others its SIZE, or counts it flat.
  *
- * **Two segments, the same shape as `AgeReading`, and for the same reason: two alternatives
- * fit beside the lens they qualify.** What separates them is what they are measured against.
- * *Weighted* compares a body with the others its size in this repo, which is the finding — a
- * longer function is naturally more complicated, so the useful question is whether it is more
- * complicated than its length suggests. *Raw* is the count itself against an absolute bar, for
- * the reader who wants everything over the line whatever this codebase considers normal.
+ * **A switch, where it was two segments reading `weighted | raw count`.** Those are not two
+ * questions the way Age's two dates are: raw is what is left when the weighting is taken away,
+ * and a segmented pair spends the width of both alternatives to say so. Weighted is also the
+ * reading the lens exists for — a long function is naturally more complicated, and the useful
+ * question is whether it is more complicated than that — so it is the default, and turning it
+ * off is the deliberate act.
  *
- * There is no third segment. Cyclomatic complexity — the same forks without the nesting weight
- * — orders functions identically to this one, measured at 0.988–0.999 across three repos, so a
- * segment for it would be a control that draws the map it is already showing.
+ * The glyph is the claim: a short bar and a tall one, level with each other, which is what
+ * comparing against size looks like. Unlit it is a plain count.
  */
 export function TangleReading({
   read,
@@ -470,54 +523,25 @@ export function TangleReading({
   read: TangleRead
   onRead: (r: TangleRead) => void
 }) {
-  const opts: { key: TangleRead; word: string; title: string }[] = [
-    {
-      key: 'weighted',
-      word: 'weighted',
-      title:
-        'Colour by how complex this is FOR ITS SIZE — each body against the median of the others its length in this repo. A long function is naturally more complicated; this asks whether it is more complicated than that.',
-    },
-    {
-      key: 'raw',
-      word: 'raw',
-      title:
-        'Colour by the count itself: every fork costs one, plus one for each fork it is nested inside. Measured against an absolute bar of 15, the published default — which is what you want when triaging against a line rather than against this repo.',
-    },
-  ]
+  const on = read === 'weighted'
   return (
-    <div
-      className="flex items-center gap-0.5 rounded-full p-[3px]"
-      style={{
-        background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
-        boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
-      }}
+    <LensToggle
+      on={on}
+      onToggle={(v) => onRead(v ? 'weighted' : 'raw')}
+      word="weighted"
+      title={
+        on
+          ? 'Count the decision points flat instead, against the published bar of 15 — which is what you want when triaging against a line rather than against this repo.'
+          : 'Measure each body against the median of the others its length in this repo. A long function is naturally more complicated; this asks whether it is more complicated than that.'
+      }
     >
-      {opts.map((o) => {
-        const on = read === o.key
-        return (
-          <button
-            key={o.key}
-            type="button"
-            aria-pressed={on}
-            onClick={() => onRead(o.key)}
-            title={o.title}
-            className="rounded-full px-2 py-[3px] text-[11px] leading-none transition-colors"
-            // The pressed segment wears the lens's own colour, as `AgeReading` does: this row
-            // already says what the map is coloured by, and the sub-reading is a statement
-            // about that same colour rather than an unrelated control.
-            style={
-              on
-                ? { background: 'var(--tangle-3)', color: inkOn('--tangle-3'), fontWeight: 600 }
-                : { color: 'var(--muted-foreground)' }
-            }
-          >
-            {/* The noun rides on the chosen segment only — see `AgeReading`, which explains
-                why: both halves carrying it reads as two nouns to compare when what is being
-                compared is the adjective. */}
-            {on ? `${o.word} count` : o.word}
-          </button>
-        )
-      })}
-    </div>
+      {/* Two bars of different lengths, starting level: the shape of a comparison. */}
+      <svg width="13" height="9" viewBox="0 0 13 9" aria-hidden>
+        {/* `currentColor` on both, because the lit pill is the accent and a lens-coloured
+            glyph on it reads as a second thing rather than as part of the control. */}
+        <rect x="0" y="1" width="13" height="2.6" rx="1.3" fill="currentColor" />
+        <rect x="0" y="5.4" width="7" height="2.6" rx="1.3" fill="currentColor" opacity={0.7} />
+      </svg>
+    </LensToggle>
   )
 }

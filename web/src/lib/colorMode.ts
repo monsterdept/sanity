@@ -496,7 +496,7 @@ export const RAMP_ENDS: Partial<Record<ColorMode, [string, string]>> = {
   // Both readings run one way — see `Bands::ramp`, where normal is anchored at the cold end
   // rather than in the middle. The words differ because the questions do: one is measured
   // against the repo's own bodies of that size, the other against an absolute count.
-  tangle: ['as expected', 'far above'],
+  tangle: ['low', 'very high'],
   // Age's bright end depends on which date it is painting — see `rampEnds`. The entry is the
   // `touched` reading, which is the one this lens has always shown.
   age: ['old', 'recent'],
@@ -512,11 +512,6 @@ export const RAMP_ENDS: Partial<Record<ColorMode, [string, string]>> = {
 export function rampEnds(mode: ColorMode, views: Views): [string, string] | undefined {
   if (mode === 'age') {
     return views.age.read === 'oldest' ? ['long-standing', 'new'] : ['old', 'recent']
-  }
-  // The same reason Age has two: the ends name what the ramp MEASURES, and Complexity measures
-  // a different thing at each end of its own switch. See `TANGLE_BANDS`.
-  if (mode === 'tangle') {
-    return views.tangle === 'raw' ? ['simple', 'very complex'] : ['as expected', 'far above']
   }
   return RAMP_ENDS[mode]
 }
@@ -1294,7 +1289,7 @@ export function colorFor(
     const at = read === 'raw' ? 1 : 0
     return {
       ...ramped(s.tangle[at], 'tangle'),
-      label: tangleLabel(s.cognitive, node.kind === 'func' ? read : 'raw'),
+      label: tangleLabel(s.cognitive),
     }
   }
 
@@ -1419,7 +1414,7 @@ const NOT_COUNTED = 'language not counted'
  *  emitted, which means a second pass over the whole walk. This is six lines and one test —
  *  `a_replayed_frame_paints_what_the_live_map_paints` — that reads the constants from the
  *  Rust source and fails if either side moves. */
-const TANGLE_EDGES = [14, 24, 49, 99, 199]
+export const TANGLE_EDGES = [14, 24, 49, 99, 199, 399, 799, 1599]
 const TANGLE_RAW_HOT = 15
 const TANGLE_WEIGHTED_HOT = 4
 
@@ -1448,36 +1443,38 @@ export function tangleRamp(
   return [weighted, raw]
 }
 
-/** The bands Complexity sorts into, in the words of whichever reading is on.
+/** The bands Complexity sorts into. ONE set, under both readings.
  *
- *  **Two sets, because the two readings are not the same question and one vocabulary cannot
- *  serve both.** Weighted compares a body with the others its size, so its words are
- *  comparative and a verdict would be an over-claim: a twelve-line body with eight forks is far
- *  above normal FOR ITS SIZE while being eight decision points, which is not "very complex" by
- *  any absolute measure. Raw is a count against 15 — the published threshold — so its words are
- *  absolute and "above normal" would be describing a comparison it never makes.
+ *  **They are degrees, not verdicts, and that is what lets one set serve two questions.**
+ *  Both readings are the same shape — how far past a bar a body sits — and only the bar
+ *  differs: weighted measures against the median of the other bodies its size in this repo,
+ *  raw against 15, the published threshold. So a word naming a POSITION is true under either,
+ *  while a word naming the code is not.
  *
- *  One shared set said `past normal` under both, which was wrong under raw for exactly that
- *  reason and nothing on screen said so.
+ *  Two earlier sets are worth knowing about, because each was right about the thing the next
+ *  one broke.
  *
- *  The boundaries are shared. They are positions on the 0..1 ramp, and the ramp is the same
- *  ramp; what changes is what a position means, which is what the words carry. */
-const TANGLE_BANDS: Record<TangleRead, { label: string; min: number }[]> = {
-  weighted: [
-    { label: 'far above normal', min: 0.75 },
-    { label: 'above normal', min: 0.4 },
-    { label: 'slightly above', min: 0.05 },
-    // Where more than half of any repo sits, and named for what it IS rather than for what it
-    // lacks. `not complex` would be a verdict; being ordinary for your size is a finding.
-    { label: 'as expected', min: 0 },
-  ],
-  raw: [
-    { label: 'very complex', min: 0.75 },
-    { label: 'complex', min: 0.4 },
-    { label: 'some branching', min: 0.05 },
-    { label: 'simple', min: 0 },
-  ],
-}
+ *  It began as two vocabularies, comparative under weighted (`far above normal · above normal
+ *  · slightly above · as expected`) and absolute under raw (`very complex · complex · some
+ *  branching · simple`). Precise, and it produced a key nobody could act on: four rows of
+ *  "above" and "as expected" that read as tapdancing around saying the code was complicated.
+ *  It also meant the words changed under a keypress, so `sortBuckets` had to be told which
+ *  reading wrote the rows it was sorting or the order silently did nothing.
+ *
+ *  Then both were made verdicts — `extremely complex` down to `not complex` — which reads
+ *  well and says something false at the bottom: under weighted, a two-hundred-line body
+ *  sitting exactly at its band's median holds seventeen decision points, and "not complex" is
+ *  not what that is. The bottom band is an ABSENCE of a finding, and only a degree can say so
+ *  without claiming the code is simple.
+ *
+ *  What names the bar is the heading beside them — `Complexity` against `Complexity for its
+ *  size` — which is now the only thing on screen that does, and has to stay. */
+const TANGLE_BANDS: { label: string; min: number }[] = [
+  { label: 'very high', min: 0.75 },
+  { label: 'high', min: 0.4 },
+  { label: 'moderate', min: 0.05 },
+  { label: 'low', min: 0 },
+]
 
 /** What a complexity wedge says out loud: a COUNT, never an adjective.
  *
@@ -1487,13 +1484,15 @@ const TANGLE_BANDS: Record<TangleRead, { label: string; min: number }[]> = {
  *  argue with it or game it. Same rule that puts `27 changes in 90d` on a churn wedge rather
  *  than `churn 100%`.
  *
- *  A container says the total under it, which is why the weighted reading is only spoken on a
- *  function: "for its size" is a claim about one body, and a directory is not a body of any
- *  size. */
-function tangleLabel(cognitive: number | null, read: TangleRead): string {
+ *  **The same sentence under both readings, because the COUNT is the same under both.** It
+ *  used to append "for its size" under the weighted one, which was smuggling the comparison
+ *  into a number that never carries it: a body has 329 decision points whichever way you rank
+ *  it, and the caption saying otherwise made the count look like it had been adjusted. The
+ *  comparison is the COLOUR's, and the band words already say it — `far above normal` under
+ *  weighted against `very complex` under raw. A container says the total under it. */
+function tangleLabel(cognitive: number | null): string {
   if (cognitive === null) return 'not counted here'
-  const n = `${cognitive} decision ${cognitive === 1 ? 'point' : 'points'}`
-  return read === 'weighted' ? `${n}, for its size` : n
+  return `${cognitive} decision ${cognitive === 1 ? 'point' : 'points'}`
 }
 
 /** What a churn wedge says out loud: a count, and the window it counts inside.
@@ -1961,8 +1960,8 @@ function contribute(
     } else if (mode === 'tangle') {
       if (s?.tangle) {
         const at = view.tangle === 'raw' ? 1 : 0
-        const bands = TANGLE_BANDS[view.tangle]
-        const band = bands.find((b) => s.tangle![at] >= b.min) ?? bands[bands.length - 1]
+        const band =
+          TANGLE_BANDS.find((b) => s.tangle![at] >= b.min) ?? TANGLE_BANDS[TANGLE_BANDS.length - 1]
         put(band.label, band.label, '', n, s.tangle[at])
       } else {
         put(UNKNOWN, NOT_COUNTED, 'var(--unanalyzed)', n)
@@ -2141,9 +2140,12 @@ function contributeHeld(file: Node, mode: ColorMode, view: Views, put: Put): voi
  *  −1 and came out in arrival order, which reads as a shuffled panel rather than as a missing
  *  entry. A record over `ColorMode` makes a thirteenth lens a build failure.
  *
- *  A function per entry rather than an array, because Complexity's words depend on which of its
- *  two readings is on — see `TANGLE_BANDS`. Everything else ignores the argument. */
-const BUCKET_ORDER: Record<ColorMode, 'lines' | ((read: TangleRead) => readonly string[])> = {
+ *  A function per entry rather than an array so a list is built where it is read, next to the
+ *  reason for its direction, rather than hoisted into a table of names with the arguments left
+ *  behind. It took a `TangleRead` for a while: Complexity's words used to change under its own
+ *  switch, so a sort had to be told which reading wrote the rows it was handed. One set of
+ *  words retired that — see `TANGLE_BANDS`. */
+const BUCKET_ORDER: Record<ColorMode, 'lines' | (() => readonly string[])> = {
   // By lines, because the row PRINTS lines. A column of numbers not in their own order reads
   // as a bug, and it was one: these rows sorted by `lines` while printing `count`.
   //
@@ -2190,22 +2192,18 @@ const BUCKET_ORDER: Record<ColorMode, 'lines' | ((read: TangleRead) => readonly 
   docs: () => ['none', 'some', 'most', 'full'],
   churn: () => CHURN_BANDS.map((b) => b.label),
   age: () => AGE_BANDS.map((b) => b.label),
-  tangle: (read) => TANGLE_BANDS[read].map((b) => b.label),
+  tangle: () => TANGLE_BANDS.map((b) => b.label),
 }
 
 export function sortBuckets<T extends { key: string; lines: number }>(
   rows: T[],
   mode: ColorMode,
-  /** Which of Complexity's two readings named these bands — see `TANGLE_BANDS`. The words
-   *  differ between them, so the order has to be looked up under the same one that wrote
-   *  them, or nothing matches and the sort silently does nothing. */
-  read: TangleRead = 'weighted',
 ): T[] {
   const spec = BUCKET_ORDER[mode]
   if (spec === 'lines') {
     rows.sort((a, b) => b.lines - a.lines)
   } else {
-    const order = spec(read)
+    const order = spec()
     // **An unlisted key sorts LAST, where `indexOf` alone put it first.** −1 is smaller than
     // every real position, so a row this lens has no band for used to lead the panel — which
     // is how a mismatch between the labels a lens WRITES and the labels it SORTS by showed up:
@@ -2338,7 +2336,7 @@ export function bucketsFor(
     b.fill = ramped(mean, rampOf(mode)).fill
   }
 
-  return sortBuckets([...bucket.values()], mode, view.tangle)
+  return sortBuckets([...bucket.values()], mode)
 }
 
 /** One segment of a directory's rim: a value, its colour, and how many lines hold it. */
@@ -2509,7 +2507,6 @@ export function histogramsFor(
               lines: t.lines,
             })),
             mode,
-            view.tangle,
           ),
         )
       }

@@ -4,13 +4,21 @@ import { CodeBlock } from './CodeBlock'
 import { CommitCard } from './CommitCard'
 import { PAPER } from '../lib/ink'
 import { FAMILY } from '../lib/labelStyle'
-import { slotColor, type ColorMode } from '../lib/colorMode'
+import {
+  TANGLE_EDGES,
+  slotColor,
+  tangleBandOf,
+  type ColorMode,
+  type TangleRead,
+  type Views,
+} from '../lib/colorMode'
 import {
   DOC_GAP,
   DOC_WORDS,
   GRADE_SURPRISE,
   HEAT_WORDS,
   LEGIBLE_WORDS,
+  functionForks,
   functionHistory,
   functionLinks,
   functionSources,
@@ -18,6 +26,7 @@ import {
   legibleOf,
   trapOf,
   type AgentReport,
+  type Forks,
   type FuncRef,
   type Grade,
   type Node,
@@ -55,6 +64,9 @@ export function LensPane({
   replaying,
   siblings,
   ranks,
+  views,
+  tangleBands,
+  tangleOver,
   onJump,
 }: {
   node: Node
@@ -74,6 +86,14 @@ export function LensPane({
    *  on the map. The panel is describing the picture; a bar in the chrome's accent would be
    *  a second encoding of a fact the ring is already colouring. */
   ranks?: Map<string, number>
+  /** Which reading each two-reading lens is on — see `Views`. Complexity's decides which of
+   *  its two bars the section headlines, because they are two different questions. */
+  views?: Views
+  /** What a normal cognitive score is for a body of each size in this repo — see
+   *  `tangle::Bands`. */
+  tangleBands?: (number | null)[]
+  /** What each band's median was measured over — see `Stats.tangleOver`. */
+  tangleOver?: ([number, number] | null)[]
   /** Show the function at this position. Undefined where the window cannot navigate, which
    *  makes every row below plain text rather than a promise it cannot keep. */
   onJump?: (path: string, line: number) => void
@@ -111,6 +131,10 @@ export function LensPane({
     // and the calendar are about one body's history, and a file's is already broken down by
     // `Summary` under both lenses — by band, with its members listed. A container was getting
     // a picture of itself directly above a better breakdown of its parts.
+    // **Complexity is not among them, and a file DOES have a number of its own.** It is the
+    // sum under it, which is what `Summary` is already breaking down by band with the members
+    // listed — and the section below is a list of decision points in ONE body. A file's would
+    // be every fork in every function it holds, which is the breakdown again, longer.
     const own: ColorMode[] = ['surprise', 'docs', 'traps', 'blame']
     // **The exception is a key rather than a reading**, which is why it is here and not in
     // the list above. A container has no legibility grade and never will, but the breakdown
@@ -138,6 +162,16 @@ export function LensPane({
     case 'churn':
     case 'age':
       return <HistorySection node={node} mode={mode} repoKey={repoKey} ranks={ranks} />
+    case 'tangle':
+      return (
+        <TangleSection
+          node={node}
+          repoKey={repoKey}
+          read={views?.tangle ?? 'weighted'}
+          bands={tangleBands}
+          over={tangleOver}
+        />
+      )
   }
 }
 
@@ -856,30 +890,72 @@ function DocsSection({
         </p>
       )}
       <div className="mt-3">
+        {/* **The same box the neighbour snippets take, and it was a bare `<pre>`.** A
+            destructured TSX signature runs to fifty lines, and drawn as wrapping prose in
+            `--secondary` it had no gutter, no dedent, no copy and no way to open it — a
+            different-looking widget for the same thing one pane over. Wrapped rather than
+            scrolled sideways would also fold a parameter list under its own indentation,
+            which is the one thing a snippet must not do. */}
+        {/* **Two code boxes stacked with nothing saying which was which.** They are the two
+            halves of what a doc grade is ABOUT — the words, and the declaration they claim to
+            describe — and unlabelled they read as one snippet that failed to load in the
+            middle. `Block` cannot supply these: they sit inside one section, and a second
+            heading rule between them would read as two sections about two functions.
+
+            `Signature` rather than `Body`: it is `node.signature`, the declaration up to the
+            opening brace, and a doc is graded against the thing it describes. Calling it the
+            body would be a caption claiming code that is not on screen. */}
         {node.signature && (
-          <pre className="mono mb-2 overflow-x-auto whitespace-pre-wrap break-words rounded-[var(--radius-sm)] bg-[var(--secondary)] px-2 py-1 text-[11px] leading-snug">
-            {node.signature}
-          </pre>
+          <div className="mb-2">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+              Signature
+            </p>
+            <CodeBlock
+              code={node.signature}
+              title={node.name}
+              subtitle={node.path}
+              startLine={node.line ?? undefined}
+              height="max-h-[24rem]"
+            />
+          </div>
         )}
         {node.doc ? (
-          /* The comment verbatim, and NOT as markdown: a `*` down the left margin of a C
-             comment is a comment marker, not emphasis, and this is the one thing on the pane
-             somebody is meant to read every word of.
+          <>
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+            {/* What it is called depends on where it lives: Python and Elisp put a STRING
+                inside the definition, everything else here puts a comment above it. `Doc` is
+                the word both of those are, and it is the word the lens uses. */}
+            Doc
+          </p>
+          {/* The comment verbatim, and NOT as markdown: a `*` down the left margin of a C
+              comment is a comment marker, not emphasis, and this is the one thing on the pane
+              somebody is meant to read every word of.
 
-             In the same box the neighbour snippets take, for the same reason — a module
-             header is regularly longer than the panel is tall. Unhighlighted: tokenized, a
-             doc stack is one long comment, italic and muted from top to bottom. */
+              In the same box the neighbour snippets take, for the same reason — a module
+              header is regularly longer than the panel is tall. Unhighlighted: tokenized, a
+              doc stack is one long comment, italic and muted from top to bottom.
+
+              Sized against the WINDOW rather than in `rem`: this is what the pane is FOR under
+              this lens, and a fixed box leaves half a large screen empty while overflowing a
+              small one. The neighbour snippets stay short — they are a glance at somewhere
+              else. */}
           <CodeBlock
             code={node.doc}
             title={node.name}
             subtitle={node.kind === 'file' ? `${node.path} — header` : node.path}
             highlight={false}
-            height="max-h-[16rem]"
+            height="max-h-[60vh]"
           />
+          </>
         ) : (
           <Absent>
-            Nothing is attached to this. Whatever it does, the next person has to get from the body
-            — which is exactly what the reader above it had to do.
+            {/* **"the reader above it" meant the MODEL, and nobody read it that way.** In this
+                app a reader is the agent that took the grading pass, and on a pane whose other
+                half is a paragraph of prose the obvious reading is the person reading, or the
+                box further up. Two ambiguities in six words, in the one sentence somebody
+                lands on when there is nothing else to look at. What is left is the fact. */}
+            {node.kind === 'file' ? 'No file header.' : 'No doc comment.'} Whatever this does has
+            to be worked out from the code itself.
           </Absent>
         )}
       </div>
@@ -1194,10 +1270,16 @@ function LanguageSection({ node }: { node: Node }) {
         </Absent>
       ) : (
         <>
+          {/* The third copy of the same widget, moved for the same reason as the one in
+              `DocsSection`: one component draws source in this app. */}
           {node.signature && (
-            <pre className="mono overflow-x-auto whitespace-pre-wrap break-words rounded-[var(--radius-sm)] bg-[var(--secondary)] px-2 py-1 text-[11px] leading-snug">
-              {node.signature}
-            </pre>
+            <CodeBlock
+              code={node.signature}
+              title={node.name}
+              subtitle={node.path}
+              startLine={node.line ?? undefined}
+              height="max-h-[24rem]"
+            />
           )}
           {gaps.length === 0 ? (
             <p className="mt-2 text-[11px] leading-snug text-[var(--muted-foreground)]">
@@ -1216,6 +1298,276 @@ function LanguageSection({ node }: { node: Node }) {
         </>
       )}
     </Block>
+  )
+}
+
+/* ------------------------------------------------------------------ complexity */
+
+/** How a size band is said out loud — `100–199 lines`, and `200+` for the open one.
+ *
+ *  From `TANGLE_EDGES` rather than written out, because the edges have moved once and a
+ *  hardcoded caption would have gone on naming the old ones with nothing disagreeing. */
+function bandSpan(loc: number, over?: [number, number] | null): string {
+  // **The population the median was measured over, not the band's own edges.** A band too thin
+  // to have an opinion borrows the one below it — see `tangle::MIN_BAND` — so in a small repo
+  // the top band is measured over everything past 199, and naming its own edges would name a
+  // population that was never used.
+  //
+  // Rendered as the group's EDGES rather than as the shortest and longest body actually seen:
+  // `203–3015` is exact and reads as two arbitrary numbers, where `200+` is the rule that
+  // produced them. The edges are recovered by asking which bands the extremes fall in, so this
+  // stays correct however the fold lands.
+  const lo = over ? over[0] : loc
+  const hi = over ? over[1] : loc
+  const first = tangleBandOf(lo)
+  const last = tangleBandOf(hi)
+  const from = first === 0 ? 1 : TANGLE_EDGES[first - 1] + 1
+  return last === TANGLE_EDGES.length
+    ? `(${from}+ lines)`
+    : `(${from}–${TANGLE_EDGES[last]} lines)`
+}
+
+/**
+ * Complexity, with its work shown.
+ *
+ * **The count on its own is a number somebody has to take on faith, and this pane is where
+ * that stops.** Two halves, because the lens has two readings and they are answered by
+ * different evidence:
+ *
+ * - The **comparison** answers the weighted reading — this body against the median of the
+ *   other bodies its size in this repo. A ratio somebody can check against a figure they can
+ *   go and count.
+ * - The **sites** answer the raw one — every fork, what it cost, and why. That is the whole
+ *   formula, laid out, rather than asserted in a caption.
+ *
+ * Both are shown under either reading. Which one is on decides which is bolder, not which
+ * exists: somebody reading a `10\u00d7` wants to know where it came from, and somebody reading
+ * `329` wants to know whether that is a lot for a body this size.
+ *
+ * The sites are fetched from the WORKING TREE, so this can disagree with the map by exactly
+ * the edits made since the scan — the same trade every other section here already makes, and
+ * the reason `Snippet::moved` exists one section over.
+ */
+function TangleSection({
+  node,
+  repoKey,
+  read,
+  bands,
+  over,
+}: {
+  node: Node
+  repoKey: string | null
+  read: TangleRead
+  bands?: (number | null)[]
+  over?: ([number, number] | null)[]
+}) {
+  const [forks, setForks] = useState<Forks | null | 'loading'>('loading')
+  // The body fills whatever the block above it and the paragraph below it leave — see
+  // `useFitToPane`, and the note beside the box for what a constant cap got wrong.
+  const box = useRef<HTMLDivElement>(null)
+  const foot = useRef<HTMLParagraphElement>(null)
+  const { path, line } = node
+  useEffect(() => {
+    if (!repoKey || line == null) {
+      setForks(null)
+      return
+    }
+    let live = true
+    setForks('loading')
+    functionForks(repoKey, path, line)
+      .then((d) => {
+        if (live) setForks(d)
+      })
+      .catch(() => {
+        if (live) setForks(null)
+      })
+    return () => {
+      live = false
+    }
+  }, [repoKey, path, line])
+
+  // **Above the early return, because a hook after one is a hook that sometimes does not
+  // run.** Selecting a function in an uncounted language and then one in a counted one would
+  // change the hook COUNT between renders, and React resolves that by handing the next hook
+  // the previous one's state. Re-measured whenever what is above or below the box can have
+  // moved: a different function is a different paragraph height, and the body arriving is
+  // what gives the box a top at all.
+  const cap = useFitToPane(box, foot, [forks, node.id], 120)
+
+  const cognitive = node.score?.cognitive
+  if (cognitive === null || cognitive === undefined) {
+    return (
+      <Block label="Complexity">
+        <Absent>
+          Nobody has taught the parser which nodes fork in {node.lang ?? 'this language'}, so there
+          is no count here \u2014 which is not the same as a body that never branches. The lens
+          paints these grey rather than cold for that reason.
+        </Absent>
+      </Block>
+    )
+  }
+
+  const normal = bands?.[tangleBandOf(node.loc)]
+  const ratio = normal == null ? null : cognitive / Math.max(normal, 1)
+
+  // **One mark per LINE, summing that line's own charges.** A line can be charged more than
+  // once — `if (a && b)` is a fork and an operator — and two marks on one row would read as
+  // two lines. The explanation shown is the priciest of them, which is the one somebody is
+  // asking about.
+  const marks = new Map<number, { label: string; why: string }>()
+  if (forks && forks !== 'loading') {
+    const per = new Map<number, { cost: number; worst: number; why: string }>()
+    for (const f of forks.forks) {
+      const why =
+        f.kind === 'chain'
+          ? 'A continuation of the fork above it — one decision written twice, so it is charged flat however deep it sits.'
+          : f.kind === 'logic'
+            ? 'A logical operator: one more condition to hold, not one more level. Charged flat, and a run of one operator counts once.'
+            : `One, plus one for each of the ${f.depth} fork${f.depth === 1 ? '' : 's'} it sits inside.`
+      const had = per.get(f.line)
+      if (!had) per.set(f.line, { cost: f.cost, worst: f.cost, why })
+      else {
+        had.cost += f.cost
+        if (f.cost > had.worst) {
+          had.worst = f.cost
+          had.why = why
+        }
+      }
+    }
+    for (const [line, v] of per) marks.set(line, { label: `+${v.cost}`, why: v.why })
+  }
+
+  return (
+    <>
+      <Block label="Complexity">
+        {/* **The same three rows, in words that carry their own units.** They read `this body
+            329 / median, 200+ lines 32 / × normal for its size 10×` under a heading that said
+            `329 decision points` — so the headline number appeared twice a hand's width apart,
+            `median` was a term nobody had been given, and `32` was a bare integer of nothing in
+            particular.
+
+            Now the first row names the unit once, the second says what it is being measured
+            against IN THIS REPO, and the third is the division of the two. Nothing is repeated
+            and no row needs a word the pane has not defined. */}
+        {/* **Raw shows the count and stops.** The reading IS the count — a threshold of 15
+            is how the RAMP decides a colour, not something anybody is asking about, and a row
+            reading `standard limit 15` invited exactly the question it was there to answer.
+            Weighted is the opposite case: its number is a ratio, and a ratio with its two
+            terms hidden is a claim rather than a measurement, so that one shows its working. */}
+        {read === 'raw' ? (
+          <dl className="mono grid grid-cols-[1fr_auto] gap-x-3 text-[11px] leading-snug">
+            <dt>decision points</dt>
+            <dd className="text-right tabular-nums">{cognitive}</dd>
+          </dl>
+        ) : normal == null ? (
+          <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
+            {cognitive} decision {cognitive === 1 ? 'point' : 'points'}. Nothing else this size
+            has been counted in this repo, so there is nothing to compare it against and the
+            lens is painting the count itself.
+          </p>
+        ) : (
+          <dl className="mono grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-[11px] leading-snug">
+            <dt>decision points</dt>
+            <dd className="text-right tabular-nums">{cognitive}</dd>
+            <dt
+              className="text-[var(--muted-foreground)]"
+              title="The middle body of this size in this repo. What counts as normal is a fact about a codebase rather than about a language, so it is measured here rather than assumed."
+            >
+              typical for repo {bandSpan(node.loc, over?.[tangleBandOf(node.loc)])}
+            </dt>
+            <dd className="text-right tabular-nums text-[var(--muted-foreground)]">{normal}</dd>
+            <dt className="border-t border-[var(--border)] pt-0.5">complexity factor</dt>
+            <dd className="border-t border-[var(--border)] pt-0.5 text-right tabular-nums">
+              {(() => {
+                const r = ratio ?? 0
+                return `${r < 10 ? r.toFixed(1) : Math.round(r)}×`
+              })()}
+            </dd>
+          </dl>
+        )}
+      </Block>
+
+      {/* **Its own section, because it is the only thing on this pane that is unbounded.**
+          A body runs to thousands of lines, and inside one block it pushed the sentence
+          explaining the formula off the bottom of the pane — the caption that makes the
+          numbers beside it mean anything, reachable only by scrolling past the thing it
+          explains. The body scrolls in a box of its own now and the footer sits under it,
+          where it stays put however long the function is. */}
+      {/* **Its own section, and the same code box every other pane uses.** It had a
+          hand-rolled one — gutter, body, a mark per line — which was three-quarters of
+          `CodeBlock` reimplemented beside it and looking like it, minus the dedent, the
+          tokenizer, the copy button and the open-in-full modal. Three panes drawing a body
+          three different ways is the shape of every "why does this look different here"
+          question, so the marks moved INTO the shared component instead.
+
+          Separate from the block above because it is the only thing on this pane that is
+          unbounded: inside one block a long body pushed the sentence explaining the formula
+          off the bottom of the pane — the caption that makes the numbers beside it mean
+          anything, reachable only by scrolling past the thing it explains. */}
+      <Block label="Body" aside={forks && forks !== 'loading' ? `${node.loc} lines` : undefined}>
+        {forks === 'loading' ? (
+          <p className="text-[11px] text-[var(--muted-foreground)]">Reading the body…</p>
+        ) : !forks ? (
+          <Absent>
+            The file has changed since the scan, so the lines this was counted over are not the
+            lines that are there now. It comes back on the next scan.
+          </Absent>
+        ) : (
+          <>
+            {/* **The count from the FETCH, beside the one from the scan, and only when they
+                differ.** Silent agreement is the ordinary case and says nothing worth a row; a
+                disagreement means somebody edited the file since the scan, and marks that do
+                not sum to the figure above them read as an arithmetic bug unless this says
+                otherwise. */}
+            {forks.cognitive !== cognitive && (
+              <p className="mb-1 text-[11px] leading-snug text-[var(--muted-foreground)]">
+                The file has been edited since the scan: it holds {forks.cognitive} now, against
+                the {cognitive} the map is painted with.
+              </p>
+            )}
+            {/* **The whole body, with the charged lines lifted out of it.** A list of only the
+                forks is the evidence with the context cut out — a `+3` is legible as NESTING
+                only next to the lines it is nested in, and the indentation those lines carry is
+                the same fact the number states.
+
+                Taller than the neighbour snippets, because this one is the subject rather than
+                a glance at somewhere else. Capped against the WINDOW rather than in `rem`: the
+                pane is as tall as the app is, and a fixed box leaves half of it empty on a
+                large screen and overflows a small one. */}
+            {/* The caveat is drawn here rather than passed to `CodeBlock` so the measured
+                box below starts BELOW it — `useFitToPane` reads the top of what it is given,
+                and a note inside the component would be counted as part of the space the code
+                gets and then added on top of it. */}
+            {forks.truncated && (
+              <p className="mb-1 text-[10px] leading-snug text-[var(--warning)]">
+                Display truncated at 2,000 lines.
+              </p>
+            )}
+            {/* **Measured, not capped at a fraction of the window.** `max-h-[60vh]` is a
+                constant guess at how much room is left, and it was wrong in both directions:
+                short of the pane's bottom on a tall window, past it on a short one — which
+                scrolled the PANE, taking the paragraph that explains the marks with it. The
+                box ends where the pane does and the footer stays put. */}
+            <div ref={box}>
+              <CodeBlock
+                code={forks.lines.join('\n')}
+                title={node.name}
+                subtitle={`${node.path}:${forks.start}`}
+                startLine={forks.start}
+                maxHeight={cap}
+                marks={marks}
+              />
+            </div>
+            <p ref={foot} className="mt-2 text-[11px] leading-snug text-[var(--muted-foreground)]">
+              Every fork counts as a{' '}
+              <span className="font-semibold text-[var(--foreground)]">decision point</span>, plus
+              one for each fork it sits inside, so nested branches count for more than flat. An{' '}
+              <code>else if</code> counts as one decision point, and so does a logical operator.
+            </p>
+          </>
+        )}
+      </Block>
+    </>
   )
 }
 
@@ -1395,6 +1747,13 @@ function HistorySection({
  *  So the box asks for its own top, the SCROLLING ANCESTOR for its bottom, and the element
  *  that must stay under it for its height. `useLayoutEffect` so it is set before the frame is
  *  painted rather than one frame late, which would flash a taller list and then clip it. */
+/** A CSS length in pixels, or zero — `getComputedStyle` returns `""` for an unset property
+ *  and `NaN` propagates silently through the arithmetic that would use it. */
+function px(v: string): number {
+  const n = parseFloat(v)
+  return Number.isFinite(n) ? n : 0
+}
+
 function useFitToPane(
   box: React.RefObject<HTMLElement | null>,
   below: React.RefObject<HTMLElement | null>,
@@ -1414,10 +1773,24 @@ function useFitToPane(
         if (flow === 'auto' || flow === 'scroll') break
         pane = pane.parentElement
       }
-      const bottom = pane ? pane.getBoundingClientRect().bottom : window.innerHeight
+      // **The pane's CONTENT bottom, not its border box.** Its bottom padding is inside the
+      // scrolling area and sits below everything measured here, so counting to the outer edge
+      // hands the box that padding twice and the pane overflows by exactly it. It read as the
+      // header creeping up under a scrollbar that should not have existed.
+      const bottom = pane
+        ? pane.getBoundingClientRect().bottom - px(getComputedStyle(pane).paddingBottom)
+        : window.innerHeight
       // A few pixels of air, so the last row does not sit flush against the pane's edge.
       const SLACK = 10
-      const under = below.current?.getBoundingClientRect().height ?? 0
+      // **Its margin too.** `getBoundingClientRect` is the border box and margins are outside
+      // it, so a footer with `mt-2` takes eight pixels this could not see — small, and it is
+      // the whole difference between a pane that scrolls and one that does not.
+      const el2 = below.current
+      const under = el2
+        ? el2.getBoundingClientRect().height +
+          px(getComputedStyle(el2).marginTop) +
+          px(getComputedStyle(el2).marginBottom)
+        : 0
       setCap(Math.max(floor, bottom - el.getBoundingClientRect().top - under - SLACK))
     }
     fit()

@@ -33,11 +33,42 @@
 
 /// The upper line count of each size band but the last.
 ///
-/// Six bands, roughly doubling. **Not deciles of the repo's own distribution**, which was the
-/// obvious alternative and is wrong here: deciles move when the repo does, so adding a hundred
-/// small helpers would re-band every large function and recolour a map nobody had touched.
-/// Fixed edges mean a body's band is a fact about the body.
-pub const EDGES: [u32; 5] = [14, 24, 49, 99, 199];
+/// Roughly doubling. **Not deciles of the repo's own distribution**, which was the obvious
+/// alternative and is wrong here: deciles move when the repo does, so adding a hundred small
+/// helpers would re-band every large function and recolour a map nobody had touched. Fixed
+/// edges mean a body's band is a fact about the body.
+///
+/// **It stopped at 199 and that broke the lens's own promise at the top.** The last band is
+/// open, so every body past the last edge shared one median — measured on this repo, that band
+/// held bodies of 203 lines and bodies of 3,014 lines, judged against the same number. "This
+/// body against the others its SIZE" is the whole claim, and it was the largest bodies, the
+/// ones anybody opens this lens to find, where it was least true. On kibana it was a real
+/// error rather than an inelegance: a 500-line body was compared against 17 when the median
+/// for bodies actually its size is 30.
+///
+/// The doubling simply continues. What makes that safe on a repo too small to fill the new
+/// bands is [`MIN_BAND`], not a shorter list.
+pub const EDGES: [u32; 8] = [14, 24, 49, 99, 199, 399, 799, 1599];
+
+/// How many bodies a band needs before its median is a fact rather than a coincidence.
+///
+/// **A finer ladder is only an improvement where there is something in it.** Split naively,
+/// this repo's top band holds two bodies — so the largest function here would be compared
+/// against ITSELF and one other, and would read as perfectly normal. That is worse than the
+/// over-broad band it replaced, and it fails silently, in the one place somebody is looking.
+///
+/// So a band under this is folded into the band BELOW it — shorter bodies, of which there are
+/// always more — and the merged group shares one median. Sparsity is always at the top, so
+/// the fold runs downward and stops as soon as a band can stand on its own. On this repo that
+/// collapses everything past 199 back into a single 200+ band, which is exactly what shipped
+/// before and is the most a repo this size can honestly support; on kibana it leaves 200–399,
+/// 400–799 and 800+ standing apart.
+///
+/// Thirty because a median over fewer is noise, and the number this is defending is a claim
+/// about what is NORMAL. Folding down rather than reporting `None` because `None` falls back
+/// to the raw count, which saturates at 15 — every large body in a small repo would read fully
+/// hot, which is a statement about the ladder rather than about the code.
+pub const MIN_BAND: usize = 30;
 
 /// How many bands there are.
 pub const BANDS: usize = EDGES.len() + 1;
@@ -71,9 +102,24 @@ pub const WEIGHTED_HOT: f32 = 4.0;
 /// about what is normal for one, and inventing a median from the band below would report the
 /// first big function anybody writes as catastrophic.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Bands {
     /// Indexed by [`band_of`]. Serialised for the window, which names them in the panel.
+    ///
+    /// Bands folded together by [`MIN_BAND`] hold the SAME median — that is what folding
+    /// means — so this array is still indexed by a body's own band and nothing that reads it
+    /// has to know about the fold.
     pub median: [Option<u32>; BANDS],
+    /// The shortest and longest body the band's median was measured over, per band.
+    ///
+    /// **Carried because the panel names the population out loud**, and after a fold the
+    /// band's own edges are not what it was measured over: a 2,000-line body in a repo whose
+    /// top bands folded is compared against everything over 199, and a caption reading
+    /// `typical for repo (1600+ lines)` would be describing a population that was never used.
+    /// A lens that shows its work has to show the right work.
+    ///
+    /// `None` for a band nothing landed in.
+    pub over: [Option<(u32, u32)>; BANDS],
 }
 
 impl Bands {
@@ -83,19 +129,58 @@ impl Bands {
     /// nobody has taught contributes no zeroes, because a zero it did not measure would drag
     /// every band down and make the languages that ARE counted look tangled by comparison.
     pub fn of(funcs: impl Iterator<Item = (u32, u32)>) -> Bands {
-        let mut seen: Vec<Vec<u32>> = vec![Vec::new(); BANDS];
+        let mut seen: Vec<Vec<(u32, u32)>> = vec![Vec::new(); BANDS];
         for (loc, cognitive) in funcs {
-            seen[band_of(loc)].push(cognitive);
+            seen[band_of(loc)].push((loc, cognitive));
         }
-        let mut median = [None; BANDS];
-        for (i, v) in seen.iter_mut().enumerate() {
-            if v.is_empty() {
+        // **A band with nothing in it stays empty, and that rule comes first.** Folding is for
+        // a band that has bodies but too few of them; a band nobody has written a body for has
+        // no opinion at all, and borrowing one from below would report the first big function
+        // anybody writes as catastrophic — measured against ten-line helpers. That is the
+        // trade `ramp` already refuses by falling back to the raw count, and it is why this
+        // walks over the NON-EMPTY bands rather than over all of them.
+        //
+        // It is reachable: a replay reads a historical body against HEAD's bands, so a size
+        // nothing at HEAD occupies is a real lookup rather than a hypothetical.
+        let filled: Vec<usize> = (0..BANDS).filter(|i| !seen[*i].is_empty()).collect();
+        // `group[i]` is the band whose population band `i` is measured against — itself, or
+        // the nearest filled band below it once the thin ones have folded.
+        let mut group: Vec<usize> = (0..BANDS).collect();
+        let mut carried: Vec<Vec<(u32, u32)>> = seen.clone();
+        // From the top, because sparsity is only ever at the top: there are always more short
+        // bodies than long ones.
+        for w in filled.windows(2).rev() {
+            let (below, this) = (w[0], w[1]);
+            if carried[this].len() >= MIN_BAND {
                 continue;
             }
-            v.sort_unstable();
-            median[i] = Some(v[v.len() / 2]);
+            let taken = std::mem::take(&mut carried[this]);
+            carried[below].extend(taken);
+            // Everything already pointing at `this` follows it down, or a three-deep fold
+            // leaves the top band pointing at a band that has itself moved.
+            for g in group.iter_mut() {
+                if *g == this {
+                    *g = below;
+                }
+            }
         }
-        Bands { median }
+        let mut median = [None; BANDS];
+        let mut over = [None; BANDS];
+        for v in carried.iter_mut() {
+            v.sort_unstable_by_key(|p| p.1);
+        }
+        for i in 0..BANDS {
+            let v = &carried[group[i]];
+            // Its own band was empty, so it is not measured against anything — see above.
+            if seen[i].is_empty() || v.is_empty() {
+                continue;
+            }
+            median[i] = Some(v[v.len() / 2].1);
+            let lo = v.iter().map(|p| p.0).min().unwrap_or(0);
+            let hi = v.iter().map(|p| p.0).max().unwrap_or(0);
+            over[i] = Some((lo, hi));
+        }
+        Bands { median, over }
     }
 
     /// The two readings for one body, each on the 0..1 scale the ramp paints.
@@ -181,7 +266,7 @@ mod tests {
         assert_eq!(band_of(14), 0);
         assert_eq!(band_of(15), 1);
         assert_eq!(band_of(200), 5);
-        assert_eq!(band_of(100_000), 5, "the top band is open, or a generated file falls out");
+        assert_eq!(band_of(100_000), EDGES.len(), "the top band is open, or a generated file falls out");
     }
 
     /// The reading the lens is FOR: two bodies with the same score, one of them ten times the
@@ -210,6 +295,54 @@ mod tests {
         let [weighted, raw] = bands.ramp(500, 30);
         assert_eq!(weighted, raw, "no normal to be worse than, so the count is all there is");
         assert_eq!(bands.times_normal(500, 30), None);
+    }
+
+    /// **The top band is open, and without a floor that is where the lens breaks.**
+    ///
+    /// Measured on this repo before the ladder was extended: one band held bodies of 203 lines
+    /// and bodies of 3,014, against a single median. Extending the edges alone makes it worse
+    /// on a small repo — the top band ends up holding two bodies, so the largest function in
+    /// the repo is compared against ITSELF and reads as perfectly normal. Both halves are
+    /// pinned here.
+    #[test]
+    fn a_band_too_thin_to_have_an_opinion_borrows_the_one_below_it() {
+        // A repo shaped like a real one: plenty of small bodies, a handful of large, and two
+        // enormous. The two enormous ones are the whole point — alone in the top band, their
+        // own median is themselves.
+        let repo = (0..200)
+            .map(|i| (30u32, i % 5))
+            .chain((0..40).map(|i| (250u32, 20 + i % 7)))
+            .chain([(2_400u32, 300u32), (3_000, 400)]);
+        let bands = Bands::of(repo);
+
+        // The top band folded into the 200–399 one, which is the nearest below it with bodies
+        // in it, because two is not a population.
+        assert_eq!(bands.median[band_of(2_400)], bands.median[band_of(250)]);
+        // ...and having folded, it is NOT reporting itself as normal.
+        let [weighted, _] = bands.ramp(2_400, 300);
+        assert!(weighted > 0.9, "300 against a median in the twenties: {weighted}");
+        // The population it was actually measured over is carried, so the caption can name it
+        // rather than naming the band's own edges, which is not what it was measured against.
+        assert_eq!(bands.over[band_of(2_400)], Some((250, 3_000)));
+
+        // The well-populated band keeps its own answer and is untouched by the fold.
+        assert_eq!(bands.median[band_of(30)], Some(2));
+        assert_eq!(bands.over[band_of(30)], Some((30, 30)));
+    }
+
+    /// A band with bodies in it borrows; a band with none does not.
+    ///
+    /// **The distinction is the whole reason the fold walks filled bands.** Borrowing from
+    /// below is right between neighbours whose medians are close — the top two size bands of a
+    /// real repo — and catastrophic across the whole ladder: it would measure the first
+    /// five-hundred-line function anybody writes against ten-line helpers, which is the trade
+    /// `ramp`'s raw fallback exists to refuse.
+    #[test]
+    fn a_size_nobody_has_written_borrows_nothing() {
+        let bands = Bands::of((0..200).map(|i| (10u32, i % 3)));
+        assert_eq!(bands.median[band_of(500)], None, "nothing that size has been measured");
+        let [weighted, raw] = bands.ramp(500, 30);
+        assert_eq!(weighted, raw, "so the count is all it can honestly be given");
     }
 
     /// A median of zero is the common case in the smallest band — most short bodies never

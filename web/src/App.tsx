@@ -109,6 +109,7 @@ import { HelpButton, LensHelp } from './components/LensHelp'
 import {
   AgeReading,
   BandWidth,
+  CONTROL_H,
   TangleReading,
   ChurnWindow,
   ColorCount,
@@ -429,12 +430,22 @@ export default function App() {
    *  findable from the middle of the map; session state rather than stored, because it is a
    *  thing you turn off to look under the dots for a moment, not a way you keep the app.
    *  One flag for both lenses: they are the same mark in two colours, and a reader who turned
-   *  it off on Clones did not mean "and leave it on when I look at Traps". */
-  const [markers, setMarkers] = useState(true)
+   *  it off on Clones did not mean "and leave it on when I look at Traps".
+   *
+   *  **Off by default now.** On, the rims carry a dot per thing found underneath before
+   *  anybody has asked where to look — which is the map answering a question over the top of
+   *  the one the lens is drawing. The marks are an aid to FINDING, and finding is something
+   *  you start doing, so the switch beside the lens is where it starts. */
+  const [markers, setMarkers] = useState(false)
   /** Whether Docs marks a doc that says nothing the code didn't — see `DerivableToggle`.
-   *  On by default, because the thing it marks is invisible without it. Session state, like
-   *  the marks above: it is something you quiet while you read, not a way you keep the app. */
-  const [derivable, setDerivable] = useState(true)
+   *  Session state, like the marks above: it is something you turn on to look for a moment,
+   *  not a way you keep the app.
+   *
+   *  **Off by default, on the same argument the marks are.** The breath it adds is a second
+   *  encoding laid over a map that is already saying something, before anybody has asked the
+   *  question it answers. The wedges are painted correctly either way — a derivable doc is
+   *  undocumented, and it reads as undocumented with this off. */
+  const [derivable, setDerivable] = useState(false)
   /** **TEMPORARY** — whether a replay flashes what each commit touched. See `HistoryBar`'s
    *  own button, and `frameTree`, which is where it takes effect: with the flashes off the
    *  frame carries no event at all, so the map, the roll-up stand-ins and the escalation all
@@ -2768,7 +2779,7 @@ export default function App() {
                     Keyed off `viewMode` rather than `mode`, so a replay that cannot paint
                     Clones does not offer a switch for marks it is not drawing. */}
                 {(viewMode === 'traps' || viewMode === 'clones') && (
-                  <MarkerToggle mode={viewMode} on={markers} onToggle={setMarkers} />
+                  <MarkerToggle on={markers} onToggle={setMarkers} />
                 )}
                 {/* **The third lens control, and the same rule places it.** Age measures two
                     dates and has always painted one of them; this says which, so it changes
@@ -3139,6 +3150,8 @@ export default function App() {
               mode={viewMode}
               ranks={ranks}
               views={lensViews}
+              tangleBands={scan?.stats.tangleBands}
+              tangleOver={scan?.stats.tangleOver}
               onSelect={setPicked}
               onDrill={drill}
               owners={owners}
@@ -3533,19 +3546,19 @@ function FindButton({ on, onOpen }: { on: boolean; onOpen: () => void }) {
       onClick={onOpen}
       aria-label="Find"
       title="Find a function, file or directory  (⌘F)"
-      className="flex items-center rounded-full px-2 py-[3px] transition-colors"
+      className={`flex items-center rounded-full px-2 transition-colors ${CONTROL_H}`}
       style={{
         background: on ? 'var(--accent)' : 'color-mix(in oklch, var(--foreground) 8%, transparent)',
         color: on ? 'var(--accent-foreground)' : 'var(--muted-foreground)',
         boxShadow: on ? '0 1px 2px rgb(0 0 0 / 0.25)' : undefined,
       }}
     >
-      {/* **Sized to the pills' LINE BOX, not to their type.** Every control beside this one
-          is `text-[11px]` with `py-[3px]`, and what sets their height is the line box that
-          11px of type sits in — about 16, not 11. An 11px icon with the same padding made a
-          pill three pixels shorter than everything else in the row, which reads as a smaller
-          button rather than as a smaller glyph. 16 is also about right optically: an icon
-          has to be a little larger than cap height to carry the same weight as a word.
+      {/* **Sized to the pills' LINE BOX, not to their type.** An 11px icon read as a smaller
+          BUTTON rather than as a smaller glyph, because what the pills beside this one are as
+          tall as is the box 11px of type sits in — about 16, not 11. That is now declared
+          rather than inferred (see `CONTROL_H`, which is why the padding here is gone), but the
+          glyph still has to match the type it stands in for, and 16 is about right optically:
+          an icon has to be a little larger than cap height to carry a word's weight.
 
           Stroked rather than filled, so it holds its shape at this size and inherits the
           same `currentColor` flip the other pills use when they light up. */}
@@ -3601,7 +3614,7 @@ function HistoryToggle({
               ? 'No trace yet. Press Trace on the project to walk its commits.'
               : 'The repo commit by commit — colored by arrivals, not by surprise  (⌘+)'
       }
-      className="flex items-center gap-1 rounded-full px-2.5 py-[3px] text-[11px] transition-colors"
+      className={`flex items-center gap-1 rounded-full px-2.5 text-[11px] transition-colors ${CONTROL_H}`}
       style={{
         background: on ? 'var(--accent)' : 'color-mix(in oklch, var(--foreground) 8%, transparent)',
         color: on ? 'var(--accent-foreground)' : 'var(--muted-foreground)',

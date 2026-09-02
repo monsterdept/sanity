@@ -118,7 +118,11 @@ function Lens({
             <span className="font-semibold text-[var(--foreground)]">Ramp:</span> {ramp}
           </p>
         )}
-        {children && <div className="mt-1.5">{children}</div>}
+        {/* **A gap between paragraphs, because `<br />` was doing the splitting.** A line
+            break is not a paragraph break: the second thought started hard against the bottom
+            of the first and the two read as one run-on. The rule is here rather than on each
+            entry so a note written later cannot forget it. */}
+        {children && <div className="mt-1.5 [&>*+*]:mt-1.5">{children}</div>}
       </div>
     </div>
   )
@@ -195,11 +199,15 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
       measures="functions whose bodies are identical once identifiers and literals are flattened and comments dropped."
       values="too small to compare · no clone in this repo · a clone"
     >
-      Every clone draws the same color regardless of how many copies exist. The size of the group
-      appears in the label as <code>1 of N clones</code> and in the sidebar breakdown, not in the
-      color.
-      <br />A near-copy differing by one statement is not detected. Bodies below the token floor are
-      never compared and are reported separately from finding no clone.
+      <p>
+        Every clone draws the same color regardless of how many copies exist. The size of the group
+        appears in the label as <code>1 of N clones</code> and in the sidebar breakdown, not in the
+        color.
+      </p>
+      <p>
+        A near-copy differing by one statement is not detected. Bodies below the token floor are
+        never compared and are reported separately from finding no clone.
+      </p>
     </Lens>
   ),
   callers: (
@@ -253,10 +261,11 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
           unranked. Drawn in the structural neutral.
         </li>
       </ul>
-      The legend orders by commits over the whole repo and the panel by lines in what you have open,
-      so on a big repo they name the same people in a different order.
-      <br />
-      Uncommitted lines and untracked files are shown as themselves.
+      <p>
+        The legend orders by commits over the whole repo and the panel by lines in what you have
+        open, so on a big repo they name the same people in a different order.
+      </p>
+      <p>Uncommitted lines and untracked files are shown as themselves.</p>
     </Lens>
   ),
   language: (
@@ -266,9 +275,10 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
       swatch={<Steps fills={['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-4)']} />}
       measures="the file's language, by extension."
     >
-      Useful for locating language boundaries, which often do not follow directory names.
-      <br />
-      <code>.h</code> is mapped to C++ unconditionally, so C headers report as C++.
+      <p>Useful for locating language boundaries, which often do not follow directory names.</p>
+      <p>
+        <code>.h</code> is mapped to C++ unconditionally, so C headers report as C++.
+      </p>
     </Lens>
   ),
   churn: (
@@ -289,18 +299,18 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
       needs="Scan"
       swatch={<Ramp from="var(--tangle-0)" to="var(--tangle-4)" />}
       measures="how tangled a body is: every fork costs one, plus one for each fork it is nested inside."
-      values="as expected · slightly above · above normal · far above normal"
-      ramp="as expected (dim) → far above normal (bright)"
+      values="low · moderate · high · very high"
+      ramp="low (dim) → very high (bright)"
     >
-      Three sequential <code>if</code>s cost three; three nested cost six. A forty-case switch costs
-      one — it is long and utterly predictable, which is the reading that separates this from a
-      branch count.
-      <br />
-      Weighted against the other bodies its size in this repo, because a longer function is
-      naturally more complicated and the useful question is whether it is more complicated than
-      that. The other setting is the raw count, against 15. Needs no reader and no git, so it paints
-      the moment a scan lands — and it is independent of Surprise, which is the point: what is
-      knotty and what is unpredictable are different findings.
+      <p>
+        Three sequential <code>if</code>s cost three; three nested cost six. A forty-case switch
+        costs one — long and utterly predictable, which is what separates this from a branch
+        count.
+      </p>
+      <p>
+        Weighted against the other bodies its size in this repo, because a longer function is
+        naturally more complicated and the useful question is whether it is more so than that.
+      </p>
     </Lens>
   ),
   age: (

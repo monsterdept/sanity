@@ -93,6 +93,52 @@ function provenance(node: Node, model: string | null): string {
 }
 
 /**
+ * The same sentence, in the three pieces it has to break into to stay on ONE line.
+ *
+ * **A footer that wraps is not a footer.** `Read by claude-sonnet-5 · ross@rossturk.com at
+ * 3e9155b` runs to two lines in a 260px pane, which pushes the pane's own bottom edge around
+ * as you move between functions — and it was the second line, the commit, that fell off the
+ * shape of the panel.
+ *
+ * **The address is dropped rather than truncated.** Squeezed into what was left it came out as
+ * `ross@rosstur…`, which is a string that identifies nobody: an address is useful whole or not
+ * at all, and half of one reads as a rendering fault. What the line is FOR is which model
+ * produced the numbers and which commit they were taken at, so those are what stays, and the
+ * model name is the piece that gives way if even that will not fit.
+ *
+ * The address is still on the `title`, because `provenance` is unchanged and that is where the
+ * whole sentence goes. Derived from it rather than written beside it: two spellings of one
+ * sentence is how a tooltip and the text under it come to disagree.
+ */
+function provenancePieces(node: Node, model: string | null): [string, string, string] {
+  const full = provenance(node, model)
+  const a = node.agent
+  // Only the agent sentence has parts worth separating; everything else is one short clause
+  // that fits. Spaces are the container's `gap`, never literal: a trailing space inside an
+  // inline element collapses, which drew `claude-sonnet-5 ·ross@…` with the gap on the wrong
+  // side of the dot.
+  if (node.score?.source !== 'agent' || !a?.model) return [full, '', '']
+  return ['Read by', a.model, a.at ? `at ${a.at}` : '']
+}
+
+/** Who produced these numbers, on one line whatever their names are — see `provenancePieces`. */
+function Provenance({ node, model }: { node: Node; model: string | null }) {
+  const [lead, who, tail] = provenancePieces(node, model)
+  return (
+    <p
+      className="flex shrink-0 items-baseline gap-1 whitespace-nowrap border-t border-[var(--border)] px-4 py-2 text-[10px] leading-snug text-[var(--muted-foreground)]"
+      title={provenance(node, model)}
+    >
+      {/* `Read by` and the commit hold their width; the model name is the one that gives way,
+          because it is the only part with no bound on its length. */}
+      <span className="shrink-0">{lead}</span>
+      {who && <span className="min-w-0 truncate">{who}</span>}
+      {tail && <span className="shrink-0">{tail}</span>}
+    </p>
+  )
+}
+
+/**
  * What is inside this wedge, as a list you can walk.
  *
  * The map answers "where is the heat" and is bad at "what is actually in here" — a
@@ -181,6 +227,8 @@ export function Detail({
   mode,
   ranks,
   views,
+  tangleBands,
+  tangleOver,
   onSelect,
   onDrill,
   owners,
@@ -200,6 +248,13 @@ export function Detail({
   ranks?: Map<string, number>
   /** How Age is calibrated and which of its two dates it paints — see `AgeView`. */
   views?: Views
+  /** What a normal cognitive score is for a body of each size IN THIS REPO — see
+   *  `tangle::Bands`. The Complexity section shows its work against these, and "17 is normal
+   *  for a body this size here" is the half of that work a person can go and check. */
+  tangleBands?: (number | null)[]
+  /** What each band's median was measured over — see `Stats.tangleOver`. The Complexity
+   *  section names that population, and after a fold it is not the band's own edges. */
+  tangleOver?: ([number, number] | null)[]
   onSelect?: (n: Node) => void
   onDrill?: (n: Node) => void
   /** The containers between the repo and this node, outermost first — see `owners` in
@@ -355,6 +410,9 @@ export function Detail({
           repoKey={repoKey ?? null}
           replaying={replaying}
           ranks={ranks}
+          views={views}
+          tangleBands={tangleBands}
+          tangleOver={tangleOver}
           onJump={onJump}
         />
       </div>
@@ -473,6 +531,9 @@ export function Detail({
             replaying={replaying}
             siblings={siblings}
             ranks={ranks}
+            views={views}
+            tangleBands={tangleBands}
+            tangleOver={tangleOver}
             onJump={onJump}
           />
         )}
@@ -492,11 +553,7 @@ export function Detail({
           numbers came from a reader, and otherwise whatever the section put here — see
           `lensFooter`. A footer that moves with the list is not a footer, it is the end of
           the list. */}
-      {paintsFromReadings(mode) && (
-        <p className="shrink-0 border-t border-[var(--border)] px-4 py-2 text-[10px] leading-snug text-[var(--muted-foreground)]">
-          {provenance(node, model)}
-        </p>
-      )}
+      {paintsFromReadings(mode) && <Provenance node={node} model={model} />}
     </div>
   )
 }

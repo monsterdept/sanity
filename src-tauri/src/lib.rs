@@ -318,6 +318,7 @@ pub fn run() {
             commands::file_functions,
             commands::search_project,
             commands::function_links,
+            commands::function_forks,
             commands::function_sources,
             commands::function_history,
             commands::commit_detail,
