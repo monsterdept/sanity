@@ -141,6 +141,40 @@ impl Bands {
 mod tests {
     use super::*;
 
+    /// The window computes this arithmetic too, and only during a REPLAY.
+    ///
+    /// **The one place a ramp is solved twice, and the reason is that a frame has no scan.**
+    /// Every other lens receives its position already computed: `scan()` runs here and hands
+    /// `Score::tangle` over the wire. A timeline cannot — it carries a raw count per function
+    /// per commit, because that is what is small enough to send — so `colorMode.ts` has a
+    /// `tangleRamp` beside this one, and two implementations of one answer is how the map and
+    /// the replay come to disagree about a colour.
+    ///
+    /// Sending the positions instead was priced: two numbers per changed function per commit
+    /// rather than one, and the medians would have to exist before the first frame is emitted,
+    /// which means a second pass over the whole walk. This test is the cheaper half of that
+    /// trade, and it is only worth anything if it actually reads the other file.
+    #[test]
+    fn the_window_solves_the_same_ramp_this_module_does() {
+        // **Read at RUN time, not `include_str!`.** Cargo does not track a file outside the
+        // crate, so an included copy is whatever it was the last time Rust happened to
+        // rebuild — this test went green against a `colorMode.ts` that had been edited to
+        // disagree with it, which is the exact failure it exists to catch.
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/colorMode.ts");
+        let src = std::fs::read_to_string(path).expect("the window's source is beside ours");
+        let of = |name: &str| {
+            let at = src
+                .find(&format!("const {name} = "))
+                .unwrap_or_else(|| panic!("{name} is gone from colorMode.ts — did it move?"));
+            let rest = &src[at + name.len() + 9..];
+            rest[..rest.find('\n').expect("a line")].trim().trim_end_matches(';').to_string()
+        };
+        assert_eq!(of("TANGLE_RAW_HOT"), RAW_HOT.to_string(), "the absolute bar");
+        assert_eq!(of("TANGLE_WEIGHTED_HOT"), WEIGHTED_HOT.to_string(), "the ratio anchor");
+        let edges = format!("[{}]", EDGES.map(|e| e.to_string()).join(", "));
+        assert_eq!(of("TANGLE_EDGES"), edges, "the size bands");
+    }
+
     #[test]
     fn a_body_is_banded_by_its_own_length() {
         assert_eq!(band_of(1), 0);

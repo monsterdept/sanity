@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { GRADE_DOCUMENTED, GRADE_SURPRISE, churnSaturation } from './api'
+import { tangleRamp } from './colorMode'
 import type {
   AgentReport,
   ChurnWindows,
@@ -10,6 +11,7 @@ import type {
   Progress,
   Score,
   TimeRow,
+  TangleRow,
 } from './api'
 import type { Deltas, Tables } from './timeline'
 
@@ -153,6 +155,16 @@ const CHURN_MEMORY = 16
 const NO_TS = 0xffffffff
 const NO_AT = -1
 const NO_GRADE = 0xffff
+
+/** No cognitive score for this function in this frame.
+ *
+ *  **Not zero, which is a real and common score** — most short bodies never branch, and a
+ *  band whose median is zero is the ordinary case in the smallest band. What this means is
+ *  that nobody has taught the parser to count this language, which the lens draws in the
+ *  structural neutral rather than at the cold end of the ramp. A `Uint32Array` because a
+ *  generated file can carry more forks than a `Uint16` holds, and the sentinel has to sit
+ *  outside every score that is real. */
+const NO_COG = 0xffffffff
 const NO_AUTHOR = -1
 
 /**
@@ -331,6 +343,19 @@ interface Frame {
    *  of this frame, which is a fact worth drawing rather than a hole: watching it fill in is
    *  the point of folding these at all. See `assessment::packed` for the layout. */
   graded: Uint16Array
+  /** func index → the cognitive complexity of the body AT this commit, or `NO_COG`.
+   *
+   *  **Off the same parse the walk already ran**, which is what makes the Complexity lens
+   *  replayable at all: the timeline finds a commit's functions by parsing the versions of
+   *  the files it touched, and `parse_functions` computes this on the way past. The frame
+   *  carries the count rather than the ramp position, and `Tables.tangleBands` carries the
+   *  medians it is read against — one yardstick for the whole story, so a wedge changes
+   *  colour when its body changes and at no other time.
+   *
+   *  Cleared on `del` like every other per-function field. A function that leaves and comes
+   *  back is a new body, and inheriting the old score would be a number from a story that
+   *  no longer runs through here. */
+  cog: Uint32Array
   /** The frame's own "now". */
   ts: number
   /** Which commit this frame stands at; -1 is the opening state. */
@@ -360,6 +385,7 @@ function blank(hist: Tables): Frame {
     editedAt: new Int32Array(n).fill(NO_AT),
     funcAuthor: new Int32Array(n).fill(NO_AUTHOR),
     graded: new Uint16Array(n).fill(NO_GRADE),
+    cog: new Uint32Array(n).fill(NO_COG),
     hits: new Uint32Array(n * CHURN_MEMORY),
     hitLen: new Uint8Array(n),
     pathLive: new Uint32Array(hist.paths.length),
@@ -384,6 +410,11 @@ function opening(hist: Tables): Frame {
   // before the window is not a claim about when anything happened — it is what the repo knew
   // at the moment the story starts, which is exactly what the opening frame should show.
   for (const [f, packed] of hist.baseRead ?? []) frame.graded[f] = packed
+  // The complexity the pre-window code already had. Unlike a touch date this is not a claim
+  // about when anything happened — it is a fact about the body sitting there when the story
+  // opens — so it is carried rather than left absent, exactly as `baseRead` is. Dropped, the
+  // oldest and usually largest part of a repo would draw as a language nobody counted.
+  for (const [f, n] of hist.baseCog ?? []) frame.cog[f] = n
   for (const [f, loc] of hist.base) {
     frame.loc[f] = loc
     frame.live[f] = 1
@@ -539,10 +570,15 @@ function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): boolea
       frame.editedAt[f] = NO_AT
       frame.funcAuthor[f] = NO_AUTHOR
       frame.graded[f] = NO_GRADE
+      frame.cog[f] = NO_COG
       frame.hitLen[f] = 0
     }
     for (const [f, packed] of c.read ?? []) frame.graded[f] = packed
     for (const f of c.unread ?? []) frame.graded[f] = NO_GRADE
+    // No `uncog`: the only thing that withdraws a score is the function leaving, which `del`
+    // above already clears. A reading can be withdrawn while its function stays — somebody
+    // deletes a shard — and complexity has no such second source to lose.
+    for (const [f, n] of c.cog ?? []) frame.cog[f] = n
     for (const p of c.files) {
       frame.author[p] = who
       frame.pathTs[p] = c.ts
@@ -636,6 +672,9 @@ interface Checkpoint {
   editedAt: Int32Array
   funcAuthor: Int32Array
   graded: Uint16Array
+  /** The complexity scores — see `Frame.cog`, and `pathTs` for what a field left out of here
+   *  comes back as. */
+  cog: Uint32Array
   hitLen: Uint8Array
   hits: Uint32Array
   pathLive: Uint32Array
@@ -695,6 +734,7 @@ function freeze(frame: Frame): Checkpoint {
     editedAt: frame.editedAt.slice(),
     funcAuthor: frame.funcAuthor.slice(),
     graded: frame.graded.slice(),
+    cog: frame.cog.slice(),
     hitLen: frame.hitLen.slice(),
     hits,
     pathLive: frame.pathLive.slice(),
@@ -738,6 +778,7 @@ function thaw(cp: Checkpoint): Frame {
     editedAt: cp.editedAt.slice(),
     funcAuthor: cp.funcAuthor.slice(),
     graded: cp.graded.slice(),
+    cog: cp.cog.slice(),
     hits,
     hitLen: cp.hitLen.slice(),
     pathLive: cp.pathLive.slice(),
@@ -764,6 +805,7 @@ function weigh(cp: Checkpoint): number {
     cp.editedAt.byteLength +
     cp.funcAuthor.byteLength +
     cp.graded.byteLength +
+    cp.cog.byteLength +
     cp.hitLen.byteLength +
     cp.hits.byteLength +
     cp.pathLive.byteLength +
@@ -973,6 +1015,9 @@ function scoreInto(
    *  the reason the live map does: which one is being looked at is a live choice, and a
    *  replay that answered only the current one would have to refold on every press. */
   windows: ChurnWindows,
+  /** This repo's size-band medians — see `Tables.tangleBands`. One set for the whole replay,
+   *  which is what makes the last frame paint the live map's colours. */
+  bands: (number | null)[] | undefined,
 ): Score {
   const touched = frame.touched[f]
   const at = frame.bornAt[f]
@@ -995,10 +1040,8 @@ function scoreInto(
     lastTouchedDays: null,
     commits: [0, 0, 0, 0],
     allCommits: null,
-    // **A frame carries no parse.** Complexity is read off the syntax tree of the code as it
-    // stands; the timeline holds line counts and grades, not bodies. Null rather than zero, and
-    // `REPLAY` says the lens is unreplayable so the switcher explains it rather than the map
-    // going quietly grey.
+    // Filled in below from `frame.cog`, which the walk banks per function per commit. Null
+    // here is the pool's starting value, not a claim — see the write below.
     tangle: null,
     cognitive: null,
     provenance: 'history',
@@ -1028,6 +1071,18 @@ function scoreInto(
   // holds a reading has to say where it came from — left at `proxy` the wedge would carry a
   // grade and refuse to draw it.
   s.source = predicted ? 'agent' : 'proxy'
+  // **What this body's complexity was AT this commit**, read against one set of medians for
+  // the whole story. `NO_COG` is a language nobody has taught the parser, which is the same
+  // absence the live map draws in the structural neutral — and it has to be written to null
+  // every time, because a pooled Score otherwise keeps the last function's count.
+  const cog = frame.cog[f]
+  if (cog === NO_COG) {
+    s.cognitive = null
+    s.tangle = null
+  } else {
+    s.cognitive = cog
+    s.tangle = tangleRamp(bands, frame.loc[f], cog)
+  }
   // Written every time, including to null: these Score objects are POOLED and reused frame
   // to frame, so a field left alone keeps the last function's answer.
   s.appeared = at !== NO_AT && inStep(at, since, frame.at) ? 1 : null
@@ -1071,6 +1126,19 @@ function aggregate(node: Node, appearedOf: (id: string) => number | null): void 
   // read is half analysed, not unanalysed.
   let hot = 0
   let readLines = 0
+  // **Complexity rolls up two different ways and neither is the churn one.** The count is
+  // SUMMED — a container's cognitive score is how many decisions are inside it, and a mean
+  // would report a directory of two hundred simple functions as simple in a way that hides
+  // how much there is to read. The ramp position is a LOC-weighted mean over the measured
+  // children only: `tw` is not `w`, because a file holding one Rust function and one in a
+  // language with no branch table is half measured, and averaging the untaught half in as
+  // zero would report it as half as tangled as it is.
+  //
+  // Both copied from `Node::aggregate` in `model.rs`, which is the live map's answer. The
+  // rule is that the end of a replay is the live map, so the two have to agree.
+  let tangle: [number, number] = [0, 0]
+  let tw = 0
+  let cognitive: number | null = null
   for (const c of node.children) {
     const s = c.score
     if (!s) continue
@@ -1090,6 +1158,14 @@ function aggregate(node: Node, appearedOf: (id: string) => number | null): void 
       // would report twelve. The largest child's count is the honest floor a frame can offer
       // without the distinct set, which only the walk still holds.
       commits[i] = Math.max(commits[i], s.commits[i])
+    }
+    if (s.tangle) {
+      tw += cw
+      tangle[0] += s.tangle[0] * cw
+      tangle[1] += s.tangle[1] * cw
+    }
+    if (s.cognitive !== null && s.cognitive !== undefined) {
+      cognitive = (cognitive ?? 0) + s.cognitive
     }
     if (s.ageDays !== null) age = age === null ? s.ageDays : Math.max(age, s.ageDays)
     if (s.lastTouchedDays !== null)
@@ -1135,6 +1211,10 @@ function aggregate(node: Node, appearedOf: (id: string) => number | null): void 
   s.commits = commits
   s.hotShare = node.loc > 0 ? hot / node.loc : 0
   s.analyzedShare = node.loc > 0 ? readLines / node.loc : 0
+  // Null rather than zero where nothing under here could be counted, or a directory of
+  // Elixir would draw as the least complex thing in the repo.
+  s.tangle = tw > 0 ? [tangle[0] / tw, tangle[1] / tw] : null
+  s.cognitive = cognitive
   // **Never rolled up.** A container flashes on its OWN arrival and on nothing else, so
   // this is filled from the frame's own record of when this path first existed — see
   // `enter`. Rolled up from the children it meant that adding one function lit its file,
@@ -1495,6 +1575,10 @@ export function frameTree(
   windows: ChurnWindows = [30, 60, 90, 180],
 ): Node {
   const frame = replay(hist, deltas, index)
+  // **One yardstick for the whole replay**, so a wedge changes colour when its body changes
+  // and at no other time — see `Tables.tangleBands`. Read here rather than threaded from a
+  // caller: it is a property of the timeline, like the paths and the languages beside it.
+  const bands = hist.tangleBands?.median
   if (!flashes) since = index
   if (!pool || pool.hist !== hist) {
     pool = {
@@ -1567,6 +1651,15 @@ export function frameTree(
    *  own node. The totals are what the top-down walk below thresholds against; the lists are
    *  what a drawn file hangs off itself. */
   const fileLoc = new Float64Array(hist.paths.length)
+  // **The file's own answer to Complexity, totalled in the same pass that sizes it.** The
+  // fold needs it at FILE resolution — a rolled-up directory has no functions on screen to
+  // ask — and the live map computes exactly this in `Node::aggregate`: the ramp positions are
+  // a LOC-weighted mean over the functions that could be counted (`fileTanW`, weighted by
+  // `fileTanLoc`, which is NOT `fileLoc`), and the counts are summed.
+  const fileCog = new Float64Array(hist.paths.length)
+  const fileTan0 = new Float64Array(hist.paths.length)
+  const fileTan1 = new Float64Array(hist.paths.length)
+  const fileTanLoc = new Float64Array(hist.paths.length)
   const drawn = new Map<number, Node[]>()
 
   // In interned order — see `Frame.order`, which is kept that way as commits land rather
@@ -1579,6 +1672,15 @@ export function frameTree(
     // they are dropped here, where the picture is built. See `Tables.excluded`.
     if (hist.excluded[def.path]) continue
     fileLoc[def.path] += loc
+    const score = frame.cog[f]
+    if (score !== NO_COG) {
+      const [w0, w1] = tangleRamp(bands, loc, score)
+      const cw = Math.max(loc, 1)
+      fileCog[def.path] += score
+      fileTan0[def.path] += w0 * cw
+      fileTan1[def.path] += w1 * cw
+      fileTanLoc[def.path] += cw
+    }
     // Too thin to draw. Its lines still count — they reach the file wedge through the
     // stand-in below, so a file is the size it is whatever its inside looks like.
     if (loc < (inScope && inScope.has(def.path) ? scopeMin : minLoc)) {
@@ -1646,7 +1748,7 @@ export function frameTree(
     // commit that wrote it is outside the window, and the honest answer is that we do not know.
     node.lastAuthor = authorName(hist, frame.funcAuthor[f])
     const packed = frame.graded[f]
-    node.score = scoreInto(node.score, frame, f, since, packed, windows)
+    node.score = scoreInto(node.score, frame, f, since, packed, windows, bands)
     // The reading itself, for the two lenses that read it as a report rather than as a
     // number. Cleared when this frame has none, or a pooled node keeps the last one's.
     node.agent = packed === NO_GRADE ? undefined : readingInto(node.agent ?? null, packed)
@@ -1825,9 +1927,17 @@ export function frameTree(
     lang: new Map<string, number>(),
     author: new Map<string, number>(),
     time: [] as number[],
+    tangle: [] as number[],
   })
   type Tally = ReturnType<typeof tallyOf>
   const add = (t: Tally, p: number, lines: number) => {
+    // Complexity first, because it is the shortest: the file's own mean and sum, or the
+    // absence, in the same `TangleRow` shape `contribute` bands a drawn file by.
+    const measured = fileTanLoc[p]
+    const tangleRow: TangleRow = measured > 0
+      ? [lines, fileTan0[p] / measured, fileTan1[p] / measured, fileCog[p]]
+      : [lines, -1, -1, -1]
+    t.tangle.push(...tangleRow)
     const lang = hist.langs[p]
     if (lang) t.lang.set(lang, (t.lang.get(lang) ?? 0) + lines)
     const who = authorName(hist, frame.author[p])
@@ -1876,6 +1986,7 @@ export function frameTree(
     lang: [...t.lang.entries()],
     author: [...t.author.entries()],
     time: t.time,
+    tangle: t.tangle,
   })
 
   /** Descend while there is something worth drawing, and roll up what there is not. */

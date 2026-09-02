@@ -60,6 +60,18 @@ export interface Tables {
    *  Absent on a truncated timeline whose prefix contains no `.sanity/`, which is most
    *  repos and every repo before the first pass. */
   baseRead?: [number, number][]
+  /** The cognitive scores the repo already held when the window opens — `baseRead`'s twin
+   *  for Complexity, and absent for the same reasons. */
+  baseCog?: [number, number][]
+  /** What a normal cognitive score is for a body of each size in THIS repo, one median per
+   *  size band and `null` for a band nothing landed in — see `tangle::Bands`.
+   *
+   *  **One yardstick for the whole replay, derived from the state the last frame leaves.**
+   *  That state is HEAD, which is what the live map bands against, so the frame under the
+   *  last commit paints the colours the live map does — the promise `REPLAY` is written
+   *  around. Re-deriving it per frame would recolour an untouched function every time the
+   *  repo grew around it. */
+  tangleBands?: { median: (number | null)[] }
   baseTs: number
   head: string
   truncated: number
@@ -91,6 +103,11 @@ export interface Delta {
   read?: [number, number][]
   /** Functions whose reading this commit dropped. */
   unread?: number[]
+  /** `[func index, cognitive score]` for the bodies this commit rewrote — see
+   *  `HistoryCommit::cog`. Its own array rather than a third slot in `set`, because a
+   *  language with no branch table has no score and a sentinel in there would be a number
+   *  the fold could mistake for one. */
+  cog?: [number, number][]
   files: number[]
 }
 
@@ -176,6 +193,11 @@ function watermark(block: Delta[]): number {
   for (const c of block) {
     for (const [f] of c.set) if (f > top) top = f
     for (const f of c.del) if (f > top) top = f
+    // A subset of `set` as the walk emits it today — `cog` is pushed inside the same test.
+    // Scanned anyway: this function's contract is "the highest index these deltas can name",
+    // and a contract that holds only because of how another file happens to be written is
+    // one nobody can check from here. `read`/`unread` are the same shape and predate it.
+    for (const [f] of c.cog ?? []) if (f > top) top = f
   }
   return top
 }

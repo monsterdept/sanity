@@ -395,6 +395,17 @@ export interface Folded {
    *  saw touched, which lands in the absence bucket the same way an undated function does —
    *  the window's own doctrine, that nothing before it makes a claim about its age. */
   time: number[]
+  /** Complexity, as flat runs of `TANGLE_STRIDE` numbers — `TangleRow`, one per folded FILE.
+   *
+   *  Banded by `contribute` calling itself, exactly as `time` is and for the same reason: a
+   *  folded file and a drawn one must not fall in different bands. What is carried is the
+   *  file's own answer — the LOC-weighted mean of its functions' ramp positions, and the SUM
+   *  of their counts — which is what `Node::aggregate` computes for a file on the live map.
+   *
+   *  A file whose language nobody has taught the parser carries `-1` and lands in the same
+   *  absence the live map draws in the structural neutral. Not dropped: its LINES are real,
+   *  and a roll-up that quietly shed them would report a directory as smaller than it is. */
+  tangle: number[]
 }
 
 /** How many numbers `Folded.time` spends per file.
@@ -428,6 +439,21 @@ export type TimeRow = [
   commits180: number,
 ]
 export const TIME_STRIDE: TimeRow['length'] = 7
+
+/** One folded file's answer to Complexity.
+ *
+ *  `weighted` and `raw` are ramp positions, already on the 0..1 scale — the file's own
+ *  LOC-weighted mean, which is the number the live map's file wedge carries. `cognitive` is
+ *  the SUM under the file, because a container's complexity is how many decisions are in it.
+ *
+ *  All three are `-1` where nothing in the file could be counted. */
+export type TangleRow = [
+  lines: number,
+  weighted: number,
+  raw: number,
+  cognitive: number,
+]
+export const TANGLE_STRIDE: TangleRow['length'] = 4
 
 export interface Cols {
   loc: number[]

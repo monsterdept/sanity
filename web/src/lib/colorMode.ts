@@ -19,6 +19,7 @@ import {
   type AgentReport,
   type ChurnWindows,
   churnSaturation,
+  TANGLE_STRIDE,
   TIME_STRIDE,
 } from './api'
 import { inkOn } from './ink'
@@ -120,9 +121,12 @@ export type ColorMode =
  *  reading taken against a body it does not hold, and a superseded axis is dropped by
  *  `packed` at the Rust end rather than shown as current. */
 export const REPLAY: Record<ColorMode, 'live' | 'cost'> = {
-  // A frame carries line counts and grades, never bodies — and complexity is read off a
-  // syntax tree. Not replayable, and the switcher says so rather than the map going grey.
-  tangle: 'cost',
+  // **A frame carries the cognitive count now**, banked per function per commit out of the
+  // same parse the walk already ran to find the functions — see `HistoryCommit::cog`. What it
+  // does not carry is a body, which is why the count is sent rather than the ramp position:
+  // the medians it is read against come once, with the tables, from the state the last frame
+  // leaves. See `tangleRamp`.
+  tangle: 'live',
   surprise: 'live',
   legible: 'live',
   docs: 'live',
@@ -1402,6 +1406,48 @@ const NOT_WALKED = 'timeline not walked'
 const NOT_COUNTED = 'language not counted'
 
 
+/** The upper line count of each size band but the last, and the two saturation anchors.
+ *
+ *  **The Rust originals are `tangle::EDGES`, `RAW_HOT` and `WEIGHTED_HOT`, and this is the one
+ *  place in the app that copies them.** Every other lens receives its ramp position already
+ *  computed — the scan runs in Rust and hands `Score::tangle` over the wire. A REPLAY has no
+ *  scan: the timeline carries a raw cognitive count per function per commit, which is the only
+ *  thing small enough to send, so the arithmetic has to happen on this side.
+ *
+ *  The alternative was to send the ramp positions instead. It costs two numbers per changed
+ *  function per commit rather than one, and it needs the medians before the first frame is
+ *  emitted, which means a second pass over the whole walk. This is six lines and one test —
+ *  `a_replayed_frame_paints_what_the_live_map_paints` — that reads the constants from the
+ *  Rust source and fails if either side moves. */
+const TANGLE_EDGES = [14, 24, 49, 99, 199]
+const TANGLE_RAW_HOT = 15
+const TANGLE_WEIGHTED_HOT = 4
+
+/** Which size band a body of `loc` lines falls in — `tangle::band_of`. */
+export function tangleBandOf(loc: number): number {
+  const i = TANGLE_EDGES.findIndex((e) => loc <= e)
+  return i === -1 ? TANGLE_EDGES.length : i
+}
+
+/** The two readings for one body, each on the 0..1 scale the ramp paints — `tangle::Bands::ramp`.
+ *
+ *  Index 0 is WEIGHTED and index 1 is RAW, matching `TangleRead`. `medians` is the repo's own,
+ *  from `Tables.tangleBands`; a `null` band has nothing its size to compare against and falls
+ *  back to the raw count, which is all that body can honestly be given. A median of zero is
+ *  floored at one, or a body that branches once would read as infinitely worse than normal. */
+export function tangleRamp(
+  medians: (number | null)[] | undefined,
+  loc: number,
+  cognitive: number,
+): [number, number] {
+  const raw = Math.min(1, Math.max(0, cognitive / TANGLE_RAW_HOT))
+  const m = medians?.[tangleBandOf(loc)]
+  if (m === null || m === undefined) return [raw, raw]
+  const ratio = cognitive / Math.max(m, 1)
+  const weighted = Math.min(1, Math.max(0, (ratio - 1) / (TANGLE_WEIGHTED_HOT - 1)))
+  return [weighted, raw]
+}
+
 /** The bands Complexity sorts into, in the words of whichever reading is on.
  *
  *  **Two sets, because the two readings are not the same question and one vocabulary cannot
@@ -1587,22 +1633,32 @@ const AGE_BANDS: { label: string; under: number }[] = [
  *  ones that mean nobody looked: `analyzedShare` 0 is what `isAnalyzed` refuses to colour, and
  *  `provenance: 'none'` claims no documentation. */
 function standScore(measured: {
-  commits: ChurnWindows
-  churn: ChurnWindows
-  ageDays: number | null
-  lastTouchedDays: number | null
-  /** Omitted by a caller with no parse behind it — a replay's fold, which carries line counts
-   *  and dates and no bodies. Null there rather than zero: a zero is a body that never forks,
-   *  which is a claim, and a fold has not measured one. */
+  commits?: ChurnWindows
+  churn?: ChurnWindows
+  ageDays?: number | null
+  lastTouchedDays?: number | null
+  /** Omitted by a caller that has not measured one. Null rather than zero: a zero is a body
+   *  that never forks, which is a claim.
+   *
+   *  **Every field here is optional for that reason, and the defaults below are the
+   *  absences.** A fold answers one lens at a time — the Age/Churn row carries dates and no
+   *  complexity, the Complexity row carries a ramp and no dates — and a stand-in that
+   *  defaulted a missing field to zero would put a whole rolled-up directory in the coldest
+   *  band of a lens it never measured. */
   tangle?: [number, number] | null
+  cognitive?: number | null
 }): Score {
   return {
+    churn: [0, 0, 0, 0],
+    commits: [0, 0, 0, 0],
+    ageDays: null,
+    lastTouchedDays: null,
     tangle: null,
+    cognitive: null,
     ...measured,
     surprise: 0,
     documented: 0,
     allCommits: null,
-    cognitive: null,
     provenance: 'none',
     hotShare: 0,
     source: 'proxy',
@@ -1735,6 +1791,29 @@ function contribute(
                 ) as ChurnWindows,
                 ageDays: born < 0 ? null : born,
                 lastTouchedDays: touched < 0 ? null : touched,
+              })
+        contribute(stand as unknown as Node, false, mode, ranks, view, put)
+      }
+      return
+    }
+    if (mode === 'tangle') {
+      // Through `contribute` itself, exactly as Age and Churn go — see the note above. The
+      // fold carries the file's own answer, which is what `Node::aggregate` gives a file on
+      // the live map: a LOC-weighted mean of its functions' ramp positions and the sum of
+      // their counts.
+      for (let i = 0; i < held.tangle.length; i += TANGLE_STRIDE) {
+        stand.loc = held.tangle[i]
+        const weighted = held.tangle[i + 1]
+        const cognitive = held.tangle[i + 3]
+        // `-1` is a file in a language nobody has taught the parser. Its lines are real and
+        // stay in the distribution; what it has no opinion about is the band, which is the
+        // absence the lens already draws in the structural neutral.
+        stand.score =
+          weighted < 0
+            ? undefined
+            : standScore({
+                tangle: [weighted, held.tangle[i + 2]],
+                cognitive,
               })
         contribute(stand as unknown as Node, false, mode, ranks, view, put)
       }

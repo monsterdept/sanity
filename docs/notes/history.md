@@ -56,6 +56,29 @@ second metric, and the line between those is the whole design.
   people in eleven colours over a picture where every one of them was the shared neutral — the
   key and the map disagreeing about the same wedge, with the key sounding more authoritative.
   Unranked is `other`, which is what the movie key had always done one surface over.
+- **Complexity IS replayed, and it is the only lens off the parse that is.** The walk already
+  re-parses every version of every file a commit touched — that is how it finds the functions
+  — and `parse_functions` computes the cognitive count on the way past, which the walk was
+  throwing away. So a frame banks `cog`, one score per function per commit, for no extra
+  parse and one sparse array on the wire.
+  **It is its own array rather than a third slot in `set`, and the absence is why.** A
+  language with no branch table has no score, which the lens draws in the structural neutral;
+  a sentinel inside `set` would be a number the fold could mistake for one, and zero is a real
+  and common score — most short bodies never fork.
+  **The count is sent, not the ramp position.** A position needs the repo's size-band medians,
+  and those come once with the tables, derived from the state the last frame leaves — which is
+  HEAD, which is what the live map bands against. One yardstick for the whole story, so a wedge
+  changes colour when its body changes and at no other time; re-deriving the medians per frame
+  would recolour an untouched function every time the repo grew around it. The price is the one
+  place in the app where a ramp is solved twice, in Rust and in `colorMode.ts`, and
+  `tangle::tests::the_window_solves_the_same_ramp_this_module_does` reads the other file rather
+  than trusting the comment.
+  **Callers and Reach do not follow, and the difference is not effort.** Complexity is a scalar
+  a body has on its own, so it changes exactly when that body changes and a delta can carry it.
+  Fan-in is a property of the GRAPH: function X's colour moves when some other function starts
+  calling it, so there is no commit whose diff names X. Replaying those means carrying every
+  function's call list per frame and resolving the whole graph per frame — which is the
+  quadratic encoding `HistoryCommit` exists to avoid, done thirty times a second.
 - **Nothing before the window makes a claim about its own age.** Functions folded into the
   opening frame have no touch date, so they draw uncoloured. Dating them to the edge of the
   window would open every truncated repo with the entire codebase flaring as though someone

@@ -169,6 +169,20 @@ pub struct HistoryCommit {
     pub set: Vec<(u32, u32)>,
     /// Functions this commit removed.
     pub del: Vec<u32>,
+    /// Cognitive complexity this commit gave a function, as `(func index, score)`.
+    ///
+    /// **Emitted at exactly the same moment as `set`, and it has to be its own array rather
+    /// than a third slot in that tuple.** A language with no branch table has no score, and a
+    /// sentinel inside `set` would be a number the fold could mistake for one — the absence
+    /// is the finding under this lens, the same way `NO_GRADE` is under Surprise. A function
+    /// missing from here is one nobody has taught the parser to count, and it draws in the
+    /// structural neutral rather than at the cold end of the ramp.
+    ///
+    /// A commit that rewrites a body without changing its line count changes this and not
+    /// `set` — which is the case `files` exists for — so the two arrays are the same length
+    /// only by coincidence.
+    #[serde(default)]
+    pub cog: Vec<(u32, u32)>,
     /// Readings this commit wrote or changed, as `(func index, packed grades)`.
     ///
     /// **`.sanity/` is committed, so a repo's readings are in its history like anything
@@ -210,6 +224,24 @@ pub struct HistoryScan {
     pub base_read: Vec<(u32, u16)>,
     /// When that state was reached, so the opening frame's ages have a "now" of their
     /// own rather than inheriting today's.
+    /// The cognitive scores as they stood at the opening frame, for the same reason
+    /// `base_read` exists.
+    #[serde(default)]
+    pub base_cog: Vec<(u32, u32)>,
+    /// What a normal cognitive score is for a body of each size IN THIS REPO — see
+    /// `tangle::Bands`.
+    ///
+    /// **Derived from the walk's own final state, not handed in from the live scan.** The two
+    /// agree — the last frame of a timeline is HEAD — and deriving it here is what makes a
+    /// stored timeline answerable without a scan beside it. It also keeps the promise that
+    /// ends a replay: the frame under the last commit paints from the same medians the live
+    /// map does, so stepping off the end of the story does not recolour it.
+    ///
+    /// One yardstick for the whole replay, deliberately. Re-deriving the medians per frame
+    /// would recolour an untouched function every time the repo grew around it, which is a
+    /// story about the repo rather than about that function.
+    #[serde(default)]
+    pub tangle_bands: crate::tangle::Bands,
     pub base_ts: i64,
     pub commits: Vec<HistoryCommit>,
     /// The commit the last frame is. What lets a stored timeline be carried forward
@@ -331,6 +363,16 @@ struct FuncAt {
     /// Not persisted. It answers a question about two ADJACENT versions, and both of them
     /// are in hand whenever it is asked.
     hash: Option<u64>,
+    /// This version's cognitive complexity — see `parse::cognitive_of`.
+    ///
+    /// `None` where the language has no branch table, which is the same `None` the live map
+    /// draws grey for, and `None` again after [`Replayer::resume`] for the same reason `hash`
+    /// is. Neither absence is read on the OLD side of a diff: what a commit emits comes from
+    /// the version it just parsed, and whether to emit it at all is `hash`'s question.
+    ///
+    /// It costs no extra parse. `parse_functions` already computes it for the live map, and
+    /// the walk was throwing it away.
+    cognitive: Option<u32>,
 }
 
 /// One file's functions at one moment, in file order.
@@ -392,7 +434,8 @@ fn functions_of(path: &str, lang: Lang, src: &str) -> FileState {
             std::hash::Hash::hash(&f.signature, &mut h);
             std::hash::Hash::hash(&f.body, &mut h);
             let hash = Some(std::hash::Hasher::finish(&h));
-            FuncAt { key, loc: f.loc(), ord, name: f.name, owner: f.owner, hash }
+            let cognitive = f.cognitive;
+            FuncAt { key, loc: f.loc(), ord, name: f.name, owner: f.owner, hash, cognitive }
         })
         .collect()
 }
@@ -886,6 +929,8 @@ impl Replayer {
             shards: BTreeMap::new(),
             out: HistoryScan {
                 base_read: Vec::new(),
+                base_cog: Vec::new(),
+                tangle_bands: crate::tangle::Bands::default(),
                 paths: Vec::new(),
                 langs: Vec::new(),
                 funcs: Vec::new(),
@@ -935,8 +980,10 @@ impl Replayer {
                 ord: def.ord,
                 loc,
                 // Nothing to hash: a resumed state is folded from frames, not parsed. See
-                // `FuncAt::hash`.
+                // `FuncAt::hash`. Cognitive goes the same way and for the same reason — the
+                // old side of the diff is never asked for it.
                 hash: None,
+                cognitive: None,
             };
             r.state.entry(path).or_default().push(at);
         }
@@ -974,6 +1021,9 @@ impl Replayer {
             for f in &state_of {
                 let fi = self.funcs.intern(pi, &path, f);
                 self.out.base.push((fi, f.loc));
+                if let Some(c) = f.cognitive {
+                    self.out.base_cog.push((fi, c));
+                }
             }
             self.state.insert(path, state_of);
         }
@@ -1039,6 +1089,7 @@ impl Replayer {
             subject: commit.subject.clone(),
             set: Vec::new(),
             del: Vec::new(),
+            cog: Vec::new(),
             read: Vec::new(),
             unread: Vec::new(),
             files: Vec::new(),
@@ -1126,6 +1177,12 @@ impl Replayer {
                 // top of a file would report every function below it as rewritten.
                 if was.get(f.key.as_str()).is_none_or(|old| old.hash != f.hash) {
                     frame.set.push((fi, f.loc));
+                    // Beside the size, off the same parse, under the same test — a body whose
+                    // hash moved is a body whose complexity may have moved, and nothing else
+                    // can change it. A language with no branch table emits nothing here ever.
+                    if let Some(c) = f.cognitive {
+                        frame.cog.push((fi, c));
+                    }
                 }
             }
             for f in &prev {
@@ -1157,21 +1214,40 @@ impl Replayer {
         }
         let extra = self.out.commits.len() - limit;
         let mut base: BTreeMap<u32, u32> = self.out.base.iter().copied().collect();
+        // **Every frame array folds, or the opening state is a lie about a different field.**
+        // `cog` is banked here for the same reason `base` and `base_read` are: a function that
+        // was born before the window and never touched inside it has a complexity, and a fold
+        // that dropped it would draw the oldest and largest part of a repo as a language
+        // nobody taught the parser.
+        let mut cog: BTreeMap<u32, u32> = self.out.base_cog.iter().copied().collect();
         for c in self.out.commits.drain(..extra) {
             for (f, loc) in c.set {
                 base.insert(f, loc);
             }
+            for (f, n) in c.cog {
+                cog.insert(f, n);
+            }
             for f in c.del {
                 base.remove(&f);
+                cog.remove(&f);
             }
             self.out.base_ts = c.ts;
         }
         self.out.base = base.into_iter().collect();
+        self.out.base_cog = cog.into_iter().collect();
         self.out.truncated += extra;
     }
 
     fn finish(mut self) -> HistoryScan {
         self.out.funcs = self.funcs.list;
+        // The live state after the last frame IS the repo at HEAD, which is what the live map
+        // bands against. Derived once, here, rather than per frame — see `tangle_bands`.
+        self.out.tangle_bands = crate::tangle::Bands::of(
+            self.state
+                .values()
+                .flatten()
+                .filter_map(|f| f.cognitive.map(|c| (f.loc, c))),
+        );
         self.out
     }
 
@@ -1734,7 +1810,14 @@ fn is_ancestor(repo: &Path, sha: &str) -> bool {
 /// repo that had never read itself, and being EXTENDED rather than rebuilt it would then
 /// append real ones on the end. One timeline telling the story two ways, which is the same
 /// failure the bump to 3 is written up for and the same one `scancache` learned the hard way.
-const CACHE_VERSION: u32 = 5;
+///
+/// 6 because a frame now carries `cog`, and the scan carries `base_cog` and `tangle_bands` —
+/// what the Complexity lens paints, which until this could not be replayed at all. All three
+/// are `#[serde(default)]`, so a stored timeline would load with no scores and no medians and
+/// replay a repo whose every function was in a language nobody had taught the parser — a
+/// perfectly plausible-looking picture, in the structural neutral, of a repo that is mostly
+/// Rust. Then, being EXTENDED, it would append real ones on the end.
+const CACHE_VERSION: u32 = 6;
 
 #[derive(Serialize, Deserialize)]
 struct Cached {
@@ -1876,6 +1959,8 @@ mod tests {
             funcs: Vec::new(),
             base: Vec::new(),
             base_read: Vec::new(),
+            base_cog: Vec::new(),
+            tangle_bands: crate::tangle::Bands::default(),
             base_ts: 0,
             commits: Vec::new(),
             head: "abc".into(),
@@ -1891,6 +1976,7 @@ mod tests {
                 // Wire names, not field names — this struct renames to camelCase, and the
                 // wire is what a stored timeline is actually keyed by.
                 "base",
+                "baseCog",
                 "baseRead",
                 "baseTs",
                 "commits",
@@ -1898,6 +1984,7 @@ mod tests {
                 "head",
                 "langs",
                 "paths",
+                "tangleBands",
                 "truncated",
             ],
             "the stored timeline's fields changed — bump CACHE_VERSION, then update this list"
@@ -2036,25 +2123,120 @@ mod tests {
     /// What two timelines have to agree about. NOT the raw payload: function indices are
     /// assigned in the order the walk meets them, so a resumed walk and a fresh one can
     /// number the same repo differently and still describe it identically.
-    fn shape(h: &HistoryScan) -> (Vec<String>, usize, Vec<(String, u32)>) {
+    #[allow(clippy::type_complexity)]
+    fn shape(h: &HistoryScan) -> (Vec<String>, usize, Vec<(String, u32, Option<u32>)>) {
         let mut live: BTreeMap<u32, u32> = h.base.iter().copied().collect();
+        // **Folded here too, or the field is untested exactly where it can be wrong.** Every
+        // caller of `shape` compares a resumed walk against a fresh one, and a frame array
+        // that `fold` forgets to bank comes back EMPTY on the resumed side — which reads as a
+        // language nobody counted rather than as a failure. See `CACHE_VERSION`.
+        let mut cog: BTreeMap<u32, u32> = h.base_cog.iter().copied().collect();
         for c in &h.commits {
             for (f, loc) in &c.set {
                 live.insert(*f, *loc);
             }
+            for (f, n) in &c.cog {
+                cog.insert(*f, *n);
+            }
             for f in &c.del {
                 live.remove(f);
+                cog.remove(f);
             }
         }
-        let mut alive: Vec<(String, u32)> = live
+        let mut alive: Vec<(String, u32, Option<u32>)> = live
             .into_iter()
             .map(|(f, loc)| {
                 let def = &h.funcs[f as usize];
-                (key_of(&h.paths[def.path as usize], def), loc)
+                (key_of(&h.paths[def.path as usize], def), loc, cog.get(&f).copied())
             })
             .collect();
         alive.sort();
         (h.commits.iter().map(|c| c.sha.clone()).collect(), h.truncated, alive)
+    }
+
+    /// The Complexity lens, replayed: a score per function per frame, banked when the window
+    /// folds, and one set of medians for the whole story.
+    ///
+    /// **`cog` is its own array rather than a third slot in the `set` tuple, and the reason is
+    /// the absence.** A language with no branch table has no score — that is what the lens
+    /// draws in the structural neutral — and a sentinel inside `set` would be a number the
+    /// fold could mistake for one. So the Elixir file here is the point of the test as much as
+    /// the Rust one: it must be live, sized, and carry no complexity at all.
+    #[test]
+    fn a_frame_carries_the_complexity_it_had_at_that_commit() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git = |args: &[&str]| {
+            Command::new("git").arg("-C").arg(dir.path()).args(args).output().expect("git runs");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        // Four lines both times. The first branches nowhere; the second branches twice, one
+        // of them nested, which cognitive complexity charges 1 + 2 for — so the score moves
+        // while the size does not, and only one of the two arrays can say so.
+        let flat = "fn f(a: u32) -> u32 {\n    let b = a;\n    b\n}\n";
+        let knotty = "fn f(a: u32) -> u32 {\n    if a > 0 { if a > 1 { return 1 } }\n    a\n}\n";
+        let ex_src = "defmodule M do\n  def g(a) do\n    a\n  end\nend\n";
+        std::fs::write(dir.path().join("m.ex"), ex_src).expect("writes");
+        for (n, body) in [("one", flat), ("two", knotty)] {
+            std::fs::write(dir.path().join("src.rs"), body).expect("writes");
+            git(&["add", "-A"]);
+            git(&["commit", "-q", "-m", n]);
+        }
+        let h = read(dir.path(), ALL_COMMITS, &|_| {});
+        assert_eq!(h.commits.len(), 2);
+
+        let rs = h
+            .funcs
+            .iter()
+            .position(|f| f.name == "f" && h.paths[f.path as usize] == "src.rs")
+            .expect("the Rust function is interned") as u32;
+        assert_eq!(h.commits[0].cog, vec![(rs, 0)], "flat at the first commit");
+        // The size did not move and the score did. `set` reports the body CHANGED — it is
+        // emitted off the hash, not off the line count — so what this pins is that the two
+        // arrays disagree about the number, not about whether anything happened.
+        assert!(
+            h.commits[1].set.iter().any(|(f, loc)| *f == rs && *loc == 4),
+            "same four lines: {:?}",
+            h.commits[1].set
+        );
+        assert_eq!(h.commits[1].cog, vec![(rs, 3)], "and the rewrite reports its forks");
+
+        // Elixir parses and its functions are drawn; `branch_kinds` has no table for it,
+        // because its `if` and `case` are macros the grammar reports as calls. It must
+        // therefore appear in `set` and in nothing else — see `parse::branch_kinds`.
+        let ex = h
+            .funcs
+            .iter()
+            .position(|f| h.paths[f.path as usize] == "m.ex")
+            .expect("the Elixir function is interned") as u32;
+        assert!(h.commits[0].set.iter().any(|(f, _)| *f == ex), "it is live and sized");
+        assert!(
+            !h.commits.iter().any(|c| c.cog.iter().any(|(f, _)| *f == ex)),
+            "no table means no claim, not a claim of zero"
+        );
+
+        // One yardstick for the whole replay, taken from the state the last frame leaves —
+        // which is HEAD, which is what the live map bands against. The Elixir body
+        // contributes nothing to it, or an uncounted language would drag every median down.
+        assert_eq!(h.tangle_bands.median[crate::tangle::band_of(4)], Some(3));
+    }
+
+    /// A function that predates the window keeps its score when the window folds past it.
+    ///
+    /// The failure this pins is silent and total: `base_cog` left unbanked means every
+    /// function older than the window draws in the structural neutral, which is the same
+    /// picture a repo written in an uncounted language draws. See `fold`.
+    #[test]
+    fn folding_the_window_banks_the_scores_it_drops() {
+        let dir = repo_with(4);
+        let wide = read(dir.path(), ALL_COMMITS, &|_| {});
+        crate::history::unload();
+        std::fs::remove_dir_all(dir.path().join(".git/sanity")).ok();
+        let narrow = read(dir.path(), 1, &|_| {});
+        assert!(narrow.truncated > 0, "the window has to actually fold something");
+        assert!(!narrow.base_cog.is_empty(), "and what it folded has to land in the base");
+        assert_eq!(shape(&wide).2, shape(&narrow).2, "same functions, same sizes, same scores");
     }
 
     /// A walk stopped halfway leaves a timeline that can be carried the rest of the way.
@@ -2428,6 +2610,10 @@ pub struct Tables {
     pub base: Vec<(u32, u32)>,
     /// The readings the repo already held at the opening frame — see `HistoryScan::base_read`.
     pub base_read: Vec<(u32, u16)>,
+    /// The complexity scores it already held, and the medians they are read against — see
+    /// `HistoryScan::base_cog` and `HistoryScan::tangle_bands`.
+    pub base_cog: Vec<(u32, u32)>,
+    pub tangle_bands: crate::tangle::Bands,
     pub base_ts: i64,
     pub head: String,
     pub truncated: usize,
@@ -2484,6 +2670,8 @@ pub fn tables(repo: &Path) -> Option<Tables> {
         func_count: s.funcs.len(),
         base: s.base.clone(),
         base_read: s.base_read.clone(),
+        base_cog: s.base_cog.clone(),
+        tangle_bands: s.tangle_bands.clone(),
         base_ts: s.base_ts,
         head: s.head.clone(),
         truncated: s.truncated,
@@ -2584,6 +2772,7 @@ pub fn deltas(repo: &Path, from: usize, count: usize) -> Vec<serde_json::Value> 
                     "author": c.author,
                     "set": c.set,
                     "del": c.del,
+                    "cog": c.cog,
                     // Omitted when empty rather than sent as `[]`: most commits touch no
                     // shard, and two empty arrays per commit is a few hundred kilobytes of
                     // nothing on a repo with a hundred thousand of them.

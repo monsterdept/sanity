@@ -112,6 +112,12 @@ function synth(seed: number, files: number, funcs: number, commits: number): Fak
     const del: number[] = []
     const read: [number, number][] = []
     const unread: number[] = []
+    // **The complexity a commit gave a body**, emitted beside `set` as the walk emits it. A
+    // sparse array with no withdrawal of its own: the only thing that clears a score is the
+    // function leaving, which `del` already does. Deliberately NOT emitted for every `set` —
+    // a third of these functions are in an imaginary language nobody taught the parser, so
+    // the absence is exercised alongside the presence.
+    const cog: [number, number][] = []
     const touched = new Set<number>()
     const n = 1 + Math.floor(r() * 12)
     for (let k = 0; k < n; k++) {
@@ -120,6 +126,9 @@ function synth(seed: number, files: number, funcs: number, commits: number): Fak
         // **A function of zero lines is a function.** It is what says liveness cannot be
         // read off `loc`, which is the whole reason a frame carries `live` beside it.
         set.push([f, r() < 0.02 ? 0 : 3 + Math.floor(r() * 300)])
+        // A score of ZERO is a score — most short bodies never fork — so it has to be
+        // reachable, and distinguishable from the language that was never counted.
+        if (f % 3 !== 0) cog.push([f, r() < 0.3 ? 0 : Math.floor(r() * 60)])
         born(f)
         touched.add(table[f].path)
       } else if (live.length > 0) {
@@ -129,6 +138,7 @@ function synth(seed: number, files: number, funcs: number, commits: number): Fak
           died(pick)
         } else {
           set.push([pick, 3 + Math.floor(r() * 300)])
+          if (pick % 3 !== 0) cog.push([pick, r() < 0.3 ? 0 : Math.floor(r() * 60)])
         }
         touched.add(table[pick].path)
       }
@@ -148,6 +158,7 @@ function synth(seed: number, files: number, funcs: number, commits: number): Fak
       del,
       read,
       unread,
+      cog,
       files: [...touched],
     })
   }
@@ -159,6 +170,12 @@ function synth(seed: number, files: number, funcs: number, commits: number): Fak
     funcs: table,
     base,
     baseRead: base.slice(0, 20).map(([f]) => [f, 0x12] as [number, number]),
+    // Pre-window scores, which `fold` banks and a checkpoint has to carry — the field whose
+    // absence draws the oldest and largest part of a repo as a language nobody counted.
+    baseCog: base.filter(([f]) => f % 3 !== 0).map(([f]) => [f, f % 37] as [number, number]),
+    // Enough medians to exercise both arms of `tangleRamp`: the top band is `null`, so a body
+    // over 199 lines falls back to the raw count.
+    tangleBands: { median: [0, 2, 4, 9, 18, null] },
     baseTs: 1_499_000_000,
     head: 'head',
     truncated: 0,
@@ -201,7 +218,7 @@ function render(node: Node, out: string[], depth = 0): void {
       `birthBelow=${node.birthBelow ?? '-'}`,
       `touchBelow=${node.touchBelow ?? '-'}`,
       s
-        ? `score[surprise=${s.surprise.toFixed(6)} documented=${s.documented.toFixed(6)} churn=${s.churn.map((c) => c.toFixed(6)).join('/')} age=${s.ageDays?.toFixed(6) ?? '-'} touch=${s.lastTouchedDays?.toFixed(6) ?? '-'} commits=${s.commits.join('/')} hot=${s.hotShare?.toFixed(6) ?? '-'} analyzed=${s.analyzedShare?.toFixed(6) ?? '-'} source=${s.source} appeared=${s.appeared ?? '-'} edited=${s.edited ?? '-'}]`
+        ? `score[surprise=${s.surprise.toFixed(6)} documented=${s.documented.toFixed(6)} churn=${s.churn.map((c) => c.toFixed(6)).join('/')} age=${s.ageDays?.toFixed(6) ?? '-'} touch=${s.lastTouchedDays?.toFixed(6) ?? '-'} commits=${s.commits.join('/')} tangle=${s.tangle?.map((t) => t.toFixed(6)).join('/') ?? '-'} cog=${s.cognitive ?? '-'} hot=${s.hotShare?.toFixed(6) ?? '-'} analyzed=${s.analyzedShare?.toFixed(6) ?? '-'} source=${s.source} appeared=${s.appeared ?? '-'} edited=${s.edited ?? '-'}]`
         : 'score=-',
       node.agent
         ? `agent[${node.agent.predicted ?? '-'}/${node.agent.documented ?? '-'}/${node.agent.legible ?? '-'}/${node.agent.trap ?? '-'}]`
@@ -214,7 +231,7 @@ function render(node: Node, out: string[], depth = 0): void {
       node.folded
         ? `folded[${node.folded.lang.map(([k, v]) => `${k}:${v}`).join(',')}|${node.folded.author
             .map(([k, v]) => `${k}:${v}`)
-            .join(',')}|${node.folded.time.join(',')}]`
+            .join(',')}|${node.folded.time.join(',')}|${node.folded.tangle.join(',')}]`
         : 'folded=-',
     ].join(' '),
   )
