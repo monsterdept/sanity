@@ -445,8 +445,12 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
               pill and nothing on the other, so the unselected tab was bare text on a panel: it
               read as a label, and the sheet behind it went unfound. A track is what says "these
               two are one control and it has another position". */}
+          {/* Centred, and only this — a control at the left margin reads as a caption for
+              whatever sits under it, which is how the second sheet got missed once already.
+              The prose below stays ragged-right where prose belongs: centring a paragraph
+              makes both edges soft and it stops looking like something to read. */}
           <div
-            className="inline-flex items-center gap-0.5 rounded-full p-[3px]"
+            className="mx-auto flex w-fit items-center gap-0.5 rounded-full p-[3px]"
             style={{
               background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
               boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
