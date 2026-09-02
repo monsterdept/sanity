@@ -434,8 +434,47 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         <header className="shrink-0 border-b border-[var(--border)] px-5 pb-3 pt-4">
-          <h2 className="text-sm font-semibold">{tab === 'lenses' ? 'Lenses' : 'What it reads'}</h2>
-          <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+          {/* **The control IS the title.** There was an `h2` above this reading `Lenses` and a
+              tab under it reading `Lenses`, which is the same word twice and left the second one
+              looking like a heading rather than a thing to press. Two references live here and
+              naming them once, in the control that switches them, says both what this is and
+              that there is another one.
+
+              In the recessed track every other segmented control in this app uses — see
+              `RingCount` and `AgeReading`. The first version set a background on the SELECTED
+              pill and nothing on the other, so the unselected tab was bare text on a panel: it
+              read as a label, and the sheet behind it went unfound. A track is what says "these
+              two are one control and it has another position". */}
+          <div
+            className="inline-flex items-center gap-0.5 rounded-full p-[3px]"
+            style={{
+              background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
+              boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
+            }}
+          >
+            {(['lenses', 'languages'] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={tab === k}
+                onClick={() => setTab(k)}
+                className="rounded-full px-3 py-[3px] text-[12px] leading-none transition-colors"
+                style={
+                  tab === k
+                    ? {
+                        background: 'var(--accent)',
+                        color: 'var(--accent-foreground)',
+                        fontWeight: 600,
+                      }
+                    : { color: 'var(--muted-foreground)', fontWeight: 600 }
+                }
+              >
+                {k === 'lenses' ? 'Lenses' : 'Languages'}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
             {tab === 'lenses' ? (
               <>
                 The map is a project's structure: directories, files, functions. A wedge's width
@@ -450,27 +489,6 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
               </>
             )}
           </p>
-          {/* Two tabs rather than one long scroll: the second sheet answers a question somebody
-              arrives with mid-map ("why is this grey"), and burying it under twelve lens
-              entries is the same as not having it. */}
-          <div className="mt-3 flex gap-1">
-            {(['lenses', 'languages'] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setTab(k)}
-                aria-pressed={tab === k}
-                className="rounded-full px-2.5 py-[3px] text-[11px] leading-none transition-colors"
-                style={
-                  tab === k
-                    ? { background: 'var(--accent)', color: 'var(--accent-foreground)', fontWeight: 600 }
-                    : { color: 'var(--muted-foreground)' }
-                }
-              >
-                {k === 'lenses' ? 'Lenses' : 'Languages'}
-              </button>
-            ))}
-          </div>
         </header>
 
         {/* Inline `code` is scoped here rather than styled globally: this is the only surface
