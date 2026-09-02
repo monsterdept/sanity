@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-925 of 925 read · 153 surprising
+945 of 1012 read · 157 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -32,10 +32,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/agentapi.rs
 
 ### the file itself
-- spec 3 · served in 14 parts · read at `abd508d5a474` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:32:40Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This file implements the full loopback HTTP API server backing the agent-driven sanity protocol: project/app state (open, rescan, persist, focus/select), a task queue that spreads readings across files without repeats and resyncs on file changes, the lease-based reveal/report flow that enforces predict-before-reveal and refuses revision or partial reports, grade aggregation and summary/health/status endpoints, plus an extensive embedded test suite (the many snake_case `a_..._is_...` functions) that pins down these invariants.
-- found: Confirmed: project/app state, the file-spreading lease-based queue, the reveal/report protocol enforcing predict-before-reveal (with paged bodies and mangled-call detection), aggregation/summary/status/health endpoints, and the huge embedded test suite are all here. Beyond my prediction: it also runs and orchestrates reader subprocesses itself (run_wave/check/detached), restores/rescans all known projects on launch across two size-based lanes, watches the filesystem for changes (watch_tick/resync_changed), handles daemon lifecycle (retire/build_id/headless), and publishes/reads a loopback endpoint file for coordination between the CLI, window, and MCP shim.
+- spec 3 · served in 14 parts · read at `73e4aa59bd04` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:49:38Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: The core of the app's agent-facing API: the AppState/Project state machine (open projects, scan/trace status, run tracking) plus the loopback server implementing the next/reveal/report protocol agents drive — queueing which function to hand out next, spreading across files, tracking leases, grading and aggregating reports. Likely the largest and most heavily tested file in the repo, with a big block of unit tests written as invariant sentences rather than typical test_x names.
+- found: Exactly what I predicted structurally: the AppState/Project state machine, the axum router implementing sanity_open/next/reveal/report/check/status/summary etc, queueing logic (interleave/spread across files, leases), grading and aggregation, restore-on-launch logic, run/wave orchestration for spawning reader subprocesses, watch-tick rescanning, and a massive block of unit tests named as invariant sentences (a_trap_must_say_what_it_is, etc). What I underestimated hugely: the sheer depth of engineered-against-real-failure-modes logic — staleness/resync on file edits mid-read, paged body delivery with server-stamped provenance to prevent self-certification, contract-fingerprint mismatch detection, priming/CLAUDE.md contamination warnings phrased to avoid overclaiming, two-lane restore scheduling by repo size, endpoint claim/release protocol for daemon handover, and extensive protection against a reader's own reasoning being used to game the measurement. This is less a CRUD API than an adversarially-hardened measurement instrument with the tests serving as a changelog of real incidents.
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: The module doc only sketches the philosophy (predict-then-look, why an agent measures instead of perplexity); it says almost nothing about the concrete mechanics (leases, paging, staleness, restore lanes) which are documented instead via dozens of dense inline comments throughout the file, each one recounting a specific bug/incident — that distributed documentation is the file's real 'header' and can't be summarized from the top-level doc alone.
 
 ### `persist` — TRAP
 - spec 3 · read at `6b38c32ca845` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:41Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -220,12 +221,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: Docs explain the overall philosophy (agent never picks) well but don't call out the single-known-project auto-resolve special case, which I initially predicted as always requiring a match.
 
-### `open_project` — QUIRKY
-- spec 3 · read at `10f9c2bba954` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:30:20Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: An Axum handler that takes an OpenRequest (a repo path), validates/resolves it via resolve_open, either finds an existing project in Shared state or creates a new one and kicks off background scanning/parsing, and returns a JSON summary (project id, counts via count_files/count_funcs, maybe a note like scan_note/priming_note) describing the opened project's initial state to the CLI/frontend.
-- found: Resolves/validates the path (must be a dir and a git repo), registers it in a "restoring" list so the UI shows progress during the scan, runs a full blocking scan+shallow blame trace with a persistent scan cache, reloads/refreshes the `.sanity/` report index and README against the fresh scan, rebuilds the Project via `Project::rescan` (preserving prior state but clearing leases/recent_files since ids/bodies may have shifted), and returns a large JSON blob with counts (functions/files/excluded/oversize/assessed/stale), repo shape breakdown, contract/priming warnings, sanityignore guidance, scan timing, and the full agent protocol text embedded in the response.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
-- note: The doc field shown was actually the file_doc (module-level rationale for the API's existence), not documentation of this specific function, so `documented` should be graded as none for open_project itself.
+### `open_project` — QUIRKY — TANGLED
+- spec 3 · read at `141a0b43e22c` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:05Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: HTTP handler for an agent to open/register a project for a sanity session: validates the requested path, checks whether it's already loaded or needs scanning (possibly loading from a cached bank), triggers or waits on the scan, and updates the shared server state to point at this project. Returns a JSON summary — counts of files/functions, priming/contract notes, and enough initial context for the agent to start calling sanity_next — with error JSON if the path is invalid or inaccessible.
+- found: Resolves and validates the path (must be a dir, must be a git repo), tracks a "restoring" placeholder in shared state for UI visibility during the (possibly long) scan, runs the scan on a blocking thread using a persistent ScanCache plus deepens to Depth::Files (never Depth 2 automatically), then reloads/refreshes the .sanity report index, recomputes stale/assessed counts, rebuilds the Project via a rescan helper that safely handles an already-in-flight run, clears stale leases/recent files, and returns a large JSON blob with functions/files/excluded/oversize/shape/unscanned counts, contract and priming warnings, agent_docs, a sanityignore suggestion message, scan timing/notes, and the full agent protocol string.
+- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+- note: No inline function doc was provided for this one — only the module-level file_doc — so the whole 259-line control flow (caching, in-flight run handling, staleness, lease clearing) had to be inferred purely from the code and its many inline comments.
 
 ### `scan_note`
 - spec 2 · read at `229afd11d13f` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:47:42Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -539,11 +540,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: full · derivable: no · legible: most · trap: no
 - note: I anticipated a simple grade-distribution/quadrant summary; the actual payload is built around by_position learning-curve and priming-exposure tracking — this endpoint is instrumenting the assessment protocol itself, not just summarizing repo health.
 
-### `from_state` — QUIRKY
-- spec 3 · read at `08cbea4a8983` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:20:07Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Iterates over the projects tracked in AppState (paths/names/config) and collects them into a ProjectList struct, likely including basic status or metadata for each project.
-- found: Builds the full sidebar ProjectList by merging three sources: loaded projects (state.projects, mapped to ProjectSummary with counts, trace/scan stats, run status, a 60s "working" heuristic, etc.), declined-scan projects (state.awaiting, cross-checked against the index for name/path, loading:false), and in-progress restores (state.restoring, loading:true with live progress). Dedupes across the three lists by key, then sorts by manual arrangement order (state.order) falling back to most-recently-touched.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+### `from_state` — QUIRKY — TANGLED
+- spec 3 · read at `1c961f6946ce` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:22Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Builds the ProjectList returned by the agent-facing loopback API by iterating over the currently-open/tracked projects in AppState. For each project it computes summary stats (assessed vs total, grade counts via Tally/GradeCounts::add, aggregate/aggregate_of), a status/health indicator, and the endpoint URL an agent should hit for that project, assembling the list structure the MCP tools consult.
+- found: Builds the ProjectList (for the UI sidebar, not directly the agent MCP surface as I guessed) by merging three sources: fully loaded state.projects (rich stats: functions/files/assessed/stale/working heuristic/run status/leased-reading ids), state.awaiting (scan declined for cost, zeroed counts, loading:false), and state.restoring (not yet reached, zeroed counts, loading:true with restore progress) — deduped so a project appears from only one source — then sorted by a user arrangement order falling back to most-recently-touched.
+- predicted: some · documented: none · derivable: no · legible: some · trap: no
 
 ### `health`
 - spec 2 · read at `3e18f26fffcc` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:05:12Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -652,11 +653,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: most · trap: no
 - note: The two-lane big/small partition and the active-project-first reordering were the surprising, undocumented-by-signature parts — the doc comments inline are extensive and explain the why very well, but none of that is visible from the signature/peers alone.
 
-### `trace_within_budget` — QUIRKY
-- spec 3 · read at `d61839e6a591` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:46:35Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This drives an incremental, budget-limited history scan for a repo — called from passive triggers (restoring projects at launch, or a watcher noticing a moved repo) rather than an explicit user request. It probably checks the scan cache for existing progress, uses `banked` as a previously stashed partial result, iterates commits/files while checking a time/size budget, invokes `on_progress` periodically, and returns a `TraceState` describing what got done and what's left.
-- found: Decides via trace::go whether tracing is affordable (Go::Run vs Go::Ask). If running, tries to cheaply upgrade depth to Lines using a banked "lines" hint plus a cached per-file blame check, then calls trace::deepen to actually walk history with progress callbacks, redraws the treecache if any depth was reached, and returns a TraceState. If declined (Go::Ask), returns an Untraced TraceState carrying just a cost estimate so the caller can offer the user a choice instead of spending time unasked.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
+### `trace_within_budget` — TANGLED
+- spec 3 · read at `a04fd7a639c2` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:25Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Walks the repo's commit/file history via `scan`, feeding it work up to some time or size budget, checking `scans` (a cache) for already-scanned state and `banked` as a possibly cached/previous result to resume from, reporting incremental progress through `on_progress`, and returns a `TraceState` summarizing how far it got and what's left unscanned — used only for implicit/background paths (restore-on-launch, watcher) rather than an explicit user-triggered trace.
+- found: Calls trace::go to decide whether to auto-run or ask the user (declining costly traces rather than spending a minute at launch silently). If running, it tries to restore a previously-banked depth ("lines"/"edits") cheaply from cache via relines/estimate before calling trace::deepen to walk as far as the budget allows, then redraws the treecache if any depth was reached, returning a TraceState with the depth reached and resolved/pending counts.
+- predicted: most · documented: some · derivable: no · legible: some · trap: no
+- note: The Go::Ask branch (auto-declining expensive repos rather than tracing) and the two-tier banked-depth restoration (lines then edits) are the real logic; the docstring only explains the policy context (implicit vs explicit gate application), not these mechanics.
 
 ### `watch_tick`
 - spec 3 · read at `d49c579cb009` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:08:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1057,11 +1059,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/assessment.rs
 
-### the file itself
-- spec 3 · served in 4 parts · read at `872b80d4ea6c` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:19:21Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: This file implements the on-disk `.sanity/` assessment store: markdown files (with embedded structured data) committed into the repo itself, replacing the old per-machine JSON cache in Application Support. It covers reading/writing/parsing these markdown "shards" (one per top-level directory), keying/hashing functions and their bodies so a reading can detect staleness when code or docs change, rendering entries/shards/an index, computing grades and dates, and pulling git metadata (author, HEAD) — plus a large battery of round-trip and staleness tests asserting the format's invariants (position, spec, priming, model, hash-ignores-formatting, etc).
-- found: Covers everything predicted, plus a per-axis question-versioning system (SPEC/PREDICTED_SINCE/LEGIBLE_SINCE/TRAP_SINCE) that expires individual grades when what they mean changes rather than the whole reading, a packed u16 bit-encoding of a reading for the replay timeline, priming/agent-docs detection, extra provenance fields (position, asked-vs-model, harness, when, by), and an orphan-shard sweep that only removes files the previous index itself linked.
-- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+### the file itself — TANGLED
+- spec 3 · served in 4 parts · read at `400113f4ee1b` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:48:17Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This file implements the whole assessment persistence layer: it hashes functions/files (body hash, reading hash) to key readings, shards them into markdown files by top-level directory (doubling as both human-readable report and authoritative store), loads/saves/refreshes that store, detects staleness when body/docs/spec/module-header change, captures git metadata (author, head commit) for provenance, and renders index/shard/entry markdown. A large cluster of tests verifies round-tripping and staleness-expiry semantics for this store.
+- found: The file implements the whole markdown-as-store assessment persistence layer, matching my prediction's shape, but with far more machinery than I predicted: a versioned SPEC/legible_current/trap_current system so individual grading axes (not the whole reading) expire independently when a question's meaning is rewritten; a packed 16-bit encoding of a reading's grades for the map's replay timeline with careful 3-state (unknown/no/yes) handling for backward compatibility; a forgiving line-oriented parser (parse_shard) that drops malformed entries without losing neighbors; a distinct file-vs-function reading scheme (FILE_ENTRY, file_key) sharing one map with functions; an orphan-shard sweep that only deletes files the tool itself previously linked from the index (never arbitrary .md files) to protect human-authored notes in .sanity/; priming/agent-docs and asked-vs-model provenance fields that render only on disagreement/relevance; paging detection for oversized bodies not staleness-safe; and hand-rolled ISO-date/civil-date conversion. Extensive tests cover round-tripping of every provenance field and the staleness/expiry edge cases.
+- predicted: most · documented: full · derivable: no · legible: some · trap: no
 
 ### `legible_current`
 - spec 2 · read at `8c75b2b322f6` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:04:16Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -1077,10 +1079,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `packed`
-- spec 3 · read at `ef75792ef708` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:20:17Z · by ross@rossturk.com · warm reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Packs a Report's four graded axes into one u16: predicted/documented/legible each as a 3-bit grade value (via a `g()` helper mapping None/Some/Most/Full to 0-4) at bit offsets 0, 3, 6, and the trap boolean at bit 9 — applying `grades()`'s derivable-forces-documented-to-none rule and gating legible/trap through legible_current/trap_current so a superseded-spec answer doesn't leak into the packed value.
-- found: Exactly as predicted: packs predicted/documented/legible as 3-bit grade values at offsets 0/3/6 and trap as a bit at offset 9, gating legible/trap through the current-spec checks and using grades() for the derivable override.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `4b588f3b1195` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:41Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Packs a Report's four small answers (three grade axes plus the trap flag) into a single u16 for compact per-function-per-commit storage. Applies override rules such as derivable forcing documented to none, and drops any axis that a spec change has superseded (via legible_current/trap_current/dated_axis), using 0 to mean absent/unread rather than an actual 'none' grade.
+- found: Packs predicted (bits 0-2), documented from r.grades() (bits 3-5, already forced to none if derivable), legible dropped to None if its spec is stale (bits 6-8), trap ANDed with trap_current (bit 9), and a separate tri-state derivable flag (unknown/no/yes) in bits 10-11 that preserves the reason even though grades() already applied its effect.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The derivable field is packed as its own tri-state (0=unknown/never asked, 1=no, 2=yes) rather than a boolean, specifically so old stored readings (bits read as 0) don't get silently interpreted as an asserted 'not derivable'.
 
 ### `dated_axis` — QUIRKY
 - spec 3 · read at `09495a3a8937` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:19:11Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -1443,11 +1446,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Test builds markdown text for one file with two function entries — "broken" has no reading bullet lines and "intact" has a full valid reading — calls parse_shard, and asserts the broken entry is entirely dropped from the output map while the intact one survives with correctly parsed fields (predicted grade, derivable flag).
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `scan_of` — QUIRKY
-- spec 3 · read at `68d8679266b2` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:17:41Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A test-fixture builder that takes an array of (path, name, ord, src) tuples, computes each function's identity via key_of(path, name, ord), hashes the source text (normalized per hash_ignores_formatting), and inserts entries into a map to construct a Scan struct, used by tests to build synthetic scans without the real scanner.
-- found: Builds a full synthetic Node tree (dir root -> file nodes -> func nodes) from (path, name, line, body) tuples, auto-incrementing an ordinal per (path, name) pair to compute key_of, hashing bodies via body_hash, synthesizing a file-level body hash from a fake header string, and wrapping it all in a Scan with a stub ScanStats (model "test", zero counts).
-- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+### `scan_of`
+- spec 3 · read at `cfd366dcb6fc` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:44Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Builds a test-fixture Scan by iterating (path, name, ord, body) tuples, computing each function's identity via key_of(path, name, ord) to match production identity, and deriving fields like loc and a content hash from the body string, grouping functions under their file paths to mimic a real scan closely enough for round-trip tests.
+- found: Builds a fixture Scan tree: for each (path, name, line, body) tuple, mints a func Node whose id comes from key_of(path, name, ord) where ord is a locally-tracked counter per (path,name) pair (disambiguating same-named functions), not the passed line number, which is instead stored as the node's line; body is hashed via body_hash. Functions are grouped into synthetic file nodes (each with a hash of a fake header string) under a root dir, wrapped in a Scan with mostly-zeroed/default ScanStats.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `a_stale_index_is_rewritten_on_open_and_an_absent_one_is_not_created`
 - spec 2 · read at `81d89007d616` · commit `51b9d8d` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T21:23:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1456,12 +1459,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 - note: I got the general shape right but missed the specific three-state Index enum (Absent/Current/Refreshed) and the important 'no rewrite of identical bytes' and 'refresh output byte-identical to save output' invariants, which are the real point of the test.
 
-### `writes_and_reloads_a_repo_assessment` — QUIRKY — TANGLED
-- spec 3 · read at `f9119e0a5992` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T22:00:22Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Builds a temp repo with a function, records a reading/report for it, writes the assessment out to .sanity/ via the write path, then edits the source file to insert lines before the function (so its line number shifts down), rescans, and reloads the assessment — asserting the reading is still matched to that function via its stable key rather than its now-moved line number, proving the store survives code moving beneath it.
-- found: Saves reports for two functions in two different top-level dirs, checks the assessment shards per top-level dir (.sanity/src-tauri.md, web.md) with a README index pointing to the app, then reloads against a rescanned version where both functions moved down and one function's body also changed — asserting both readings are found by stable key, the unchanged-body one is still fresh, and the changed-body one is marked stale.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
-- note: Missed the sharding-by-top-level-dir and README-index assertions entirely, and missed that the test deliberately distinguishes staleness-by-body-change from mere line-movement rather than just testing the move survives.
+### `writes_and_reloads_a_repo_assessment` — QUIRKY
+- spec 3 · read at `e54a355bdd7f` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:15Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A round-trip test: builds one or more fake readings/reports, writes them out via the assessment store's write path (producing the markdown + JSON pair described in the file doc) into a temp dir, then reloads via the open/load path and asserts the reloaded assessment equals what was written — field by field, similar in spirit to the earlier `same` helper. Probably checks that the markdown file and the authoritative JSON stay consistent with each other after the round trip.
+- found: Saves reports for a fake scan, checks the output is sharded into per-top-level-dir markdown files plus a README index with expected boilerplate text, then reloads against a mutated scan where one function moved lines (body unchanged) and another moved and had its body rewritten — asserting both are found by identity despite the move, and that staleness is correctly false for the unchanged body and true for the changed one.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: The test is really about identity resolution surviving a line-number move plus correct staleness detection on body change, not a generic round-trip equality check as I guessed; I also missed the sharding/index assertions entirely.
 
 ### `shards_by_top_level_dir`
 - spec 2 · read at `6b812ed1b7d8` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:21:24Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -2510,18 +2513,18 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/commands.rs
 
 ### the file itself
-- spec 3 · served in 3 parts · read at `8897577e4249` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:31:44Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This file is the full Tauri IPC surface: a flat collection of #[tauri::command] async functions, one per frontend-invokable operation, with little shared structure beyond that tag. Judging from the peer names, it groups into project management (add/select/reorder/forget/reset), git history/scanning (scan_repo, scan_history, history_log/deltas/funcs, commit_detail), code search/reading (search_project, file_functions, read_source, function_sources), execution tracing (trace_project, estimate_trace, explain_trace, stop_trace), CLI setup (install_cli, cli_status, cli_link_dirs), and misc utilities (sync_theme_menu, save_movie, read_curve, agent_reports). Most functions are probably thin wrappers that delegate real logic to other modules and just adapt types/errors for Tauri.
-- found: This is indeed the full Tauri IPC command surface, grouped roughly as predicted: scanning (scan_repo, scan_history), history replay (history_tables/log/scoped/deltas/funcs, commit_detail, function_history), project lifecycle (add/select/reorder/forget/reset_project), tracing (trace_project, estimate_trace, explain_trace, stop_trace), code reading (read_source, open_code_window, function_sources), search/links (search_project, function_links), CLI install (install_cli, cli_status, cli_link_dirs), agent-facing polling (agent_reports, agent_activity, projects, harnesses, start_check/stop_check, set_reader), and misc (sync_theme_menu, save_movie, read_curve). What I underestimated: these are NOT thin wrappers — many carry substantial inline logic (progress streaming, cancellation flags, staleness/live-tree reconciliation in agent_reports, careful path-canonicalization security checks, git subprocess parsing with custom delimiters in commit_detail) and are extensively commented with design rationale (why a guard was removed, what hazard something replaced) rather than mechanical description.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: The single doc line "The `invoke` surface. Frontend ↔ Rust is Tauri commands — no server, no sidecar." describes only the file's category, not its actual density of embedded design decisions and non-trivial logic per command.
+- spec 3 · served in 3 parts · read at `4bb3634b9518` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:48:13Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: The flat collection of #[tauri::command] functions forming the entire Rust-to-frontend IPC surface: project management (add/select/reorder/forget/reset), repo scanning and history/blame retrieval, trace/agent-explain features, CLI install helpers, theme sync, and search/read utilities. Mostly thin wrappers validating arguments and delegating to logic in other modules (trace.rs, scan, history), with state threaded through via Tauri's State.
+- found: Exactly what I predicted structurally: the whole Tauri invoke surface for the app, covering scanning, history/blame/trace, project list management (add/select/reorder/forget/reset), CLI install/status, theme sync, code viewing, search, commit detail, function history, movie export, and starting/stopping agent reader runs. What I underestimated is how much of the file is NOT thin wrappers — many commands carry substantial logic (progress emission, caching/staleness decisions, path-traversal guards, git subprocess invocation and parsing, symlink installation with PATH resolution nuance) plus extensive prose comments explaining the reasoning and history behind each design decision, rather than being simple pass-throughs to other modules.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: The header doc ('The invoke surface... no server, no sidecar') is accurate but minimal; the real documentation is the extremely dense per-function doc comments explaining WHY each command is shaped the way it is (often referencing past bugs/incidents), which could not have been derived from the code alone.
 
-### `scan_repo`
-- spec 3 · read at `a2cfffd87778` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:30:12Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: The Tauri command invoked from the frontend to scan a repo: walks the pipeline (scan → parse → heuristic/surprise scoring), likely emitting progress events to the app handle along the way (feeding the assembling-map UI), registers/updates the project in the shared agentapi state, and returns the whole scored Scan tree as one payload (per the docs) rather than streaming it, converting any error to a String.
-- found: Validates the path is a git repo, publishes a placeholder "restoring" project entry (in memory and on disk) before doing any work so quitting mid-scan isn't lost, runs scan::scan on a blocking thread (emitting scan-progress/scan-score/scan-shape events for the live-assembling UI), then deepens history to Depth::Files (reading the commit log, since this is an explicit user-initiated open), clears the restoring placeholder, banks scan timing stats for future estimates, publishes/updates the project in shared state and explicitly focuses it (unlike agent-initiated scans), then returns the tree slimmed of functions.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: The pre-registration of a placeholder "restoring" row before the scan starts (so a slow/wrong scan is visible immediately) and the explicit distinction between window-initiated focus vs agent-initiated scans were not derivable from the doc/signature alone.
+### `scan_repo` — QUIRKY — TANGLED
+- spec 3 · read at `6c93296b83b6` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:48Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: The Tauri command invoked from the frontend to kick off a repo scan: it validates/resolves the requested path, registers the in-progress scan in shared state (so a second call can cancel or dedupe), and runs the tree-sitter parse walk over the repo's files, emitting progress events to the frontend via AppHandle as it goes. It builds and returns a Scan struct (or an error string) once the walk over all files completes, without doing the git blame/history work which the file doc says lives elsewhere.
+- found: Validates the path is a dir and a git repo, publishes a pending "restoring" sidebar row and persists it before doing any work, then spawns the CPU-bound tree-sitter+blame scan on a blocking thread with progress/score/shape emit callbacks, deepens the trace to commit-log depth afterward, clears the pending row, records scan timing for future estimates, publishes the result into shared project state (for both the window and MCP agents to see) with focus, and returns a slimmed Scan.
+- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+- note: The file doc implies history/blame lives outside the scan proper, but this function still calls trace::deepen to read the commit log right after scanning, and does a lot of sidebar/state bookkeeping neither the signature nor docs hint at.
 
 ### `scan_history` — QUIRKY
 - spec 3 · read at `0a84dbcc23aa` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:07Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -2603,9 +2606,9 @@ What this is and how to add to it: [README.md](README.md)
 - note: This file is just the invoke surface; the real flag/state lives in crate::reports, so behavior can't be fully understood from this command alone.
 
 ### `trace_project` — QUIRKY — TANGLED
-- spec 3 · read at `48335c393cba` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:46:44Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A Tauri command invoked when the user requests deeper history tracing for the repo at `path`. It starts a timer, performs the additional history read/trace (using `depth` to bound how far to go), updates shared state with the newly traced data, and returns the elapsed wall-clock time in seconds as f32 so the UI can compare it to a prior time estimate.
-- found: Tauri command that resolves a target trace depth (files vs lines, defaulting based on current state or explicit `depth` param), resets the stop flag and pending state, runs `trace::deepen` in a blocking task with progress/scan callbacks that update shared state live, then on completion stores the resolved scan/depth, persists a trace note to reports, redraws the tree cache map if traced, and returns elapsed seconds.
+- spec 3 · read at `ca588cb94324` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:57Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the project by `path` in shared state, then reads more git history for it (deeper than what's currently loaded, per `depth`), timing how long that read takes with an Instant. Returns the elapsed seconds as f32 so the UI row can compare it against the earlier `estimate_trace` prediction and show how accurate the estimate was; errors (e.g. project not found) come back as Err(String).
+- found: Tauri command that steps a project's history-trace depth one rung deeper (files→lines→edits, or a specific requested depth), clears the stop flag and pending-price marker, runs the actual deepening work (crate::trace::deepen) in a blocking task with progress/snapshot callbacks that update shared state live, then on completion stores the reached depth, persists it to disk (note_trace) and to the tree cache (treecache::redraw) so it survives a relaunch, and returns the wall-clock elapsed seconds.
 - predicted: some · documented: some · derivable: no · legible: some · trap: no
 
 ### `stop_trace`
@@ -2865,9 +2868,9 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `def`
-- spec 3 · read at `67e13c921cc6` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T04:51:19Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Test-fixture constructor — given a name and a list of call targets, builds a minimal FuncDef with those two fields set and everything else (location, language, etc.) defaulted/placeholder, so the scenario tests below (a_call_becomes_a_caller, etc.) can build inputs tersely.
-- found: Test-fixture constructor building a minimal FuncDef from a name and call list; other fields (signature synthesized from name, empty body, no doc/owner/shape, placeholder line numbers) are filled with defaults.
+- spec 3 · read at `33d9acdf5b3c` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:40Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A test-fixture helper that builds a minimal FuncDef with the given name and calls list, filling every other field (signature, body, doc, owner, line numbers, shape, cognitive) with cheap/default placeholder values, so the edge-resolution tests below (the a_..._ named ones) can construct funcs tersely.
+- found: Test-fixture helper building a minimal FuncDef with the given name and calls list, all other fields set to cheap defaults/placeholders.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `wired`
@@ -2942,6 +2945,39 @@ What this is and how to add to it: [README.md](README.md)
 - expected: A #[test] function that sets up two functions which call each other (a mutual pair), runs the edge-resolution logic (wire/resolve), and asserts each function ends up with exactly one caller count — verifying that a reciprocal call relationship isn't double-counted as two callers for either side.
 - found: Builds a Rust file with two functions ping/pong that call each other, wires the edges, and asserts each function's `incident` (caller) count is 1, not 2 — confirming a mutual call pair is counted once per side.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+## src-tauri/src/edits.rs
+
+### `remember`
+- spec 3 · read at `3063025b0dbf` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:50:19Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Gets or creates the Vec<Day> for `key` in `into`, converts `ts` to a day bucket, and either extends/increments the last Day entry if it falls on the same day as the most recent one, or pushes a new Day entry onto the end — relying on commits arriving oldest-first (reverse walk) so appending to the end is always correct and O(1), with no search needed.
+- found: Gets-or-creates the Vec<Day> for `key`, converts `ts` to a day, and extends the last entry if it matches; but also handles the out-of-order case (a merged timeline, not the normal --reverse walk) by searching for/inserting-and-resorting the correct day entry rather than assuming append-only order.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The handed docs say the entry is 'never searched for', but the code has a real fallback branch that does search (and re-sorts) for out-of-order timestamps from a merged timeline — the doc describes only the common path.
+
+### `save`
+- spec 3 · read at `40568308d53b` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:47:38Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: save() serializes the Edits struct (likely to JSON) and writes it to a cache file path derived from `repo`, silently ignoring/logging any I/O or serialization errors since failures here are non-fatal and the data is recomputable from git.
+- found: Computes a cache slot path via slot(repo); if none, returns early. Prunes old-format sibling slots via reports::prune_slots. Encodes edits with bincode+serde using a shared config(), and writes bytes to the path, silently discarding any write error.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `born_days`
+- spec 3 · read at `c5dc84894a4d` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:28Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Runs `git log --max-parents=0 --format=%ct` (or similar) to get the commit timestamps of all root commits, picks the oldest (smallest/earliest) one, and returns the number of days between that timestamp and now as a u32. Returns None if the git command fails or produces no output.
+- found: Shells out to `git rev-list --max-parents=0 HEAD` to find all root commits, then `git show -s --format=%ct` on each to get their timestamps, takes the minimum (oldest), and returns days since then as u32; None on any git failure.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `plan` — QUIRKY
+- spec 3 · read at `6ee1c4722cdc` · commit `d0800d1` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:50:30Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Runs three cheap, constant-time git commands (rev-list --count --no-merges, and first/last commit dates) to gather what's needed to price a full history walk without doing the walk itself — commit count and the repo's age span — packaged into a Plan struct that estimate later turns into a time/cost estimate. All git calls use --no-merges to match what the timeline walker itself traverses.
+- found: Reads HEAD via git rev-parse (returning Plan::default() if no HEAD), computes the churn window ladder from the repo's age (born_days, falling back to CAP_DAYS if undated), then counts non-merge commits since the widest window via git rev-list --count, bundling commits/head/windows into a Plan.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `a_young_repo_gets_a_ladder_it_can_fill`
+- spec 3 · read at `d032565a2a7f` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:50:14Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Constructs a scenario with a short repo lifespan (e.g., ~27 days) and calls the churn-window-generating function (windows_for or similar), asserting the returned four-rung ladder scales down to fit that lifespan rather than defaulting to fixed values like 30/60/90/180 days, which would otherwise return identical counts across all four rungs for a young repo.
+- found: Tests windows_for(days) across several ages: old repos get the fixed LADDER unchanged, a 27-day-old repo gets scaled windows [4,9,13,27] with each rung strictly increasing, a 109-day repo gets [18,36,54,109], and repos with 0 or 1 day get [1,1,1,1] rather than zero-width windows.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ## src-tauri/src/harness.rs
 
@@ -3884,12 +3920,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds Sanity app menu (about/install-cli/hide/quit), File menu with "Add Project…", Edit menu with predefined clipboard items, View menu with an Appearance submenu of three checkable theme items (light/dark/system, system checked by default), and a Window menu; returns the assembled Menu plus a ThemeMenu holding the three checkbox item handles.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 
-### `run`
-- spec 3 · read at `758056b76e74` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:29:18Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: The Tauri application entry point: builds the app with tauri::Builder, registers plugins, sets up shared app state (scan cache, project list), builds the window and menu via build_window/build_menu, registers the invoke_handler with all the command functions (scan, trace, project management, etc.), and starts the event loop with .run(). Likely also wires up the loopback/agent API server mentioned in the file doc.
-- found: Builds the Tauri app: manages shared agentapi state, sets up the window/menu (macOS-only theme/open-project/install-cli menu handling), restores prior projects with shape/progress event emitters, spawns the agentapi loopback server, registers single-instance/dialog/opener plugins, registers the full invoke_handler command list, and on RunEvent::Exit stops all runs and releases the endpoint file so external MCP clients know the backend died rather than retrying into a hole.
-- predicted: most · documented: none · derivable: no · legible: most · trap: no
-- note: The exit-handling rationale (endpoint file release ordering vs stopping runs, and why it matters for MCP shim retry logic) wasn't derivable from the signature — it's the most surprising/load-bearing part of the function.
+### `run` — TANGLED
+- spec 3 · read at `7d0d19758827` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:17Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: The Tauri application entry point — builds the `tauri::Builder`, registers plugins and the full set of `#[tauri::command]` invoke handlers exposed to the frontend, wires up the app menu (via `build_menu`/`ThemeMenu::select`) and window (via `build_window`), sets up shared/global state (scan cache, etc.), and finally calls `.run(...)` to start the event loop — mostly wiring/boilerplate rather than logic.
+- found: Builds the Tauri app: manages shared agent-API state, sets up window/menu (macOS menu with theme/open-project/install-cli event forwarding to the webview), restores the previously open project with progress/shape emitters, spawns the loopback agent API server as an async task, registers the single-instance plugin plus dialog/opener plugins, registers ~40 invoke handlers, builds and runs, and on RunEvent::Exit stops all agent runs and releases the endpoint file before the process dies (ordered deliberately so live readers get told the backend is going away before the claim of its existence is withdrawn).
+- predicted: most · documented: none · derivable: no · legible: some · trap: no
+- note: I undersold this as boilerplate; real behavior lives here — restoring the last project on launch, spawning the agent API server, and the exit-ordering that prevents readers from being sent to a dead endpoint.
 
 ## src-tauri/src/links.rs
 
@@ -3930,11 +3966,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `func`
-- spec 3 · read at `581959df9526` · commit `d92c31f` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:30:10Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: A test-fixture helper (given the surrounding snake_case sentence-style test names) that constructs a FuncDef struct from the given name, line, calls slice, and optional shape hash, filling in any other FuncDef fields with sensible defaults so tests can build sample function tables concisely.
-- found: Test helper constructing a FuncDef from name/line/calls/shape, defaulting signature/body to empty, doc/owner to None, and end_line to start_line+4.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-- note: docs field shown was the enclosing module's file_doc, not this function's — it has no doc of its own.
+- spec 3 · read at `a86fe15809da` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:12Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A small test-helper constructor: builds and returns a `FuncDef` from the given name, line number, list of callee names (converted into owned Strings), and optional shape hash used for clone comparison, filling in any other FuncDef fields with sensible defaults/empty values so test fixtures in this file can build small link tables concisely.
+- found: Matched almost exactly: a test-fixture constructor building a FuncDef with empty signature/body/doc/owner/cognitive and calls converted to owned Strings. Only missed the arbitrary end_line = line + 4 filler.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `table`
 - spec 3 · read at `b91a4ffa1194` · commit `d92c31f` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:24:53Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -4166,12 +4201,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/model.rs
 
-### the file itself
-- spec 3 · served in 3 parts · read at `95e6394a39fb` · commit `6deb237` · read by claude-sonnet-5 · via claude · when 2026-08-31T03:36:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This file defines the core shared data model for the visualization tool: a Node tree (dir/file) that aggregates per-function Scores (temperature = "surprise", distinct from LOC/size) up through directories, a Lang enum for language detection from file extensions/labels, a Provenance enum (e.g. human vs model-authored) with weighting that affects scoring, and Cols for column layout. It implements serialize/deserialize for persisting this model, and aggregation logic (Node::aggregate, Node::visit, Node::slim) that rolls up hot-share/temperature through the tree using LOC-weighted, edge-based (not child-count) rules, treating unreadable subtrees as absent rather than zero. The bulk of the file is unit tests (the snake_case peers) asserting these aggregation invariants.
-- found: The file defines the core shared model: Lang (language enum with extension/label mapping and conservative heuristics for ambiguous extensions), Provenance and Source enums for explanation trustworthiness, Score (surprise/temperature vs hot_share, documented, churn, age, commits, wiring/clone-group counts), Node (the wedge tree with dir/file/func kinds, carrying extent in bytes, signature/owner for reader identification, wiring and clone metadata), Cols (columnized per-function stats for distributions without full function nodes), and Node methods: dir() constructor, aggregate() (LOC-weighted, edge-summed roll-up of scores and wiring up the tree, absence-preserving), unreadable(), visit(), slim() (drops function children but keeps rolled-up columns/scores, verbose full-struct construction to avoid O(n^2) clone), and functions_of() (batched function lookup by path in one tree walk). Extensive tests assert aggregation invariants. My prediction covered the shape (Node tree, Score with temperature/hot_share distinction, Lang, Provenance, aggregation being LOC-weighted and edge-based) but missed most of the actual richness: the wiring/reach fields (incident/away/resolvable/orphans/sinks), clone-group fields, the Cols columnar distribution mechanism and its rationale, the extent-in-bytes/signature/owner fields for reader-facing reveal, and the historical bugs the extensive comments describe (label vs lowercase serialization mismatch, slim-twice bug, wiring-mean-vs-sum bug).
-- predicted: most · documented: full · derivable: no · legible: most · trap: no
-- note: The comments are unusually rich with post-mortem narrative (specific repos like ceph/kibana/htop, specific past bugs and their consequences) that a header-only summary would never convey — this is a case where per-item docs carry far more signal than any file-level docstring could.
+### the file itself — TANGLED
+- spec 3 · served in 3 parts · read at `6ce13c4343fb` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:48:43Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Core data-model file: defines Node (dir/file/func tree shape), Score (surprise/temperature plus churn/age/commits), Lang (language detection by extension/label), Provenance (human vs model-authored weighting for discounting), and Cols (column/wiring bookkeeping), plus aggregate/slim/visit operations that roll a directory's score up from its children as an LOC-weighted hot share (fraction of lines that are hot, not a mean of scores), with unreadable subtrees rolling up as absent rather than zero. Tests pin invariants: aggregation is LOC-weighted not per-function, wiring rolls up by edges not children, model-authored text must not discount temperature, and hot share composes correctly through nested directories.
+- found: model.rs is the shared vocabulary/data-model: Lang (enum + extension/label tables), Provenance (weight for how much an explanation can cool a wedge, deliberately excluding model-authored text), Source (Proxy/Model/Agent), Score (surprise/documented/churn/commits/tangle/cognitive/hot_share/analyzed_share), Node (the tree: dir/file/func with wiring counts incident/away/resolvable/orphans/sinks, clone_group/clone_size/comparable, cols, unparsed/unparsed_here), Cols (columnized per-function numbers for a 'slim' tree), and Node::aggregate/slim/visit/functions_of. aggregate is LOC-weighted, sums wiring edges rather than averaging ratios, computes hot_share over analyzed lines only, and is idempotent; slim() builds a lightweight tree without function children (keeping rolled-up Cols) for large-repo performance.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: Core shape (Node/Score/Lang/aggregate LOC-weighting/hot_share-not-mean) was predictable from the header, but the wiring roll-up (incident/away/resolvable/orphans/sinks summed as edges), clone-group fields, tangle/cognitive, Source/analyzed_share (gray-vs-measured-zero), and slim()/Cols for large-repo payload size were not guessable from the given header alone.
 
 ### `serialize`
 - spec 3 · read at `1b5cde81fa57` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:49:05Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -4193,10 +4228,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `from_extension`
-- spec 2 · read at `5697288466f2` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:02:48Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: A large match/if-chain over the file extension string mapping known extensions (rs, ts, tsx, js, jsx, py, go, etc.) to their corresponding Lang enum variant, returning None for anything not explicitly recognized — no fuzzy or best-guess matching, just an exhaustive literal lookup table, which is why the function runs 93 lines despite being conceptually a single lookup.
-- found: Exhaustive literal match over ~60 languages' extensions to Lang variants, None for unrecognized. Missed the interesting part: deliberate tie-break comments for ambiguous extensions (.h→Cpp not C for asymmetric-parse-failure reasons, .v→Verilog not V, .pl→Perl not Prolog, .zsh gets its own grammar).
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `5087602d3836` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:43Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Iterates the LANGS table looking for an entry whose extension list contains `ext`, returning that Lang wrapped in Some, or None if no entry matches — a simple linear scan with no fuzzy matching or default fallback.
+- found: Linear scan over LANGS for the entry whose extension list contains `ext`, returning its Lang or None.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `label`
 - spec 2 · read at `036f950c5ee4` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:04:10Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -4218,25 +4253,25 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: Missed the clamp, which is a real detail (guards against a surprise value going out of the valid color range) but a minor one.
 
-### `of`
-- spec 3 · read at `479ef9ed0f5c` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:40Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Builds a `Cols` struct by iterating over `funcs`, skipping any non-function nodes defensively, and pushing each function's loc/commits/touched/callers/calls/clone-group info into parallel Vec columns — using a -1 sentinel wherever the underlying Option is None (mirroring the wire format described in api.ts's `Cols` interface, which said absences are -1 rather than null to keep columns flat number arrays).
-- found: Matches the -1-sentinel prediction, but the details are more nuanced than a generic "push value or -1": commits/touched are gated together on `age_days.is_some()` (both -1 if no history at all, even if commits itself could be known), and clones uses a genuine three-state encoding (-1 never compared, 0 compared-no-twin, N clone size) rather than a simple absence check.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The file-level doc explains the size/color philosophy but says nothing about the -1 sentinel encoding scheme; that rationale lives only in inline comments on this function.
+### `of` — QUIRKY — TANGLED
+- spec 3 · read at `7f41b67dbf20` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:31Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Filters the given slice of Nodes down to actual function nodes (skipping any non-function children defensively), then builds a Cols struct-of-arrays by pushing each function's relevant fields (e.g. name, line count, score/complexity) into parallel columns instead of keeping an array-of-structs, for more compact/efficient storage or serialization.
+- found: Filters nodes to actual functions and pushes each one's fields into parallel columns (loc, commits-per-window, days-since-touched, callers, calls, tangle, clone size), using sentinel values (-1, or [-1;4]) to distinguish 'no git history' from real zero counts, and a three-state encoding for clones (-1 never compared, 0 compared-no-twin, n clone group size) and tangle (compressed float-to-int scaling).
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
 
 ### `dir`
-- spec 3 · read at `a5506c8e4df7` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:30:32Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: A simple constructor that builds a Node representing a directory — setting its path and name, kind to Dir, an empty children vec, and zeroed/default aggregate fields (loc, score, counts) that will later be filled in by aggregate once its children are known.
-- found: Exactly a plain struct literal constructor: id/path set to `path`, name to `name`, kind Dir, and every other field (score, loc=0, children=empty, funcs=0, bytes=None, etc.) at its default/None — with a comment noting `bytes: None` specifically is deliberate (a directory has no extent since it's never read directly, rather than a summed value).
+- spec 3 · read at `e53895a00875` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:53Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Constructs a Node representing a directory: sets kind to Dir, stores path and name, and initializes children to an empty Vec along with default/zeroed values for the aggregate stats (score, lines, commit counts, etc.) that get filled in later by aggregate(). The extra length probably comes from comments explaining why certain fields start at a particular default rather than a full computation happening here.
+- found: A plain struct-literal constructor for a directory Node: sets id/name/path/kind, and every other field (score, loc, lang, hotspots, callers, clone info, cols, etc.) to its empty/zero/None default, to be filled in later by aggregate() or the trace/model passes. One comment explains why `bytes` is None rather than a summed value.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: The file_doc covers the size/color scoring convention for the whole module, not this constructor specifically.
 
-### `aggregate` — TANGLED
-- spec 3 · read at `c55fcd29bfdd` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:29Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A recursive, post-order method on Node: first calls aggregate() on each child, then rolls up loc as the sum of children's loc, and computes the node's own Score as an LOC-weighted aggregate of children's scores (churn, temperature/hot_share) rather than a simple mean, so a tiny hot file doesn't dominate a big cold directory. It likely treats unreadable/unanalyzed subtrees as excluded from the weighted denominator (absent, not zero) per the test names, computes hot_share as the LOC-weighted share of hot lines rather than an average temperature, and rolls up "wired" status by counting edges rather than by whether children are wired.
-- found: Post-order recursion, LOC-weighted rollup, wiring summed as edges (not children) and left absent if nothing underneath resolves calls — all as predicted. Missed several specifics: age is max (oldest surviving code) and touched is min (most recent) exactly as I guessed for the TS twin but got right here conceptually; hot_share is computed only over analyzed lines with leaf-vs-directory branching (Func leaves count in/out binary, directories carry their own analyzed_share*hot_share); commits/all_commits are deliberately left as 0/None here because a separate history pass fills them in (summing children would double count a shared commit) — I did not predict that gap at all; also surprised by the comment noting a real bug found by a previous reader (reaggregate in api.ts disagreeing on the Proxy-source exclusion).
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
-- note: commits/all_commits are intentionally left as placeholders (0/None) here, filled later by apply_dir_history — anyone reading aggregate() in isolation would wrongly assume commit counts are rolled up here.
+### `aggregate` — QUIRKY — TANGLED
+- spec 3 · read at `2ca4845935e6` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:35Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Recursively walks the Node tree (post-order, since children must be aggregated before their parent), and for each directory node computes its LOC as the sum of children's LOC and its score/temperature as an LOC-weighted average of children's scores rather than a plain average. This mutates `self` in place, propagating from leaves (functions/files) up to the root.
+- found: Recursively aggregates children first, then rolls up LOC, unparsed counts, wiring stats (incident/away/resolvable/orphans/sinks, summed not averaged), and a whole Score struct (surprise, documented, churn, tangle, cognitive-summed, age as max, last_touched as min, hot_share over analyzed lines only) all LOC-weighted, skipping children with no score/no answer for a given field rather than treating absence as zero.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: The function doc only explains the LOC-weighting rationale for temperature; it says nothing about the unparsed/wiring/tangle/cognitive/age/touched roll-ups, which are each individually commented inline instead.
 
 ### `unreadable`
 - spec 3 · read at `ec2b0b2bb922` · commit `3528c54` · read by claude-sonnet-5 · via claude · when 2026-08-24T22:04:10Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -4250,11 +4285,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Calls f(self) then recursively calls c.visit(f) for each child in self.children — exact pre-order depth-first walk as documented.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `slim` — QUIRKY — TANGLED
-- spec 3 · read at `c69eb8ad1bf8` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:46:52Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Recursively rebuilds this Node tree but drops the per-function children (the "ring") from files, keeping each file/directory's already-rolled-up size/score/language stats intact. This produces the lightweight tree sent to the webview on project load, since the full function list is only fetched later on demand via file_functions.
-- found: Explicitly rebuilds the Node field-by-field (deliberately avoiding `..self.clone()` to prevent quadratic copying of all descendants) so files drop their function children while keeping rolled-up stats like score, hotspots, and the wiring share fields; it drops per-function-only fields (callers, calls, clone_group), computes `funcs` count from the children being discarded, and recomputes `cols` from children unless already slimmed (idempotency guard), then recurses into directory children.
-- predicted: some · documented: most · derivable: no · legible: some · trap: no
+### `slim` — TANGLED
+- spec 3 · read at `2e699813e283` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:09Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Recursively builds a new Node tree that omits Func-kind children entirely, keeping only directories and files (with their already-aggregated size/score/language), while recording somewhere (e.g. a count field) how many function children a file had so the UI knows there's more to fetch later via file_functions. It clones/copies the rest of each node's fields rather than mutating self, since it returns a new Node by value.
+- found: Explicitly reconstructs a Node field-by-field (not via clone, to avoid quadratic copying of children), dropping a file's function children but recording their count in `funcs`, keeping wiring roll-ups (incident/away/etc.) but dropping per-function-only fields (callers/calls/clone_group/clone_size), and computing `cols` from children unless already slim (empty children), in which case it preserves the existing cols to stay idempotent.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: I didn't anticipate the explicit-field-list-instead-of-clone optimization, nor the cols idempotency handling for re-slimming an already-slim tree.
 
 ### `functions_of`
 - spec 3 · read at `7e86c4b34314` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:55:39Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -4264,10 +4300,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: I predicted the mechanism correctly but assumed it filtered children by function-kind explicitly; it just clones all of a File node's children wholesale, trusting a File's children are functions.
 
 ### `score`
-- spec 3 · read at `9693a414bc56` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:04:04Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: A small test-fixture helper (likely #[cfg(test)]) that constructs a Score struct from just the four given fields (surprise, documented, churn, age), filling in the remaining fields (commits, hot_share, analyzed_share, provenance, source, last_touched_days, all_commits, age_days) with fixed/sensible defaults so tests can build minimal Score values without listing every field.
-- found: Matched exactly as predicted: a minimal test-fixture constructor filling the four named fields and defaulting the rest (commits=0, all_commits=None, last_touched_days=None, provenance=Source, hot_share=0.0, source=Model, analyzed_share=1.0). Only minor miss was guessing age would map to a plain `age` field rather than `age_days: Some(age)`, and I didn't anticipate source defaulting to Model specifically (vs e.g. Proxy) — a sensible choice for exercising the "analyzed" test paths given peer test names about hot_share/temperature.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `4aa0915f7279` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:55Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A small test/helper constructor that builds a Score from just the four most commonly-varied inputs (surprise, documented, churn, age), filling in the rest of the struct's fields (churn array broadcast or padded, tangle, cognitive, hot_share, analyzed_share, provenance, commits, source) with sensible defaults/zeros/None — used by unit tests to construct Score values without spelling out every field each time.
+- found: Test helper constructing a Score from the four commonly-varied fields, broadcasting churn into the 4-wide array, age wrapped in Some, and defaulting everything else (tangle/cognitive/commits/last_touched to None or zero, provenance=Source, source=Model, analyzed_share=1.0).
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ### `slimming_twice_keeps_the_columns`
 - spec 3 · read at `caf519b21c7b` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:48:23Z · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -4356,11 +4392,10 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/parse.rs
 
 ### the file itself
-- spec 3 · served in 4 parts · read at `9087fd27d3ea` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:55:08Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: The single multi-language parsing front-end for the app: it walks a tree-sitter concrete syntax tree per supported language (Rust, Python, TypeScript, Go, Swift, C++, and possibly a lisp-family language) using node-kind matching rather than tree-sitter queries, and extracts each top-level function into a FuncDef — its name, signature, body span/header end, doc comment (leading comment or docstring, distinguished from file-level doc and license headers), owner (for methods/nested types), and the calls it makes (resolved to callee names, deduplicated, capped, deterministic in document order). The bulk of the file is the language-specific extraction logic plus an extensive test suite covering doc-attachment edge cases, call resolution, and owner naming across languages.
-- found: A massive (~1690 line) multi-language parsing module supporting ~60+ languages via tree-sitter, matching node kinds rather than queries. It defines FuncDef and extracts name/signature/body/doc/owner/calls/shape per function, plus a file_doc extractor with license-header filtering and truncation, a PARSE_VERSION/PARSE_OUTPUT_STABLE_SINCE versioning scheme for cache invalidation, a structural-shape hash for clone detection (shape_of/MIN_SHAPE_TOKENS), stack-safe cursor-based tree walks (to avoid overflowing worker stacks on deeply nested trees), and call-site resolution per language (call_sites/callee_name/is_identifier) feeding a dependency-edge graph elsewhere. Roughly half the file is an extensive per-language test suite, much of it regression tests for specific real-world parsing failures.
-- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
-- note: The module-level doc only explains the kind-matching-vs-queries design choice; it says nothing about the versioning scheme, clone detection, doc-attachment rules, or owner disambiguation that make up most of the file's actual complexity — those are documented instead via extensive inline comments on individual items.
+- spec 3 · served in 6 parts · read at `7f3ccaccc4be` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:48:30Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: parse.rs is the core multi-language source-parsing engine, using tree-sitter with cursor-based node-kind matching (rather than per-language queries) to extract function definitions across many languages (Rust, Python, TypeScript, Go, C++, Swift, Lisp-family, etc.) — capturing each function's span, name, owner/qualifying type, leading doc-comment, and file-level doc. It also computes a cognitive-complexity score by walking branch/logical-operator node kinds, and extracts a capped, deterministic list of call sites for a call graph. It avoids panics on unparseable input and stack overflow on deep nesting, and is backed by a large table-driven test suite encoding per-language edge cases as descriptively named test functions.
+- found: Exactly as predicted: a tree-sitter-based, node-kind-matching extractor of FuncDef records (name, signature, body, doc, owner, span, calls, shape hash, cognitive complexity) across 63 languages, with file_doc extraction, cognitive-complexity scoring via branch/logical-operator kind tables, capped deterministic call-site resolution, clone-detection shape hashing, stack-safe cursor-based tree walks, and an enormous per-language test suite plus diagnostic harnesses (spearman correlation, complexity-vs-lines residual analysis) documenting the empirical reasoning behind design choices.
+- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
 
 ### `loc`
 - spec 2 · read at `0e1677eba3db` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:26:13Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -4375,12 +4410,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
 - note: More languages supported than I guessed (60+), impressively broad.
 
-### `func_kinds` — QUIRKY
-- spec 3 · read at `5df5fdd15d81` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:48:56Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: A match on the Lang enum returning a static slice of tree-sitter node-kind strings per language — e.g. "function_item" for Rust, "function_definition" for Python, and for JS/TS family a list including "function_declaration", "method_definition", "variable_declarator" (to catch const Foo = () => {...}), deliberately excluding bare arrow_function/function_expression.
-- found: A match over ~40 Lang variants returning tree-sitter node kinds per language; correctly got the mechanism and the Rust/Python/JS cases, but the function covers a huge long tail of languages with non-obvious quirks (Elixir/Clojure/Lisp have no function node and rely on `accepts` for filtering, Erlang's unit is the clause not the declaration, R/OCaml bind functions via assignment-shaped nodes, Swift deliberately omits subscripts/deinits).
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The doc comment only explains the JS variable_declarator/arrow_function case; the much larger long-tail-language complexity is documented only in scattered inline comments, not the file/function doc.
+### `func_kinds` — QUIRKY — TANGLED
+- spec 3 · read at `dc54669653f3` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:21Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A match over Lang returning a static slice of tree-sitter node kind strings that count as function-like definitions for that language — e.g. function_definition/method_definition for C-like languages, function_declaration/method_declaration plus variable_declarator for JS/TS, def_statement for Python, etc. — with a default/fallback arm for languages not explicitly listed.
+- found: An exhaustive (no default/fallback arm) match over every Lang variant, each returning its own static list of tree-sitter node kinds that count as a function. Many arms carry real subtlety beyond a simple name lookup: Elixir/Lisp-family/OCaml/R match a generic node kind (call, list, let_binding, binary_operator) because the grammar has no dedicated function node, relying on a separate `accepts` check to disambiguate; Erlang matches per-clause rather than per-declaration; Objective-C and Groovy deliberately list two kinds to avoid undercounting methods-in-classes vs free functions.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: Docs explain the JS variable_declarator/arrow_function tradeoff well but say nothing about the other ~35 language arms, several of which (Elixir, Lisps, Erlang, R) have non-obvious matching strategies.
 
 ### `declarator_is_function`
 - spec 2 · read at `b42761bf14e5` · commit `10d6afa` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T22:03:56Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -4462,11 +4497,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Gets the first named child's text via the `text` helper and trims it, returning None via `?` if there is no named child; matches prediction except I didn't anticipate the trim() call.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `name_node`
-- spec 3 · read at `3ef303e9614c` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:47:11Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: A large per-language match: the default case calls `node.child_by_field_name("name")`, but many languages (Lisp-family via lisp_head, anonymous-function-heavy languages, ones where the name is nested inside a declarator or identifier list) get bespoke handling to dig out the actual name-bearing node, since assuming the common `name` field would silently yield None and make those languages look like they have no functions.
-- found: A ~25-arm per-language match, each digging out the name node its grammar actually uses: C/C++ walks a nested declarator chain (with special cases for reference_declarator and operator_cast), ObjC/Odin/D just grab the first bare identifier, Elixir/SQL/Prolog/CMake reach through call-argument or functor structure, several Lisp dialects index into named_child positions, and many others (Fortran, Ada, Vhdl, Pascal, Elm, Verilog, PowerShell, Julia, F#, R, Nix, OCaml, Dart, GLSL/HLSL/Slang/GdShader) each have their own field/kind lookup; falls back to child_by_field_name("name") by default.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
+### `name_node` — QUIRKY — TANGLED
+- spec 3 · read at `29cdb0400a01` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:29Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Tries the common case first — node.child_by_field_name("name") — then falls back to a per-language match on `lang` and the node's kind to handle grammars where the name isn't exposed as a simple "name" field: e.g. variable declarators wrapping anonymous functions, assignment-expression method definitions, decorated/wrapped declarations, or language-specific node shapes (like Go method receivers or C function declarators nested inside pointer/array declarators). Returns None if no name node can be located for that node/lang combination.
+- found: A giant match on Lang that locates the name node for ~30 languages, each with its own grammar-specific path: C/C++/ObjC walk a nested declarator chain (with special handling for operator_cast and reference_declarator), Elixir digs into call arguments, Lisp-family languages index into s-expression children by position, Fortran/Ada/Pascal look for a dedicated statement/spec node, and a default fallback just asks for a \"name\" field.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: Docs correctly describe the function's philosophy (kind matching over queries, danger of silent empty results) but not the sheer scale/detail of the per-language special-casing.
 
 ### `body_node` — QUIRKY
 - spec 3 · read at `463255b4ca1d` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:46:40Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -4487,12 +4523,25 @@ What this is and how to add to it: [README.md](README.md)
 - found: A per-language match arm (Julia, Fortran, Elisp, CommonLisp, VisualBasic, Verilog/SystemVerilog, OCamlLex, Scheme/Racket, Clojure) each picking a different grammar field or node kind to mark where the header ends, returning its end_byte; falls back to None for every other language.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 
+### `logical_fork`
+- spec 3 · read at `088545cfb0e7` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:50:01Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether TsNode n's kind is one of the logical-operator kinds in `kinds`; if so, looks at its parent node and returns true (a new fork, costs one) unless the parent is a logical operator of the same kind, in which case it returns false because a run of the same operator (a && b && c) is a left-associative chain that should be free/cost only once.
+- found: Returns false if n's kind isn't in `kinds`; otherwise scans n's unnamed children for a literal logical operator token (&&/||) via the LOGICAL table, and if found, checks whether the parent has the same operator token — true (a new fork) unless the parent is the identical operator, in which case a left-associative chain is free.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: Missed that it locates the actual operator token among unnamed children (for languages where the token itself must be read from source) rather than just comparing node kinds, and the Swift-specific comment about kinds with no operator token.
+
+### `chains`
+- spec 3 · read at `bf3e7bbd2948` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:50:24Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Returns true if node n is an elif/else-if continuation of a preceding if rather than a nested fork — checking directly for a language-specific elif node kind (Python/Ruby), and otherwise checking whether n sits as the sole child of an else clause that itself directly contains just one if (the C-family nested-if-in-else pattern).
+- found: Three checks: (1) node kind is one of several language-specific elif/elsif kinds, (2) node's parent is an else clause (C-family nested-if-in-else), or (3) node's previous sibling is a bare 'else' token (Swift's anonymous-else sibling shape, otherwise miscounted as a nested fork).
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The doc describes only two of the three cases (own-kind vs. C-family else-wrapping); the third case (Swift's else-as-sibling) is explained purely in an inline comment on that branch, not in the function's leading doc comment.
+
 ### `extract` — QUIRKY
-- spec 3 · read at `de5a44013c29` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:49Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Given a tree-sitter node, checks whether its kind matches a known function-like shape for the language (via shape_of); if not, returns None. If it does match, pulls out the name via name_node, the body span via body_node/body_span and header_end, collects doc comments, and calls calls_in (if the language resolves calls) to gather callee names, assembling all of it into a FuncDef.
-- found: Pulls name and body span (returns None early if either is missing, not via shape_of gating), slices out the signature text before the body, extracts doc comments with per-language logic (Python docstring-as-first-statement, Elisp docstring field, everyone else leading-comment-or-walk-out-through-wrapper-declarations), gathers calls via calls_in, and assembles a FuncDef including owner_of and shape_of (used to classify, not to gate).
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
-- note: shape_of isn't a filter/early-return as I assumed — extract only bails via the name/body Option chain, and shape_of is computed at the end just to tag the result.
+- spec 3 · read at `726e20b7e55e` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:15Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Given a tree-sitter node, checks whether its kind is one of this language's function-like kinds; if not returns None. If it is, pulls the name via name_node, the body/span via body_node/body_span, computes size/complexity metrics (cognitive_of, shape_of), collects calls made within it (calls_in), and assembles all of that into a FuncDef struct which it returns Some of.
+- found: Builds a FuncDef from a tree-sitter node: pulls name and body span, slices out the signature (everything before the body) and body text, then resolves a doc comment via language-specific logic (Python docstring-as-first-statement, Elisp docstring field, or a leading/wrapper comment walk for everything else that climbs out through const-declarator/export wrappers), collects calls made in the body, and assembles name/signature/body/doc/owner/line range/calls/shape/cognitive complexity into the returned FuncDef.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
 
 ### `shape_of`
 - spec 3 · read at `7b38e9a9bd9c` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T05:03:53Z · by ross@rossturk.com · warm reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -4501,11 +4550,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: Had secondhand knowledge of this function from a subagent's earlier summary of the whole parse.rs file, so this was not a cold prediction despite not having personally opened the file before.
 
-### `resolves_calls`
-- spec 3 · read at `452f309691af` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:01:29Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Derives its answer from the call_sites table/function rather than a separate list: likely matches lang against the same match arms as call_sites (or calls call_sites and checks for Some/non-empty), returning true only for languages that table actually covers.
-- found: Calls call_sites(lang) and returns true if the resulting collection is non-empty — matches the predicted derivation-from-call_sites idea, just via is_empty() on a returned list rather than is_some().
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+### `resolves_calls` — QUIRKY
+- spec 3 · read at `aae36c0af3a0` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:33Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: One-line body: returns whether call-graph resolution is implemented for this language, likely via a `matches!(lang, ...)` against a short allowlist of languages the call_sites/callee_name machinery actually supports (e.g. the mainstream C-like/JS/Python/Go set), defaulting to false for the rest.
+- found: Delegates entirely to call_sites(lang), returning true iff that per-language list of call-site node kinds is non-empty — i.e. "resolves calls" is defined as "has any call-site kinds registered" rather than its own independent list.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: I expected a separate allowlist match; instead it reuses call_sites as the single source of truth, which means whoever adds call-site support for a new language gets this for free without touching it.
 
 ### `call_sites`
 - spec 3 · read at `fae90d9fc4e6` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:49:07Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -4553,6 +4603,72 @@ What this is and how to add to it: [README.md](README.md)
 - found: Cursor-based DFS in document order as predicted, matching sites by kind+field, extracting callee name, deduping via `seen`, capping at MAX_CALLS. I correctly predicted the mechanics but missed the specific reason for `skip`: it's not just skipping arbitrary fields, it's specifically to prevent a definition node from matching its own call-site table (Elixir/lisp `def`/`defn` share node shape with call nodes) — a subtlety I didn't anticipate. Also missed that `skipped` still allows descending into children (just prevents recording that node as a call) — skip suppresses recording, not traversal into the subtree.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 - note: `skip` only suppresses treating a node itself as a call site — it still walks into that node's children, which isn't obvious from the parameter name alone.
+
+### `every_extension_round_trips`
+- spec 3 · read at `12bdb5826970` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:49:51Z · by ross@rossturk.com · warm reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: For every (lang, exts) in LANGS, asserts exts is non-empty, and for each ext asserts Lang::from_extension(ext) == Some(lang) and lang.extensions() == exts, verifying from_extension and extensions() are built from the same table and cannot disagree.
+- found: Matches prediction exactly: iterates LANGS, checks each lang has extensions, that from_extension round-trips to the right Lang, and that lang.extensions() equals the table entry.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: Already read in full during the preceding parse.rs file-level review, so this is a warm/recall reading.
+
+### `no_language_has_two_rows`
+- spec 3 · read at `a07f2baa5eb6` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:49:42Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A test asserting that the extension→language table has exactly one row per Lang variant — no language appears twice across separate table entries — which would otherwise let extensions() silently return an incomplete list for that language (the specific failure mentioned for C++ with .h only reporting one of its extensions). Likely groups the table by language and asserts each group has size 1.
+- found: Iterates crate::model::LANGS, inserting each lang's label into a HashSet, asserting insert succeeds (no duplicate labels/rows).
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- note: The docs shown for this task actually describe the sibling test no_extension_is_claimed_twice, not this one — a mismatch between the handed-out doc and the target function.
+
+### `no_extension_is_claimed_twice`
+- spec 3 · read at `d1b046724456` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:49:35Z · by ross@rossturk.com · warm reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Iterates crate::model::LANGS, inserting each extension into a HashMap<&str, Lang>, and panics if an extension is already claimed by a different language when inserted a second time.
+- found: Iterates LANGS, inserting each extension into a HashMap keyed on the extension; panics naming both languages if an extension is inserted twice.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- note: This exact function was already read in full during the preceding file-level task on parse.rs, so this is a warm/recall reading rather than a genuine cold prediction.
+
+### `nesting_costs_more_than_sequence`
+- spec 3 · read at `5114a7022995` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:49:59Z · by ross@rossturk.com · warm reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Asserts three sequential ifs in Rust score 3 (flat) and three nested ifs score 6 (1+2+3), confirming the nesting term of the cognitive complexity formula.
+- found: Exactly as predicted: flat sequential ifs score 3, nested ifs score 6.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: Already read in full during the preceding parse.rs file-level review, so this is a warm/recall reading.
+
+### `a_flat_switch_costs_one`
+- spec 3 · read at `ea9a18cbba50` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:50:13Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A test that parses a switch/match statement with many flat (non-nested) arms — likely in Rust — and asserts the cognitive complexity for the containing function is 1, not one per arm, confirming a wide dispatch table is scored as a single decision rather than N decisions.
+- found: Confirms a five-case flat switch scores cognitive complexity 1 regardless of arm count, and additionally checks a switch nested inside an if scores 3 (if=1, switch=1, plus 1 for the nesting increment) — the nesting-cost half I did not predict.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `else_is_free_and_elif_is_not`
+- spec 3 · read at `692f400b48e4` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:49:43Z · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Asserts cog("fn f(){ if a {} else {} }", Rust) == 1, and asserts a Python if/elif/elif chain scores 3, confirming else costs nothing while elif chains cost one per question.
+- found: Asserts Rust if/else scores 1 (else is free) and Python if/elif/elif scores 3 (each elif costs one).
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: Already read in full during the preceding parse.rs file-level review, so this is a warm/recall reading.
+
+### `an_operator_costs_the_same_however_deep_it_sits`
+- spec 3 · read at `78164e12f0a2` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:50:12Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Test asserting that the cognitive-complexity measure adds the same fixed cost for a boolean operator whether it appears at the top of a function body or nested three loops deep — builds two snippets differing only in nesting depth around one && , measures both, and asserts the per-operator increment is identical (not multiplied by nesting).
+- found: Computes cognitive complexity (cog) for a shallow snippet with one if+&& (expects 2) and a deep one nested in for/while/if with the same && (expects 7, since nesting increases the cost of the control-flow constructs but not the operator itself), then asserts the difference (5) is exactly the added nesting cost, not an inflated operator cost.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `a_language_without_a_table_says_so`
+- spec 3 · read at `0f2093dd066c` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:50:02Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A test that picks/fabricates a language with no entry in the branch_kinds table, runs the cognitive-complexity measurement over some source in it, and asserts the result is None rather than Some(0) — confirming the code distinguishes "nobody taught the parser this language's forks" from "this code has zero forks".
+- found: Confirms branch_kinds(Rust) is Some and branch_kinds(Elixir) is None (Elixir's `if` is a macro/call, not a real branch node), then parses a small Elixir snippet with an `if` and asserts the resulting function's cognitive complexity is None rather than 0, i.e. no table means no claim rather than a claim of zero.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `walk`
+- spec 3 · read at `2c77c16e91dd` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:50:08Z · by ross@rossturk.com · warm reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Iteratively walks the directory tree under root using an explicit stack, skipping dotfiles and a fixed SKIP list of build/vendor directory names (node_modules, target, dist, build, out, vendor, etc.), collecting every file path into a Vec.
+- found: Iterative stack-based directory walk skipping dotfiles and a fixed SKIP list of build/vendor directories, collecting all file paths.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: Already read in full during the preceding parse.rs file-level review, so this is a warm/recall reading.
+
+### `spearman`
+- spec 3 · read at `956c90fba68e` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:50:21Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Computes Spearman's rank correlation coefficient between xs and ys: rank each array (handling ties by average rank), then compute Pearson correlation on the ranks (or equivalently the standard sum-of-squared-rank-differences formula), returning a value in [-1, 1] used elsewhere to check whether two complexity measures order functions the same way.
+- found: Exactly as predicted: ranks each array with average-rank tie handling, then computes Pearson correlation on the ranks, returning 0.0 if either array has zero rank-variance.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `calls`
 - spec 3 · read at `329ea292e6a0` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:03:23Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -4902,12 +5018,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/scan.rs
 
-### the file itself — QUIRKY
-- spec 3 · served in 3 parts · read at `3f1d4ac1c0dc` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:59:44Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: The core scan pipeline: given a repo path, detect whether it's a git repo (git_root/not_a_repo/repos_inside), walk the filesystem respecting gitignore (collect_files/rel), parse each file with tree-sitter into functions (parse_file/context_for/scope_of), score them along multiple dimensions like documentation and surprise (score_dir/file_surface/apply_model_scores/estimate), assign stable identities to functions so edits above them don't change identity, fold single-child directory chains into one ring (collapse_chains) so the sunburst isn't needlessly deep, and build a tree whose parent widths equal the sum of their children's — reporting progress incrementally via the Progress struct/throttled callback — with `scan`/`run` as the entry points and `payload` shaping the final output for the frontend.
-- found: Covers what I predicted (git detection, gitignore-respecting walk, tree-sitter parse with caching, per-function scoring folded into a tree, single-child chain collapsing, parent widths = sum of children, stable identity via name+ordinal so edits above a function don't rename it) plus much I missed: a whole-scan result cache (treecache) keyed by a content signature to skip rescanning unchanged repos; a cost `estimate`/`BUDGET` gate; a `Fidelity::Full` vs `Ordering` mode that skips the expensive all-pairs distinctiveness term; repo-wide call-graph wiring (`edges::wire`) and clone detection (`clones::find`) done once before per-directory scoring; a `Links` neighbor table built and stored separately (skip-serde) from the tree; and — the largest missing piece — an optional model-scoring pass that builds a priority-ordered work queue (by proxy surprise), streams upgraded scores as they land, and caches per-function readings so a stopped/resumed scan reuses prior model output.
-- predicted: some · documented: most · derivable: no · legible: not judged · trap: no
-- note: The file is much more heavily about cost-control (caching at three separate layers: parse cache, treecache, model-score cache) and cross-cutting analysis (call graph, clones) than the name/header alone suggested — a fair reading from the header would guess "walk, parse, score" but not the extent of the pricing/caching machinery.
+### the file itself
+- spec 3 · served in 4 parts · read at `812289f870dd` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:48:27Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Top-level orchestrator that walks a repo's file tree (respecting gitignore), parses each file, gathers git history/blame data via trace.rs, scores directories/files/functions, and assembles the hierarchical tree the sunburst UI renders, including collapsing single-child directory chains and streaming progress updates. The many sentence-named peers are test functions asserting behavioral invariants (identity stability, ordering fidelity, gitignore handling, empty dirs, missing git repos).
+- found: Orchestrates the whole scan pipeline: walks the repo honoring .gitignore/.sanityignore, parses files (with a persistent parse cache), gathers git history/blame/edits, scores every function via a heuristic proxy and optionally a model pass (priority-ordered, streamed, cancelable), builds/aggregates the directory tree with chain-collapsing, builds a cross-file call-graph/links table and clone detection, tracks detailed unscanned-file accounting, estimates scan cost from prior runs, and caches the finished Scan keyed by a content signature. Extensive tests pin identity stability, gitignore/vendored handling, fidelity equivalence, and unparsed-file bookkeeping.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
 
 ### `git_root`
 - spec 2 · read at `bfbf34880a2f` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:48:12Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -4972,11 +5087,17 @@ What this is and how to add to it: [README.md](README.md)
 - found: Maps each ParsedFile to a ShapeFile with rel_path, lang, and a vec of (function name, loc) pairs for each parsed function — a structural fingerprint of the file's functions and their sizes.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 
+### `stamp_unparsed`
+- spec 3 · read at `f9620862deb7` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:49:48Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Walks the tree, and for each directory key in by_dir finds the node representing that directory (or if none exists, walks up the path to the nearest ancestor directory that does have a node) and sets/adds an unparsed count field on it — probably via a loop that strips path segments until a match is found in the tree, defaulting to the root.
+- found: For each (dir, count) pair, walks down the tree by path segment, stopping at the deepest existing directory node when a segment is missing (the nearest-ancestor rule), and adds the count to that node's unparsed_here field.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
 ### `collect_files`
-- spec 2 · read at `64d0f6950920` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:41:39Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Builds an ignore::WalkBuilder rooted at `root` (respecting .gitignore/.ignore), walks it, and for each file entry determines its Lang from the extension via some lookup/match. Files with a recognized extension are collected into a Vec of (PathBuf, Lang); files with unknown extensions or walk errors are skipped.
-- found: Walks root with ignore::WalkBuilder (hidden, gitignore, git_global, require_git(false) so it works outside a repo too), filters to files with a recognized extension via Lang::from_extension, then further filters out files over MAX_FILE_BYTES and files under a vendored path component (VENDORED set), collecting the rest as (PathBuf, Lang).
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- spec 3 · read at `46ec4ad5b9dd` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:31Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A thin 3-line wrapper that calls walk_files(root) and maps the results down to just (PathBuf, Lang) pairs, discarding whatever other per-file data the full walk normally produces.
+- found: Calls walk_files(root) and returns its .files field directly — no mapping needed since walk_files already returns a struct holding the file list among other data.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `rel`
 - spec 2 · read at `f57e03277bd1` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:24:07Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -5015,11 +5136,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: Warm reading — I'd already read this function's body in full while reading scan.rs whole-file earlier in this session.
 
-### `score_dir` — QUIRKY — TANGLED
-- spec 3 · read at `6b42989c5d65` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:29:26Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Iterates over the functions in the files belonging to one directory, computing each one's heuristic signals (distinctiveness relative to its directory peers, wiring fan-in/out, clone/copy involvement, history/blame-derived churn or staleness) at the given Fidelity level, and packages each into a Node with a score. Returns a Vec<(String, Node)> keyed by function name/id, to be inserted back into the overall tree by the caller.
-- found: Returns one (path, Node) pair per FILE, not per function: for each file it builds a File-kind Node whose children are Func-kind Nodes for every function in that file. Each function node is built from distinctiveness against same-file (or, when the file has only one function, directory-wide) peers, a surprise/documented heuristic score, wiring (callers/calls/orphans/sinks), clone-group membership, and file/blame-derived churn/age/commit trace — all packaged into a Score, with plenty of fields deliberately left as Option/None/0 to be filled later by aggregate().
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
+### `score_dir` — TANGLED
+- spec 3 · read at `5f600c248f81` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:19Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: For each file in this directory's slice, scores every function it contains by comparing it against its peers in the same directory (distinctiveness heuristic falling back to 0.5 for a lone function), pulling in wiring/edge data via `wiring` and `base`-relative indices, clone-group info from `copies`, blame/history via `hist`/FileTrace::func, and complexity relative to `bands`; it builds a Func-kind Node per function and a File-kind Node wrapping them per file, gating some of the more expensive analyses on `fidelity`, and returns the (filename, Node) pairs for this directory.
+- found: For each file, builds a Func Node per function with score computed from distinctiveness (peers = same-file if >1, else whole-directory, none at Ordering fidelity), surprise/documented heuristics with provenance weighting, tangle/cognitive from bands, churn/age/commits from FileTrace, and wiring/clone-group info looked up via base+index into repo-wide tables; wraps each file's function Nodes into a File Node (with its own doc/hash/bytes but score left None, loc left 0 for aggregate to fill), returning (path, Node) pairs.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: Missed many concrete field-level decisions (bytes = signature+body length not loc, hot_share/analyzed_share hardcoded 0 for leaves, comparable/copied gated on func.shape, provenance weighting formula) that only show up by reading the Node literal itself.
 
 ### `ordinals`
 - spec 2 · read at `6eedc9651175` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:07:56Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -5046,17 +5168,17 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `collapse_chains`
-- spec 2 · read at `372859bc858a` · commit `ba429b4` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T20:53:18Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Recursively mutates the tree in place: for a directory node whose only child is itself a directory (nothing else alongside it), merges the child into the parent by concatenating names with "/" and splicing in the grandchild's children, repeating until the node has more than one child or a non-directory child, then recurses into whatever children remain. This produces the collapsed "src/main/java/com/x" single-node chains referenced in the doc.
-- found: Recurses into children first, then repeatedly collapses a directory node with exactly one directory child by folding the child's name (joined with "/"), id, path, and children into the parent, continuing until the node no longer has a single directory child.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `2c4cb3a22e1a` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:17Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Recursively walks the node tree; for any directory node whose only child is itself a single directory (no sibling files), merges that chain by joining path segments and replacing the node's children with the grandchild's children — repeating until hitting a directory with multiple children or an actual file — then recurses into the remaining children.
+- found: Recurses into children first (bottom-up), then while node is a Dir with exactly one child that is itself a Dir, absorbs that child: takes its id/path, joins the name with '/', carries forward unparsed_here (since nothing else recomputes it), and replaces its own children with the grandchild's children.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `scan` — QUIRKY — TANGLED
-- spec 3 · read at `9e362457acf1` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:35Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This is the top-level orchestration function for the whole repo-scan pipeline. It walks the directory tree from root (skipping gitignored paths), parses each file (likely via parse_file/tree-sitter), computes per-function "surprise" scores using the given SurpriseModel (via score_dir/apply_model_scores/context_for/scope_of), and assembles a hierarchical tree (with directory chains of single children collapsed via collapse_chains, and ordinals/insert building node structure) sized by lines and colored by score, which is what the sunburst UI renders. Along the way it invokes on_progress per directory scanned, on_scored the instant each function's score is known, and on_shape with each directory's parsed files so the UI can render incrementally rather than waiting for the whole scan. It checks the cancel AtomicBool periodically to allow early stopping (keeping partial results, since there's no length filter otherwise), uses memos for caching previously computed results, fidelity to control how precise/expensive the scoring pass is, and depth to control how much (if any) git history/blame data to layer in (since git operations dominate scan time on large repos). Returns a fully assembled Scan struct (or an error) wrapping the tree and associated metadata.
-- found: scan orchestrates the whole pipeline as I expected in broad strokes (walk, parse, blame/history, score, build tree, stream progress, cancellable), but the actual implementation has far more structure than I predicted: it short-circuits entirely via a treecache signature/load for non-model passes; it groups files by directory in a BTreeMap for stable sibling order; it computes call-graph wiring and clone detection repo-wide before scoring; for the model pass specifically it builds a priority-ordered work queue (sorted by proxy-surprise intensity, not size-weighted) so the most consequential functions get scored first and stream in as they land, with per-function cache reuse keyed on content hash; blame is per-line and only run at Depth::Lines, falling back to file-level numbers otherwise; there's a SANITY_TIMING env var for phase timing instrumentation; and directory aggregate scores are recomputed (and dir-history reapplied) after every aggregate call since aggregation zeroes commit counts.
+- spec 3 · read at `ef41b9ed478a` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:41Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Walks the repo tree honoring gitignore, and for each directory: parses its files (via parse_file), builds a ShapeFile list and fires on_shape, scores each function through the SurpriseModel (using memos/cache where possible) firing on_scored per result, and fires on_progress once the directory is done — checking `cancel` periodically so a long model pass can be interrupted without losing already-scored work. It aggregates directory-level scores bottom-up (score_dir), optionally reads git history/blame to the requested trace Depth, and returns the assembled Scan tree (or an error) for the sunburst to render.
+- found: Far more than a walk/parse/score/tree pipeline: it first checks a treecache signature to short-circuit the whole scan if nothing changed, reads git history/blame at the requested depth, parses files per-directory in parallel with streaming shape/progress callbacks, builds a call graph and finds clones across the whole flattened file set, computes cognitive-complexity bands for the tangle lens before any scoring, builds a gray proxy-scored tree first, then (if a real model is given) reorders every function into a priority queue (by proxy \"surprise\" score, not size) with per-function caching, streams scores back via on_scored/on_progress, re-aggregates the tree and reapplies directory history after both the proxy and model passes, assembles final ScanStats (commits, authors, call resolution counts, churn windows), and saves the tree cache under the pre-computed signature before returning.
 - predicted: some · documented: some · derivable: no · legible: some · trap: no
-- note: The treecache short-circuit at the top (return cached Scan directly when the proxy signature matches) is easy to miss and means most of the function body doesn't even run on a repeat scan of an unchanged repo.
+- note: The one-line function doc only covers on_progress's per-directory cadence; it says nothing about the treecache short-circuit, call-graph/clone passes, or the priority-ordered streaming model queue, which are most of the function's actual complexity.
 
 ### `a_scan_is_priced_from_the_last_one_and_an_unknown_size_is_not_refused`
 - spec 3 · read at `9425cab1ac7d` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:22Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -5135,11 +5257,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `a_functions_context_is_its_neighbors`
-- spec 3 · read at `ed771ac11a3a` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:54:14Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This test builds a fixture source file containing several functions and runs the neighbor-context computation used for scoring/prompts. It asserts that a function's neighbor context is drawn from the functions actually adjacent to it in the file, not from the first two functions at the top — verifying the fix for the bug described in the docs where context depended on file position rather than true adjacency.
-- found: Builds a fixture of 8 functions f0..f7 and calls context_for(&file, 6), asserting the context contains the immediate predecessor (f5) but not the file's first function (f0) or the function itself (f6). It also checks the edge case: a function at index 0 (top of file) still gets a full window of neighbors, taken from the side that has them (f1 and f2), not f0 itself.
+- spec 3 · read at `dc04b808b1d6` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:02Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A regression test using the `fixture` helper: creates a file with several functions, scans it, and checks the neighbor table built for a function well past the second position in the file — asserting its neighbors are the functions physically adjacent to it rather than always the file's first two functions (the old bug). Likely compares the neighbor ids/set for two different functions to show they differ based on position rather than being identical.
+- found: Builds a synthetic file of 8 functions and calls context_for directly (not a full scan) to check the context window around function index 6: contains the preceding function (f5), excludes the file's first function (f0) and excludes itself (f6); also checks a function at index 0 still gets a window, pulled from the following side (f1, f2) since there's no preceding neighbor.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The doc text explains the bug being regression-tested but doesn't mention the top-of-file edge-case behavior (window falls back to one side) that the second half of the test actually covers.
+- note: I expected it to go through the full scan pipeline and compare neighbor sets across two functions; it actually calls context_for directly with specific index/content assertions, including an edge case for the first function in the file.
 
 ### `an_edit_above_a_function_does_not_change_its_identity`
 - spec 3 · read at `b8bdae76b417` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:36Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -5298,16 +5420,17 @@ What this is and how to add to it: [README.md](README.md)
 - note: The doc's warning about the multiplier being intentionally non-standard (and matching a twin in cache.rs) is the kind of fact you could never derive from this function alone — it explains why nobody should "fix" it.
 
 ### `func`
-- spec 3 · read at `f8d501c47268` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T04:53:13Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: func is a small test-helper utility (given the peer list of sentence-named test functions) that constructs a minimal FuncDef populated with a given name and otherwise dummy/default values for its other fields (signature, body, doc, etc.), used to build test fixtures for ScanCache tests without repeating full struct literals everywhere.
-- found: Test-fixture helper building a minimal FuncDef with the given name, a synthesized one-line signature/body, and default/empty values for everything else (doc, owner, shape, calls).
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `46c55ba0e714` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:02Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A small test-fixture helper that builds a minimal FuncDef with the given name and default/placeholder values for its other fields (path, line, signature, body hash), used to populate synthetic scans in the cache tests.
+- found: Builds a minimal FuncDef fixture with the given name, a synthesized one-line signature/body, and placeholder/default values (line 1-1, no doc/owner/shape/cognitive, empty calls).
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ### `a_new_cached_field_cannot_be_added_silently`
-- spec 3 · read at `3c8952dd4a89` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-25T20:12:39Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A test that constructs a default/sample Entry, serializes it (e.g. to JSON), and asserts the resulting set of field names exactly matches a hardcoded list of expected fields. If someone adds a new field to Entry without updating this list (and presumably bumping FORMAT_VERSION), the assertion fails, forcing a deliberate acknowledgment per the doc's warning about the file_doc/reading_hash incident.
-- found: Same as predicted, but it also pins a second, nested struct (FuncDef) one level down inside Entry.funcs, since a silently-added field there would cause the same stale-cache problem.
+- spec 3 · read at `16abbf4266a5` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:14Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A test that serializes a sample Entry to JSON (or similar) and asserts its exact set of field names against a hardcoded list, so that adding a new field to Entry fails this test until a developer deliberately updates the list — forcing them to consider whether FORMAT_VERSION needs bumping.
+- found: Builds a sample Entry, serializes to JSON, and asserts the sorted key list matches a hardcoded list with a message pointing at FORMAT_VERSION; then repeats the same check one level down on the nested FuncDef (the funcs field), since that record is equally vulnerable to a silent #[serde(default)] addition.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The guard is duplicated at two levels (Entry and nested FuncDef) — easy to miss that a new field added deep inside FuncDef needs the same treatment as one on Entry itself.
 
 ### `seeded`
 - spec 2 · read at `bf58a00896a7` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:08:03Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -5563,27 +5686,40 @@ What this is and how to add to it: [README.md](README.md)
 - found: Test builds a trivial Item and asserts HeuristicModel.surprise(&item, 0.73).surprise == 0.73, confirming the heuristic model passes the proxy value through unchanged.
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
 
+## src-tauri/src/tangle.rs
+
+### `of`
+- spec 3 · read at `4977371e2164` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:33Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Takes an iterator of (loc, cognitive_count) pairs for every function measured, buckets them into length-based bands via band_of, and accumulates each band's cognitive values to compute a per-band median, producing a Bands struct that lets later code compare a function's complexity against the typical complexity for functions of similar length rather than the whole repo's distribution.
+- found: Buckets each (loc, cognitive) pair into BANDS groups via band_of(loc), then for each non-empty band sorts the collected cognitive values and takes the middle element as the median, storing an array of Option<u32> medians in Bands.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `a_band_whose_median_is_zero_does_not_divide_by_it` — QUIRKY
+- spec 3 · read at `72486a432d2d` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:47:44Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A test that constructs a Bands instance where the smallest band has median zero, computes a complexity score for a body in that band, and asserts the result is finite (not NaN/infinity) rather than panicking or blowing up from division by zero — verifying the fallback path handles the zero-median case gracefully.
+- found: Test builds a Bands from 20 items with cognitive=5, loc=0, confirms median loc is 0, then checks that ramp(5,1) gives a weighted score of exactly 0.0 (one fork is the baseline unit, not a finding) while ramp(5,8) gives a weighted score > 0.9 (eight forks against a zero-loc baseline is clearly worse).
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
 ## src-tauri/src/trace.rs
 
-### the file itself
-- spec 3 · served in 2 parts · read at `14f3eef5d135` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:31:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A module that performs the expensive "trace" phase of the scan — git blame and log history — separately from the initial tree-sitter parse/map draw, since blame dominates scan time. It defines a Depth enum/tags for progressive levels of blame effort (depth1, depth2, deepen further), a bank/cache mechanism (bank_config, bank_path, load_bank) to avoid re-blaming unchanged repos, a FileTrace type holding per-line author/commit info (last_author, func), and apply/apply_to/apply_dir_history functions that fold trace results onto the map's rows after the fact so blame can be computed lazily/incrementally and merged in without blocking the initial draw. The trailing snake_case functions are property-style tests asserting invariants like idempotency of applying a trace twice, chunked vs unchunked blame agreement, deferred vs inline trace equivalence, and correct cost/pricing accounting for cached vs freshly-walked repos.
-- found: The module splits the scan into a fast, git-free draw and a deferred trace phase that reads git log (depth 1, Files) and per-line blame (depth 2, Lines), banking history in a versioned bincode cache keyed per repo, estimating cost from the bank or free evidence (count-objects) to decide whether to run silently under a 10s budget or ask the user (Go::Run/Go::Ask), applying results idempotently onto an already-built tree in publish-chunked increments so progress is visible live, and filling in per-function/per-file/per-directory commit, churn, age and author fields via FileTrace/apply/apply_to/apply_dir_history. Tests pin invariants: chunked landings are monotonically increasing and match an unchunked pass, a deferred trace equals an inline one, applying twice is idempotent, cached blame/tree answers are priced as free, and cold vs warm estimates differ correctly.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: The doc comments carry design history, rationale and measured numbers (e.g. why bincode over JSON, why chunked publishing, why BANK_FORMAT bumps aren't adopted) that aren't derivable from the code alone but are essential to understanding why the code is shaped this way.
+### the file itself — TANGLED
+- spec 3 · served in 3 parts · read at `ab16201f788a` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:48:16Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Owns all git-derived enrichment (blame/log) of the map as a deferred pass separate from the fast initial scan, because git blame dominates scan cost on large repos. Defines a Depth ladder (tag/blames/counts_edits) of increasingly expensive git analysis levels, a FileTrace per-file result (last author, per-function blame) applied onto the already-drawn tree via apply/apply_to/apply_dir_history, and a disk-backed "bank" cache (bank_config/bank_path/load_bank) so an already-blamed repo isn't re-blamed; property tests assert idempotency and correct cost/caching behavior between deferred and inline passes.
+- found: trace.rs owns the deferred git-derived enrichment of a scanned tree: a Depth ladder (Untraced/Files/Lines/Edits) of cumulative, increasingly expensive git reads (log walk, per-line blame, timeline edit-counting), a budget/estimate system (estimate, relines, go) that decides whether a repo can be traced without asking, a disk-backed bincode 'bank' cache keyed by format version, and apply/apply_to/apply_dir_history which idempotently land history+blame+edits onto an already-built Scan tree (streamed in chunks during depth2 so the UI sees progress), plus FileTrace/FuncTrace for looking up one file's git facts once and reusing them per function with graceful fallback to file-level numbers. Extensive tests pin idempotency, chunked-vs-whole equivalence, cumulative depth predicates, and that a deferred trace matches an inline one.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: Missed the Depth::Edits timeline-walk (a genuinely different quantity from blame, not just finer resolution) and the budget/estimate/chunked-publish machinery in my initial prediction — the file is much more about pricing/streaming a deferred cost than just 'apply git data to a tree'.
 
 ### `tag_str`
-- spec 3 · read at `f649a901ef1e` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:17Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Depth is an enum representing how deeply git history has been traced for a file/repo (e.g. none, log-only, full blame). tag_str matches on self and returns a short static string name for each variant, used as a key/label when banking or displaying trace depth in the index/window.
-- found: Matches the Depth enum (Untraced, Files, Lines) and returns a static string name for each variant.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- spec 3 · read at `ec8c602dc756` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:47:49Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Matches on the Depth enum variant (self) and returns a fixed &'static str label for it (e.g. "blame", "history", "edits") — used as the depth's name for indexing into the bank and displaying in the window/UI.
+- found: Matches on the Depth enum (Untraced, Files, Lines, Edits) and returns the corresponding static string label.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `tag`
-- spec 3 · read at `ea60a348650f` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:26Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Depth is an enum with a few variants for how deep the git trace went (e.g. names-only, last-author, full history). tag matches self and returns a distinct static byte-string literal per variant, used as a cache-key discriminant alongside a sibling tag_str returning the str form.
-- found: Matches on the Depth enum (Untraced, Files, Lines) and returns a static byte-string literal naming the variant, for use as a cache key discriminant.
+- spec 3 · read at `d5fc9ae28de5` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:47:55Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Depth is an enum representing how deep the git analysis went (e.g., no blame, edit counts only, full blame). tag matches on self and returns a short static byte-string constant unique per variant, used to be included in a cache key/hash so results from different depths don't collide with each other. Sibling tag_str likely returns the same as a &'static str.
+- found: Match on the Depth enum (Untraced, Files, Lines, Edits) returning a static byte-string label per variant, for use as a cache key component.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: Actual variants are Untraced/Files/Lines — a progression of trace depth, not scan granularity as I guessed.
 
 ### `estimate`
 - spec 3 · read at `23ddc928e7f4` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:07Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -5644,16 +5780,18 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `deepen` — TANGLED
-- spec 3 · read at `1491fd4701ad` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:28:43Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: deepen() incrementally runs git blame/log tracing (the deferred, expensive half of a scan) on `repo` up to the requested `depth`, checking the `scans` cache to avoid redoing work already done and checking `stop` periodically to allow cancellation. As it processes files it calls `on_progress` to report status and `on_publish` (via `apply`/`apply_to`/`apply_dir_history`, which are idempotent) to merge newly-traced data onto the already-drawn `scan` map incrementally rather than all at once. It returns the depth actually reached along with counts such as how many files or lines were processed (or remaining/failed).
-- found: deepen() runs the log walk (depth1) then, if Depth::Lines, chunks blame across files (blamable/Blame::read), applying and publishing incrementally per chunk so progress is visible live rather than all at once at the end; it checks `stop` between chunks/within the log walk to support cancellation, and returns the depth actually reached (which may be less than requested if stopped) plus resolved/considered file counts — with careful handling so a stopped pass reports meaningful partial progress and a completed pass always reports 100%.
+- spec 3 · read at `973dd10945bc` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:19Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Deepens an already-published Scan from its current depth toward `depth` by running the git log/blame passes (checking `stop` periodically to allow cancellation), calling `on_progress` as files are processed and `on_publish` each time enough new data has landed to update the map incrementally. It probably consults `scans` (the ScanCache) to skip work already done for this repo/depth, and folds new blame/commit data onto the existing Scan via `apply`/`apply_to` rather than rebuilding from scratch. Returns the depth actually reached plus two counts (e.g. files touched and lines/commits processed).
+- found: Runs the log walk (depth1) then, if depth requires it, a chunked blame pass that applies and publishes incrementally per chunk, then (if depth requires it) a third edits-gathering pass counting how many times each function changed. It computes a `resolved`/`considered` count with careful handling of stopped-vs-completed passes, and determines the actually-reached Depth (which can differ from the requested depth if `stop` fired mid-pass), returning (reached, resolved, considered).
 - predicted: most · documented: some · derivable: no · legible: some · trap: no
+- note: The comments in the body carry most of the actual design rationale (why chunking, why resolved is computed differently when stopped vs finished, why reached depth isn't just the requested depth) — the function doc alone doesn't convey this.
 
-### `of` — QUIRKY
-- spec 3 · read at `ce53158b6c85` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:52Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Constructor for FileTrace: looks up the given path's commit history within `history` (likely filtering/borrowing the relevant entries) and pairs it with the borrowed `blame` data, returning a FileTrace struct that holds the path, its history slice, and a reference to blame for later per-function/per-line queries.
-- found: Builds a FileTrace by pulling several separate per-path metrics off History (churn, age, commits, last-touched, last-author) and the blame entry for the path, plus blame's `now` timestamp.
-- predicted: some · documented: none · derivable: no · legible: full · trap: no
+### `of`
+- spec 3 · read at `73ca5ec2de83` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:11Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Constructs a FileTrace for the given path by pulling the relevant commit history out of the shared Histories collection (likely filtering/looking up commits touching this path) and initializing the struct's fields (path, matched history, and empty/default state for blame data yet to be computed).
+- found: Destructures Histories into history/blame/edits, builds FileTrace by pulling age_days, last_touched_days, last_author from history and blame lookup for the path, keeps edits as-is, and sets `now` to blame's own timestamp if a blame pass has run (nonzero) or else falls back to a fresh syscall read of current time — since edits windows need a consistent clock even when blame hasn't run.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: The file_doc described the module's rationale for git-cost tradeoffs, not this specific function.
 
 ### `last_author` — QUIRKY
 - spec 3 · read at `372613bf0f7c` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:27Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -5661,32 +5799,31 @@ What this is and how to add to it: [README.md](README.md)
 - found: It's a trivial getter that clones an already-computed `last_author` field on the struct; the actual lookup/computation happens elsewhere (likely in FileTrace::of), not in this function.
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 
-### `func`
-- spec 3 · read at `e593dbbafa4c` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:53Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether per-line blame data is actually available and covers this line range (i.e., depth reached Lines and the file is tracked); if so, derives the function's own churn/age/last-author from just the blame lines in start..end. Otherwise falls back to the whole-file-level trace values, since untracked files, no-git repos, or shallower depths can't offer anything finer than file resolution.
-- found: Tries self.blame.range(start, end, now); if it returns a per-line history, builds FuncTrace with churn normalized by TRACE_SATURATION (a different saturation constant than the file/window one) and the range's own age/commits/last_touched/last_author. Otherwise falls back to copying the file-level fields (self.churn, self.age_days, etc.) unchanged.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Confirms the prediction closely; the one detail not obvious from the signature/docs alone was that churn uses a distinct TRACE_SATURATION constant from blame.rs rather than reusing whatever the file-level churn was normalized by.
+### `func` — QUIRKY
+- spec 3 · read at `23b39a3eda81` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:52Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Looks up per-line blame data for the given function's [start, end) range within this file's trace; if that per-function data is available (blame ran and covers this range) it builds a FuncTrace from just those lines' commits/authors, otherwise it falls back to the file's own aggregate history (last_author, churn, etc.) and marks the result as file-resolution rather than function-resolution. The ordinal `ord` likely disambiguates functions with the same name.
+- found: Computes churn/commit counts from the independent edits timeline (zero if not walked), then separately resolves age/last_touched/last_author from per-function blame range if available, falling back to the file's own aggregate values otherwise — churn and the age/author fields come from two entirely separate data sources merged into one FuncTrace, not one fallback chain.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: I incorrectly assumed the return would carry an explicit resolution marker (func vs file); it doesn't — the fallback is silent, just different field values.
 
-### `apply` — TRAP
-- spec 3 · read at `2d75355dbdf3` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:41Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Walks the Scan's tree (root node) and, for every file (and possibly function) node, overwrites its age/churn/author fields by reading fresh values from history and blame — likely delegating per-node to apply_to/apply_dir_history, and folding dir-level aggregates on the way back up. Because it's idempotent, it always computes each field directly from the two inputs rather than incrementing or merging with whatever the node currently holds.
-- found: Calls apply_to on the root to fold per-file/function blame+history, then aggregate() to rebuild container scores (which zeroes commit counts), THEN apply_dir_history to re-credit directories — an order dependency the comment calls out explicitly. Also sets scan.stats.authors (top N from history), without_history flag, and stats.commits from history.total_commits_of("") rather than a separate git rev-list call, since the walk already counted it.
-- predicted: most · documented: most · derivable: no · legible: full · trap: yes
-- note: The comment itself flags the ordering trap (aggregate must run before apply_dir_history or directory commit counts get zeroed), so this is a documented trap, not an undocumented one — reporting trap:true per the code-level hazard even though a comment explains it, since 'the repo knows' language in the grading guide is about hazards a comment warns of, though the instructions say a warned hazard is NOT a trap; downgrading awareness only.
+### `apply` — QUIRKY — TANGLED
+- spec 3 · read at `2d18876fb3ad` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:43Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Walks every file/node in the Scan tree and, for each, computes a FileTrace from history/blame/edits (via something like FileTrace::of) and overwrites that node's trace-related fields (age, last_touched, last_author, blame color) directly from the fresh computation rather than merging with whatever was there before — satisfying the idempotency requirement. It likely also recurses into directories to aggregate/apply directory-level history via a helper like apply_dir_history.
+- found: Calls apply_to to walk the tree and fill node-level trace fields, then aggregate() (which must run first since it zeroes commit counts), then apply_dir_history to credit directories afterward, and finally sets several scan-level stats fields (churned flag, churn_windows, authors list, without_history, and total commit count pulled from the history walk rather than a separate git call).
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: The ordering constraint between aggregate() and apply_dir_history is already flagged in an inline comment, so it's a documented hazard, not a silent trap.
 
 ### `apply_to`
-- spec 3 · read at `afd08bc75576` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:11:06Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks the Node tree (files, dirs, funcs) and fills in git-derived score fields — age, churn, last author, commit counts — using history for file/directory-level stats (via History::age_of/churn_of/last_author_of/commits_of) and blame/FileTrace::func for per-function line-level provenance where available, falling back to the file's numbers for functions blame couldn't resolve. It's the fold step that applies git data onto a tree drawn without it, and should be idempotent.
-- found: Recursively walks the tree; for File nodes only, builds a FileTrace once and sets the file's last_author, then for each Func child looks up per-line stats via file.func(start,end) and overwrites churn/age_days/commits/last_touched_days/last_author on the child's score (explicitly nulling all_commits since that would cost a git log -L per function). Directory-level history isn't touched here (handled elsewhere by apply_dir_history) — recursion just continues into all children regardless of kind.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `b648707a43de` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:57Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Recursively walks the already-built Node tree and, for each file/function node, looks up its git blame (last_author, ownership) and commit History (commit counts, ages, churn) plus any edits, filling in score fields left blank when the tree was first drawn — the deferred fold that lands git data onto a map rendered before blame finished. Likely recurses into children and rolls some stats upward.
+- found: For a file node, builds a FileTrace once, sets last_author, then computes each function child's ordinal among same-named siblings (matching scan::ordinals' rule) and looks up per-function churn/age/commits/last_touched_days from FileTrace::func using (name, ordinal, start, end), writing them into score fields (all_commits explicitly left None). Recurses into all children regardless of kind afterward.
+- predicted: most · documented: none · derivable: no · legible: most · trap: no
 
-### `apply_dir_history`
-- spec 3 · read at `360000a34ebc` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:39:34Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks the node tree; for every node (both directory and file, per the doc's warning that files need it too) it looks up the node's own path in `history`'s per-path distinct commit count and overwrites node.commits with that value, then recurses into children. This corrects the zero left behind by aggregate for directories and files alike.
-- found: Recurses over dir and file nodes, setting score.commits from history.commits_of(path) and also score.all_commits from history.total_commits_of(path), then recurses into children.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: Missed that it also fills in all_commits (lifetime total) alongside commits — doc covered this but I only predicted the commits field.
+### `apply_dir_history` — QUIRKY
+- spec 3 · read at `68ca69e4f4a5` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:39:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Recursively walks the Node tree; for both Dir and File node kinds, looks up the node's own path in the History's per-path commit-count table and sets node.commits to that distinct count (overwriting the 0 that aggregate left for files). For directories it likely also recurses into children first. May also consult `edits` to adjust/filter the count if provided, otherwise just does the lookup and assignment.
+- found: Recurses over Dir and File nodes only, setting score.commits from the windowed `edits` lookup (a 4-bucket array, defaulting to zeros if no edits given) rather than from `history` directly, and separately sets score.all_commits from history.total_commits_of. I had the recursion and Dir/File targeting right but wrongly assumed history was the direct source for score.commits and missed the windowed-bucket / edits vs history split entirely.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
 
 ### `repo`
 - spec 3 · read at `0a8bac4e4e45` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:41Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -5696,17 +5833,17 @@ What this is and how to add to it: [README.md](README.md)
 - note: Missed the asymmetry between the two files: a.rs accumulates functions across commits while b.rs replaces its single function each commit — likely deliberate so tests can distinguish per-function blame from whole-file churn.
 
 ### `a_blame_pass_lands_before_it_finishes`
-- spec 3 · read at `be24fd366f1a` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:26Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A test that runs `deepen` (or the blame pass it wraps) over a small multi-file repo fixture with a snapshot callback, collects the tree snapshots emitted during the run, and asserts that at least one intermediate snapshot already carries more per-function blame/author data than the initial one — i.e. it fails if snapshots are only emitted once at the very end. It likely checks something concrete like a middle snapshot having a non-empty author on some function while a later file is still unprocessed.
-- found: Close to prediction: it chunks the blamed files one at a time, accumulates blame incrementally, applies each accumulated step to the scan, and records the growing size of the accumulator after each step, then asserts there's more than one landing and each is strictly larger than the last, ending at the full file count. It directly measures the count of accumulated blame entries rather than inspecting per-function author fields on the tree, which is a simpler and more direct check than what I guessed.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: Doc fully explains the bug/intent; the actual test verifies growth of an internal accumulator size rather than inspecting tree node fields directly, a cheaper proxy for the same property.
+- spec 3 · read at `646442549f94` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:42:24Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A regression test (#[test]) that runs `deepen` on a small fixture repo with a progress callback capturing intermediate snapshots of the tree, then asserts that later snapshots have strictly more per-function blame data resolved than earlier ones — proving blame lands incrementally rather than all at once in a single final step, guarding against the described 33-minute-stuck-at-depth-1 regression.
+- found: Manually drives the chunked-blame loop (not via `deepen`'s own progress callback): chunks a fixture repo's blamable files one at a time, absorbing and applying blame incrementally, recording the accumulated size after each landing, then asserts there's more than one landing, each landing is strictly larger than the last, and the final landing covers every file.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: I expected it to exercise `deepen` end-to-end via its progress callback; it actually reimplements the chunk/absorb/apply loop directly to control chunk size (chunks(1)), since PUBLISH_FLOOR would otherwise collapse a small fixture into one chunk.
 
 ### `a_chunked_blame_pass_matches_an_unchunked_one`
-- spec 3 · read at `e7f4f1a3ada0` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:35:36Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A property test that generates a synthetic repo/blame trace, then runs the blame pass both in one unchunked call and in multiple chunks, and asserts the resulting tree/rows are identical (chunking doesn't change the final answer).
-- found: Builds a test repo and scan, computes Blame both in one call over all files and via chunks of size 1 absorbed together, checks the lengths match, then applies both blame results to cloned copies of the scan tree and asserts the resulting rows are equal.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- spec 3 · read at `87369599f8b4` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:54Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Builds a small repo/trace, runs the blame-application fold in one shot to get a baseline tree, then runs the same fold split into multiple chunks to simulate incremental/partial publishing, and asserts the final tree state is identical between the chunked and unchunked runs (likely via the 'same' helper).
+- found: Runs Blame::read once over all blamable files (whole) and once chunked one file at a time with results absorbed together (chunked), checks the two Blame results have equal length, then applies both to clones of the scan and asserts the resulting row sets are identical.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `scan_of`
 - spec 3 · read at `d9e2164401af` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:13Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -5722,10 +5859,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: no · legible: full · trap: no
 
 ### `same`
-- spec 3 · read at `1c8be5807b12` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:16Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Test-helper assertion function that compares two slices of Row for equality field-by-field, except it allows age_days and last_touched_days to differ by a small tolerance (~0.001, i.e. ~86 seconds) rather than requiring exact equality, panicking/asserting if anything else differs.
-- found: Test helper asserting two Row tuple-slices match: same length and tree order, churn/age/touched compared with a 0.001 tolerance (age and touched allowing None on both sides), commits/all_commits/last_author compared exactly, each with a descriptive assert message.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `1190c6bed791` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:31Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A test-helper assertion that two slices of Row are equal length and, for each pair, equal on every field except age_days and last_touched_days, which are compared with a small tolerance (something like 0.001 days) instead of exact equality, since those are measured relative to wall-clock time at read. Likely panics/asserts with a descriptive message on mismatch, used by the property tests in the peer list.
+- found: Test helper asserting two Row tuple slices match: same length, same tree order (field 0), churn array compared per-element with 0.001 tolerance, age (field 2, Option) compared with tolerance when both Some else exact equality, commits and all_commits exact, touched (field 5) same tolerant-or-exact pattern, and last author exact.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: I expected only age/last_touched to get tolerance per the docstring, but churn values also get the same 0.001 tolerance treatment, which the docs don't mention.
 
 ### `read_trace`
 - spec 3 · read at `1e78a00d1402` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:49:05Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -5734,10 +5872,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `a_deferred_trace_lands_exactly_where_an_inline_one_did`
-- spec 3 · read at `ac80c5b3b5bc` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:21Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Scans a test repo twice: once with git-derived fields deferred/wiped and then applied afterward via `apply`, and once "inline" with git available from the start. Converts both resulting trees to comparable rows (via `rows`) and asserts they're equal (via `same` or `assert_eq!`), proving deferring the trace produces an identical map to computing it inline.
-- found: Matches prediction closely: scans inline, scans deferred/untraced, applies the trace, and compares rows via `same`. Additionally asserts the fixture actually has history (so the test isn't vacuous) and asserts the untraced scan's rows are all-zero/none in the git-derived fields rather than just differing from the traced version.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `274a8fe3a072` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:40Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Builds/scans a small repo twice — once without git (deferred) and once with git available inline from the start — applies the deferred trace to the first tree via `apply`, then asserts the two trees are identical using the `same` helper, covering the functions' four git-derived facts and the containers' commit counts and last-author fields.
+- found: Scans one repo fixture at Depth::Lines (inline, with history) and at Depth::Untraced (deferred), asserts the untraced scan has genuinely zeroed/none history fields (not just differs), then reads and applies the deferred trace and asserts the result matches the inline scan exactly via `same`.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `a_repo_already_blamed_goes_back_to_the_line_for_nothing`
 - spec 3 · read at `a2d21e7dd1e6` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:29:59Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -5760,9 +5898,9 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `applying_a_trace_twice_changes_nothing`
-- spec 3 · read at `8663fe21e511` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:49:16Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: This test builds a small repo/scan, applies a git trace (blame/history) to it once, snapshots the resulting node fields, then applies the same trace a second time and asserts nothing changed — guarding against a bug where re-applying a trace (e.g. depth 2 landing on an already depth-1 tree) would double-count or corrupt fields like churn/age/author rather than being idempotent.
-- found: Scans a fixture repo untraced, reads the history/blame trace once, applies it to the scan, snapshots the resulting rows, applies the same trace a second time, and asserts the rows are unchanged — confirming `apply` is idempotent.
+- spec 3 · read at `62f47fd2fc27` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:36Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A unit test that builds a scan and a trace/blame dataset, calls `apply` (or `apply_to`) once and records the resulting scan state, then calls it again with the same data and asserts the scan is unchanged/identical — verifying `apply`'s idempotency, which the module doc for `deepen` explicitly relies on when re-running a deeper pass over already-applied data.
+- found: Unit test: builds a test repo, does a fresh scan, reads its history/blame trace, applies it to the scan, snapshots the resulting rows, applies the same trace again, and asserts the rows are unchanged — confirming `apply` is idempotent.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ## src-tauri/src/treecache.rs
@@ -5904,9 +6042,9 @@ What this is and how to add to it: [README.md](README.md)
 - note: I had already read this exact function's body earlier in this session (part of the treecache.rs file task), so this was a warm/recall reading, not a cold prediction.
 
 ### `scan_of`
-- spec 3 · read at `0770811c9556` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:48:29Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Builds a minimal crate::scan::Scan value representing a single file containing a single function, using `touched` as that function's last-touched-days (or leaving it unset if None). Likely a tiny constructor/fixture helper used to synthesize per-file scan stats when only a touch date is known, rather than doing any real scanning.
-- found: A test fixture constructing a full Scan (root dir → one file "f.rs" → one func "go") with loc=10, and a Score whose age_days/last_touched_days derive from the `touched` param, plus minimal ScanStats (1 file, 1 function, test model).
+- spec 3 · read at `add407559e81` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:27Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A test-fixture helper building a minimal Scan with one file and one function, setting the last-touched date only if `touched` is Some, used to test cache/scan behavior around touched vs untouched files.
+- found: Builds a minimal Scan tree: root -> one file node -> one func node, with a Score where last_touched_days is set directly from the touched param and age_days is set to a fixed 100.0 whenever touched is Some (else None), plus a minimal ScanStats with 1 file/1 function.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `touched_of` — QUIRKY

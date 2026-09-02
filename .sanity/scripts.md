@@ -1,6 +1,6 @@
 # scripts — sanity assessment
 
-35 of 35 read · 3 surprising
+35 of 35 read · 5 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -183,10 +183,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: The file_doc describes the module's purpose well but the docs list for this specific function was empty — coverage came from the file_doc, not per-function docs.
 
 ### `margins`
-- spec 3 · read at `d602b3c0d81a` · commit `758c706` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:04:22Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: margins(hues) takes a candidate hue assignment for the ramps and computes the six worst-case contrast margins described in the docstring — generating each ramp and running pairwise comparisons (via ciede2000/simulate) between cold/hot/neutral/trap/structure/mark colors, returning the minimum (worst) margin found for each of the six categories as a tuple, for use by an outer search/optimizer to accept or reject a hue set.
-- found: Builds a ramp per hue, then computes six worst-case (minimum) CIEDE2000-based contrast margins: closest cold-stop pair, closest hot-stop pair, worst ramp-vs-neutral, worst ramp-vs-trap, worst any-stop-vs-structure, worst any-stop-vs-mark — returned as a 6-tuple.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `a80d469a0ee5` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:42:08Z · by ross@rossturk.com · warm reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Computes a tuple of worst-case color-distance contrasts across the candidate hue assignment: worst cold-stop pair distance, worst hot-stop pair distance, worst cold-stop-vs-neutral distance, and then worst distances from any ramp stop to the fixed trap colors, clone colors, structural UI colors, and marks — using `worst`/`plain`/`ciede2000`-style helpers similarly to `ordered_score`, returned as a 7-tuple (despite the docstring's "six" framing, per the note about it being undercounted).
+- found: Returns the 7-tuple (cold, hot, vs_neutral, vs_trap, vs_clone, vs_struct, vs_mark) of worst-case pairwise color distances: cold/hot are worst distances among ramps at their coldest/hottest stops; vs_neutral is worst cold-stop-vs-neutral; the rest are worst distance from ANY stop on any ramp to trap/clone/structure/mark reference colors respectively.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: Docstring says "six worst-case contrasts" but the tuple has seven elements — a caller unpacking by the docstring's own count would be short, which the docstring itself flags as a past bug but doesn't fix the count word.
 
 ### `legal`
 - spec 3 · read at `1eca3c487558` · commit `0ce57c0` · read by claude-sonnet-5 · via claude · when 2026-08-19T02:12:40Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -215,11 +216,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: I assumed marks kept their own hue too ('quote themselves'), but the hue is still taken from the passed-in `hues` dict for every branch, including marks — only lightness/chroma is special-cased.
 
-### `ordered_score`
-- spec 3 · read at `120983dd3968` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:04Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: ordered_score(hues) takes a candidate hue assignment, computes each of the cold/hot/chip ramps via ramp/worst (finding the worst-case pairwise contrast/distance within each), then combines the three "worst" scores into a single objective that weights the cold-lens worst-pair most heavily (since that's the binding constraint) while treating hot and chip as floor constraints, returning the tuple (objective, cold, hot, chip) for comparison/sorting during the search.
-- found: Builds ramps per lens (excluding marks/chrome), takes the minimum pairwise distance across lenses at the ramp's cold end (index 0) and hot end (index 4), plus the minimum pairwise chip distance, then returns the weighted-min objective min(cold, hot*0.75, chip*0.6) alongside the three raw components.
-- predicted: most · documented: full · derivable: no · legible: most · trap: no
+### `ordered_score` — QUIRKY
+- spec 3 · read at `c172030878cc` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:05Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Takes a candidate ordering of hues, computes worst-case (objective, cold, hot, chip) pairwise distances via a `worst`-style helper, and combines them into one scalar with a weighted formula where the cold-end worst-pair leads/dominates the score while the other three terms are held above their own floor values rather than simply summed together.
+- found: Builds per-lens ramps (excluding marks/chrome), computes worst-pair distance at the coldest stop, hottest stop, and among chip colors, then combines them as obj = min(cold, hot*0.75, chip*0.6) — a min-based weighting rather than a sum, so cold dominates when it's the binding constraint. Separately it computes the worst distance from any ramp stop to any trap/clone mark, and if that falls below MARK_FLOOR, subtracts the shortfall from obj — a floor penalty covering a past bug where ordering scored ramps only against each other and let assignments sit too close to fixed marks.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The docstring's "held above their floors" language actually describes the marks penalty added later (per the inline comment), not hot/chip, which are instead scaled multipliers inside a min — the docstring doesn't mention the marks term at all.
 
 ### `descending`
 - spec 3 · read at `2a07746e7e30` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:32:41Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -228,11 +230,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `start_from_pins`
-- spec 3 · read at `8981c70e4415` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:07Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Produces the initial hue guess for the search: it unwraps the pinned hues onto the descending line (like `descending`), then evenly spaces the free (non-pinned) menu hues within the arc between each pair of adjacent pins, using ordinary linear interpolation on the unwrapped line, and finally wraps the results back into 0-360 with modulo before returning a dict of hues keyed by menu item.
-- found: Unwraps each pinned hue onto a line relative to the first pin (rather than reusing `descending`), then for each consecutive pair of pinned menu positions, linearly interpolates the free hues that fall between them (mod 360), and finally merges the pinned hues back in verbatim before returning the full hues dict.
+- spec 3 · read at `0fd5f0fd240c` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:45Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Computes an initial hue assignment for the search: identifies the arcs (gaps) between pinned hues on the hue circle, unwraps the circle at the point it wraps through 0, evenly spaces free hues within each arc proportionally to that arc's size (rather than uniformly across the whole circle), then re-applies the modulo to wrap back onto the circle — a starting vector chosen so the optimizer converges to a better local optimum than uniform spacing.
+- found: Anchors unwrapping at the first pinned lens in MENU order, builds an unwrapped "line" of pinned hues by subtracting the wrap modulo, then for each consecutive pair of pinned positions (including the wraparound arc from the last pin back to the first across the circle boundary) linearly interpolates the free hues in that arc proportionally by index, wraps the result back into [0,360), and overlays the original pinned hues.
 - predicted: most · documented: full · derivable: no · legible: most · trap: no
-- note: Doesn't reuse the `descending` helper despite solving an equivalent unwrap-then-interpolate problem — its own inline unwrap only anchors to the first pin, which is a detail not obvious from the docstring.
 
 ### `order`
 - spec 3 · read at `8ca521c48c35` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:16Z · by ross@rossturk.com · warm reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -241,8 +242,8 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: not judged · trap: no
 - note: I had already read this exact function in full when assessing scripts/palette-search.py as item 1, so this is a warm/recall reading rather than a genuine cold prediction.
 
-### `verify`
-- spec 3 · read at `b4aa024daefb` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:28:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: verify() recomputes the palette ramps using the search machinery in this file and compares the result against the shipped/hardcoded palette values (from index.css or a constant here), asserting that each channel matches to one decimal place. It likely prints a pass/fail message per ramp/lens and raises or exits with an error code if any ramp doesn't reproduce the shipped stops, serving as a regression check that the documented search actually generates what's shipped.
-- found: verify() recomputes each shipped ramp via ramp(h) and compares per-channel RGB (rounded to 255 scale) against the hardcoded SHIPPED_STOPS, allowing a tolerance of at most 1/255 per channel (worst_step<=1). It also prints several diagnostic margins (cold/hot pair distances, vs-unanalyzed, vs-trap, vs-structure, vs-agent-mark) alongside the values index.css claims, purely as informational context, not as pass/fail criteria — only the stop-level reproduction determines the return code.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+### `verify` — QUIRKY
+- spec 3 · read at `8b8160655b1b` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:58Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Re-derives the seven ramps (via order/start_from_pins etc.), then compares each ramp's stops against the hardcoded shipped hex/oklch values channel-by-channel to one decimal place of tolerance, printing a pass/fail per ramp/stop and raising or exiting nonzero if anything drifts — a regression check that this script still reproduces what's actually shipped in index.css.
+- found: Regenerates each SHIPPED ramp via ramp(h) and diffs it against SHIPPED_STOPS in raw 0-255 RGB units (max channel delta per stop), prints each ramp with an 'off by N/255' flag, then prints several margin comparisons (cold/hot pairs, vs unanalyzed/trap/clone/structure/agent-mark) against the values index.css claims, and returns 0/1 depending on whether the worst per-stop RGB step is <=1.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no

@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-481 of 481 read · 93 surprising
+486 of 518 read · 94 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -17,11 +17,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/scripts/keys-check.ts
 
-### the file itself — QUIRKY
-- spec 3 · read at `a86dac143612` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:49:54Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Small CLI script (~24 lines) that exhaustively drives lib/keys.ts's shortcut handler across every key and every lens/state combination, using the cmd helper to build synthetic key-event objects, and prints a table/report of which command each (key, state) pair resolves to - letting a human eyeball the order-dependent behavior directly instead of reading the handler's pile of early returns. Run via `just keys-check`.
-- found: It's not an exhaustive enumeration over every key/state combo as I guessed — it's a small hand-written regression test suite (ok/FAIL style, exits 1 on failure) encoding specific reported bugs: lens digits working with the find pane open or a field focused, Tab only opening the finder when free, Shift/Alt/plain-digit variants being correctly rejected, and the switcher-vs-keyboard parity bug (⌘1 must work even on a locked/empty lens). The docs explain WHY the file exists (order-dependent handler bug) but not that it's a curated regression list rather than a full matrix sweep.
-- predicted: some · documented: most · derivable: no · legible: not judged · trap: no
+### the file itself
+- spec 3 · read at `0c9e8a660033` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:36Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A standalone CLI script (run via `just keys-check`) that exhaustively simulates every key against every UI state, feeding them through the shared `lib/keys.ts` decision logic, to catch cases where an early-return in the ordered keyboard handler silently shadows another shortcut (like the Tab-vs-lens-digit regression). It likely has a `check`/`step` loop enumerating states, a `cmd` helper mapping key+state to the resolved command, and a `lens` helper isolating lens-digit shortcuts, printing any keys that resolve to an unexpected or conflicting command.
+- found: A hand-written assertion script (not exhaustive over states, but a curated set of regression checks) that calls `actOf` from lib/keys.ts with various key+modifier+Where combinations and asserts expected resolved actions: lens digits still work with the find pane open or a field focused, Tab only opens the finder where free, ⌘+ / bare ⌘= disambiguate history vs the twelfth lens, keyboard parity with the lens-switcher strip (including a locked lens), and ⌘]/⌘[ stepping to reach the lens with no digit. Exits 1 if any check fails.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: I predicted a generic exhaustive cross-product and a `step` helper that loops over states; actually it's a fixed list of pointed regression assertions and `step` specifically extracts the stepBy action for bracket keys.
 
 ### `check`
 - spec 3 · read at `7026e7f50af2` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:47:21Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -42,6 +43,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Extracts a representative value from an Act: if the action's `do` field is 'lens', returns its `mode` sub-field, otherwise returns the `do` field itself (with optional chaining for null/undefined safety). It's a special-case accessor, not a string formatter.
 - predicted: none · documented: none · derivable: yes · legible: full · trap: no
 - note: The file_doc explains why the script exists (a Tab-shortcut regression) but says nothing about this specific accessor's lens-vs-do special-casing.
+
+### `step`
+- spec 3 · read at `73131de6ddb5` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:47:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A small helper that simulates pressing a single key `k`, likely calling into the keyboard-map/shortcut logic (e.g. cmd or lens) and advancing/reporting current state by one step, used so the twelfth lens (with no digit shortcut) can still be reached via repeated stepping instead of a direct number key.
+- found: step(k) simulates pressing key k by calling cmd(k) to get the resulting action against the `idle` state, then returns the step delta (`a.by`) only if the action's `do` is 'step', otherwise null — it's a query of what stepping distance a key would produce, not a state-advancing action itself.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ## web/scripts/replay-check.ts
 
@@ -71,11 +78,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Manually rebuilds the Tables object with fresh array/object references for each field (paths, excluded, langs, funcs, base), spreading the rest, so it's structurally equal to the input but shares no references with it, defeating identity-keyed memoization.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `render` — QUIRKY
-- spec 3 · read at `51e1a3cf2e10` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:46:30Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Recursively serializes a Node into text lines pushed into `out`, indenting by `depth` (e.g. two spaces per level). For each node it writes every field in a fixed order (so diffs are line-based), then recurses into child nodes/arrays, incrementing depth by 1.
-- found: Pushes one line per node containing every tracked field in fixed order (kind, id, name, loc, rest, lang, author, birthBelow, touchBelow, a formatted score block, an agent-grading block, and a folded roll-up block), indented by depth, then recurses into children.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
+### `render`
+- spec 3 · read at `2ba1568ed3b1` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:43Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Recursively serializes a Node tree into text lines pushed onto `out`, writing every field of the node in a fixed deterministic order on one line indented by `depth`, then recurses into node.children at depth+1, so two trees folded via different paths can be diffed line-by-line for exact equality.
+- found: Pushes one indented line per node listing kind/id/name/loc/rest/lang/lastAuthor/birthBelow/touchBelow, plus formatted score, agent, and folded-rollup fields (with '-' fallback for absent ones), then recurses into children at depth+1.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `text` — QUIRKY
 - spec 3 · read at `f235d28e7db2` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:36:39Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -106,11 +113,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/scripts/rim-check.ts
 
-### the file itself — QUIRKY
-- spec 3 · read at `63aa9dac5352` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:49:56Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A standalone script (run directly, not through a test framework) that builds a synthetic authorship fixture reproducing the kibana x-pack/platform bug case — a couple of large authors plus a long tail of thin contributors — using helpers like dir/file/dated/standIn/crowd to fake directory and blame data. It then runs the real "rim band" computation against that fixture and uses check/share/at to assert that no drawn band is wider than the value it names and no band mislabels what it represents, printing/failing on any violation so this regression can be caught in CI.
-- found: A no-framework CLI script (`just rim-check`) with several independent check blocks: the kibana band-naming/width bug I predicted, plus a ramped-band merge case, degenerate-input handling, 'absence' (untraced function) labeling vs a real 'no git history' repo-level state, and multiple roll-up/folded-file cases (language, age, churn) verifying that folded/rolled-up counts land in correct buckets without inventing bands or false claims.
-- predicted: some · documented: some · derivable: no · legible: not judged · trap: no
+### the file itself
+- spec 3 · read at `0eb687497608` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:48:40Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A standalone TypeScript check script that builds synthetic author/file/directory fixtures to validate the rim (distribution-band) visualization's invariants: that a drawn band's width never claims more than the actual share it represents, and that a band's label never names an author/entity that isn't actually the dominant one in that band. It likely specifically reproduces the kibana x-pack/platform bug scenario (two large authors plus a long tail of thin ones merged into a mislabeled band) and asserts the current code no longer produces that lie, run as a script (e.g., via npm/ts-node) rather than through the normal test framework.
+- found: It is exactly the standalone check script I predicted for the kibana-shaped merged-band bug (a wide run absorbing/mislabeling a thin tail), but that is only the first of about ten independent regression scenarios: absence bands vs 'no git history' vs 'timeline not walked', roll-up/fold stand-ins not being counted as distribution members or absences, sortBuckets putting unknown keys last instead of first (the -1 indexOf bug), per-lens ramp/band-list isolation (the ternary-fallthrough bug), a container drawing every child's band rather than its mean, columns-only files (ring never fetched) not throwing and banding correctly per churn window rung, and folded files' dual age readings (touch vs birth) banding correctly including the opening-state churn-gate regression.
+- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
 
 ### `check`
 - spec 3 · read at `d48811ca4e94` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:47:17Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -127,11 +134,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: The attached doc snippet ("A slice as histogramsFor emits one...") describes the output of a different function, histogramsFor, not this constructor `at`.
 
 ### `func`
-- spec 3 · read at `85317310d393` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:48:32Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: A test-fixture factory that builds a minimal Node representing a single function, given its line count (loc) and a "touched" timestamp (or null for untraced). Fills in the required Node fields with sensible defaults (kind: 'func', empty children, id/name/path placeholders) so it can be used to build a fake file tree for rim-check's tests without every test having to spell out every Node field.
-- found: A test-fixture factory building a minimal fake function Node with given loc and touched value, setting kind:'func', empty children, excluded:false, and a score object whose ageDays/lastTouchedDays reflect whether the function has been traced (touched === null → ageDays null too).
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The attached doc excerpt describes an adjacent fixture's usage ("one file holding two functions") rather than this factory function itself.
+- spec 3 · read at `21e20abbae9b` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:24Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A test-fixture helper: builds and returns a leaf `Node` of kind 'func' with the given `loc`, a placeholder name/path, empty children, and a score object whose lastTouchedDays comes from `touched` (null meaning no history), used by this file's rim-band correctness tests to construct small synthetic trees without going through a real scan.
+- found: Matched the core idea (fixture Node of kind func with loc, empty children, score.lastTouchedDays from touched) but I assumed a placeholder name/path would be included; actually the object omits name/path entirely and is force-cast `as unknown as Node`, plus zeroed commits/churn arrays and an ageDays of 1 (or null) I didn't anticipate.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `dir`
 - spec 3 · read at `9c3df9838496` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:48:50Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -198,18 +204,19 @@ What this is and how to add to it: [README.md](README.md)
 - found: Computes the fraction of total lines that belong to the row whose label matches k, by finding it in a `rows` array and dividing its `lines` field by `total`; returns 0 if not found.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
+### `dir` #4
+- spec 3 · read at `df178ef77c07` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:25Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A one-line test-fixture helper: builds a synthetic directory Node from a list of child nodes, summing their loc into the directory's own loc and wrapping them as children, with placeholder kind/name/path fields.
+- found: A one-line synthetic Node fixture builder for a directory, wrapping the given children with a fixed loc of 400 (not summed from kids) and placeholder id/excluded fields, cast through unknown.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: The doc field returned here was the file-level header, not documentation of this specific tiny helper.
+
 ### `crowd` #2 — QUIRKY
 - spec 3 · read at `b56c043ef7c7` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:49:11Z · by ross@rossturk.com · warm reading · reading 10 of its run · priming: CLAUDE.md excluded
 - expected: Builds a synthetic fake Node with total loc lines distributed across count distinct authors (a crowd of small contributors, per the kibana x-pack/platform bug scenario), using time as per-contributor age/date values — to test that many thin per-author slices get correctly merged/bucketed in the rim histogram rather than drawn as one misleadingly-labeled run or overly wide bands.
 - found: Builds a roll-up stand-in file Node (rest: count, folded: {lang: [], author: [], time}) — this is a fixture for the `contribute` roll-up path I read earlier in colorMode.ts (n.rest !== undefined branch), representing count folded functions with a `time` tally array, not a crowd of distinct authors as I guessed.
 - predicted: some · documented: none · derivable: yes · legible: most · trap: no
 - note: Recognizing this ties directly to `contribute`'s roll-up branch in colorMode.ts would have made the mechanism obvious — the two files are testing the same code path.
-
-### `dir` #4
-- spec 3 · read at `9c3df9838496` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:48:53Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A test-fixture helper (one of several same-named local helpers in different test blocks in this file) that builds a fake directory Node from an array of child nodes — likely {kind: 'dir', loc: sum of kids' loc, children: kids} — for exercising rim-check's band logic on directory rollups.
-- found: Test-fixture helper building a fake directory Node with kind 'dir', loc hardcoded to 0 (not summed), not excluded, and the given children — used in this file's local test blocks.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ### `at` #2 — OBSCURE
 - spec 3 · read at `08949d58e607` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:49:33Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -219,12 +226,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/App.tsx
 
-### the file itself
-- spec 3 · served in 6 parts · read at `6c8021743521` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:32:25Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: App.tsx is the large root React component file for this "sanity" dashboard web app — containing the top-level App component plus supporting hooks/components (useProgress, ProgressTrack, ProgressStrip, ProgressPane, FindButton, HistoryToggle, Empty) for polling and rendering assessment-run progress, history, and search. It also holds memoization/equality helpers (sameRun, sameIds, sameProgress, sameCost, sameProjects, traceSig, noop) and tree-walking utilities (findById, parentOf, readingSignature) supporting a "trace" feature that lets a user chase a call chain through a column of functions rather than recomputing it from trace_depth.
-- found: The 3164-line root component of the Sanity desktop app's React frontend. It owns essentially all app-level state: polling project lists/readings/scores/scan-shape over the loopback API, following whichever project an agent has opened, driving the sunburst map's tree (live scan, streamed function rings, git-history replay frames), the trace/replay ("chaseTrace") chain that walks commit log → blame → full replay as one button press, color-mode/lens locking and ranking, drill/crumb/selection navigation, search (Find), code view, movie export staging, CLI-install and onboarding (Empty) dialogs, and a large family of hand-written equality/memoization helpers (sameRun, sameProjects, etc.) whose extensive comments document specific past bugs each one fixes.
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: The file's header doc only describes chaseTrace, a single function of dozens in a 3164-line file — it says nothing about the file's overall responsibility, so this is a case of docs scoped to one function being surfaced as if they covered the whole file.
+### the file itself — QUIRKY
+- spec 3 · served in 7 parts · read at `182fe8bd4f46` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:49:25Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Root React component file for the frontend app: wires together project/repo selection, scan triggering and progress display, the sunburst visualization, and trace/history controls. Contains the top-level App component plus small subcomponents (ProgressPane, ProgressStrip, FindButton, HistoryToggle, Empty) and pure helper functions for memoization equality checks (sameRun, sameIds, sameProgress, sameCost, sameProjects) and tree/id lookups (findById, parentOf, traceSig). The header doc is narrowly about trace-button behavior rather than a summary of the whole file's scope.
+- found: The entire top-level application component and nearly all its state: project list polling and following whichever project an agent opened, scan/trace/replay orchestration and progress reporting, streaming shape/score/reading batching with careful memoization to avoid re-rendering thousands of sunburst arcs, the full color-mode/lens system with locks and rank tables, history replay state (timeline tables, deltas, playhead, scrubbing), drill-in/selection/crumb navigation, keyboard shortcuts, CLI-install and onboarding dialogs, and the Empty/first-run screen. Also holds small presentational subcomponents (ProgressTrack, ProgressStrip, ProgressPane, Spacer, FindButton, HistoryToggle, Empty) and the memoization-equality helpers. Every piece of the app's cross-cutting state ends up threaded through this one component.
+- predicted: some · documented: some · derivable: no · legible: not judged · trap: no
+- note: The file is enormous (3400+ lines) and almost entirely comment-driven narrative explaining past bugs and design tradeoffs rather than current behavior at a glance; a prediction from the header/peers alone captures maybe a third of the actual surface area.
 
 ### `noop`
 - spec 3 · read at `f8812f446328` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:50Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -289,11 +296,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: The file_doc here is stale/misattached — it's the chaseTrace doc bleeding onto this peer, not a description of parentOf.
 
 ### `App` — QUIRKY — TANGLED
-- spec 3 · served in 5 parts · read at `be3593124531` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:47:04Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: The root React component for the whole app: sets up top-level state (current project/run, selected frame, trace/chase state, progress tracking) via hooks, wires together the various subcomponents (ProgressTrack, ProgressStrip, ProgressPane, FindButton, HistoryToggle, Empty pane), and renders the overall page layout including the "Trace" pill that walks a call/commit column rather than recomputing from trace_depth. Given its size, it likely also contains a large number of event handlers and effects for syncing URL state, loading data, and keyboard shortcuts.
-- found: The root App component: dozens of pieces of state/refs for the active project, selection, drill stack, color mode/lens, rings/caps display prefs, theme, agent activity, and a whole replay/history subsystem (tables, deltas, playhead, scrubbing). Runs several polling effects (project list following whatever an agent opened, agent activity/readings batched every 2s, streamed scan shape/scores/function-ring fetches all batched on short timers to avoid re-rendering a several-thousand-arc sunburst too often). Implements project switching with per-project view memory, a trace/replay chain (chaseTrace) that walks log→blame→replay phases, keyboard shortcuts for lens switching, author/language rank computation for coloring, breadcrumb/ancestry derivation, search-result navigation, and finally renders the whole layout: sidebar, top controls, the Sunburst/shape-in-progress/empty states, history transport bar, detail panel or commit log, and several modal dialogs (big-folder warning, big-history cost warning, CLI install result, code viewer).
+- spec 3 · served in 6 parts · read at `9f6b9fa56fd6` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:29Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: The root React component wiring together all app-level state (selected repo/project, scan progress, tree/node data, color mode, trace/history depth, hover/selection, search) via hooks and peers like useProgress/sameRun/sameProgress, coordinating data fetching and progress tracking, and rendering the full UI shell: toolbar, ProgressPane/ProgressStrip, FindButton, HistoryToggle, and the main visualization surface, with numerous useEffect/useMemo blocks synchronizing derived state.
+- found: Far more than a UI shell wiring hooks: it owns the entire app's business logic — project lifecycle (add/forget/reset/CLI install, big-folder and big-history confirmation dialogs), a polling-based project-follow system that lets an MCP agent's activity redirect the window, streamed scan-shape assembly with batched flushes (worked around a StrictMode double-invoke bug), live progress lighting of ancestor wedges, a full replay/history subsystem (trace chaining across three depths, frame-tree building, scrubbing, movie export staging), rank/legend calibration shared between live and replay views, keyboard shortcuts, and the render tree assembling all of the above plus several modal dialogs and the code viewer.
 - predicted: some · documented: none · derivable: no · legible: some · trap: no
-- note: The handed `file_doc` only describes one narrow piece (the Trace pill/chaseTrace), not the function as a whole — App() is vastly larger and denser than that doc suggests.
 
 ### `useProgress`
 - spec 3 · read at `72304b16c0ca` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:38Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -326,11 +332,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `FindButton`
-- spec 3 · read at `aac70a4e69d6` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:35Z · by ross@rossturk.com · warm reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A small button component rendering a drawn magnifier-glass SVG icon; clicking calls onOpen to summon the Find panel, and it is visually "lit" (accent background/color) when `on` is true so the button and the open panel read as one control, with a tooltip naming the ⌘F shortcut.
-- found: A drawn-magnifier button that opens the Find panel via onOpen, lit (accent colors) when `on` is true, with a tooltip naming the ⌘F shortcut.
-- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
-- note: Already read this exact function inside the full App.tsx read at item 2, so this is a warm recall rather than a genuine cold prediction.
+- spec 3 · read at `1a52a1c082de` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:43Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A small React component rendering a pill/button that toggles a find/search panel: it shows an icon (and maybe a keyboard-shortcut hint) reflecting whether find is currently open via the `on` prop, styled differently when active, and calls `onOpen()` on click to open/toggle the find UI.
+- found: A pill button with an inline SVG magnifying-glass icon, active-state styling driven by `on`, and onClick calling onOpen; the keyboard shortcut is a tooltip title attribute rather than visible inline text as I guessed. No docs were attached to this component specifically (the file_doc concerned a different function, chaseTrace).
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `HistoryToggle`
 - spec 3 · read at `0d98d19a369b` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:37Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -505,11 +510,10 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/ColorKey.tsx
 
 ### the file itself
-- spec 3 · served in 2 parts · read at `2a979e33048b` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:32:24Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: This file renders the color legend/key overlay for the sunburst map: for the active ColorMode it shows swatches and labels explaining what each color means (surprise, churn, age, owner, language, etc). It also includes a ModeSwitcher (UI/hotkeys to change color mode), a `shortcut` helper for keyboard-shortcut labels, a `useMapEdge` hook to position the legend against an edge of the viewport, a small `Lock` icon component (maybe to pin the panel), and `Legend`/`ColorLegend` as the actual entry-rendering components — Legend being a generic row and ColorLegend the mode-aware composition.
-- found: Matches the prediction well at the component level: Lock (padlock icon tinted to whether a control can open it), Legend (mode-specific legend body — categorical author/owner ribbons, discrete swatches for traps/callers/reach/clones, or a heat ramp for continuous modes), ModeSwitcher (dropdown lens picker with keyboard shortcuts and per-lens lock/why tooltips), useMapEdge (CSS shape-outside hack to wrap the legend text around the sunburst's circular edge), and ColorLegend (composes Legend plus stale/unread swatch counts). What I underestimated: the amount of hard-won layout/CSS trickery (shape-outside float wrapping text around a circle, box-decoration-break for per-line backgrounds, feedback-loop-avoidance in measuring the map edge) and the amount of policy encoded per color mode (named vs recycled-color vs neutral 'other' authors, why traps/clones/reach get discrete swatches instead of a ramp, why stale/unread only show for reading-based modes).
+- spec 3 · served in 2 parts · read at `af29a31b4e6c` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:48:51Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: ColorKey.tsx is a React component rendering the color legend/key overlay for the map UI, explaining what each color band means for the active lens (Complexity, Reach, Age, etc). It exports a Legend/ColorLegend component, a ModeSwitcher for cycling between lenses, a Lock toggle to pin the current mode, a shortcut helper mapping keys to actions, and a useMapEdge hook to position the legend relative to the map's visible edge.
+- found: A color-legend/key overlay for the map: Lock (padlock icon showing a locked/unavailable lens), Legend (renders mode-specific keys — gradient ramp for calibrated lenses, discrete swatches for categorical modes like traps/callers/clones/reach, named+ranked author list for categorical author/owner mode), shortcut (keyboard-shortcut-string helper), ModeSwitcher (dropdown to pick the active lens, replacing an earlier segmented-tab row that ran out of width, shows lock icons and shortcut keys), useMapEdge (measures the map's circular composition bounding box so the legend text can flow around it via CSS shape-outside), and ColorLegend (top-level component combining Legend with stale/unread indicator swatches).
 - predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: No file header at all; every design rationale lives in dense per-block comments, so the file's actual shape (CSS shape-outside trickery, mode-by-mode legend variance) could not have been anticipated from names alone.
 
 ### `Lock`
 - spec 3 · read at `8e42cecb563c` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:28:42Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -517,37 +521,38 @@ What this is and how to add to it: [README.md](README.md)
 - found: Renders an inline SVG padlock (rect body + arc shackle) sized by `size` (default 7), colored via CSS `color` (accent when keyed, muted-foreground otherwise, or the explicit override), with opacity dimmed to 0.7 when not keyed for extra visual distinction beyond just hue.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `Legend` — QUIRKY
-- spec 3 · read at `303289d5089c` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:30:45Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Renders the color key appropriate to the current mode: for categorical modes (owner, language) a list of category swatches colored via the shared ranks map so they stay consistent with the map across replay frames rather than by list position, and for continuous/quantitative modes a gradient heat ramp instead — never mixing the two, since a gradient under a categorical encoding would falsely imply an order. Uses edge to mask/position the legend relative to the circular map.
-- found: Branches heavily by mode: categorical (owner/language) shows named category swatches in rank order (via a CSS shape-outside float so the text wraps around the circular map edge), splitting the overflow into "coloured but unnamed" vs true "neutral/other" counts; traps/callers/clones/reach each get their own fixed small set of labeled swatches (not a gradient, since they're discrete states/bands, not a continuum); everything else falls through to a 24-segment heat ramp with low/high labels from RAMP_ENDS.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
+### `Legend` — QUIRKY — TANGLED
+- spec 3 · read at `35dbe8880461` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:02Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Renders the color key for the map, branching by mode: for calibrated/ordered modes (Age, Complexity, Surprise etc.) it shows a gradient heat ramp labeled with the mode-specific endpoint words from `views`/rampEnds; for categorical modes (like owner) it lists each category with its swatch color looked up via `ranks` so colors stay stable across replay frames rather than being recomputed from list position. It's positioned relative to the map using the `edge` circle geometry, and may include a lock affordance and keyboard shortcut hint per the peers.
+- found: Branches on mode into several distinct key styles: categorical (owner) lists ranked/named categories up to a cap with "N more · shades repeat" and neutral counts, using a CSS float + shape-outside trick to wrap the text around the map's circular edge; boolean modes (traps) get a single square swatch with no scale; banded modes (callers, clones, reach) each render a fixed small legend of swatch+label pairs from constants; and the remaining calibrated modes fall through to a labeled 24-step gradient ramp with mode-specific endpoint words from rampEnds.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: I expected just a two-way categorical/gradient split; there are actually five distinct rendering branches (categorical, traps, callers, clones, reach, ramp), each with its own key shape, plus a non-obvious CSS shape-outside layout for wrapping around the map's circle.
 
-### `shortcut`
-- spec 3 · read at `2344a0f70bf0` · commit `c4c6042` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-21T07:08:05Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: One-line arrow function mapping index i to its keyboard shortcut label: i < 9 returns ⌘${i+1}, i === 9 returns ⌘0, i === 10 returns ⌘-, and anything beyond (i >= 11) returns null since shortcuts run out.
-- found: Ternary chain returning bare key string ('1'..'9', '0', '-') for index 0-10, null beyond — same logic I predicted but the ⌘ symbol is not part of the returned string, presumably added by the caller.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+### `shortcut` — TRAP
+- spec 3 · read at `696e7c79fca5` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:45Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A one-line lookup: index 0-8 maps to ⌘1-⌘9, index 9 to ⌘0, index 10 to ⌘-, anything past that returns null.
+- found: Returns the bare key label (no ⌘ prefix) for indices 0-8 as '1'-'9', 9 as '0', 10 as '-', and — not mentioned in the doc — 11 as '=', falling back to null past that.
+- predicted: most · documented: some · derivable: no · legible: full · trap: yes
+- note: The doc explicitly says "a twelfth lens gets no shortcut," but the code gives index 11 (the twelfth lens) the '=' key — a doc/code mismatch that would mislead whoever adds a 13th lens trusting the comment.
 
-### `ModeSwitcher`
-- spec 3 · read at `585baf489a27` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:30:31Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Renders a dropdown trigger button styled with the current lens's accent color and a fixed minimum width (so switching modes doesn't resize the bar), which opens a pulldown menu listing every ColorMode. Each menu item shows its keyboard shortcut via `shortcut` and calls onMode when clicked; items present in `locked` are shown disabled/dimmed with their reason from Locked rather than hidden, and the menu closes after a selection.
-- found: Renders an accent-colored trigger chip (with a lock icon if the current mode is locked) that toggles a listbox menu; a full-screen backdrop closes it on any outside click. Each menu row shows a lock slot, the label, and a colored shortcut badge (⌘+index) that doubles as the lens's swatch, dims (not disables) locked entries with their reason as the tooltip, and calls onMode + closes the menu on click.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+### `ModeSwitcher` — TANGLED
+- spec 3 · read at `92b9a379241a` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:22Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Renders a dropdown/pulldown trigger button showing the current color mode's name in its accent color at a fixed minimum width, which opens a menu listing every ColorMode option. Options present in `locked` are rendered disabled/dimmed with their lock reason shown (likely via title/tooltip), clicking an enabled option calls onMode(mode) and closes the menu, and there's probably keyboard/shortcut handling given the `shortcut` peer.
+- found: A custom dropdown: a chip-style trigger button tinted with the current mode's accent color showing its label (and a lock glyph if the current mode is locked), toggling an absolutely-positioned listbox menu. A full-screen invisible backdrop div closes the menu on any outside click/contextmenu. Each menu row shows a lock slot, the label, and a colored keyboard-shortcut badge (⌘+digit) tinted in that row's own mode color; locked rows are dimmed (not disabled) with a tooltip explaining why; clicking a row calls onMode and closes the menu; a footer shows a static step hint.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: The extensive inline comments explain design history (why a segmented control became a dropdown, why locked rows are dimmed not disabled, why the shortcut badge replaced two separate indicators) that isn't derivable from the code alone.
 
 ### `useMapEdge`
-- spec 3 · read at `deda8fd46398` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:10Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A React hook using state + effect (likely with a ResizeObserver) that measures the offsetParent (chart pane) containing the key box, computes the circle's center (cx, cy) as the pane's center and radius r as half the smaller of width/height, and returns null when there's no measurement yet or the box is too small for the circle to reach the key's corner. Recomputes when the pane or key content changes size.
-- found: Finds the chart pane via closest('[data-chart]') rather than offsetParent, measures center/radius (0.94x half the smaller side) relative to the key box's own coordinates, but deliberately measures only ONCE per `key` while the box is still rectangular (no shape applied yet) to avoid a feedback loop — since applying shape-outside changes the key's own height, which would change the circle position, which would change how many lines fit, oscillating forever. A ResizeObserver on the pane resets the measurement (setEdge(null)) so a pane resize forces a fresh rectangular measurement.
-- predicted: most · documented: full · derivable: no · legible: most · trap: no
-- note: The oscillation/feedback-loop hazard (re-measuring after the shape is applied) is the real trap here and is well explained in the comment, so it's not silent — but it's a striking design constraint I didn't anticipate.
+- spec 3 · read at `d57448d25a36` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:07Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Hook that measures the chart pane and the key box to compute a circle's radius and center relative to the box, for a shape-outside exclusion so text wraps around the circular map. Returns null when there's no measurement yet or the pane is too small for the circle to reach the box's corner. The `key` param gates re-measurement to avoid a resize-effect loop, only recomputing when it changes.
+- found: Finds the chart pane via closest('[data-chart]'), measures the actual rendered rings SVG group ([data-rings]) bounding box (not the pane's own size) to get the circle's radius (half the smaller dimension) and center in the box's own coordinates, storing it keyed by `key` so it only remeasures when key changes; a separate ResizeObserver on the pane clears the cached edge on resize to force remeasurement.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
-### `ColorLegend` — TANGLED
-- spec 3 · read at `5a56054fd419` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:30:16Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Wraps the Legend component in a boxed container (styled to match ModeSwitcher per the docstring), passing through mode/categories/ranks, and appends extra legend rows for the stale-hatch texture and the unread-gray swatch — but only when stale/unread are nonzero, since a legend entry for a texture absent from the map would teach the reader to ignore it.
-- found: Renders Legend (mode/categories/ranks/edge) inside a plain measured div (no box/card — the docstring's "boxed" claim is outdated per the code's own comment), and, only when the mode paints from readings (paintsFromReadings) and stale or unread counts are nonzero, appends a small ribbon of CSS-drawn swatches (hatch pattern for stale, translucent gray matching Sunburst's unread color) with counts.
-- predicted: most · documented: none · derivable: no · legible: some · trap: no
-- note: The one-line docstring ("boxed to match the switcher") is stale — the component's own comment says "There is no card any more."
+### `ColorLegend` — QUIRKY
+- spec 3 · read at `6bb441dc5bed` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:46Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A thin wrapper that renders the Legend component inside a bordered/boxed container styled to visually match ModeSwitcher, passing through mode/views/categories/ranks/stale/unread. The at prop is used only as a React key to force remount when the drilled node changes, not read for rendering logic.
+- found: Renders the Legend plus, only in reading-painted modes (paintsFromReadings) and when counts are nonzero, a small ribbon of stale/unread swatch counts. No border/box wrapper at all (explicitly rejected); instead uses useMapEdge with a cache key built from mode/categories/stale/unread/at to reshape the key's edge to match the map's curve, so text hugs a ragged/curved boundary rather than sitting in a rectangle.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
 
 ## web/src/components/CommitCard.tsx
 
@@ -595,12 +600,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Renders "N lines · M functions · K commits · J excluded" for a node, where the commit figure is either the full git-log commit count for a subtree, or for a single function the distinct commits its current lines trace back to via blame — deliberately labeled differently and omitted entirely (never shown as 0) when there's no history.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `Counts`
-- spec 3 · read at `a05667a0c106` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:43Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: A shared React component rendering "lines, functions, commits" segments for any node (repo/dir/file/function). It shows the line count always, shows the functions count only when `functions` is passed (omitted for function nodes since they aren't made of functions), and shows a commit count segment labeled differently depending on node kind — a lifetime git-log commit count for repo/dir/file vs a blame-derived "traced back to" count for functions — and omits the commit segment entirely (not a "0") when there's no history data available. Probably also folds `excluded` into the functions figure somehow.
-- found: Renders lines · functions · commits as one line, with functions omitted when undefined, commit segment either the lifetime allCommits (repo/dir/file) or the blame-traced count (function, gated on ageDays not null so it doesn't read as a flat 0), and omitted entirely when neither exists. `excluded` is its own separate ' · N excluded' segment (from .sanityignore), not folded into the functions count as I guessed.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: Tooltip text (title attrs) carries real semantic explanation of what each count means that isn't visible from the signature/docs alone.
+### `Counts` — QUIRKY
+- spec 3 · read at `741ca19c1dd9` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:49Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A shared React component that renders "lines / functions / commits" text for any node type (repo, directory, file, or function). It reads line count off `node`, shows `functions` only when provided (omitted for a function node since it isn't made of functions), and renders a commit count segment with a label that differs depending on whether it's a true "touched in history" count (repo/dir/file) versus a blame-traceback count (function) — and omits the commit segment entirely rather than printing 0 when no history data is available.
+- found: Renders "N lines · N functions · N commits · N excluded" pieces, each conditionally shown. Lines always show. Functions show only when the prop is defined (omitted for a function node). Commits show only `allCommits` (never present on a function at all anymore — the old per-function blame-traceback count was deliberately removed as a different, non-comparable quantity and now lives elsewhere as churn). Excluded shows a `.sanityignore` count when nonzero.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+- note: The docs handed to me described the OLD behavior (a function showing a blame-traceback commit count) which the code's own comment says was deliberately removed months ago — the given docs actively mislead rather than describe current behavior, and I also missed the `excluded` segment in my prediction entirely.
 
 ## web/src/components/Crumbs.tsx
 
@@ -621,24 +626,22 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/Detail.tsx
 
 ### the file itself
-- spec 3 · read at `c536befd73eb` · commit `6cf7dc9` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-21T07:07:34Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: A React component rendering a detail panel for a selected node (function/file) — showing metrics (rank, measure, provenance/attribution) and the node's contents/source. Detail is the exported top-level component, Contents a subcomponent rendering source/body text, and rank/measure/provenance are helper functions computing display values (percentile rank, formatted metric, doc/blame provenance). No file header doc exists, which is itself notable.
-- found: Detail panel component for the selected node. rank/measure/provenance are per-color-mode helpers as predicted. Contents lists children sorted by current mode's rank. Detail itself is much more involved than predicted: no-selection state falls back to Summary or an idle Bloom pattern, containers (dir/file) delegate to Summary with a LensPane 'about' block, leaf functions get a full custom layout with breadcrumb path, trap badge, Counts, LensPane, Contents list, and a provenance footer.
+- spec 3 · read at `9aa1c2b2b64d` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:49:11Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A React component file implementing the detail/inspector side-panel shown when a node is selected on the map. `Detail` is the top-level exported component; `rank` computes/shows where the node sits among siblings for the current lens; `measure` formats the current lens's value for display; `provenance` renders the assessment reading metadata (commit, model, grades) for that node; `Contents` renders a drill-down list of the node's children (files/functions) so a user can navigate deeper from the panel.
+- found: My prediction of each named function's role (rank/measure/provenance/Contents as I described) was correct, but the file is a much larger, richly-commented component than the five names suggested: Detail also handles the no-selection idle state (Summary/Bloom), reuses Summary for any non-leaf container (directories share the same breakdown+list pane as the whole-repo summary), shows a clickable breadcrumb trail of tree owners, a trap badge, per-node Counts, and embeds LensPane for the eleven per-lens detail sections plus a provenance footer only shown for reading-derived lenses. No module header exists at all, but nearly every function/JSX block carries extensive prose comments explaining specific historical UI bugs and layout decisions.
 - predicted: most · documented: none · derivable: no · legible: not judged · trap: no
 
-### `rank`
-- spec 3 · read at `f4d8e8cd0ef9` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T04:52:18Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Switches on ColorMode like rowNote's sibling, returning the numeric quantity used to sort/rank nodes in a list for that mode: e.g. temperature/surprise for the default grade mode, lastTouchedDays for 'age', commits for 'churn', callers count for 'callers', calls count for 'reach', cloneSize for 'clones' — mirroring whatever field the ring color for that mode is drawn from, with some fallback (like -Infinity or 0) for nodes missing a score.
-- found: Switches on ColorMode to return a sort key per node: churn uses s.churn (or -1 if no age history), age uses negated lastTouchedDays so recent sorts first, callers uses 1/(1+callers) so unreferenced (0 callers) ranks highest, reach uses raw calls count, clones uses cloneSize (biggest group first), and the default falls back to wedgeHeat(n).
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The inverse formula for callers (1/(1+n)) is a subtle way to put 0-callers first while still ordering the rest ascending by callers — not obvious without reading the actual expression.
+### `rank` — QUIRKY
+- spec 3 · read at `ab7551db78dd` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:39:59Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Switches on `mode` (a ColorMode like "predicted", "documented", "legible", "trap", etc.) and pulls the corresponding numeric value out of `views` for node `n` — likely an aggregate/average score or count for that node in that category — returning a single number used both to sort the list and to color the ring for the currently selected mode.
+- found: Per-mode ranking/coloring value: churn returns the churn count at the currently selected window index (views.churn.at), age returns negative days-since-touched read against views.age.read (or -1 if null) so recent sorts first, callers returns 1/(1+callers) so uncalled/rare nodes rank highest, reach returns raw call count, clones returns cloneSize (bigger groups first), and the default falls through to wedgeHeat(n). Nodes with no score return -1.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
 
-### `measure` — QUIRKY
-- spec 3 · read at `33c0c5203f17` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T04:51:09Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Switches on `mode` (a small enum of display/color modes) and picks the corresponding numeric field off node `n`, formatting it into a short string with its unit suffix baked in (e.g. "42%", "1.2kb") so it fits an 8-character column. Returns null when the node has no value for that mode.
-- found: A per-mode switch returning a short formatted string: blame has no number (null); churn shows commit count with × or em-dash if unscored; callers/reach show counts with × or → prefix; clones show clone-group size; age shows "today" or "Nd ago"; surprise shows a categorical heat word if available else a rounded degree number; default falls back to line count. Em-dash is the consistent placeholder for missing data.
-- predicted: some · documented: some · derivable: no · legible: full · trap: no
-- note: The inline comments carry real design rationale (why blame/surprise are special-cased) that isn't recoverable from the code shape alone.
+### `measure`
+- spec 3 · read at `fa3fe1c19943` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:52Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Switches on `mode` (the active lens: surprise, complexity, age, churn, tangle, etc.) and extracts the single relevant numeric field from `n` (or `views`) for that mode, formatting it into a short string with its unit baked in (e.g., "42%", "1.2k loc", "3mo") to fit an 8-character column — returning `null` when that mode has no applicable number for this node (e.g., a node with no history).
+- found: A per-mode switch: blame returns null (author is categorical, already shown by swatch), churn returns commit count at the current window with ×, callers/reach/clones return counts with their own glyphs (×, →, ×), age returns "today"/"Nd ago", surprise returns either a human grade word (for read functions) or a rounded heat degree (for model-scored ones), and everything else falls back to the LOC count.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `provenance` — QUIRKY
 - spec 3 · read at `66e52b241034` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T19:40:51Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -647,16 +650,17 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: yes · legible: full · trap: no
 
 ### `Contents`
-- spec 2 · read at `06ab2255d111` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:46:12Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Component that renders `node.children` as a sortable list of rows, ordered by heat/surprise value descending (using a `rank` or `measure` helper) rather than by size or name, with unread/ungraded children sunk to the bottom instead of sorted as cold. Each row shows its grade/provenance and wires up `onSelect` (click) and `onDrill` (double-click) handlers, using `mode`/`ranks`/`ageSpan` to compute display color and relative rank.
-- found: Renders node.children sorted by: analyzed-first, then rank(mode) descending, then loc descending, with unread children sinking to bottom via the 'seen' tiebreaker. Each row is a button with a color swatch (colorFor), truncated name, and a measure(c, mode) value on the right, wired to onSelect/onDrill on click/double-click.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `cce0b87347eb` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:33Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Renders a list of node's children sorted by heat/rank (via the rank peer and ranks map) descending, with unread/gray children sinking to the bottom instead of being treated as low-heat. Each row shows the child's name, a size measure, and a color derived from mode; clicking calls onSelect, double-click calls onDrill.
+- found: Renders node's children as rows sorted first by whether they've been analyzed (unread sinks to bottom), then by rank(mode)-derived heat, then loc as tiebreak. Each row shows a color swatch via colorFor, the name, and a measure(mode) value; click selects, double-click drills in.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `Detail` — QUIRKY — TANGLED
-- spec 3 · read at `6748fcad0d32` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:48Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Detail is the right-hand detail-pane component: given the selected `node` (or `focus` when nothing is selected), it renders a title/breadcrumb built from `owners` (falling back to the node's own path when owners is empty), the current color-mode reading/label for the node, and a series of "lens" sections (docs, traps, callers/reach, clones, churn/age, blame/neighbours) that call helper functions like `rank`, `measure`, `provenance`, and render via `Contents`. When `replaying` is true it suppresses or disables the sections that would otherwise fetch live working-tree data (like neighbours/blame), since those only make sense for the current commit. Clicking items in these sections wires to `onSelect`/`onDrill`/`onShowIn`/`onJump` to navigate the map.
-- found: Branches heavily on state: no node falls back to a Summary of `focus` or an idle Bloom pattern; a non-leaf (container) node delegates entirely to the same Summary component scoped to it; only a leaf function node renders the full bespoke header (name, trap badge, breadcrumb path, Counts) plus LensPane and Contents in a scrollable body, with a provenance footer shown only when the mode paints from readings. Breadcrumb segments are the tree's owner nodes (clickable via onShowIn) rather than raw path string pieces, and file nodes get their own header/lens content only under the docs mode via LensPane, not a separate block.
-- predicted: some · documented: none · derivable: no · legible: some · trap: no
+- spec 3 · read at `b4f02a757b90` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:33Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: The main detail/inspector pane component: renders the selected node's title and breadcrumb path (via `owners`), stats calibrated by `mode`/`views` (age, churn, surprise etc.), and a set of lens sections (things like blame/neighbours/provenance) that are gated off when `replaying` is true since those sections read the live working tree rather than a past commit. Wires up click handlers (onSelect, onDrill, onShowIn, onJump) to let the user navigate the map or jump to a function's source location, and falls back to a plain path display when `owners` doesn't contain the node.
+- found: Renders the detail pane with several distinct branches: no node selected falls back to a whole-repo Summary or an idle Bloom pattern; a non-leaf (file/dir) node also renders via Summary with a container-scoped breakdown; only a leaf function gets the full header+Counts+LensPane+Contents+footer layout, with a trap badge, a breadcrumb built from `owners` (falling back to a plain path string), siblings computed by reading the last owner's children, and lens sections gated by `replaying`/`repoKey`.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
+- note: I underestimated how much branching there is — Detail reuses the Summary component for both the no-selection and non-leaf-container cases, and only functions get the distinct full layout I originally imagined for all nodes.
 
 ## web/src/components/Dials.tsx
 
@@ -744,11 +748,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/FileZoom.tsx
 
 ### the file itself
-- spec 2 · read at `3fb3d24d93f0` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:59:32Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A React component file rendering a "zoomed in" detail view of a single file within some larger repo visualization (e.g., a treemap or map of files), used when a user selects/clicks a file. `fanOf` is a helper function computing a fanned-out/radial layout (positions) for child items (likely the functions within the file) so they can be animated into view. `FileZoom` is the main component that renders this zoomed panel, probably showing the file's functions/peers with some transition/animation logic.
-- found: This is a React component in a repo visualization app (a polar/sunburst treemap of a codebase). FileZoom renders the "opened out" view of a single file when a user drills into its wedge — it animates the file's function-tiling from the wedge shape into a wider fan shape using an affine (θ,v) mapping, so the same tiled cells just get bigger rather than being re-tessellated. fanOf computes the destination fan sector via fanFor. The component handles the transition (t=0 to 1), selection/hover/drill callbacks, coloring by mode, stale-reading hatching, rollup dots for aggregated functions, and settled-state labels.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: Docs field was empty for the file task, but the actual file has an extensive design-rationale header comment (why polar geometry, why this replaced FileStack, etc.) — the emptiness itself was a notable finding since real docs exist.
+- spec 3 · read at `c8b6d358e48d` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:41Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Defines the FileZoom React component (plus a `fanOf` helper) responsible for rendering the "zoomed into a file" view of the sunburst — laying out that file's function wedges into a fan/ring once the file's functions have been fetched/populated (per the model.rs docs about files losing their function ring until `file_functions` is asked for), likely with `fanOf` computing each function's angular slice from its lines/score. It probably also handles interaction like clicking a function wedge or zooming back out to the parent directory.
+- found: Renders the transition of a file's sunburst wedge opening into a polar "fan": a squarified treemap of its functions (via `tileFunctions`) laid out against the destination fan sector and animated (lerped) from the source wedge sector, with click/double-click/hover handlers, stale-reading hatch texture, rollup-dots for aggregated overflow patches, and labels that fade in once settled. `fanOf` is a thin wrapper around `fanFor` computing just the destination sector (not per-function placement, as I'd guessed) — the per-function layout is a separate treemap-tiling step.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: No docs were handed in the task, but the file itself has a substantial header comment explaining the polar-vs-rectangular design rationale (replacing an earlier `FileStack` rectangular treemap) — that context wasn't available to predict from, only visible on opening.
 
 ### `fanOf` — QUIRKY
 - spec 2 · read at `4c58496076c4` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:51:51Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -757,11 +761,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 - note: The docs describe behavior (null source still gets a fan) that actually lives in fanFor, not in this wrapper's own body — so the doc explains the callee, not this function.
 
-### `FileZoom` — QUIRKY — TANGLED
-- spec 3 · read at `124dfaf524c0` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T04:51:10Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A React component that renders an animated zoomable treemap of files rooted at `root`, interpolating between a `from` state and current `t` (0..1 transition progress) to animate zoom/pan transitions. It computes a treemap layout (using ranks for ordering/coloring, ageSpan for age-based coloring, minPatchArea to filter out tiny rectangles, unitsPerPx/paneAspect for scaling to pixels) and renders div/rect elements for each file/folder, wiring up onSelect/onDrill/onHover handlers for click and hover interaction, highlighting the `selected` and `mode`-dependent styling.
-- found: Renders an animated radial/polar treemap ("fan" of wedges/arcs, not rectangles) of a file's children, tiling them via tileFunctions against a squarified layout, interpolating between a source and destination sector shape over transition progress t. Draws each cell as an SVG path with fill/color from colorFor (mode/ranks/ageSpan-based), handles click/dblclick/hover for select/drill/hover, overlays a stale-hatch pattern for stale agent readings, a dotted rollup texture for aggregated 'rest' nodes above a pixel-size threshold, and pulsing trap/clone markers, then draws fitted labels once the transition has settled.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+### `FileZoom`
+- spec 3 · read at `9c0622d9e140` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:32Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Renders a zoomed-in treemap/fan-style layout of the functions inside `root`, computing patch geometry via `fanOf` using ranks/views/paneAspect/unitsPerPx/minPatchArea to skip patches too small to render. Animates between `from` and `root` using transition progress `t`, with `settled` short-circuiting once the transition finishes, and wires up onSelect/onDrill/onHover for interaction with the rendered patches.
+- found: Squarify-tiles root's children into arc-shaped "patches" within a fan sector computed via fanOf/arcOf, colors them via colorFor, and lerps between `from` and destination sector across transition `t`. Draws patch paths with click/dblclick/hover handlers for select/drill/hover, adds stale-hatch overlay for stale agent readings, rollup-dot texture for aggregated 'rest' patches, trap-pulse styling, and only renders text labels once `arrived` (settled or no `from`) to avoid distorting names mid-animation.
+- predicted: most · documented: none · derivable: no · legible: most · trap: no
 
 ## web/src/components/Find.tsx
 
@@ -798,10 +802,25 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: full · derivable: no · legible: full · trap: no
 
 ### `HistoryBar` — TANGLED
-- spec 3 · read at `ccca292a46c2` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:29:08Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Renders the bottom transport strip: a scrub bar bound to frames/index, a play/pause control driving an interval that advances index at a rate derived from duration (using pace/speed helpers), plus duration and flashes-toggle controls. Also wires an export-dialog trigger passing name, slug, scope, dateOf, ensure, mode, keyFor, onStage through for building an exported movie, without duplicating commit metadata itself (per the docstring about a removed caption row).
-- found: Renders the transport: play/pause button (with rewind-on-replay-from-end), a scrub range input, duration-choice buttons, a temporary flashes toggle, and an export button that opens ExportDialog. Playback is driven by a requestAnimationFrame loop tracking a fractional cursor in a ref (to survive slow rates) with rate = commit-count/duration, and a separate keydown effect implements space-to-toggle and arrow-key stepping (with shift for a 10-commit stride), guarded against firing while the export dialog is open or a range input has focus.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- spec 3 · read at `9b766bdfe9cf` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:17Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Renders the bottom transport strip: a play/pause button that drives an animation loop (using the `pace`/`speed` helpers) advancing `index` through `frames` over `duration` seconds via onIndex/onPlaying, a scrub slider/range input bound directly to index for manual seeking, a flashes toggle wired to onFlashes, and a duration control. It likely also renders/triggers an export-movie dialog, passing through name/slug/scope/dateOf/ensure/mode/keyFor so the dialog can build a MovieKey and fetch timeline data as needed. No second info row (per the doc, that was removed as duplicate of the commit log).
+- found: Renders play/pause, a scrub range input, a row of duration-preset pill buttons, a flashes toggle, and an export button that opens ExportDialog. Playback is driven by a requestAnimationFrame clock (not a fixed-step timer) that tracks a fractional playhead in a ref and only emits integer index changes via onIndex, rate-scaled to the scoped frame count so a drilled-in subtree still plays in the chosen duration; also wires space/arrow-key keyboard shortcuts (skipping when the export dialog is open or a range input has focus).
+- predicted: most · documented: some · derivable: no · legible: some · trap: no
+
+## web/src/components/LensHelp.tsx
+
+### `Lens`
+- spec 3 · read at `683f8a06b0d8` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:47:41Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Renders one row in a legend/reference list: shows the swatch next to the lens name, a description of what it measures, and conditionally displays values/ramp/needs as labeled sub-fields when present, with children rendered for extra free-form content.
+- found: Renders a two-column grid row: left column has the swatch, lens name, and 'needs X' text; right column has a 'Measures' description paragraph, optional Values/Ramp labeled lines (styled as a colon-led label, per an inline comment explaining why not pills), and optional children content below.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: The one-line doc describes the file/section, not this specific function's layout; the real documentation is an inline comment explaining a design decision (colon vs pill styling) rather than the function's purpose.
+
+### `HelpButton`
+- spec 3 · read at `ab86dc1f8552` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:33Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A small pill/icon button rendering a "?" glyph, styled with an active/highlighted state when `on` is true, that calls onOpen() on click to toggle the lens-help panel open — structurally similar to FindButton, sitting beside the lens switcher.
+- found: Matched the pill structure, active styling, and onClick=onOpen exactly as predicted; the "?" is a hand-drawn SVG (circle, hook stroke, dot) rather than a text glyph, mirroring FindButton's icon approach, which I got the gist of but not the exact rendering.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ## web/src/components/LensPane.tsx
 
@@ -1066,10 +1085,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `traceOf` — QUIRKY — TANGLED
-- spec 3 · read at `30140e4a00fc` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:25Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Constructs the Phase object for the trace pill — three sub-steps (commit log walk, blame pass, replay) weighted 1:10:100 for fill amount, computing label/cost text based on which chamber is currently running, and using scanned/replayBlocked flags to determine whether the pill is clickable or a disabled/flat marker.
-- found: A state machine returning the Phase for the trace pill, checked in priority order: not-scanned (disabled), currently running (log walk or blame pass, told apart by Progress.step), a priced-but-unstarted estimate, no git history, blame incomplete, replay in progress, replay outstanding (with replayBlocked dimming it), or fully done — each branch computing a 3-element fill gauge and a note string.
+- spec 3 · read at `f707f58acdc3` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:59Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Builds the Phase object for the Trace pill, combining three progress fractions (commit-log walk, blame pass, full replay) into chamber values for the gauge. Computes a label describing the cost of tracing (commit/line counts) and determines whether the pill is clickable/active based on scanned (must complete scan first) and replayBlocked (replay chamber gated independently).
+- found: A long cascade of state checks (not scanned, running trace by step, priced but not started, no git history, unblamed files remaining, edits-depth not reached, replaying now, commits left to replay, fully done) each returning a Phase with a 4-value fill gauge (log/blame/edits/story), a verb/act pair, and a short note string describing cost or progress at that state.
 - predicted: some · documented: most · derivable: no · legible: some · trap: no
+- note: I predicted three chambers/fractions combined into one Phase; the actual gauge has four (log, blame, edits, story) and most of the function's weight is in ordering ~9 mutually exclusive states, not in combining fractions.
 
 ### `Pill` — QUIRKY
 - spec 3 · read at `d386696a8cdb` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:18Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -1148,12 +1168,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Rings.tsx
 
-### the file itself — QUIRKY
-- spec 3 · read at `bc64e34068e7` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:47:04Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A small config/constants module for the sunburst ring visualization — its exports (RingCount, BandWidth, ColorCount) are plain constants or tiny helper functions defining how many concentric rings to draw, how wide each ring band is, and how many distinct colors to use, rather than a React component itself.
-- found: Three small interactive UI controls (not constants) for the sunburst's crumb/toolbar: RingCount is a stepper for how many ring levels to draw, BandWidth is a temporary slider for the directory rim's share of ring thickness, and ColorCount is a stepper through discrete CAPS values for how many categorical colors a lens spends before merging the rest into "other".
-- predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
-- note: File has no header doc, but each exported component has a substantial JSDoc explaining design rationale (stepper vs slider vs segmented control) rather than just what it does.
+### the file itself
+- spec 3 · read at `6cdd7ee633e3` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:47:16Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A collection of small, self-contained toolbar-control components, one per map display setting: RingCount (ring count stepper), BandWidth (rim band width slider), ColorCount (category cap), MarkerToggle (traps/clones marker on/off), AgeReading (which date Age paints), DerivableToggle (mark derivable docs), ChurnWindow (churn window picker), TangleReading (raw vs weighted). Little shared logic beyond similar small-button/dropdown styling.
+- found: Exactly as predicted: eight independent, self-contained toolbar controls (stepper, slider, dropdown, and segmented-switch variants) for the map's display settings, sharing only pill-button visual styling — each with an extensively reasoned doc comment justifying its specific UI shape (stepper vs. segment vs. dropdown vs. switch) for that particular setting.
+- predicted: full · documented: none · derivable: no · legible: not judged · trap: no
 
 ### `RingCount`
 - spec 3 · read at `2622bb0efb68` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:35:38Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1163,9 +1182,9 @@ What this is and how to add to it: [README.md](README.md)
 - note: The doc comment on the component explains the UX rationale well but the min/max values themselves live in RINGS_MIN/RINGS_MAX constants elsewhere, not derivable from this snippet.
 
 ### `BandWidth`
-- spec 3 · read at `6416c506663f` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:29:36Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Renders a small labeled range/slider input (0 to 1, or 0-100) bound to `share`, calling onShare with the parsed numeric value on change, with a "band" label and a percentage display next to it — a temporary debug-style control, unstyled/unlabelled beyond the basics per the docs.
-- found: Matched prediction closely: a pill-styled range input 0-100 mapped to a 0-1 share, with a "band" label and percentage readout, plus a title tooltip explaining it's temporary.
+- spec 3 · read at `e4a617f77e04` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:59Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Renders a labeled range/slider input (not a stepper) bound to `share`, showing "band" plus the current percentage, and calling `onShare` on change with the new fraction — ranging continuously between a thin default and the full ring, deliberately not persisted anywhere (no localStorage), matching the doc's emphasis that this is a control for looking rather than a stored preference.
+- found: A pill-shaped div with a "band" label, a native range input (0-100) bound to `share*100`, calling onShare(v/100) on change, and a percentage readout — exactly a slider control, unlabelled beyond band+%, not persisted.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `ColorCount`
@@ -1262,26 +1281,32 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Summary.tsx
 
-### the file itself — QUIRKY
-- spec 3 · read at `06e7bfa94dbe` · commit `6cf7dc9` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:07:40Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: No doc header. This file renders the top-level repo overview/dashboard pane. `Summary` is the main exported component tying together `ListWindow` (a virtualized/windowed scrollable list, probably top files by some metric), `Spread` (a distribution/histogram visualization across the four lenses: surprise/docs/churn/legibility), `Buckets` (bucketed counts, maybe grade tiers), and `rowNote` (a small helper formatting text for a list row, e.g. showing a stat or hint next to a file name).
-- found: The default detail panel shown when nothing is selected: a manually-windowed (not virtualized-library) list of readings, a Spread bar/key for grade breakdown under the Surprise lens, a Buckets bar/key for other lenses (authors, languages, age, etc.), and rowNote supplying per-row trailing text tailored to each lens so it never repeats the bucket heading. Extensive design-rationale comments throughout explain UX iteration history (removed dial row, removed notes list, performance fix for 32k DOM nodes, etc).
-- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
-- note: No file header at all — the per-function doc comments are where all the real design rationale lives, so grading documentation requires reading the whole file rather than a top summary.
+### the file itself
+- spec 3 · served in 2 parts · read at `bafbba0b8201` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:49:09Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Frontend sidebar/panel component rendering the statistical summary for a selected node in the sunburst: a top-level Summary component assembling breakdown sections (using breakdownTitle/rowNote helpers for labels), a Buckets component rendering a histogram from the backend's columnized function data (Cols), a Spread component showing a distribution or min/max/mean range, and a ListWindow component for a scrollable/virtualized list of related items (e.g. files or hotspots) within the panel.
+- found: Summary.tsx is the sidebar detail panel for the currently-selected node: Summary assembles a header (Counts, path, about), a breakdown section headed by breakdownTitle, showing either Buckets (per-lens histogram bar, e.g. authors/languages/age bands, widths in lines) or Spread (the surprise-grade distribution bar, widths in counts, with unread/expired as inert segments), and a windowed ListWindow of the picked bucket/grade's functions (manual virtualization via fixed ROW_H and scroll-position math, not a library) with rowNote supplying the one extra fact each row can say beyond its bucket heading.
+- predicted: most · documented: none · derivable: no · legible: most · trap: no
+- note: No file header existed at all (docs: []) despite very heavy prose-comments throughout the body explaining design history — the module-level 'why' is scattered across individual function/component doc comments rather than summarized at the top.
+
+### `breakdownTitle` — QUIRKY
+- spec 3 · read at `7af3e4e1d57d` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:50:00Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Returns a heading string that names the current color-mode lens (e.g. Surprise, Blame, Churn), and for the one lens whose data depends on the trace/blame resolved count, it appends how many files/lines have been resolved out of the total (from views), while other modes just return a plain label.
+- found: Returns a fixed heading per mode, with two exceptions requiring extra state: 'age' returns 'Oldest line' or 'Newest line' depending on views.age.read, and 'tangle' returns 'Complexity' or 'Complexity for its size' depending on whether views.tangle is raw or weighted; everything else looks up a static title table.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+- note: The one-line doc ('the one lens whose rows depend on a reading resolved') doesn't match the code at all — that description fits neither 'age' nor 'tangle', so either the doc is stale or describes a different function/field entirely.
 
 ### `rowNote` — QUIRKY
-- spec 3 · read at `5d7fd33f7e0c` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:05Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Switches on mode: for 'age' it formats the node's timestamp as a short relative string like "5d ago"; for 'churn' it formats commit count over a window like "11 in 90d". For all other (categorical) modes — author, language, grade, trap — it falls through to a default that returns the node's line count (LINES), e.g. "119 lines", since those columns are otherwise pure repetition of the bucket heading.
-- found: Switches on mode across six branches (age, churn, callers, clones, reach, default). Age formats a relative day string. Churn prints commit count as "N commit(s)" or em dash, guarded on ageDays (not commits) to distinguish "no history" from "no commits in window" — explained by a lengthy in-code comment recounting a prior review dispute. Callers/reach are complementary: each prints the OTHER direction's count when its own is zero, to distinguish a dead leaf/stub from a hub nothing enters. Clones prints "1 of N" or "unique". Default falls back to line count.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The docs handed at sanity_next only cover the general bands-vs-categories design rationale; the callers/clones/reach branches and the churn ageDays-vs-commits guard are explained entirely by inline comments not visible until reveal.
+- spec 3 · read at `77c5ab5bcea8` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:22Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Computes the small trailing-column string shown next to each row in a bucketed list. For 'age'/'churn' (band-based) modes it formats the specific underlying value within the band (like "5d ago" or "11 in 90d") using views data. For categorical modes (author, language, grade, trap) it instead returns a line-count string since the category itself is already shown as the heading.
+- found: Per-mode formatting: age gives 'today'/'Xd ago' or em dash; churn gives 'N changes' for the commits at the selected window (explicitly not a duration string); callers/reach give complementary caller/callee counts depending on which side is zero; clones gives clone-group location info; default (categorical) falls back to a line count.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: The inline comments explicitly warn against the exact wrong assumption I made for churn (that it prints a duration like 'in 90d') — worth flagging as a documented gotcha for future editors.
 
 ### `ListWindow`
-- spec 2 · read at `b01f264c6a80` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:00:52Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: A manually-windowed list: tracks scroll position of a container (ref + scroll event listener), computes the visible row index range from a fixed row height and container height, pads with an `overscan` of extra rows above/below to hide the paint-lag seam on fast scrolls, and renders only that slice of `rows` with top/bottom spacer elements (or a translateY) to preserve full scrollbar height. Each rendered row uses `paint` for its swatch color, `rowNote`/`mode` for trailing text, and click handlers wired to `onSelect`/`goTo`.
-- found: Tracks scroll offset/height via a scroll listener plus ResizeObserver, computes a visible row range from fixed ROW_H with 8-row overscan, slices `rows` to render only that range with top/bottom spacer divs to keep true scrollbar height, resets scrollTop to 0 whenever `rows` itself changes (different list), and renders each row as a button with a paint-derived swatch, name, and rowNote trailing text, wired to onSelect (click) and goTo (double-click).
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Missed the reset-to-top-on-new-list effect and the double-click-vs-click split (onSelect/goTo) in my prediction, though the windowing mechanics themselves I got essentially exactly right.
+- spec 3 · read at `06c7d1411232` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:49Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Uses a scroll container ref plus state for scrollTop/height (via a scroll listener and likely ResizeObserver), computes visible row indices from a fixed row height with overscan padding above/below, and renders only that slice as spacer-padded rows — each showing a swatch from `paint`/colorFor, the node's name, and a trailing note from `rowNote` for the given `mode`/`rowViews`, wired to `onSelect`/`goTo` on click.
+- found: Matches prediction closely: scroll/resize-observed ref state drives a windowed slice with overscan and spacer divs; each row shows a swatch, name, and rowNote. Missed detail: click selects while double-click calls goTo, and scroll resets to top whenever the `rows` array changes.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `Spread`
 - spec 2 · read at `3f49c9056efd` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:42:43Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -1291,26 +1316,24 @@ What this is and how to add to it: [README.md](README.md)
 - note: Predicted stale/unread would also be clickable filters; code deliberately keeps them inert since they're not reading outcomes.
 
 ### `Buckets`
-- spec 3 · read at `cbd8ee14c19f` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:29:09Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Buckets renders a stacked horizontal bar plus a key list, mirroring Spread's layout, but sized by total LINES per bucket rather than function counts. Each bucket row is clickable (calling onPick with its key, or null to clear) and every bucket is selectable/interactive (unlike Spread, which has some inert rows), with the `picked` bucket visually highlighted.
-- found: Buckets renders a stacked bar sized by lines-share, plus a scrollable (capped to 33vh) key list of clickable rows, each toggling `picked` via onPick (clicking the active one clears it). Rows show label and function count (not lines) with a tooltip on the bar giving both counts and line totals; returns null if total lines is 0.
+- spec 3 · read at `40ee33ef97c2` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:59Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Renders a horizontal stacked bar whose segment widths are proportional to each bucket's total loc (not function count), plus a key/legend list below mirroring Spread's layout. Every row/segment is clickable, calling onPick with the bucket's key to select it (highlighting matches picked), and clicking the picked one again calls onPick(null) to clear.
+- found: Stacked bar segments proportional to bucket.lines/total, plus a scrollable (max 33vh) key list below where each row toggles onPick(key) on/off, highlighting the picked row and showing lines (the sort key) as the visible number with count in the tooltip.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `Summary` — TANGLED
-- spec 3 · read at `f03e3e43e7b0` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:30:49Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Summary renders the panel shown when no wedge is selected: a header with `title`/`repo`/`path` breadcrumbs, aggregate stats computed off `node` (the currently-drilled subtree) like function/file counts and hot share, a Spread and/or Buckets breakdown of readings by grade/author/age scoped to `mode`, and calls to action like "connect an agent" when there are unread functions — with `about` and `footer` slots for extra content, and onSelect/onDrill wired to rows so clicking a breakdown entry selects or drills into matching nodes.
-- found: Summary shows a header (title/repo/path/Counts/about), then under the surprise lens a Spread of grades (with a "picked" grade defaulting to the hottest non-empty one) or under other lenses a Buckets breakdown (with a picked bucket defaulting to the largest, reset on mode change), followed by a virtualized ListWindow of the selected grade/bucket's functions (clicking drills then selects), and a pinned footer — laid out as three flex sections where only the middle list scrolls/grows.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
-- note: No explicit "connect an agent" CTA appears in this function despite the file doc mentioning "what to do next" — that content must live elsewhere or was cut, so the doc oversells what this specific function shows.
+### `Summary`
+- spec 3 · read at `0d9ab3023030` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:09Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Renders a header (title, path crumbs, about), computes counts/breakdowns of node's subtree keyed on mode (functions, lines, categories) using breakdownTitle for section labels, renders a Spread bar and Buckets histogram for the distribution, then a ListWindow of notable rows (e.g. most surprising/oldest functions) wired to onSelect/onDrill, with footer pinned at the bottom.
+- found: Matches the general shape (header/counts/about, breakdown, scrollable list, footer) but the real logic is a mode-dependent branch: under 'surprise' it shows a Spread with grade-picked (defaulting to hottest non-empty grade) reading list, and under any other lens it shows Buckets with a picked-bucket (defaulting to the biggest) ListWindow — plus a goTo helper that drills then selects, and deliberately no per-note list (explained in a removed-feature comment).
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ## web/src/components/Sunburst.tsx
 
 ### the file itself — QUIRKY
-- spec 3 · served in 5 parts · read at `911b3256b812` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:32:27Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This is the core React component that renders the sunburst/wedge visualization of a scanned codebase: directories, files and functions laid out as concentric rings where wedge width encodes lines of code and wedge color encodes "surprise" (and possibly churn/age once traced). It likely contains SVG/canvas rendering logic, arc/partition layout math, zoom/pan and click-to-drill-down interaction, hover tooltips showing per-node stats (churn, age, commits, author), and a legend/gauge; `heatShare` is probably a small helper computing a node's color intensity or proportion for the heat/churn overlay, while `SunburstView` is the exported top-level component wiring state, data and rendering together.
-- found: The top-level SVG sunburst renderer for the scanned-repo map: draws dir/file/func wedges from precomputed layout geometry, handles selection/hover/click/drill/fold interaction, and computes per-wedge color via colorFor/heatShare. Far beyond my prediction, most of the file is a bespoke animation system — a keyframed level-change zoom, an exponential-decay 'chase' that eases wedges toward a moving target (used for history replay and directory folding), file-opening/closing transitions via FileZoom, a mascot creature in the hub whose gaze follows active reading/replay events, directory rim histograms (colored distribution segments) with click/hover decoding, trap/clone pointer dots escalated up to the nearest drawn ancestor, event escalation for replay commits, and a mask-based dimming technique for the selection spotlight instead of an outline.
+- spec 3 · served in 6 parts · read at `e0ac41c46bf9` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:46:55Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: The core sunburst/radial visualization: computes each node's angular arc from its line-count share, lays out concentric rings per depth, colors wedges via colorMode, handles hover (feeding WedgeTip) and click/drill/select interactions, animates morphing transitions between frames during replay, folds thin wedges into roll-ups, and draws directory rim bands (sub-distribution histograms) with trap/clone marker dots.
+- found: Confirmed as the core radial visualization renderer with arc layout, coloring, hover/tooltip, drill/select and rim histograms with markers — but it is really the whole rendering engine: it also owns a level-change zoom/keyframe transition system (entering/exiting wedges, a clicked directory "coring" into the hub), a continuous morph/chase animator for replay frames, an open-file "unroll" path via FileZoom, function tiling inside file bands with roll-up dot textures, a mascot gaze system that tracks active/reading wedges, a selection-dimming mask technique, dynamic label fitting/sizing, pixel-calibrated thresholds for what is worth drawing at the current density, and a folded/hidden-count caveat chip — none of which the file header (absent) or the name alone suggested.
 - predicted: some · documented: none · derivable: no · legible: not judged · trap: no
-- note: Docs header is empty, but the body is saturated with extensive inline rationale comments (design history, bug postmortems, tuning numbers) — the module-level doc convention this codebase uses elsewhere for files is simply absent here despite the file being unusually complex.
 
 ### `heatShare`
 - spec 2 · read at `735127f33e96` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:46:47Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -1319,11 +1342,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `SunburstView` — QUIRKY — TANGLED
-- spec 3 · served in 5 parts · read at `50eb6a82fb88` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:47:12Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Main D3-partition-style radial treemap renderer: lays out `root` into arc wedges sized/pruned via density and pixel thresholds, colors wedges via mode/ranks/ageSpan, draws center hub with repo info and mascot, wires click handlers for select/drill/clear/up, animates between tree states via morph easing, pulses wedges in `reading`, and reports pane size and file wedges large enough for a ring of functions via onSide/onWantRings.
-- found: A 2300-line component that does everything my prediction said (partition-style arc layout, coloring, hub+mascot, click/drill/select handlers, morph/zoom animation, pulsing reading wedges, onSide/onWantRings) plus a huge amount more: directory folding/collapsing with animated re-proportioning ('chase'), per-lens rim histograms and pointer marks (traps/clones dots), gaze-direction averaging for the mascot's eyes, file-opening 'fan' tiling of functions with roll-up dot textures, replay-specific event escalation to the nearest drawn ancestor, selection rendered via an evenodd mask that dims everything else rather than an outline, label fitting/eliding per wedge kind, and a live/soft geometry cache split across level-change keyframes vs continuous morph easing.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
-- note: Nearly every line is preceded by a dense prose comment explaining a past bug or design tradeoff; the function is legible only because of those comments, not despite lacking them — a rare case where inline documentation carries most of the real information content.
+- spec 3 · served in 5 parts · read at `205a67784a07` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:21Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: The central SVG sunburst chart component: lays out root's tree into concentric rings/wedges, handles selection/drill/hover callbacks, colors wedges by mode, draws directory rim distribution bars (rimShare) and trap/clone markers, eases transitions via morph for replay, shows a center mascot, and reports visible file-rings (onWantRings) and pane pixel size (onSide) back to its parent. Expect a very large, deeply commented function covering layout math, event handling, and rendering all in one component.
+- found: The full sunburst renderer: computes ring layout/geometry, animates level-change transitions (keyframe zoom plus a continuous morph/chase easing for replay and folds) with entering/leaving/coring wedge sets, draws directory rims as histograms/marks/flashes, tiles file functions into patches with stale/unreadable/rollup/trap overlays, tracks hover/selection via mask-based dimming instead of outlines, positions a gaze-tracking mascot in the hub, requests on-demand file rings via onWantRings, and renders a footer caveat about hidden/folded/unparsed counts.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
 
 ## web/src/components/WedgeLabel.tsx
 
@@ -1344,9 +1366,9 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/WedgeTip.tsx
 
 ### the file itself
-- spec 3 · read at `044f4244ee51` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:47:49Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A tooltip component (WedgeTip) shown on hover over a wedge in the sunburst map, displaying a compact summary of the node under the cursor — its name, path, size/lines, and maybe a stat relevant to the current color mode (author, age, language share, etc). `countFiles` is a helper that recursively counts files under a directory node, used to show something like "42 files" in the tooltip for directory wedges. No header doc, so likely a small, self-contained UI component with little narrative documentation.
-- found: A hover tooltip for a wedge in the sunburst map: shows the node's name/path (functions get name-first treatment with a line number), a file/folder count via `countFiles`, the current lens's reading as a colored swatch with label (with careful distinctions between unread/stale/too-large-to-read), extras for churn/age lenses, an optional hovered-rim-slice breakdown, and directory fold/drill hints — all positioned to flip across the pointer near pane edges.
+- spec 3 · read at `38cfc35cf710` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:46:03Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Implements the hover tooltip for a sunburst wedge: a small floating component (WedgeTip) showing the node's name, size in lines, and for a directory its file/function counts via the countFiles helper, positioned near the cursor. No other responsibilities in this file.
+- found: Confirmed as the wedge hover tooltip with name/path, size, and countFiles, positioned near the cursor with edge-flip logic — but it does much more than predicted: it's lens-aware (shows reading state as unread/stale/too-large-to-read/label, extra churn/age fields), shows the hovered rim slice's own label/share when present, and shows fold/drill affordance hints for directories.
 - predicted: most · documented: none · derivable: no · legible: not judged · trap: no
 
 ### `countFiles`
@@ -1356,11 +1378,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `WedgeTip` — TANGLED
-- spec 3 · read at `89ab57ad83d6` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:46:50Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Positions itself near the pointer (x,y) inside box, flipping to the opposite side near an edge. Renders the hovered node's name/path, a color swatch matching its current wedge coloring (mode, ranks, ageSpan), and metric text distinguishing "not measured yet" vs "stale". If folded and share are given, prints the folded subtree's share of lines. If slice is given (hovering a rim segment), shows that segment's label/lines/share instead of the directory's own totals, using countFiles to summarize directory contents.
-- found: Renders a positioned tooltip (flipping near box edges) showing: for functions, name+path+line; for dirs/files, path with own segment bolded; a slice section for the hovered rim segment with merged-run "+N more" labeling; a reading row (swatch + label) that distinguishes unread/stale/too-large/normal states per-lens via paintsFromReadings; a loc/file/rest count line; a stale warning line; churn/age extra stat rows; and fold/drill hint text for directories.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
-- note: Function docs on the props (slice, share, folded) were thorough and accurate, but the body itself carries most of the real logic (unread/stale/tooBig distinctions, per-kind name rendering) undocumented at the point of use.
+- spec 3 · read at `3c2487ab0e65` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:02Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Renders the floating tooltip card shown when hovering a wedge: positions itself near (x, y) but flips to the other side when close to the pane edges (using `box`), and shows the node's name/path, a colour swatch matching the wedge's current lens reading (never a raw number), a "not measured yet" or "stale" label when the reading is absent/expired, the folded-node's share of lines when `folded` is true, and — when `slice` is given — details of the specific rim segment under the pointer (its label, share of the distribution, and how many merged values it stands for). It's geometry-agnostic, working purely off the passed node/position/box rather than any arc or rectangle math.
+- found: Got the overall shape right (edge-flipping position, swatch-not-number reading, not-measured/stale states, folded share, slice detail) but missed a lot of the specifics: a separate 'too large to read' state for unreadable nodes, mode-specific extras (commits/age rows for churn/age lenses), function vs directory naming layout differences, file/function counts and roll-up 'rest' counts, and directory-specific fold/drill hint text.
+- predicted: most · documented: some · derivable: no · legible: some · trap: no
 
 ## web/src/components/Wordmark.tsx
 
@@ -1410,12 +1431,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/api.ts
 
-### the file itself
-- spec 3 · served in 4 parts · read at `d6310bf3ec77` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:32:58Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: This is the frontend's central data-access layer: a typed wrapper around every Tauri `invoke` command (one function per command in commands.rs — scanRepo, listProjects, selectProject, readSource, etc.), plus the Node/Scan tree shape and utilities to manipulate it (toNode, pruneExcluded, localityOf, readable/unreadable), plus logic to merge live agent readings onto the tree as they stream in (applyAgentReports, reaggregate, readInto, countPending, isReportStale, legibleOf, trapOf), plus the heat/color scoring math used to paint the sunburst (temperature, heatColor, wedgeHeat, rampAt, shareRamp). It's likely the biggest, most load-bearing file in the frontend, gluing IPC, tree state, and visualization scoring together.
-- found: Confirmed the core structure: typed invoke wrappers mirroring every commands.rs command, the Node/Score/Scan wire-to-camelCase conversion (toNode/toScan), tree utilities (pruneExcluded, localityOf, showsShare), agent-report folding onto the tree with staleness handling (readInto, readIntoRing, applyAgentReports, isReportStale), aggregation math mirrored from Rust (reaggregate, applyScores), summary/count helpers (summarize, countPending), and the heat/color scale math (temperature, wedgeHeat, shareRamp, paintHeat, heatColor, rampAt/rampStop). What I underestimated: the huge amount of grade-vocabulary machinery (Grade type, GRADE_SURPRISE/GRADE_DOCUMENTED/DOC_GAP mappings, HEAT_WORDS/LEGIBLE_WORDS/DOC_WORDS display vocabularies, legibleOf/trapOf accessors that null out grades under a superseded spec) — this is as much a policy layer translating raw agent verdicts into display language as it is a data-access layer, and the aggregation math carries deliberate, hard-won parity requirements with the Rust side (e.g. lastTouchedDays/source bugs that were fixed once and must not regress).
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: No file-level header; the file mixes three responsibilities (IPC wrappers, tree/score math, agent-grade vocabulary) that are each substantial enough to be their own file, discoverable only by reading through all four parts.
+### the file itself — TANGLED
+- spec 3 · served in 4 parts · read at `930a3588a0c9` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:49:44Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: The single frontend "backend interface" module: Tauri invoke wrappers for every Rust command (scan/trace/check lifecycle, project CRUD like listProjects/selectProject/forgetProject/reorderProjects, CLI install, source/function reads like readSource/functionSources/commitDetail, search), plus event subscriptions (onScanScore, onScanProgress, onSetTheme, onOpenProject, onInstallCli). Alongside that, it carries client-side mirrors of the Rust scoring/aggregation logic (reaggregate, applyScores, toScan/toNode, summarize, temperature) so the UI can recompute rolled-up scores locally, plus heat/color-ramp helpers (heatColor, shareRamp, paintHeat, rampAt/rampStop, wedgeHeat) and reading/grading utilities (legibleOf, trapOf, readingWords, applyAgentReports, isReportStale) supporting the agent-assessment workflow.
+- found: api.ts is the whole frontend/backend contract: (1) TypeScript mirrors of Rust's wire types (Node/Score/Cols/ProjectSummary/AgentReport etc.) plus toNode/toScan converters from snake_case Wire* shapes; (2) Tauri invoke wrappers for every backend command (scan/trace/check lifecycle, project CRUD, source/function reads, search, commit/history lookups, CLI install); (3) event-listener subscriptions (onScanScore, onScanProgress, onSetTheme, onOpenProject, onInstallCli); (4) client-side mirrors of Rust's Node::aggregate (reaggregate/applyScores) so streamed per-function scores can be rolled up locally without a round trip; (5) agent-reading/grading utilities (legibleOf, trapOf, reportGrades, readInto/readIntoRing, applyAgentReports, summarize, countPending) with vocabulary tables (HEAT_WORDS, LEGIBLE_WORDS, DOC_WORDS) mapping grades to display words; and (6) heat/color-ramp math (temperature, wedgeHeat, shareRamp, paintHeat, heatColor, rampAt/rampStop) shared so the map and panel never disagree about what a color means.
+- predicted: most · documented: none · derivable: no · legible: some · trap: no
+- note: The file has no top-level header at all despite being the single largest cross-cutting module in the frontend — every one of its many responsibilities is explained only in scattered per-declaration doc comments, several of which explicitly narrate a past bug this exact duplication (of Rust's aggregate, or of a saturation constant) once caused.
 
 ### `pruneExcluded`
 - spec 3 · read at `387ef5c13909` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:56:29Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -1444,11 +1465,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `toNode`
-- spec 3 · read at `9bb058a921ef` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:31:01Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Converts a WireNode (the raw JSON shape coming from the Rust backend, likely snake_case with optional fields) into the frontend's Node type, mapping/renaming fields, recursively converting children, and filling in defaults (e.g. empty arrays, zeroed counts) for fields the wire format omits.
-- found: Exactly as predicted: maps snake_case WireNode fields to camelCase Node fields, recursively converts children, and defaults optionals — but carefully distinguishes `?? null` (meaning "nobody looked / not applicable") from `?? 0`/`?? []` (meaning "confirmed zero"), and leaves `cols` as `undefined` rather than an empty object specifically so downstream code can tell "no data sent" apart from "genuinely empty".
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The null-vs-zero-vs-undefined distinction across fields is a deliberate semantic choice (documented inline) that a generic "map fields with defaults" prediction glosses over.
+- spec 3 · read at `5ec5a733bd4c` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:06Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Converts a WireNode (backend JSON with snake_case field names) into the frontend Node type, remapping fields like last_author, clone_group, calls_resolved etc. into camelCase equivalents, and recursively maps over w.children calling toNode on each to build the nested tree. May also normalize/default some optional fields (e.g. score, hotspots) for easier consumption by the UI.
+- found: Maps a WireNode's snake_case fields to the frontend Node's camelCase equivalents, recursively converting children via children.map(toNode). Uses `?? null`/`?? undefined` deliberately rather than `?? 0`/`?? []` for measurement fields (callers, tangle, cognitive, unparsed, cols) so that \"backend never measured this\" stays distinguishable from \"measured and found zero/none\".
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: No docs provided, but the code's own comments explain the null-vs-zero convention clearly enough that none were needed.
 
 ### `agentActivity`
 - spec 2 · read at `498e4cdbcd05` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:20:44Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -1710,10 +1731,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `toScan`
-- spec 3 · read at `de7f8b1d7f86` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:17:51Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Converts a wire-format scan object (WireScan, from the Rust backend, likely snake_case) into the frontend's Scan type, mapping/renaming fields such as the root node tree, stats, and links into the camelCase shape the UI expects, probably delegating to a node-conversion helper for the tree.
-- found: Converts WireScan to Scan: root via toNode(w.root), stats fields renamed snake_case to camelCase with a couple of nullish-coalescing defaults (commits, authors). No links field present here.
+- spec 3 · read at `c2b63f9e2ddc` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:45Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Converts the raw WireScan JSON received from the Tauri backend into the frontend's Scan type: likely recursively walks the wire node tree converting it into the app's Node shape (filling in fields like score/children defaults), and passes through or reshapes stats/links. Probably just a thin adapter, not much logic beyond structural conversion.
+- found: Thin adapter converting WireScan's snake_case JSON into the app's Scan shape: recursively converts root via toNode, and maps stats fields to camelCase with backward-compat defaults for fields an older backend might omit (churnWindows/churned default to "full ladder, not measured" rather than zeroes, tangleBands pulled from .median, authors defaults to empty array).
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: Doesn't pass through a `links` field even though the Rust Scan struct returned by scan_repo includes one — worth checking whether links are handled by a separate path.
 
 ### `onScanScore`
 - spec 2 · read at `64991aedf868` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:24:27Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -1730,11 +1752,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: I expected the whole score object to be replaced by the Upgrade; actually only `surprise` (plus hotspots/source/analyzedShare) is patched, with churn/age/doc coverage explicitly preserved as historical/code properties.
 
 ### `reaggregate` — QUIRKY — TANGLED
-- spec 3 · read at `87d57d561a21` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:02:15Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Takes a node and its already-aggregated children, and recomputes the node's own rollup fields (score, counts of assessed/pending/surprised, etc.) as a weighted combination of the children's values, mirroring whatever arithmetic Node::aggregate does in the Rust model. Returns a new Node object (or mutates and returns the same one) with those fields updated, likely handling the leaf case (no children) by using the node's own data instead.
-- found: LOC-weighted average of children's surprise/documented/churn scores; age uses max of children ages, lastTouched uses min; analyzed/hot shares computed differently for func vs directory children; source is upgraded to the strongest instrument seen ('agent' > 'model' > 'proxy'); commits/allCommits are deliberately NOT recomputed (carried from existing node score) since directory commit counts can't be summed from children without double-counting.
+- spec 3 · read at `ca0e7e0c0def` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:28Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Recomputes a parent node's rolled-up score fields (loc, churn, surprise/hot share, etc.) as a weighted combination of the given children's scores, mirroring the same arithmetic as the Rust `Node::aggregate`, and returns a new (or mutated) node with those fields updated and `children` set to the given array — used client-side when new scan results for a subset of children arrive incrementally and the ancestor totals need to be refreshed without re-walking the whole tree from Rust.
+- found: Got the weighted-rollup structure and mirroring-Rust intent right, but missed many specifics: commits/allCommits are carried through unchanged rather than recomputed (a directory can't sum children's commit counts without double-counting), source tracks the 'strongest instrument' used (agent > model > proxy) rather than being fixed, age takes the max while lastTouchedDays takes the min, hotShare/analyzedShare are computed differently for func vs non-func children, and tangle is weighted only over children that have a tangle value.
 - predicted: some · documented: some · derivable: no · legible: some · trap: no
-- note: The comments call out two prior bugs (lastTouchedDays hardcoded null, source hardcoded proxy) that this function fixed — worth knowing before 'simplifying' those lines away again.
 
 ### `stopHistory`
 - spec 3 · read at `6057a674c87c` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:01:48Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -1847,11 +1868,10 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/colorMode.ts
 
 ### the file itself
-- spec 3 · served in 4 parts · read at `089fd19d06d2` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:48:15Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Central module implementing every coloring "lens" for the treemap/sunburst (churn, age, owner/blame, language, clones, callers, reach, docs, etc.), centered on a colorFor(node, mode, ...) dispatcher plus per-mode helpers (ageRamp, slotColor, capRanks, contribute*), predicates distinguishing categorical vs continuous/ramp lenses and whether a lens reads live analysis vs static structure (paintsFromReadings/paintsFromWiring), and supporting utilities for building legends and histograms (legendFor, histogramsFor, bucketsFor) for the UI key.
-- found: A very large module defining every coloring lens (ColorMode) for the sunburst: colorFor paints a single node per mode (with replay-flash precedence for birth/touch events); contribute/contributeCols/contributeHeld feed a shared bucketing rule from real function nodes, columnar stand-ins (files whose rings haven't loaded), folded roll-up stand-ins (replay frames), and held/pending readings, so every population path agrees on bands; bucketsFor produces the panel's sorted breakdown and histogramsFor computes per-directory rim distributions bottom-up in one tree walk (avoiding quadratic re-walks) while tracking whether each subtree's data is "whole" enough to answer for; legendFor/rankCategories build stable per-repo category rankings for the categorical (blame/language) palette with cap support (capRanks) and a 64-slot palette that recycles past NAMED=16; sortBuckets imposes one consistent ordering per lens shared between map and panel; saysNothing/paintsFromReadings/paintsFromWiring gate which node kinds and modes have anything to paint at all.
+- spec 3 · served in 5 parts · read at `a735c71da9e8` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:49:47Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: The central color-mode engine for the map: defines every lens (age, churn, blame, clones, callers, reach, tangle/complexity, surprise, docs, language), computes a node's color for the active mode (colorFor), builds/labels ramps and bands, computes per-lens shares (doc coverage, wiring reach), aggregates folded/rolled-up children into stand-in scores (contribute/contributeCols/contributeHeld), and produces the bucket/histogram/legend data (bucketsFor, histogramsFor, sortBuckets, legendFor) consumed by both the rim visualization and the Detail panel's Contents list.
+- found: Core shape matched my prediction (colorFor per node, ramps/bands/labels, share computations, contribute/bucketsFor/histogramsFor/legendFor for panel+rim), but the file is vastly more elaborate: a REPLAY system distinguishing which lenses can paint historical commits (live vs cost) with birth/touch flash events overriding the lens; a whole taxonomy of distinct 'nothing to say' absences (history not read / timeline not walked / language not counted / not graded / expired) that must never be conflated; roll-up/fold stand-ins (contribute's `rest`/`folded` handling) that redistribute a collapsed file's tally back into real bins rather than either dropping it or showing it as one wrong category; a parallel columns-based path (contributeCols/FROM_COLS/STANDS_IN) letting files whose function ring never loaded still contribute to distributions without biasing them; a 64-slot rank-based categorical palette with a user-adjustable cap; and a bottom-up single-pass histogram algorithm engineered to avoid O(nodes×depth) cost (measured at 25ms/call before the fix) by only materializing answers for containers the layout actually wants.
 - predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: The file has no header doc, but nearly every exported function has an extensive JSDoc with design history/rationale (documented:none at file level was correct per the earlier Rings.tsx pattern — but individual functions here are heavily documented, just not summarized by a top-of-file doc).
 
 ### `replayNote`
 - spec 3 · read at `e4a707db5280` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:31Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1893,11 +1913,17 @@ What this is and how to add to it: [README.md](README.md)
 - found: Uses precomputed rollup fields on the node (resolvable and sinks) rather than walking children; returns null if resolvable is null/0, otherwise 1 - sinks/resolvable — the share of resolvable functions that are NOT sinks (i.e. reach out to something).
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 
+### `rampEnds` — QUIRKY
+- spec 3 · read at `2f89e0b0e89a` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:50:00Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Returns a [low, high] label pair describing what the ramp's two extremes mean, for lenses that use a continuous ramp (age, churn, tangle), and undefined for categorical lenses with no ramp. For 'age' specifically it branches on views.age.read to return ['old','recent'] when reading touched vs ['old','new'] when reading born.
+- found: Branches on mode: 'age' picks between two label pairs based on views.age.read ('oldest' vs otherwise), 'tangle' picks between two label pairs based on views.tangle ('raw' vs weighted), and everything else falls back to a static RAMP_ENDS[mode] table.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
 ### `rampOf`
-- spec 3 · read at `ca6fc72b20a5` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A lookup/switch that maps a ColorMode value (e.g. 'age', 'author', 'calls') to the corresponding Ramp object/function used elsewhere for coloring, so legend swatches use the same ramp as the actual wedges/nodes for that mode.
-- found: A simple mapping from ColorMode to Ramp: churn/age/legible/docs map to same-named ramps, everything else (e.g. author/calls modes) falls back to 'heat' as a default ramp.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- spec 3 · read at `e786fc27f56a` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:47:42Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A simple lookup/switch mapping a ColorMode value (e.g. "age", "author", "calls", "reach") to its corresponding Ramp object — likely a small switch statement or object literal indexing into predefined ramps, mirroring the same mapping used for wedge coloring elsewhere in the file.
+- found: A one-line lookup into a RAMP_OF table/object keyed by ColorMode, returning the associated Ramp.
+- predicted: full · documented: some · derivable: no · legible: full · trap: no
 
 ### `modeToken`
 - spec 3 · read at `4520f42ae293` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:26Z · by ross@rossturk.com · warm reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -1987,11 +2013,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: Docs (module-level, not per-function) fully explained the rationale; I slightly misjudged the traps condition as dir-only when it's actually func-only (excludes files too).
 
-### `colorFor` — QUIRKY — TANGLED
-- spec 3 · read at `b0e8e3f11525` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:17:26Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A big switch/dispatch over ColorMode values, each branch calling the matching helper (paintsFromReadings, paintsFromWiring, ageRamp+ageSpanOf, docGrade/undocShare, calledShare/reachingShare, isAuthor, flashPaint) to compute a color + label string for the node. Returns null when the relevant data for that mode is missing, rather than a fallback color.
-- found: Dispatches on ColorMode, but first gates everything on replay/history provenance: a wedge that just appeared or was edited in the frame under the playhead flashes (birth/touch) regardless of mode, and non-live modes return null in replay otherwise. Each mode branch (surprise, legible, docs, traps, callers, reach, clones, churn, age, blame/lang) then computes either a share-based ramp for containers or a per-node value/band, with mode-specific label text and several deliberate asymmetries (e.g. docs ramp is linear not shareRamp, clones never roll up, traps are boolean not ramped, blame falls back to an 'uncommitted lines' state).
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+### `colorFor` — TANGLED
+- spec 3 · read at `3241709a47b7` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:42:45Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: The central per-mode switch (surprise, age, churn, tangle, callers, reach, clones, blame, complexity, language, etc.) that computes both a `Paint` (color, likely via `ramped`) and a human-readable `label` for a single node, delegating to helper functions like `ageOf`/`ageLabel`, `docGrade`, `tangleLabel`, `churnLabel`, `standScore`, and `bucketsFor`/`rankCategories` for categorical modes — falling through to `null` whenever the underlying data (history, language, analysis) is absent for that node/mode combination, mirroring `measure`'s per-mode dispatch but computing color+label together rather than a plain number.
+- found: Before any mode dispatch, handles replay: a frame's birth/edit event flashes a loud override color regardless of lens, and otherwise (in a replay, for a lens that isn't replay-live) returns null rather than painting a stale reading. Then dispatches per mode (surprise, legible, docs, traps, callers, reach, clones, churn, tangle, age, blame/language) each computing its own share-vs-single-reading logic, picking linear vs curved ramps deliberately per lens, and building a label — with extensive null-on-no-data handling throughout (per-mode, not uniform) and a final categorical branch for blame/language using rank-based slot colors with 'Other' fallback and uncommitted-lines special-casing.
+- predicted: most · documented: some · derivable: no · legible: some · trap: no
+- note: I completely missed the replay/flash mechanism at the top (birth/edit events overriding the lens color during history playback) — that's the single most surprising and non-obvious piece, absent from both the brief docstring and my prediction.
 
 ### `rankCategories`
 - spec 2 · read at `3520bac67344` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:08:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -2000,45 +2027,43 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: The doc comment describes the overall purpose well but doesn't reveal that this is a thin wrapper around legendFor.
 
-### `contribute` — QUIRKY
-- spec 3 · read at `c16e476e086f` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:47:34Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Single classification routine shared between the sidebar breakdown pane and the map's rim histograms: given one node, determines its bucket key(s) for the current mode (author for blame, extension for language, age/churn band via span, doc grade, trap/clone flag) and calls put(key, lines) to accumulate, so pane and rim agree. outOfScope routes a node to an unknown/other bucket instead of a real category.
-- found: Core mechanism matched (dispatch by mode, call put(key,label,color,node) per bucket), but missed nearly half the function: an elaborate roll-up/synthetic-node handling path (n.rest !== undefined) that redistributes a folded-file stand-in's tallied lines back into real buckets per lens (recursing into itself for age/churn), plus file-vs-function distinctions for blame/language/docs, and many more per-mode branches (surprise, legible, callers, reach, clones) each with their own absence-bucket conventions than I anticipated.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
-- note: The roll-up branch is the load-bearing complexity here and is explained entirely by comment, not signature — a future editor changing bucket semantics for one mode needs to also check whether contribute's roll-up path replicates that mode's logic.
+### `contribute` — QUIRKY — TANGLED
+- spec 3 · read at `d9732c478510` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:21Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Branches on the ColorMode enum; for each mode, computes a metric for node `n` using the matching sibling helper (ageOf/ageRamp for age, standScore for ownership, docGrade/undocShare for doc coverage, tangleLabel/churnLabel for churn/tangle), then calls put() to record the value into the right histogram/legend bucket, treating outOfScope nodes differently (tallied but excluded from rank-based calibration).
+- found: Dispatches a node into legend/histogram buckets via put(), but the real substance is handling roll-up ("folded") stand-in nodes for functions too thin to draw individually in a REPLAY frame: it recurses into itself per folded time-window entry so folded and drawn nodes land in identical age/churn bands, and separately handles file-level rows for blame/language/docs before falling into a large per-mode switch (surprise, legible, docs, traps, callers, clones, reach, blame, language, tangle, churn, age) each with its own absence-bucket semantics.
+- predicted: some · documented: none · derivable: yes · legible: some · trap: no
 
-### `contributeCols`
-- spec 3 · read at `7d36c2be066a` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:21Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Iterates over file.cols' parallel arrays (loc, commits, touched, callers, calls, clones), reusing a single mutable stand-in Node allocated once outside the loop, setting its fields per index from the columns (treating -1 as absence/null), and calls the same `contribute` function real function nodes go through, passing mode/ranks/span/put — so a file whose functions were only shipped as columns (not full nodes) still buckets/colors identically to one with real function nodes.
-- found: Matches the mechanism I predicted (single mutable synthetic stand-in node reused per column index, -1 as absence, calling the shared `contribute`), but I missed the early-return guard: it only runs for churn/age/callers/reach/clones, since Blame/Language/reading lenses are already answered by the file node itself and running columns through them would double-count into an absence bucket.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+### `contributeCols` — QUIRKY — TANGLED
+- spec 3 · read at `93adb81e9109` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:12Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over the file's column-summarized function entries (a compact per-column representation used when the full function ring hasn't been fetched), reusing a single pre-allocated stand-in Node whose relevant score fields are overwritten for each column entry, then calls the shared `contribute` function with that stand-in plus the given mode/ranks/view/put so each column's value lands in the same bucketing logic as real per-function nodes. The single mutable stand-in avoids allocating a fresh Node object per column entry for performance on large files.
+- found: I had the loop/stand-in-reuse/contribute-call structure right, but missed the FROM_COLS lens gating (only lenses columns can actually answer run at all), the -1 absence-sentinel decoding per field, the three-way absence check for Complexity vs the git lenses, and the inline churn-saturation computation needed to avoid a crash on ring-less files.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
 
 ### `contributeHeld`
-- spec 3 · read at `ba6ce3c9b0dd` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:56Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Iterates over `file.pending` (the AgentReports held on a file whose ring wasn't fetched), skips stale ones, converts each reading's grade to a bucket value via the same logic `contribute` uses for a function node, and calls `put` weighted by the reading's `loc`. Afterward it computes the remainder: file.loc minus the sum of loc accounted for by pending readings (live or stale), and calls `put` for that remainder into the "unread" bucket, so the file's total lines are fully accounted for between read, stale, and unread.
-- found: Matches prediction well: builds a synthetic fake func Node once and reuses it (mutating fields) for each held reading, calling `contribute` per reading with its own loc/agent/stale, then computes the remainder (file.loc minus accounted-for loc) and contributes it once more as an unread synthetic node. What I didn't anticipate: it's gated to only run for four specific modes (legible/docs/traps/surprise) rather than all reading-based modes, and it reuses one mutable synthetic object across iterations rather than allocating a fresh one each time, plus it doesn't treat stale readings' loc separately from the "read" tally — stale entries still count toward `read` (accounted-for) even though they're marked non-read within `contribute`.
+- spec 3 · read at `c14841180c0d` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:17Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over the file's held readings, and for each non-stale reading calls put with a color/label derived via the mode from the reading, weighted by the reading's loc. Stale readings are skipped/ignored. Computes the unread remainder as file.loc minus the sum of loc across (non-stale?) readings, and calls put for that remainder into an unread/absence bucket, so coverage always sums to the file's total loc.
+- found: Guarded to only run for modes that care about agent-reading data (legible/docs/traps/surprise). For each held reading it reuses a single mutable synthetic 'stand' Node, sets its loc/agent/agentStale from the reading, and calls contribute (not skipping stale ones — staleness is passed through for contribute to interpret). Then computes the unread remainder (file.loc minus sum of read loc) and, if positive, contributes that too with agent undefined, so total loc always sums correctly.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: Confirmed against another reader's earlier pass implicitly (the mode-gating list and synthetic-node reuse pattern weren't derivable from the doc alone, only from `contribute`'s own logic which wasn't shown).
 
 ### `sortBuckets`
-- spec 3 · read at `d2fc591e0f38` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:46:31Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Returns a sorted copy of rows, with the sort order/comparator chosen based on `mode` (dispatching by ColorMode, e.g. by lines desc for a size-based lens, by a fixed category rank for a categorical lens, or alphabetically by key otherwise). Pure function so pane and rim visualizations get the identical order for the same lens.
-- found: Dispatches per ColorMode to a specific fixed band-order table (CALLER_BANDS, CLONE_BANDS, REACH_BANDS, CHURN_BANDS, AGE_BANDS, or literal orderings for surprise/legible/docs), sorts by lines desc for blame/language, traps-first for traps; then as a final pass always pushes OTHER_KEY and UNKNOWN rows to the end regardless of the mode's own order.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: The extensive inline comments explain *why* each lens picked its direction (a design-history rationale), which is docs the code itself can't show — worth preserving context for future edits.
+- spec 3 · read at `3bba1ca2414a` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:42:00Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Sorts bucket rows into the canonical display order for a given ColorMode. Band-based modes (age, churn, tangle) are ordered by a fixed band sequence (tangle's looked up via the `read` param since the band words differ between readings), while other/categorical modes fall back to sorting by `lines` descending or via rankCategories.
+- found: Looks up an order spec from BUCKET_ORDER[mode]: 'lines' sorts descending by size, otherwise sorts by index in a fixed band-order array (from spec(read)), with unlisted keys ranked last rather than first. After that, it always does a final pass moving UNKNOWN keys to the very end and OTHER_KEY just before them, regardless of the mode's own sort.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: There's always a final unconditional reordering pass that pushes OTHER_KEY and UNKNOWN rows to the tail, on top of whichever primary sort ran — easy to miss since it looks like dead code after the if/else already sorted.
 
-### `bucketsFor`
-- spec 3 · read at `3710ecd7dc75` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:28:31Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Walks the subtree once collecting functions (excluding .sanityignore'd ones), classifies each into a bucket per the active mode using the same logic as colorFor so the legend matches the map, computes ramped-mode band colors as the mean of members' ramp inputs, and puts anything uncolorable into a final neutral bucket that's still counted rather than silently dropped.
-- found: Walks the subtree via `contribute` (delegating actual bucket classification/coloring to that shared function), then for file nodes with funcs also calls contributeCols/contributeHeld for column/held-window synthetic contributions. It guards against pushing the same mutated synthetic stand-in object into the nodes list repeatedly (a documented past bug) while still counting its lines, and averages ramp inputs per bucket at the end to compute a mean-based fill color via `ramped`. Uses an escape-sequence-based key for the "no author/language" bucket instead of a literal NUL byte, to keep the file text-tool-safe.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: The actual per-node classification logic lives in contribute/contributeCols/contributeHeld, not in bucketsFor itself, so predicting from this function's docs alone undersells how much delegation is happening.
+### `bucketsFor` — QUIRKY — TANGLED
+- spec 3 · read at `7408466ed723` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:56Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Walks the given subtree once (using `contribute`/`contributeCols`/`contributeHeld` as the traversal, skipping .sanityignore'd functions) accumulating each node's contribution into per-bucket totals, tracking the mean ramp input for ramped modes so the bucket's swatch color is computed via colorFor/heatColor at that mean rather than an invented palette; any node the mode can't color at all falls into a final 'structural neutral' bucket rather than being dropped from totals. Returns the resulting array of Bucket objects, likely sorted via sortBuckets.
+- found: Got the traversal-plus-ramp-mean-coloring-plus-sortBuckets shape right, but missed the out-of-scope/excluded propagation through the recursive walk, the stand-in-node exclusion from bucket.nodes (while still counting its lines), the escape-coded absence-bucket key to avoid a NUL byte in source, and the views fallback logic (caller's age span vs the subtree's own as fallback).
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
 
-### `histogramsFor` — QUIRKY
-- spec 3 · read at `595d289f46dc` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:47Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: histogramsFor performs a single bottom-up walk of the tree: for each leaf/file node it builds a small histogram bucketed by the given ColorMode, then for each directory it merges its children's histograms together (cheap bucket merge, not re-walking), and only for directories in `want` (or all when omitted) does it sort the merged buckets into displayable Slice[] via sortBuckets, storing them keyed by node id in the returned Map — skipping the sort/materialize cost for containers the layout never actually draws.
-- found: A single bottom-up walk that passes an accumulator DOWN rather than allocating a map per node — only nodes in `want` (or dirs generally, when it's a "dir" and wanted) open their own accumulator; everything else adds straight into the nearest such ancestor's. It also tracks whether each subtree is WHOLE (every file answered for, via rings/columns/held-readings depending on lens) and only materializes (sorts into Slice[]) a directory's distribution if it is whole and non-empty — a hole anywhere under a container disqualifies the whole distribution rather than silently sampling. Trap/clone lenses short-circuit to empty since they're marks, not distributions.
-- predicted: some · documented: full · derivable: no · legible: most · trap: no
+### `histogramsFor` — QUIRKY — TANGLED
+- spec 3 · read at `0c257a596ccc` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:42:40Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Post-order (bottom-up) walk of the tree that builds each directory's bucket histogram by merging its children's histograms, rather than recomputing per-node via bucketsFor (which would be O(nodes*depth)). Carries only slim aggregates (lines, ramp mean) up the tree, not member node lists. Materializes and sorts into the final Slice[] result only for nodes whose key is in `want` (or all nodes if want is omitted), since that sorting/allocation step is the expensive part, not the visit itself.
+- found: Early-returns empty for mark-based modes (traps/clones). Walks the tree passing a shared accumulator DOWN to the nearest ancestor that actually needs an answer (in `want`), rather than allocating/merging a map per node, so a subtree is counted once instead of once per ancestor level. Tracks a `whole` flag per subtree (files without arrived function rings, outside exclusions/stand-in rules, are holes that disqualify a container's distribution). Only containers that are whole and wanted get materialized into sorted Slice[] via sortBuckets, with ramped-mode colors computed from accumulated sum/n means at that point.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
+- note: The key optimization is the shared/passed-down accumulator (opened only at wanted ancestors) rather than the bottom-up merge framing I predicted — a much bigger structural difference than 'merge children's maps at every node'.
 
 ### `legendFor`
 - spec 3 · read at `10460785a966` · commit `cecdbb2` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T00:34:48Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -2121,10 +2146,10 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/history.ts
 
 ### the file itself
-- spec 3 · served in 3 parts · read at `6b220777ae0d` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:32:40Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: The engine behind the replay/history feature: it drives calls to the backend (scanHistory, traceProject, warmHistory, onHistoryProgress) and incrementally builds/maintains a tree of Nodes representing repo state at each commit as the replay steps forward — enter/leave/advance functions manage scope as paths are added/removed, freeze/thaw/evict/remember/nearest manage a cache of per-commit snapshots so scrubbing doesn't require rebuilding from scratch, and aggregate/collapse/dirNode roll scores up the tree the same way model.rs does. authorsOf/authorId/authorName/widthOf identify and size commit authors (feeding colorMode's slotColor). frameTree builds the Node tree to render for a given position, and posOf/realOf translate between a scoped index and the real commit index (as seen used in HistoryBar).
-- found: Replay engine for history mode: typed-array Frame state stepped commit-by-commit via advance(), with freeze/thaw checkpointing (evicted by keeping widest gaps) so backward/large seeks don't refold from scratch, interned authors, and a memo for forward-only playback. frameTree() builds the actual Node tree per frame top-down (not walking every live function), rolling small functions/files into '+N' stand-in wedges past a lines-based threshold (minLoc), with 'birth'/'edit' flash coloring gated to the exact playhead step via inStep — matching colorMode.ts's 'only a birth gets color' rule. Nodes/dirs are pooled and mutated in place to avoid GC churn at 30fps on large repos. posOf/realOf map between a scoped commit-index list and the real commit index.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- spec 3 · served in 3 parts · read at `c5c6f9761952` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:49:25Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: history.ts is the client-side engine that builds and replays the "movie" of a repo's structure over time from git history — scanning/tracing history frame-by-frame (scanHistory, traceProject, warmHistory), maintaining author attribution per node (authorsOf, authorId, authorName), and stepping through commits to build/update a tree of nodes (enter, leave, advance, census, collapse, dirNode, frameTree) representing files/directories for the sunburst chart at each point in time. It manages a checkpoint cache with byte-size-based eviction (weigh, evict, remember, nearest, freeze/thaw) so replaying doesn't require recomputing every frame from scratch, and it merges in reading/grade data (gradeAt, readingInto, scoreInto, aggregate) plus per-language/per-scope bookkeeping (historyLangs, scopeOf, shapeOf).
+- found: Confirms the core prediction: replays a repo's git history commit-by-commit into dense-typed-array Frames (functions/files/dirs, liveness, birth/touch dates, churn rings, authors, packed grades), with a checkpoint bank for fast backward/forward seeking, then builds a pooled Node tree per frame (with LOC-based roll-up thresholds, stand-ins for rolled-up files/functions, and directory collapsing) for the sunburst UI to render as a scrubbable movie, explicitly refusing to replay live-analysis lenses (surprise/complexity) since those are readings taken against current code, not historical snapshots.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
 
 ### `scanHistory`
 - spec 3 · read at `5cb544ec5c94` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:48:27Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -2183,11 +2208,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `blank`
-- spec 3 · read at `7b00c40bc841` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:47:47Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Constructs a Frame object populated purely from the shape of hist: Tables, initializing every per-node field to its own absence sentinel (empty arrays/maps, -1/null for ages and commit counts, zero for lines) so it can serve as frame zero of a history replay before any commit has been applied.
-- found: Allocates typed arrays sized by node count, path count, and dir count (via shapeOf/widthOf), each filled with its field's own absence sentinel (NO_TS, NO_AT, NO_AUTHOR, NO_GRADE), plus scalar fields (lines=0, order=[], ts=hist.baseTs, at=-1) — exactly frame zero of the history replay.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The one-line doc ('every field at its own absence') is a good compression of the pattern but doesn't reveal there are actually three separate index spaces (per-func, per-path, per-dir) each with their own array set.
+- spec 3 · read at `fd70b17f6c15` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:30Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Constructs the initial/empty Frame from a Tables object: allocates typed arrays sized to the number of functions/paths/dirs in hist (mirroring the fields freeze later copies out), all initialized to their "absent" sentinel — zero loc, false live/born, no timestamps, empty hit rings — with `at` set to some starting index (likely -1 or 0) meaning no commits have been replayed yet.
+- found: Allocates every typed array on Frame sized to function count, path count, and dir-shape count, filled with sentinel constants (NO_TS/NO_AT/NO_AUTHOR/NO_GRADE) for absence, hit rings zeroed, ts set to hist.baseTs (not zero), and at set to -1 meaning no commit replayed yet.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `opening` — QUIRKY
 - spec 3 · read at `8e21ad8d7202` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:30:18Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -2195,12 +2219,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds a blank Frame then directly seeds it from hist.base (the pre-window snapshot): copies in carried-over readings (baseRead), and for each base function sets its loc/live/order and counts it (and its ancestors) present via census — but deliberately does NOT mark it as touched or born, since anything predating the tracked window has no honest arrival/edit date to show.
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 
-### `enter` — QUIRKY
-- spec 3 · read at `be44ff2188b5` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:29:42Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Increments the live function-count for path p in frame, and since a container's birth is its own count's 0→1 transition rather than something rolled up from children, checks whether this is the container's first function and if so records a birth event/timestamp for that container at time `at`, without touching any ancestor directories.
-- found: Delegates the actual counting/incrementing to `census(frame, shape, p)`, which returns falsy if the file was already present (so no container birth to record). If the file is newly counted, it stamps the file's own birth time, then walks ancestor directories and stamps a directory's birth time only for the ones whose live count is now exactly 1 (i.e., this file is their first live thing).
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: The actual increment logic lives in census(), not in enter() itself — enter is really just the birth-stamping half of the arrival, so predicting from its name/docs alone undersells that split.
+### `enter`
+- spec 3 · read at `a6d46c8d0021` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:39:53Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Marks function p as existing in frame at time ts, incrementing its count. Separately, walks up the containing file/directory hierarchy in shape and records a birth event only where a container's count transitions from 0 to 1, so a single function's arrival doesn't spuriously "light up" ancestors that already had other functions.
+- found: Calls census(frame, shape, p) to increment path p's live count and check for 0→1 transition; if not a fresh birth, returns early. Otherwise records the file's birth position/timestamp, then walks shape.ancestors[p] marking any directory whose live count just became 1 as born at position `at`.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `census`
 - spec 3 · read at `3948e6c114f5` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:30:54Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -2208,38 +2231,38 @@ What this is and how to add to it: [README.md](README.md)
 - found: Increments the function's own path-liveness counter; if it was already live (count now > 1) returns false immediately without touching ancestors. Only on the first arrival (count goes 0->1) does it walk shape.ancestors[p] and bump each ancestor directory's live count, then returns true.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `leave`
-- spec 3 · read at `f9953f4cdd9a` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:29:48Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Removes path index p from the frame's live/present tracking, and updates shape's per-file bookkeeping by decrementing the file's function count; if that count reaches zero the file entry is deleted entirely so a later reappearance is treated as a fresh arrival rather than a re-entry.
-- found: Decrements frame.pathLive[p] (floored at zero); once it hits zero, clears pathBornAt[p] to NO_AT and cascades the same decrement-and-clear to every ancestor directory's dirLive/dirBornAt, so a directory that loses its last live descendant also stops being "born" and would read as a fresh arrival if repopulated.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
+### `leave` — QUIRKY
+- spec 3 · read at `4af2377a07e7` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:43Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Mirror of enter: removes a function (id p) from frame's tracked state for shape, decrementing the owning file's function count. If that was the file's last function, the file entry itself is deleted from tracking (not just zeroed), so a later reappearance is treated as a fresh arrival rather than a continuation.
+- found: Decrements frame.pathLive[p] (floored at 0, not wrapped, since the store is unsigned). If it hits 0, resets the path's born-at/born-timestamp sentinels, then walks shape.ancestors[p] decrementing each ancestor directory's live count too, clearing its born-at sentinel when a directory itself reaches zero.
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+- note: I underestimated: this also propagates the departure up through ancestor directories' live counts, not just the single path/function entry.
 
 ### `advance` — QUIRKY — TANGLED
-- spec 3 · read at `24446701778e` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:46:33Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Walks commit indices from frame.at+1 up to `to`, looking up each commit's delta in `hist`/`deltas` and mutating `frame` in place to apply it (updating frame.at as it goes). If a commit in that range is missing from the data, it breaks out early and returns false; otherwise returns true after applying all of them. It may also opportunistically cache/update `bank` with intermediate frames, but guards against storing a frame at the wrong `at` value per the doc warning.
-- found: Applies commits (frame.at, to] to a Frame in place: for each commit, updates per-function state (loc, live, touched, author, editedAt, born/bornAt, a fixed-size churn ring buffer of hit timestamps), handles arrivals/departures tracked via added/gone sets, updates per-path author/timestamp/churn-ring state, and applies graded/unread markers. After the loop, merges the added/gone sets into frame.order via a single linear merge pass (rather than per-commit splicing, for performance). Sets frame.at and frame.ts at the end, and returns whether every commit up to `to` was actually available in `deltas`.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
-- note: The doc's mention of `bank` doesn't describe anything this function does directly — it's about caller-side invariants, not this function's body.
+- spec 3 · read at `4e0eb06aaaea` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:42:15Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Iterates commit indices from frame.at+1 up through `to`, and for each one looks up its deltas and applies them in place to the frame's tree (adding/removing/mutating nodes via helpers like enter/leave/census, tracking authors via authorsOf/authorId), updating frame.at as it goes. If a needed commit's deltas aren't available (not yet loaded), it breaks out early and returns false rather than leaving the frame in a state that claims to be at `to`; otherwise returns true once frame.at reaches `to`.
+- found: Folds commits (frame.at, to] into the frame in place: for each commit applies arrivals/rewrites (loc, live, touched, born, per-function churn ring), deletions (clearing state, calling leave()), grade updates, and per-path author/timestamp/churn-ring bookkeeping; tracks arrived/departed function ids in two sets rather than mutating `order` per-commit, then does one linear merge of the sorted arrivals against the existing ascending `order` array (dropping departures) for performance; breaks early and returns false if a commit's deltas aren't loaded yet, otherwise advances frame.at/frame.ts and returns true.
+- predicted: some · documented: none · derivable: yes · legible: some · trap: no
 
 ### `freeze` — QUIRKY
-- spec 3 · read at `fd3966ba919e` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:47:38Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Takes a live Frame of replay/history state and produces an immutable, lightweight Checkpoint snapshot of it — copying essential node sizes/authors data (paired with thaw which reconstitutes a Frame from a Checkpoint). Used so the replay scrubber can jump to a nearest prior checkpoint and fast-forward rather than replaying every frame from the start, with evict/remember managing a cache of these checkpoints.
-- found: Produces an immutable Checkpoint snapshot of a Frame's mutable state for later replay. Compacts two fixed-stride ring buffers (per-function `hits` and per-path `pathHits`, each stored as CHURN_MEMORY-wide slots) down into tightly packed Uint32Arrays using the live counts in hitLen/pathHitLen, and shallow-copies (`.slice()`) all the other per-node arrays (loc, live, touched, born, author, etc.) so the checkpoint is independent of the live frame's future mutation.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
-- note: No JSDoc on this function at all despite it being nontrivial ring-buffer-compaction logic; the "why" (thaw needs same order to lay them back down) is only explained in a comment on the second, file-hit loop.
+- spec 3 · read at `64b719b1ef8a` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:16Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Creates a lightweight Checkpoint snapshot of a Frame's current state (likely just the set of live node ids and their key fields like scores/positions, not a deep clone of everything) so that `thaw` can later restore the frame to this point without replaying every step from the beginning. Used by the history/replay scrubbing system to make jumping to arbitrary points cheap.
+- found: Builds a Checkpoint by compacting the frame's two ring buffers (per-function `hits` and per-path `pathHits`, each stored as a flat CHURN_MEMORY-strided array with per-slot lengths) down to just their live stamps in order, then copies (via .slice()) essentially every other per-node/per-path/per-dir array on the frame — not a lightweight reference snapshot but a fairly complete deep copy of the frame's arrays.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: I expected a cheap/shallow snapshot; it actually .slice()-copies nearly every array field on Frame, so freeze is not cheap relative to frame size.
 
-### `thaw`
-- spec 3 · read at `c1457ae4756b` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:47:36Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: The inverse of `freeze`: takes a compact/serialized Checkpoint (presumably typed arrays or a packed snapshot of a Frame at some commit index, used for caching replay positions in `bank`) and reconstructs a live, mutable Frame object from it — copying/cloning the packed fields (loc, live, order, touched, etc.) into fresh arrays so the returned Frame can be mutated by `advance` without corrupting the cached checkpoint.
-- found: Reconstructs a live Frame from a packed Checkpoint: unpacks the ragged/compact pathHits and hits arrays (stored only for live entries) back into fixed-stride CHURN_MEMORY Uint32Arrays, derives `order` from which functions are currently live, and clones every other field with `.slice()` so the returned Frame is independently mutable.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: I predicted a generic clone but missed that hits/pathHits are stored packed in the Checkpoint and require unpacking into a fixed stride here, and that `order` isn't stored at all but rebuilt from `live`.
+### `thaw` — QUIRKY — TANGLED
+- spec 3 · read at `9631ec437779` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:26Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Reverses whatever `freeze` does: takes a Checkpoint (a serializable/compact snapshot, likely with arrays or plain objects standing in for Maps/Sets) and reconstructs a live Frame object from it, rebuilding any Map/Set structures and restoring references needed for the history/undo system to treat it as a normal in-memory frame.
+- found: Reconstructs a Frame from a compact Checkpoint by expanding ragged, variable-length per-index hit arrays (packed contiguously in the checkpoint) back into fixed-width Uint32Arrays sized by CHURN_MEMORY per function/path slot, and rebuilds the `order` array of currently-live function indices; everything else is a shallow array copy (.slice()).
+- predicted: some · documented: none · derivable: no · legible: some · trap: no
+- note: No docs at all on this function; the packed-to-fixed-width array expansion and the `order` rebuild are not guessable from the signature alone — only visible once you see `freeze`'s inverse packing.
 
 ### `weigh`
-- spec 3 · read at `62117a4e8117` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:36:17Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Computes a rough memory/size cost for a Checkpoint, summing the lengths (or byte sizes) of its parallel arrays (loc, live, hits, touched, born, etc.) to produce a number used by a cache eviction policy to decide when the checkpoint bank exceeds a size budget.
-- found: Sums the byteLength of every typed array field on the Checkpoint to give a total memory footprint, used elsewhere for cache-size accounting.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `7d7177f9788f` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:47:50Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: weigh computes an approximate memory-size/cost score for a Checkpoint by summing the sizes of its internal collections (maps/arrays it holds), likely multiplied by rough per-item weight constants, used by cache eviction logic (evict/nearest/remember) to decide what to keep or drop.
+- found: Sums the byteLength of every typed-array field on the Checkpoint to give its exact in-memory footprint in bytes, for use by cache-size accounting (evict/nearest/remember).
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ### `evict`
 - spec 3 · read at `fc7f56dda765` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:34:26Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -2288,23 +2311,24 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ### `readingInto`
-- spec 3 · read at `ee59904f8a7b` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:40Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Unpacks the two-byte `packed` integer into an AgentReport-shaped object by extracting bitfields (predicted, documented, legible, trap) via shifts/masks, writing them into `into` if non-null (reusing it for pooling) or creating a new object otherwise, and setting the "dated" flags to false since packing already resolved superseded axes. Returns the populated object.
-- found: Unpacks `packed` bitfields into an AgentReport via gradeAt() calls for predicted/documented/legible and a direct bit test for trap, reusing `into` if given (setting legibleDated/trapDated false only on fresh creation) or allocating a new object with those dated flags false.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `4bdb5f4cb16e` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:42Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Unpacks the two-byte `packed` value into four grade fields (predicted/documented/legible/trap or similar) via bit masking/shifting, writing them into the `into` object if given (reusing it, pooling-style) or creating a fresh minimal AgentReport otherwise, with prose/provenance/model left empty/default and the "dated" flags all set false since an absent grade already means unread after packing dropped it.
+- found: Unpacks a two-byte int into an AgentReport: predicted/documented/legible via gradeAt at bit offsets 0/3/6, trap as a single bit at offset 9, and derivable as a tri-state 2-bit field at offset 10 (0=undefined/never asked, else true/false), reusing the passed-in `into` object or creating a minimal one.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `scoreInto` — TRAP
-- spec 3 · read at `0a986df71df9` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:29:49Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Fills (or reuses) a Score object for function `f` as of the frame at index `since`, mutating `into` in place when provided to avoid allocation, otherwise creating a fresh Score. Reads age/churn/recency-type fields from `frame`, and unpacks `packed` (the reading) into surprise/analyzedShare when it's not NO_GRADE, leaving surprise at 0 and analyzedShare at 0 (meaning "no claim"/unanalyzed) when packed is NO_GRADE.
-- found: Matched the broad shape (reuse-or-create Score, unpack packed reading via NO_GRADE check into surprise/analyzedShare), but missed several concrete details: churn is computed by scanning a per-function hit-history window (frame.hits) counting commits within CHURN_WINDOW_DAYS, ageDays/lastTouchedDays come from frame.bornAt/editedAt via daysBetween, source is set to 'agent' vs 'proxy' based on whether a grade exists, and appeared/edited flags are explicitly written to null every call because Score objects are pooled/reused across frames (a field not written would leak the previous function's value).
+- spec 3 · read at `755768d1b13e` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:42:19Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Builds or refills (via `into`, for reuse) a Score representing a function's state at a replay frame `f` as of time `since`. Computes churn for all four windows (not just the one currently viewed), derives age/last-touched days, and unpacks the `packed` grade bits into surprise/documented when a reading exists — otherwise leaves those fields at 0/no-claim so isAnalyzed refuses to color the function.
+- found: Computes churn/age/lastTouched as predicted, and unpacks predicted/documented grades from packed when present. Additionally sets hotShare = same surprise value, analyzedShare/source flip together (1/agent vs 0/proxy) so isAnalyzed's source check and analyzedShare check stay consistent, and always overwrites appeared/edited (even to null) because Score objects are pooled and reused across frames — leaving a field alone would leak the previous function's value.
 - predicted: most · documented: most · derivable: no · legible: most · trap: yes
-- note: Every field must be written unconditionally (including to null) because Score objects are pooled and reused frame-to-frame — skipping a field on some code path would silently leak a stale value from whatever function last used that pooled object.
+- note: Because Score objects here are pooled/reused, every field must be written unconditionally each call (including to null); a future field added without that discipline would silently leak the prior frame's function's value onto the next one.
 
-### `aggregate` — QUIRKY
-- spec 3 · read at `abebdaf3695d` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:30:03Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks a container node's children, summing their line counts into the node's own LOC, and computes LOC-weighted rollups for age and last-touched — taking the oldest child's age and the newest child's last-touched date, weighted by each child's size. Uses appearedOf to resolve a leaf's appearance time when needed, and mutates node in place with the aggregated result, mirroring Node::aggregate in the Rust scan code since this JS tree is separate from it.
-- found: Recursively rolls children up into a container: sums LOC, propagates birthBelow/touchBelow flags, and computes LOC-weighted churn/hotShare/analyzedShare plus max age / min last-touched / max commits across children, reusing (not reallocating) the existing score object field-by-field. Clears score to null when no child contributed a score (rather than leaving a stale one), and sets appeared from appearedOf(node.id) (the container's own arrival, never rolled up) while edited is always null for containers since a directory has no single edit event of its own.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
+### `aggregate` — QUIRKY — TANGLED
+- spec 3 · read at `8c24c171f634` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:17Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Recursively walks node's children (calling itself first on non-leaf children), then aggregates their stats into node: total LOC as sum of children's LOC, "age" taken from the oldest child (earliest appearance date, resolved via appearedOf for leaves), and "last-touched" taken from the newest child date. The LOC-weighted part probably means dates are combined weighted by each child's LOC rather than a simple min/max, so a large child's date matters more than a tiny one.
+- found: Recursively rolls children into node: sums LOC, tracks birthBelow/touchBelow flags, LOC-weights churn/hotShare/analyzedShare, takes max commits per window, computes age as max child ageDays and lastTouchedDays as min, mutates/reuses an existing score object in place for allocation reasons, clears score to null if total weight is zero, and sets appeared via the callback while leaving edited always null since containers don't show touch flashes.
+- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+- note: The docstring only covers the LOC-weighting/age/last-touched part; it says nothing about birthBelow/touchBelow, hotShare/analyzedShare rollups, commits-as-max, or the appeared/edited asymmetry, all of which are substantial.
 
 ### `collapse`
 - spec 3 · read at `cdad908c9ada` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:28:23Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -2320,12 +2344,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: yes · legible: full · trap: no
 - note: Node is one big shared shape for both files and dirs — most fields are meaningless/null for a dir; a reader predicting from the name alone won't guess how many analysis-specific fields exist.
 
-### `flashOnly` — QUIRKY
-- spec 3 · read at `0c2943111383` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:32:54Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Builds a minimal Score object carrying only the event flags (appeared=1 if birth, edited=1 if edit) with every other field (churn, age, commits, etc.) left unset/undefined, meaning "no claim" rather than zero. Returns null if neither birth nor edit is true, since there's no event to represent.
-- found: Returns null if neither birth nor edit, otherwise builds a Score with measurement fields explicitly zeroed (surprise, documented, churn, commits, hotShare, analyzedShare all 0) and the day-based fields (ageDays, lastTouchedDays, allCommits) set to null, tagged provenance:'history' and source:'proxy', with appeared/edited set to 1 or null based on the flags.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: The doc says these fields "stay at the values that mean no claim" but several are explicit 0s rather than null/undefined — only the day-ish fields are actually null; worth flagging since 0 and "no claim" read differently to a consumer that treats 0 as a real measurement.
+### `flashOnly`
+- spec 3 · read at `f27170295d18` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:43Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Returns null when neither `birth` nor `edit` is true (nothing to flash), otherwise builds and returns a Score object with an `event` field set to describe which happened (birth/edit), while every measurement field (commits, churn, tangle, ageDays, lastTouchedDays, source, etc.) is left at its "no claim" default (0/null) so this stand-in score doesn't get mistaken for a real reading during aggregation.
+- found: Got the null-guard and all-defaults-except-event structure right; missed that the event is split into two separate fields (`appeared`/`edited`, each 1 or null) rather than one combined field, and the explicit provenance: 'history' tag.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `reuse`
 - spec 3 · read at `b2412acd9c6c` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:36:05Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -2360,11 +2383,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ### `frameTree` — QUIRKY — TANGLED
-- spec 3 · read at `2d1439d2f750` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:47:39Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Builds a brand-new Node tree representing the repo's shape at commit `index` (folding `hist`/`deltas` up to that point), rooted at `scope` if given, rather than mutating the live scan tree. It walks the known functions/files, resolves each one's path/position/size via helpers like pathIndexOf/posOf/realOf, computes per-function scores/grades via scoreInto/gradeAt/readingInto, builds directory nodes and aggregates sizes upward (aggregate/dirNode), rolls up small functions below a `minLoc` threshold derived from `density`, and marks nodes touched between `since` and `index` as flashing (via inStep) when `flashes` is true.
-- found: A heavily optimized, pooled tree-builder for one replay frame: totals lines top-down per directory/file using dense typed arrays (not a bottom-up per-function walk), rolls up functions/files/directories below a density- and scope-adjusted minLoc threshold into cached 'stand-in'/'crowd' nodes carrying folded language/author/time tallies, reuses pooled nodes across frames, marks birth/edit flags via inStep for flashing, then aggregates and collapses the final tree.
+- spec 3 · read at `0fc0ba5fa83d` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:25Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Reconstructs a full Node tree (dirs/files/functions) representing repo state at history index, replaying deltas up to that point, applying a minLoc roll-up threshold (scaled by density/scope) to collapse small functions into an overflow bucket, computing per-node grades/scores from readings active at that point, and marking nodes changed in (since, index] as flashing when flashes is true. Combines several peer helpers (dirNode, collapse, gradeAt, scoreInto, historyLangs) into one tree-building pass.
+- found: Replays deltas to a frame, then builds a pooled/reused Node tree top-down (not bottom-up) using dense typed arrays for per-path totals for performance, thresholding nodes against a minLoc cut (scaled by density/scope) to decide what gets a real node vs. gets rolled into per-file 'standIn' or per-dir 'crowd' stand-in nodes carrying aggregated lang/author/time tallies. Grades/scores functions from readings, marks birth/edit flags for flashing within (since, index], forces scope-path directories to stay expanded regardless of size, then aggregates birth timestamps up the tree and collapses single-child chains before returning root.
 - predicted: some · documented: some · derivable: no · legible: some · trap: no
-- note: The one function doc only explains why the tree is built fresh rather than patched onto the live scan; it says nothing about the top-down rollup/pooling machinery that is most of the body.
 
 ### `posOf` — QUIRKY
 - spec 3 · read at `077496c8f1ea` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:48:27Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -2442,11 +2464,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
 - note: The header doc's rationale about Locked/replayNote deliberately not being in Where is substantial context not derivable from actOf's body alone.
 
-### `actOf`
-- spec 3 · read at `99b191b9a990` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:47:21Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A pure function that maps a raw key press (key, meta/alt/ctrl/shift) plus context (whether the user is typing in a field, whether the finder is open) into a single Act describing what should happen — return null/undefined if nothing applies. It likely has an early guard for Tab (since it's the one shortcut without Cmd, and must not fire while typing), then checks '+'/Shift-'=' for toggling history, then Cmd-digit for lens switching, then Cmd-F for find, then falls through returning nothing if typing or none of the modifiers match — structured as an ordered sequence of checks rather than the original pile of early returns, so the order is explicit and testable.
-- found: Maps a keypress + context to an Act via ordered guards: bare Tab (no modifiers) becomes 'find' unless already typing/finding; then requires Cmd with no Alt/Ctrl for everything else; '+'/'=' becomes 'history'; 'f' becomes 'find'; Shift blocks the rest; then the key is looked up in LENS_KEYS and mapped to a color mode by index, returning null if out of range.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+### `actOf` — QUIRKY
+- spec 3 · read at `b664c7cdc886` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:04Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A sequence of ordered guard clauses/early returns that pattern-match a keypress (e) and context (w) to produce an Act. Checks Tab first (bare key, no Cmd), then handles '+' before a Shift guard, then Find, then a replay guard, and finally falls through to hand off any Cmd-modified press as-is. The specific order of the guards encodes the actual behavior.
+- found: Tab (bare, no modifiers) becomes find unless already typing/finding. Any non-bare-Tab press without a clean Cmd (meta without alt/ctrl) is ignored. '+' or shifted '=' is history. 'f' is find. Any other shifted key is ignored. Otherwise checks LENS_STEP for '[' ']' style stepping, then maps the key against LENS_KEYS/MODE_LABEL to pick a lens mode by index.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+- note: The docs' framing ("last... hands every modified press straight on") doesn't match the actual fallthrough, which maps Cmd+digit to specific lens/step actions rather than passing them through unchanged.
 
 ## web/src/lib/label.ts
 
@@ -2908,11 +2931,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Converts the four corners of the annular sector to x/y via sin/cos (clockwise from 12 o'clock), computes the SVG large-arc-flag from a1-a0 > pi, and builds a path: move to inner-start, line to outer-start, outer arc to outer-end, line to inner-end, inner arc back to inner-start, close. Special-cases a near-full-circle span (can't be drawn as one arc since start/end coincide) by drawing two half-circle arcs for the outer ring and two for the inner ring instead.
 - predicted: full · documented: some · derivable: no · legible: full · trap: no
 
-### `aggregate` — TANGLED
-- spec 3 · read at `90a95e749c59` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T19:41:17Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Takes the list of function Nodes that couldn't be drawn as individual sunburst slices plus the file path, and builds a single synthetic Node standing in for all of them. It sums their LOC for sizing, computes the score as a LOC-weighted mean but only over members that have actually been assessed/read (skipping unread ones rather than treating them as zero), and fills in enough Node fields (name like "+N more", path, children/member list for hover) that the renderer's color/heat/hover logic can treat it like any other node without special-casing it.
-- found: Builds a synthetic overflow Node (id `${filePath}#/rest`, name like "126+") standing in for the functions that didn't fit as their own wedges. Sizes it by summed LOC, computes score fields as LOC-weighted means over only the assessed ('model'/'agent' sourced) members, adds hotShare/analyzedShare fields describing how much of the pooled lines were actually read/hot, keeps the real member Nodes as `children` for the detail panel, sets a `rest` count sentinel (with `funcs: 0`) so color logic treats it as a collection wearing a function's `kind`, and nulls out all the relational fields (callers/calls/etc) since it has no wiring of its own.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
+### `aggregate`
+- spec 3 · read at `b0f97aea77b7` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:55Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Builds a synthetic Node (the "rest" bucket) for functions in fns that couldn't be drawn individually — sums their loc, sets rest to the count/list of members, and computes score as the LOC-weighted mean across only the members that have actually been scored/read (not a neutral placeholder). id/name derived from filePath.
+- found: Builds a synthetic 'func'-kind Node with id `${filePath}#/rest`, name `${count}+`, summed loc, and children set to the actual member fns (so the detail panel can list them). Score fields (surprise, documented, churn, ageDays, tangle, cognitive, hotShare, analyzedShare, etc.) are each LOC-weighted means computed only over members that were actually scored (source model/agent), with hotShare/analyzedShare specifically avoiding inheriting confidence from unread members.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `vOf`
 - spec 2 · read at `52de10c15242` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:22:40Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
