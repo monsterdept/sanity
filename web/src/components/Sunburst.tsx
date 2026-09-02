@@ -15,6 +15,7 @@ import { unreadable } from '../lib/api'
 import { CHROME_INK } from '../lib/ink'
 import { arcPath, layout, tileFunctions, type Wedge } from '../lib/sunburst'
 import { RINGS_DEFAULT } from '../lib/rings'
+import { SPACING_DEFAULT, type Spacing } from '../lib/spacing'
 import { rimRuns as runsOf } from '../lib/rim'
 import { FileZoom, fanOf } from './FileZoom'
 import { arcOf, sectorOf, type Sector } from '../lib/fan'
@@ -57,6 +58,12 @@ const FUNC_BEND = 0.45
  *  at least `FILE_MAX × LINE` deep or nothing fits in it. */
 const FILE_MAX = 11
 
+/** Where the rings start and stop, in user units.
+ *
+ *  `R_INNER` is the hub at a ring width of 100% — see `Spacing['width']`, which moves it, and
+ *  `rIn`, which is the number everything downstream of the layout actually reads. The rim is
+ *  fixed: the view is fitted to what is drawn, so only the RATIO between these two is visible,
+ *  and holding one end still is what keeps every threshold stated against `R_OUTER` true. */
 const R_INNER = 62
 const R_OUTER = 340
 
@@ -119,8 +126,20 @@ const HUB_FITS = 17
  *  Directories, files and functions are three different KINDS of thing and were drawn as
  *  one continuous mass of arcs. Hue cannot carry the distinction — hue is the reading —
  *  so it falls to geometry: a visible gutter between levels, and a frame of the file's
- *  own color around the functions it holds. */
+ *  own color around the functions it holds.
+ *
+ *  **The same gutter for every kind, where a file used to keep 40% of one.** The argument for
+ *  the difference was that a gutter separates a thing from what is drawn beyond it, and past a
+ *  file there is nothing: its functions are tiled INSIDE its own band, not in the ring outside.
+ *  True, and it is not what the gutter turned out to be doing. Inside one ring the two kinds
+ *  sit side by side, so unequal outer radii do not read as "these face different things" —
+ *  they read as a rim that does not follow its own arc, which is a rendering fault. The eye
+ *  reads the ring's edge as one line before it reads any wedge on it. A file loses about a
+ *  unit and a half of band for this, which is a patch or so of tiling capacity. */
 const RING_GAP = 3
+
+/* The reader scales this — see `Spacing['ring']`. What the slider moves is a multiple of it;
+   the number here is still what the map means by "a gutter", and 100% is this. */
 
 /** The rim of its own color a file leaves around the functions it holds — the thing
  *  that says "these belong to that" with geometry instead of with a legend.
@@ -348,6 +367,9 @@ function heatShare(kind: string, mode: ColorMode): number {
  *  doesn't swallow the functions inside it. */
 const CUT = { dir: 2.2, file: 1.5, func: 0.35 }
 
+/* Scaled by the reader as one multiplier over all three — see `Spacing['slice']`. The RATIO
+   is the argument above and a slider cannot flatten it. */
+
 /** The hairline between two segments of a directory's rim, in screen pixels.
  *
  *  Thinner than any of the CUTs above, because those separate THINGS and this separates
@@ -428,6 +450,12 @@ const DIR_RIM_PX = 4.5
  *  and reading as one continuous ring of their own. */
 const DIR_RIM_INSET_PX = 3
 
+/* Switchable off — see `Spacing['border']`, which zeroes this and lets the band run to the
+   wedge's edges. Off, the sentence one level up is back: a directory outlined in blue reads as
+   a blue directory. It is offered because on a shallow tree the frames cost more room than the
+   distinction buys, and it is offered as a SWITCH rather than a width because the margin has
+   three readers and a partial frame is a band that overhangs its plate. */
+
 function SunburstView({
   root,
   selected,
@@ -447,6 +475,7 @@ function SunburstView({
   onSide,
   rings = RINGS_DEFAULT,
   rimShare = 0,
+  spacing = SPACING_DEFAULT,
   markers = true,
   derivable = true,
   onWantRings,
@@ -524,6 +553,12 @@ function SunburstView({
    *  A fifth keeps it unmistakably a bar — one dimension carrying the value — and unmistakably
    *  a summary of the wedge it sits on rather than a thing with a size of its own. */
   rimShare?: number
+  /** The reader's three geometry tweaks — the frame around a directory's band, the cut
+   *  between two neighbours, and the gutter between two levels. See `lib/spacing.ts` for why
+   *  each of them is a control, and `DIR_RIM_INSET_PX`, `CUT` and `RING_GAP` below for what
+   *  the defaults they scale are FOR — the sliders move those numbers, they do not replace
+   *  the arguments for them. */
+  spacing?: Spacing
   /** Whether a directory's rim carries the pointing marks — see `dots`.
    *
    *  Only Traps and Clones put anything there, and this is only ever offered on those two:
@@ -645,10 +680,19 @@ function SunburstView({
    *  actually present, because the depth is read off the layout these thresholds are inputs
    *  to and feeding that back is a loop. On a tree shallower than the count the real bands
    *  are thicker and every radius larger, so both thresholds below are conservative. */
+  /** Where the rings begin, at the reader's ring width — see `Spacing['width']`. The rim
+   *  stays at `R_OUTER` and the hub moves, because that is the only end that can move
+   *  visibly: fitting the view to the drawn extent means scaling both ends is a no-op. */
+  const rIn = R_OUTER - (R_OUTER - R_INNER) * spacing.width
+  /** How much smaller the hub is than the one every constant in it was written against.
+   *  The disc, its name and the creature are all sized in user units and all three have to
+   *  travel with it, or a wider ring draws a creature that overflows the circle it lives in. */
+  const hubK = rIn / R_INNER
+
   const radiusAt = useMemo(() => {
-    const band = (R_OUTER - R_INNER) / Math.max(1, rings)
-    return (d: number) => R_INNER + band * (d - 0.5)
-  }, [rings])
+    const band = (R_OUTER - rIn) / Math.max(1, rings)
+    return (d: number) => rIn + band * (d - 0.5)
+  }, [rings, rIn])
 
   const minAngleAt = useMemo(() => {
     if (unitsPerPx === null) return undefined
@@ -943,7 +987,7 @@ function SunburstView({
     for (const w of wedges) if (w.node.kind !== 'func') d = Math.max(d, w.depth)
     return Math.max(d, 1)
   }, [wedges])
-  const band = (R_OUTER - R_INNER) / structDepth
+  const band = (R_OUTER - rIn) / structDepth
   const hubName = elide(root.name, HUB_FITS)
 
   /** Where every wedge in THIS layout belongs, by id. The renderer below reads geometry
@@ -993,13 +1037,33 @@ function SunburstView({
     return m
   }, [wedges, mode, ranks, views])
 
+  /** The cut between two neighbouring wedges, at the reader's scale — `CUT` is the argued
+   *  shape and this is where it is spent. The three stay in proportion because one multiplier
+   *  moves all of them; see `lib/spacing.ts` for why that is not a convenience. */
+  const cuts = useMemo(
+    () => ({
+      dir: CUT.dir * spacing.slice,
+      file: CUT.file * spacing.slice,
+      func: CUT.func * spacing.slice,
+    }),
+    [spacing.slice],
+  )
+
+  /** The gutter between one level and the next, at the reader's scale — see `RING_GAP`. */
+  const ringGap = RING_GAP * spacing.ring
+
+
   /** The rim band in user units, including the cut that separates it from its own plate.
    *  Capped at the ring so a very shallow tree cannot produce a band wider than the wedge
    *  it sits on. `unitsPerPx` is null until the pane has been measured; a fixed fallback
    *  is better than a directory with no reading on it for the first frame. */
   const rim = useMemo(() => {
     const px = unitsPerPx ?? 1
-    const inset = DIR_RIM_INSET_PX * px
+    // Zero when the reader has turned the frame off — the ground that shows all the way round
+    // the band, and nothing else. `rimBand` still holds the band inside its plate by half a
+    // cut, and the gap below still keeps the label off it: those are containment and legibility
+    // rather than a frame, and neither is what the switch is about. See `Spacing['border']`.
+    const inset = spacing.border ? DIR_RIM_INSET_PX * px : 0
     // Never more than a third of the ring: on a deep tree the bands are thin, and a
     // margin that cannot fit is a band that eats its own plate.
     const base = Math.min(DIR_RIM_PX * px, band / 3)
@@ -1013,8 +1077,13 @@ function SunburstView({
     return {
       width: base + (full - base) * Math.min(1, Math.max(0, rimShare)),
       inset: Math.min(inset, band / 3),
+      /** The clear air between the band and the name under it, which the frame's switch does
+       *  NOT turn off. A label set against the thing above it is what had `tui` riding high
+       *  in its wedge with its own ring through the ascenders — a defect either way round,
+       *  and not a border. */
+      gap: Math.min(DIR_RIM_INSET_PX * px, band / 3),
     }
-  }, [band, unitsPerPx, rimShare])
+  }, [band, unitsPerPx, rimShare, spacing.border])
 
   /** A directory's paint as a band on its outer edge — see `DIR_RIM_PX` for why a
    *  directory does not get a fill. Returns null for every other kind, so a caller can
@@ -1039,7 +1108,10 @@ function SunburstView({
    *  ascenders. */
   const plateOf = (g: Geo): Geo => ({
     ...g,
-    r1: Math.max(g.r0, g.r1 - rim.width - rim.inset * 2),
+    // The band's own trim from the wedge edge (`rimBand`), then the band, then the clear air
+    // above the name. With the frame on the first two of those are the same number, which is
+    // the `inset * 2` this used to read as.
+    r1: Math.max(g.r0, g.r1 - (spacing.border ? rim.inset : cuts.dir / 2) - rim.width - rim.gap),
   })
 
   /** A directory's reading on the edge it shares with its contents — see `DIR_RIM_PX`.
@@ -1052,12 +1124,22 @@ function SunburstView({
    *  over it is the commit under the playhead going unreported. */
   /** Where a directory's rim sits, in the ring's own units. */
   const rimBand = (g: Geo) => {
-    const r1 = g.r1 - rim.inset
+    // **Never zero, even with the frame off.** A `Geo` is the wedge's whole SECTOR, and the
+    // plate drawn on it is not: the plate is stroked in the background colour, so half a cut
+    // is eaten off each of its edges and its visible boundary sits inside the sector by that
+    // much. A band laid on the raw sector therefore overhangs the plate it belongs to on
+    // three sides, and — since its neighbour overhangs by the same amount from the other
+    // side — the bands of two adjacent directories MEET across the cut and draw one
+    // continuous ring, which is a claim about the parent rather than about either of them.
+    // Turning the frame off means the band goes flush to its plate. It does not mean the
+    // band stops being contained by it.
+    const trim = spacing.border ? rim.inset : cuts.dir / 2
+    const r1 = g.r1 - trim
     const r0 = Math.max(g.r0, r1 - rim.width)
     // The same margin on the ends, expressed as the angle that subtends it at the band's
     // own radius — so the gap is the same width all the way round, which is the rule the
     // CUTs already follow. Capped as a share of the wedge, or a thin one closes up.
-    const pad = Math.min(rim.inset / Math.max(r1, 1), (g.a1 - g.a0) * 0.3)
+    const pad = Math.min(trim / Math.max(r1, 1), (g.a1 - g.a0) * 0.3)
     return { r0, r1, a0: g.a0 + pad, a1: g.a1 - pad }
   }
 
@@ -1109,7 +1191,15 @@ function SunburstView({
                 // A hairline of the ground between segments, on the rule the ring's own CUTs
                 // follow: two values that abut with no gap read as one value that changes,
                 // which is the one thing a categorical rim must not say.
-                stroke="var(--background)"
+                //
+                // **It goes with the frame.** The reader's switch is about ground showing on a
+                // directory's band, and these hairlines are ground showing on a directory's
+                // band — leaving them lit while the frame around them is off is the switch
+                // doing most of what it says and then stopping. What it costs is stated
+                // above, and it is the reader's to spend: two segments of one ramp that abut
+                // read as one segment, so an unbroken band is a distribution you can see the
+                // shape of and not one you can count.
+                stroke={spacing.border ? 'var(--background)' : 'none'}
                 strokeWidth={SLICE_CUT * (unitsPerPx ?? 1)}
               />
             )
@@ -1161,8 +1251,8 @@ function SunburstView({
   }
 
   const target = useMemo(
-    () => geoOf(wedges, R_INNER, band, (kind) => (kind === 'dir' ? RING_GAP : RING_GAP * 0.4)),
-    [wedges, band],
+    () => geoOf(wedges, rIn, band, () => ringGap),
+    [wedges, band, ringGap, rIn],
   )
 
 
@@ -1191,7 +1281,7 @@ function SunburstView({
     // Going the other way it is the same journey reversed: the level you are leaving was
     // the hub a moment ago, so it comes OUT of the middle rather than growing from
     // nothing at the edge.
-    const hub = hubGeo(R_INNER)
+    const hub = hubGeo(rIn)
     coring.current =
       dir.current === 'in' && was.has(root.id)
         ? { node: root, from: was.get(root.id) as Geo, to: hub }
@@ -1210,7 +1300,7 @@ function SunburstView({
         depth: w.depth,
         index: w.index,
         from: was.get(w.node.id) as Geo,
-        to: exitTo(was.get(w.node.id) as Geo, dir.current, R_INNER, R_OUTER),
+        to: exitTo(was.get(w.node.id) as Geo, dir.current, rIn, R_OUTER),
       }))
     // A file is a destination rather than a level: the rings do not reorganize around it,
     // its own tiling unrolls into the pane. What that needs is the one thing only this
@@ -1692,8 +1782,8 @@ function SunburstView({
         : g,
     )
     const geos = fan ? [arcOf(fan)] : grown
-    return viewFor(extentOf(geos, R_INNER), MARGIN, CHROME_BOTTOM)
-  }, [target, root.kind, root.id, paneAspect, fileIds, morph])
+    return viewFor(extentOf(geos, rIn), MARGIN, CHROME_BOTTOM)
+  }, [target, root.kind, root.id, paneAspect, fileIds, morph, rIn])
   const viewFrom = useRef(viewTo)
   const viewNow = useRef(viewTo)
   if (startedRun.current !== run) {
@@ -1885,7 +1975,7 @@ function SunburstView({
                   fill={plate ? plate.fill : 'var(--structure)'}
                   fillOpacity={(1 - e) * (plate ? heatShare(x.node.kind, mode) : 1)}
                   stroke="var(--background)"
-                  strokeWidth={x.node.kind === 'dir' ? CUT.dir : CUT.file}
+                  strokeWidth={x.node.kind === 'dir' ? cuts.dir : cuts.file}
                 />
                 {dirRim(x.node, c, g, 1 - e)}
               </g>
@@ -1914,7 +2004,7 @@ function SunburstView({
                     fill="var(--structure)"
                     fillOpacity={1}
                     stroke="var(--background)"
-                    strokeWidth={CUT.dir}
+                    strokeWidth={cuts.dir}
                   />
                   {dirRim(coring.current.node, c, g)}
                 </g>
@@ -2040,7 +2130,7 @@ function SunburstView({
                 answers the mouse. */}
                     {w.node.kind === 'file' && (
                       <path
-                        d={arcPath(a0, a1, r0 - RING_GAP * 0.5, r0 + band)}
+                        d={arcPath(a0, a1, r0 - ringGap * 0.5, r0 + band)}
                         fill="transparent"
                         onMouseEnter={() => setHoverNode(w.node)}
                         onMouseLeave={() => setHoverNode((n) => (n?.id === w.node.id ? null : n))}
@@ -2105,7 +2195,7 @@ function SunburstView({
                       // thing on screen, and it sat around the level whose reading is the
                       // quietest — the eye went to structure instead of to heat.
                       stroke="var(--background)"
-                      strokeWidth={w.node.kind === 'dir' ? CUT.dir : CUT.file}
+                      strokeWidth={w.node.kind === 'dir' ? cuts.dir : cuts.file}
                       onMouseEnter={() => setHoverNode(w.node)}
                       onMouseLeave={() => setHoverNode((n) => (n?.id === w.node.id ? null : n))}
                       onClick={(e) => {
@@ -2266,7 +2356,7 @@ function SunburstView({
                         // agent-judged — a mark on every item is stripes, not information. The
                         // detail panel names the instrument for the one wedge you asked about.
                         stroke="var(--background)"
-                        strokeWidth={CUT.func}
+                        strokeWidth={cuts.func}
                         onMouseEnter={() => setHoverNode(slot.node)}
                         onMouseLeave={() =>
                           setHoverNode((n) => (n?.id === slot.node.id ? null : n))
@@ -2628,7 +2718,7 @@ function SunburstView({
           }
           style={onUp ? { cursor: 'zoom-out' } : undefined}
         >
-          <circle r={R_INNER - 4} fill="var(--card)" stroke="var(--border)" />
+          <circle r={rIn - 4} fill="var(--card)" stroke="var(--border)" />
           {onUp && <title>Double-click to go up a level</title>}
           {/* The disc is solid throughout — it is what the directory you clicked is turning
             INTO, so it has to be there to be turned into. Its label is not: swapping the
@@ -2672,7 +2762,7 @@ function SunburstView({
                 textAnchor="middle"
                 y={4}
                 fontFamily={FAMILY}
-                fontSize={Math.max(9, Math.min(15, 150 / Math.max(hubName.length, 5)))}
+                fontSize={hubK * Math.max(9, Math.min(15, 150 / Math.max(hubName.length, 5)))}
                 fill="var(--foreground)"
                 fontWeight={WEIGHT}
               >
@@ -2709,11 +2799,11 @@ function SunburstView({
              and needs to know where: reading it off the element keeps the one geometry
              here, rather than a second copy of these two numbers in `movie.ts` that nobody
              would think to move when the hub does. */
-          data-hub-mascot={`${HUB_MASCOT_Y} ${HUB_MASCOT}`}
+          data-hub-mascot={`${HUB_MASCOT_Y} ${HUB_MASCOT * hubK}`}
           className="absolute left-0 top-0 origin-center"
           style={{
-            width: HUB_MASCOT,
-            height: HUB_MASCOT,
+            width: HUB_MASCOT * hubK,
+            height: HUB_MASCOT * hubK,
             visibility: 'hidden',
             cursor: onUp ? 'zoom-out' : undefined,
           }}
@@ -2727,7 +2817,7 @@ function SunburstView({
           }
         >
           <AgentMascot
-            size={HUB_MASCOT}
+            size={HUB_MASCOT * hubK}
             events={mascot.events}
             state={mascot.state}
             gaze={gaze}

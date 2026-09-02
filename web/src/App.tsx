@@ -116,8 +116,10 @@ import {
   DerivableToggle,
   MarkerToggle,
   RingCount,
+  SpacingMenu,
 } from './components/Rings'
 import { loadRings, saveRings } from './lib/rings'
+import { loadSpacing, saveSpacing, type Spacing } from './lib/spacing'
 import { isCapped, loadCap, saveCap, type Capped } from './lib/palette'
 import { ReadDialog } from './components/ReadDialog'
 
@@ -425,6 +427,15 @@ export default function App() {
    *  A fifth is enough to read four bands off a directory and little enough that the band is
    *  obviously a summary of the wedge rather than a measurement of its own. */
   const [band, setBand] = useState(0.2)
+  /** The frame around a folder's band, the cut between two neighbours and the gutter between
+   *  two levels — see `lib/spacing.ts`. A display preference like the ring count above, so it
+   *  is read from storage once and written back on every change, and it is NOT per project.
+   *
+   *  Stored where `band` is not, and the two docs are the reason: `band` says in its own note
+   *  that its ends are wrong in opposite directions and that it is there for LOOKING at real
+   *  repos. These have defaults that are argued and a reader who moves one has decided
+   *  something about how they want the map drawn. */
+  const [spacing, setSpacing] = useState<Spacing>(loadSpacing)
   /** Whether the folder rims carry Traps' and Clones' pointing marks — see `MarkerToggle`
    *  and `Sunburst`'s `dots`. On by default, because the mark is what makes those two lenses
    *  findable from the middle of the map; session state rather than stored, because it is a
@@ -454,6 +465,10 @@ export default function App() {
   const chooseRings = useCallback((n: number) => {
     setRings(n)
     saveRings(n)
+  }, [])
+  const chooseSpacing = useCallback((s: Spacing) => {
+    setSpacing(s)
+    saveSpacing(s)
   }, [])
   /** How many colors each categorical lens spends — see `lib/palette.ts`. A display
    *  preference like the ring count, read once and written back on every change, and held
@@ -2832,6 +2847,11 @@ export default function App() {
                     which is not true of the lens beside them. */}
                 <RingCount rings={rings} onRings={chooseRings} />
                 <BandWidth share={band} onShare={setBand} />
+                {/* Behind a pulldown, where its two neighbours are pills, and the note on
+                    `SpacingMenu` carries why: these are set once and lived with, where a ring
+                    count is read at a glance every time you look at the bar. Last of the three
+                    because it is the one about the gaps rather than about what fills them. */}
+                <SpacingMenu spacing={spacing} onSpacing={chooseSpacing} />
 
                 <Spacer />
 
@@ -2953,6 +2973,7 @@ export default function App() {
                     onSide={setPaneSide}
                     rings={rings}
                     rimShare={band}
+                    spacing={spacing}
                     // Only here. The scan-time map below has no readings and no clone columns,
                     // so it has no marks to suppress, and a prop that can never matter is a
                     // second place to keep in step for nothing.
@@ -2982,6 +3003,9 @@ export default function App() {
                     // itself the moment the scan lands — a map that changes depth on its own is
                     // the reader's setting appearing to be ignored and then obeyed.
                     rings={rings}
+                    // On the scan-time map too, and for the ring count's own reason: the
+                    // picture must not respace itself the moment the scan lands.
+                    spacing={spacing}
                     // Where the scan has got to — see `live`. The same prop a run uses for its
                     // leases, because it is the same claim about a wedge, and the two phases
                     // never overlap.
