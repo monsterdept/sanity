@@ -1,4 +1,12 @@
 import { RINGS_MAX, RINGS_MIN } from '../lib/rings'
+import {
+  RING_MAX,
+  SLICE_MAX,
+  SPACING_DEFAULT,
+  WIDTH_MAX,
+  WIDTH_MIN,
+  type Spacing,
+} from '../lib/spacing'
 import { CAPS, type AgeRead, type TangleRead } from '../lib/colorMode'
 import { inkOn } from '../lib/ink'
 import { useState } from 'react'
@@ -119,6 +127,186 @@ export function BandWidth({ share, onShare }: { share: number; onShare: (v: numb
         {Math.round(share * 100)}%
       </span>
     </div>
+  )
+}
+
+/**
+ * The three geometry tweaks that are not the ring count, behind one pill.
+ *
+ * **A pulldown rather than three more pills, and the bar is the argument.** This row already
+ * carries the lens, whatever control the lens brings with it, the ring count, the band and two
+ * doors — and its whole job, the one `RingCount` gives up a segmented control for, is to give
+ * way as the window narrows. Three loose controls here would take about two hundred pixels to
+ * say something a reader adjusts once and then lives with, which is the opposite trade from
+ * the ring count: that one is READ at a glance and so must always be legible, and these are
+ * set at a glance and then not looked at again.
+ *
+ * Grouped rather than merely hidden. All three answer one question — how much of the picture
+ * is separation — and two of them are only meaningful against each other: a cut and a gutter
+ * are both gaps, and the reason to move one is usually that the other made it look wrong. A
+ * panel is where you can see both handles at once. `band` stays outside because it is not a
+ * gap; it changes how much of a ring the reading OCCUPIES, which is a statement about the
+ * encoding rather than about the spacing around it.
+ *
+ * Percentages, not units. What the sliders move are multipliers over `CUT` and `RING_GAP`,
+ * whose absolute values are arguments in `Sunburst` rather than numbers anyone should be
+ * typing here — see `lib/spacing.ts`. A hundred per cent is the drawn map as it has always
+ * been, which is the one position a reader needs to be able to find again, and `reset` puts
+ * all three back at once.
+ */
+export function SpacingMenu({
+  spacing,
+  onSpacing,
+}: {
+  spacing: Spacing
+  onSpacing: (s: Spacing) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const set = (patch: Partial<Spacing>) => onSpacing({ ...spacing, ...patch })
+  const dirty =
+    spacing.border !== SPACING_DEFAULT.border ||
+    spacing.slice !== SPACING_DEFAULT.slice ||
+    spacing.ring !== SPACING_DEFAULT.ring ||
+    spacing.width !== SPACING_DEFAULT.width
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        title="How much of the map is separation: the frame around a folder's colour, the gap between two things side by side, and the gap between one level and the next."
+        className={`flex items-center gap-1.5 rounded-full px-2 text-[11px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] ${CONTROL_H}`}
+        style={{
+          background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
+          boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
+        }}
+      >
+        <span>spacing</span>
+        {/* A dot when any of the three is off its default, so a panel that is closed cannot
+            hide the fact that the picture is not the one every note in `Sunburst` describes. */}
+        {dirty && (
+          <span
+            aria-hidden
+            className="h-1 w-1 rounded-full"
+            style={{ background: 'var(--accent)' }}
+          />
+        )}
+        {/* The switcher's caret, drawn rather than set in the font — see `ChurnWindow`. */}
+        <svg width="7" height="4" viewBox="0 0 7 4" aria-hidden>
+          <path d="M0 0 L3.5 4 L7 0 Z" fill="currentColor" />
+        </svg>
+      </button>
+      {open && (
+        <>
+          {/* One click anywhere closes, the same backdrop every menu in this bar uses. It sits
+              UNDER the panel, so dragging a slider inside is not a click outside it. */}
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div
+            role="dialog"
+            aria-label="Spacing"
+            className="absolute right-0 top-full z-50 mt-1 w-60 rounded-md border border-[var(--border)] bg-[var(--card)] p-3 text-[11px] shadow-lg"
+          >
+            <label
+              className="flex items-center justify-between gap-2"
+              title="A folder's colour is drawn as a band floated inside its plate, with the ground showing all the way round it. Flush against the edge it reads as the folder's own outline instead — which says the folder is that colour, and a folder's colour is only ever a summary of what is inside it."
+            >
+              <span className="text-[var(--muted-foreground)]">folder borders</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={spacing.border}
+                onClick={() => set({ border: !spacing.border })}
+                className="relative h-[14px] w-6 shrink-0 rounded-full transition-colors"
+                style={{
+                  background: spacing.border
+                    ? 'var(--accent)'
+                    : 'color-mix(in oklch, var(--foreground) 16%, transparent)',
+                }}
+              >
+                <span
+                  className="absolute top-[2px] h-[10px] w-[10px] rounded-full bg-white transition-all"
+                  style={{ left: spacing.border ? 12 : 2 }}
+                />
+              </button>
+            </label>
+            <Slider
+              label="between files"
+              hint="The gap between one wedge and the one beside it. It is a constant WIDTH rather than an angle, so it stays the same all the way from the hub to the rim — see `CUT`."
+              value={spacing.slice}
+              max={SLICE_MAX}
+              onChange={(v) => set({ slice: v })}
+            />
+            <Slider
+              label="between rings"
+              hint="The gutter between one level of the tree and the next. Folders, files and functions are three different kinds of thing drawn as one mass of arcs; this gutter is most of what says so."
+              value={spacing.ring}
+              max={RING_MAX}
+              onChange={(v) => set({ ring: v })}
+            />
+            <Slider
+              label="ring width"
+              hint="How thick each ring is. What it spends is the disc in the middle — the rings run out to a fixed rim, so wider rings start further in and the hub gives up the room. A deep tree wants every unit of radius it can get; a shallow one has some to spare."
+              value={spacing.width}
+              min={WIDTH_MIN}
+              max={WIDTH_MAX}
+              onChange={(v) => set({ width: v })}
+            />
+            <button
+              type="button"
+              onClick={() => onSpacing(SPACING_DEFAULT)}
+              disabled={!dirty}
+              className="mt-2.5 w-full rounded-sm py-1 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)] disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--muted-foreground)]"
+            >
+              reset
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** One multiplier, as a labelled slider reading in per cent.
+ *
+ *  Local to the panel: two sliders that have to agree about their steps, their width and
+ *  where their number sits are two chances to disagree, and there is exactly one caller. */
+function Slider({
+  label,
+  hint,
+  value,
+  min = 0,
+  max,
+  onChange,
+}: {
+  label: string
+  hint: string
+  /** A multiple of the constant this scales — 1 is the map as drawn. */
+  value: number
+  /** Where the travel starts. Zero for the two gaps, where no gap is a real picture; the ring
+   *  width has a floor instead, because both of its ends run out of something — see
+   *  `WIDTH_MIN`. */
+  min?: number
+  max: number
+  onChange: (v: number) => void
+}) {
+  return (
+    <label className="mt-2.5 flex items-center gap-2" title={hint}>
+      <span className="w-[74px] shrink-0 text-[var(--muted-foreground)]">{label}</span>
+      <input
+        type="range"
+        min={Math.round(min * 100)}
+        max={Math.round(max * 100)}
+        step={5}
+        value={Math.round(value * 100)}
+        onChange={(e) => onChange(Number(e.target.value) / 100)}
+        className="h-1 flex-1 cursor-pointer accent-[var(--accent)]"
+        aria-label={label}
+      />
+      <span className="w-9 shrink-0 text-right tabular-nums text-[var(--muted-foreground)]">
+        {Math.round(value * 100)}%
+      </span>
+    </label>
   )
 }
 

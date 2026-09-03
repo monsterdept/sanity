@@ -168,3 +168,54 @@ tool, and the tool is the thing that should know.
 not have, so an unused dependency broke Windows CI for five commits. Removed. `fsm` is the
 one with no recorded rationale — if an FSM grammar was intended, that line was the only
 reminder and it is gone now.
+
+---
+
+# TODO — the breakdown list reports the drawing, not the repo
+
+**`0 of 10,443`.** Open kibana, take Complexity, click `very high`, and the panel names none
+of them: `Counted from the scan. Drill in to list them.` The COUNT is right and comes from
+`Cols`, the per-file summary the scan produces and ships on a file node whether or not its
+ring was ever fetched. The LIST is folded from function NODES, and a large repo arrives
+without any.
+
+**What decides whether it can answer is the viewport, which has nothing to do with the
+question.** Function rings are asked for by the effect at `Sunburst.tsx:1596`, whose test is
+`tilingOf` — deliberately the same predicate the render pass takes, so a file is asked about
+exactly when a tiling would be drawn for it and never when it would not. That is right for
+the map and wrong for the panel: it makes the list empty on kibana and complete on htop, so
+the pane is quietly reporting what got drawn. `25,217 files (43%) too thin` is the same fact
+from the other end.
+
+**The precedent is `search_project`, and it was built for this exact failure.** Its own note:
+*asked of the backend rather than of the tree in the window ... a window holding a slimmed
+tree has no function names at all, so the search somebody types would come back empty on
+exactly the repos big enough to need one.* The bucket list has the identical shape and never
+got the same treatment. The backend holds the whole tree — `p.scan.root` is what
+`search::find` walks and what `file_functions` reads out of — so nothing needs computing that
+is not already in memory.
+
+**So: a sibling command, not a change to the fetch.** `bucket_functions(key, path, lens,
+bucket, limit)` walks the subtree under `path`, keeps the functions whose reading lands in
+that band, ranks them, returns the top N. The map keeps asking for exactly what it draws.
+
+Two things to settle first, and the second is the harder one:
+
+- **Which lenses it can answer.** Complexity, Age, Churn, Blame and Language band off numbers
+  the scan and the trace already hold, so the backend can do it alone. The reading lenses
+  cannot: a grade is not a number the scan knows — it comes from `.sanity/` and is folded in
+  the browser, which is why `Node.pending` exists at all. Either the banding moves to Rust,
+  where it would then exist twice, or the command returns candidates and `colorMode` bands
+  them, which puts a second definition of "very high" one refactor away from disagreeing with
+  the map. Neither is obviously right.
+- **What the order is.** A list of 10,443 needs one, and the lens does not always supply it.
+  `very high` has an obvious ranking; `TypeScript` has none, and picking one silently makes
+  the panel claim a rank the lens never measured.
+
+**Do not fix this by fetching more rings.** At kibana's root that is 58,000 files of function
+nodes to answer a question about a list of twenty, and it would put the whole repo in the
+window to avoid asking the process that already has it.
+
+**Related, and not the same thing:** `N of M` in the bucket header is honest but reads badly
+when N is always 0 at repo scale. If this stays unbuilt, the cheap half is to say it in words
+— `10,443 · not loaded` — so the fraction stops looking like a measurement.

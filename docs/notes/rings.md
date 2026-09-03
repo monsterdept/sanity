@@ -13,12 +13,21 @@ have to re-root, and it is why depth past legibility is not a camera problem. Th
 
 Three things came out of it and are on main:
 
-- **The count is the reader's, within a bounded range** (`lib/rings.ts`, 3–8, default 5).
+- **The count is the reader's, within a bounded range** (`lib/rings.ts`, 3–16, default 5).
   It passes the test the reader batch size failed: the consequence of changing it is visible
   immediately, in the picture, so a person has something to base the choice on. A batch size
   hides its consequences in a corpus months later, which is why that slider was built and
   removed. Bounded rather than open — a number box would offer forty, and forty has been
   looked at.
+
+  The top was 8 until the ring width became a control. Eight was measured against a hub of
+  62 units that nothing could move, so `(340 − 62) / rings` was the whole band budget;
+  `Spacing['width']` moves the hub, and at its narrow end every ring is pushed outward and
+  `minAngleAt` falls for all of them at once. Sixteen is where the two controls meet — the
+  sixteenth band is the first with nothing left to give at the narrowest width. It is not a
+  claim that sixteen reads on any given repo: that judgement is the reader's, which is the
+  point of the control, and the ceiling is what keeps it a judgement rather than a number
+  box. Depth still buys rings and not ANGLE, so it is still not a substitute for drilling.
 - **`minAngleAt` — the cull threshold is per RING.** An angle is not a width: the arc a span
   subtends is `r × angle`, so the old single threshold measured at `R_OUTER` was letting the
   innermost ring draw wedges four times under a pixel. Wrong in the safe direction, and less

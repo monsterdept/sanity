@@ -447,12 +447,7 @@ export const TIME_STRIDE: TimeRow['length'] = 7
  *  the SUM under the file, because a container's complexity is how many decisions are in it.
  *
  *  All three are `-1` where nothing in the file could be counted. */
-export type TangleRow = [
-  lines: number,
-  weighted: number,
-  raw: number,
-  cognitive: number,
-]
+export type TangleRow = [lines: number, weighted: number, raw: number, cognitive: number]
 export const TANGLE_STRIDE: TangleRow['length'] = 4
 
 export interface Cols {
@@ -1223,6 +1218,116 @@ export interface Hit {
  *  because it lives in a directory the walk reaches late. */
 export function searchProject(key: string, query: string, limit: number): Promise<Hit[]> {
   return invoke<Hit[]>('search_project', { key, query, limit })
+}
+
+/** One rule's answer. Mirrors `leads::Group`.
+ *
+ *  **`total` is how many leads there are and `hits` is how many were sent** — the backend caps
+ *  the rows at `leads::PER_GROUP`, because ceph's load-bearing rule finds four thousand and a
+ *  panel draws thirty. A count printed off `hits.length` would quietly report the cap. */
+export interface LeadGroup {
+  title: string
+  soWhat: string
+  /** 1 where the scan alone can answer it, 2 where it needs a reading. */
+  tier: number
+  /** The rule in the grammar somebody could have typed, e.g. `func: loc >= 200`. */
+  expr: string
+  total: number
+  /** How many this rule found that somebody has already set aside.
+   *
+   *  Shown rather than hidden: a rule quiet because its leads were all dealt with is a
+   *  different sentence from one that never found any, and the second is what a reader
+   *  assumes when a list is empty. */
+  dismissed: number
+  /** How many of these leads no other rule found. */
+  only: number
+  /** The lenses this rule combined, as `ColorMode` ids — plus `size`, which is not a lens but
+   *  is how the map draws lines. Mirrors `leads::Rule::lenses`.
+   *
+   *  **The pair IS the claim.** Surprise and reach is a different sentence from surprise and
+   *  size, and a lead exists precisely because no single lens can be worn to see it. */
+  lenses: string[]
+  /** Why this rule could not answer, in words — `null` where it could.
+   *
+   *  **A blocked rule is not a rule with no hits**, and the panel must never draw them alike:
+   *  one is "nothing here matches" and the other is "this could not be asked", which is the
+   *  same distinction the map keeps between an unread wedge and a cold one. */
+  blocked: string | null
+  hits: Lead[]
+}
+
+/** One lead: where to fly, and what to file a decision about. Mirrors `leads::Lead`.
+ *
+ *  **`hit.id` and `key` are not interchangeable.** The first embeds `@line` and is what the
+ *  camera flies to; the second is what a dismissal is stored under and survives the body
+ *  moving down the file. */
+export interface Lead {
+  key: string
+  hit: Hit
+  /** This rule's sentence about THIS subject, split at its numbers — rendered by
+   *  `leads::render` so the panel and `just leads` say the same thing.
+   *
+   *  **Spans rather than a marked-up string**, so nothing here has to parse prose back out:
+   *  the runs with `filled` set came from the subject's own measurements, and are the half
+   *  somebody scans for.
+   *
+   *  **Falls back to the rule's short form when a number is missing.** A sentence with a hole
+   *  in it, or a `0` where a measurement should be, is the map claiming something nobody
+   *  measured — so the engine drops the tailored sentence whole rather than half-filling it. */
+  says: Say[]
+}
+
+/** One run of a rendered sentence. Mirrors `leads::Span`. */
+export interface Say {
+  text: string
+  /** True where this run is a number this subject actually has. */
+  filled: boolean
+}
+
+/** The lead catalog for a project — see `commands::project_leads`.
+ *
+ *  Asked of the backend rather than computed here, for the reason `searchProject` is: the
+ *  window's tree is slimmed on a large repo and holds neither the function names nor the call
+ *  counts every interesting rule is made of. */
+export function projectLeads(key: string): Promise<LeadGroup[]> {
+  return invoke<LeadGroup[]>('project_leads', { key })
+}
+
+/** One lead somebody looked at and set aside. Mirrors `leads::Dismissal`. */
+export interface Dismissal {
+  /** `key_of(path, name, ord)` for a function, the path for a file — never a node id. */
+  key: string
+  rule: string
+  /** The state the code was in when this was said. When it moves, the dismissal expires and
+   *  the lead comes back — see `leads::pin_of`. */
+  pin: string
+  reason: string
+  when: string
+  by: string
+}
+
+/** Set a lead aside, with a reason.
+ *
+ *  Rejects rather than resolving quietly when the write fails: a panel that stops drawing a
+ *  lead on the strength of a write it never checked is claiming something it does not know. */
+export function dismissLead(
+  project: string,
+  key: string,
+  rule: string,
+  reason: string,
+): Promise<void> {
+  return invoke<void>('dismiss_lead', { project, key, rule, reason })
+}
+
+/** Take one back out of the archive. */
+export function restoreLead(project: string, key: string, rule: string): Promise<void> {
+  return invoke<void>('restore_lead', { project, key, rule })
+}
+
+/** Everything set aside in this repo, newest first — including entries whose pin has moved,
+ *  whose leads are therefore already back in the list. */
+export function projectArchive(key: string): Promise<Dismissal[]> {
+  return invoke<Dismissal[]>('project_archive', { key })
 }
 
 /** One function, as a row in a list of its neighbours. Mirrors `links::Ref`. */
