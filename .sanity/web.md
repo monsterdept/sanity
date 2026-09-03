@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-527 of 527 read · 99 surprising
+528 of 542 read · 99 surprising · 3 stale
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -291,12 +291,14 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/App.tsx
 
-### the file itself — QUIRKY
+### the file itself — QUIRKY — STALE
 - spec 3 · served in 7 parts · read at `182fe8bd4f46` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:49:25Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
 - expected: Root React component file for the frontend app: wires together project/repo selection, scan triggering and progress display, the sunburst visualization, and trace/history controls. Contains the top-level App component plus small subcomponents (ProgressPane, ProgressStrip, FindButton, HistoryToggle, Empty) and pure helper functions for memoization equality checks (sameRun, sameIds, sameProgress, sameCost, sameProjects) and tree/id lookups (findById, parentOf, traceSig). The header doc is narrowly about trace-button behavior rather than a summary of the whole file's scope.
 - found: The entire top-level application component and nearly all its state: project list polling and following whichever project an agent opened, scan/trace/replay orchestration and progress reporting, streaming shape/score/reading batching with careful memoization to avoid re-rendering thousands of sunburst arcs, the full color-mode/lens system with locks and rank tables, history replay state (timeline tables, deltas, playhead, scrubbing), drill-in/selection/crumb navigation, keyboard shortcuts, CLI-install and onboarding dialogs, and the Empty/first-run screen. Also holds small presentational subcomponents (ProgressTrack, ProgressStrip, ProgressPane, Spacer, FindButton, HistoryToggle, Empty) and the memoization-equality helpers. Every piece of the app's cross-cutting state ends up threaded through this one component.
 - predicted: some · documented: some · derivable: no · legible: not judged · trap: no
 - note: The file is enormous (3400+ lines) and almost entirely comment-driven narrative explaining past bugs and design tradeoffs rather than current behavior at a glance; a prediction from the header/peers alone captures maybe a third of the actual surface area.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `noop`
 - spec 3 · read at `f8812f446328` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:50Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -360,11 +362,13 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
 - note: The file_doc here is stale/misattached — it's the chaseTrace doc bleeding onto this peer, not a description of parentOf.
 
-### `App` — QUIRKY — UNCLEAR
+### `App` — QUIRKY — UNCLEAR — STALE
 - spec 3 · served in 6 parts · read at `220b1e8eb76b` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:34:54Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
 - expected: This is the root React component for the whole Sanity desktop app. It almost certainly holds a large pile of useState/useReducer for top-level UI state (current project, scan/trace progress, selected node, which lens is active, dialogs open), wires up Tauri IPC calls (invoke/listen) to drive scanning, history, and tracing, and renders the overall page layout — sidebar/project list, the map/treemap view, the LensPane, progress strips, and toolbar buttons like FindButton and HistoryToggle. Given the file doc about "Trace", it also contains the logic for advancing a trace pill through the call graph via chaseTrace-related handlers.
 - found: The entire root component of the Sanity desktop app: ~3000 lines holding dozens of state slots and effects for polling projects/agent activity/readings, following whichever project an MCP agent opens, streaming scan shape/progress into an assembling map, batched grafting of fetched function rings into the tree, a full git-history replay/timeline system (scrubbing, playing, exporting movies), a chained trace/blame/replay 'column' walker (chaseTrace), color ranking for author/language lenses, keyboard shortcuts, and the full JSX layout (sidebar, top toolbar with per-lens controls, sunburst map, history bar, detail panel, several dialogs, and a code-view modal).
 - predicted: some · documented: none · derivable: yes · legible: none · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `useProgress`
 - spec 3 · read at `72304b16c0ca` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:38Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -403,11 +407,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `FindButton`
-- spec 3 · read at `645f23300011` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:34:06Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Renders a small button/icon (likely search/find themed) whose visual state (active/highlighted styling) reflects the `on` boolean, calling onOpen() on click to open a find/search panel.
-- found: Renders a pill-shaped button with an inline hand-drawn magnifying-glass SVG icon (circle + diagonal handle), styled with accent background/color when `on` is true and a subtle neutral background otherwise, calling onOpen on click; has a title tooltip mentioning the ⌘F shortcut.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: The extensive comment explains a deliberate icon-sizing convention (16px to match the pill's line-box rather than literal type size) that's invisible from the code's numbers alone.
+- spec 3 · read at `ceaf4acd8029` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:18Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A small UI button/pill component that toggles a "Find" panel. It renders a clickable element showing active/inactive styling based on `on`, applies disabled styling/attributes when `disabled` is true (though per the doc comment, the disabled state blocks the keyboard shortcut but not necessarily this click), and calls `onOpen()` on click to open the find panel. Probably includes an icon and maybe a keyboard shortcut hint label.
+- found: Renders a circular magnifying-glass icon button styled via inline style based on `on` (active/accent vs neutral) and `disabled` (dimmed, default cursor), with title text explaining why it's disabled, calling onOpen on click. No actual toggle logic inside, just presentation.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `HistoryToggle`
 - spec 3 · read at `40b3b1230124` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:33:39Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -867,6 +870,15 @@ What this is and how to add to it: [README.md](README.md)
 - found: A single-input search overlay that debounces (120ms) queries to a backend searchProject() call scoped to projectKey, guards against stale/out-of-order responses, and shows a scrollable hit list with keyboard navigation (arrows/Tab/Shift-Tab to move, Enter to pick, Escape to close). Selecting a hit calls onPick then onClose. Renders distinct informational states for replaying, no project open, short query, and no results, and truncates paths from the left (RTL) to preserve the distinguishing tail.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 
+## web/src/components/Findings.tsx
+
+### `lensColor`
+- spec 3 · read at `bd1c591aaba1` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:38Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Returns a CSS color string for a given lens id, delegating to `modeToken(id)` for most lenses so colors match the map's wedges/legend, but special-cases `id === 'size'` to return a neutral color since size isn't a lens/mode but describes line width.
+- found: Returns var(modeToken(id)) if id is a known mode and not 'size', otherwise falls back to muted-foreground; guards against unknown ids resolving to an undefined CSS var rather than assuming membership.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Missed the explicit membership check against MODE_LABEL (I assumed only 'size' was special-cased, not unknown ids in general) — the doc comment explains why that guard exists.
+
 ## web/src/components/HistoryBar.tsx
 
 ### the file itself
@@ -934,10 +946,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: I missed the async fetch + loading/error UI entirely and assumed a static hardcoded array; also missed that "functions parsed" isn't its own column since it's a baseline, not a per-language variable.
 
 ### `LensHelp` — QUIRKY
-- spec 3 · read at `718d34da25e4` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:52:46Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: The top-level help panel/modal component: renders a header with a close button (calling onClose) and then maps over a list of lens definitions, rendering each via the Lens sub-component (with its swatches/Ramp and prose), in the same order as the lens switcher menu.
-- found: A modal (via Overlay) with Escape-to-close handling, a tabbed header switching between "Lenses" (renders ENTRIES for each key in LENS_ORDER) and "Languages" (renders the Languages component), explanatory prose per tab, and a Done footer button calling onClose.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+- spec 3 · read at `f7d74c1b789b` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:26Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A React component that renders a modal/panel listing every lens (from the file's lens reference data) in menu order, showing each lens's key, name, and description/swatch, using the small helper components (B, Ramp, Steps, Lens, Languages) as peers. It likely has a close button or backdrop click that calls onClose to dismiss the panel, and possibly keyboard handling (Escape) to close.
+- found: Renders a modal (via Overlay) with a segmented tab control switching between 'Lenses' and 'Languages' views, Escape-to-close handling, a lens-order-mapped list of ENTRIES for the lenses tab, a Languages component for the other tab, and a footer 'Done' button that also calls onClose.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
 
 ### `HelpButton`
 - spec 3 · read at `ab86dc1f8552` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:33Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -1311,11 +1323,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Rings.tsx
 
-### the file itself
-- spec 3 · read at `21c846aa40f1` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:35:13Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A cluster of small, mostly stateless presentational control components used in the sunburst view's settings/toolbar, each governing one visual parameter of the rings: ring count, band width, color count, which lens is active, marker visibility, the age/tangle "reading" mode, churn window length, and a derivable-functions toggle. No central Rings-drawing component lives here — this file is purely the controls, not the visualization itself.
-- found: A cluster of small, mostly stateless control components for the sunburst rings toolbar: RingCount (stepper), BandWidth (slider), ColorCount (stepper through discrete caps), LensToggle (shared switch primitive), MarkerToggle/DerivableToggle/TangleReading (built on LensToggle), AgeReading (segmented toggle), and ChurnWindow (dropdown). No Rings-drawing component; purely UI controls, each with an extensive doc comment justifying its exact interaction design (stepper vs slider vs switch vs dropdown) against its neighbors.
-- predicted: full · documented: none · derivable: no · legible: not judged · trap: no
+### the file itself — QUIRKY
+- spec 3 · served in 2 parts · read at `650c713a65ab` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:44Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Rings.tsx renders a concentric-ring visualization (tree-ring style, likely representing commit history/age per file or function) plus its accompanying control panel: small subcomponents for ring count, band width, spacing menu, color count, and toggles (lens, marker, derivable), along with readouts like age, churn window, and "tangle" (complexity/coupling). It's primarily rendering/UI code with interactive controls bundled in the same file, and the lack of a file header doc suggests no one has written down its overall responsibility.
+- found: A collection of small, tightly-scoped control components for the ring-map's crumb bar: RingCount (stepper for ring depth), BandWidth (slider), SpacingMenu (popover with three sliders for border/slice/ring gaps plus a shared Slider primitive), ColorCount (stepper through discrete color caps), LensToggle (shared on/off switch styling used by several toggles), MarkerToggle, AgeReading (segmented newest/oldest), DerivableToggle, ChurnWindow (dropdown of repo-scaled day windows), and TangleReading (weighted vs raw complexity switch). Each has extensive prose comments justifying UI/interaction design choices (why a stepper vs segmented control vs dropdown, etc). No actual ring/sunburst rendering logic lives here — that's elsewhere (Sunburst).
+- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
 
 ### `RingCount`
 - spec 3 · read at `054d30d5cc62` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:34:43Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -1510,11 +1522,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Sunburst.tsx
 
-### the file itself — QUIRKY
+### the file itself — QUIRKY — STALE
 - spec 3 · served in 6 parts · read at `e0ac41c46bf9` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:46:55Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
 - expected: The core sunburst/radial visualization: computes each node's angular arc from its line-count share, lays out concentric rings per depth, colors wedges via colorMode, handles hover (feeding WedgeTip) and click/drill/select interactions, animates morphing transitions between frames during replay, folds thin wedges into roll-ups, and draws directory rim bands (sub-distribution histograms) with trap/clone marker dots.
 - found: Confirmed as the core radial visualization renderer with arc layout, coloring, hover/tooltip, drill/select and rim histograms with markers — but it is really the whole rendering engine: it also owns a level-change zoom/keyframe transition system (entering/exiting wedges, a clicked directory "coring" into the hub), a continuous morph/chase animator for replay frames, an open-file "unroll" path via FileZoom, function tiling inside file bands with roll-up dot textures, a mascot gaze system that tracks active/reading wedges, a selection-dimming mask technique, dynamic label fitting/sizing, pixel-calibrated thresholds for what is worth drawing at the current density, and a folded/hidden-count caveat chip — none of which the file header (absent) or the name alone suggested.
 - predicted: some · documented: none · derivable: no · legible: not judged · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `outOf` — QUIRKY
 - spec 3 · read at `c45da41818f1` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:55:04Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -1535,11 +1549,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Under 'surprise' mode, looks up a per-kind damping value from a HEAT_BY_KIND table (defaulting to 1 if kind isn't in it); under every other mode it always returns 1 (no damping).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `SunburstView` — QUIRKY — TANGLED
-- spec 3 · served in 5 parts · read at `205a67784a07` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:21Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: The central SVG sunburst chart component: lays out root's tree into concentric rings/wedges, handles selection/drill/hover callbacks, colors wedges by mode, draws directory rim distribution bars (rimShare) and trap/clone markers, eases transitions via morph for replay, shows a center mascot, and reports visible file-rings (onWantRings) and pane pixel size (onSide) back to its parent. Expect a very large, deeply commented function covering layout math, event handling, and rendering all in one component.
-- found: The full sunburst renderer: computes ring layout/geometry, animates level-change transitions (keyframe zoom plus a continuous morph/chase easing for replay and folds) with entering/leaving/coring wedge sets, draws directory rims as histograms/marks/flashes, tiles file functions into patches with stale/unreadable/rollup/trap overlays, tracks hover/selection via mask-based dimming instead of outlines, positions a gaze-tracking mascot in the hub, requests on-demand file rings via onWantRings, and renders a footer caveat about hidden/folded/unparsed counts.
-- predicted: some · documented: most · derivable: no · legible: some · trap: no
+### `SunburstView` — TANGLED
+- spec 3 · served in 5 parts · read at `fe517d226ef2` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:01Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Top-level React component rendering the whole sunburst radial map: lays out wedges from `root` (using rings/spacing/density), draws SVG arcs colored per `mode`, renders the central hub with mascot/go-up control, and wires pointer interactions for select/drill/clear. Holds substantial internal state (hover/tooltip, morph animation, memoized layout) and reacts to `reading`/`replaying` to highlight in-progress or unread nodes.
+- found: The component computes a radial sunburst layout from `root`, converting every visual threshold (arc width, patch area, rim width, fold-handle size) from pixels to user-space units via `unitsPerPx` so density is a property of the render target (screen vs export) rather than the tree. It manages a hand-rolled rAF-driven transition system for level changes (zoom in/out, becoming/leaving the hub, opening/closing files) plus an optional continuous "chase" animation that eases wedges toward a moving target (used for history replay and directory folding), all keeping per-wedge geometry in refs to avoid a React re-render per frame. On top of layout it draws: directory "rim" bands (either colored distribution histograms or single-color fills or pointing dots for traps/clones), function patches tiled inside file wedges, escalated events for replay commits that have no wedge of their own, a mascot gaze direction averaged/individuated from active reading or replay events, hover/selection rendering via a dimming mask + outline rather than a redrawn overlay, and a footer chip enumerating hidden/unparsed/folded content so the picture never silently implies completeness.
+- predicted: most · documented: full · derivable: no · legible: some · trap: no
+- note: The prop docblock is exhaustive and well-written, but is not itself the whole story — nearly all of the real design reasoning (why pixels convert to units, why the chase exists, why selection dims rather than outlines, why rim runs are computed once and shared with the tooltip) lives in inline comments inside the 2600-line body, not in the signature's docs.
 
 ## web/src/components/WedgeLabel.tsx
 
@@ -1625,12 +1640,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/api.ts
 
-### the file itself
-- spec 3 · served in 4 parts · read at `a7020fb9dbcb` · commit `27654c8` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:35:46Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: The frontend's bridge to the Tauri backend: thin wrapper functions around `invoke()` calls for every backend command — project lifecycle (listProjects, selectProject, pickProject, forgetProject, resetProject, reorderProjects), scanning (scanRepo, stopScan, projectScan, onScanProgress/onScanScore, applyScores), tracing/checks (startCheck, stopCheck, stopTrace, estimateTrace, explainTrace), source/history reads (readSource, fileFunctions, functionSources, functionHistory, commitDetail, functionForks, functionLinks, searchProject), agent-report handling (agentReports, applyAgentReports, countPending, setReader), and CLI/theme/event listeners. Given the sheer variety, it's likely also accreted some domain helper functions (color ramp/heat computation, reading-grade helpers like legibleOf/trapOf/reportGrades) that don't really belong here but were convenient to keep beside the data they operate on — making this more a general "everything the UI needs from outside its own components" grab-bag than a narrowly-scoped API client.
-- found: Confirmed as predicted at the top level: invoke() wrappers for every backend command, plus wire-to-domain type conversion (WireNode/WireScore/WireScan -> Node/Score/Scan via toNode/toScan), and a large amount of accreted domain logic beyond thin API wrapping — grade/word tables (HEAT_WORDS, LEGIBLE_WORDS, DOC_WORDS), reading accessors (legibleOf, trapOf, reportGrades, readInto, readIntoRing, applyAgentReports), tree aggregation (reaggregate, summarize, countPending, applyScores), and color ramp math (temperature, shareRamp, wedgeHeat, paintHeat, heatColor, rampStop). It's explicitly justified in several doc comments as centralizing definitions so the map/panel/legend can't disagree about what a number or color means — not accidental sprawl, but deliberate single-source-of-truth placement.
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: This file has no top-level module doc at all despite being the single largest, most load-bearing file surveyed — every other file/function in this batch had at least some header prose; this one relies entirely on dense per-export doc comments to explain itself.
+### the file itself — TANGLED
+- spec 3 · served in 4 parts · read at `aaa0164c68a0` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:01Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This is the web app's client-side API/data layer: functions that call the backend (or a bundled server) for project management (list/select/reorder/forget/reset projects), scanning/checking repos, reading source/functions, findings and decisions, agent reports, and CLI install status, plus event subscription helpers (onScanProgress, onSetTheme, etc). It probably also has some unrelated visualization/color-ramp helper functions (heatColor, rampAt, wedgeHeat, temperature) that got placed here rather than in a separate module, suggesting this file has grown into a general "shared utilities" dumping ground beyond just API calls.
+- found: A large client-side data layer: wire-format type mirrors of the Rust backend (Node, Score, ProjectSummary, Findings, AgentReport, etc.), snake_case-to-camelCase normalization (toNode/toScan), Tauri invoke wrappers for every backend command (projects, scanning, tracing, findings/decisions, agent reports, blame/history, CLI install), tree aggregation logic that mirrors Rust's Node::aggregate (reaggregate/applyScores/readInto/applyAgentReports), grade-to-word/number vocabulary tables (HEAT_WORDS, LEGIBLE_WORDS, DOC_WORDS, GRADE_SURPRISE), a repo-wide summarize() function, and color-ramp/heat helper functions (temperature, wedgeHeat, shareRamp, paintHeat, heatColor, rampAt) that compute what colors wedges on the visualization.
+- predicted: most · documented: none · derivable: yes · legible: some · trap: no
 
 ### `languages`
 - spec 3 · read at `8b90410603f0` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:54:20Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -2727,11 +2741,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: The header doc's rationale about Locked/replayNote deliberately not being in Where is substantial context not derivable from actOf's body alone.
 
 ### `actOf` — QUIRKY
-- spec 3 · read at `b664c7cdc886` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:04Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A sequence of ordered guard clauses/early returns that pattern-match a keypress (e) and context (w) to produce an Act. Checks Tab first (bare key, no Cmd), then handles '+' before a Shift guard, then Find, then a replay guard, and finally falls through to hand off any Cmd-modified press as-is. The specific order of the guards encodes the actual behavior.
-- found: Tab (bare, no modifiers) becomes find unless already typing/finding. Any non-bare-Tab press without a clean Cmd (meta without alt/ctrl) is ignored. '+' or shifted '=' is history. 'f' is find. Any other shifted key is ignored. Otherwise checks LENS_STEP for '[' ']' style stepping, then maps the key against LENS_KEYS/MODE_LABEL to pick a lens mode by index.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
-- note: The docs' framing ("last... hands every modified press straight on") doesn't match the actual fallthrough, which maps Cmd+digit to specific lens/step actions rather than passing them through unchanged.
+- spec 3 · read at `fb0668e4a60a` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:29Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A sequence of ordered guard clauses mapping a keypress+focus (Where) to an Act: Tab handled first since it's the only non-Cmd key, then a `+`/Shift-`=` toggle check, then Find, then a replay guard, finally falling through to pass any other modified press straight on as a generic/passthrough Act.
+- found: Maps a keypress+focus context to an Act via ordered guards: Tab (only when unmodified) returns find-or-null depending on focus; then requires meta without alt/ctrl for everything else; then `+`/Shift-`=` maps to history; then `f` maps to find; then blocks any other shifted key; then checks a LENS_STEP table for `[`/`]` stepping; then finally maps digit-like keys through LENS_KEYS/MODE_LABEL to a specific lens mode action.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: My prediction got the doc-described ordering right but missed the actual substantive logic (lens digit mapping via LENS_KEYS/MODE_LABEL and the step table) and invented a 'replay guard'/generic passthrough that isn't in this function body.
 
 ## web/src/lib/label.ts
 

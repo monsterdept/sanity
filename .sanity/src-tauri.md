@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1035 of 1035 read · 182 surprising
+1037 of 1107 read · 181 surprising · 1 stale
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -1496,6 +1496,15 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 - note: No docs were attached to this function at all (empty docs array), unlike every other function so far.
 
+## src-tauri/src/bin/findings.rs
+
+### `main`
+- spec 3 · read at `ecd0ca119bcd` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:49Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: CLI entry point for `just findings <path>`: parses command-line args for a repo path (and maybe rule/output options), scans/loads the repo's functions and metrics, runs the finding rule catalog against them, computes for each rule both a "calibrated" threshold (yielding some target hit rate) and the actual hit count, and prints a formatted report table (using `fmt`) to stdout so the rule catalog can be tuned by eye without recompiling.
+- found: Parses many CLI flags (path, --rule, --bare, --raw, --target, --show, --depth, -h), scans the repo with a progress ticker, loads assessment reports, builds fact subjects, resolves the rule catalog (calibrated-for-repo, raw, or bare + ad-hoc --rule exprs), excludes already-settled/archived findings, then prints a summary table per rule (hits, marginal-only count, calibrated threshold, so-what) followed by example hits with the panel's own rendered explanation sentence per hit.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: Prediction captured the general purpose but missed the extensive flag surface, the archive/pins exclusion logic, and the shared render/flat template reused from the UI panel.
+
 ## src-tauri/src/bin/history.rs
 
 ### the file itself
@@ -2535,11 +2544,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/commands.rs
 
-### the file itself
+### the file itself — STALE
 - spec 3 · served in 3 parts · read at `b2b4f6c8fcad` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:34:21Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
 - expected: The Tauri IPC command surface for a desktop code-analysis app: one #[tauri::command] function per frontend action (scanning repos, reading git history, tracing/explaining execution, managing projects, installing a CLI, saving movies/curves, controlling harnesses/checks). Most functions are thin adapters that parse arguments, call into other modules for the real logic (scanning, git, tracing), and return serializable results or emit events to the frontend; little of the actual analysis logic lives in this file itself.
 - found: The Tauri IPC command surface for the Sanity desktop app: one #[tauri::command] per frontend action across scanning, git history/blame, tracing, project lifecycle, CLI install, movie export, and reader/check control. Correctly a thin-ish adapter layer over other modules (scan, history, trace, agentapi, blame, search, links), but many commands carry substantial orchestration logic themselves (progress emission, caching decisions, path-traversal guards, git subprocess parsing) rather than pure delegation, and the file is saturated with long rationale comments explaining historical UX/design decisions rather than describing behavior.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `languages`
 - spec 3 · read at `aa465757b9b8` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:53:01Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -2696,17 +2707,16 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `function_links`
-- spec 3 · read at `ba8562fef0bd` · commit `d92c31f` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:29:47Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A Tauri command that looks up the cached tree for the given project key, locates the function at path/line, and returns its Related links (callers, callees, clone group) — returning None when the tree hasn't been scanned yet or no function starts at that exact line.
-- found: Locks shared state, looks up the project by key, and delegates to scan.links.at(path, line), returning None via early-return if the project key isn't found.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `a942e854edf1` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:54Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Synchronously looks up the project by `key` in shared state, finds the function at `path`/`line` in the already-built link table computed by the scan (crate::links), and returns its Related struct (callers, calls, clone group). Returns None if the link table hasn't been built yet for this project or if no function starts at that exact line — a simple in-memory lookup, no file re-parsing or async work involved.
+- found: Locks shared state, looks up the project by key, and delegates to p.scan.links.at(&path, line) to fetch the precomputed Related struct — a three-line lookup with no parsing or async work.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `function_forks`
-- spec 3 · read at `094b682ecd5e` · commit `27654c8` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:35:40Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A Tauri command that resolves the project root from state/key, reads the file at path fresh from disk, determines the language from its extension, and calls parse::forks_at(lang, src, line), converting the result into a Forks struct (or None), mapping any I/O/parse failure to a String error.
-- found: Resolves the project repo path from state/key, spawns a blocking task that canonicalizes and boundary-checks the path, reads the file fresh from disk, determines language from extension, calls parse::forks_at, then also slices out the function's source lines (capped at MAX_BODY_LINES, with a truncated flag) to bundle alongside the fork sites for the panel to render.
+- spec 3 · read at `f9d1e6cbe4e2` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:22Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Tauri command that re-reads the file at `path` from disk (forks aren't cached in the scan), locates the function at `line` within the project identified by `key`, and calls a parse helper like `parse::forks_at` to compute branch/decision points for that function. Returns `None` if the language has no branch table, the file has moved/is missing, or the path resolves outside the repo; returns `Err(String)` for other failures.
+- found: Loads the project's repo path, then in a blocking task: canonicalizes and validates the given path is inside the repo, determines the language from the file extension, reads the file fresh from disk, calls parse::forks_at to get fork/cognitive-complexity data plus the function's start/end lines, slices out the actual source lines of that function body (capped at MAX_BODY_LINES with a truncated flag), and returns it all as a Forks struct.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Missed that it also extracts and caps the raw source lines of the function body for display alongside the fork data — I only predicted the forks_at call and struct wrapping, not the line-slicing/truncation logic.
 
 ### `function_sources`
 - spec 3 · read at `85f52a03a69a` · commit `d92c31f` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:23:21Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -3181,6 +3191,15 @@ What this is and how to add to it: [README.md](README.md)
 - expected: A test function that builds/uses a real git repo fixture, runs the churn-counting logic (gather/config/load), and asserts the resulting per-function commit counts are correct. It likely also verifies caching behavior — e.g. calling the counting function a second time and checking a cache is used/saved (via save/load) rather than recomputed, since the function name says both "counts" and "caches".
 - found: Integration test gated by EDITS_REPO env var: gathers churn data twice from a real repo, asserts the second call is faster (cache hit) and returns the same head, asserts every offered window covers `now`, and asserts estimate() reports zero cost/non-cold at the already-walked HEAD.
 - predicted: most · documented: none · derivable: no · legible: most · trap: no
+
+## src-tauri/src/findings.rs
+
+### `commas`
+- spec 3 · read at `1f298d24a57d` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:39Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Formats a float as a human-readable integer string with thousand-separator commas (e.g. 1234.0 -> "1,234"), rounding to an integer first and inserting commas every three digits from the right, with some handling for negative numbers.
+- found: If the value has a fractional part, formats it as a plain 2-decimal-place float (no commas). Otherwise converts to i64, inserts commas every 3 digits from the right into the digit string, and reattaches a leading minus sign for negatives.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: Missed that non-integer values bypass comma formatting entirely and just print with 2 decimal places.
 
 ## src-tauri/src/harness.rs
 
@@ -4137,11 +4156,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds Sanity app menu (about/install-cli/hide/quit), File menu with "Add Project…", Edit menu with predefined clipboard items, View menu with an Appearance submenu of three checkable theme items (light/dark/system, system checked by default), and a Window menu; returns the assembled Menu plus a ThemeMenu holding the three checkbox item handles.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 
-### `run` — QUIRKY — TANGLED
-- spec 3 · read at `ef758054c62f` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:33:58Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This is the Tauri application entry point. It builds a Tauri Builder, registers IPC command handlers (likely wrapping the scan/parse/heuristic/surprise/churn/model pipeline described in the file doc), builds the app menu (via build_menu) and window (via build_window), wires up menu event handling (e.g. theme selection via ThemeMenu::select), and finally calls builder.run() to start the event loop, with basic error handling/logging around setup.
-- found: Tauri app entry point: sets up shared state for a loopback agent API, builds the window and (on macOS) the app menu with theme/open-project/install-cli event wiring, restores the previously open project with progress/shape emitters, spawns an async agent API server, registers ~40 IPC command handlers, and on exit stops all agent runs and releases the endpoint file so external readers know the backend died.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+### `run`
+- spec 3 · read at `6cfa7eaa1131` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:29Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: The Tauri application entry point: builds a tauri::Builder, registers plugins (e.g. shell, dialog, fs), sets up invoke_handler with the app's command functions (scan, parse, etc.), builds the menu via build_menu and window via build_window, sets up event listeners (like ThemeMenu::select), and calls .run(tauri::generate_context!()) to launch the app, expecting it to succeed.
+- found: Tauri builder setup: manages shared state for an embedded agent API server, builds window/menu on setup with macOS-specific theme/menu event handling, restores prior session state, spawns an async agent API server, registers single-instance/dialog/opener plugins, registers a large invoke_handler command list, builds and runs the app, and on Exit stops running agent tasks and releases an endpoint file so external MCP clients know the backend died.
+- predicted: most · documented: none · derivable: no · legible: most · trap: no
+- note: Predicted the general shape (builder, plugins, menu, invoke_handler, run) but missed the specific and important detail that this app embeds an HTTP/agent API server for MCP clients and coordinates exit-time cleanup via an endpoint file.
 
 ## src-tauri/src/links.rs
 
