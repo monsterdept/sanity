@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1037 of 1107 read · 181 surprising · 1 stale
+1107 of 1107 read · 195 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -1498,12 +1498,24 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/bin/findings.rs
 
+### the file itself
+- spec 3 · read at `1a049263f5fd` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:02:37Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Headless CLI binary for `just findings <path>`: main() loads a project tree, evaluates the rule catalog from the findings.rs evaluator module against it, and fmt() formats/prints each rule's calibrated threshold and hit count to the terminal — the tool used to tune the default catalog without the GUI.
+- found: Headless CLI as predicted: main() parses flags (--rule, --bare, --raw, --target, --show, --depth), scans the repo with a throttled progress ticker, builds Facts, runs the rule catalog (calibrated per-repo via rules_for, or raw/bare), subtracts findings already settled in the archive, and prints a summary table (hits/only/calibrated/so-what) plus sample hits with the rendered sentence per hit. fmt() is a trailing float formatter (duplicate of trim_num in the library).
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+
 ### `main`
 - spec 3 · read at `ecd0ca119bcd` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:49Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
 - expected: CLI entry point for `just findings <path>`: parses command-line args for a repo path (and maybe rule/output options), scans/loads the repo's functions and metrics, runs the finding rule catalog against them, computes for each rule both a "calibrated" threshold (yielding some target hit rate) and the actual hit count, and prints a formatted report table (using `fmt`) to stdout so the rule catalog can be tuned by eye without recompiling.
 - found: Parses many CLI flags (path, --rule, --bare, --raw, --target, --show, --depth, -h), scans the repo with a progress ticker, loads assessment reports, builds fact subjects, resolves the rule catalog (calibrated-for-repo, raw, or bare + ad-hoc --rule exprs), excludes already-settled/archived findings, then prints a summary table per rule (hits, marginal-only count, calibrated threshold, so-what) followed by example hits with the panel's own rendered explanation sentence per hit.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 - note: Prediction captured the general purpose but missed the extensive flag surface, the archive/pins exclusion logic, and the shared render/flat template reused from the UI panel.
+
+### `fmt`
+- spec 3 · read at `0ed57cf5165c` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:13Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Formats an f32 value for the CLI's tabular output, rounding to a small number of decimal places (e.g. 1-2) and trimming unnecessary trailing zeros so numbers like thresholds/percentiles print cleanly.
+- found: Formats an f32: if it has no fractional part, prints it as a plain integer; otherwise prints with 2 decimal places.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ## src-tauri/src/bin/history.rs
 
@@ -2544,13 +2556,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/commands.rs
 
-### the file itself — STALE
-- spec 3 · served in 3 parts · read at `b2b4f6c8fcad` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:34:21Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: The Tauri IPC command surface for a desktop code-analysis app: one #[tauri::command] function per frontend action (scanning repos, reading git history, tracing/explaining execution, managing projects, installing a CLI, saving movies/curves, controlling harnesses/checks). Most functions are thin adapters that parse arguments, call into other modules for the real logic (scanning, git, tracing), and return serializable results or emit events to the frontend; little of the actual analysis logic lives in this file itself.
-- found: The Tauri IPC command surface for the Sanity desktop app: one #[tauri::command] per frontend action across scanning, git history/blame, tracing, project lifecycle, CLI install, movie export, and reader/check control. Correctly a thin-ish adapter layer over other modules (scan, history, trace, agentapi, blame, search, links), but many commands carry substantial orchestration logic themselves (progress emission, caching decisions, path-traversal guards, git subprocess parsing) rather than pure delegation, and the file is saturated with long rationale comments explaining historical UX/design decisions rather than describing behavior.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### the file itself
+- spec 3 · served in 3 parts · read at `8e933095569a` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:12Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: This file defines the full set of #[tauri::command] functions that the frontend invokes — the same list registered in lib.rs's invoke_handler (scan_repo, project management, history/churn queries, trace/agent explain, findings/decisions, CLI install, theme sync, etc.). Each function is a thin, mostly synchronous wrapper around library modules (scan, history, findings, agentapi) plus the shared Tauri-managed state, translating between frontend-facing JSON-serializable types and internal domain types, with a few helpers (slug_of, cli_link_dirs) for shared logic like deriving a project slug from a remote URL.
+- found: Confirmed: this is the whole Tauri command surface — scan, history/churn, trace depth stepping, findings/decisions with pinning, code-window opening, function links/forks/sources, commit detail, agent activity polling, project list/select/reorder/forget/reset, CLI symlink install/status, and check-run start/stop. Beyond my prediction, nearly every command carries an extensive doc comment explaining a specific past bug or design tension it resolves (stale caches, PATH resolution via login shell vs process env, project identity via canonicalized keys vs raw paths, security checks against path traversal), so the file is less "thin wrappers" and more a dense set of load-bearing decisions each pinned to a one-off failure mode it prevents.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: The commands are far less uniform/thin than a typical IPC surface — many embed nontrivial logic (git subprocess parsing, path traversal checks, caching/staleness semantics) and each is heavily annotated with the specific incident or design tension that shaped it; a skim of names alone undersells how much institutional memory lives in the comments.
 
 ### `languages`
 - spec 3 · read at `aa465757b9b8` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:53:01Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -2704,6 +2715,38 @@ What this is and how to add to it: [README.md](README.md)
 - spec 3 · read at `f50da62472e3` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:35:43Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: Looks up the project by key in shared state, delegates to a crate::search backend function that queries the previously-built name index for `query`, and returns up to `limit` hits ordered best-match-first — returning an empty vec if the project has no scan/index yet.
 - found: Locks shared state, looks up the project by key, and if found calls crate::search::find on the project's scan root with the query and limit; returns empty vec if project not found.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `project_findings`
+- spec 3 · read at `5a7e7f362dd3` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:23Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Locks the shared state, looks up the project by key (returning an empty vec if not found or never scanned), builds the current Facts from the scan tree/reports, gets the repo's rule catalog via rules_for, and runs each rule against the facts (via something like report/hits) to produce a Vec<Group>, marking rules that can't run (e.g. missing readings) as blocked rather than empty.
+- found: Locks state, returns empty if the project isn't found; builds Facts from the scan tree/reports plus a Traced flag (git history read? churn tracked?); gets the repo's own calibrated rule set via rules_for; and calls findings::report with the tree, reports, traced flag, rules, and the archive of dismissed findings freshly re-read from disk (not cached, so it can't drift from .sanity/) to produce the Vec<Group>.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Missed that the dismissal archive is deliberately re-read from disk on every call rather than cached, to avoid the panel disagreeing with the on-disk .sanity/ archive.
+
+### `finding_pin` — QUIRKY
+- spec 3 · read at `884f82997909` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:48Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the project by key in AppState, resolves the repo path and the specific node/function identified by key/rule, reads the current source content for it, and calls pin_of to compute a pin string tied to the code as it stands now — returning the repo path, some node identifier, and the pin string (or an Err if the project/node can't be found).
+- found: Looks up the project, rebuilds the current facts from the scan tree/reports/trace state, re-derives the repo's rule set from those facts, finds the specific rule by id and the specific finding by subject key, then computes the pin via findings::pin_of(rule, fact) — returning the repo path, the pin string, and the rule's title.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: Missed that it doesn't read source directly — it re-derives facts/rules from the scan state (via subjects()/rules_for()) rather than reading code, and the return tuple is (path, pin, rule title) not (path, node id, pin).
+
+### `decide_finding` — QUIRKY
+- spec 3 · read at `6dacd2d10c29` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:24Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the project's repo path from shared state, then delegates to a findings::decide function passing key, rule, verdict, reason (and pin state), which persists the decision to disk; afterward it re-reads the persisted result from disk rather than trusting the write succeeded, so any silent write failure surfaces as a mismatch/error.
+- found: Fetches the pin/title via finding_pin (locking shared state), builds a Decision struct (key, rule, title, verdict, pin, reason, timestamp via now_iso, author via who), then delegates persistence to findings::decide, propagating its error rather than swallowing it.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `undecide_finding`
+- spec 3 · read at `05f1573309d7` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:00:56Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the project's shared state, removes the stored decision entry keyed by (key, rule), effectively reverting the finding back to the pending/undecided list, and returns Err if the project or decision can't be found.
+- found: Looks up the project's repo path from shared state (erroring if project not open), then delegates to `findings::undecide(&repo, &key, &rule)` to actually remove the stored decision, mapping any error to a string.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `project_decisions`
+- spec 3 · read at `bd2da3162586` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:59Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the project by `key` in shared state, loads its findings archive (via findings::archive/archive_path), and returns all recorded Decisions sorted newest-first — including ones whose fine-for-now pin has since expired, kept as a historical record.
+- found: Locks shared state, looks up the project by key (empty vec if not found), loads its archive of decisions, and sorts them newest-first by `when`.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `function_links`
@@ -3194,12 +3237,400 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/findings.rs
 
+### the file itself
+- spec 3 · served in 3 parts · read at `76ac570d6e23` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:02:50Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: findings.rs is the core engine for this tool's own "findings" system — it defines a small rule DSL (Field, Op, Rule with parse), builds a Facts/Subject model by walking the code's Node tree, evaluates rules to produce hits/findings, calibrates and ranks the default rule catalog (using a "marginal contribution" measure to avoid redundant overlapping rules), and persists user decisions (accept/reject/pin) plus custom rules and an archive to disk — with a large test suite at the bottom exercising all of this.
+- found: Matches my prediction's core (rule DSL, Facts/Subject via tree walk, hits/marginal/calibration, decision archive persistence, tests) but I missed several major pieces: the {{token}} sentence-rendering system (render/Span) that fills finding prose from a subject's own numbers and refuses to print unfillable sentences, the tier 1/2 distinction gating on whether a reading is needed, the wire-facing Group/Finding structs with paging (PER_GROUP), the `blocked` diagnostic explaining why a rule can't answer, and calibration's one-way (tightening-only) threshold saving to rules.md.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+
+### `parse`
+- spec 3 · read at `478961b5c889` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:04Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Parses a token string from a rule expression into a Field enum variant via a match on known literal names (e.g. loc, reads, changes), possibly handling a qualified "lens:" prefix, returning None for unrecognized names.
+- found: A match over literal field-name strings (with several synonyms per field, e.g. "loc"/"lines", "tangle"/"complexity") mapping to Field enum variants, returning None for anything unrecognized. No "lens:" prefix handling as I guessed.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: The doc comment shown was the file-level doc, not for this function specifically.
+
+### `name`
+- spec 3 · read at `f45fe6a2e88d` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:16Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Field::name is a match over the Field enum's variants (metrics like loc, calls, funcs used in rule clauses such as "loc >= 50") returning the static lowercase string token used in rule syntax/rendering, essentially the inverse of Field::parse.
+- found: A match over Field's 15 variants (Loc, Funcs, Callers, Calls, CloneSize, Cognitive, Tangle, AgeDays, TouchedDays, Commits, Read, Surprise, Documented, Legible, Trap) returning the static string token for rule syntax/rendering.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
+
+### `lens`
+- spec 3 · read at `9e00ed55dfe2` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:00:14Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A match over Field variants mapping each to its corresponding lens id string from colorMode.ts (age, blame/churn, surprise, etc.), returning Some("size") specifically for Loc even though size isn't a real lens, and None for Field::Read (and any other field with no visual representation).
+- found: Match over Field variants to lens id strings: Loc/Funcs→"size", Callers→"callers", Calls→"reach", CloneSize→"clones", Cognitive/Tangle→"tangle", AgeDays/TouchedDays→"age", Commits→"churn", Surprise→"surprise", Documented→"docs", Legible→"legible", Trap→"traps", and Read→None.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `needs_reading`
+- spec 3 · read at `5ca49975b5ca` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:40Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A match self { ... } over the Field enum variants, returning true for the subset of fields backed by a semantic "reading" lens (e.g. tangle/derivability-type fields) and false for purely structural fields (loc, funcs, churn, etc.).
+- found: Returns true only for Field::Surprise, Documented, Legible, and Trap — the fields sourced from a human/LLM reading rather than static structural facts.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `parse` #2
+- spec 3 · read at `0f3ad42e611b` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:02:15Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Op::parse matches on string tokens like ">=", "<", ">", "<=", "==" returning the corresponding Op variant wrapped in Some, with None for anything unrecognized — the inverse of Op::name.
+- found: Matches exactly ">=", ">", "<=", "<" to Op::Ge/Gt/Le/Lt, None otherwise; no equality operator exists.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+### `name` #2
+- spec 3 · read at `9c0bf389768f` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:02:07Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A match self { ... } over the Op enum's comparison-operator variants, returning the literal string token for each (e.g. ">=", "<=", "==", "contains"), the inverse of Op::parse.
+- found: Match over Op's four comparison variants (Ge, Gt, Le, Lt) returning ">=", ">", "<=", "<" — only ordering comparisons exist, no equality or contains.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+### `holds`
+- spec 3 · read at `39fba42360ad` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:02:06Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Matches on the Op variant (Gt/Ge/Lt/Le/Eq etc.) and applies the corresponding comparison between got and want, returning the boolean result.
+- found: Exactly as predicted, four variants Ge/Gt/Le/Lt with the obvious comparisons (no Eq variant, minor detail).
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `lenses`
+- spec 3 · read at `62fea6ce85e5` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:00Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Rule::lenses walks self.clauses in order, maps each clause's field to its lens name via Field::lens, and collects them into a Vec<String> while skipping duplicates (preserving first-occurrence order rather than sorting).
+- found: Walks self.clauses in order, and for each clause whose field maps to a lens (Field::lens() returns Some), pushes that lens name into the output vec if not already present — preserving first-occurrence order, no sorting, no duplicates.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `tier`
+- spec 3 · read at `67cade9da5bf` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:10Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Scans the rule's clauses and returns a small integer classifying the rule by the "heaviest" kind of field/lens it uses — likely 0 for purely structural/cheap clauses, and a higher tier if any clause needs a "reading" (per Field::needs_reading), used to bucket rules by cost or trust level.
+- found: Returns tier 2 if any clause's field needs_reading(), else tier 1 — a simple two-level classification, not a graded scan.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `expr`
+- spec 3 · read at `83acb587965c` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:10Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Renders the rule's clauses back into a readable expression string (the inverse of parse), joining each clause as `field op value` (using Field::name and Op::name) with \" and \", formatting the numeric value via something like trim_num.
+- found: Renders the rule back to its source-like form: `func:` or `file:` prefix followed by each clause formatted as `field op value` (via Field::name/Op::name/trim_num), joined with \" and \" — the exact inverse of Rule::parse.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: Missed the explicit pop prefix (func:/file:) in my initial phrasing though I noted it was the inverse of parse.
+
+### `parse` #3
+- spec 3 · read at `1d188c3b24f8` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:33Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Parses a rule string like `func: loc >= 200 and callers >= 20` into a Rule: splits off the subject kind before the colon, then splits the remainder on `and` into individual clauses, parsing each clause's field, operator, and value via Field::parse/Op::parse, and assembles them into an expression tree, returning Err with a message on malformed syntax.
+- found: Splits on the first colon into population (func/file, erroring on anything else) and the rest; splits the rest on ' and ' into clauses of exactly three whitespace-separated tokens (field, op, numeric value), parsing each via Field::parse/Op::parse; requires 1-2 clauses; builds a Rule with hardcoded 'ad-hoc' id/title/so_what and a floor of 0 (no calibration threshold for hand-written rules).
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: Missed that it enforces a strict 1-2 clause count and constructs a full Rule struct with fixed ad-hoc metadata fields (id/title/so_what/floor=0) rather than just an expression tree.
+
+### `trim_num`
+- spec 3 · read at `1c826b524972` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:10Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Formats a float for display, trimming trailing zeros and an unnecessary trailing decimal point — e.g. formats to fixed precision then strips trailing zeros so "3.0" becomes "3" and "3.50" becomes "3.5".
+- found: Checks if the float has a zero fractional part; if so formats as an integer (no decimal point at all), otherwise uses Rust's default float Display formatting (which itself doesn't pad trailing zeros).
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: file_doc is about the whole findings.rs module (the evaluator), not this helper specifically — no per-function docs existed to grade.
+
+### `render`
+- spec 3 · read at `9bd05aa5244d` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:17Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Walks the rule's sentence template splitting on {{token}} markers, producing a Vec<Span> alternating plain text and value spans: name/path from the subject, median/threshold from the calibrated clause/median arg, or arbitrary Field values via value_of, with age converted to years for age_years. If any token can't be resolved, abandons the sentence and falls back to the rule's so_what text rather than emit a partial/broken sentence.
+- found: Splits `rule.says` on {{token}} markers into alternating filled/unfilled Spans, resolving name/path/threshold/median/age_years/other-Field tokens against the subject's Facts; on the first unresolvable token (or unclosed brace) it abandons the templated sentence entirely and returns a single capitalized, period-terminated Span built from `rule.so_what` instead.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `flat`
+- spec 3 · read at `5c442c33a49b` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:37Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Concatenates the `.text` of each Span in the slice into one plain String, dropping the filled/weight information, for consumers that cannot render mixed-weight spans.
+- found: Collects each Span's text field into a single concatenated String.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
 ### `commas`
 - spec 3 · read at `1f298d24a57d` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:39Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: Formats a float as a human-readable integer string with thousand-separator commas (e.g. 1234.0 -> "1,234"), rounding to an integer first and inserting commas every three digits from the right, with some handling for negative numbers.
 - found: If the value has a fractional part, formats it as a plain 2-decimal-place float (no commas). Otherwise converts to i64, inserts commas every 3 digits from the right into the digit string, and reattaches a leading minus sign for negatives.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: Missed that non-integer values bypass comma formatting entirely and just print with 2 decimal places.
+
+### `get` — QUIRKY
+- spec 3 · read at `afd5a597cf12` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:42Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Matches on the Field enum variant and returns the corresponding numeric field from the Facts struct (loc, funcs, callers, cognitive, age_days, etc.) as f32, returning None for fields not present for this subject.
+- found: Facts stores values in a generic map keyed by field name string, and get() just looks up f.name() in that map — not a match over explicit struct fields as I predicted.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+
+### `subjects`
+- spec 3 · read at `acb9f828893f` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:02:18Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Short driver: walks the tree via `walk`, collecting nodes in child order with a per-file ord counter, then maps each to Facts via facts_of(node, reports, traced, ord), returning the flattened Vec<Facts>.
+- found: Just initializes an empty Vec and delegates entirely to walk(root, reports, traced, &mut out) to do the recursion/ord-counting/Facts-building, then returns the accumulated vector — thinner than predicted since the ord/facts_of logic I described actually lives inside `walk`, not here.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `walk` — QUIRKY — TRAP
+- spec 3 · read at `afa1acdf795a` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:36Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Recursively traverses the tree from node, and for each file/function node builds a Facts value (drawing on the node's own scored fields plus the matching entry in reports and the traced flags for git/churn availability), pushing each into out — the recursive engine behind subjects().
+- found: Recurses only through Dir children; for a File node it pushes Facts for the file itself, then for each Func child computes a disambiguating key via assessment::key_of (tracking an ordinal per duplicate function name), looks up the matching report by that key while filtering out stale reports, and pushes Facts for the function; a bare Func node (unexpected tree shape) is silently skipped rather than guessed at.
+- predicted: some · documented: none · derivable: no · legible: full · trap: yes
+- note: Whoever changes how functions are keyed (assessment::key_of) must keep the ordinal-tracking here in sync, or duplicate-named functions in a file will silently get mismatched reports.
+
+### `facts_of`
+- spec 3 · read at `1946db00cf69` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:21Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Builds a single `Facts` record for one node (function or file) by pulling together its score fields (surprise, tangle, hotShare, wiring counts), size, and any attached agent `Report` data into the flat shape the rule matcher (`matches`/`value_of`) evaluates against. The `traced: Traced` param likely gates which time/history-derived fields are populated versus left absent, following the codebase's careful null-vs-not-measured distinction — so a repo whose history hasn't been walked to this depth doesn't get fabricated churn/age facts.
+- found: Builds a Facts record with a Subject (key/path/name/kind/loc/line/lang/body hash) plus a HashMap of Field->f32 values populated from loc, funcs (with a fallback for full trees where Node::funcs is 0), callers/calls/cloneSize, score-derived cognitive/tangle, git-gated age/touched/commits fields, and for functions, read status plus report-derived surprise/documented/legible/trap grades.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `value_of`
+- spec 3 · read at `e77d86ebc569` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:49Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A thin one-line dispatcher: matches on the Field variant and pulls the corresponding value out of Facts (via Facts::get or similar), propagating None rather than defaulting when the fact is absent.
+- found: Just calls f.get(field) — a one-line passthrough wrapper, not a per-variant match as I guessed.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `matches`
+- spec 3 · read at `f534271602d5` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:24Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Evaluates whether a subject's Facts satisfy a Rule by checking each of the rule's clauses (field, operator, threshold) against the corresponding value in Facts (via something like value_of/Facts::get), requiring all clauses to hold (AND) for the rule to match. Returns false if a needed field's value is unavailable (e.g., untraced git data).
+- found: Checks the subject's kind matches the rule's population (Func/File), checks a LOC floor, then requires every clause to have a value and satisfy its operator against the threshold — same AND-all-clauses logic I predicted, plus the population/floor guards I didn't mention.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: Missed the population-kind check and the loc floor guard, though the core clause-matching logic was right.
+
+### `hits`
+- spec 3 · read at `3bae052e02c8` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:02:14Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Filters facts down to those whose values satisfy rule (via the matches helper), sorts the resulting subjects by lines/loc descending, and returns the Subject references for the matches.
+- found: Filters facts by matches(rule, f), collects the Subject refs, then sorts via a shared rank() helper (rather than an inline sort) — matches my prediction's intent exactly, delegating the "widest first" ordering to a named peer function.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `rank`
+- spec 3 · read at `7ced792c8f9d` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:45Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Sorts the mutable slice of &Subject in place, primarily by descending width (some size metric on Subject) and secondarily by ascending key, using sort_by or sort_by_key, to guarantee a total, deterministic ordering across runs.
+- found: Sorts subjects by descending loc, ties broken by ascending key.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `live_hits`
+- spec 3 · read at `d6cc755520b3` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:53Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Computes which facts match the rule (via `matches`/`hits`), then partitions them by looking up each hit's (key, rule-id) pin in `decided`: entries with a settled non-Flagged verdict are excluded and counted, Flagged entries are kept and sorted first, and the rest keep their normal rank order. Returns the filtered/ordered list of subjects plus the count of settled-and-excluded ones.
+- found: Filters facts to rule matches, looks up each by (key, rule id) in decided; if verdict.hides() is true (accounting for whether the pin still matches, meaning the underlying value hasn't drifted) it's counted as settled and excluded, otherwise kept with a flagged bool; sorts flagged-first, then by loc descending, then key — matches my prediction closely including the pin-staleness check via verdict.hides.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+
+### `pinned`
+- spec 3 · read at `e65730883a49` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:33Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Builds a HashMap from the archive's decision list keyed by (key, rule) mapping to (verdict, pin), by iterating and inserting each decision, likely via .map().collect() with later entries overwriting earlier ones for the same key.
+- found: Exactly as predicted: a one-line map/collect from the decision slice into the (key, rule) -> (verdict, pin) HashMap.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `calibrate`
+- spec 3 · read at `96fe48fb342b` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:59Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Filters facts down to subjects that already satisfy the rule's non-calibrated clauses, collects the value of the calibrated field for each, sorts them, and picks the value that would put roughly `target` subjects on the matching side of the threshold — returning None if fewer than `target` subjects remain even before applying that threshold.
+- found: Builds a copy of the rule without its calibrated clause, filters facts to those matching the remaining clauses, collects the calibrated field's value from each, sorts descending for Ge/Gt or ascending for Le/Lt, and returns the target-th value from that sorted end as the threshold (None if fewer than target values exist).
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `marginal`
+- spec 3 · read at `9dfbfe27c8db` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:32Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Takes hit-lists for every rule (sets) and the index `at` of the rule being scored, and returns the count of subjects in sets[at] that do not appear in any other set at a different index, using position rather than title/identity to distinguish self from others; likely builds a combined set of other rules' subjects and counts sets[at] entries not in it.
+- found: Builds a HashSet of subject `.key`s from every set except the one at index `at`, then counts how many subjects in `sets[at]` have a key not in that combined set — the rule's unique-hit count.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `all_hits`
+- spec 3 · read at `019ccb06ca8f` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:46Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: all_hits simply maps each rule to its hits(rule, facts) result and collects into a Vec<Vec<&Subject>> — one line, calling the sibling hits function for every rule in the catalog.
+- found: Exactly as predicted: rules.iter().map(|r| hits(r, facts)).collect().
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `spread`
+- spec 3 · read at `d0f7b34adf68` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:06Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Computes summary statistics (something like min/median/percentile thresholds) of one numeric `field` across a slice of `Facts`, restricted to a `Pop`(ulation) filter, returning `None` when there's nothing to measure (empty population, or the field is absent/null for everything in it — the same "absence vs zero" distinction seen elsewhere in this codebase). Likely used to calibrate a rule's threshold against the actual distribution in the repo rather than a hardcoded constant.
+- found: Filters facts to the requested population (func/file), extracts the field's value via value_of (dropping absences), sorts, and returns None if empty else a Spread of {n, median, p95, max} computed by simple sorted-index lookup.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `blocked`
+- spec 3 · read at `b225946ccbbd` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:46Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether `rule` can be evaluated over `facts` given `traced`/`read` state: inspects which fields the rule's clauses require, and if a required field's data source (tracing, agent reading, or language support) isn't available, returns Some(reason string) naming the specific missing prerequisite; returns None if the rule's needed data is present.
+- found: Walks a rule's clauses in order and returns the first applicable blocking reason: a field needing agent reading when `read` is false, a git-derived field when git history hasn't been traced, commit count specifically when churn hasn't been walked, or (fallback) no fact in the population has a value for that field at all — else None if every clause's field is satisfiable.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `report`
+- spec 3 · read at `1641240e3e8e` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:00:07Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: The top-level entry point: builds Facts for the whole tree (via `subjects`), calibrates the rule catalog against them, then for each rule computes its hits, marginal-only contribution, dismissed/pinned counts against the decision archive, and a blocked reason if the rule couldn't be evaluated — assembling everything into the Vec<Group> (mirroring the TS FindingGroup) that the window's findings panel consumes, capped per rule at some limit.
+- found: Builds Facts from the tree, computes pinned decisions, precomputes each rule's calibrated-clause median (for sentence rendering), computes live hits/dismissed counts per rule via live_hits, then assembles Group structs per rule with total/dismissed/marginal-only/blocked/lenses and up to PER_GROUP rendered Finding rows (each with a flagged status and a rendered sentence via render() using the precomputed median).
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+
+### `finding_of`
+- spec 3 · read at `ddc96009a460` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:50Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A short constructor that builds a Finding struct directly from the Subject's identifying fields (path/name/etc.), the says spans as evidence, and the flagged bool, likely using struct-update syntax with defaults for the remaining fields.
+- found: Builds a Finding from the subject's key, a derived `hit` via hit_of(s), and the given flagged/says values — four explicit fields, no default struct update.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+### `hit_of`
+- spec 3 · read at `512499a4b5d9` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:22Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: hit_of converts a Subject (the finding evaluator's internal representation of a function/file) into a crate::search::Hit — copying over path, line, name, and kind so the same struct the search/finder UI uses can also represent a finding's location, letting the frontend jump to it via flyTo.
+- found: Builds a search::Hit from a Subject: copies path, name, kind, loc, lang, defaults line to 0, and constructs id specially — for a function it's `path#name@line`, for anything else just the path — because id is the navigation target while a separate `key` field (not shown here) is used for dismissal storage, and the two must not be conflated.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+### `catalog`
+- spec 3 · read at `a9abdc15c028` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:30Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: catalog() builds and returns the hardcoded default Vec<Rule> — a series of Rule::parse(...) calls (or struct literals) each with a title, so_what explanation, and says template, covering the various single/two-lens findings (large files, tangled functions, low-read/high-surprise, etc.) described in docs/notes/findings.md, with placeholder thresholds meant to be calibrated per-repo.
+- found: Builds the hardcoded default Vec<Rule> catalog via a local `rule(...)` closure (not Rule::parse) using ge/lt clause helpers: two single-clause on-ramp rules (giant function, crowded file) followed by ~13 two-lens paired rules (callers+read/tangle/legible/documented, surprise+commits/calls, documented+surprise, trap+commits/age, clone+commits/size, age+loc, tangle+loc), each with title/so_what/says/pop/clauses/calibrated/floor, heavily commented with design rationale from the bench notes.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+
+### `calibrated` — QUIRKY
+- spec 3 · read at `27b04deaf714` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:35Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Iterates the rule catalog and, for each rule whose clause can be calibrated against this repo's data, replaces its default threshold with one derived from the actual distribution (likely via the `calibrate`/`spread` peers), returning a new Vec<Rule> with repo-specific thresholds substituted in place of the shipped defaults. Rules that can't be calibrated (no matching facts, or a non-numeric clause) are probably passed through unchanged.
+- found: For each rule, calls calibrate() against facts/TARGET to get a candidate threshold for the rule's designated calibrated clause, but only applies it if it makes the clause STRICTER (tighter) than the shipped default — never looser — leaving rules with no calibration (too few subjects clear the other clauses) at their shipped default.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `rules_path`
+- spec 3 · read at `e577ffceaeb6` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:50Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Returns the path to the saved/custom rules file within the repo, analogous to archive_path — a single-line path join like repo.join(".sanity/rules.md").
+- found: Joins "rules.md" onto crate::assessment::dir(repo) rather than a literal ".sanity/" path — the actual sanity-data directory is centralized in another module, which I didn't know about.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `saved_rules`
+- spec 3 · read at `8c3a54aa71e9` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:42Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Reads the repo's saved-rules file (via rules_path), parses each line as "title value" or similar key/value pairs, and builds a HashMap<String, f32> mapping rule title to its calibrated threshold; returns an empty map if the file doesn't exist or can't be read/parsed.
+- found: Reads a markdown-ish file, parses lines like "- `Title`; clause >= value" by splitting on "; " and taking the last whitespace token of the clause as the numeric threshold, keyed by the backtick-stripped title; empty map on read failure.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: Got the general shape right but the actual format is a specific markdown bullet convention ("- `Title`; expr") rather than a generic key/value line — the parsing is more specific/fragile than I guessed.
+
+### `save_rules` — QUIRKY
+- spec 3 · read at `f0b33486b4f6` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:50Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Serializes the given calibrated Rule thresholds (likely as JSON) and writes them to the path returned by rules_path(repo), so that thresholds computed once (calibrated) are pinned to disk and don't drift or get recalculated on a later run.
+- found: Writes a human-editable text file (not JSON) with explanatory prose header plus one line per rule naming its calibrated clause's field, operator and value, to rules_path(repo). Ensures the assessment dir exists first, then reads the file back after writing and errors if it doesn't match what was written, to catch a write that silently didn't land.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `rules_for`
+- spec 3 · read at `f3816658d9b3` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:00Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Starts from catalog(), then for each rule checks the repo's saved rules (via saved_rules/rules_path) for a previously tuned threshold; where one exists it uses it, and where none exists it calls calibrated against facts to compute a threshold and persists the result via save_rules, so calibration is a one-time authoring aid rather than recomputed as a percentile every run.
+- found: Loads the base catalog; if no saved rules exist for this repo at all, calibrates every rule against facts and best-effort saves the tuned set (ignoring a save failure) and returns those. If saved rules exist, it instead overlays each saved threshold onto its rule's designated calibrated clause, leaving unsaved rules at catalog defaults.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `word`
+- spec 3 · read at `dba9eaa21114` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:07Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Verdict::word is a simple match over the Verdict enum's variants (likely Confirmed/Dismissed/Open or similar, given sibling methods decide/undecide/hides) returning a static lowercase string label for each variant, used for display or serialization purposes.
+- found: A match over Verdict's three variants (Flagged, FineForNow, FineAlways) returning a static kebab-case string label for each.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+### `parse` #4
+- spec 3 · read at `0d9d1c91b457` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:12Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Matches a string like "flagged", "fine-for-now", "fine-always" to the corresponding Verdict enum variant, returning None for anything unrecognized.
+- found: Exactly as predicted: trims the string and matches it against the three verdict literals, returning None otherwise.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `hides`
+- spec 3 · read at `3df885f4542d` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:39Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Verdict::hides matches on the three variants — Flagged returns false (never hidden), FineAlways returns true (always hidden), and FineForNow returns pin_holds (hidden only while the pinned condition it was decided against still holds).
+- found: Exactly as predicted: Flagged => false, FineForNow => pin_holds, FineAlways => true.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `pin_of`
+- spec 3 · read at `23117c4b5041` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:33Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Builds a string pin encoding both the body hash of the subject (whitespace-collapsed, so formatting alone doesn't retire it) and the values of the fields the rule's clauses measured (e.g. loc, callers) — concatenated so that either the body changing or the measured clause values drifting produces a different pin string, causing a stored "fine for now" decision to expire.
+- found: Formats a string of body_pin plus each rule clause's field=value (or field=? if missing), joined by spaces — matches my prediction closely, though it uses a precomputed body_pin field rather than hashing directly here.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `archive_path`
+- spec 3 · read at `722454624780` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:53Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Joins the repo path with a fixed subdirectory (like .sanity) and a fixed filename (e.g. decisions.json) to produce the single archive file's PathBuf.
+- found: Joins the repo's assessment dir (crate::assessment::dir) with the filename "decisions.md" to form the archive path.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `archive` — TRAP
+- spec 3 · read at `9adf0091921c` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:39Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: archive reads the file at archive_path(repo); if it doesn't exist, returns an empty Vec (no I/O error surfaced — matching the "absent file, empty archive" doc). Otherwise it parses each `## key` section and its bullet lines back into Decision structs — unescaping the rule, title, pin, when, by, reason fields and parsing verdict via Verdict::parse — tolerating hand-edited files since save_archive's doc says editing by hand is fine.
+- found: Reads archive_path(repo), returning empty Vec if missing. Parses `## key` section headers and `- ...` bullet lines, splitting each bullet on `; ` into named segments (rule/called/verdict/pin/when/by/reason), trimming backticks rather than a real unescape. Deliberately built to tolerate unrecognized segments by skipping them, but an unrecognized verdict string causes the function to return immediately with whatever was accumulated so far, silently dropping every decision after that point in the file — a hand-edited or newer-format archive with one bad verdict loses the rest of the archive rather than just that line.
+- predicted: most · documented: some · derivable: no · legible: full · trap: yes
+- note: An unparseable `verdict` value on any one line aborts the whole read and discards every decision after it in the file — worth knowing before hand-editing the archive or bumping the verdict vocabulary.
+
+### `escape` — QUIRKY
+- spec 3 · read at `dbee398359ae` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:46Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Escapes characters (likely quotes, backslashes, newlines) in a string so it can be safely embedded in the simple text serialization format used by save_rules/save_archive, letting values round-trip through the plain-text file without breaking its delimiters.
+- found: Replaces newlines/carriage returns with spaces and any "; " substring with ", ", so free-text prose (e.g. a reason a user typed) can't be mistaken for a new record or field boundary in the semicolon-delimited save format.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+
+### `save_archive`
+- spec 3 · read at `7fe24032b59c` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:11Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: save_archive serializes the full Decision list to a text format (likely one line per decision, with escape() used on any free-text fields) and writes it to archive_path(repo), then reads the file back and compares it to what was written, returning an Err if the bytes on disk don't match — because a caller trusting a successful write to mean the decision was saved could otherwise silently keep re-showing a dismissed finding.
+- found: Groups decisions by key into a sorted BTreeMap, writes a human-editable Markdown-like file (explanatory header, one `## key` section per finding, one bullet line per decision with rule/title/verdict/pin/when/by/reason, all escaped) to archive_path(repo), then reads it back and errors if the bytes don't match what was written.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `decide`
+- spec 3 · read at `722e27bf1daf` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:43Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Loads the existing decision archive for this repo (via `archive`), removes any prior decision with the same key/rule as `d`, appends `d`, and writes the archive back out via `save_archive`.
+- found: Loads the archive, retains entries not matching the same (key, rule), pushes the new decision, and saves the archive.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `undecide`
+- spec 3 · read at `726580418bc0` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:31Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Loads the decisions archive from disk for the repo, removes the entry keyed by (key, rule), and saves the updated archive back to disk, returning any IO error.
+- found: Loads the archive, retains all entries except the one matching (key, rule), and saves the archive back.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `func`
+- spec 3 · read at `47c631bead34` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:54Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A tiny test-fixture helper that builds a synthetic `Node` representing a function with the given name and line count, with everything else defaulted/zeroed, for use in the findings-rule unit tests listed among its peers (e.g. a_rule_survives_being_written_down).
+- found: Builds a synthetic func Node via Node::dir, overrides kind to Func, sets an id in the real `path#name@line` format (deliberately, per the comment, so keying tests actually exercise the id format), and sets loc.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `file_with`
+- spec 3 · read at `9f94f6650091` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:21Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Test helper that builds a synthetic Node representing a source file, wrapping the given children (e.g., function nodes) with placeholder file-level metadata (a fake path, loc computed from or set independently of children), for use as a fixture in the rule/fact tests.
+- found: Builds a File node ("f.rs") whose loc is the sum of children's loc and funcs count is children.len(), sets its children, then wraps that file inside a root "repo" dir node and returns the root.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+### `a_rule_survives_being_written_down` — QUIRKY
+- spec 3 · read at `c94191b431b5` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:05Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A round-trip test: build/parse a Rule from its text representation, convert it back to text (or a display string), and assert re-parsing that text yields an equal Rule, ensuring the settings page's rule-text format survives serialization and deserialization.
+- found: Parses a rule string, checks its pop kind and clause count, asserts `.expr()` round-trips to the identical text, and asserts parsing rejects an invalid pop kind ('dir') and a rule with too many clauses (3).
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+
+### `a_clause_with_no_evidence_never_matches`
+- spec 3 · read at `492a101e6590` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:22Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A unit test: builds Facts/Func data missing some field (e.g. untraced churn), evaluates a Rule/clause that depends on it, and asserts the clause does not match (returns false) rather than defaulting to a confident answer.
+- found: Test with four sub-cases on an untraced tree: age and surprise clauses (unanswerable without git/reading data) match zero functions; a loc clause (answerable from the parse alone) matches one; and a `read < 1` clause matches one, since "unread" is itself a knowable fact rather than missing evidence.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `calibration_targets_a_count_not_a_percentile`
+- spec 3 · read at `b34d37833dff` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:55Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A test building two synthetic populations of very different sizes (e.g. via `func`/`file_with`), running `calibrate` (or `calibrated`) on a rule against each, and asserting that the number of hits produced is the same fixed TARGET count in both cases — proving calibration is scaled to yield an absolute number of findings rather than a fixed top-percentile share of the population, which is the whole argument the file's calibration doc string makes.
+- found: Builds 100 synthetic functions with loc 10..1000, calibrates a `loc >= 1` rule to a target of 20 hits, asserts the derived threshold (810) and that applying it yields exactly 20 hits, and asserts calibrate returns None when the target (500) exceeds what the population can supply.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `marginal_contribution_sees_through_an_overlapping_rule` — QUIRKY
+- spec 3 · read at `68532b3d00c8` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:00:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Test verifying that a "marginal contribution" metric correctly detects a rule whose matches overlap with another rule's matches, but still credits it for the genuinely new findings it uniquely surfaces — constructs two rules with partially overlapping match sets and asserts the marginal-contribution calculation isn't fooled into double-counting or zeroing out the overlap.
+- found: Test that a narrower rule ("wide": loc>=100) contributes zero marginal findings when a wider rule ("wider": loc>=40) already subsumes all its hits, while the wider rule gets credit for its one unique hit — and that this comparison is done positionally (by index into the ruleset) rather than by title, since both rules happen to share the same "ad-hoc" title.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+
+### `a_file_is_counted_by_the_functions_it_holds`
+- spec 3 · read at `af3a5c86855d` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:00:48Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A unit test verifying that a file's population (count of functions) is computed by counting the file node's actual function children rather than reading Node::funcs, which docs say is always zero on a full tree. It likely constructs a small tree with a file node with some child functions, calls the counting helper, and asserts the result equals the number of children rather than zero.
+- found: A test that builds a file node with 3 function children, verifies both a "full" tree (children present, funcs=0) and a "slim" tree (children cleared, funcs=3 carried) both satisfy a rule query `file: funcs >= 3` via subjects()/hits(), proving the population is correctly derived from whichever representation is present.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `a_decision_survives_being_written_down` — QUIRKY
+- spec 3 · read at `5901df38ec4d` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:25Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Constructs a decision (verdict, reason, etc.), writes it via save_archive, reads it back via archive, and asserts the round-tripped value equals the original, verifying the markdown archive format doesn't lose data.
+- found: Does the round-trip I predicted, plus much more: verifies structural characters (newline, "; ") in the reason are escaped/unescaped without corrupting neighboring fields, that re-deciding the same key+rule replaces rather than accumulates, that the same key under a different rule is a separate record, and that undecide removes exactly the right one.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The file-doc quote about round-tripping through Markdown applies to the whole archive subsystem, not specifically to this test's extra assertions about replace-vs-accumulate and per-rule keying.
+
+### `fine_for_now_does_not_outlive_what_it_was_about` — QUIRKY
+- spec 3 · read at `02882186d1b3` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:36Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Unit test: dismisses/archives a finding for a function at one size, then grows the function substantially and re-evaluates, asserting the old dismissal no longer suppresses the (now different) finding because the archive pin is tied to a snapshot of the subject.
+- found: Tests four scenarios: a FineForNow dismissal suppresses the finding while the function is unchanged; a rule rename doesn't orphan it (keyed by id, not title); growing the function invalidates the pin so it reappears as a live lead; FineAlways stays hidden through the same growth (subject-level, not snapshot-level); and Flagged never counts as dismissed at all.
+- predicted: some · documented: full · derivable: no · legible: most · trap: no
+
+### `a_paragraph_it_cannot_fill_is_not_printed`
+- spec 3 · read at `877173395bd7` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:00:48Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A test that builds a rule/template whose paragraph references a number not guaranteed by its clauses, runs the report/paragraph-generation function, and asserts the paragraph is entirely omitted from the output rather than rendered with a placeholder like 0 or ?.
+- found: A test verifying template rendering: unfillable placeholders (missing trace data or typo'd field names) cause the whole `says` sentence to fall back to just the `so_what` clause rather than printing a gap; numbers are thousands-grouped in output; and rendered output is split into spans marking which parts are filled-in values (for bolding) vs literal text.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `every_catalog_sentence_names_only_what_its_rule_guarantees`
+- spec 3 · read at `8d40955f4a1e` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:30Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Test that iterates every rule in the findings catalog, parses each rule's sentence template for referenced fields/placeholders, and asserts each referenced field is guaranteed present by that rule's own gating clauses — failing if a template references something its clauses don't guarantee, since such a mismatch fails silently at render time instead of erroring.
+- found: Parses each catalog rule's `says` template for `{{token}}` placeholders and asserts each token is either an always-available meta field (name/path/threshold/median/age_years) or a real `Field` guaranteed present because some clause on the rule gates on it — with two extra always-guaranteed-by-construction exceptions (loc, and funcs for file-population rules) since `facts_of` sets those unconditionally.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `calibration_never_makes_a_clause_vacuous` — QUIRKY
+- spec 3 · read at `98942fbef5a1` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:00:59Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A test that builds a small dataset where a calibrated (percentile-based) threshold clause would naturally calibrate down to 0 (because too few subjects clear the bar), and asserts the calibration logic clamps the threshold to a minimum of 1 (or similar) so the clause still excludes some subjects rather than becoming vacuously true for everyone.
+- found: Tests two directions of calibration: (1) with only 3 subjects far below a demanding rule's threshold, calibration leaves the authored threshold (5) standing rather than dropping it to something every subject clears; (2) with 40 subjects where plenty clear a loose bar, calibration raises the threshold above the authored value.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `a_rule_about_a_body_says_nothing_about_a_trivial_one` — QUIRKY
+- spec 3 · read at `9614199b1c8a` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:51Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A #[test] that constructs a tiny trivial function (like a 3-line accessor len/new/path) as a Facts/fixture, runs it against a rule that would otherwise flag "load-bearing and undocumented" bodies, and asserts that no finding is produced — verifying that a floor/threshold on body size excludes trivial accessors from the catalog.
+- found: A test with two parts: first builds facts for a 3-line and a 133-line function, shows an unfloored `loc >= 1` rule matches both while a floor of 10 keeps only the larger one; second, it iterates the entire shipped catalog and asserts that every rule whose clauses ask about a function's body (callers/calls/surprise/documented/legible/trap/cloneSize, without an loc clause) has a nonzero floor, so the catalog itself cannot regress by adding a body-rule that forgets the floor.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: Missed the second half entirely: it's not just a fixture-based unit test, it also asserts an invariant across the whole live catalog() to prevent future rules from omitting the floor.
+
+### `a_lead_is_keyed_the_way_a_reading_is` — QUIRKY
+- spec 3 · read at `65abccac5097` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:52Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: a_lead_is_keyed_the_way_a_reading_is builds a finding/lead for a function, computes its dismissal key via whatever key_of mechanism findings use, and asserts it matches (or has the same shape as) the key assessment::key_of produces for readings — verifying that a finding's key does not embed @line, so it survives the function moving within the file, unlike the navigation id from hit_of.
+- found: Builds a synthetic file tree with two functions named "dup" and one named "other", runs subjects() to derive findings-subjects for it, and asserts the resulting keys are `f.rs#dup`, `f.rs#dup#2`, `f.rs#other` — i.e. same-named functions in a file get a numeric suffix to disambiguate — and that none of the keys contain `@` (the line-number marker that node ids use), confirming keys are stable across a function moving within the file.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
 
 ## src-tauri/src/harness.rs
 
