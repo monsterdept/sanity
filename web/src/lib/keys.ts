@@ -18,7 +18,6 @@ import { MODE_LABEL, type ColorMode } from './colorMode'
 /** The keys the app claims, in the order the switcher lists the lenses. */
 export const LENS_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='] as const
 
-
 /** Previous and next lens, which do not run out.
  *
  * **The digits did.** Nine of them, then ⌘0 for the tenth and ⌘- for the eleventh, and past
@@ -64,6 +63,17 @@ export interface Where {
   typing: boolean
   /** The find pane is up and owns its own keyboard — see `Find`. */
   finding: boolean
+  /** Another panel is up over the map — Findings, or the lens help.
+   *
+   *  **The button is disabled in that state, so the key must be too.** This file's own rule,
+   *  applied the way round it has not been yet: a control live on the keyboard and dead in the
+   *  chrome is the same lie as the reverse, and ⌘F under an open Findings panel would put a
+   *  search box on top of a panel that has its own Escape and its own idea of what Tab does.
+   *
+   *  Only Find is refused. The lens digits still answer, because changing what the map behind
+   *  a panel is coloured by is a thing somebody can reasonably want and nothing about it
+   *  fights the panel. */
+  covered: boolean
 }
 
 export type Act =
@@ -86,8 +96,9 @@ export type Act =
 export function actOf(e: Press, w: Where): Act {
   if (e.key === 'Tab' && !e.meta && !e.alt && !e.ctrl && !e.shift) {
     // Inside a field, and inside the pane it opens, Tab stays Tab — the pane moves through
-    // its own results with it, and a field needs it to leave.
-    if (w.typing || w.finding) return null
+    // its own results with it, and a field needs it to leave. Under another panel it is the
+    // browser's focus walk again, which is what an unclaimed Tab has always been.
+    if (w.typing || w.finding || w.covered) return null
     return { do: 'find' }
   }
   if (!e.meta || e.alt || e.ctrl) return null
@@ -102,7 +113,7 @@ export function actOf(e: Press, w: Where): Act {
   // The ordering carries this: it runs BEFORE the Shift guard, so an `=` branch that forgot to
   // check Shift would swallow the last lens and nothing on screen would say so.
   if (e.key === '+' || (e.key === '=' && e.shift)) return { do: 'history' }
-  if (e.key === 'f') return { do: 'find' }
+  if (e.key === 'f') return w.covered ? null : { do: 'find' }
   if (e.shift) return null
   // Before the digits, and it costs them nothing — `[` and `]` are not in `LENS_KEYS` and
   // never were. See `LENS_STEP` for why stepping exists at all.

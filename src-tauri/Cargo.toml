@@ -147,10 +147,10 @@ name = "sanity-history"
 path = "src/bin/history.rs"
 
 # The lead catalog, headless — and the instrument the catalog is titrated with. See
-# `docs/notes/leads.md`; the window's settings page is a UI over this same evaluator.
+# `docs/notes/findings.md`; the window's settings page is a UI over this same evaluator.
 [[bin]]
-name = "sanity-leads"
-path = "src/bin/leads.rs"
+name = "sanity-findings"
+path = "src/bin/findings.rs"
 
 # Standalone workspace so cargo never folds this into a parent build graph.
 [workspace]

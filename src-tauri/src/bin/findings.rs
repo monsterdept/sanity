@@ -1,4 +1,4 @@
-//! `just leads <path>` — the lead catalog, headless.
+//! `just findings <path>` — the finding catalog, headless.
 //!
 //! **This is the instrument the default catalog gets titrated with, and it is why the rule
 //! grammar has a text form at all.** A catalog can only be tuned in a language that can
@@ -8,10 +8,10 @@
 //!
 //! Two numbers matter per rule and only one of them is the hit count:
 //!
-//! - **calibrated** — the threshold that would yield about `--target` leads on THIS repo.
+//! - **calibrated** — the threshold that would yield about `--target` findings on THIS repo.
 //!   A shipped constant is wrong on most repos by construction: the same rule wants 134
 //!   lines on htop and 1,383 on kibana.
-//! - **only** — how many of its leads no other enabled rule already found. A rule with a
+//! - **only** — how many of its findings no other enabled rule already found. A rule with a
 //!   healthy hit count and no marginal contribution is a second name for a list you already
 //!   have, which is how "long and undocumented" died.
 //!
@@ -24,10 +24,10 @@
 //! `--rule` runs one ad-hoc rule instead of the catalog, which is the loop this exists for:
 //!
 //! ```text
-//! just leads ../ceph --rule "func: loc >= 200 and callers >= 20"
+//! just findings ../ceph --rule "func: loc >= 200 and callers >= 20"
 //! ```
 
-use sanity_lib::leads::{self, Rule};
+use sanity_lib::findings::{self, Rule};
 use sanity_lib::scan::Progress;
 use std::path::PathBuf;
 
@@ -61,7 +61,7 @@ fn main() {
             }
             "-h" | "--help" => {
                 eprintln!(
-                    "usage: sanity-leads [PATH] [--rule EXPR]... [--bare] [--raw] [--target N] [--show N]\n\
+                    "usage: sanity-findings [PATH] [--rule EXPR]... [--bare] [--raw] [--target N] [--show N]\n\
                      \x20                  [--depth none|files|lines|edits]\n\n\
                      --depth files on a large repo: the default blames every file.\n\
                      EXPR is `func: loc >= 200 and callers >= 20` — one or two clauses over\n\
@@ -127,18 +127,18 @@ fn main() {
     ) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("\nsanity-leads: could not scan {}: {e}", path.display());
+            eprintln!("\nsanity-findings: could not scan {}: {e}", path.display());
             std::process::exit(1);
         }
     };
     let reports = sanity_lib::assessment::load(&path, &scan);
     eprintln!();
 
-    let traced = leads::Traced {
+    let traced = findings::Traced {
         git: depth != sanity_lib::trace::Depth::Untraced,
         churned: scan.stats.churned,
     };
-    let facts = leads::subjects(&scan.root, &reports, traced);
+    let facts = findings::subjects(&scan.root, &reports, traced);
 
     // **The repo's own thresholds, the same ones the window uses.** `rules_for` calibrates
     // and saves on first sight; after that the numbers are settled and this tool reports what
@@ -147,19 +147,19 @@ fn main() {
     let mut rules: Vec<Rule> = if bare {
         Vec::new()
     } else if raw {
-        leads::catalog()
+        findings::catalog()
     } else {
-        leads::rules_for(&path, &facts)
+        findings::rules_for(&path, &facts)
     };
     match exprs.iter().map(|e| Rule::parse(e)).collect::<Result<Vec<_>, _>>() {
         Ok(r) => rules.extend(r),
         Err(e) => {
-            eprintln!("sanity-leads: {e}");
+            eprintln!("sanity-findings: {e}");
             std::process::exit(2);
         }
     }
     if rules.is_empty() {
-        eprintln!("sanity-leads: --bare needs at least one --rule");
+        eprintln!("sanity-findings: --bare needs at least one --rule");
         std::process::exit(2);
     }
     let funcs =
@@ -170,13 +170,13 @@ fn main() {
     // tool prints each rule twice.
     //
     // **Minus what the archive holds, because the window subtracts it too.** A bench that
-    // counted leads somebody had already set aside would disagree with the panel about the
-    // same repo, and two answers about one population is the split brain this whole design
-    // keeps legislating against.
-    let archive = leads::archive(&path);
-    let pins = leads::pinned(&archive);
+    // counted findings somebody had already settled would disagree with the panel about the same
+    // repo, and two answers about one population is the split brain this whole design keeps
+    // legislating against. A FLAGGED finding is not settled and stays counted.
+    let archive = findings::archive(&path);
+    let pins = findings::pinned(&archive);
     let (sets, aside): (Vec<_>, Vec<_>) =
-        rules.iter().map(|r| leads::live_hits(r, &facts, &pins)).unzip();
+        rules.iter().map(|r| findings::live_hits(r, &facts, &pins)).unzip();
     let set_aside: usize = aside.iter().sum();
 
     println!("{}", path.display());
@@ -197,7 +197,7 @@ fn main() {
         println!("  nothing read here: surprise, documented and legible cannot answer");
     }
     if set_aside > 0 {
-        println!("  {set_aside} set aside in .sanity/dismissed.md, and not counted below");
+        println!("  {set_aside} settled in .sanity/decisions.md, and not counted below");
     }
 
     let head = format!(
@@ -208,8 +208,8 @@ fn main() {
     println!("  {}", "-".repeat(head.len() - 4));
     for (i, rule) in rules.iter().enumerate() {
         let hits = &sets[i];
-        let only = leads::marginal(i, &sets);
-        let cal = leads::calibrate(rule, &facts, target)
+        let only = findings::marginal(i, &sets);
+        let cal = findings::calibrate(rule, &facts, target)
             .map(|v| format!("{} {}", rule.clauses[rule.calibrated].field.name(), fmt(v)))
             .unwrap_or_else(|| "—".to_string());
         println!(
@@ -238,9 +238,9 @@ fn main() {
                 let median = rule
                     .clauses
                     .get(rule.calibrated)
-                    .and_then(|c| leads::spread(&facts, rule.pop, c.field))
+                    .and_then(|c| findings::spread(&facts, rule.pop, c.field))
                     .map(|s| s.median);
-                println!("              {}", leads::flat(&leads::render(rule, f, median)));
+                println!("              {}", findings::flat(&findings::render(rule, f, median)));
             }
         }
         if hits.len() > show {

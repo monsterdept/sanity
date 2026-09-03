@@ -1220,12 +1220,16 @@ export function searchProject(key: string, query: string, limit: number): Promis
   return invoke<Hit[]>('search_project', { key, query, limit })
 }
 
-/** One rule's answer. Mirrors `leads::Group`.
+/** One rule's answer. Mirrors `findings::Group`.
  *
- *  **`total` is how many leads there are and `hits` is how many were sent** — the backend caps
- *  the rows at `leads::PER_GROUP`, because ceph's load-bearing rule finds four thousand and a
+ *  **`total` is how many findings there are and `hits` is how many were sent** — the backend caps
+ *  the rows at `findings::PER_GROUP`, because ceph's load-bearing rule finds four thousand and a
  *  panel draws thirty. A count printed off `hits.length` would quietly report the cap. */
-export interface LeadGroup {
+export interface FindingGroup {
+  /** Stable across renames — what a dismissal is filed under, never the title. A title is
+   *  prose and gets reworded; keying durable state on it orphans every decision made under
+   *  the old one. Same rule as `key_of` versus a node id. */
+  id: string
   title: string
   soWhat: string
   /** 1 where the scan alone can answer it, 2 where it needs a reading. */
@@ -1235,17 +1239,17 @@ export interface LeadGroup {
   total: number
   /** How many this rule found that somebody has already set aside.
    *
-   *  Shown rather than hidden: a rule quiet because its leads were all dealt with is a
+   *  Shown rather than hidden: a rule quiet because its findings were all dealt with is a
    *  different sentence from one that never found any, and the second is what a reader
    *  assumes when a list is empty. */
   dismissed: number
-  /** How many of these leads no other rule found. */
+  /** How many of these findings no other rule found. */
   only: number
   /** The lenses this rule combined, as `ColorMode` ids — plus `size`, which is not a lens but
-   *  is how the map draws lines. Mirrors `leads::Rule::lenses`.
+   *  is how the map draws lines. Mirrors `findings::Rule::lenses`.
    *
    *  **The pair IS the claim.** Surprise and reach is a different sentence from surprise and
-   *  size, and a lead exists precisely because no single lens can be worn to see it. */
+   *  size, and a finding exists precisely because no single lens can be worn to see it. */
   lenses: string[]
   /** Why this rule could not answer, in words — `null` where it could.
    *
@@ -1253,19 +1257,22 @@ export interface LeadGroup {
    *  one is "nothing here matches" and the other is "this could not be asked", which is the
    *  same distinction the map keeps between an unread wedge and a cold one. */
   blocked: string | null
-  hits: Lead[]
+  hits: Finding[]
 }
 
-/** One lead: where to fly, and what to file a decision about. Mirrors `leads::Lead`.
+/** One finding: where to fly, and what to file a decision about. Mirrors `findings::Finding`.
  *
  *  **`hit.id` and `key` are not interchangeable.** The first embeds `@line` and is what the
  *  camera flies to; the second is what a dismissal is stored under and survives the body
  *  moving down the file. */
-export interface Lead {
+export interface Finding {
   key: string
   hit: Hit
+  /** Somebody has committed to doing this. Sent on the finding rather than joined from the
+   *  archive here — a join done in two places is a join that disagrees with itself. */
+  flagged: boolean
   /** This rule's sentence about THIS subject, split at its numbers — rendered by
-   *  `leads::render` so the panel and `just leads` say the same thing.
+   *  `findings::render` so the panel and `just findings` say the same thing.
    *
    *  **Spans rather than a marked-up string**, so nothing here has to parse prose back out:
    *  the runs with `filled` set came from the subject's own measurements, and are the half
@@ -1277,57 +1284,68 @@ export interface Lead {
   says: Say[]
 }
 
-/** One run of a rendered sentence. Mirrors `leads::Span`. */
+/** One run of a rendered sentence. Mirrors `findings::Span`. */
 export interface Say {
   text: string
   /** True where this run is a number this subject actually has. */
   filled: boolean
 }
 
-/** The lead catalog for a project — see `commands::project_leads`.
+/** The finding catalog for a project — see `commands::project_findings`.
  *
  *  Asked of the backend rather than computed here, for the reason `searchProject` is: the
  *  window's tree is slimmed on a large repo and holds neither the function names nor the call
  *  counts every interesting rule is made of. */
-export function projectLeads(key: string): Promise<LeadGroup[]> {
-  return invoke<LeadGroup[]>('project_leads', { key })
+export function projectFindings(key: string): Promise<FindingGroup[]> {
+  return invoke<FindingGroup[]>('project_findings', { key })
 }
 
-/** One lead somebody looked at and set aside. Mirrors `leads::Dismissal`. */
-export interface Dismissal {
+/** What somebody decided about a finding. Mirrors `findings::Verdict`.
+ *
+ *  - `flagged` — needs doing. Stays in the list and rises to the top of it.
+ *  - `fine-for-now` — fine as the code stands; comes back when the code moves.
+ *  - `fine-always` — fine whatever the code does. */
+export type Verdict = 'flagged' | 'fine-for-now' | 'fine-always'
+
+/** One finding somebody has decided about. Mirrors `findings::Decision`. */
+export interface Decision {
   /** `key_of(path, name, ord)` for a function, the path for a file — never a node id. */
   key: string
+  /** The rule's stable id. */
   rule: string
-  /** The state the code was in when this was said. When it moves, the dismissal expires and
-   *  the lead comes back — see `leads::pin_of`. */
+  /** What that rule was CALLED when this was filed — part of the record, not looked up. */
+  title: string
+  verdict: Verdict
+  /** The state the code was in when this was said. `fine-for-now` expires when it moves. */
   pin: string
   reason: string
   when: string
   by: string
 }
 
-/** Set a lead aside, with a reason.
+/** Record what somebody decided about a finding.
  *
  *  Rejects rather than resolving quietly when the write fails: a panel that stops drawing a
- *  lead on the strength of a write it never checked is claiming something it does not know. */
-export function dismissLead(
+ *  finding on the strength of a write it never checked is claiming something it does not know. */
+export function decideFinding(
   project: string,
   key: string,
   rule: string,
+  verdict: Verdict,
   reason: string,
 ): Promise<void> {
-  return invoke<void>('dismiss_lead', { project, key, rule, reason })
+  return invoke<void>('decide_finding', { project, key, rule, verdict, reason })
 }
 
-/** Take one back out of the archive. */
-export function restoreLead(project: string, key: string, rule: string): Promise<void> {
-  return invoke<void>('restore_lead', { project, key, rule })
+/** Take a decision back, returning the finding to the list. */
+export function undecideFinding(project: string, key: string, rule: string): Promise<void> {
+  return invoke<void>('undecide_finding', { project, key, rule })
 }
 
-/** Everything set aside in this repo, newest first — including entries whose pin has moved,
- *  whose leads are therefore already back in the list. */
-export function projectArchive(key: string): Promise<Dismissal[]> {
-  return invoke<Dismissal[]>('project_archive', { key })
+/** Everything decided in this repo, newest first — including entries whose pin has moved,
+ *  whose findings are therefore already back in the list. */
+export function projectDecisions(key: string): Promise<Decision[]> {
+  return invoke<Decision[]>('project_decisions', { key })
 }
 
 /** One function, as a row in a list of its neighbours. Mirrors `links::Ref`. */

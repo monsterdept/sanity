@@ -69,6 +69,24 @@ export type Spacing = {
  *  A reader who has turned it on has `border: true` stored and keeps it. */
 export const SPACING_DEFAULT: Spacing = { border: false, slice: 1, ring: 1, width: 1 }
 
+/** How much of each ring a directory's own band takes — see `Sunburst`'s `rimShare`.
+ *
+ *  **A fifth, and the two ends are wrong in opposite directions.** At zero the rim is a few
+ *  pixels and a container's distribution is drawn where nobody looks, with its flat mean
+ *  behind: `sanity`'s `src-tauri` read as one shade of purple while the pane beside it showed
+ *  2,660 / 1,693 / 3,663 / 14,727. At one the segments stop being arc LENGTHS and become
+ *  areas — and area is the encoding this map already spends on lines, so a proportion silently
+ *  turns into a quantity.
+ *
+ *  A fifth is enough to read four bands off a directory and little enough that the band is
+ *  obviously a summary of the wedge rather than a measurement of its own.
+ *
+ *  **It had a slider while that argument was being had.** It was had, on real repos, and
+ *  nothing since has wanted a different number — so it is a constant and the bar has its room
+ *  back. Here rather than in `App` because it belongs with the other settled answer about how
+ *  the map is drawn. */
+export const BAND_SHARE = 0.2
+
 /** How far either slider travels, as a multiple of the constant it scales.
  *
  *  Zero is a real position on both and not a degenerate one: no cut is a ring drawn as a
@@ -86,39 +104,3 @@ export const RING_MAX = 4
  *  and the hub is the target for going up a level as well as the creature's home. */
 export const WIDTH_MIN = 0.6
 export const WIDTH_MAX = 1.1
-
-const KEY = 'sanity.spacing'
-
-const clamp = (v: unknown, max: number, fallback: number): number => {
-  const n = Number(v)
-  return Number.isFinite(n) ? Math.min(max, Math.max(0, n)) : fallback
-}
-
-/** Clamped and field-by-field, rather than refused whole — the same rule `loadRings` follows.
- *  A stored record from a build with a different range is a preference somebody expressed, and
- *  a bad `slice` is no reason to throw away their `border`. */
-export function loadSpacing(): Spacing {
-  try {
-    const raw = localStorage.getItem(KEY)
-    if (!raw) return SPACING_DEFAULT
-    const v = JSON.parse(raw) as Partial<Spacing>
-    return {
-      border: typeof v.border === 'boolean' ? v.border : SPACING_DEFAULT.border,
-      slice: clamp(v.slice, SLICE_MAX, SPACING_DEFAULT.slice),
-      ring: clamp(v.ring, RING_MAX, SPACING_DEFAULT.ring),
-      width: Math.max(WIDTH_MIN, clamp(v.width, WIDTH_MAX, SPACING_DEFAULT.width)),
-    }
-  } catch {
-    /* storage unavailable, or a record this build cannot read — the defaults are a fine
-       answer, and they are the ones every argument in `Sunburst` is written about */
-  }
-  return SPACING_DEFAULT
-}
-
-export function saveSpacing(s: Spacing): void {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(s))
-  } catch {
-    /* the preference just won't survive a restart */
-  }
-}

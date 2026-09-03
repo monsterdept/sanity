@@ -22,7 +22,7 @@ alternative was built and thrown away, and the note is the only record of that.
 | [time.md](docs/notes/time.md) | What Churn and Age are FOR, and why what they measure isn't it |
 | [panel.md](docs/notes/panel.md) | The detail pane, per-lens sections, code tiles |
 | [history.md](docs/notes/history.md) | Replay, timeline cache, movie export |
-| [leads.md](docs/notes/leads.md) | Multi-lens leads, the rule grammar, `just leads`. **UI not built** |
+| [findings.md](docs/notes/findings.md) | Multi-lens findings, the rule grammar, decisions, `just findings` |
 | [conventions.md](docs/notes/conventions.md) | Stack, commands, languages, cache versioning, release gates |
 
 ## The metric is the product

@@ -120,22 +120,22 @@ history path="." *flags="":
     target="$(cd "{{path}}" && pwd)"
     cd src-tauri && cargo run --quiet --bin sanity-history -- "$target" {{flags}}
 
-# What the map is telling you to do, headless — `just leads ../ceph`,
-# `just leads . --rule "func: loc >= 200 and callers >= 20"`.
+# What is worth looking at, headless — `just findings ../ceph`,
+# `just findings . --rule "func: loc >= 200 and callers >= 20"`.
 #
-# The bench the default catalog is tuned on. Read `docs/notes/leads.md` first: the two
+# The bench the default catalog is tuned on. Read `docs/notes/findings.md` first: the two
 # numbers that matter are the calibrated threshold (a count, never a percentile) and the
 # marginal contribution (what this rule finds that no other rule already did).
 # `[positional-arguments]` so a rule keeps its spaces: `{{flags}}` is raw interpolation and
 # splits `--rule "func: loc >= 200"` into five words, which the binary then reads as five
 # paths. Every other recipe here takes flags that are single words and never noticed.
 [positional-arguments]
-leads path="." *flags="":
+findings path="." *flags="":
     #!/usr/bin/env bash
     set -euo pipefail
     target="$(cd "$1" && pwd)"
     shift
-    cd src-tauri && cargo run --quiet --bin sanity-leads -- "$target" "$@"
+    cd src-tauri && cargo run --quiet --bin sanity-findings -- "$target" "$@"
 
 # Fold a synthetic timeline to the same commit two ways and compare the trees field by
 # field — the check that a backward seek returns exactly what playback returns.

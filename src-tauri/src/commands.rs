@@ -891,25 +891,25 @@ pub fn search_project(
         .unwrap_or_default()
 }
 
-/// What the map is telling you to do: the lead catalog, run against this project.
+/// What the map is telling you to do: the finding catalog, run against this project.
 ///
 /// **Answered by the backend for the reason [`search_project`] is** — a window holding a
 /// slimmed tree has no function names and no call counts, so a browser-side pass would come
 /// back empty on exactly the repos worth asking about, and would be a confident picture of
 /// whatever the window happened to fetch. See `rings.md`, where a histogram over a biased
-/// sample is written up at length; a lead is worse, because it names one function.
+/// sample is written up at length; a finding is worse, because it names one function.
 ///
 /// Empty for a project that has never been scanned. Every OTHER absence is reported inside
-/// the group as [`crate::leads::Group::blocked`], because a rule that cannot answer must not
+/// the group as [`crate::findings::Group::blocked`], because a rule that cannot answer must not
 /// be drawn as a rule that found nothing.
 #[tauri::command]
-pub fn project_leads(
+pub fn project_findings(
     state: tauri::State<'_, crate::agentapi::Shared>,
     key: String,
-) -> Vec<crate::leads::Group> {
+) -> Vec<crate::findings::Group> {
     let st = crate::agentapi::lock(&state);
     let Some(p) = st.projects.get(&key) else { return Vec::new() };
-    let traced = crate::leads::Traced {
+    let traced = crate::findings::Traced {
         // What the map itself knows: whether anybody has read the log yet. NOT
         // `stats::without_history`, which is true for an untraced repo as well as for one
         // with no history — the two absences must never render alike, and here they would
@@ -918,12 +918,12 @@ pub fn project_leads(
         churned: p.scan.stats.churned,
     };
     // **This repo's own thresholds, not the catalog's shipped ones.** A shipped constant is
-    // wrong nearly everywhere — `loc >= 200` is eight leads on htop and 2,292 on kibana — so
+    // wrong nearly everywhere — `loc >= 200` is eight findings on htop and 2,292 on kibana — so
     // the numbers are calibrated against the repo the first time it is asked and then saved
-    // and left alone. Saved is what makes the list drainable; see `leads::rules_for`.
-    let facts = crate::leads::subjects(&p.scan.root, &p.reports, traced);
-    let rules = crate::leads::rules_for(&p.repo, &facts);
-    crate::leads::report(
+    // and left alone. Saved is what makes the list drainable; see `findings::rules_for`.
+    let facts = crate::findings::subjects(&p.scan.root, &p.reports, traced);
+    let rules = crate::findings::rules_for(&p.repo, &facts);
+    crate::findings::report(
         &p.scan.root,
         &p.reports,
         traced,
@@ -932,69 +932,77 @@ pub fn project_leads(
         // is a file somebody may well have edited by hand or merged from a branch, and a
         // cached copy is how the panel comes to disagree with `.sanity/` about what has been
         // dismissed — which is the one thing this store must never do.
-        &crate::leads::archive(&p.repo),
+        &crate::findings::archive(&p.repo),
     )
 }
 
-/// The pin for one lead, as the code stands right now — see [`crate::leads::pin_of`].
+/// The pin for one finding, as the code stands right now — see [`crate::findings::pin_of`].
 ///
 /// Its own function because dismissing and restoring both need it and both need it to be the
 /// SAME string: a pin computed two ways is a dismissal that never matches, which would show
-/// as a lead somebody dismissed reappearing immediately.
-fn lead_pin(
+/// as a finding somebody dismissed reappearing immediately.
+fn finding_pin(
     st: &crate::agentapi::AppState,
     project: &str,
     key: &str,
     rule: &str,
-) -> Result<(std::path::PathBuf, String), String> {
+) -> Result<(std::path::PathBuf, String, String), String> {
     let p = st.projects.get(project).ok_or("that project is not open")?;
-    let traced = crate::leads::Traced {
+    let traced = crate::findings::Traced {
         git: p.trace.depth != crate::trace::Depth::Untraced,
         churned: p.scan.stats.churned,
     };
-    let facts = crate::leads::subjects(&p.scan.root, &p.reports, traced);
+    let facts = crate::findings::subjects(&p.scan.root, &p.reports, traced);
     // The repo's rules, not the shipped ones: a pin records the values the rule MEASURED, and
     // one computed against a different threshold is a dismissal that never matches.
-    let rules = crate::leads::rules_for(&p.repo, &facts);
-    let r = rules.iter().find(|r| r.title == rule).ok_or("no rule by that name")?;
-    let f = facts.iter().find(|f| f.subject.key == key).ok_or("that lead is not on the map")?;
-    Ok((p.repo.clone(), crate::leads::pin_of(r, f)))
+    let rules = crate::findings::rules_for(&p.repo, &facts);
+    // By id, which is what the window sends and what the archive is keyed on — a title is
+    // prose and may have been reworded since.
+    let r = rules.iter().find(|r| r.id == rule).ok_or("no rule by that id")?;
+    let f = facts.iter().find(|f| f.subject.key == key).ok_or("that finding is not on the map")?;
+    Ok((p.repo.clone(), crate::findings::pin_of(r, f), r.title.to_string()))
 }
 
-/// Set a lead aside, with a reason.
+/// Record what somebody decided about a finding.
 ///
-/// **Keyed by `key_of` and pinned to the state the code was in.** When the body or the
-/// numbers the rule measured move, the dismissal expires and the lead comes back — "this is
-/// fine" was said about something that is no longer there. Same expiry a reading gets, and it
-/// is what stops the archive becoming a graveyard of stale opinions.
+/// **Keyed by `key_of` and by the rule's ID, and pinned to the state the code was in** — see
+/// [`crate::findings::pin_of`]. A `fine-for-now` expires when the body or the numbers the rule
+/// measured move, because "this is fine" was said about something that is no longer there; a
+/// `fine-always` is about the subject rather than a version of it and does not.
+///
+/// The `Result` is read back off disk before it is returned — nothing here is gated on a write
+/// having returned `Ok`, which is what the migration that destroyed a project's readings did.
 #[tauri::command]
-pub fn dismiss_lead(
+pub fn decide_finding(
     state: tauri::State<'_, crate::agentapi::Shared>,
     project: String,
     key: String,
     rule: String,
+    verdict: crate::findings::Verdict,
     reason: String,
 ) -> Result<(), String> {
-    let (repo, pin) = {
+    let (repo, pin, title) = {
         let st = crate::agentapi::lock(&state);
-        lead_pin(&st, &project, &key, &rule)?
+        finding_pin(&st, &project, &key, &rule)?
     };
-    let d = crate::leads::Dismissal {
+    let d = crate::findings::Decision {
         key,
         rule,
+        title,
+        verdict,
         pin,
         reason,
         when: crate::assessment::now_iso(),
         by: crate::assessment::who(&repo),
     };
-    // The error is returned rather than swallowed: a panel that stops drawing a lead on the
+    // The error is returned rather than swallowed: a panel that stops drawing a finding on the
     // strength of a write it never checked is claiming something it does not know.
-    crate::leads::dismiss(&repo, d).map_err(|e| e.to_string())
+    crate::findings::decide(&repo, d).map_err(|e| e.to_string())
 }
 
-/// Take one back out of the archive.
+/// Take a decision back, returning the finding to the list.
 #[tauri::command]
-pub fn restore_lead(
+pub fn undecide_finding(
     state: tauri::State<'_, crate::agentapi::Shared>,
     project: String,
     key: String,
@@ -1004,27 +1012,27 @@ pub fn restore_lead(
         let st = crate::agentapi::lock(&state);
         st.projects.get(&project).map(|p| p.repo.clone()).ok_or("that project is not open")?
     };
-    crate::leads::restore(&repo, &key, &rule).map_err(|e| e.to_string())
+    crate::findings::undecide(&repo, &key, &rule).map_err(|e| e.to_string())
 }
 
-/// Everything somebody has set aside in this repo, newest first.
+/// Everything decided in this repo, newest first.
 ///
-/// **Including the ones whose pin has moved.** An expired dismissal is not deleted — the lead
-/// it was about is already back in the list, and the row here is the record of somebody
-/// having once looked at it. The archive says which are which.
+/// **Including entries whose pin has moved.** An expired `fine-for-now` is not deleted — the
+/// finding it was about is already back in the list, and the row here is the record of somebody
+/// having once looked at it.
 #[tauri::command]
-pub fn project_archive(
+pub fn project_decisions(
     state: tauri::State<'_, crate::agentapi::Shared>,
     key: String,
-) -> Vec<crate::leads::Dismissal> {
+) -> Vec<crate::findings::Decision> {
     let st = crate::agentapi::lock(&state);
     let Some(p) = st.projects.get(&key) else { return Vec::new() };
-    let mut all = crate::leads::archive(&p.repo);
+    let mut all = crate::findings::archive(&p.repo);
     all.sort_by(|a, b| b.when.cmp(&a.when));
     all
 }
 
-/// What one function is connected to: its callers, what it calls, and its clone group.
+/// What one function is connected to: its callers, what it calls, and its clone group./// What one function is connected to: its callers, what it calls, and its clone group.
 ///
 /// **Asked for on selection, never sent with the tree.** The lists are the edges the Callers,
 /// Reach and Clones counts are made of — see [`crate::links`] — and shipping every function's

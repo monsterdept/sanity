@@ -440,7 +440,7 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
   return (
     <Overlay onClose={onClose}>
       <div
-        className="flex max-h-[86vh] w-full max-w-2xl flex-col rounded-xl border border-[var(--border)] bg-[var(--card)]"
+        className="flex max-h-[74vh] w-full max-w-2xl flex-col rounded-xl border border-[var(--border)] bg-[var(--card)]"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="shrink-0 border-b border-[var(--border)] px-5 pb-3 pt-4">

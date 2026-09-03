@@ -34,13 +34,14 @@ import {
   onScanScore,
   onScanProgress,
   openCodeWindow,
-  type Dismissal,
-  dismissLead,
-  restoreLead,
-  projectArchive,
+  type Decision,
+  type Verdict,
+  decideFinding,
+  undecideFinding,
+  projectDecisions,
   type Hit,
-  type LeadGroup,
-  projectLeads,
+  type FindingGroup,
+  projectFindings,
   type Node,
   type Progress,
   type AgentActivity,
@@ -75,7 +76,7 @@ import { CommitLog } from './components/CommitLog'
 import { HistoryBar } from './components/HistoryBar'
 import { Crumbs } from './components/Crumbs'
 import { Find } from './components/Find'
-import { Leads } from './components/Leads'
+import { Findings } from './components/Findings'
 import { TopRow } from './components/shell/TopRow'
 import { rampStop } from './lib/api'
 import {
@@ -115,7 +116,6 @@ import { Overlay } from './components/Overlay'
 import { HelpButton, LensHelp } from './components/LensHelp'
 import {
   AgeReading,
-  BandWidth,
   CONTROL_H,
   TangleReading,
   ChurnWindow,
@@ -123,10 +123,9 @@ import {
   DerivableToggle,
   MarkerToggle,
   RingCount,
-  SpacingMenu,
 } from './components/Rings'
 import { loadRings, saveRings } from './lib/rings'
-import { loadSpacing, saveSpacing, type Spacing } from './lib/spacing'
+import { BAND_SHARE, SPACING_DEFAULT } from './lib/spacing'
 import { isCapped, loadCap, saveCap, type Capped } from './lib/palette'
 import { ReadDialog } from './components/ReadDialog'
 
@@ -396,12 +395,12 @@ export default function App() {
   /** Whether the finder is up. Session state and nothing more — a search box that
    *  remembered it was open would greet a launch with a panel over the map. */
   const [finding, setFinding] = useState(false)
-  const [leading, setLeading] = useState(false)
-  const [leadGroups, setLeadGroups] = useState<LeadGroup[] | null>(null)
-  const [archive, setArchive] = useState<Dismissal[] | null>(null)
+  const [findingsOpen, setFindingsOpen] = useState(false)
+  const [findingGroups, setFindingGroups] = useState<FindingGroup[] | null>(null)
+  const [archive, setArchive] = useState<Decision[] | null>(null)
   /** Bumped after a dismissal lands, to re-ask for both halves.
    *
-   *  **Re-asked rather than patched in place.** Setting a lead aside changes the list, the
+   *  **Re-asked rather than patched in place.** Setting a finding aside changes the list, the
    *  archive, every group's marginal count and the number on the mascot — and a local edit
    *  that got any one of those wrong would leave the panel disagreeing with `.sanity/`, which
    *  is the failure this store is most careful about. One extra walk of a tree that is
@@ -443,17 +442,21 @@ export default function App() {
    *  silently turns into a quantity.
    *
    *  A fifth is enough to read four bands off a directory and little enough that the band is
-   *  obviously a summary of the wedge rather than a measurement of its own. */
-  const [band, setBand] = useState(0.2)
+   *  obviously a summary of the wedge rather than a measurement of its own.
+   *
+   *  **Fixed now, and the slider is gone.** It was there to be moved while the argument above
+   *  was being had; it was had, on real repos, and nothing since has wanted a different
+   *  number. */
+  const band = BAND_SHARE
   /** The frame around a folder's band, the cut between two neighbours and the gutter between
    *  two levels — see `lib/spacing.ts`. A display preference like the ring count above, so it
    *  is read from storage once and written back on every change, and it is NOT per project.
    *
-   *  Stored where `band` is not, and the two docs are the reason: `band` says in its own note
-   *  that its ends are wrong in opposite directions and that it is there for LOOKING at real
-   *  repos. These have defaults that are argued and a reader who moves one has decided
-   *  something about how they want the map drawn. */
-  const [spacing, setSpacing] = useState<Spacing>(loadSpacing)
+   *  **Fixed now, and the menu is gone — including its storage.** A hidden control still
+   *  reading a stored value is worse than either having it or not: somebody who moved a slider
+   *  once gets a map drawn to a decision they cannot see and cannot take back. The constant is
+   *  the whole answer, and `loadSpacing`/`saveSpacing` have no caller. */
+  const spacing = SPACING_DEFAULT
   /** Whether the folder rims carry Traps' and Clones' pointing marks — see `MarkerToggle`
    *  and `Sunburst`'s `dots`. On by default, because the mark is what makes those two lenses
    *  findable from the middle of the map; session state rather than stored, because it is a
@@ -483,10 +486,6 @@ export default function App() {
   const chooseRings = useCallback((n: number) => {
     setRings(n)
     saveRings(n)
-  }, [])
-  const chooseSpacing = useCallback((s: Spacing) => {
-    setSpacing(s)
-    saveSpacing(s)
   }, [])
   /** How many colors each categorical lens spends — see `lib/palette.ts`. A display
    *  preference like the ring count, read once and written back on every change, and held
@@ -1919,6 +1918,7 @@ export default function App() {
               at.tagName === 'TEXTAREA' ||
               at.tagName === 'SELECT'),
           finding,
+          covered: findingsOpen || helping,
         },
       )
       if (!act) return
@@ -1939,7 +1939,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [toggleHistory, finding])
+  }, [toggleHistory, finding, findingsOpen, helping])
 
   /** The lens the step keys move FROM, read at press time.
    *
@@ -2678,24 +2678,24 @@ export default function App() {
    *
    *  **On the project and on the map's identity, not on every render.** A fresh `tree` is
    *  what a landed scan or a landed reading produces, so this re-asks exactly when the
-   *  answer could have changed — and a rescan is the event that can add leads to a repo you
+   *  answer could have changed — and a rescan is the event that can add findings to a repo you
    *  are already standing in. Answers are dropped if the project moved on while one was in
    *  flight, or the dot on one repo would be reporting another's.
    *
    *  Not asked at all during a replay: the panel refuses that state, and a badge over a
-   *  frame would be pointing at leads about a repo that is not the one on screen. */
+   *  frame would be pointing at findings about a repo that is not the one on screen. */
   useEffect(() => {
     if (!activeKey || historyOn) {
-      setLeadGroups(null)
+      setFindingGroups(null)
       return
     }
     let live = true
-    void projectLeads(activeKey)
+    void projectFindings(activeKey)
       .then((g) => {
-        if (live) setLeadGroups(g)
+        if (live) setFindingGroups(g)
       })
       .catch(() => {
-        if (live) setLeadGroups(null)
+        if (live) setFindingGroups(null)
       })
     return () => {
       live = false
@@ -2708,7 +2708,7 @@ export default function App() {
       return
     }
     let live = true
-    void projectArchive(activeKey)
+    void projectDecisions(activeKey)
       .then((a) => {
         if (live) setArchive(a)
       })
@@ -2721,44 +2721,44 @@ export default function App() {
   }, [activeKey, archiveAt])
 
   /** File a decision, then re-ask. **The refresh is inside the `then`**: a write that failed
-   *  must not leave the panel showing a lead as dealt with, which is exactly what an
+   *  must not leave the panel showing a finding as dealt with, which is exactly what an
    *  optimistic update would do. */
-  const dismiss = useCallback(
-    (key: string, rule: string, reason: string) => {
+  const decide = useCallback(
+    (key: string, rule: string, verdict: Verdict, reason: string) => {
       if (!activeKey) return
-      void dismissLead(activeKey, key, rule, reason)
+      void decideFinding(activeKey, key, rule, verdict, reason)
         .then(() => setArchiveAt((n) => n + 1))
         .catch(() => {})
     },
     [activeKey],
   )
 
-  const restore = useCallback(
+  const undecide = useCallback(
     (key: string, rule: string) => {
       if (!activeKey) return
-      void restoreLead(activeKey, key, rule)
+      void undecideFinding(activeKey, key, rule)
         .then(() => setArchiveAt((n) => n + 1))
         .catch(() => {})
     },
     [activeKey],
   )
 
-  /** How long the worklist is: distinct things to look at, not leads.
+  /** How long the worklist is: distinct things to look at, not findings.
    *
    *  **Counted the way the panel counts them, because it is the same number.** A function
    *  three rules flagged is one tile and has to be one on the badge too — a bubble saying 90
    *  over a list of 60 is the map and the key disagreeing about one repo, which is the
    *  failure this surface keeps legislating against.
    *
-   *  Already the undismissed count: the backend drops archived leads before it ranks or
+   *  Already the undismissed count: the backend drops archived findings before it ranks or
    *  counts anything, so this is what goes down when somebody deals with one. A blocked rule
    *  contributes nothing — it found nothing because it could not RUN, and counting that as
    *  zero is the same sentence as a clean bill. */
-  const leadTotal = leadGroups
-    ? new Set(leadGroups.filter((g) => !g.blocked).flatMap((g) => g.hits.map((l) => l.key))).size
+  const findingTotal = findingGroups
+    ? new Set(findingGroups.filter((g) => !g.blocked).flatMap((g) => g.hits.map((l) => l.key))).size
     : 0
 
-  const openLeads = useCallback(() => setLeading(true), [])
+  const openFindings = useCallback(() => setFindingsOpen(true), [])
 
   /** The creature, plus what it has to tell you.
    *
@@ -2767,8 +2767,8 @@ export default function App() {
    *  would re-render the whole map on every render of this component, which is the exact cost
    *  that memo exists to avoid. Same discipline, one layer out. */
   const mascotForMap = useMemo(
-    () => ({ ...mascot, leads: leadTotal, onLeads: openLeads }),
-    [mascot, leadTotal, openLeads],
+    () => ({ ...mascot, findings: findingTotal, onFindings: openFindings }),
+    [mascot, findingTotal, openFindings],
   )
 
   return (
@@ -2877,7 +2877,7 @@ export default function App() {
                     tree, how thick a band — floats in the middle; the two doors out of it go
                     right.
 
-                    Help leads, because it explains the control it sits before and a question
+                    Help findings, because it explains the control it sits before and a question
                     mark after the thing it answers reads as an afterthought. It is also the
                     one control here that is about the app rather than about this repo, which
                     is the corner of a toolbar it belongs in. */}
@@ -2952,12 +2952,15 @@ export default function App() {
                     same layout and they mean there exactly what they mean anywhere else —
                     which is not true of the lens beside them. */}
                 <RingCount rings={rings} onRings={chooseRings} />
-                <BandWidth share={band} onShare={setBand} />
-                {/* Behind a pulldown, where its two neighbours are pills, and the note on
-                    `SpacingMenu` carries why: these are set once and lived with, where a ring
-                    count is read at a glance every time you look at the bar. Last of the three
-                    because it is the one about the gaps rather than about what fills them. */}
-                <SpacingMenu spacing={spacing} onSpacing={chooseSpacing} />
+                {/* **The band width and the spacing menu were here and are settled.** Both had
+                    arguments behind their defaults and both were looked at on real repos until
+                    those arguments stopped moving; a control that everyone leaves alone is a
+                    control that costs the bar its room and every reader a decision they have
+                    no basis to make. The values live on as constants — see `BAND_SHARE` and
+                    `SPACING_DEFAULT`, which still carry the reasoning.
+
+                    The ring count stays because its consequence is visible immediately and in
+                    the picture, which is the test the reader batch size failed. */}
 
                 <Spacer />
 
@@ -2971,7 +2974,11 @@ export default function App() {
                   traced={(activeProject?.replayed ?? 0) > 0}
                   onToggle={toggleHistory}
                 />
-                <FindButton on={finding} onOpen={() => setFinding(true)} />
+                <FindButton
+                  on={finding}
+                  disabled={findingsOpen || helping}
+                  onOpen={() => setFinding(true)}
+                />
               </div>
             )}
           </TopRow>
@@ -3002,15 +3009,15 @@ export default function App() {
                 through `flyTo`, which is the motion drilling in by hand already makes. What
                 differs is who chose the destination: the finder is somebody naming a thing,
                 and this is the map naming one. */}
-            <Leads
-              open={leading}
+            <Findings
+              open={findingsOpen}
               projectKey={activeKey}
-              groups={leadGroups}
+              groups={findingGroups}
               replaying={historyOn}
               archive={archive}
-              onDismiss={dismiss}
-              onRestore={restore}
-              onClose={() => setLeading(false)}
+              onDecide={decide}
+              onUndecide={undecide}
+              onClose={() => setFindingsOpen(false)}
               onPick={flyTo}
             />
 
@@ -3684,18 +3691,31 @@ function Spacer() {
   return <span data-tauri-drag-region aria-hidden className="min-w-4 flex-1 self-stretch" />
 }
 
-function FindButton({ on, onOpen }: { on: boolean; onOpen: () => void }) {
+function FindButton({
+  on,
+  disabled,
+  onOpen,
+}: {
+  on: boolean
+  /** Another panel is up over the map. **The shortcut is refused in the same state** — see
+   *  `Where.covered`: a control dead here and live on the keyboard is not disabled. */
+  disabled: boolean
+  onOpen: () => void
+}) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onOpen}
       aria-label="Find"
-      title="Find a function, file or directory  (⌘F)"
+      title={disabled ? 'Close the panel to search' : 'Find a function, file or directory  (⌘F)'}
       className={`flex items-center rounded-full px-2 transition-colors ${CONTROL_H}`}
       style={{
         background: on ? 'var(--accent)' : 'color-mix(in oklch, var(--foreground) 8%, transparent)',
         color: on ? 'var(--accent-foreground)' : 'var(--muted-foreground)',
         boxShadow: on ? '0 1px 2px rgb(0 0 0 / 0.25)' : undefined,
+        opacity: disabled ? 0.4 : undefined,
+        cursor: disabled ? 'default' : undefined,
       }}
     >
       {/* **Sized to the pills' LINE BOX, not to their type.** An 11px icon read as a smaller

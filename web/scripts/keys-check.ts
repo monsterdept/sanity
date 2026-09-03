@@ -18,7 +18,7 @@ function check(what: string, ok: boolean, saw?: unknown) {
 }
 
 /** Nothing in the way: no field focused, no pane, no replay, nothing locked. */
-const idle: Where = { typing: false, finding: false }
+const idle: Where = { typing: false, finding: false, covered: false }
 const cmd = (key: string) => ({ key, meta: true, alt: false, ctrl: false, shift: false })
 const tab = { key: 'Tab', meta: false, alt: false, ctrl: false, shift: false }
 const lens = (a: Act) => (a && a.do === 'lens' ? a.mode : a?.do)
@@ -27,7 +27,11 @@ console.log('the lens digits answer, and answer with the right lens')
 {
   const modes = Object.keys(MODE_LABEL) as ColorMode[]
   LENS_KEYS.forEach((k, i) => {
-    check(`⌘${k} selects ${modes[i]}`, lens(actOf(cmd(k), idle)) === modes[i], lens(actOf(cmd(k), idle)))
+    check(
+      `⌘${k} selects ${modes[i]}`,
+      lens(actOf(cmd(k), idle)) === modes[i],
+      lens(actOf(cmd(k), idle)),
+    )
   })
   // The regression, stated as the thing that was reported: using the finder must not cost
   // the digits. Tab opens the pane, and the pane being open is a state the digits pass
@@ -44,6 +48,7 @@ console.log('Tab opens the finder, and only where Tab is free')
   check('Tab opens it', actOf(tab, idle)?.do === 'find')
   check('inside a field it stays Tab', actOf(tab, { ...idle, typing: true }) === null)
   check('with the pane open it stays Tab', actOf(tab, { ...idle, finding: true }) === null)
+  check('under another panel it stays Tab', actOf(tab, { ...idle, covered: true }) === null)
   check('Shift-Tab is never ours', actOf({ ...tab, shift: true }, idle) === null)
   check('⌘-Tab is never ours', actOf({ ...tab, meta: true }, idle) === null)
   check('and Tab still opens it during a replay', actOf(tab, idle)?.do === 'find')
@@ -53,6 +58,14 @@ console.log('the two keys that are not lenses')
 {
   check('⌘f finds', actOf(cmd('f'), idle)?.do === 'find')
   check('⌘f finds whatever else is up', actOf(cmd('f'), { ...idle, finding: false })?.do === 'find')
+  // **The button is disabled under Findings and the help, so the key is too.** A control live
+  // on the keyboard and dead in the chrome is the same lie as the reverse — this file's own
+  // rule, applied the way round it had not been yet.
+  check('⌘f is refused under another panel', actOf(cmd('f'), { ...idle, covered: true }) === null)
+  check(
+    'but the digits are not — the map behind a panel is still yours to recolour',
+    lens(actOf(cmd('1'), { ...idle, covered: true })) === 'tangle',
+  )
   check('⌘+ toggles history', actOf(cmd('+'), idle)?.do === 'history')
   // `+` is Shift-`=`, so a handler that refuses Shift never sees it — and the way back out
   // of a replay has to work from inside one.

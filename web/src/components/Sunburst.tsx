@@ -508,18 +508,18 @@ function SunburstView({
     state: MascotState
     project?: string | null
     remint?: number
-    /** How many leads are standing — found, and not set aside. `0` draws nothing.
+    /** How many findings are standing — found, and not set aside. `0` draws nothing.
      *
      *  **A count is honest here because the archive makes it drainable.** Before dismissals
      *  existed the only number available was the total, and ceph's four thousand is a
      *  baseline rather than a notification; what a person can work down to nothing is worth
-     *  printing. See `docs/notes/leads.md`. */
-    leads?: number
-    /** Open the leads panel. **On the badge, never on the creature** — the mascot's single
+     *  printing. See `docs/notes/findings.md`. */
+    findings?: number
+    /** Open the findings panel. **On the badge, never on the creature** — the mascot's single
      *  clicks are already spoken for (six of them remint it, and the hub underneath means go
      *  up a level), so a click handler on the figure would fire on the first click of a
      *  gesture and open a panel in the middle of it. */
-    onLeads?: () => void
+    onFindings?: () => void
   }
   /** Ease the rings toward the shape they are given, instead of taking it.
    *
@@ -2851,7 +2851,7 @@ function SunburstView({
                 width: HUB_MASCOT * hubK,
                 height: HUB_MASCOT * hubK,
                 visibility: 'hidden',
-                cursor: mascot.onLeads && mascot.leads ? 'pointer' : onUp ? 'zoom-out' : undefined,
+                cursor: mascot.onFindings && mascot.findings ? 'pointer' : onUp ? 'zoom-out' : undefined,
               }}
               onDoubleClick={
                 onUp
@@ -2861,7 +2861,7 @@ function SunburstView({
                     }
                   : undefined
               }
-              /** **The whole creature opens the leads, and only while it has some to show.**
+              /** **The whole creature opens the findings, and only while it has some to show.**
                *
                *  This does sit in front of the six-click remint, which is the cost: with a bubble
                *  up, clicking the mascot opens a panel instead of counting toward a new creature.
@@ -2870,10 +2870,10 @@ function SunburstView({
                *  the more useful click. The disc's own "go up" is untouched, because that is a
                *  DOUBLE click and this stops the event before it reaches the ring underneath. */
               onClick={
-                mascot.onLeads && mascot.leads
+                mascot.onFindings && mascot.findings
                   ? (ev) => {
                       ev.stopPropagation()
-                      mascot.onLeads?.()
+                      mascot.onFindings?.()
                     }
                   : undefined
               }
@@ -2897,7 +2897,7 @@ function SunburstView({
 
                   `pointer-events: none`: the CLICK is the whole creature's, one level up.
                   This is the thing being pointed at, not the target. */}
-              {!!mascot.leads && mascot.state === 'sleeping' && (
+              {!!mascot.findings && mascot.state === 'sleeping' && (
                 <div
                   aria-hidden
                   className="absolute"
@@ -2931,7 +2931,7 @@ function SunburstView({
                       boxShadow: '0 0 0 1.5px var(--card), 0 1px 3px rgb(0 0 0 / 0.35)',
                     }}
                   >
-                    {mascot.leads > 999 ? `${Math.round(mascot.leads / 100) / 10}k` : mascot.leads}
+                    {mascot.findings > 999 ? `${Math.round(mascot.findings / 100) / 10}k` : mascot.findings}
                   </span>
                 </div>
               )}

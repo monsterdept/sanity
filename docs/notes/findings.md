@@ -1,10 +1,13 @@
-# Leads: what the map is telling you to do
+# Findings: what the map is telling you to do
 
-**Half of this is built.** `leads.rs` is the evaluator and `just leads` is the bench; the
-list, the settings rows, the badge and the store are still a design. Everything from *What
-the evaluator found* onwards is a record like any other note here, and everything before it
-is the proposal those measurements were taken against — kept in that order because the
-arguments came first and several of them were wrong.
+**Most of this is built.** `findings.rs` is the evaluator, `just findings` is the bench, and
+the panel, the badge and the decision store are in the window; the per-rule settings rows are
+still a design. Everything from *What the evaluator found* onwards is a record like any other
+note here, and everything before it is the proposal those measurements were taken against —
+kept in that order because the arguments came first and several of them were wrong.
+
+**They were called leads until the panel had been looked at.** Nothing durable moved with the
+rename: `.sanity/rules.md` and `.sanity/decisions.md` key on rule ids, which are not prose.
 
 ## The question this answers
 
@@ -17,14 +20,14 @@ away the exact distinction they exist for". So the readings that no amount of lo
 produce are the CONJUNCTIONS. Big and baffling. Documented and still hot. Load-bearing and
 unread. A clone group whose copies no longer agree.
 
-That is what a lead is: a place where two lenses disagree in a way somebody should look at.
+That is what a finding is: a place where two lenses disagree in a way somebody should look at.
 It is the multi-lens feature, and it arrives as a list rather than as a thirteenth colouring
 because the answer to "so what" is a verb, and a colour has no verbs.
 
-**They are leads, not issues.** The instrument does not know that anything here is wrong —
+**They are findings, not issues.** The instrument does not know that anything here is wrong —
 it knows a reader was surprised, that git has a date, that the parse counted callers. A word
 like "issue" or "violation" claims a confidence nothing upstream of it has got, which is the
-rule the whole metric is built on. A lead says look here, and says why.
+rule the whole metric is built on. A finding says look here, and says why.
 
 ## A clause is a band, never a number
 
@@ -39,8 +42,8 @@ Each clause names a lens and one of that lens's OWN bands — `CALLER_BANDS`, `A
 `colorMode.ts` already colours the map with and `contribute` already buckets a rim histogram
 into. Not a threshold the rule invents.
 
-- **The rule and the picture cannot disagree.** A lead is matched by the same code that
-  decides the wedge's colour, so "why is this a lead" is answered by looking at it. This is
+- **The rule and the picture cannot disagree.** A finding is matched by the same code that
+  decides the wedge's colour, so "why is this a finding" is answered by looking at it. This is
   the discipline `rings.md` argues for a folded file against a drawn one, one surface over:
   two ways to bucket one population is a split brain, and the copy nobody is looking at is
   the one that goes wrong.
@@ -82,7 +85,7 @@ finding and is argued with the numbers further down:
 
 ```
 Functions longer than [ 256 ] lines
-                       ↑ about 20 leads here — median 11, longest 3,047
+                       ↑ about 20 findings here — median 11, longest 3,047
 ```
 
 The distribution comes from this repo. The rule that gets SAVED is `256`. Absolute
@@ -117,19 +120,19 @@ filtered list, which is the failure `work_left` exists to prevent.
 
 The tiering is not a limitation. It is the on-ramp:
 
-> open → leads appear for free → several of them say *read this* → the read button is there
-> with its budget estimate → readings land → the reading rules light up and the leads sharpen
+> open → findings appear for free → several say *read this* → the read button is there with
+> its budget estimate → readings land → the reading rules light up and the findings sharpen
 
 Which makes the list the thing that JUSTIFIES reader budget, in specific terms about
 specific functions, rather than "read your repo, it will be nice". That chain is a better
 answer to "so what" than the rules are.
 
-## A lead has verbs, or it is a second map
+## A finding has verbs, or it is a second map
 
 A list that only navigates is the sunburst with worse typography. Every row carries:
 
 - **Drill there** — re-root the map on it. `zoom.ts` already flies rather than jumps, and
-  `Find` already does exactly this motion; a lead is the same landing with a different
+  `Find` already does exactly this motion; a finding is the same landing with a different
   reason for going.
 - **Read it** — queue a reader wave scoped to these functions, budget estimate in the row.
   The list is then a reading ORDER, which is the job the proxy already exists to do.
@@ -146,8 +149,8 @@ project its readings once already. Same staleness comparison against the body it
 about, which only the backend can do.
 
 So: you looked, you said this is fine, it goes away. Somebody edits the body, the dismissal
-expires and the lead comes back — because the sentence "this is fine" was about code that no
-longer exists. And the third state is not a button: **a lead is resolved by the code
+expires and the finding comes back — because the sentence "this is fine" was about code that no
+longer exists. And the third state is not a button: **a finding is resolved by the code
 changing**, which the next scan notices on its own.
 
 The reasons people type are the most interesting thing this feature will produce. Keep them.
@@ -155,7 +158,7 @@ The reasons people type are the most interesting thing this feature will produce
 ## The badge counts what is new, not what there is
 
 A first scan of ceph is not four thousand problems. It is a baseline. The mascot's badge
-counts leads that are NEW since the list was last opened; the cold start sets the waterline
+counts findings that are NEW since the list was last opened; the cold start sets the waterline
 at zero and says so.
 
 The list underneath is ranked and deep, and on a large repo it stays deep — that is honest,
@@ -193,7 +196,7 @@ express it, and one tuned by recompiling is one nobody tunes. So the evaluator a
 form of it come first, as the bench:
 
 ```
-just leads ceph --rule "func: loc >= 200 and callers >= 20"
+just findings ceph --rule "func: loc >= 200 and callers >= 20"
 ```
 
 The dropdowns are a UI over that evaluator, added once the defaults have stopped moving.
@@ -246,14 +249,14 @@ The threshold that yields a list of twenty, per rule, per repo:
 | Many hands (contributors) | 11 | 1 | 1 | 66 | 31 |
 
 A single shipped number does exactly what the spread predicts. At **200 lines**, "giant
-function" is 8 leads on htop and **2,292 on kibana**. At **40 functions**, "crowded file"
-is 2 leads on htop, 10 on sanity, **672 on ceph** — and 106 on kibana, which is 0.18% of its
+function" is 8 findings on htop and **2,292 on kibana**. At **40 functions**, "crowded file"
+is 2 findings on htop, 10 on sanity, **672 on ceph** — and 106 on kibana, which is 0.18% of its
 files against ceph's 10.9%, because kibana's median file holds ONE function and ceph's holds
 eight. The same rule, the same number, a top-decile finding in one repo and a rounding error
 in the other.
 
 **So the calibration target is a COUNT, not a percentile.** The suggestion offered while
-somebody is choosing the number is *the threshold that gives you about twenty leads here* —
+somebody is choosing the number is *the threshold that gives you about twenty findings here* —
 and what gets saved is the number, absolute, portable, meetable. This keeps everything the
 percentile version threw away: fix the twenty and the count drops and stays down, where a
 percentile rule hands you a fresh 5% forever.
@@ -297,7 +300,7 @@ what a repo with a documentation habit looks like, and still not a reason to shi
 
 `scancache` holds blame, and blame carries only the LAST commit to touch each line. A
 function edited ten times this quarter shows up as however many lines survive, once. The
-proxy duly found 1 lead on ceph and 10 on kibana, which is not a measurement of anything —
+proxy duly found 1 finding on ceph and 10 on kibana, which is not a measurement of anything —
 real churn is the log walk `churn::refresh` owns, and it is not in this cache.
 
 So both churn rules are **untested**, and are marked untested rather than being reported as
@@ -306,7 +309,7 @@ They get benched when the bench can read a trace.
 
 ### What the bench is, and the number to titrate against
 
-`just leads <repo>` — the criterion is a sentence rather than a number:
+`just findings <repo>` — the criterion is a sentence rather than a number:
 
 > first open produces a list a person would read to the bottom
 
@@ -315,12 +318,12 @@ undocumented" scored a perfectly healthy 3,455 on kibana and was worthless, beca
 the top 20 were already in "giant function". A rule's hit count says nothing about whether
 it earns a row in the catalog.
 
-So the bench reports **marginal contribution**: how many leads this rule finds that no other
+So the bench reports **marginal contribution**: how many findings this rule finds that no other
 ENABLED rule already found, which is a number that moves as rules are toggled and is
 therefore the thing to titrate against. Near zero is a second name for a list you already
 have — cut it, or find the clause that makes it disagree with its neighbour.
 
-The same number is worth showing in the settings row, beside the match count. "412 leads, 9
+The same number is worth showing in the settings row, beside the match count. "412 findings, 9
 of them only this rule finds" is the sentence somebody needs to decide whether to keep it.
 
 A rule that cannot pass on all five repos is not a default. It stays in the catalog, off,
@@ -334,7 +337,7 @@ reduction it describes, and this rule inherits it the day it lands.
 
 ## What the evaluator found, once it was real
 
-`leads.rs` and `just leads` are built; everything above this line was designed against a
+`findings.rs` and `just findings` are built; everything above this line was designed against a
 throwaway harness over `scancache`, and this section is what changed when the same rules
 ran against the actual tree. **Two implementations, agreeing to the digit** — htop's "giant
 function" is 8 hits at a calibrated 134 lines from both, ceph's is 416 at 865, ceph's
@@ -346,7 +349,7 @@ out to be the answer to the worry that tier 1 is a treemap with worse typography
 
 ### Marginal contribution is REPO-SHAPED, and that is the finding
 
-`hits / only` — how many leads, and how many of them no other enabled rule found:
+`hits / only` — how many findings, and how many of them no other enabled rule found:
 
 | Rule | htop | ceph | sanity | kibana |
 |---|---|---|---|---|
@@ -358,7 +361,7 @@ out to be the answer to the worry that tier 1 is a treemap with worse typography
 | Widely cloned | 0 | **50 / 50** | 0 | 141 / 136 |
 
 **"Giant function" is the catalog's most redundant rule and its second largest contributor,
-depending on which repo you ask.** On htop every one of its eight leads was already found by
+depending on which repo you ask.** On htop every one of its eight findings was already found by
 something else; on ceph it brings 70 rows out of 416; on kibana it brings 2,180 out of 2,292.
 That was measured in that order, and the first two readings produced a confident wrong
 conclusion — written down here as "the rule the catalog could most nearly do without" —
@@ -434,7 +437,7 @@ the row a person meets before they believe any of this.
 
 **Every remaining rule now contributes something on the repo that can test it.**
 
-**The churn rule has been measured, and it needed `--depth edits`.** It finds 3 leads on
+**The churn rule has been measured, and it needed `--depth edits`.** It finds 3 findings on
 sanity, 1 of them its own. The throwaway harness reported this rule as empty and was right to
 refuse to call that a measurement: blame keeps one commit per line, so it cannot see a body
 rewritten forty times, and only the timeline can. Its threshold reads `—` rather than a
@@ -474,14 +477,14 @@ answer — which is the failure mode the whole note is written around.
 drawn from a slimmed tree, the browser holds almost none of ceph's functions, and a list
 built from whatever the window happened to fetch is not an approximation — it is a confident
 picture of a biased sample. It is the same failure the rim histogram was caught by, and it
-would be worse here, because a lead is a claim about a specific named function.
+would be worse here, because a finding is a claim about a specific named function.
 
-Scan time also means leads persist, survive a window that was never opened, and can be
+Scan time also means findings persist, survive a window that was never opened, and can be
 reported by the CLI and over MCP beside `sanity_check`.
 
-**The cache implications are the ordinary ones and they are not optional.** Leads computed
+**The cache implications are the ordinary ones and they are not optional.** Findings computed
 in a scan are cached with it, so a rule edit must invalidate them — a rule set is an input
-to the result the way the parser is, and a parser change is not a file change. If leads
+to the result the way the parser is, and a parser change is not a file change. If findings
 enter `scancache::Entry` or the tree cache, the format version moves in the same commit; a
 `#[serde(default)]` field on a cached record IS a format change, which is how `file_doc` cost
 readers their file headers for months.
@@ -501,7 +504,7 @@ It would also need a store outside any project, and `.sanity/` has one home, no 
 mirror.
 
 **What crosses repos is the count, on the row that already exists to carry it.** `SideBar`
-says of itself that it answers "what is the state of my projects"; a lead count per
+says of itself that it answers "what is the state of my projects"; a finding count per
 `ProjectSummary` is that question with one more term in it, and it needs no new store —
 each project computes its own and hands over an integer. The mascot badge and the sidebar
 row are then the same number at two zoom levels.
@@ -522,7 +525,7 @@ disagree with the other two, for a preference nobody has asked for yet. If it tu
 be wanted, it is a layer between the catalog and the project and the precedence is obvious;
 what it must never become is a place where a rule can be defined.
 
-### A lead is a claim about HEAD, so the list is live-only
+### A finding is a claim about HEAD, so the list is live-only
 
 The list is hidden during a replay and says why, which is the panel `Find` already renders
 for the same reason.
@@ -535,18 +538,18 @@ clean bill, on a surface whose entire discipline is that silence must never do t
 also the sin `history.rs` is built to avoid one metric over: stamping today's answer onto a
 2019 body is the map claiming a measurement nobody took.
 
-**And a lead's verbs do not exist in the past.** Read it, open it, dismiss it — all three
+**And a finding's verbs do not exist in the past.** Read it, open it, dismiss it — all three
 are about the code in the working tree. A dismissal is pinned to a body hash; there is no
 coherent thing to pin to a body that was replaced in 2019.
 
-**What replay is genuinely good for here is one question, and it is per-lead rather than a
-list: since when?** For a lead whose every clause is replayable, the timeline can show the
+**What replay is genuinely good for here is one question, and it is per-finding rather than a
+list: since when?** For a finding whose every clause is replayable, the timeline can show the
 frame where it started matching — this function crossed into the top complexity band in
 2021 and has been there since. The walk already re-parses every version of every file a
 commit touched, which is how Complexity is replayed at all, and `functionHistory` already
 fetches one function's story for the panel.
 
-Offer it on the lead, only when every clause is replayable, and say nothing at all when one
+Offer it on the finding, only when every clause is replayable, and say nothing at all when one
 is not. A "since when" that quietly means "since when, ignoring the surprise clause" is the
 same partial answer wearing a smaller hat.
 
@@ -568,6 +571,6 @@ somebody already looking at it, and can never tell you to go look. That is a rea
 It is not this grammar, though. A clause here names a band; heterogeneity is a statement
 about a whole distribution, and expressing it needs a second kind of clause — a spread
 clause — which doubles the vocabulary the settings page has to teach for one population's
-sake. So the trigger for revisiting this is specific: **when somebody wants a lead about
+sake. So the trigger for revisiting this is specific: **when somebody wants a finding about
 disagreement rather than about a value, design the spread clause, and directories arrive
 with it.** Not before, and not by widening a band clause to cover a case it does not fit.
