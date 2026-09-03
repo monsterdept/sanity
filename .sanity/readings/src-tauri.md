@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1107 of 1107 read · 195 surprising
+1107 of 1117 read · 195 surprising · 18 stale
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -1075,11 +1075,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/assessment.rs
 
-### the file itself — TANGLED
+### the file itself — TANGLED — STALE
 - spec 3 · served in 4 parts · read at `400113f4ee1b` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:48:17Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: This file implements the whole assessment persistence layer: it hashes functions/files (body hash, reading hash) to key readings, shards them into markdown files by top-level directory (doubling as both human-readable report and authoritative store), loads/saves/refreshes that store, detects staleness when body/docs/spec/module-header change, captures git metadata (author, head commit) for provenance, and renders index/shard/entry markdown. A large cluster of tests verifies round-tripping and staleness-expiry semantics for this store.
 - found: The file implements the whole markdown-as-store assessment persistence layer, matching my prediction's shape, but with far more machinery than I predicted: a versioned SPEC/legible_current/trap_current system so individual grading axes (not the whole reading) expire independently when a question's meaning is rewritten; a packed 16-bit encoding of a reading's grades for the map's replay timeline with careful 3-state (unknown/no/yes) handling for backward compatibility; a forgiving line-oriented parser (parse_shard) that drops malformed entries without losing neighbors; a distinct file-vs-function reading scheme (FILE_ENTRY, file_key) sharing one map with functions; an orphan-shard sweep that only deletes files the tool itself previously linked from the index (never arbitrary .md files) to protect human-authored notes in .sanity/; priming/agent-docs and asked-vs-model provenance fields that render only on disagreement/relevance; paging detection for oversized bodies not staleness-safe; and hand-rolled ISO-date/civil-date conversion. Extensive tests cover round-tripping of every provenance field and the staleness/expiry edge cases.
 - predicted: most · documented: full · derivable: no · legible: some · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `legible_current`
 - spec 2 · read at `8c75b2b322f6` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:04:16Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -1132,18 +1134,22 @@ What this is and how to add to it: [README.md](README.md)
 - found: Splits path on first '/'; if there's a non-empty top-level component returns it as the shard name, else returns "root" for root-level files.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `shard_links`
+### `shard_links` — STALE
 - spec 2 · read at `ebec6dfdb1ee` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:44:29Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
 - expected: Scans the index Markdown for links of the form `[label](name.md)` (the shape `row` renders) and extracts just the `name.md` filename from each match, returning them as a Vec<String>. Likely implemented with a simple manual scan or regex looking for "](" followed by ".md)".
 - found: Manually scans for "](" then finds the closing ")" to extract the filename, but only keeps it if it ends in .md, has no '/', and isn't "README.md" itself (avoiding self-links and non-shard links).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: Predicted the core scan mechanism correctly but missed the exclusion filters (no slash, not README.md) that guard against false matches.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `shard_file`
+### `shard_file` — STALE
 - spec 2 · read at `321691534c5d` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:22:15Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
 - expected: Given a shard key/name, returns the filename (or relative path) of the markdown file that stores that shard within the .sanity/ directory, e.g. formatting it as "{shard}.md" or similar.
 - found: Sanitizes a shard key by replacing any character that isn't alphanumeric, '-', '_', or '.' with '-', then appends ".md" to produce a safe filename for that shard.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `file_key`
 - spec 2 · read at `4de367e6855c` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:25:38Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1181,12 +1187,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: Reads all stored shards, then for every live function/file in the current scan looks up its durable key in the stored map, clones the found Report, rewrites its id to the live node id, and inserts into the output — so stale/deleted entries are naturally excluded since they're never iterated.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `read_all`
+### `read_all` — STALE
 - spec 2 · read at `23599632fd93` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:02:27Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
 - expected: Iterates every shard file under the .sanity directory (using dir/shard-listing helpers), parses each one with parse_shard, and merges all entries into a single HashMap<String, Report> keyed by "path#name" — assembling the full assessment index from the on-disk store.
 - found: Reads all .md files (except README.md) in the given directory, reads each to a string, and merges parsed entries via parse_shard into one HashMap keyed path#name; returns empty map if the directory can't be read.
 - predicted: full · documented: some · derivable: no · legible: full · trap: no
 - note: Matched almost exactly, though I hadn't anticipated the explicit README.md exclusion or the silent empty-map fallback on unreadable dir.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `parse_shard`
 - spec 3 · read at `f7f4eac0b3a1` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:56:52Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -1247,11 +1255,13 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: I expected it to return the compiled Index data; it actually returns a status enum (Absent/Failed/Refreshed/Current) describing what happened to the on-disk files.
 
-### `save` — QUIRKY
+### `save` — QUIRKY — STALE
 - spec 2 · read at `fa0335ff0e2f` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:02:41Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
 - expected: save compiles the scan+reports into some intermediate structure (via compile/Compiled::row), then partitions/renders it into shard markdown files plus an index markdown (via render_shard/render_index), and writes all of these out under a .sanity/ directory inside repo, along with a JSON sidecar that's the authoritative machine-readable copy — creating directories as needed and returning an io::Result for any filesystem failure.
 - found: Compiles scan+reports into shards, writes each shard's markdown file and builds an index, writes README.md as the rendered index, then diffs the previous README's shard links against the new set to delete only orphaned shard files this tool previously created and no longer claims — ordered so a write failure never leaves the shards and index disagreeing.
 - predicted: some · documented: none · derivable: no · legible: most · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `render_entry`
 - spec 3 · read at `8125eea02c6d` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:54:22Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1482,19 +1492,23 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: some · derivable: no · legible: most · trap: no
 - note: The doc says this test is "exercised end to end: write the repo's assessment, read it back" but the code never touches the store — it calls packed()/report() directly with no file I/O or round-trip.
 
-### `writes_and_reloads_a_repo_assessment` — QUIRKY
+### `writes_and_reloads_a_repo_assessment` — QUIRKY — STALE
 - spec 3 · read at `e54a355bdd7f` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:15Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
 - expected: A round-trip test: builds one or more fake readings/reports, writes them out via the assessment store's write path (producing the markdown + JSON pair described in the file doc) into a temp dir, then reloads via the open/load path and asserts the reloaded assessment equals what was written — field by field, similar in spirit to the earlier `same` helper. Probably checks that the markdown file and the authoritative JSON stay consistent with each other after the round trip.
 - found: Saves reports for a fake scan, checks the output is sharded into per-top-level-dir markdown files plus a README index with expected boilerplate text, then reloads against a mutated scan where one function moved lines (body unchanged) and another moved and had its body rewritten — asserting both are found by identity despite the move, and that staleness is correctly false for the unchanged body and true for the changed one.
 - predicted: some · documented: none · derivable: yes · legible: full · trap: no
 - note: The test is really about identity resolution surviving a line-number move plus correct staleness detection on body change, not a generic round-trip equality check as I guessed; I also missed the sharding/index assertions entirely.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `shards_by_top_level_dir`
+### `shards_by_top_level_dir` — STALE
 - spec 2 · read at `6b812ed1b7d8` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:21:24Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
 - expected: This is a short test verifying that .sanity/ shard files are partitioned by a path's top-level directory — e.g. two files both under src/ map to the same shard, while a file under a different top-level dir maps to a different shard. It calls a shard-naming/grouping helper directly on a couple of paths and asserts equal/unequal shard identifiers accordingly.
 - found: Tests shard_of(path) returns the path's top-level directory name (e.g. \"src-tauri\" for a nested file), root-level files map to the literal \"root\", and shard_file(dirname) appends \".md\" to produce the shard's filename.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 - note: No docs were attached to this function at all (empty docs array), unlike every other function so far.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ## src-tauri/src/bin/findings.rs
 
@@ -1504,12 +1518,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: Headless CLI as predicted: main() parses flags (--rule, --bare, --raw, --target, --show, --depth), scans the repo with a throttled progress ticker, builds Facts, runs the rule catalog (calibrated per-repo via rules_for, or raw/bare), subtracts findings already settled in the archive, and prints a summary table (hits/only/calibrated/so-what) plus sample hits with the rendered sentence per hit. fmt() is a trailing float formatter (duplicate of trim_num in the library).
 - predicted: most · documented: most · derivable: no · legible: not judged · trap: no
 
-### `main`
+### `main` — STALE
 - spec 3 · read at `ecd0ca119bcd` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:49Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
 - expected: CLI entry point for `just findings <path>`: parses command-line args for a repo path (and maybe rule/output options), scans/loads the repo's functions and metrics, runs the finding rule catalog against them, computes for each rule both a "calibrated" threshold (yielding some target hit rate) and the actual hit count, and prints a formatted report table (using `fmt`) to stdout so the rule catalog can be tuned by eye without recompiling.
 - found: Parses many CLI flags (path, --rule, --bare, --raw, --target, --show, --depth, -h), scans the repo with a progress ticker, loads assessment reports, builds fact subjects, resolves the rule catalog (calibrated-for-repo, raw, or bare + ad-hoc --rule exprs), excludes already-settled/archived findings, then prints a summary table per rule (hits, marginal-only count, calibrated threshold, so-what) followed by example hits with the panel's own rendered explanation sentence per hit.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 - note: Prediction captured the general purpose but missed the extensive flag surface, the archive/pins exclusion logic, and the shared render/flat template reused from the UI panel.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `fmt`
 - spec 3 · read at `0ed57cf5165c` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:13Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -2207,12 +2223,14 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/cli.rs
 
-### the file itself
+### the file itself — STALE
 - spec 3 · served in 4 parts · read at `e90fbe0ecd58` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:10:51Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
 - expected: The entire sanity CLI: main parses subcommands and dispatches to init, check, serve, status, summary, trace, resume, refresh, interactive. Manages ensuring a backend process is running (spawn-lock file to prevent concurrent starts, probing/health-checking, waiting for it to come up) and talks to it via get/post HTTP helpers, falling back to offline_status/offline_summary when no backend can be reached. A large chunk is terminal-output formatting helpers (fancy, plural, bar, elapsed, grade_ink, tail, commas, project_header) for rendering progress bars and grade coloring in the terminal.
 - found: Full CLI: clap-based Verb enum (init/check/trace/status/summary/refresh/serve/mcp) dispatched from main; ensure_backend spawns/finds the per-machine daemon using an O_EXCL spawn-lock file with staleness-based takeover; get/post talk to it over HTTP; interactive init/check prompt for harness/model when a terminal is present; tail() live-renders progress with ANSI redraw-in-place, handling detach (Ctrl-X) vs stop (Ctrl-C), backend handover mid-run, and reconnection; read-only verbs (status/summary) fall back to in-process offline_status/offline_summary when no backend answers; retire_stale_backend hands off to a newer build.
 - predicted: most · documented: most · derivable: no · legible: not judged · trap: no
 - note: The comments throughout explain a long history of specific production bugs each design choice fixes (Ctrl-C killing the daemon via process group inheritance, orphaned readers on SIGTERM, the scroll-region redraw eating the banner) — none of that is inferable from signatures/peers, only from having hit those bugs.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `spawn_lock_path`
 - spec 2 · read at `d361e1076438` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:14:29Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -2395,12 +2413,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: A long-lived polling loop that tails a running scan: handles Ctrl-C (stop the run) vs Ctrl-X (detach and let it continue) via signal/raw-mode key capture threads, polls /status every 2s, redraws a fixed in-place block of recent readings plus a progress bar (with reader counts, elapsed time), handles the backend dying and a new one taking over (reconnect/resume), and prints a final summary with exit code 0/1 depending on how it ended.
 - predicted: some · documented: none · derivable: no · legible: some · trap: no
 
-### `project_header`
+### `project_header` — STALE
 - spec 3 · read at `3063afe4e046` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:39:56Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
 - expected: Prints a shared header block (repo name and a progress fraction — functions assessed out of total, with one consistent definition of what counts as "to go", including whether stale readings and file-level headers count) parsed out of a JSON Value, used by both status and summary (and other read-only verbs) so they no longer disagree about the denominator.
 - found: Prints project name, segment count (functions+files, with excluded count), read/unread/stale counts with percentages (unread computed as remaining minus stale since remaining contains stale), a trace_depth-dependent line about history coverage and its cost if untraced, in-flight reader count if nonzero, and the assessment file location.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 - note: Missed the trace_depth/history-cost reporting block and the in-flight readers line entirely; also didn't anticipate that 'remaining' is a superset containing stale rather than a disjoint third bucket.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `offline_status`
 - spec 2 · read at `bb642af55251` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:18:41Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -2427,12 +2447,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: Resolves the repo path, and if no backend is live or the backend doesn't have this repo open, answers offline by computing status/summary directly from the repo's committed .sanity/ data (never starting a daemon or rescanning) rather than refusing; otherwise fetches the endpoint's JSON from the live backend keyed by project.
 - predicted: some · documented: full · derivable: no · legible: most · trap: no
 
-### `trace` — QUIRKY
+### `trace` — QUIRKY — STALE
 - spec 3 · read at `06cc925e7006` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:17Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: Opens/reads the repo at `path` (likely via read_repo), then runs the git-history fold (blame/churn/age) that a normal launch skips due to its time budget, with `lines` selecting file-level vs line-level trace depth. Prints the cost/time taken since costs are "printed rather than guarded", then saves the resulting tree to the cache so future launches see the traced data, returning an exit code.
 - found: Resolves the CLI path, ensures a backend process is running, posts /open to make sure the backend knows the project, then posts /trace with a depth (lines vs files) and prints a human-readable summary of the result (time taken, whether it was stopped early, and a hint to use --lines for finer resolution) based on the JSON response — it's a thin HTTP client to the backend, not a direct in-process trace/cache operation.
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 - note: The actual git-history fold and treecache save happen server-side behind /trace; this function is purely a CLI-to-backend RPC wrapper plus output formatting.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `status` — QUIRKY
 - spec 2 · read at `139061bd94ca` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:03:45Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -2461,12 +2483,14 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: Missed that a None value collapses to one placeholder column rather than four zero columns, and missed the thousands-separator formatting via commas().
 
-### `main`
+### `main` — STALE
 - spec 3 · read at `5917cf9b9a21` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:38:37Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
 - expected: Parses args[0] as a subcommand and dispatches to the matching handler (serve, check, status, trace, summary, refresh, grades, read_repo, read_verb, etc.), printing results or errors to stdout/stderr. Returns 0 on success and a nonzero exit code for an unrecognized command or handler failure.
 - found: Uses clap to parse args (with "sanity" prepended as argv[0] since callers strip it), returning exit code 2 on parse error printed to stderr or 0 if it was --help/--version. Then matches on cli.command and dispatches to serve(), mcp::run(), init(), trace(), check(), status(), summary(), or refresh(), passing through their parsed fields.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: Function had no doc comment of its own; the substantive context was in the file-level doc, not attached to main itself.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `the_progress_line_reads_correctly_at_both_ends` — QUIRKY
 - spec 2 · read at `e58761c44962` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:09:15Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -3237,11 +3261,13 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/findings.rs
 
-### the file itself
+### the file itself — STALE
 - spec 3 · served in 3 parts · read at `76ac570d6e23` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:02:50Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
 - expected: findings.rs is the core engine for this tool's own "findings" system — it defines a small rule DSL (Field, Op, Rule with parse), builds a Facts/Subject model by walking the code's Node tree, evaluates rules to produce hits/findings, calibrates and ranks the default rule catalog (using a "marginal contribution" measure to avoid redundant overlapping rules), and persists user decisions (accept/reject/pin) plus custom rules and an archive to disk — with a large test suite at the bottom exercising all of this.
 - found: Matches my prediction's core (rule DSL, Facts/Subject via tree walk, hits/marginal/calibration, decision archive persistence, tests) but I missed several major pieces: the {{token}} sentence-rendering system (render/Span) that fills finding prose from a subject's own numbers and refuses to print unfillable sentences, the tier 1/2 distinction gating on whether a reading is needed, the wire-facing Group/Finding structs with paging (PER_GROUP), the `blocked` diagnostic explaining why a rule can't answer, and calibration's one-way (tightening-only) threshold saving to rules.md.
 - predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `parse`
 - spec 3 · read at `478961b5c889` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:04Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -3460,11 +3486,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: For each rule, calls calibrate() against facts/TARGET to get a candidate threshold for the rule's designated calibrated clause, but only applies it if it makes the clause STRICTER (tighter) than the shipped default — never looser — leaving rules with no calibration (too few subjects clear the other clauses) at their shipped default.
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 
-### `rules_path`
+### `rules_path` — STALE
 - spec 3 · read at `e577ffceaeb6` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:50Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
 - expected: Returns the path to the saved/custom rules file within the repo, analogous to archive_path — a single-line path join like repo.join(".sanity/rules.md").
 - found: Joins "rules.md" onto crate::assessment::dir(repo) rather than a literal ".sanity/" path — the actual sanity-data directory is centralized in another module, which I didn't know about.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `saved_rules`
 - spec 3 · read at `8c3a54aa71e9` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:42Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -3473,17 +3501,21 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 - note: Got the general shape right but the actual format is a specific markdown bullet convention ("- `Title`; expr") rather than a generic key/value line — the parsing is more specific/fragile than I guessed.
 
-### `save_rules` — QUIRKY
+### `save_rules` — QUIRKY — STALE
 - spec 3 · read at `f0b33486b4f6` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:50Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
 - expected: Serializes the given calibrated Rule thresholds (likely as JSON) and writes them to the path returned by rules_path(repo), so that thresholds computed once (calibrated) are pinned to disk and don't drift or get recalculated on a later run.
 - found: Writes a human-editable text file (not JSON) with explanatory prose header plus one line per rule naming its calibrated clause's field, operator and value, to rules_path(repo). Ensures the assessment dir exists first, then reads the file back after writing and errors if it doesn't match what was written, to catch a write that silently didn't land.
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `rules_for`
+### `rules_for` — STALE
 - spec 3 · read at `f3816658d9b3` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:00Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
 - expected: Starts from catalog(), then for each rule checks the repo's saved rules (via saved_rules/rules_path) for a previously tuned threshold; where one exists it uses it, and where none exists it calls calibrated against facts to compute a threshold and persists the result via save_rules, so calibration is a one-time authoring aid rather than recomputed as a percentile every run.
 - found: Loads the base catalog; if no saved rules exist for this repo at all, calibrates every rule against facts and best-effort saves the tuned set (ignoring a save failure) and returns those. If saved rules exist, it instead overlays each saved threshold onto its rule's designated calibrated clause, leaving unsaved rules at catalog defaults.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `word`
 - spec 3 · read at `dba9eaa21114` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:07Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -3509,11 +3541,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Formats a string of body_pin plus each rule clause's field=value (or field=? if missing), joined by spaces — matches my prediction closely, though it uses a precomputed body_pin field rather than hashing directly here.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `archive_path`
+### `archive_path` — STALE
 - spec 3 · read at `722454624780` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:53Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
 - expected: Joins the repo path with a fixed subdirectory (like .sanity) and a fixed filename (e.g. decisions.json) to produce the single archive file's PathBuf.
 - found: Joins the repo's assessment dir (crate::assessment::dir) with the filename "decisions.md" to form the archive path.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `archive` — TRAP
 - spec 3 · read at `9adf0091921c` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:39Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -3528,11 +3562,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Replaces newlines/carriage returns with spaces and any "; " substring with ", ", so free-text prose (e.g. a reason a user typed) can't be mistaken for a new record or field boundary in the semicolon-delimited save format.
 - predicted: some · documented: none · derivable: no · legible: full · trap: no
 
-### `save_archive`
+### `save_archive` — STALE
 - spec 3 · read at `7fe24032b59c` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:11Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
 - expected: save_archive serializes the full Decision list to a text format (likely one line per decision, with escape() used on any free-text fields) and writes it to archive_path(repo), then reads the file back and compares it to what was written, returning an Err if the bytes on disk don't match — because a caller trusting a successful write to mean the decision was saved could otherwise silently keep re-showing a dismissed finding.
 - found: Groups decisions by key into a sorted BTreeMap, writes a human-editable Markdown-like file (explanatory header, one `## key` section per finding, one bullet line per decision with rule/title/verdict/pin/when/by/reason, all escaped) to archive_path(repo), then reads it back and errors if the bytes don't match what was written.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `decide`
 - spec 3 · read at `722e27bf1daf` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:43Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
