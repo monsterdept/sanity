@@ -14,8 +14,20 @@
 //!
 //! # Sharded by top-level directory
 //!
-//! One file per top-level directory (`.sanity/src-tauri.md`, `.sanity/web.md`), plus a
-//! `README.md` index. A single file would read better, but two people assessing one repo
+//! One file per top-level directory (`.sanity/readings/src-tauri.md`,
+//! `.sanity/readings/web.md`), plus a `README.md` index at the top of `.sanity/`.
+//!
+//! **Under `readings/` rather than loose in `.sanity/`, because a shard is named after the
+//! repo.** `shard_of` takes a top-level directory and `shard_file` makes a file of it, so a
+//! project with a `rules/` or a `decisions/` directory named this tool's other stores out of
+//! existence. Everything sanity writes now has a subdirectory of its own — `readings/`,
+//! `rules/`, `findings/` — and nothing a source tree can be called reaches them.
+//!
+//! **A shard name is a PATH, not a segment.** Today it is one directory deep. `src-tauri.md`
+//! is 1.1MB on this repo and a larger one will want finer shards; when it does, `shard_of`
+//! returns `src-tauri/src` and nothing else changes — the file becomes
+//! `readings/src-tauri/src.md`, the index links it, `read_all` walks down to it and the sweep
+//! removes it. The remaining decision is where to split, not how. A single file would read better, but two people assessing one repo
 //! at the same time is the case this is built for, and a single file makes that a
 //! conflict every time. Sharding puts their work in different files unless they are
 //! genuinely reading the same area.
@@ -307,20 +319,34 @@ fn shard_of(path: &str) -> String {
     }
 }
 
-/// A shard name as a filename. Top-level directory names are already single path
-/// segments, so this only has to defend against the odd hostile character.
+/// Where the readings live, under `.sanity/`.
+///
+/// **A directory of their own, because `.sanity/` is shared.** A shard is named after part of
+/// the repo, so the reading store's filenames are chosen by whoever laid the repo out: a
+/// project with a `rules/` directory produced `.sanity/rules.md`, which is also where this
+/// tool's rule store wanted to live. Everything sanity writes now sits under a subdirectory
+/// nobody's source tree can name into — `readings/`, `rules/`, `findings/` — and `README.md`
+/// is the only file left at the top.
+pub(crate) const READINGS: &str = "readings";
+
 /// The shard files an index links to, from its Markdown.
 ///
 /// The index is the tool's own record of what it wrote, so parsing it back is how `save`
-/// knows which files in a shared directory are its to remove. Matches `[label](name.md)`,
+/// knows which files in a shared directory are its to remove. Matches `[label](path.md)`,
 /// which is what `row` renders — if that ever changes shape, this has to move with it, and
 /// the failure is visible: the sweep stops removing anything rather than removing too much.
+///
+/// **Relative paths are allowed and `..` is not.** The links carry a directory now, and the
+/// list they produce is fed to `remove_file`; a link that could climb out of `.sanity/` would
+/// make the index a delete-anything instruction to anybody who could edit it. Absolute paths
+/// go the same way and for the same reason.
 fn shard_links(readme: &str) -> Vec<String> {
     let mut out = Vec::new();
     for (_, rest) in readme.match_indices("](").map(|(i, _)| (i, &readme[i + 2..])) {
         if let Some(end) = rest.find(')') {
             let name = &rest[..end];
-            if name.ends_with(".md") && !name.contains('/') && name != "README.md" {
+            let escapes = name.starts_with('/') || name.split('/').any(|seg| seg == "..");
+            if name.ends_with(".md") && !escapes && name != "README.md" {
                 out.push(name.to_string());
             }
         }
@@ -328,12 +354,37 @@ fn shard_links(readme: &str) -> Vec<String> {
     out
 }
 
-fn shard_file(shard: &str) -> String {
-    let safe: String = shard
+/// One path segment, with anything hostile flattened out.
+///
+/// **A dot is legal in a name and illegal as the whole of one.** `.` and `..` are directions
+/// rather than names, and a shard called `..` would put its file one level above the
+/// directory the sweep is allowed to touch. The character has to stay — `web.config` is an
+/// ordinary directory name — so it is the all-dots segment that is refused, not the dot.
+fn safe_segment(seg: &str) -> String {
+    let safe: String = seg
         .chars()
         .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '-' })
         .collect();
-    format!("{safe}.md")
+    if !safe.is_empty() && safe.chars().all(|c| c == '.') {
+        return safe.replace('.', "-");
+    }
+    safe
+}
+
+/// A shard name as a path under `.sanity/`, relative and forward-slashed.
+///
+/// **The shard name is a PATH, not a segment, and that is the whole preparation.** Today
+/// `shard_of` returns one top-level directory and this returns `readings/src-tauri.md`. A
+/// repo big enough to want finer shards needs `shard_of` to return `src-tauri/src` and
+/// nothing else here to change: the file becomes `readings/src-tauri/src.md`, the index links
+/// it, `read_all` walks down to it and the sweep can remove it. Splitting a 1.1MB shard is
+/// then a decision about WHERE to split rather than a change to the store's shape.
+///
+/// Each segment is sanitised on its own, so a repo directory called `../` cannot become one.
+fn shard_file(shard: &str) -> String {
+    let safe: Vec<String> = shard.split('/').filter(|s| !s.is_empty()).map(safe_segment).collect();
+    let name = if safe.is_empty() { "root".to_string() } else { safe.join("/") };
+    format!("{READINGS}/{name}.md")
 }
 
 /// What a file's own reading is filed under: its path, with no `#`.
@@ -455,22 +506,52 @@ pub fn load(repo: &Path, scan: &Scan) -> HashMap<String, Report> {
 /// Every entry in every shard, keyed `path#name`.
 pub(crate) fn read_all(dir: &Path) -> HashMap<String, Report> {
     let mut out = HashMap::new();
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return out;
-    };
-    for e in entries.flatten() {
-        let path = e.path();
-        if path.extension().is_none_or(|x| x != "md") {
-            continue;
-        }
-        if path.file_name().is_some_and(|n| n == "README.md") {
-            continue;
-        }
-        if let Ok(text) = std::fs::read_to_string(&path) {
-            parse_shard(&text, &mut out);
+    // `readings/`, to whatever depth `shard_of` has been taught to shard at.
+    walk_shards(&dir.join(READINGS), &mut out);
+    // **And the flat layout, which is how the move happens without a migrator.** Shards used
+    // to sit directly in `.sanity/`. Reading them here is the whole of it: the next `save`
+    // writes them under `readings/`, the new index links the new paths, and the sweep removes
+    // the old files because they are ones this tool linked and has stopped claiming. That is
+    // "rewriting is reading and writing" — see `assessments.md`, which is emphatic that a
+    // translator is the thing that destroyed a project's readings.
+    //
+    // Not recursive here, deliberately: `.sanity/` holds this tool's other stores now, and a
+    // walk that went into them would try to parse a rule catalog as a shard.
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for e in entries.flatten() {
+            let path = e.path();
+            if path.extension().is_none_or(|x| x != "md") {
+                continue;
+            }
+            if path.file_name().is_some_and(|n| n == "README.md") {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                parse_shard(&text, &mut out);
+            }
         }
     }
     out
+}
+
+/// Every `.md` under a directory, however deep.
+fn walk_shards(dir: &Path, out: &mut HashMap<String, Report>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let path = e.path();
+        if path.is_dir() {
+            walk_shards(&path, out);
+            continue;
+        }
+        if path.extension().is_none_or(|x| x != "md") {
+            continue;
+        }
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            parse_shard(&text, out);
+        }
+    }
 }
 
 /// Parse one shard into `path#name` → report.
@@ -993,8 +1074,14 @@ pub fn save(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> std:
     let compiled = compile(scan, reports);
     let mut index = Vec::new();
     for c in &compiled {
+        let at = root.join(shard_file(&c.shard));
+        // A shard's path has directories in it now — `readings/`, and however many more once
+        // `shard_of` shards deeper than the top level.
+        if let Some(parent) = at.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         std::fs::write(
-            root.join(shard_file(&c.shard)),
+            at,
             render_shard(&c.shard, c.read, c.total, c.surprising, c.stale, c.dated, &c.body),
         )?;
         index.push(c.row());
@@ -1029,11 +1116,27 @@ pub fn save(repo: &Path, scan: &Scan, reports: &HashMap<String, Report>) -> std:
         if keep.contains(&name) {
             continue;
         }
-        match std::fs::remove_file(root.join(&name)) {
+        let at = root.join(&name);
+        match std::fs::remove_file(&at) {
             Ok(()) => {}
-            // Already gone is the outcome we wanted.
+            // Already gone is the outcome we wanted — and it is the ordinary case the first
+            // time a repo laid out flat is written under `readings/`: the outgoing index
+            // linked `src-tauri.md`, `git mv` has already put it where the new index will
+            // link it, and there is nothing left at the old path to remove.
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e),
+        }
+        // A shard that was the last thing in its directory leaves the directory behind, and
+        // an empty `readings/src-tauri/` claims an area that no longer has readings. Only
+        // ever the parents of a file this tool just removed, only while they are empty, and
+        // never `.sanity/` itself — `remove_dir` refuses a directory with anything in it,
+        // which is the guard rather than a check that could race with it.
+        let mut up = at.parent().map(Path::to_path_buf);
+        while let Some(d) = up {
+            if d == root || !d.starts_with(&root) || std::fs::remove_dir(&d).is_err() {
+                break;
+            }
+            up = d.parent().map(Path::to_path_buf);
         }
     }
     Ok(())
@@ -2277,9 +2380,13 @@ mod tests {
             .collect();
         save(&tmp, &scan, &reports).unwrap();
 
-        // Sharded per top-level directory, with an index that explains itself.
-        assert!(tmp.join(".sanity/src-tauri.md").exists());
-        assert!(tmp.join(".sanity/web.md").exists());
+        // Sharded per top-level directory, under `readings/`, with an index that explains
+        // itself. Nothing but `README.md` sits at the top of `.sanity/`: the shard names come
+        // from the repo's own directories, so anything else up there is a collision waiting
+        // for somebody to make a `rules/` folder.
+        assert!(tmp.join(".sanity/readings/src-tauri.md").exists());
+        assert!(tmp.join(".sanity/readings/web.md").exists());
+        assert!(!tmp.join(".sanity/src-tauri.md").exists());
         let index = std::fs::read_to_string(tmp.join(".sanity/README.md")).unwrap();
         assert!(index.contains("sanity.monster"), "the index says where to get the app");
         assert!(index.contains("sanity check"), "and how to refresh it");
@@ -2312,6 +2419,69 @@ mod tests {
     fn shards_by_top_level_dir() {
         assert_eq!(shard_of("src-tauri/src/scan.rs"), "src-tauri");
         assert_eq!(shard_of("justfile"), "root");
-        assert_eq!(shard_file("src-tauri"), "src-tauri.md");
+        assert_eq!(shard_file("src-tauri"), "readings/src-tauri.md");
+    }
+
+    /// **A shard name is a path, and that is the preparation for splitting one.**
+    ///
+    /// `src-tauri.md` is 1.1MB on this repo and a bigger one will want finer shards. When it
+    /// does, `shard_of` returns a deeper prefix and NOTHING else moves — so the machinery is
+    /// tested at that depth now, while the default is still one segment.
+    #[test]
+    fn a_shard_may_be_nested_however_deep_it_is_sharded() {
+        assert_eq!(shard_file("src-tauri/src"), "readings/src-tauri/src.md");
+        assert_eq!(shard_file("a/b/c"), "readings/a/b/c.md");
+        // Every segment is sanitised on its own, so a directory that looks like a traversal
+        // cannot become one.
+        assert_eq!(shard_file("../etc"), "readings/--/etc.md");
+        assert_eq!(shard_file(""), "readings/root.md");
+    }
+
+    /// **The index's links are fed to `remove_file`.** A link that could climb out of
+    /// `.sanity/` would turn a file anybody can edit into a delete-anything instruction.
+    #[test]
+    fn the_sweep_list_cannot_leave_the_directory() {
+        let links = shard_links(
+            "| [ok](readings/web.md) | [up](../../secrets.md) | [abs](/etc/passwd.md) |\n\
+             | [self](README.md) | [deep](readings/a/b.md) |",
+        );
+        assert_eq!(links, vec!["readings/web.md", "readings/a/b.md"]);
+    }
+
+    /// **Readings written before the layout move are still read.** That is the whole of the
+    /// migration: the next `save` writes them where the new index links them, and the sweep
+    /// removes what it stopped claiming. A translator is what destroyed a project's readings
+    /// — see `assessments.md` — so there is not one.
+    #[test]
+    fn a_flat_shard_from_the_old_layout_is_still_found() {
+        let tmp = std::env::temp_dir().join(format!("sanity-flat-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let root = tmp.join(".sanity");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let scan = scan_of(&[("src-tauri/src/scan.rs", "walk", 1, "fn walk() {}")]);
+        let reports: HashMap<String, Report> = [(
+            "src-tauri/src/scan.rs#walk".to_string(),
+            Report { body: "fn walk() {}".into(), ..report("src-tauri/src/scan.rs#walk", "x") },
+        )]
+        .into_iter()
+        .collect();
+
+        // Put a store on disk the old way, by writing today's and moving it back — the shard
+        // bytes are then genuinely what an older build wrote, rather than a guess at them.
+        save(&tmp, &scan, &reports).unwrap();
+        std::fs::rename(root.join("readings/src-tauri.md"), root.join("src-tauri.md")).unwrap();
+        std::fs::remove_dir(root.join("readings")).unwrap();
+        let index = std::fs::read_to_string(root.join("README.md")).unwrap();
+        std::fs::write(root.join("README.md"), index.replace("readings/", "")).unwrap();
+
+        assert_eq!(load(&tmp, &scan).len(), 1, "found where the old layout put it");
+
+        save(&tmp, &scan, &reports).unwrap();
+        assert!(root.join("readings/src-tauri.md").exists(), "written where the new one does");
+        assert!(!root.join("src-tauri.md").exists(), "and the old file swept");
+        assert_eq!(load(&tmp, &scan).len(), 1, "still one reading, not two");
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

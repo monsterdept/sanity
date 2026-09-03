@@ -7,7 +7,8 @@ note here, and everything before it is the proposal those measurements were take
 kept in that order because the arguments came first and several of them were wrong.
 
 **They were called leads until the panel had been looked at.** Nothing durable moved with the
-rename: `.sanity/rules.md` and `.sanity/decisions.md` key on rule ids, which are not prose.
+rename: `.sanity/rules/catalog.md` and `.sanity/findings/decisions.md` key on rule ids,
+which are not prose.
 
 ## The question this answers
 
@@ -202,6 +203,10 @@ just findings ceph --rule "func: loc >= 200 and callers >= 20"
 The dropdowns are a UI over that evaluator, added once the defaults have stopped moving.
 This is also what keeps the built-ins honest: they are written in the grammar because the
 grammar is what they were CHOSEN in.
+
+**Surfaces 2 and 3 are designed at the end of this note** — see *The rules editor*, which is
+where the catalog becomes something a person can argue with rather than something they are
+handed.
 
 **The built-in rules are written in that same grammar — there is no privileged built-in
 format.** That is what makes the third surface cheap: by the time somebody goes looking for
@@ -482,10 +487,15 @@ would be worse here, because a finding is a claim about a specific named functio
 Scan time also means findings persist, survive a window that was never opened, and can be
 reported by the CLI and over MCP beside `sanity_check`.
 
-**The cache implications are the ordinary ones and they are not optional.** Findings computed
-in a scan are cached with it, so a rule edit must invalidate them — a rule set is an input
-to the result the way the parser is, and a parser change is not a file change. If findings
-enter `scancache::Entry` or the tree cache, the format version moves in the same commit; a
+**Computed on demand, and deliberately not cached** — which is where the build went a
+different way from the paragraph this one replaces. That paragraph planned to cache findings
+with the scan and invalidate them on a rule edit; what it missed is that a rule set is an
+input no cache can see, exactly as the parser is, so the version would have to move every time
+somebody dragged a threshold. `report` runs per ask off the in-memory scan instead, which
+makes a rule change a new answer by construction — see *A rule change is a new answer*.
+
+**If that is ever revisited, the ordinary rules apply and are not optional.** Findings in
+`scancache::Entry` or the tree cache move the format version in the same commit; a
 `#[serde(default)]` field on a cached record IS a format change, which is how `file_doc` cost
 readers their file headers for months.
 
@@ -574,3 +584,300 @@ clause — which doubles the vocabulary the settings page has to teach for one p
 sake. So the trigger for revisiting this is specific: **when somebody wants a finding about
 disagreement rather than about a value, design the spread clause, and directories arrive
 with it.** Not before, and not by widening a band clause to cover a case it does not fit.
+
+## The rules editor
+
+**Not built.** Surfaces 1 and 2 of *Three surfaces* are in the window and this is the third,
+written up before it is started because the parts of it that are hard are not the parts that
+look hard. The dropdowns are an afternoon. What follows them is a type that cannot hold a
+rule somebody wrote, a store that can hold one number per rule, and an archive keyed on rules
+that editing can retire.
+
+### Four things in the way, all of them in the code today
+
+- **`Rule` is made of `&'static str`.** `id`, `title`, `so_what` and `says` are all static, so
+  every rule that can exist is one compiled into the binary. A rule read out of `.sanity/`
+  cannot be constructed at all. This is the whole blocker and everything else is small beside
+  it: the fields become owned (`String`, or `Cow<'static, str>` so the catalog keeps costing
+  nothing), and `catalog()` stops being the only source of rules.
+- **`saved_rules` is `id -> f32`.** One number per rule — the calibrated clause's threshold.
+  It cannot say *off*, cannot carry a rule the catalog has never heard of, cannot hold a floor
+  or a population or a second clause. The format has to grow into the grammar it already
+  claims to be written in.
+- **`Op::parse` and `Op::name` are private, and nothing enumerates `Field`.** The evaluator
+  needs neither: it parses text and reads values. A dropdown needs both — every field a clause
+  may name, which population each applies to, whether it needs a reading, and every operator
+  with the word for it.
+- **`Group` sends `expr` as a rendered string.** `func: loc >= 257` is the right thing to
+  SHOW; it is not something a form can populate three controls from without parsing its own
+  output back. The wire needs the clauses structured, and `expr()` stays for the tooltip.
+
+None of these is deep. They are listed because they are the reason this is not "add a panel".
+
+### The store, in the grammar it is already written in
+
+`.sanity/rules/catalog.md` stays Markdown that is parsed back — no migrator, and `sanity
+refresh` is the whole mechanism. It grows the same shape `decisions.md` uses: one line per
+rule, segments separated by `; `, each named by its own prefix, so a segment nobody
+recognises is skipped rather than shifting the rest.
+
+```markdown
+- `giant-function`; func: loc >= 257
+- `crowded-file`; off
+- `fossil`; func: age >= 1825 and loc >= 100; floor 0
+- `hot-paths`; func: callers >= 20 and commits >= 4; floor 10; title: Hot paths;
+  so what: widely depended on, and moving
+```
+
+**`.sanity/` now has one file at the top and three directories under it** — `README.md`, then
+`readings/`, `rules/` and `findings/`. The reason is in `assessments.md`: a shard is named
+after a top-level directory of the REPO, so a project with a `rules/` folder produced a
+`.sanity/rules.md` full of readings and wrote it straight over this store. Nothing a source
+tree can be called reaches a subdirectory.
+
+Three cases, and the file has to tell them apart without a flag saying which: a **built-in**
+carries an id the catalog knows and overrides only what it names; a **disabled** built-in
+carries `off`; a **user rule** carries an id the catalog has never heard of, and must
+therefore carry everything — expression, title, so-what — because there is nothing to fall
+back to. A user line missing its title is a rule that cannot be drawn, and is dropped with
+the same reflex `archive()` drops a decision whose verdict it cannot read: **two of the three
+things a malformed rule could do are hide work.**
+
+**A built-in's line overrides, never replaces.** Writing the expression out in full for a
+built-in is allowed and is what the editor does when somebody changes a clause — but a line
+that names only a threshold leaves the rest of the rule to the catalog, so a shipped
+improvement to a rule's floor or its prose still reaches a repo that has tuned its number.
+That is the same decision the note already records for the catalog as a whole, one level
+down.
+
+### Identity, again, and for the third time
+
+**A user rule needs an id that is not its title.** Slug the title at creation, disambiguate
+against every id in use — built-in and saved — and then never touch it again. Retitling is
+free; it has been proven free twice now, once when "Hot and busy" became "Surprising and
+changing" and once when leads became findings. Built-in ids are reserved: a user rule may not
+take `fossil`, because a later release adding a rule by that name would silently merge two
+different questions and the decisions filed under both.
+
+### What editing does to decisions, which is where the body count is
+
+This is the part to get right before any of it ships, and the answer is already fixed by
+`pin_of`, which records the SUBJECT's values rather than the rule's thresholds:
+
+- **Changing a threshold does not touch a decision.** `fine-for-now` on a 300-line function
+  pins `loc=300`; moving the rule's bar from 257 to 400 changes which findings exist, not what
+  any decision was about. Nothing expires. This is worth stating in the UI, because everybody
+  will assume the opposite.
+- **Changing which FIELDS a clause names does expire them all.** The pin is built by walking
+  `rule.clauses`, so a rule that gains, loses or swaps a clause writes pins of a different
+  shape, and every `fine-for-now` on it stops matching. The findings come back. That is
+  correct — the decision was made about a different question — and it must be said at the
+  moment of editing rather than discovered as findings reappearing. *Changing this rule's
+  clauses brings back 7 findings somebody set aside.*
+- **`fine-always` does not care**, by construction. It is a statement about the subject, not
+  about a version of it, and `Verdict::hides` never consults the pin for it.
+- **Deleting a rule orphans its decisions rather than deleting them.** They stay in
+  `decisions.md`, matched by nothing, and come back to life if a rule with that id returns.
+  Deleting the rows instead would make "I turned it off to look at something" a destructive
+  act. The ignored drawer shows them with the title they were filed under, which is why that
+  title is stored beside the id.
+
+### Calibration belongs in the editor, and only there
+
+The row shows the number and, beside it, what the repo would suggest: *257 — about 8 findings
+here; median 11, longest 3,161.* Pressing the suggestion takes it. That is
+`calibrate(rule, facts, TARGET)` and `spread(facts, pop, field)`, both of which exist.
+
+**The suggestion may only tighten.** `calibrated()` already refuses to loosen and the note
+records why: a fossil is five years, and a repo whose eighth-oldest trap is six days old does
+not get to redefine the word. A hand-typed number is not held to that — somebody typing 60
+into a fossil rule has decided something — but the *suggestion* never offers it.
+
+**And a hand-typed number gets the vacuity guard.** `trap >= 1 and commits >= 0` was a real
+bug: the clause is true of everything, the rule quietly becomes single-lens, and the tile goes
+on showing two lenses. The editor refuses to save a clause no subject can fail, and says which
+clause and why.
+
+"Recalibrate" is delete-the-saved-value: the next open computes and saves a fresh one, exactly
+as a repo with no `rules.md` does. One code path, not two.
+
+### The number to tune on is marginal contribution
+
+Every row carries **hits** and **only** — how many findings this rule produces, and how many
+of them no other enabled rule already found. `marginal` exists and takes the precomputed hit
+sets, so the whole grid is one pass.
+
+**Hit count is the wrong number and this note has the receipts.** "Long and undocumented"
+scored 3,455 on kibana and was worthless, because 18 of its top 20 were already in "Giant
+function". A row that showed only its hit count would have kept it. And the pair moves as
+rules are toggled — turning one off raises its neighbours' contribution — which is exactly
+what makes the grid an instrument rather than a list of settings.
+
+**It is also repo-shaped, which the editor is the only place to see.** "Giant function"
+contributes 0 of 8 on htop and 2,180 of 2,292 on kibana. A default set tuned centrally would
+have cut the rule doing most of the work on the largest repo tried. The editor is where a
+person finds that out about their own repo.
+
+### What the form allows, and what it refuses
+
+Population, then one or two clauses, then a floor, a title and a so-what. Two dropdowns and a
+number, three times over.
+
+It refuses, on purpose and with a reason each:
+
+- **No third clause.** Two is where a conjunction stops needing precedence rules, and a
+  grammar with precedence is a query language — the bottomless thing this whole design exists
+  to avoid. The floor is the escape valve for the case that actually came up, and it is not a
+  clause: it does not appear as a lens and it is not a question the rule is asking.
+- **No OR, and no nesting.** Two rules are how you say "or", and they read better: each gets
+  its own sentence on the tile, and each can be turned off separately.
+- **No new fields.** The field list IS the lens list. A field nothing paints is a number with
+  no picture behind it, and the whole claim of this feature is that a finding is a place two
+  lenses disagree.
+- **No paths, names or globs.** `path contains "/test/"` is the most requested rule that will
+  never be in this grammar: it makes rules about what things are CALLED rather than about what
+  was measured, and the moment it exists the catalog fills up with them. Exclusions are
+  `.sanityignore`'s job and it already has one.
+
+### Prose, and the one thing a user rule may not do quietly
+
+A user rule gets a title and a so-what. `says` — the tailored paragraph with `{{token}}` holes
+— is optional, and **validated at save against the same invariant the catalog test enforces**:
+a token may only name `name`, `path`, `median`, `threshold`, `age_years`, or a field the
+rule's own clauses guarantee. `render` already falls back to `so_what` when it cannot fill a
+token, silently and correctly; silently is right at runtime and wrong at authoring time, where
+it would mean somebody writes a sentence that never appears and is never told. Refuse the
+save, name the token.
+
+### A rule change is a new answer, never a stale one
+
+**Editing a rule recomputes every finding, and nothing between the file and the panel may
+remember the old ones.** The path is short on purpose: `project_findings` calls `rules_for`,
+which reads `.sanity/rules.md`; `subjects` walks the in-memory scan; `report` matches, ranks,
+subtracts decisions and counts marginal contribution. Nothing on that path is memoised, so a
+rule that changed on disk is a different answer on the next ask, by construction rather than
+by invalidation.
+
+That covers everything derived from the call and not just the list: the totals, `only`, the
+`blocked` reasons, the ignored count, and the number on the mascot. They come from one
+`report`, which is why they cannot disagree about a repo.
+
+**The earlier plan in *Where it runs* — findings computed at scan time and cached with it —
+was not built, and should not be.** A rule set is an input the caches cannot see, exactly as
+the parser is; caching findings would need a version that moves whenever a rule moves, and a
+rule moves whenever somebody drags a threshold. Recomputing costs a walk of the subjects once
+per rule, and the whole headless run over kibana's 147,906 functions — cold scan included — is
+about ten seconds. There is no cache here and that is the design, not an omission.
+
+The window already has the mechanism: a decision bumps a counter and both halves re-ask. A
+rule edit bumps the same counter.
+
+### Rules live in the repo the moment they deviate
+
+**`.sanity/rules.md`, committed, and never anywhere else.** The argument is the one
+`assessment.rs` opens with, applied to rules rather than readings: a store keyed to one
+machine makes the thing it holds private, opaque and mortal — unreviewable, unshareable, and
+dead with the laptop. A threshold somebody chose for a repo is a decision about that repo, not
+a preference of the person who happened to open it, and `.sanity/` has one home with no
+fallback and no mirror.
+
+That is already how it behaves and it is worth stating as a requirement rather than leaving as
+an implementation detail: `rules_for` writes the file the first time a repo is opened, because
+calibration deviates from the shipped numbers the moment it runs. Every later edit writes
+through `save_rules`, which reads its own write back before anything believes it.
+
+**The cost is that opening a repo makes an untracked file**, which is the same cost `.sanity/`
+already imposes for readings, and the same answer applies: they are yours to commit. What is
+not acceptable is the alternative — a local override that makes one person's map disagree with
+everybody else's, with nothing in the repo to explain why.
+
+### Breadcrumbs are git's job, and the file has to let it do it
+
+The record-keeping is already solved and it is not solved here. `decisions.md` is committed,
+so `git blame` on a line gives the commit that introduced it — which is the tree the decision
+was made against, recorded by the thing whose entire job that is. `git log .sanity/` is who
+decided what and when; `git diff` is what changed about the rules that found it; and a
+reviewer who has never opened the app can read both in a pull request.
+
+**An `at` field on `Decision` was proposed here and is wrong.** It would be a second answer to
+a question git already answers, and a second answer that can drift: a hand-edited file, a
+cherry-pick, a squash, and the field and the history disagree with nobody able to say which is
+right. Readings carry `at` and that is precedent rather than justification — a `Report` is
+handed to the store by an agent over MCP that has no commit of its own to be blamed by, which
+is not this situation.
+
+**What this does need is for the file to be a pure function of its contents**, or blame stops
+being the record. It nearly is: `save_archive` groups by subject through a `BTreeMap`, so
+subjects are in a stable order however they were added. Within one subject they are not —
+`decide` retains-and-pushes onto the end of a `Vec`, so re-deciding one rule on a subject that
+has two moves the OTHER one's line as well. Both lines rewrite, both get blamed on the newer
+commit, and the untouched decision loses the provenance that is the whole point.
+
+Sorting each subject's decisions by rule id before writing fixes it, and it is two lines. It
+is worth doing whether or not the editor ever gets built: a store that reshuffles itself
+cannot be reviewed in a diff, and being reviewable in a diff is why it is Markdown in the repo
+rather than JSON in a cache.
+
+### Two views, and the CLI has both
+
+`sanity findings` is the worklist: one entry per SUBJECT, merged the way the panel merges,
+flagged first then widest, with each rule's sentence under it and the blocked rules named
+before the list rather than left as silence. It runs in process, like `refresh` and unlike
+`status` — the read verbs ask the backend because what they report is partly live, and a
+finding is not: it is the tree, the readings and the rules, all on disk. An endpoint would be
+a second answer, and findings that depended on whether the app happened to be open.
+
+`just findings` is the bench: one row per RULE, with its calibrated suggestion and its
+marginal contribution. That is a question about the catalog, where the verb asks a question
+about the repo, and they are deliberately not the same output.
+
+### Where it lives
+
+**A third view inside the Findings panel**, beside `findings` and `ignored` — not a separate
+settings window. The counts are the reason: `hits` and `only` are meaningless except next to
+the list they change, and a person tuning a threshold wants to press back and look. The panel
+already carries a two-view toggle and a header that names the count; this is a third entry in
+both.
+
+Relevance surfaces here too, and it is the last piece of *Three surfaces* still unbuilt: a rule
+this repo cannot vary shows as off with the reason in words — *this repo has 2 contributors* —
+rather than as a rule that found nothing. "Last hand alone" fired on 40% of sanity's files and
+30% of VectorLand's, correctly and uselessly.
+
+### Build order
+
+1. **`Rule` owns its strings, and `catalog()` becomes one source among two.** Nothing visible
+   changes; everything below needs it.
+2. **The store grows into the grammar** — parse and write the full line shape, with the
+   dropping discipline for a line that cannot be read. Round-trip test first: the shipped
+   catalog written out and parsed back is the shipped catalog.
+3. **`Field` and `Op` become enumerable and public**, with the population and reading-tier
+   metadata a form needs. One list, so a thirteenth field cannot be added without appearing.
+4. **A `project_rules` command** returning structured clauses, hits, only, blocked and the
+   calibration suggestion per rule; `save_rule` / `delete_rule` / `reset_rule` writing back
+   through `save_rules`, which already reads its own write back. Each of them bumps the
+   counter the window re-asks on, so an edit and its consequences land together.
+5. **A stable order inside `save_archive`** — sort each subject's decisions by rule id.
+   Independent of the rest and worth doing first if the editor slips: without it a decision
+   nobody touched can be rewritten by an unrelated one, and `git blame` is the whole
+   multi-user story.
+6. **The grid**, read-only first — every number in it is already computable, and it is worth
+   looking at before anything is editable.
+7. **The form.**
+
+Steps 1–3 are where the care goes. Step 6 is the one that will change the design.
+
+### Open, and worth arguing before the build
+
+- **Should a user rule be shareable?** `.sanity/rules.md` is committed, so it already is,
+  between people on one repo. Between REPOS there is nothing, and the catalog is the only
+  thing that crosses. A rule somebody found useful on one repo is the obvious thing to want to
+  carry, and an export/import is the obvious mechanism — and both are how a catalog becomes a
+  plugin directory nobody curates.
+- **Does the editor need a preview?** The grid's `hits` and `only` update live, which may be
+  the whole of it; a top-five list under the form would be better and is another surface to
+  keep honest.
+- **What happens to a `rules.md` written by a newer version?** The dropping discipline says an
+  unreadable line is skipped, which for a rule means it silently reverts to the catalog's
+  version — safe, and invisible. A count of what was dropped, said once at the top of the
+  grid, is probably the answer.

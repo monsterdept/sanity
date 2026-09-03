@@ -1452,7 +1452,9 @@ fn project_header(v: &Value) {
     // yet, and the cost of paying is printed beside it so the next command is obvious.
     match v.get("trace_depth").and_then(|d| d.as_str()) {
         Some("lines") => println!("  History read to the line"),
-        Some("files") => println!("  History read per file — `sanity trace --lines` for per-function"),
+        Some("files") => {
+            println!("  History read per file — `sanity trace --lines` for per-function")
+        }
         // **Absent is not `untraced`.** The offline answer — computed from the repo when no
         // backend is running — knows nothing about what a map is holding, and printing "history
         // not read" there would be inventing a fact from a missing field. Nothing is said.
@@ -1639,11 +1641,9 @@ pub fn trace(path: &str, lines: bool) -> i32 {
     // Opened first: a trace lands on a scan, so a repo the backend has never heard of has
     // nothing to land on. `open` is idempotent and is what `sanity check` does for the same
     // reason.
-    if let Err(e) = post(
-        &ep,
-        "/open",
-        serde_json::json!({ "path": repo.to_string_lossy(), "project": key }),
-    ) {
+    if let Err(e) =
+        post(&ep, "/open", serde_json::json!({ "path": repo.to_string_lossy(), "project": key }))
+    {
         eprintln!("sanity: {e}");
         return 1;
     }
@@ -1738,6 +1738,138 @@ pub fn status(path: &str) -> i32 {
     }
     println!();
     0
+}
+
+/// What is worth looking at in this repo, ranked.
+///
+/// **In process, like `refresh` and unlike `status`.** The read verbs ask the backend because
+/// what they report is partly LIVE — what is out with readers this second — and a number that
+/// stale is worse than no number. A finding is not live: it is the tree, the readings in
+/// `.sanity/` and the rules beside them, all of which are on disk. Asking a daemon for it
+/// would mean an endpoint, a second answer, and a repo whose findings depend on whether the
+/// app happens to be open.
+///
+/// **One subject per entry, not one per rule**, the same merge the panel does — a function
+/// three rules flagged is one thing to look at, not three. `just findings` prints the other
+/// view, per rule with its calibration and its marginal contribution; that is a question about
+/// the CATALOG and this is a question about the repo.
+pub fn findings(path: &str, limit: usize, edits: bool) -> i32 {
+    let path = match std::fs::canonicalize(path) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("sanity: {path}: {e}");
+            return 2;
+        }
+    };
+    let scans = crate::scancache::ScanCache::open(&path);
+    // `Ordering` fidelity: every reading clause is answered from `.sanity/` or not at all —
+    // see `findings::Field::Surprise`, which is `None` on an unread body rather than falling
+    // back to a proxy score. Paying for the all-pairs term would buy a number nothing here
+    // prints.
+    let scan = match crate::scan::scan(
+        &path,
+        &crate::surprise::HeuristicModel,
+        &|_| {},
+        &|_, _: &crate::surprise::Reading| {},
+        &|_| {},
+        &std::sync::atomic::AtomicBool::new(false),
+        crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
+        crate::scan::Fidelity::Ordering,
+        if edits { crate::trace::Depth::Edits } else { crate::trace::Depth::Lines },
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("sanity: could not scan {}: {e}", path.to_string_lossy());
+            return 1;
+        }
+    };
+    let reports = crate::assessment::load(&path, &scan);
+    let traced = crate::findings::Traced { git: true, churned: scan.stats.churned };
+    let facts = crate::findings::subjects(&scan.root, &reports, traced);
+    let rules = crate::findings::rules_for(&path, &facts);
+    let groups = crate::findings::report(
+        &scan.root,
+        &reports,
+        traced,
+        &rules,
+        &crate::findings::archive(&path),
+    );
+
+    // Merged by subject, flagged first then widest — the panel's order, from the same numbers.
+    #[derive(Default)]
+    struct Row<'a> {
+        flagged: bool,
+        loc: u32,
+        said: Vec<(&'a crate::findings::Group, &'a crate::findings::Finding)>,
+    }
+    let mut by_key: std::collections::BTreeMap<&str, Row> = Default::default();
+    for g in groups.iter().filter(|g| g.blocked.is_none()) {
+        for f in &g.hits {
+            let row = by_key.entry(f.key.as_str()).or_default();
+            row.flagged |= f.flagged;
+            row.loc = f.hit.loc;
+            row.said.push((g, f));
+        }
+    }
+    let mut rows: Vec<(&str, Row)> = by_key.into_iter().collect();
+    rows.sort_by(|(ak, a), (bk, b)| {
+        b.flagged.cmp(&a.flagged).then_with(|| b.loc.cmp(&a.loc)).then_with(|| ak.cmp(bk))
+    });
+
+    let settled: usize = groups.iter().map(|g| g.dismissed).sum();
+    println!();
+    print!("{}", path.to_string_lossy());
+    println!(
+        "  {} findings{}",
+        commas(rows.len() as u64),
+        if settled > 0 { format!(", {} ignored", commas(settled as u64)) } else { String::new() }
+    );
+
+    // **What could not be asked, said once and out loud.** A rule whose clause the repo has no
+    // evidence for finds nothing, and a reader who is not told why reads that as a clean bill
+    // — the one thing this surface must never do.
+    for g in groups.iter().filter(|g| g.blocked.is_some()) {
+        println!("  {} — {}", g.title, g.blocked.as_deref().unwrap_or(""));
+    }
+    println!();
+
+    for (key, row) in rows.iter().take(limit) {
+        println!("  {}{}", if row.flagged { "⚑ " } else { "" }, key);
+        for (g, f) in &row.said {
+            println!("    {}", g.title);
+            for line in wrap(&crate::findings::flat(&f.says), 76) {
+                println!("      {line}");
+            }
+        }
+        println!();
+    }
+    if rows.len() > limit {
+        println!(
+            "  … and {} more. `--limit` for a longer list.",
+            commas((rows.len() - limit) as u64)
+        );
+        println!();
+    }
+    0
+}
+
+/// Break a sentence onto lines a terminal can hold, at word boundaries.
+fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        if !line.is_empty() && line.chars().count() + 1 + word.chars().count() > width {
+            out.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    if !line.is_empty() {
+        out.push(line);
+    }
+    out
 }
 
 /// What the assessment says, in aggregate.
@@ -2080,6 +2212,18 @@ enum Verb {
         #[arg(default_value = ".")]
         path: String,
     },
+    /// What is worth looking at, and why
+    Findings {
+        /// The repo. Defaults to where you are standing.
+        #[arg(default_value = ".")]
+        path: String,
+        /// How many to print. The list is ranked, so this is the top of it.
+        #[arg(long, value_name = "N", default_value_t = 20)]
+        limit: usize,
+        /// Read the timeline as well, so the churn rules can answer. Minutes on a large repo.
+        #[arg(long)]
+        edits: bool,
+    },
     /// Rewrite .sanity/ in the current format
     Refresh {
         /// The repo. Defaults to where you are standing.
@@ -2128,6 +2272,7 @@ pub fn main(args: &[String]) -> i32 {
         }
         Verb::Status { path } => status(&path),
         Verb::Summary { path } => summary(&path),
+        Verb::Findings { path, limit, edits } => findings(&path, limit, edits),
         Verb::Refresh { path } => refresh(&path),
     }
 }

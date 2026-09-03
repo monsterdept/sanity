@@ -70,7 +70,12 @@ fn main() {
                 );
                 return;
             }
-            other => path = PathBuf::from(other),
+            // **An empty argument is not a path.** `just` hands a recipe's `*flags=""` through
+            // as one empty positional when no flags were given, and taking it as the repo made
+            // `just findings` with no arguments scan "" and report a repo of nothing —
+            // truthfully, and about the wrong place.
+            other if !other.is_empty() => path = PathBuf::from(other),
+            _ => {}
         }
     }
 
@@ -197,7 +202,7 @@ fn main() {
         println!("  nothing read here: surprise, documented and legible cannot answer");
     }
     if set_aside > 0 {
-        println!("  {set_aside} settled in .sanity/decisions.md, and not counted below");
+        println!("  {set_aside} settled in .sanity/findings/decisions.md, and not counted below");
     }
 
     let head = format!(

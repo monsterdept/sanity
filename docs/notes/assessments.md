@@ -18,6 +18,25 @@ readings (1.4 MB) parse in 30ms, once, on open.
   deleted the source because `Ok` looked like proof. Two rules fall out: never key
   anything durable on a node id (that is what `key_of` is for), and never gate a
   destructive step on a write returning `Ok` — read the result back and check it.
+- **`.sanity/` has one file at the top and three directories under it.** `README.md` is the
+  index; `readings/` holds the shards, `rules/` the finding rules, `findings/` the decisions
+  made about them. The shards were loose in `.sanity/` and could not stay: a shard is named
+  after a top-level directory of the REPO, so a project with a `rules/` folder produced a
+  `.sanity/rules.md` full of readings and wrote it over a different store — and `read_all`
+  parsed every `.md` up there as a shard, so the other stores were being read as readings
+  already. Nothing a source tree can be called reaches a subdirectory.
+  **A shard name is a path, not a segment.** `shard_file` maps `src-tauri` to
+  `readings/src-tauri.md` and would map `src-tauri/src` to `readings/src-tauri/src.md`; every
+  segment is sanitised on its own, and a segment of nothing but dots is refused because `..`
+  is a direction rather than a name and the link list is fed to `remove_file`. `src-tauri.md`
+  is 1.1MB on this repo, so a bigger one will want finer shards: when it does, `shard_of`
+  returns a deeper prefix and nothing else moves.
+  **The move itself was `git mv`, not the app.** Reading the old flat layout and writing the
+  new one is what the no-migrator rule prescribes and it is what the code does — but done
+  that way the shard is deleted and re-added in the same commit that rewrites its contents,
+  similarity detection has nothing to hold onto, and every reading's history stops at the
+  move. `git mv` first, with the bytes untouched, records a 100% rename and `git log --follow`
+  crosses it. The code path stays for repos nobody moved by hand.
 - **A format change is not a data change, and there is never a migrator. `sanity refresh
   <repo>` is the whole mechanism.** The store is Markdown that is parsed back, so a shard
   written by an older renderer reads fine and comes out in today's format: `parse_shard`

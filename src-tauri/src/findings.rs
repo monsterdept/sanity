@@ -1218,8 +1218,30 @@ pub fn calibrated(rules: &[Rule], facts: &[Facts]) -> Vec<Rule> {
         .collect()
 }
 
+/// This tool's own corner of `.sanity/`, which the reading store cannot reach into.
+///
+/// **A directory of its own, because `.sanity/` used to be the readings' namespace and their
+/// filenames come from the repo.** A shard is named after a top-level directory, so a repo
+/// with a `rules/` directory produced a `.sanity/rules.md` full of readings, written over
+/// this store; `decisions/` the same. `read_all` also parsed every `.md` up there as a shard,
+/// so both files were being read as readings and yielding nothing.
+///
+/// The readings moved under `readings/` in the same change — see `assessment.rs` — so the
+/// three stores no longer share a namespace with each other or with the repo.
+/// Where this repo's rules live. A directory rather than a file, so that a repo which
+/// outgrows one catalog can shard it the way `readings/` shards — one file per rule, named by
+/// id — without the single-file name being in the way.
+fn rules_dir(repo: &std::path::Path) -> std::path::PathBuf {
+    crate::assessment::dir(repo).join("rules")
+}
+
+/// Where decisions about findings live, on the same argument.
+fn findings_dir(repo: &std::path::Path) -> std::path::PathBuf {
+    crate::assessment::dir(repo).join("findings")
+}
+
 fn rules_path(repo: &std::path::Path) -> std::path::PathBuf {
-    crate::assessment::dir(repo).join("rules.md")
+    rules_dir(repo).join("catalog.md")
 }
 
 /// This repo's saved thresholds, as `title -> value`. Empty where nobody has tuned it yet.
@@ -1240,7 +1262,7 @@ pub fn saved_rules(repo: &std::path::Path) -> HashMap<String, f32> {
 
 /// Write the thresholds this repo is using, so they stop moving.
 pub fn save_rules(repo: &std::path::Path, rules: &[Rule]) -> std::io::Result<()> {
-    std::fs::create_dir_all(crate::assessment::dir(repo))?;
+    std::fs::create_dir_all(rules_dir(repo))?;
     let mut out = String::new();
     out.push_str("# Finding rules\n\n");
     out.push_str("The thresholds this repo's findings are found with. Calibrated once, against\n");
@@ -1280,6 +1302,15 @@ pub fn rules_for(repo: &std::path::Path, facts: &[Facts]) -> Vec<Rule> {
     let saved = saved_rules(repo);
     if saved.is_empty() {
         let tuned = calibrated(&base, facts);
+        // **Nothing is created for a repo with nothing in it.** `assessments.md` states this
+        // for readings — "an open is a look, and a look that leaves a directory behind is a
+        // surprise where people run `git status`" — and it holds here for the same reason. It
+        // is also the guard that would have contained a real one: a path that resolved to the
+        // empty string scanned the current directory, found nothing, and wrote a rule catalog
+        // into whatever the caller happened to be standing in.
+        if facts.is_empty() {
+            return tuned;
+        }
         // A failure here costs a file, not an answer: the thresholds are still right for this
         // run, they will simply be calibrated again next time.
         let _ = save_rules(repo, &tuned);
@@ -1405,7 +1436,7 @@ pub fn pin_of(rule: &Rule, f: &Facts) -> String {
 /// Where the archive lives. One file, not a shard per directory: readings are one per function
 /// and decisions are one per judgement somebody actually made, which is far fewer.
 fn archive_path(repo: &std::path::Path) -> std::path::PathBuf {
-    crate::assessment::dir(repo).join("decisions.md")
+    findings_dir(repo).join("decisions.md")
 }
 
 /// Read the archive back. Absent file, empty archive — which is the honest reading of a repo
@@ -1484,15 +1515,31 @@ fn escape(s: &str) -> String {
 /// on exactly that. Nothing here deletes anything, but the same rule applies to the answer
 /// this returns: a caller that believes a decision landed will stop showing the finding.
 pub fn save_archive(repo: &std::path::Path, all: &[Decision]) -> std::io::Result<()> {
-    let dir = crate::assessment::dir(repo);
-    std::fs::create_dir_all(&dir)?;
+    std::fs::create_dir_all(findings_dir(repo))?;
+    // **The file is a pure function of what is in it, and `git blame` is why.**
+    //
+    // A decision's provenance — which tree it was made against — is not a field here. It is
+    // the commit the line arrived in, recorded by git, which is the thing whose job that is;
+    // a stored copy would be a second answer that a hand-edit or a squash could put out of
+    // step with the history, with nobody able to say which was right.
+    //
+    // That only holds while an untouched decision keeps identical bytes. Subjects were
+    // already stable — `BTreeMap` — but the decisions WITHIN one were in the order they were
+    // added, and `decide` retains-and-pushes onto the end. So re-deciding one rule on a
+    // subject that had two rewrote the other one's line as well, blamed it on the newer
+    // commit, and cost a decision nobody had touched the only record of when it was made.
     let mut by_key: std::collections::BTreeMap<&str, Vec<&Decision>> = Default::default();
     for d in all {
         by_key.entry(d.key.as_str()).or_default().push(d);
     }
+    for ds in by_key.values_mut() {
+        ds.sort_by(|a, b| a.rule.cmp(&b.rule));
+    }
     let mut out = String::new();
     out.push_str("# Decisions\n\n");
-    out.push_str("What somebody decided about a finding: that it needs doing, that it is fine as\n");
+    out.push_str(
+        "What somebody decided about a finding: that it needs doing, that it is fine as\n",
+    );
     out.push_str("the code stands, or that it is fine whatever the code does. Each records the\n");
     out.push_str("rule that raised it and the state the code was in.\n\n");
     out.push_str(
@@ -1921,6 +1968,92 @@ would hide the shape"
                 assert!(r.floor > 0, "{} asks about a body and has no floor", r.title);
             }
         }
+    }
+
+    /// **The store is a pure function of its contents, because `git blame` is the record.**
+    ///
+    /// A decision carries no commit: which tree it was made against is the commit its line
+    /// arrived in, and git already keeps that. The price of not storing it is that an
+    /// untouched decision has to keep identical bytes — and it did not. Subjects were stable
+    /// through a `BTreeMap`; the decisions inside one were in insertion order, so re-deciding
+    /// one rule moved a sibling's line, rewrote it, and blamed it on the newer commit.
+    #[test]
+    fn the_same_decisions_write_the_same_bytes_whatever_order_they_arrived_in() {
+        let dir = std::env::temp_dir().join(format!("sanity-order-{}", std::process::id()));
+        let mut one = None;
+        // The same three decisions on one subject, filed in two different orders. Two of them
+        // share a subject, which is the case that was broken.
+        for order in [[0usize, 1, 2], [2, 1, 0]] {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("temp repo");
+            let all = [
+                ("src/a.rs#run", "giant-function", "Giant function"),
+                ("src/a.rs#run", "tangled-for-size", "Tangled for its size"),
+                ("src/b.rs#go", "fossil", "Fossil"),
+            ];
+            for i in order {
+                let (key, rule, title) = all[i];
+                decide(
+                    &dir,
+                    Decision {
+                        key: key.into(),
+                        rule: rule.into(),
+                        title: title.into(),
+                        verdict: Verdict::FineForNow,
+                        pin: "abc loc=300".into(),
+                        reason: "fine".into(),
+                        // Deliberately identical: `when` is the one field that legitimately
+                        // differs between two filings, and it is not what this is about.
+                        when: "2026-09-03T00:00:00Z".into(),
+                        by: "ross".into(),
+                    },
+                )
+                .expect("writes");
+            }
+            let text =
+                std::fs::read_to_string(dir.join(".sanity").join("findings").join("decisions.md"))
+                    .expect("reads");
+            match &one {
+                None => one = Some(text),
+                Some(first) => assert_eq!(*first, text, "insertion order reached the file"),
+            }
+        }
+
+        // And re-deciding one rule leaves its sibling's line exactly where it was — the line
+        // git would otherwise re-blame.
+        let before =
+            std::fs::read_to_string(dir.join(".sanity").join("findings").join("decisions.md"))
+                .expect("reads");
+        decide(
+            &dir,
+            Decision {
+                key: "src/a.rs#run".into(),
+                rule: "giant-function".into(),
+                title: "Giant function".into(),
+                verdict: Verdict::FineAlways,
+                pin: "abc loc=300".into(),
+                reason: "second thoughts".into(),
+                when: "2026-09-03T00:00:00Z".into(),
+                by: "ross".into(),
+            },
+        )
+        .expect("writes");
+        let after =
+            std::fs::read_to_string(dir.join(".sanity").join("findings").join("decisions.md"))
+                .expect("reads");
+        let moved: Vec<&str> = before
+            .lines()
+            .filter(|l| l.starts_with("- ") && !after.lines().any(|a| a == *l))
+            .collect();
+        assert_eq!(
+            moved,
+            vec![
+                "- rule `giant-function`; called `Giant function`; verdict `fine-for-now`; \
+pin `abc loc=300`; when 2026-09-03T00:00:00Z; by ross; reason: fine"
+            ],
+            "only the decision that changed may change",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Keys are `key_of`, never node ids — a dismissal has to survive the body moving down
