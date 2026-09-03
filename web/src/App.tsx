@@ -34,7 +34,13 @@ import {
   onScanScore,
   onScanProgress,
   openCodeWindow,
+  type Dismissal,
+  dismissLead,
+  restoreLead,
+  projectArchive,
   type Hit,
+  type LeadGroup,
+  projectLeads,
   type Node,
   type Progress,
   type AgentActivity,
@@ -69,6 +75,7 @@ import { CommitLog } from './components/CommitLog'
 import { HistoryBar } from './components/HistoryBar'
 import { Crumbs } from './components/Crumbs'
 import { Find } from './components/Find'
+import { Leads } from './components/Leads'
 import { TopRow } from './components/shell/TopRow'
 import { rampStop } from './lib/api'
 import {
@@ -389,6 +396,17 @@ export default function App() {
   /** Whether the finder is up. Session state and nothing more — a search box that
    *  remembered it was open would greet a launch with a panel over the map. */
   const [finding, setFinding] = useState(false)
+  const [leading, setLeading] = useState(false)
+  const [leadGroups, setLeadGroups] = useState<LeadGroup[] | null>(null)
+  const [archive, setArchive] = useState<Dismissal[] | null>(null)
+  /** Bumped after a dismissal lands, to re-ask for both halves.
+   *
+   *  **Re-asked rather than patched in place.** Setting a lead aside changes the list, the
+   *  archive, every group's marginal count and the number on the mascot — and a local edit
+   *  that got any one of those wrong would leave the panel disagreeing with `.sanity/`, which
+   *  is the failure this store is most careful about. One extra walk of a tree that is
+   *  already in memory is the cheaper mistake. */
+  const [archiveAt, setArchiveAt] = useState(0)
   /** Whether the lens help is up — see `LensHelp`. Session state: it is a thing you read
    *  once, not a preference. */
   const [helping, setHelping] = useState(false)
@@ -1316,51 +1334,48 @@ export default function App() {
    *  Takes the repo path rather than looking it up: the chain has a freshly listed project in
    *  hand, and `projects` in a closure that has been awaiting a minute of `git log` is exactly
    *  the stale read this avoids. */
-  const replay = useCallback(
-    async (key: string, repo: string, fresh = false) => {
-      // **One walk at a time.** A walk saturates every core it can get — the parse is
-      // `rayon` over each commit's changed files — so two do not run in half the time each,
-      // they run in twice the time each and neither finishes; and the progress events carry
-      // no repo, so two would count into one bar.
-      //
-      // Nothing is said here because nothing was offered: the sidebar hides Trace on the
-      // other rows while one is running. This is the guard behind that, not the message —
-      // an error screen is what you show somebody who did something, and pressing a button
-      // that should not have been there is something the app did.
-      //
-      // A ref rather than the state it mirrors, because the chain calls this after awaiting a
-      // phase that can take a minute: `busyKey` read out of that closure is whatever it was
-      // when the press landed.
-      if (walking.current) return
-      walking.current = key
-      setBusyKey(key)
-      // **Zero of nothing, immediately.** The row shows its trace line while `replay` is
-      // non-null, and that used to arrive with the first progress event — which on a large
-      // repo is after the stored timeline has been read and the log walked, several seconds
-      // of a button that looked like it had missed the press. A count of `0` is honest about
-      // what has been traced and honest that something has started.
-      setHistoryProgress({ done: 0, total: 0, phase: 'starting…' })
-      try {
-        // Every commit is a frame — the log lists them and a click addresses one, so the
-        // trace has no business coarsening what it stores. The slider governs how fast the
-        // story is PLAYED, and the transport already skips to hold the duration it promised.
-        await scanHistory(repo, true, fresh)
-        // The walk returns a count, not a story. Dropping what is held makes the next
-        // History open fetch the tables of the timeline this trace just wrote — and only
-        // when it is the timeline on screen, since a trace of another repo has nothing to
-        // do with what this window is drawing. Through the ref for the reason above.
-        if (shownHistory.current === key) {
-          setHistory(null)
-          setHistoryKey(null)
-          setLoaded(0)
-        }
-      } finally {
-        walking.current = null
-        setBusyKey(null)
+  const replay = useCallback(async (key: string, repo: string, fresh = false) => {
+    // **One walk at a time.** A walk saturates every core it can get — the parse is
+    // `rayon` over each commit's changed files — so two do not run in half the time each,
+    // they run in twice the time each and neither finishes; and the progress events carry
+    // no repo, so two would count into one bar.
+    //
+    // Nothing is said here because nothing was offered: the sidebar hides Trace on the
+    // other rows while one is running. This is the guard behind that, not the message —
+    // an error screen is what you show somebody who did something, and pressing a button
+    // that should not have been there is something the app did.
+    //
+    // A ref rather than the state it mirrors, because the chain calls this after awaiting a
+    // phase that can take a minute: `busyKey` read out of that closure is whatever it was
+    // when the press landed.
+    if (walking.current) return
+    walking.current = key
+    setBusyKey(key)
+    // **Zero of nothing, immediately.** The row shows its trace line while `replay` is
+    // non-null, and that used to arrive with the first progress event — which on a large
+    // repo is after the stored timeline has been read and the log walked, several seconds
+    // of a button that looked like it had missed the press. A count of `0` is honest about
+    // what has been traced and honest that something has started.
+    setHistoryProgress({ done: 0, total: 0, phase: 'starting…' })
+    try {
+      // Every commit is a frame — the log lists them and a click addresses one, so the
+      // trace has no business coarsening what it stores. The slider governs how fast the
+      // story is PLAYED, and the transport already skips to hold the duration it promised.
+      await scanHistory(repo, true, fresh)
+      // The walk returns a count, not a story. Dropping what is held makes the next
+      // History open fetch the tables of the timeline this trace just wrote — and only
+      // when it is the timeline on screen, since a trace of another repo has nothing to
+      // do with what this window is drawing. Through the ref for the reason above.
+      if (shownHistory.current === key) {
+        setHistory(null)
+        setHistoryKey(null)
+        setLoaded(0)
       }
-    },
-    [],
-  )
+    } finally {
+      walking.current = null
+      setBusyKey(null)
+    }
+  }, [])
 
   /** Press `Trace` once and get the whole column.
    *
@@ -2659,6 +2674,103 @@ export default function App() {
     [tree, jumpTo],
   )
 
+  /** Ask the backend what is worth looking at here.
+   *
+   *  **On the project and on the map's identity, not on every render.** A fresh `tree` is
+   *  what a landed scan or a landed reading produces, so this re-asks exactly when the
+   *  answer could have changed — and a rescan is the event that can add leads to a repo you
+   *  are already standing in. Answers are dropped if the project moved on while one was in
+   *  flight, or the dot on one repo would be reporting another's.
+   *
+   *  Not asked at all during a replay: the panel refuses that state, and a badge over a
+   *  frame would be pointing at leads about a repo that is not the one on screen. */
+  useEffect(() => {
+    if (!activeKey || historyOn) {
+      setLeadGroups(null)
+      return
+    }
+    let live = true
+    void projectLeads(activeKey)
+      .then((g) => {
+        if (live) setLeadGroups(g)
+      })
+      .catch(() => {
+        if (live) setLeadGroups(null)
+      })
+    return () => {
+      live = false
+    }
+  }, [activeKey, tree, historyOn, archiveAt])
+
+  useEffect(() => {
+    if (!activeKey) {
+      setArchive(null)
+      return
+    }
+    let live = true
+    void projectArchive(activeKey)
+      .then((a) => {
+        if (live) setArchive(a)
+      })
+      .catch(() => {
+        if (live) setArchive(null)
+      })
+    return () => {
+      live = false
+    }
+  }, [activeKey, archiveAt])
+
+  /** File a decision, then re-ask. **The refresh is inside the `then`**: a write that failed
+   *  must not leave the panel showing a lead as dealt with, which is exactly what an
+   *  optimistic update would do. */
+  const dismiss = useCallback(
+    (key: string, rule: string, reason: string) => {
+      if (!activeKey) return
+      void dismissLead(activeKey, key, rule, reason)
+        .then(() => setArchiveAt((n) => n + 1))
+        .catch(() => {})
+    },
+    [activeKey],
+  )
+
+  const restore = useCallback(
+    (key: string, rule: string) => {
+      if (!activeKey) return
+      void restoreLead(activeKey, key, rule)
+        .then(() => setArchiveAt((n) => n + 1))
+        .catch(() => {})
+    },
+    [activeKey],
+  )
+
+  /** How long the worklist is: distinct things to look at, not leads.
+   *
+   *  **Counted the way the panel counts them, because it is the same number.** A function
+   *  three rules flagged is one tile and has to be one on the badge too — a bubble saying 90
+   *  over a list of 60 is the map and the key disagreeing about one repo, which is the
+   *  failure this surface keeps legislating against.
+   *
+   *  Already the undismissed count: the backend drops archived leads before it ranks or
+   *  counts anything, so this is what goes down when somebody deals with one. A blocked rule
+   *  contributes nothing — it found nothing because it could not RUN, and counting that as
+   *  zero is the same sentence as a clean bill. */
+  const leadTotal = leadGroups
+    ? new Set(leadGroups.filter((g) => !g.blocked).flatMap((g) => g.hits.map((l) => l.key))).size
+    : 0
+
+  const openLeads = useCallback(() => setLeading(true), [])
+
+  /** The creature, plus what it has to tell you.
+   *
+   *  **A second memo rather than a spread at the call site.** `mascot` is memoised because it
+   *  reaches the sunburst, which is a few thousand arcs — building a fresh object inline
+   *  would re-render the whole map on every render of this component, which is the exact cost
+   *  that memo exists to avoid. Same discipline, one layer out. */
+  const mascotForMap = useMemo(
+    () => ({ ...mascot, leads: leadTotal, onLeads: openLeads }),
+    [mascot, leadTotal, openLeads],
+  )
+
   return (
     <div className="relative flex h-full flex-col">
       {/* The chrome is ONE painted field: the gradient lives here, on the row, and the
@@ -2777,11 +2889,7 @@ export default function App() {
                     switcher's kind of statement, not the ring count's: rings and band change
                     the geometry, and this changes the encoding. */}
                 {isCapped(viewMode) && (
-                  <ColorCount
-                    mode={viewMode}
-                    cap={caps[viewMode]}
-                    onCap={chooseCap(viewMode)}
-                  />
+                  <ColorCount mode={viewMode} cap={caps[viewMode]} onCap={chooseCap(viewMode)} />
                 )}
                 {/* **Beside the lens for the same reason, and only on the two lenses that
                     mark anything.** Traps and Clones are the lenses with no quantity in them:
@@ -2818,9 +2926,7 @@ export default function App() {
                     Docs' colours is standing for two different findings. Keyed off `viewMode`
                     like the others, and it works in a replay: the frames carry the readings
                     the repo held at each commit, `derivable` among them. */}
-                {viewMode === 'docs' && (
-                  <DerivableToggle on={derivable} onToggle={setDerivable} />
-                )}
+                {viewMode === 'docs' && <DerivableToggle on={derivable} onToggle={setDerivable} />}
                 {/* **With the lens, because the horizon is what the colour MEANS.** Churn is a
                     rate, and a rate without a window named is a number with no unit — the
                     thing this bar already refuses to print. Offered even before the timeline
@@ -2889,6 +2995,22 @@ export default function App() {
               projectKey={activeKey}
               replaying={historyOn}
               onClose={() => setFinding(false)}
+              onPick={flyTo}
+            />
+
+            {/* Beside the finder because it lands the same way — a row flies the camera
+                through `flyTo`, which is the motion drilling in by hand already makes. What
+                differs is who chose the destination: the finder is somebody naming a thing,
+                and this is the map naming one. */}
+            <Leads
+              open={leading}
+              projectKey={activeKey}
+              groups={leadGroups}
+              replaying={historyOn}
+              archive={archive}
+              onDismiss={dismiss}
+              onRestore={restore}
+              onClose={() => setLeading(false)}
               onPick={flyTo}
             />
 
@@ -2962,7 +3084,7 @@ export default function App() {
                     // being awake because somebody is here. What must not travel back in time is
                     // a MEASUREMENT, which is why the lens switcher greys out. Nothing in the
                     // creature's three states says anything about the code on screen.
-                    mascot={mascot}
+                    mascot={mascotForMap}
                     // Only the replay. A commit landing is a change the viewer asked to watch,
                     // so it should move; a rescan or a landed reading changes the live map under
                     // somebody who is reading it, and sliding the wedges there would animate a
@@ -3266,15 +3388,14 @@ export default function App() {
                     ? `${Math.max(1, Math.round(bigHistory.cost.seconds))} seconds`
                     : `${Math.round(bigHistory.cost.seconds / 60)} minutes`}
                 </b>
-                {bigHistory.cost.cold ? ', estimated from the size of its object store' : ''} —
-                past what Sanity will spend without being asked, so the map arrives without those
-                lenses and the row carries a <b className="text-[var(--foreground)]">Trace</b>{' '}
-                button.
+                {bigHistory.cost.cold ? ', estimated from the size of its object store' : ''} — past
+                what Sanity will spend without being asked, so the map arrives without those lenses
+                and the row carries a <b className="text-[var(--foreground)]">Trace</b> button.
               </li>
               <li>
                 <b className="text-[var(--foreground)]">Read</b> puts an agent over the code to
-                measure how predictable it is. It costs tokens, it is always your call, and no
-                size of repo changes that.
+                measure how predictable it is. It costs tokens, it is always your call, and no size
+                of repo changes that.
               </li>
             </ul>
             <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">

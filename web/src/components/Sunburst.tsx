@@ -450,11 +450,11 @@ const DIR_RIM_PX = 4.5
  *  and reading as one continuous ring of their own. */
 const DIR_RIM_INSET_PX = 3
 
-/* Switchable off — see `Spacing['border']`, which zeroes this and lets the band run to the
-   wedge's edges. Off, the sentence one level up is back: a directory outlined in blue reads as
-   a blue directory. It is offered because on a shallow tree the frames cost more room than the
-   distinction buys, and it is offered as a SWITCH rather than a width because the margin has
-   three readers and a partial frame is a band that overhangs its plate. */
+/* Switchable off, and OFF is the default — see `SPACING_DEFAULT`, which carries why the
+   argument above stopped deciding it: the paragraph was written when the band was a few pixels
+   of one colour, and a distribution a fifth of the ring deep reads as a bar on the plate
+   without needing ground around it to say so. A switch rather than a width, because the margin
+   has three readers and a partial frame is a band that overhangs its plate. */
 
 function SunburstView({
   root,
@@ -503,7 +503,24 @@ function SunburstView({
    *
    *  Absent is a legitimate value — the history replay has no run to depict — and absence
    *  draws nothing rather than a sleeping creature over a story from 2019. */
-  mascot?: { events: AgentCall[]; state: MascotState; project?: string | null; remint?: number }
+  mascot?: {
+    events: AgentCall[]
+    state: MascotState
+    project?: string | null
+    remint?: number
+    /** How many leads are standing — found, and not set aside. `0` draws nothing.
+     *
+     *  **A count is honest here because the archive makes it drainable.** Before dismissals
+     *  existed the only number available was the total, and ceph's four thousand is a
+     *  baseline rather than a notification; what a person can work down to nothing is worth
+     *  printing. See `docs/notes/leads.md`. */
+    leads?: number
+    /** Open the leads panel. **On the badge, never on the creature** — the mascot's single
+     *  clicks are already spoken for (six of them remint it, and the hub underneath means go
+     *  up a level), so a click handler on the figure would fire on the first click of a
+     *  gesture and open a panel in the middle of it. */
+    onLeads?: () => void
+  }
   /** Ease the rings toward the shape they are given, instead of taking it.
    *
    *  On for the history replay, which is where a tree arrives that is neither a new level
@@ -1049,9 +1066,37 @@ function SunburstView({
     [spacing.slice],
   )
 
+  /** The widest cut a wedge can wear without being erased by it.
+   *
+   *  **A cut is paint, not layout** — a background-coloured stroke on the wedge's own path, so
+   *  that the gap is a constant WIDTH at every radius rather than an angle that opens at the
+   *  rim (see `CUT`). What follows from that is the thing this exists to stop: the layout
+   *  hands out the same angles whatever the cut is, the stroke eats `cut / 2` inward from each
+   *  edge, and so a wedge narrower than the cut is painted out of existence BY ITS OWN
+   *  SEPARATOR. Not culled — it is still in the layout, still holding its angle, and still
+   *  answering the mouse. An invisible wedge you can hover is worse than either a drawn one or
+   *  an absent one, and it arrives silently as the cut widens.
+   *
+   *  Measured at the wedge's INNER edge, which is where its arc is shortest — a cut that fits
+   *  at `r1` and not at `r0` still closes the bottom of the wedge.
+   *
+   *  Half, so a wedge keeps at least as much paint as ground. The same shape of guard the rim
+   *  segments already carry one function down (`or a thin one closes up`), and it degrades the
+   *  way that one does: a fat cut on a thin wedge becomes a hairline instead of a
+   *  disappearance, which reads as "there is something here, and there is no room to say what"
+   *  — the true sentence.
+   *
+   *  It does NOT make a wide cut cost the ring wedges. The count is the layout's business and
+   *  the layout is upstream of every line of this; what the guard buys is that widening the
+   *  gaps cannot quietly delete files from a picture whose file count did not change. */
+  const cutAt = (kind: string, a0: number, a1: number, r0: number) =>
+    Math.min(
+      kind === 'dir' ? cuts.dir : kind === 'func' ? cuts.func : cuts.file,
+      (a1 - a0) * Math.max(r0, 1) * 0.5,
+    )
+
   /** The gutter between one level and the next, at the reader's scale — see `RING_GAP`. */
   const ringGap = RING_GAP * spacing.ring
-
 
   /** The rim band in user units, including the cut that separates it from its own plate.
    *  Capped at the ring so a very shallow tree cannot produce a band wider than the wedge
@@ -1164,13 +1209,7 @@ function SunburstView({
     return cut && { ...cut, band }
   }
 
-  const dirRim = (
-    node: Node,
-    c: ReturnType<typeof colorFor>,
-    g: Geo,
-    fade = 1,
-    flash = false,
-  ) => {
+  const dirRim = (node: Node, c: ReturnType<typeof colorFor>, g: Geo, fade = 1, flash = false) => {
     if (node.kind !== 'dir') return null
     const { r0, r1, a0, a1 } = rimBand(g)
     if (r1 <= r0) return null
@@ -1254,7 +1293,6 @@ function SunburstView({
     () => geoOf(wedges, rIn, band, () => ringGap),
     [wedges, band, ringGap, rIn],
   )
-
 
   /** The wedges of the level currently on screen, kept so the one being left can still be
    *  drawn on its way out. Declared before the check below uses it. */
@@ -1620,9 +1658,9 @@ function SunburstView({
     const held = (n: Node) =>
       mode === 'clones'
         ? (n.cols?.clones ?? []).some((c) => c > 0)
-        // `trapOf` already refuses an answer given under an older question; what it cannot
-        // see is whether the reading has expired, which only the backend can say.
-        : (n.pending ?? []).some((r) => !r.stale && trapOf(r))
+        : // `trapOf` already refuses an answer given under an older question; what it cannot
+          // see is whether the reading has expired, which only the backend can say.
+          (n.pending ?? []).some((r) => !r.stale && trapOf(r))
 
     const at = new Map<string, number[]>()
     /**
@@ -1975,7 +2013,7 @@ function SunburstView({
                   fill={plate ? plate.fill : 'var(--structure)'}
                   fillOpacity={(1 - e) * (plate ? heatShare(x.node.kind, mode) : 1)}
                   stroke="var(--background)"
-                  strokeWidth={x.node.kind === 'dir' ? cuts.dir : cuts.file}
+                  strokeWidth={cutAt(x.node.kind, g.a0, g.a1, g.r0)}
                 />
                 {dirRim(x.node, c, g, 1 - e)}
               </g>
@@ -2004,7 +2042,7 @@ function SunburstView({
                     fill="var(--structure)"
                     fillOpacity={1}
                     stroke="var(--background)"
-                    strokeWidth={cuts.dir}
+                    strokeWidth={cutAt('dir', g.a0, g.a1, g.r0)}
                   />
                   {dirRim(coring.current.node, c, g)}
                 </g>
@@ -2195,7 +2233,7 @@ function SunburstView({
                       // thing on screen, and it sat around the level whose reading is the
                       // quietest — the eye went to structure instead of to heat.
                       stroke="var(--background)"
-                      strokeWidth={w.node.kind === 'dir' ? cuts.dir : cuts.file}
+                      strokeWidth={cutAt(w.node.kind, a0, a1, r0)}
                       onMouseEnter={() => setHoverNode(w.node)}
                       onMouseLeave={() => setHoverNode((n) => (n?.id === w.node.id ? null : n))}
                       onClick={(e) => {
@@ -2356,7 +2394,7 @@ function SunburstView({
                         // agent-judged — a mark on every item is stripes, not information. The
                         // detail panel names the instrument for the one wedge you asked about.
                         stroke="var(--background)"
-                        strokeWidth={cuts.func}
+                        strokeWidth={cutAt('func', slot.a0, slot.a1, slot.r0)}
                         onMouseEnter={() => setHoverNode(slot.node)}
                         onMouseLeave={() =>
                           setHoverNode((n) => (n?.id === slot.node.id ? null : n))
@@ -2790,42 +2828,116 @@ function SunburstView({
           of that target is worse than the one thing it costs, which is that six rapid clicks
           at a drilled-in level walk you out as well as reminting. Six clicks is a gesture
           people perform at rest, on the repo root, where there is nowhere to go up to. */}
-      {mascot && (
-        <div
-          ref={hubMascot}
-          /* Where the creature sits in the map's OWN coordinates — its centre's y and the
+      {mascot &&
+        ((): React.ReactNode => {
+          /** The thought bubble's diameter, as a share of the creature's box.
+           *
+           *  A fifth, which is what it took to read as something the mascot is holding rather
+           *  than something covering its face — the first pass was a third and sat over the
+           *  head. Floored so it stays legible at the smallest hub the ring count produces. */
+          const BUBBLE = Math.max(14, HUB_MASCOT * hubK * 0.2)
+          return (
+            <div
+              ref={hubMascot}
+              /* Where the creature sits in the map's OWN coordinates — its centre's y and the
              side of its box, both in user units. The movie export composites this canvas
              into its frames (it is not in the SVG, so a copy of the SVG does not carry it)
              and needs to know where: reading it off the element keeps the one geometry
              here, rather than a second copy of these two numbers in `movie.ts` that nobody
              would think to move when the hub does. */
-          data-hub-mascot={`${HUB_MASCOT_Y} ${HUB_MASCOT * hubK}`}
-          className="absolute left-0 top-0 origin-center"
-          style={{
-            width: HUB_MASCOT * hubK,
-            height: HUB_MASCOT * hubK,
-            visibility: 'hidden',
-            cursor: onUp ? 'zoom-out' : undefined,
-          }}
-          onDoubleClick={
-            onUp
-              ? (ev) => {
-                  ev.stopPropagation()
-                  onUp()
-                }
-              : undefined
-          }
-        >
-          <AgentMascot
-            size={HUB_MASCOT * hubK}
-            events={mascot.events}
-            state={mascot.state}
-            gaze={gaze}
-            project={mascot.project}
-            remint={mascot.remint}
-          />
-        </div>
-      )}
+              data-hub-mascot={`${HUB_MASCOT_Y} ${HUB_MASCOT * hubK}`}
+              className="absolute left-0 top-0 origin-center"
+              style={{
+                width: HUB_MASCOT * hubK,
+                height: HUB_MASCOT * hubK,
+                visibility: 'hidden',
+                cursor: mascot.onLeads && mascot.leads ? 'pointer' : onUp ? 'zoom-out' : undefined,
+              }}
+              onDoubleClick={
+                onUp
+                  ? (ev) => {
+                      ev.stopPropagation()
+                      onUp()
+                    }
+                  : undefined
+              }
+              /** **The whole creature opens the leads, and only while it has some to show.**
+               *
+               *  This does sit in front of the six-click remint, which is the cost: with a bubble
+               *  up, clicking the mascot opens a panel instead of counting toward a new creature.
+               *  Reminting is still there on a repo with nothing standing, and the trade was
+               *  asked for — the creature having something to say is the more common state and
+               *  the more useful click. The disc's own "go up" is untouched, because that is a
+               *  DOUBLE click and this stops the event before it reaches the ring underneath. */
+              onClick={
+                mascot.onLeads && mascot.leads
+                  ? (ev) => {
+                      ev.stopPropagation()
+                      mascot.onLeads?.()
+                    }
+                  : undefined
+              }
+            >
+              <AgentMascot
+                size={HUB_MASCOT * hubK}
+                events={mascot.events}
+                state={mascot.state}
+                gaze={gaze}
+                project={mascot.project}
+                remint={mascot.remint}
+              />
+              {/* **The count, as a badge.** A cloud and a tail of dots were both tried here
+                  and both lost to the plain thing: what this has to do is carry a number
+                  legibly at a fifth of the creature's height, over whatever colour the
+                  innermost wedges happen to be, and every bit of shape spent on saying
+                  "thought" came out of the part that had to stay readable.
+
+                  Top-right and clear of the head — it sat over the face at first, which reads
+                  as a creature wearing a number rather than having one.
+
+                  `pointer-events: none`: the CLICK is the whole creature's, one level up.
+                  This is the thing being pointed at, not the target. */}
+              {!!mascot.leads && mascot.state === 'sleeping' && (
+                <div
+                  aria-hidden
+                  className="absolute"
+                  /* **Inset, not in the corner.** The creature is drawn with margin inside
+                     its box — it fills a little over half of it — so a badge at the box's own
+                     top-right corner floats in empty space with nothing to belong to. These
+                     bring it in against the head's upper right, where it reads as the
+                     creature's. Fractions of the box, so it holds that relationship as the
+                     hub grows and shrinks with the ring count. */
+                  style={{
+                    right: HUB_MASCOT * hubK * 0.07,
+                    top: HUB_MASCOT * hubK * 0.11,
+                    pointerEvents: 'none',
+                    lineHeight: 0,
+                  }}
+                >
+                  <span
+                    className="mono flex items-center justify-center rounded-full"
+                    style={{
+                      // Never narrower than a circle, and wider when the number is: `7` is a
+                      // dot with a number in it and `1.2k` is a pill, rather than either
+                      // being stretched to fit the other's shape.
+                      minWidth: BUBBLE,
+                      height: BUBBLE,
+                      padding: `0 ${BUBBLE * 0.22}px`,
+                      fontSize: Math.max(8, BUBBLE * 0.5),
+                      background: 'var(--accent)',
+                      color: 'var(--accent-foreground)',
+                      // The hub sits over whatever the innermost wedges are coloured, so the
+                      // badge carries its own edge rather than trusting the ground behind it.
+                      boxShadow: '0 0 0 1.5px var(--card), 0 1px 3px rgb(0 0 0 / 0.35)',
+                    }}
+                  >
+                    {mascot.leads > 999 ? `${Math.round(mascot.leads / 100) / 10}k` : mascot.leads}
+                  </span>
+                </div>
+              )}
+            </div>
+          )
+        })()}
 
       {/* The tooltip. Instant, because it is ours: it appears the moment a wedge is
           entered instead of waiting out the OS delay, and it can say what is actually
@@ -2927,8 +3039,7 @@ function SunburstView({
                 // Out of the drawn population only: a culled wedge is a file the map HAS and
                 // did not show, so the files it could not read are not part of this question.
                 `${outOf(hidden.files, under.files, 'file')} too thin`,
-              hidden.dirs > 0 &&
-                `${outOf(hidden.dirs, under.dirs, 'dir')} too thin`,
+              hidden.dirs > 0 && `${outOf(hidden.dirs, under.dirs, 'dir')} too thin`,
             ]
               .filter((c): c is string => typeof c === 'string')
               // The first alone, then everything else together. Not a wrap: a wrap breaks

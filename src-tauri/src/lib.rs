@@ -28,6 +28,7 @@ pub mod edits;
 pub mod harness;
 pub mod heuristic;
 pub mod history;
+pub mod leads;
 pub mod links;
 pub mod mcp;
 pub mod model;
@@ -317,6 +318,10 @@ pub fn run() {
             commands::project_scan,
             commands::file_functions,
             commands::search_project,
+            commands::project_leads,
+            commands::dismiss_lead,
+            commands::restore_lead,
+            commands::project_archive,
             commands::function_links,
             commands::function_forks,
             commands::function_sources,
