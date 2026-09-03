@@ -33,11 +33,9 @@ export type Spacing = {
   /** Whether a directory's coloured band is floated inside its plate with ground visible all
    *  the way round it, or sits flush to the wedge's edges.
    *
-   *  On is what the map has always drawn, and `DIR_RIM_INSET_PX` carries the argument: flush
-   *  against the rim the band reads as the wedge's own border, which is the sentence one level
-   *  up — a directory outlined in blue is a blue directory again, and a directory's colour is
-   *  never a reading OF the directory. Off says that in a repo shallow enough that the frames
-   *  cost more room than the distinction is worth. */
+   *  On is what the map drew for as long as the band was a few pixels of one colour, and
+   *  `DIR_RIM_INSET_PX` carries the argument for it. It is off by default now — see
+   *  `SPACING_DEFAULT`, which is where that turn is written down. */
   border: boolean
   /** Multiplier on `CUT` — the gap between one wedge and the neighbour beside it. */
   slice: number
@@ -58,7 +56,18 @@ export type Spacing = {
   width: number
 }
 
-export const SPACING_DEFAULT: Spacing = { border: true, slice: 1, ring: 1, width: 1 }
+/** **The frame is off by default, and that is a reversal.** `DIR_RIM_INSET_PX` argues for it
+ *  and the argument still holds as far as it goes: flush against the edge, a band reads as the
+ *  wedge's own outline, and an outlined directory is a directory that IS that colour — a
+ *  sentence a roll-up cannot support. What has changed underneath the argument is the band. It
+ *  was a few pixels carrying one colour when the inset was written, and it is now a
+ *  distribution across a fifth of the ring; a stacked bar that wide reads as something the
+ *  plate is carrying whether or not there is ground around it, so the frame is defending
+ *  against a misreading the band's own size already prevents. Looked at side by side on ceph,
+ *  what the frames actually cost is legible at a glance and what they buy is not.
+ *
+ *  A reader who has turned it on has `border: true` stored and keeps it. */
+export const SPACING_DEFAULT: Spacing = { border: false, slice: 1, ring: 1, width: 1 }
 
 /** How far either slider travels, as a multiple of the constant it scales.
  *
