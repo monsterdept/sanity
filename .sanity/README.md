@@ -14,11 +14,11 @@ one and read it like notes from a code review.
 
 | area | read | of | surprising | stale |
 |---|---|---|---|---|
-| [docs](docs.md) | 2 | 2 | 1 | 0 |
-| [scripts](scripts.md) | 35 | 35 | 5 | 0 |
-| [src-tauri](src-tauri.md) | 1107 | 1107 | 195 | 0 |
-| [web](web.md) | 542 | 542 | 100 | 0 |
-| **total** | **1686** | **1686** | **301** | **0** |
+| [docs](readings/docs.md) | 2 | 2 | 1 | 0 |
+| [scripts](readings/scripts.md) | 35 | 35 | 5 | 0 |
+| [src-tauri](readings/src-tauri.md) | 1107 | 1117 | 195 | 18 |
+| [web](readings/web.md) | 542 | 542 | 100 | 0 |
+| **total** | **1686** | **1696** | **301** | **18** |
 
 ## Seeing it as a map
 
