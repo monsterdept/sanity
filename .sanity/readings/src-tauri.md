@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1146 of 1146 read · 202 surprising
+1154 of 1154 read · 206 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -31,11 +31,19 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/agentapi.rs
 
-### the file itself — TANGLED
-- spec 3 · served in 15 parts · read at `dca29e2ac4d0` · commit `6168dc0` · read by claude-sonnet-5 · via claude · when 2026-09-02T04:09:47Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This is the server-side implementation of the loopback agent API itself — the code behind sanity_next/sanity_reveal/sanity_report that this very session is using. It holds AppState/Project bookkeeping (loading, persisting, focus/select across multiple open projects and runs), a task queue that spreads across files and hands out one function/file at a time, the reveal/report/grading and aggregation logic (Grade, Report, Tally, GradeCounts), and orchestration of scanning/tracing in the background, plus an HTTP-ish router/endpoint layer to serve it all. The large tail of snake_case sentence-like peer names (a_declined_restore_does_not_forget_what_was_paid_for, etc.) are almost certainly inline test functions, each documenting one specific invariant/edge case of this queueing and reveal/report protocol.
-- found: Exactly what was predicted: the whole loopback backend behind sanity_next/reveal/report — AppState and Project structs (multi-project bookkeeping, leases, predictions-before-reveal, rescan-safety), the task queue (collect_tasks, spread_across_files/interleave_by_file for cross-call cold-reading guarantees), reveal (paging, prediction-locking), report (mangled-call detection, trap-without-note refusal, server-stamped provenance), aggregation/grading (Tally, Drift/position-warming tracking, Priming), the wave-spawning orchestrator (run_wave, harness process management), restore (two-lane scan-on-launch), watch_tick, and the axum router. The long snake_case peer list was indeed the inline test module, each test pinning one specific historical bug.
-- predicted: full · documented: most · derivable: no · legible: some · trap: no
+### the file itself
+- spec 3 · served in 15 parts · read at `5d8353232f80` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:55:13Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Core Rust backend implementing the loopback HTTP API sanity exposes to an agent: AppState tracks loaded/scanned projects, a queue/leasing system hands out functions or files as tasks (with dedup and re-cut on file changes), and a reporting pipeline (Report/Grade/Tally/GradeCounts) aggregates results into a summary/health view. It wires an HTTP router/serve endpoint, persistence (save/load reports), scanning/resync of source declarations, and multi-project/multi-backend orchestration (retiring stale runs, tracing), with an extensive embedded test suite encoding protocol invariants.
+- found: This is the whole backend: AppState/Project modeling loaded repos, a queue/lease/reveal/report protocol that hands out one function or file at a time and stamps provenance server-side (body hash, model, harness, timestamp, spec version) so readers can't self-certify measurements, plus a background wave-runner that spawns actual reader subprocesses and polls them, a two-lane restore that scans big vs small repos in parallel at startup, a file watcher that re-cuts moved functions, git-history tracing with budget gating, an endpoint-publishing/retirement mechanism for stale daemon builds, and an aggregation/summary layer (Tally/GradeCounts/Drift/Priming) — all wired to an axum router, with an enormous test suite pinning specific historical bugs.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The module docstring only motivates the predict-then-reveal design philosophy; it says nothing about the queue/lease/restore/watch/run-wave machinery that makes up the bulk of the file, so a reader predicting from the header alone badly underestimates scope.
+
+### `of` — QUIRKY
+- spec 3 · read at `0a9549426a85` · commit `ca9b12d` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:55:30Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Constructs a FindingsAt value holding the on-disk location(s) for a project's findings/report data, derived from project_key(p) (likely a hashed or sanitized identifier) combined with some base data directory, so callers can find where to read/write reports without duplicating path logic.
+- found: Builds a FindingsAt snapshot: copies scanned/reads counters and trace depth from the Project, plus mtimes of two specific .sanity files (rules/catalog.md and findings/decisions.md) via a small local closure — capturing project + findings-catalog state at a point in time, not file paths for storage.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: Field names (scanned, reads, depth, rules, decisions) suggest this is used to detect staleness/drift (e.g. has the rules catalog changed since this was last computed) rather than to locate where to persist data.
 
 ### `persist` — TRAP
 - spec 3 · read at `6b38c32ca845` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:41Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -404,11 +412,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: some · derivable: no · legible: some · trap: no
 
 ### `rescan`
-- spec 3 · read at `33263092b07c` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:40:18Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Constructs a new Project from the fresh scan/reports/repo/name, but if prev is Some, copies over all the volatile in-flight state keyed by node id — predictions, leased, run, and similar wave/reader state — directly from the old project into the new one, since ids are stable via key_of and survive code moving; if prev is None those fields start empty/default.
-- found: Builds a new Project, computing fresh file_marks/marks/trace(default)/behind(false) from the new scan, while carrying over from prev (if any) all volatile wave state: leased, recent_files, predictions, revealed, run, events, touched, last_agent, and scanned incremented by one (not just copied) to signal the window that a rescan happened.
+- spec 3 · read at `274ad746bbf8` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:19Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Constructs a new Project from the fresh scan, repo, and name, then—if prev is Some—carries over volatile in-progress state (predictions already stamped by sanity_reveal, leases on functions currently out with a reader, and the running run/wave), keyed by node id via key_of so it survives across the rescan despite line numbers or structure changing. The reports map is merged in as historical reading results for nodes that still exist.
+- found: Field-by-field constructs the new Project: carries over leased, recent_files, predictions, revealed (in-progress multi-part reveals), run, events, touched, reads, and last_agent from prev; but deliberately resets trace (belongs to the scan, not the project run), drops findings entirely (stale against the new tree), and bumps scanned by 1 as a change-detection counter for the UI. reports and scan are simply the fresh ones passed in, not merged with prev.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: I expected trace state to also survive from prev but it's explicitly reset to default since trace depth belongs to the specific scan, and scanned is incremented rather than merely carried over.
+- note: reports is fully replaced rather than merged — the caller is responsible for including any reports that should survive the rescan.
 
 ### `note`
 - spec 2 · read at `6e0184e00ac2` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:12:35Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -500,11 +508,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: This checks two unrelated things (missing grade fields vs. XML-leak detection in text fields) but only returns info about the leak case — the missing-fields case just returns None without saying which field was missing, so callers can't distinguish "clean" from "grades absent but no leak".
 
 ### `report` — QUIRKY — TANGLED
-- spec 3 · read at `c5fca7bf32a3` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:59:51Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: This is the axum handler behind sanity_report: given a ReportRequest (id plus the grade fields), it looks up whether that id was actually revealed to this caller (via the reveal/parts-of tracking, erroring if parts are still outstanding or nothing was ever revealed — 'mangled' state), enforces that trap:true reports carry a note (trap_without_note), builds and stores a Report against the node, updates running aggregate/tally statistics, releases whatever lease was held on that id, and returns a JSON summary/status blob.
-- found: The sanity_report handler. It first rejects malformed calls (mangled field truncating the rest of the JSON, or trap:true with no note) before touching any state, then routes the id to its owning project, refuses if the body was only partially revealed (parts still outstanding) or the id can't be found at all (rather than silently no-op'ing as it apparently used to), and only then accepts the report. It overwrites/stamps several fields itself rather than trusting the caller (body hash, spec version, paged/legible_dated/trap_dated, by/at/when, harness/asked, agent_docs), classifies the outcome as stale/hot/cold based on whether the id already had a report and whether the grade was Some/None, persists via save_reports, and returns a JSON status blob that includes repo-wide surprise-rate stats and a coaching hint when the repo's surprise rate looks implausibly low or the write failed.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
-- note: Several fields (body, spec, paged, legible_dated/trap_dated, by/at/when, agent_docs) are deliberately server-stamped rather than accepted from the request precisely because they're the fields a self-grading reader could otherwise fake to make its own reading look more credible.
+- spec 3 · read at `4afa17f7cb19` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:36Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Validates the incoming `ReportRequest` against the matching prior `reveal` (via `Revealed::whole`/`missing`, rejecting if not all parts were fetched), rejects `trap: true` with no `note` (`trap_without_note`), records the assessment into shared state, updates running tallies/grade counts and aggregate stats, and returns a JSON status blob (remaining count, repo stats) — essentially the same shape as the responses I've been getting back from `sanity_report`.
+- found: Far more than validate+store: rejects malformed reports where a field swallowed the rest of the call (`mangled`), rejects `trap:true` with no `note`, resolves the owning project/task by id (not by caller's claimed project), refuses reports against partially-revealed bodies, then self-stamps a long list of fields the caller is not trusted to set itself (body text, prediction-as-recorded, spec version, paged/legible_dated/trap_dated flags, git author/commit, run model/harness, timestamp, agent_docs priming fact), classifies the outcome as stale/hot/cold based on grade, writes through to disk immediately, computes repo-wide surprise-rate stats, and returns a rich JSON status including a coaching hint if the repo's surprise rate looks suspiciously low or the write failed.
+- predicted: some · documented: none · derivable: no · legible: some · trap: no
+- note: This is the live backend for the very sanity_report tool call I'm making in this session — worth flagging since the file_doc's framing ('agent an agent drives') is literally describing my own process right now.
 
 ### `status` — QUIRKY
 - spec 3 · read at `957012c8a5d7` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:40:19Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -639,11 +647,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 - note: The docs attached to this handout actually describe the `restore` function, not `set_order` — file_doc/docs field mismatch.
 
-### `drain` — QUIRKY — TANGLED
-- spec 3 · read at `4f37d2e55ebb` · commit `6168dc0` · read by claude-sonnet-5 · via claude · when 2026-09-02T04:08:49Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Loops over the queue of KnownProject entries (and beyond it, pulling more via claim_next when the shared `wanted` list has entries this lane should serve), scanning each project's files, calling on_shape with newly discovered ShapeFile results and on_tick with scan Progress as it goes. It probably checks a lock/state to determine if the project is already being worked on by the other lane, and returns/updates which project the window should land on (something derived from `active` and the last project processed), letting the caller decide the final "active" project after both lanes finish.
-- found: Pops the next project claim_next says the window wants, skips it if the path is missing, seeds a stale tree preview, prices the scan via a cached rate estimate and declines (marking it awaiting) unless a warm treecache overrides the price, then actually scans, traces within a history budget, banks size/scan/trace stats for next time, builds the Project record and inserts it into shared state, and sets `active` if this was the requested key — looping until the queue is empty.
-- predicted: some · documented: most · derivable: no · legible: some · trap: no
+### `drain` — QUIRKY
+- spec 3 · read at `3e4359d75724` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:11Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: drain loops, pulling the next project to work on via claim_next (which consumes from a shared "wanted" queue so two lanes can cooperate), scans each one (invoking on_shape/on_tick callbacks as the scan streams files/progress), and publishes the finished scan into the shared state under the lock before moving to the next. It compares each project's key against `active` to decide whether it's the one the previous session had focused, though the actual "which project to show" decision is left to the caller after both lanes finish.
+- found: Loops popping projects via claim_next (prioritizing whatever `active` names) from the queue; skips/settles ones whose directory no longer exists; seeds a stale cached tree into `shallow` for immediate display; prices the scan cost and, if over budget and no warm cache exists, declines the restore (records into `awaiting`) instead of scanning; otherwise runs the actual scan with progress/shape callbacks, banks scan-rate stats, traces within a time budget, builds the full Project struct (reads=0, empty leases/predictions, marks, etc.) and inserts it into state.projects, and sets `state.active` if this project matches the previously active key.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: The doc only describes the claim_next/lane-cooperation aspect; it says nothing about the price gate that can outright decline restoring a repo or the stale-shallow-cache seeding, both of which are substantial chunks of the function.
 
 ### `claim_next`
 - spec 3 · read at `b95946e3ccb5` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:02:34Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -670,11 +679,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: It asks crate::trace::go whether to run automatically or ask the user first (based on cost). If running, it tries to restore cached depth (lines/edits) cheaply via relines/estimate when the repo hasn't changed, then calls trace::deepen to walk to the requested depth, redraws the treecache if any tracing was reached, and returns a TraceState. If go() says Ask, it returns an Untraced state with a pending cost estimate instead of running.
 - predicted: some · documented: none · derivable: no · legible: most · trap: no
 
-### `watch_tick`
-- spec 3 · read at `d49c579cb009` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:08:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Runs periodically to check each watched project's filesystem for changes. For projects with pending changes, checks whether leases are currently held; if none held, performs a rescan and notifies the window; if leases are held, defers the rescan rather than forcing one, consistent with the described refusal-while-leased design. Likely only briefly holds the lock for the check, not across the directory walk.
-- found: Filters projects with no active leases, probes each for filesystem changes, and if changed: estimates whether a rescan fits the budget (marking `behind=true` and advancing marks if not), otherwise performs a full rescan (scan + trace_within_budget) off-lock, then re-checks leases under the lock before committing the new scan/reports/marks/trace state, incrementing a scanned counter.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
+### `watch_tick` — QUIRKY
+- spec 3 · read at `429c92f86303` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:52:03Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: watch_tick is called periodically (e.g. by a background timer) and, for each open project, checks whether its files changed on disk; if so it acquires the lock, checks that no leases are currently outstanding for that project, and only then rescans the directory tree and emits an event to the window so the UI can refresh. If leases are outstanding it skips the rescan for that project this tick and just leaves it to expire naturally, per the doc's description of refusing to rescan while anything is leased.
+- found: For each unleased project, probes for filesystem changes off-lock; if changed, estimates rescan cost and bails (marking `behind=true`, advancing marks) if over budget; otherwise rescans in a blocking task with a time-budgeted trace, reloads reports/file_marks against the fresh tree, then re-checks leases under the lock before committing the new scan/reports/marks/trace into state.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The doc explains the leasing/staleness rationale well but says nothing about the scan-cost budget/`behind` flag path, which is a large fraction of the function.
 
 ### `serve`
 - spec 2 · read at `7b1cd59ca231` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:03:33Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -695,12 +705,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 - note: Not a real "spawned job tracker" as I guessed by name/peers — it's just a plain test helper for constructing Task fixtures with dummy field values, unrelated to process/run tracking.
 
-### `project_of` — QUIRKY
-- spec 3 · read at `35f1fd4b0e7c` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:52Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A test-helper that constructs a minimal fixture Project for a given directory path — deriving the key/name from dir and filling the rest of the struct's fields (scan, reports, etc.) with empty/default placeholder values — so the many test functions in this file can seed Shared.projects without running a real scan.
-- found: Runs a real (ephemeral-cache) scan of `dir`, computes file marks via `stamp_marks` and watch state via `crate::watch::probe`, and assembles a full `Project` struct with that real scan plus empty maps for reports/leases/predictions/etc. and name hardcoded to \"t\" — a genuine fixture built from an actual scan, not a stubbed-out placeholder.
-- predicted: some · documented: none · derivable: no · legible: full · trap: no
-- note: I expected a cheap placeholder Project; it actually runs the full scan pipeline (parse + score) each call, which matters if tests call it often since it's not free.
+### `project_of`
+- spec 3 · read at `fd7c4134de8b` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:43Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A test helper inside the `tests` module that builds a minimal fake Project for a given directory path — a stub scan, empty reports, no trace/readings, zeroed counters — so individual tests can construct a Project struct without going through a real scan/restore just to exercise state-management logic like claim_next or drain.
+- found: Test helper that runs a REAL scan (crate::scan::scan) against the given directory with ephemeral caches and Depth::Lines tracing, then wraps the result in a fully-populated Project struct with name "t" and everything else defaulted/empty — so it's a real scan wrapped in test scaffolding rather than a synthetic fake Project.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: I assumed a stub/fake scan for speed; it actually performs a genuine scan of the given directory, just with ephemeral caches — worth knowing since it means these tests need a real filesystem fixture, not fabricated data.
 
 ### `a_superseded_answer_is_re_offered_after_everything_else` — QUIRKY
 - spec 3 · read at `573c67310d97` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:20Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -793,10 +803,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `outstanding_itemises_only_live_leases_on_unread_work`
-- spec 3 · read at `26f338e3a92b` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:48:40Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Sets up a project with a run/queue, hands out one or more leases (e.g. via claim_next), then simulates a reading landing for one of those leased functions independently (as if a duplicate/late report arrived) without going through the normal lease-release path. It then calls `outstanding` and asserts the now-already-read function's lease is NOT counted, verifying outstanding only itemises leases whose work is still genuinely unread rather than trusting the lease table blindly.
-- found: Builds a fixture with two functions, checks work_left reports zero in_flight/outstanding with no leases, then inserts a lease for one function directly and checks it's counted in both remaining and in_flight/outstanding by id. Finally inserts a Report for that same id directly (simulating the reading landing without clearing the lease) and asserts in_flight drops to 0 and outstanding is empty even though the stale lease entry is presumably still present, proving outstanding cross-checks leases against reports rather than trusting the lease table alone.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `116ef6bdb891` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:45Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Sets up a project with some unread functions, takes out a lease on one, then simulates the reading for that function landing while the lease is still technically held (a stale lease), and asserts that outstanding() no longer lists that lease — i.e. it itemizes leases only over work still actually unread, not just whatever leases are currently open, preventing in_flight from staying inflated after a race.
+- found: Writes a two-function fixture file, checks work_left starts with no leases/outstanding, then leases one function and checks it's counted in in_flight/outstanding/remaining correctly, then inserts a Report for that function (simulating the reading landing) while the lease is still present and asserts in_flight drops to 0 and outstanding empties — the stale lease no longer counts.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `a_rescan_does_not_throw_away_the_run_it_lands_in_the_middle_of` — QUIRKY
 - spec 2 · read at `578cafb4e1b5` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:19:02Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -805,12 +815,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: most · derivable: no · legible: most · trap: no
 - note: Missed that the test also verifies leased work, the run object's fields, the events log, and the scanned-counter increment — the doc's one example (predictions) was just the headline case, not the whole test.
 
-### `the_summary_counts_neither_stale_readings_nor_unknown_positions_as_good_news` — QUIRKY
-- spec 2 · read at `d5c2b1fa80cf` · commit `51b9d8d` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T21:24:23Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Test that constructs a scan with several reports: one current/fresh reading with a known position, one stale reading (expired relative to current code), and one reading with position unset/unknown. It then computes the summary and asserts the stale reading is excluded from the assessed/coverage count, and the unknown-position reading is not counted toward whatever metric tracks "first readings" (e.g. distinguishing batched vs one-at-a-time runs).
-- found: Test builds a project with 3 functions and 3 reports: two fresh (positions 1 and 7, different models), one stale (body doesn't match current code). Asserts aggregate() excludes the stale reading from total.readings and from its model's tally, but counts it in agg.stale. Also verifies by_position buckets by exact position number (not first-vs-later), with no bucket invented for positions not seen, and a separate `unrecorded` counter for readings with no position field at all (distinct from being bucketed as position 1).
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
-- note: I predicted the stale-exclusion correctly but wrongly assumed 'unknown position' related to a first-vs-batched-run concept; actually it's a distinct per-position bucketing scheme with its own unrecorded counter, and I missed the per-model tally exclusion detail.
+### `the_summary_counts_neither_stale_readings_nor_unknown_positions_as_good_news`
+- spec 3 · read at `7105c89174b5` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:54:09Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Builds a small fixture with a stale reading and a reading that has no recorded position, runs whatever summary/coverage computation the orchestrator uses, and asserts both readings are excluded from the "good" counts (coverage, first-reading/freshness tallies) — i.e. neither staleness nor an unknown position get silently counted as progress.
+- found: Bank three readings (two normal at positions 1 and 7, one stale against a body that no longer matches); asserts stale is excluded from total/model coverage but tallied separately, and that position buckets are per-exact-position with no invented buckets. Then overwrites one reading with position=None and re-aggregates, asserting it counts as `unrecorded` rather than falling into position 1 or staying in its old bucket.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
 
 ### `same_named_methods_arrive_with_the_type_they_hang_off`
 - spec 2 · read at `e605c5741ade` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:04:10Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -1535,11 +1544,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Headless CLI as predicted: main() parses flags (--rule, --bare, --raw, --target, --show, --depth), scans the repo with a throttled progress ticker, builds Facts, runs the rule catalog (calibrated per-repo via rules_for, or raw/bare), subtracts findings already settled in the archive, and prints a summary table (hits/only/calibrated/so-what) plus sample hits with the rendered sentence per hit. fmt() is a trailing float formatter (duplicate of trim_num in the library).
 - predicted: most · documented: most · derivable: no · legible: not judged · trap: no
 
-### `main` — TANGLED
-- spec 3 · read at `c3c4513c8944` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:32:43Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Parses CLI arguments (a target path plus flags), loads the finding rule catalog, and runs each rule against the data at that path headlessly (no GUI). For each rule it computes two numbers — a calibrated threshold and the actual hit count — and prints a formatted report/table to stdout, likely with error handling for bad paths or parse failures.
-- found: CLI entrypoint: parses flags (path, --rule, --bare, --raw, --target, --show, --depth, -h), scans the repo with a progress ticker, loads/calibrates the rule catalog (or raw catalog, or bare + ad-hoc rules), excludes archived/pinned findings, then prints a summary table of hit counts/calibrated thresholds per rule plus example hits with rendered explanation sentences.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
+### `main` — QUIRKY
+- spec 3 · read at `8bc6645942fe` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:52:02Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: `main` parses CLI args (a path, possibly flags for a rule/threshold), reads/traces the repo, runs the rule catalog against the facts, computes for each rule both a hit count and a calibrated threshold, and prints a formatted report to stdout via the `fmt` helper — essentially a headless CLI version of the findings map/catalog.
+- found: CLI entrypoint: parses flags (--rule, --bare, --raw, --target, --show, --depth, path), sets up a throttled stderr progress ticker, scans the repo, loads assessment reports, builds facts/traced state, assembles the rule set (repo-calibrated, raw catalog, or bare + ad-hoc --rule exprs), computes live hits minus archived/settled findings and marginal-only counts, then prints a summary header, per-rule stats table (hits/only/calibrated threshold/so-what), and per-rule detail listings of sample hits with rendered explanation sentences.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+- note: The docs shown were file-level (`file_doc`), not a doc comment on `main` itself — `documented: none` reflects that this specific function had no docs attached.
 
 ### `fmt`
 - spec 3 · read at `0ed57cf5165c` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:13Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -1620,17 +1630,18 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/blame.rs
 
-### the file itself
-- spec 3 · served in 3 parts · read at `fb53fd5119d4` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:29:35Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Runs `git blame --porcelain` per file to get per-line author/commit/timestamp data, so Churn/Age/Blame color lenses can vary within a file down to the function/line level instead of being flat per-file as in churn.rs. Provides a Blame store (get/absorb/read/len) with range lookups that follow lines across renames and clamp out-of-range requests, plus a Slots concurrency limiter that fairly caps how many blame subprocesses run at once across active projects, guaranteeing every active project a slot and letting waiting projects compete fairly for freed ones.
-- found: Per-line git blame for the map's Churn/Age/Blame lenses: parses `git blame --line-porcelain` into a compact per-line Line/FileBlame store (Blame::read/get/absorb/len), with a fair Slots concurrency limiter across projects (floor-guaranteed allowance, waiter-aware). Also provides a separate on-demand panel subsystem (range_detail, line_history, fold_line_log, fold_porcelain, Touch/Contributor/RangeDetail/LineHistory/Origin) that runs `git log -L` plus blame together to show a function's full commit history (not just surviving lines) with renames, uncommitted-line handling, and dirty-worktree detection — a much larger surface than just coloring wedges.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+### the file itself — QUIRKY
+- spec 3 · served in 3 parts · read at `25e2ab40ee29` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:54:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This file replaces the old file-keyed churn/blame data with true per-line git blame, so each function's ring segment (churn/age/blame author) reflects its own history rather than its file's. It likely shells out to `git blame --porcelain` (or `git log -L`) per range, parses porcelain output into a `Blame`/`FileBlame` structure keyed by final line number (tracking renames), and includes a `slots` submodule that rate-limits/fairly-shares concurrent blame subprocesses across competing callers (since spawning git per-function could be expensive) via an acquire/release/waiting-queue mechanism.
+- found: The file has two halves I only predicted one of. First, per-file `git blame --line-porcelain` parsing into a packed `FileBlame`/`Blame` cache keyed by final line number, with `range()` reducing a line slice to churn/age/last-author/main-author/headcount for the map's rings — this matches my prediction closely, including the `slots` submodule, which is exactly the fair-share floor-allocation queue I guessed (every active project guaranteed >=1 slot, no preemption, waiter-counted). Second, a whole on-demand panel subsystem I did not predict at all: `range_detail`/`fold_porcelain` (single blame snapshot) plus `line_history`/`fold_line_log` (a `git log -L` walk run in parallel with blame, diff-dirty check, and file-first-commit lookup) joined together into `LineHistory`, which distinguishes commits that *touched* a range from commits that *survive* in it, and reports an `Origin` (Created vs Added) for the walk's far end, plus rename-crossing via `Touch::path`.
+- predicted: some · documented: some · derivable: no · legible: not judged · trap: no
+- note: Docs cover the churn-vs-blame motivation and the slots rationale well but say nothing about the line_history/-L walk half, which is roughly the other 40% of the file.
 
 ### `range`
-- spec 2 · read at `748ef27fe388` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:47:15Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Looks at the blame data for lines start..=end (1-indexed inclusive, with end clamped to the actual number of blame lines available so a stale function end doesn't return nothing), and reduces those per-line commit records into a RangeHistory with four fields — likely last author, last-touched timestamp (most recent commit among those lines), a "born"/earliest timestamp, and a churn/commit count — computed relative to now. Returns None if the range is empty (e.g. start beyond available lines).
-- found: Clamps start/end into the blame lines slice (1-indexed, end clamped to len), returns None if empty. Walks the slice collecting a HashSet of distinct commit ids (churn), the newest line (for last_touched_days/last_author) and oldest time (age_days, noted as a lower bound since blame reports last-touch per line not creation). Converts times to days-ago via `now`.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `5e24e2951621` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:52:09Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: range(start, end, now) clamps [start, end] to the file's blame data (1-indexed, inclusive), then folds over each line's last-touch info to compute six aggregate facts — last_author (most recent), main_author (mode by line count), headcount (distinct authors), plus churn/age figures derived using now — returning None if the file has no blame data, else Some(RangeHistory).
+- found: Clamps [start,end] to the line slice, then in one pass computes distinct commit count, newest/oldest touch time (converted to days via `now`), last_author (author of newest line), main_author (mode by per-author line counts, ties to earliest author index for stability), and headcount (distinct authors touching the range); returns None if the slice is empty.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `get`
 - spec 2 · read at `5632b94cd15f` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:04:18Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -1794,6 +1805,13 @@ What this is and how to add to it: [README.md](README.md)
 - expected: A test: builds a Slots pool, acquires a slot inside a scope/closure that exits early (e.g. via `?` or early return before normal completion), drops the guard, then asserts the pool's available/holding count returns to its prior state — proving Drop releases the slot on every exit path, not just normal completion.
 - found: Creates a Slots pool with capacity 1, loops 3 times acquiring and implicitly dropping a slot for key "one" each iteration (would deadlock on the 2nd iteration if the slot weren't released), then acquires once more after the loop as a final check.
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `the_newest_hand_is_not_the_biggest_one`
+- spec 3 · read at `fc6f9ec83dfc` · commit `ca9b12d` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:55:32Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This test constructs a small fixture where one author wrote most of a function's lines and a second author later touched just one line of it. It then asserts that `last_author` (or the equivalent "most recent toucher" reduction) reports the second author while `main_author` (the "wrote the most lines" reduction) still reports the first — proving the two reductions are computed independently and can diverge, rather than one being derived from or coinciding with the other.
+- found: Builds a porcelain-blame fixture where Ada holds lines 1-2 and Grace holds line 3 (the newer commit), asserts that over all three lines last_author is Grace and main_author is Ada with headcount 2, then asserts that over Ada's lines alone all three reductions collapse to her with headcount 1.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: I predicted the divergence case but missed the headcount assertions and the second sub-case confirming the reductions agree when there's truly one contributor.
 
 ### `parses_a_commit_author_and_time_per_line` — QUIRKY
 - spec 2 · read at `83b21a2d2547` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:01:22Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -2469,10 +2487,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: I predicted use of bar/elapsed/grade_ink formatting helpers and an explicit offline_status fallback call, but the function is much plainer — no progress bar or color, and the online/offline distinction is handled inside read_verb rather than here.
 
 ### `findings`
-- spec 3 · read at `6f1616f4c84b` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:33Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Runs entirely in-process (no daemon call): loads the repo's scan, readings, and rules from disk, evaluates the rules to produce merged one-subject-per-entry findings, sorts/ranks them, prints up to `limit` of them to stdout (optionally annotated with recent edits and/or git blame when edits/blame are set), and returns a process exit code.
-- found: Got the overall shape right (in-process, scan+readings+rules, merged/ranked findings, exit code) but was wrong about what edits/blame do — they select the trace Depth used during the scan itself (Files/Edits/Lines, trading cost for evidence quality) rather than annotating printed output; also missed that it separately reports rules whose clauses were "blocked" (no evidence available) so a reader isn't misled by a clean-looking list, and that findings are sorted flagged-first then by lines-of-code.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- spec 3 · read at `d42fc3b30303` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:51:59Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This is the CLI equivalent of the pin-lookup helper but for listing — it scans the repo directly off disk (no daemon), builds facts/rules like finding_pin does, merges multiple rule-hits per subject into one entry, sorts by severity/rank, and prints the top `limit` findings to stdout, using edits/blame flags to control how much git-trace depth to compute; returns a process exit code (0 success, nonzero on error like unreadable path).
+- found: Canonicalizes the path, scans off disk at Ordering fidelity with trace depth chosen by edits/blame flags, loads reports, builds facts/rules/groups, merges hits by subject key, sorts by flagged-then-loc-then-key, and prints a formatted list (with a note for rules that were blocked from running and a count of dismissed findings), returning 0/1/2 exit codes.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
 
 ### `wrap`
 - spec 3 · read at `b2cf6ea9c697` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:08Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -2595,10 +2613,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/commands.rs
 
 ### the file itself
-- spec 3 · served in 3 parts · read at `bb4d7eb78a0d` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:32:59Z · by ross@rossturk.com · warm reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: This file is the Tauri IPC boundary: a large flat collection of #[tauri::command] functions the frontend invokes directly (no HTTP server), covering many unrelated feature areas — scanning repos and history, git tracing, project list management (add/select/reorder/forget/reset), CLI installation, findings/rules CRUD (pin/save/delete/reset, decide/undecide), source reading and code-window opening, and misc utilities like theme sync and movie/curve saving. It's essentially a thin, wide dispatch layer delegating real logic to other modules like sanity_lib.
-- found: The Tauri command surface: dozens of #[tauri::command] handlers spanning scan/history/trace orchestration, project list state management, findings/rules CRUD, source/snippet reading with path traversal guards, git commit/blame detail, CLI symlink installation, and reader/check orchestration. Far from a thin dispatch layer — it carries substantial logic and many hard-won correctness decisions (documented extensively in comments) about caching, staleness, path canonicalization, ordering of state mutations, and UI/backend consistency.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- spec 3 · served in 4 parts · read at `dd252deb01d4` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:54:53Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This file is the full Tauri `#[tauri::command]` surface exposed to the frontend for a desktop code-intelligence app — thin async wrapper functions that the UI invokes directly instead of talking to a server or sidecar process. Judging by the peer names, it spans several domains: repo scanning and language detection, git history/commit analysis, execution tracing (start/stop/explain trace), AI agent reports/activity, project lifecycle (add/select/reorder/forget/reset), findings and rules (pin/save/delete/decide), CLI installation/linking, and misc utilities (movies, curves, harnesses, checks). Each function likely just validates input, delegates to logic living in other modules, and shapes the result/error for the frontend — so the file is broad but shallow, essentially a manifest of app capabilities rather than where the real logic lives.
+- found: The file is indeed the Tauri command surface spanning the domains I guessed (scan, history, trace, agent reports, projects, findings/rules, CLI install, misc), but it is far from a shallow manifest of delegated calls. Many commands carry substantial orchestration logic inline — progress/event emission, careful lock scoping around shared state, path canonicalization security checks, caching/invalidation decisions, and long prose comments explaining design history and rejected alternatives (e.g. the CANCEL global, the restore/pending list dance in scan_repo, the removed MCP-client helpers, the add_project .git requirement being dropped). It reads more like a living design document with code attached than a thin dispatch layer.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- note: The header doc says almost nothing about the actual breadth (10+ domains, ~1300 lines) or that most commands carry meaningful logic and extensive rationale comments rather than being thin wrappers.
 
 ### `languages`
 - spec 3 · read at `aa465757b9b8` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:53:01Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -2754,19 +2773,31 @@ What this is and how to add to it: [README.md](README.md)
 - found: Locks shared state, looks up the project by key, and if found calls crate::search::find on the project's scan root with the query and limit; returns empty vec if project not found.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
-### `project_report`
-- spec 3 · read at `4929a0f586d5` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:35Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Looks up the project by key in shared state, returning a default/empty ProjectReport if not found or never scanned. Otherwise it builds the Facts once via findings::subjects (using the project's tree, reports, and Traced flags), then assembles the ProjectReport's three parts from that single fact set: findings::report(...) for the rule groups, findings::grammar(facts) for the field grammar, and findings::rules_view(...) for the per-rule editor view — replacing what used to be three separate tree walks.
-- found: Looks up the project, builds Traced from trace depth and churn stats, builds facts once, gets this repo's own calibrated rules via rules_for, then assembles groups/rules/grammar from that one fact set — reading the archive fresh from disk each call rather than caching it, specifically to avoid the panel disagreeing with .sanity/ about dismissals.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The doc's justification for one-walk consolidation was expected, but I didn't anticipate the archive being deliberately re-read from disk each call (rather than held in state) or the git/churned distinction guarding against two different kinds of 'no history' looking alike.
+### `project_report` — QUIRKY
+- spec 3 · read at `f942bf9b543c` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:52:57Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: project_report locks state, looks up the project by key, and if it has no scan yet returns an empty/default ProjectReport. Otherwise it does a single walk of the project's tree, evaluating the rule/finding catalog against it and simultaneously collecting the rules list and the grammar, then assembles and returns a ProjectReport bundling groups, rules, and grammar so the frontend gets everything from one call instead of three.
+- found: Locks state, returns default if project unknown; checks a cache keyed by FindingsAt::of(p) and returns the cached clone if the repo hasn't moved. Otherwise computes Traced flags, builds calibrated per-repo rule thresholds (saving them to catalog.md as a side effect), builds subjects/facts, computes findings groups (re-reading the on-disk archive fresh each time to avoid drift), rules view, and grammar into one ProjectReport, stores it back in state keyed by a freshly re-read FindingsAt (since computing the report may itself have written the calibration file), and returns it.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: The doc explains why it's one walk instead of three but says nothing about the caching mechanism (FindingsAt key, re-reading the key after computation because rules_for can write catalog.md) which is roughly half the function's logic.
+
+### `said`
+- spec 3 · read at `f376584acf99` · commit `ca9b12d` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:55:44Z · by ross@rossturk.com · warm reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: This is a debug-only logging helper (compiled in only under debug_assertions) that prints a line to stderr recording which project key was involved, whether the report was "cached" or "computed", and how long the operation took using at.elapsed(). In release builds it's a no-op stub with the same signature so callers don't need conditional compilation at the call site.
+- found: eprintln's "findings: {key} {how} in {elapsed}" — exactly as predicted; this handout only surfaced the debug_assertions variant, not the release no-op stub with the same signature that sits beside it.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: I had already read this exact function in the earlier whole-file task (commands.rs), so this was a warm reading, not a cold one.
+
+### `said` #2
+- spec 3 · read at `ffe6e222b9d6` · commit `ca9b12d` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:55:49Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: With all-underscored params and a `std::time::Instant`, this looks like the release/no-op half of a `#[cfg(debug_assertions)]`-gated pair — a debug build logs something like "who said what, and how long it took" (e.g., a lock/slot acquisition or a cache event) for tracing, while this release stub is an empty body so call sites don't need `#[cfg]` guards themselves.
+- found: It is exactly the empty no-op stub I predicted: `fn said(_key: &str, _how: &str, _at: std::time::Instant) {}` — a one-line body that does nothing with any of its arguments.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `finding_pin` — QUIRKY
-- spec 3 · read at `884f82997909` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:48Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Looks up the project by key in AppState, resolves the repo path and the specific node/function identified by key/rule, reads the current source content for it, and calls pin_of to compute a pin string tied to the code as it stands now — returning the repo path, some node identifier, and the pin string (or an Err if the project/node can't be found).
-- found: Looks up the project, rebuilds the current facts from the scan tree/reports/trace state, re-derives the repo's rule set from those facts, finds the specific rule by id and the specific finding by subject key, then computes the pin via findings::pin_of(rule, fact) — returning the repo path, the pin string, and the rule's title.
+- spec 3 · read at `dbc63fbe86ed` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:51:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the project path for `project`, reads/resolves the current rule content for `rule`, and calls crate::findings::pin_of to compute the pin string for the finding identified by `key` + rule state, returning (path, pin, key) or similar so dismiss/restore compute an identical pin.
+- found: Looks up the open project, rebuilds the current findings/facts and rule set for it (using the repo's own rules, not shipped defaults), finds the rule by id and the finding by key, and returns (repo path, computed pin, rule title).
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: Missed that it doesn't read source directly — it re-derives facts/rules from the scan state (via subjects()/rules_for()) rather than reading code, and the return tuple is (path, pin, rule title) not (path, node id, pin).
 
 ### `save_rule`
 - spec 3 · read at `fed10d5dd2fd` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:05Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -2789,10 +2820,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: Resetting a silenced rule also re-enables it (pushes it back into the live list) — not obvious from the signature/docs alone.
 
 ### `project_facts`
-- spec 3 · read at `9a3ac34a7292` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:40:00Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Locks shared state, looks up the project by key, and returns an Err(String) if not found. On success, returns a tuple of the repo path, the Facts built via findings::subjects over the project's scan tree/reports, and the Traced flags (git/churned) — the same triple that save_rule, delete_rule, reset_rule and similar rule-editing commands each need, computed once under one lock so they don't each re-derive it separately.
-- found: Locks state, looks up the project (error if missing), computes Traced from trace depth/churn, and returns (repo path, facts, traced) as one bundle for rule-writing commands to share.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `311782353cb8` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:32Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Locks the shared state once, looks up the named project, and returns a tuple of the three consistent pieces a rule-write needs together — the repo path, a Facts vector computed (via facts_of) over all nodes/fields, and the Traced status — all read under that single lock so a rule can't be evaluated against a repo path from one project state and facts from a different, later one.
+- found: Locks state, looks up the project, derives a Traced struct (git/churned/blamed) from the project's trace depth and scan stats, then calls findings::subjects(root, reports, traced) to build the Facts vector, returning (repo path, facts, traced) as one consistent snapshot.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Traced isn't stored state — it's recomputed here from trace.depth and scan.stats.churned each call.
 
 ### `decide_finding` — QUIRKY
 - spec 3 · read at `6dacd2d10c29` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:24Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -3300,38 +3332,37 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/findings.rs
 
-### the file itself — TANGLED
-- spec 3 · served in 5 parts · read at `47477ad73cec` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:06Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: This is the core findings/rules engine backing a code-health tool: it defines a small rule grammar (Field, Op, Rule parsing/rendering) for expressing thresholds over measured facts, evaluates those rules against a codebase's computed facts to produce ranked hits/findings (matches, hits, rank, calibrate, marginal contribution, all_hits), and supports layering user-edited rules (saved_rules/save_rules/parse_line/merge/amend) on top of a default catalog while safely dropping malformed lines. It also manages the lifecycle of findings once surfaced — verdicts, pinning, deciding/undeciding, archiving — and renders findings/reports as text, plus a large test module asserting the grammar and calibration behave correctly (e.g. calibration targets counts not percentiles, rules survive round-tripping through text).
-- found: Matches the prediction's shape (grammar/rule parsing, evaluation, calibration, marginal contribution, persisted rule overrides merged onto a default catalog, a decision/verdict archive with pin-based expiry, and rendering) but with far more machinery than predicted: tree-walking to build Facts while excluding generated/test/ignored files (not_ours/skipped/subjects/facts_of), wire-facing structs (ProjectReport, Group, Finding, RuleView, ClauseView) for the settings UI, a `blocked` function distinguishing three different reasons a rule can't answer, strict validation in apply_edit/check_template/mint_id, and an extensive test suite encoding many hard-won invariants (never default on missing evidence, calibration never loosens, ids never re-slug, decisions keyed by id not node id).
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
-- note: The module doc explains the design philosophy well but says little about the large amount of UI-wire-format and tree-walking/exclusion code that makes up much of the file's actual bulk.
+### the file itself
+- spec 3 · served in 5 parts · read at `4fc9733080d1` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:54:58Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This is the core rule-evaluation engine of the "sanity" self-assessment tool itself. It defines a small DSL (Field, Op, Rule with parse) for clauses that match against per-function "facts" (things like predicted, documented, trap), evaluates those rules across a corpus of readings (hits, spread, rank, calibrate, Marginal), maintains a catalog of findings rendered as a report, and persists rules/decisions to disk (save_rules, save_archive, decide/undecide, Verdict) so accepted/rejected findings survive across runs. It's the statistics + persistence backend turning raw per-function reading data into a ranked, calibrated catalog of findings.
+- found: Exactly what I predicted at the architectural level (DSL parsing, matching against per-subject Facts, calibration, marginal contribution, catalog of 15 built-in rules, persistence of rules and decisions as Markdown), but I substantially underestimated the file's scope and the depth of its design discipline: it also owns exclusion logic (not_ours/generated/test detection), the whole grammar/FieldView/RuleView wire types for a settings UI, rule-editing validation (apply_edit, mint_id, check_template), a Decision/Verdict archive with pin-based staleness expiry (fine-for-now vs fine-always), and an extremely deliberate set of invariants (None never defaults, thresholds are calibrated numbers not percentiles, marginal contribution not raw hit count, ids never equal titles) each backed by a named regression it once caused, all narrated in extensive comments.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+- note: The module comments are unusually load-bearing prose (each explains a past incident/regression that justifies a design choice), which is far beyond what's typical or derivable from the code, and made this an exceptionally slow, dense read for a 2170-line single file.
 
 ### `parse`
-- spec 3 · read at `46893188bc13` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:36:39Z · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Matches a string against the field names used in the rule grammar (loc, funcs, callers, calls, cognitive, tangle, commits, surprise, documented, legible, trap, etc — the same fields set in facts_of) and returns the corresponding Field enum variant, or None if unmatched. Inverse of Field::name.
-- found: Matches a string against known field name tokens, with multiple synonym aliases per field (e.g. "lines"→Loc, "reach"→Calls, "churn"→Commits, "docs"→Documented, "illegible"/"legible" both→Legible), returning the Field variant or None.
+- spec 3 · read at `fde14e52d99c` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:43Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Matches a string against the known field names (e.g. loc, funcs, callers, headcount, calls, cloneSize, cognitive, tangle, ageDays, touchedDays, commits, surprise, documented, legible, trap, read) and returns the corresponding Field variant, or None for anything unrecognized — the parser counterpart to Field::name.
+- found: Matches string aliases (often multiple per field, e.g. calls/reach, commits/churn, headcount/hands, legible/illegible) to Field variants, returning None for unrecognized strings.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Comment explains 'illegible'/'legible' alias is a historical rename (field was found to be named backwards), which isn't derivable from the match arm alone.
+- note: The illegible/legible alias exists because the field was renamed after its original name was found backwards — worth knowing before adding a new alias that assumes the current name was always canonical.
 
 ### `name`
-- spec 3 · read at `90c05c29a715` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:36:46Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: A match over the `Field` enum's variants, returning each one's canonical lowercase/snake_case string name (e.g. "loc", "age_days", "callers") — the inverse of `Field::parse`, used wherever a field needs to be printed (rule expressions, clause pills, etc).
-- found: Match over Field variants returning static name strings; several diverge from the variant name itself (CloneSize→"clone_count", AgeDays→"age", Legible→"illegible"), which a purely name-based prediction wouldn't have gotten right.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `a2a042998202` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:53Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Field::name(self) is a match over the Field enum returning each variant's canonical lowercase string token (e.g. "churn", "age", "callers", "reach") — the same identifiers Field::parse accepts and that get shown when rendering a rule back out as text.
+- found: Simple match over Field enum returning each variant's canonical string token (loc, funcs, callers, calls, clone_count, cognitive, tangle, age, touched, commits, read, surprise, documented, illegible, headcount, trap).
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `lens` — QUIRKY
-- spec 3 · read at `e73fc30fd627` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:36:28Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: A match over the Field enum's variants, each returning the string id of the color-mode lens (from colorMode.ts) it corresponds to — e.g. surprise/blame/age/language/traps/clones/docs fields map to their matching lens name, a size-related field (loc) maps to "size" since width encodes lines even though it isn't a lens, and something like a "read"/readings-presence field returns None since absence of readings has no distinct color.
-- found: Maps each Field variant to its corresponding lens id string: Loc/Funcs→size, Callers→callers, Calls→reach, CloneSize→clones, Cognitive/Tangle→tangle, AgeDays/TouchedDays→age, Commits→churn, Surprise→surprise, Documented→docs, Legible→legible, Trap→traps, and Read→None since it has no distinct lens.
+- spec 3 · read at `a4dcca13685a` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:52:55Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A `match` over `Field` variants returning the corresponding `colorMode.ts` lens id string (e.g. `Surprise => Some(\"surprise\")`, `Churn => Some(\"churn\")`, `Callers => Some(\"callers\")`, etc.), with `Field::Size` mapped to a real lens id despite not being a color lens per se, and `Field::Read` returning `None` since an absence of readings is already what gray means.
+- found: Match over Field mapping to lens id strings: Loc/Funcs->size, Callers->callers, Calls->reach, CloneSize->clones, Cognitive/Tangle->tangle, AgeDays/TouchedDays->age, Commits->churn, Surprise->surprise, Documented->docs, Legible->legible, Trap->traps, and Headcount/Read->None. Got the overall shape and a few mappings right but missed several field->lens pairings (CloneSize, Cognitive/Tangle, Documented, Legible, Trap) and wrongly guessed Headcount would keep a lens.
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 
 ### `pop`
-- spec 3 · read at `cc573138d176` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:52Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A match over Field variants returning Option<Pop>: the field that counts functions-per-file (e.g. Field::Funcs) returns Some(Pop::File) since it's meaningless on an individual function, and every other field variant returns None because it applies at both Func and File granularity (or is inherently per-function).
-- found: Match over Field: Funcs is File-scoped, a group of reading-derived fields (Read, Surprise, Documented, Legible, Trap) are explicitly Func-scoped, and everything else returns None (applies at both/no restriction).
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: I only anticipated the File-scoped branch (Funcs); missed that a whole group of fields is explicitly pinned to Func rather than falling into the None/'applies to both' catch-all.
+- spec 3 · read at `06451e12628c` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:04Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Match over Field variants: returns Some(Pop::File) for Funcs (only meaningful on file nodes), Some(Pop::Func) for per-function reading fields (Surprise, Documented, Legible, Trap, Read, etc.), and None for fields that apply to both populations (loc, callers, calls, etc.).
+- found: Matches exactly as predicted, plus Headcount is also function-scoped (a blame range question, not a file-pooled one) which I hadn't included.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `needs_reading`
 - spec 3 · read at `a631c8090f75` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:37:24Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -3455,12 +3486,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: no · legible: most · trap: no
 - note: Facts are only ever emitted from the File branch (for the file itself and its Func children) — the Func match arm is dead weight for direct calls, which isn't obvious from the signature.
 
-### `facts_of`
-- spec 3 · read at `6d358c8c3d76` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:35:33Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Gathers various computed metrics (hits, rank, live_hits, pinned, calibrate, marginal, all_hits) about a given Node under a given key, using an optional Report for context, and assembles them into a Facts struct. The Traced parameter likely controls whether intermediate computation steps are recorded/logged for debugging.
-- found: Builds a Facts struct for a Node by populating a fixed-size array of Option&lt;f32&gt; values keyed by Field enum (Loc, Funcs, Callers, Calls, CloneSize, Cognitive, Tangle, AgeDays, TouchedDays, Commits, Read, Surprise, Documented, Legible, Trap), pulling from the node itself, its score, and an optional Report (for Func nodes). The traced flag gates whether git-derived fields (age/touched days, commits) are set, distinguishing "no git data" from "git not requested." Also builds a Subject identity struct (key, path, name, kind, loc, line, lang, body_pin).
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: The docs shown were the enclosing file's module doc, not documentation for this function specifically.
+### `facts_of` — OBSCURE — TRAP
+- spec 3 · read at `7c91a67d7b77` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:52:55Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Assembles a Facts struct describing a node's standing on metric `key` — pulling the raw value via value_of, checking whether the node is excluded from consideration (not_ours, in_a_test_module), and cross-referencing an optional prior Report to see if this node/key combination was already surfaced, pinned, or skipped. The `traced` parameter likely gates whether blame/history-derived facts are included versus static ones.
+- found: Builds a fixed-size array of optional numeric Field values (loc, funcs held vs claimed, callers, headcount, calls, cloneSize, cognitive, tangle, and git-derived age/touched/commits gated by the `traced` flags) plus report-derived grades (surprise, documented, legible, trap) when a Report exists, and packages them with a Subject identifying the node/key into a Facts struct — used as raw material for whatever statistical/ranking pass reads it elsewhere in the file.
+- predicted: none · documented: none · derivable: no · legible: most · trap: yes
+- note: Several fields deliberately stay None rather than 0 when the relevant data source hasn't been consulted yet (untraced git, unread function) — treating None as 0 downstream would silently fabricate findings.
 
 ### `value_of`
 - spec 3 · read at `8f0fc62f180a` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:37:32Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -3505,11 +3536,18 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds a copy of the rule without the calibrated clause, filters facts by that reduced rule, collects the calibrated field's values from survivors, sorts descending for Ge/Gt or ascending for Le/Lt (so the sort direction matches which way the clause opens), and returns the target-th value (index target-1) as the threshold, or None if fewer than target values.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `marginal`
-- spec 3 · read at `627526a55f36` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:36:04Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Given index `at` into `sets` (each element being the hit-list of subjects for one rule), builds a lookup (probably a HashSet of subject keys) of all subjects found by every OTHER rule, then counts how many subjects in `sets[at]` are NOT present in that union — i.e., unique to this rule. Iterates sets by index rather than comparing rule titles, to avoid the bug where two same-named ad-hoc rules would falsely exclude each other's hits.
-- found: Builds a HashSet of subject keys from every set except `sets[at]`, then counts how many of `sets[at]`'s subjects have a key not in that set — the number unique to this rule.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+### `of`
+- spec 3 · read at `c72efa6cc8cc` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:55:15Z · by ross@rossturk.com · warm reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over every rule's hit set and every subject in each, incrementing a HashMap<key, count> so that a subject found by exactly one rule has count 1. This precomputed map lets Marginal::only later answer "how many of this rule's hits are unique to it" in O(1) per subject instead of rebuilding a union of all other rules' hits per rule.
+- found: Exactly as predicted: builds a per-subject-key hit-count map across all rule hit sets.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Warm read — already seen this exact body in the earlier whole-file task.
+
+### `only`
+- spec 3 · read at `b9710c13c4e4` · commit `ca9b12d` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:55:34Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Computes the marginal, unique contribution of rule `at`: counts how many subjects in sets[at] are not present in any other set in `sets` (set difference between sets[at] and the union of all other sets), measuring what this rule catches that no other rule would.
+- found: Counts subjects in sets[at] whose total occurrence count across all sets (precomputed in self.seen) is exactly 1 — i.e. subjects only this rule hits. Same concept as my prediction (unique/marginal hits) but implemented via a precomputed frequency map rather than an explicit union-and-difference over the other sets.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `all_hits`
 - spec 3 · read at `ad74d832bb4e` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:37:59Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -3524,6 +3562,27 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: yes · legible: full · trap: no
 - note: I expected fields to be discovered dynamically from the Facts data; they're actually a fixed static enum, only the spread/range values are measured per-repo.
 
+### `of` #2
+- spec 3 · read at `5b9996dc9859` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:55:07Z · by ross@rossturk.com · warm reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Builds a Spreads struct by iterating every rule's clauses and computing the distribution (spread) for each distinct (population, field) pair exactly once via a HashMap entry cache, avoiding redundant recomputation across rules that share a field. It also counts the total number of func and file subjects for later population lookups.
+- found: Exactly as predicted: caches one spread computation per distinct (Pop, field name) key across all rules' clauses, then counts func/file subject totals.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: I had already read this exact function's body in the preceding whole-file task, so this is a warm read and the 'full' prediction reflects recall rather than fresh inference from the signature/peers alone.
+
+### `get` #2
+- spec 3 · read at `d00a750d2e4e` · commit `ca9b12d` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:55:45Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A straightforward lookup indexing an internal map or array on Spreads by (pop, field) key, returning Some(&Spread) if present or None otherwise — no computation, just retrieval of a precomputed distribution/range for that population and field.
+- found: Looks up self.by keyed by (pop, field.name()), which itself stores Option<Spread> values, then flattens via and_then — so a present-but-empty entry and a missing entry both yield None.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: The map value type is itself an Option, meaning "computed and found nothing" is distinguished internally from "never computed" even though get() collapses both to None for callers.
+
+### `population`
+- spec 3 · read at `f1362a350fd1` · commit `ca9b12d` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:55:35Z · by ross@rossturk.com · warm reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Returns self.files if pop is Pop::File, otherwise self.funcs — a simple accessor for the precomputed population count.
+- found: Exactly as predicted, a trivial accessor.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Warm read — already seen this exact body in the earlier whole-file task.
+
 ### `spread`
 - spec 3 · read at `bf1038590ded` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:33:46Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
 - expected: Filters `facts` to those matching population `pop`, extracts the given `field`'s value from each via `value_of`, sorts the resulting numbers, and computes n, median, p95 and max to build a Spread describing this repo's distribution for that field. Returns None if no facts match (nothing to measure).
@@ -3531,16 +3590,17 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `blocked`
-- spec 3 · read at `a9f6541e6308` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:33:36Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Inspects the rule's clauses for fields requiring data that may be absent at the population level: git history (age/touched/commits) blocked by traced.git being false, reading-derived fields (surprise/documented/legible) blocked by `read` being false, or call-graph fields blocked if no language in the facts supports call parsing. Returns a Some(reason string) explaining which precondition is missing, or None if the rule's clauses can all be answered.
-- found: Loops rule clauses checking preconditions in order: reading-required fields blocked by !read, git-history fields (age/touched/commits) blocked by !traced.git, commits specifically also blocked by !traced.churned, and finally a generic catch-all checking whether any fact in the population actually has a value for that field (covers unparsed-call-graph languages etc). Returns the first matching explanation or None.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `23e0877f43ac` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:51:46Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This function checks, across the whole population of facts, why a rule cannot produce an answer. It likely checks `read` first (repo not read at all → return a message), then checks whether the rule's language is even traced/has a call table, then checks whether none of the facts apply — returning distinct reason strings for each case, or `None` if there's no blocking reason and the rule can proceed normally.
+- found: Iterates over the rule's clauses and returns the first specific reason a clause can't be evaluated: unread repo, missing git history, unwalked timeline for commit counts, un-blamed history for headcount, or (catch-all) no fact in the population has that field at all. Returns None if every clause has usable data somewhere in facts.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `report` — QUIRKY
-- spec 3 · read at `6f794ad3b799` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:36:33Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Evaluates rules against the scan tree to produce hits (likely via all_hits/live_hits), cross-references the archive of past Decisions to mark/exclude ones already decided (fine-for-now/fine-always), ranks the remaining findings, and groups them (e.g. by rule or severity) into Vec<Group> suitable for rendering in the UI window.
-- found: Builds per-function Facts from the scan/reports/traced data, computes pinned decisions, precomputes per-rule medians for calibrated clauses (over live facts, decisions excluded first), then for each rule computes live (non-dismissed) hits, dismissed counts, whether it's the only rule that fired for a subject ('marginal'), whether it's blocked, and renders each surviving hit (capped at PER_GROUP) into a Finding with its explanatory sentence and flagged status — returning one Group per rule.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+### `report`
+- spec 3 · read at `d6b7725c5db2` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:23Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: report iterates over the rules, and for each one evaluates it against every subject in `facts` to find hits (skipping/marking rules as blocked when `traced`/`read` say the needed data isn't available), filters out hits already covered by an entry in `archive` (dismissed/decided findings), and packages the remaining hits per rule into a Group (with its own metadata like label/blocked state), returning the full Vec<Group> for the panel.
+- found: For each rule computes live (non-dismissed, via pins from archive) hits over facts, plus a per-population median for rendering sentences, and a "Marginal" set of hits unique to that rule (`solo`/`only`) — then builds one Group per rule with title/tier/expr/counts/blocked flag, and up to PER_GROUP rendered findings (looking up each hit's Facts to render its sentence and checking pins for a "flagged" verdict).
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: Missed the calibration/median machinery for rendering sentences and the "only"/marginal uniqueness tracking and the PER_GROUP cap — none of that was guessable from the doc, which focuses on why facts are passed in rather than what the body computes.
 
 ### `finding_of`
 - spec 3 · read at `94a1a30ae1dd` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:38:02Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -3556,18 +3616,16 @@ What this is and how to add to it: [README.md](README.md)
 - note: Comment clarifies id vs Subject.key are deliberately different identifiers (navigation target vs dismissal storage key) — not obvious from signatures alone.
 
 ### `rules_view`
-- spec 3 · read at `ed17ecbb20d8` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:48Z · by ross@rossturk.com · warm reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Loads saved_rules and merges them onto catalog() to get the live rule set, computes all_hits for it, then maps each live rule to a RuleView via view_of (passing hits/marginal info). Then it appends silenced built-ins — catalog rules whose saved Line marks them off — as RuleView entries with on=false and no hit data, so the editor can show and re-enable them.
-- found: Exactly as predicted: builds the live rule set (catalog merged with saved lines), computes hits once, maps to RuleView with on=true, then appends silenced built-ins with on=false and no hit data.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- note: Already read this in the full-file task, so this is a recall/warm reading, not a cold prediction.
+- spec 3 · read at `77463271ecbf` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:52:42Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Builds the list of `RuleView`s for the rule-editor UI — loads the repo's calibrated rule catalog plus a separate silenced-rules file/config, computes hit counts (via `all_hits`/`hit_of`) and a `blocked` reason for each rule against `facts`/`traced`/`read`, and marks silenced rules with a flag rather than filtering them out, so the editor can list and toggle them.
+- found: Merges the repo's saved/calibrated rule overrides with the shipped catalog to get the 'live' set, computes hits and marginal-only counts across all of them plus precomputed Spreads for medians, builds a RuleView per live rule via view_of, then appends views for catalog rules the saved file marks off (silenced) — so silenced rules appear at the end, flagged rather than dropped.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `view_of`
-- spec 3 · read at `a5f123985bd1` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:58Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Builds a RuleView for one rule: computes hit count from `found` if present, a blocked reason via `blocked` when the repo isn't sufficiently read/traced, per-clause median/suggestion spreads via `spread`/`calibrate` against `facts`, and uses `known` (other rules) to compute something like marginal contribution, assembling this with the rule's title/expr/so-what into the returned RuleView.
-- found: Assembles a RuleView with per-clause median/suggestion (suggestion only on the calibrated clause, only when tightening, only if `on`), hits/only(marginal) counts from `found`, and a `blocked` reason; `known` is used only to compute the `built_in` flag (whether this rule's id exists in the base catalog), not marginal contribution as I guessed.
-- predicted: most · documented: none · derivable: yes · legible: most · trap: no
-- note: I wrongly guessed `known` fed into marginal-contribution math; it's actually just membership-checked to set `built_in`, and `only`/marginal comes from `found`'s index into the all_hits sets instead.
+### `view_of` — QUIRKY
+- spec 3 · read at `9568e6ca657d` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:22Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Assembles a RuleView for one rule in the catalog UI/CLI — carrying whether it's on, and if found is Some, the hit-group counts and the marginal-contribution number for this rule at the current Viewing (calibration slice); if found is None (rule couldn't run / blocked), returns a view saying so rather than a zero count.
+- found: Builds a RuleView carrying the rule's metadata (title, so_what, tier, expr) and population, a per-clause ClauseView list with each clause's median and a re-calibration suggestion (only offered at the currently-calibrated clause, and only if it would tighten not loosen the rule), plus hit/only counts from `found` (0 if None) and a `blocked` reason.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
 
 ### `yes`
 - spec 3 · read at `9417028db571` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:26Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -3595,11 +3653,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `catalog`
-- spec 3 · read at `2df5adc7b3ce` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:37:14Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A large literal function that constructs and returns the hardcoded default catalog of Rules (things like "load-bearing and undocumented", "fossil", trap-detection rules, clone-size rules, etc.), each built via Rule::parse or a builder with a title, clause expression, and placeholder threshold values — meant to be recalibrated per-repo rather than used as-is.
-- found: A literal vec of 14 Rule structs (giant-function, crowded-file, load-bearing-unread, knotty-load-bearing, load-bearing-illegible, load-bearing-undocumented, surprising-changing, surprising-far-reaching, stale-doc, trap-being-edited, fossil-trap, clone-being-edited, widely-cloned, fossil, tangled-for-size), each with id/title/so_what/says template/population/clauses/an index into which clause gets calibrated — heavily commented with the reasoning and bench numbers behind each threshold and clause choice.
+- spec 3 · read at `3f5ca1c5216a` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:54:08Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A long, mostly declarative function building a `Vec<Rule>` — one entry per shipped default finding (e.g. large function, high churn, many callers/reach, clone/duplication, undocumented, tangled/high cognitive complexity, surprising/unread, orphaned, sink, unresolved calls), each constructed via `Rule::parse` or a struct literal with a title, one or two clauses with placeholder thresholds, and a "so what" explanation string, deliberately omitting "last hand alone" / "many hands" rules that would need per-range author data not yet exposed.
+- found: 17 hand-authored Rule literals via small helper closures (ge/lt/le/rule), each a title + so_what + templated 'says' sentence + population + 1-3 clauses + calibrated-clause index: giant-function, crowded-file, four callers-paired rules (unread/knotty/illegible/undocumented), three surprise-paired rules (changing/far-reaching/stale-doc), two trap-paired rules, two clone rules, fossil, tangled-for-size, and two headcount rules (one-pair-of-hands, many-hands-knotty). Heavily commented explaining why each pairing (not single clause) was chosen, with real numbers from a calibration bench cited per rule.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: Each rule carries a `calibrated` index pointing at exactly one clause that gets tuned per-repo (matches the earlier calibrated() finding) — the other clauses are fixed floors (often a Loc gate) never touched by calibration.
+- note: The file_doc's claim that headcount-based rules are missing is about a DIFFERENT, per-range-author version — this catalog does ship 'one-pair-of-hands' and 'many-hands-knotty' using the coarser `headcount` field, which I initially misread as confirming an omission.
 
 ### `calibrated` — QUIRKY
 - spec 3 · read at `a020c5627e7d` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:36:15Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -3771,10 +3829,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: I missed the exactness check that Trap must be the final slot, not just within bounds.
 
 ### `bench_grammar_at_kibana_scale`
-- spec 3 · read at `f9dc90bb2afe` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:35Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Builds a synthetic dataset of about 180,000 subjects (kibana-scale) and times calls to subjects(), grammar(), and all_hits(), printing the elapsed durations for each; likely marked #[ignore] so it does not run in the default test suite, matching the doc's framing as a measurement rather than a correctness check.
-- found: Builds a synthetic 20,000-file/160,000-function tree, then times subjects(), grammar(), and all_hits(cat, facts) in sequence, printing each duration plus their sum ('one report'). No assertions on timing, just a println for eyeballing — matches the doc's framing as a measurement rather than a pass/fail test.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `f52aac75c1f9` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:09Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: An #[ignore]d benchmark test that synthesizes or loads a fixture for a kibana-scale repo (~180,000 subjects), then times subjects(), grammar(), and all_hits() calls, printing the elapsed durations (matching the table in the docs) rather than asserting pass/fail — a manual perf-tracking tool, not a correctness check.
+- found: Builds a synthetic 20,000-file/160,000-function tree in code, times subjects()/grammar()/all_hits()/calibrated()/rules_view() and prints the durations; also compares the Marginal-contribution algorithm against the old quadratic rebuilt-per-rule version over 18 overlapping loc-band rules, with an actual assert_eq that the two agree (a correctness check embedded in a perf test), then times the full project_report()-equivalent sequence end to end.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `a_rule_survives_being_written_down` — OBSCURE
 - spec 3 · read at `04fde24bb13c` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:37:05Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -3784,11 +3842,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: Despite the name/doc suggesting file-persistence round-trip (one_line/save_archive), this test is actually about the settings-page expression text round-tripping through Rule::parse/expr, plus the clause-count cap — the doc line is misleading on its own.
 
 ### `a_clause_with_no_evidence_never_matches`
-- spec 3 · read at `20a0c681692b` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:37:02Z · by ross@rossturk.com · warm reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Builds a Facts/Node where some field's evidence is absent (e.g., untraced git data, or an unread function's surprise field), constructs a rule clause that references that field with some threshold/operator, evaluates the clause against those facts, and asserts the clause returns false (does not match) rather than silently defaulting — confirming missing evidence fails the clause instead of passing or failing arbitrarily.
-- found: Tests that an age clause (untraced git) and a surprise clause (unread function) both produce zero hits since evidence is absent, while a loc clause (always answerable) fires once, and a `read < 1` clause also fires once because "unread" is itself the fact being asserted, not an absence — the one deliberate exception to fail-closed semantics.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The comment explaining why `read` is exempt (it's a fact, not an absence) is essential context the field list alone wouldn't give.
+- spec 3 · read at `19a9091a6b45` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:48Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A unit test that constructs a rule clause on a field for which no evidence exists (e.g. age/commits with `traced.git` false, or a fact where that field is `None`), evaluates the rule against a fact/population lacking that evidence, and asserts the clause does not match — proving the evaluator returns "no answer" rather than silently defaulting to a value like 0 that would make it match or fail confidently.
+- found: Tests that an age clause and a surprise (reading) clause both fail to match on an untraced/unread tree, while a loc clause (answerable regardless) still matches — and specifically that a `read < 1` clause is the deliberate exception, since 'unread' is itself a positive fact rather than missing evidence.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `calibration_targets_a_count_not_a_percentile` — QUIRKY
 - spec 3 · read at `43de09447236` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:36:27Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -3797,10 +3854,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 
 ### `marginal_contribution_sees_through_an_overlapping_rule`
-- spec 3 · read at `a5bbe157a2ad` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:36:37Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: A test with two rules' hit sets where one rule's hits are a subset of another's (or heavily overlapping), calling `marginal` for each and asserting the fully-overlapping rule's marginal count is 0 (or near it) while the other rule keeps its full/larger marginal count — demonstrating that overlap, not raw hit count, determines a rule's worth.
-- found: Two rules where one's hits (loc>=100, 2 hits) are a subset of the other's (loc>=40, 3 hits); asserts marginal(0)=0 for the fully-subsumed rule and marginal(1)=1 for the wider rule's unique row, and explicitly checks both rules share the same title ("ad-hoc") to prove `marginal` identifies by position, not title.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `d524e2a66b67` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:33Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Creates two overlapping rules (e.g. loc >= 100 and loc >= 200, where the second's hits are a subset of the first's) via Marginal::of over their hit sets, then asserts that the narrower/overlapping rule's marginal ("only") contribution is 0 (or less than its raw hit count) — showing the catalog can tell "finds nothing new" apart from a nonzero hit count.
+- found: Builds two overlapping loc-threshold rules with the same 'ad-hoc' title, checks their raw hit counts (2 and 3), then asserts via Marginal::of that the narrower rule's marginal contribution is 0 (fully subsumed) while the wider-threshold rule's is 1 (its own extra hit) — and asserts identity is tracked positionally rather than by title since both share a title.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `a_file_is_counted_by_the_functions_it_holds`
 - spec 3 · read at `194fac738806` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:36:42Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -5184,11 +5241,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: some · derivable: no · legible: some · trap: no
 
 ### `dir`
-- spec 3 · read at `e53895a00875` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:53Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Constructs a Node representing a directory: sets kind to Dir, stores path and name, and initializes children to an empty Vec along with default/zeroed values for the aggregate stats (score, lines, commit counts, etc.) that get filled in later by aggregate(). The extra length probably comes from comments explaining why certain fields start at a particular default rather than a full computation happening here.
-- found: A plain struct-literal constructor for a directory Node: sets id/name/path/kind, and every other field (score, loc, lang, hotspots, callers, clone info, cols, etc.) to its empty/zero/None default, to be filled in later by aggregate() or the trace/model passes. One comment explains why `bytes` is None rather than a summed value.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: The file_doc covers the size/color scoring convention for the whole module, not this constructor specifically.
+- spec 3 · read at `c6a3a5dd6a07` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:34Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: dir(path, name) is a plain constructor — it builds a new Node with kind: Directory, sets path and name, and zero/default-initializes every other field (loc, score, children: vec![], etc.), to be filled in later by Node::aggregate once children are attached.
+- found: Plain constructor for a directory Node: kind: Dir, id/path/name set, everything else zero/None/empty, to be filled in later by aggregate.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `aggregate` — QUIRKY — TANGLED
 - spec 3 · read at `2ca4845935e6` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:35Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -5210,11 +5266,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `slim` — TANGLED
-- spec 3 · read at `2e699813e283` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:44:09Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Recursively builds a new Node tree that omits Func-kind children entirely, keeping only directories and files (with their already-aggregated size/score/language), while recording somewhere (e.g. a count field) how many function children a file had so the UI knows there's more to fetch later via file_functions. It clones/copies the rest of each node's fields rather than mutating self, since it returns a new Node by value.
-- found: Explicitly reconstructs a Node field-by-field (not via clone, to avoid quadratic copying of children), dropping a file's function children but recording their count in `funcs`, keeping wiring roll-ups (incident/away/etc.) but dropping per-function-only fields (callers/calls/clone_group/clone_size), and computing `cols` from children unless already slim (empty children), in which case it preserves the existing cols to stay idempotent.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
-- note: I didn't anticipate the explicit-field-list-instead-of-clone optimization, nor the cols idempotency handling for re-slimming an already-slim tree.
+- spec 3 · read at `4d4ca095ff27` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:52:25Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: slim(&self) recursively rebuilds the Node tree, keeping directories and files (with their rolled-up size/score/language) but dropping each file's inner function nodes, replacing them with just a count of how many functions the file held — producing the lightweight tree sent to the webview.
+- found: Explicitly rebuilds every field of Node (not via struct-update, to avoid an accidental deep clone of all children at every recursion level), drops a file's children into a `funcs` count, recomputes/keeps `cols` idempotently depending on whether children are already empty, and recurses into children only for non-file nodes.
+- predicted: most · documented: none · derivable: yes · legible: some · trap: no
 
 ### `functions_of`
 - spec 3 · read at `7e86c4b34314` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:55:39Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -6245,12 +6300,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: Warm reading — I'd already read this function's body in full while reading scan.rs whole-file earlier in this session.
 
-### `score_dir` — TANGLED
-- spec 3 · read at `5f600c248f81` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:19Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: For each file in this directory's slice, scores every function it contains by comparing it against its peers in the same directory (distinctiveness heuristic falling back to 0.5 for a lone function), pulling in wiring/edge data via `wiring` and `base`-relative indices, clone-group info from `copies`, blame/history via `hist`/FileTrace::func, and complexity relative to `bands`; it builds a Func-kind Node per function and a File-kind Node wrapping them per file, gating some of the more expensive analyses on `fidelity`, and returns the (filename, Node) pairs for this directory.
-- found: For each file, builds a Func Node per function with score computed from distinctiveness (peers = same-file if >1, else whole-directory, none at Ordering fidelity), surprise/documented heuristics with provenance weighting, tangle/cognitive from bands, churn/age/commits from FileTrace, and wiring/clone-group info looked up via base+index into repo-wide tables; wraps each file's function Nodes into a File Node (with its own doc/hash/bytes but score left None, loc left 0 for aggregate to fill), returning (path, Node) pairs.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
-- note: Missed many concrete field-level decisions (bytes = signature+body length not loc, hot_share/analyzed_share hardcoded 0 for leaves, comparable/copied gated on func.shape, provenance weighting formula) that only show up by reading the Node literal itself.
+### `score_dir` — TANGLED — TRAP
+- spec 3 · read at `77034a4d3f22` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:52:40Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Iterates all functions across every file in one directory (using base to find their offset in the repo-wide flattened list), and for each function computes its heuristic score: distinctiveness relative to its directory-wide peers (not just file peers), churn/age from hist, tangle/cognitive complexity via bands, and caller/callee/clone info via wiring and copies. Builds a Node per function (and likely rolls those up into per-file Nodes), returning a vec of (name, Node) pairs ready to attach into the shape tree, gated by fidelity for how much analysis to do.
+- found: Per directory, per file, per function: builds FuncTrace from file-scoped blame, picks peers (same-file if file has >1 func, else directory-wide, empty entirely at Fidelity::Ordering) to compute distinctiveness/surprise/documented, pulls wiring (callers/calls/incident/away/resolvable/orphans/sinks) and clone info, and assembles a full func Node with score. Then wraps all those func children into one file-level Node with loc=0 (left for aggregate to fill), no main_author/headcount (only last_author, since those are per-line counts that would misrepresent a multi-author file), returning (rel_path, Node) pairs.
+- predicted: most · documented: some · derivable: no · legible: some · trap: yes
+- note: Peer selection is fidelity- and file-size-dependent (empty at Ordering fidelity, same-file peers preferred over directory peers when the file has multiple functions) — a subtle branch that changes distinctiveness scoring silently depending on how many functions share a file.
 
 ### `ordinals`
 - spec 2 · read at `6eedc9651175` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:07:56Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -7024,12 +7079,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: It's a trivial getter that clones an already-computed `last_author` field on the struct; the actual lookup/computation happens elsewhere (likely in FileTrace::of), not in this function.
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 
-### `func` — QUIRKY
-- spec 3 · read at `23b39a3eda81` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:52Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Looks up per-line blame data for the given function's [start, end) range within this file's trace; if that per-function data is available (blame ran and covers this range) it builds a FuncTrace from just those lines' commits/authors, otherwise it falls back to the file's own aggregate history (last_author, churn, etc.) and marks the result as file-resolution rather than function-resolution. The ordinal `ord` likely disambiguates functions with the same name.
-- found: Computes churn/commit counts from the independent edits timeline (zero if not walked), then separately resolves age/last_touched/last_author from per-function blame range if available, falling back to the file's own aggregate values otherwise — churn and the age/author fields come from two entirely separate data sources merged into one FuncTrace, not one fallback chain.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: I incorrectly assumed the return would carry an explicit resolution marker (func vs file); it doesn't — the fallback is silent, just different field values.
+### `func`
+- spec 3 · read at `76d595785db1` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:24Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: func(name, ord, start, end) builds a FuncTrace for one function by trying to get its own per-range history via the file's blame (Blame::range), and falling back to the file-level history when blame isn't available or doesn't cover the range (untracked file, no git, depth-1 trace) — filling in the same shape of fields either way so downstream consumers see a coarser resolution rather than a missing value.
+- found: Computes churn/commits separately via self.edits (unaffected by blame), then tries blame.range(start,end,now) for per-function age/author/headcount; on success fills all fields from the range; on failure (no blame, untracked, etc.) falls back to the file's own age/last_touched/last_author but explicitly sets main_author and headcount to None rather than inheriting a file-level guess, since those aren't the same kind of answer at coarser resolution.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
 
 ### `apply` — QUIRKY — TANGLED
 - spec 3 · read at `2d18876fb3ad` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:43:43Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -7038,11 +7092,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: some · derivable: no · legible: some · trap: no
 - note: The ordering constraint between aggregate() and apply_dir_history is already flagged in an inline comment, so it's a documented hazard, not a silent trap.
 
-### `apply_to`
-- spec 3 · read at `b648707a43de` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:57Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks the already-built Node tree and, for each file/function node, looks up its git blame (last_author, ownership) and commit History (commit counts, ages, churn) plus any edits, filling in score fields left blank when the tree was first drawn — the deferred fold that lands git data onto a map rendered before blame finished. Likely recurses into children and rolls some stats upward.
-- found: For a file node, builds a FileTrace once, sets last_author, then computes each function child's ordinal among same-named siblings (matching scan::ordinals' rule) and looks up per-function churn/age/commits/last_touched_days from FileTrace::func using (name, ordinal, start, end), writing them into score fields (all_commits explicitly left None). Recurses into all children regardless of kind afterward.
-- predicted: most · documented: none · derivable: no · legible: most · trap: no
+### `apply_to` — QUIRKY
+- spec 3 · read at `76d5ad12e4ac` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:51:57Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Recursively walks the node tree; for each node looks up its path in History and Blame to set fields like last author, age, and churn, then recurses into children. If `edits` (uncommitted changes) is present, overlays that onto the relevant node's stats. Parent nodes likely aggregate some combination of children's values.
+- found: For File nodes, builds one FileTrace per file (not per-function lookups), sets the file's last_author, then recomputes function ordinals in file order (matching scan::ordinals's rule) to correctly key each func child, and pulls last_author/main_author/headcount/churn/age/commits/last_touched_days from the trace onto each func node (leaving all_commits as None since that would require a per-function git log -L). Then recurses into all children unconditionally.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+- note: No parent-aggregates-children logic here — this only pushes data down onto File and its direct Func children; the recursion is just to reach nested Files elsewhere in the tree.
 
 ### `apply_dir_history` — QUIRKY
 - spec 3 · read at `68ca69e4f4a5` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:39:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
