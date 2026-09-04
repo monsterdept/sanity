@@ -1824,9 +1824,9 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
     let facts = crate::findings::subjects(&scan.root, &reports, traced);
     let rules = crate::findings::rules_for(&path, &facts);
     let groups = crate::findings::report(
-        &scan.root,
-        &reports,
+        &facts,
         traced,
+        !reports.is_empty(),
         &rules,
         &crate::findings::archive(&path),
     );

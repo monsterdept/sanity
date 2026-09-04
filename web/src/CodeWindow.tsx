@@ -87,7 +87,18 @@ export function CodeWindow({ repo, relPath }: { repo: string; relPath: string })
         {/* No pop-out and no close: this window IS the code view, and spawning another
             of itself or closing its own only content are both nonsense. The window
             controls do that job. */}
-        <CodeView file={file} repo={repo} selected={null} reveal={null} onSelect={() => {}} />
+        {/* **Surprise, because a popped-out window has no map to agree with.** The gutter
+            answers to the lens the map is wearing, and this window is not beside one — so it
+            takes the metric this app is about rather than inheriting a lens choice made in
+            another window and then not tracking it. */}
+        <CodeView
+          file={file}
+          repo={repo}
+          selected={null}
+          reveal={null}
+          mode="surprise"
+          onSelect={() => {}}
+        />
       </div>
     </div>
   )

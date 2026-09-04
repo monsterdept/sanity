@@ -183,6 +183,7 @@ fn main() {
     let pins = findings::pinned(&archive);
     let (sets, aside): (Vec<_>, Vec<_>) =
         rules.iter().map(|r| findings::live_hits(r, &facts, &pins)).unzip();
+    let solo = findings::Marginal::of(&sets);
     let set_aside: usize = aside.iter().sum();
 
     println!("{}", path.display());
@@ -214,7 +215,7 @@ fn main() {
     println!("  {}", "-".repeat(head.len() - 4));
     for (i, rule) in rules.iter().enumerate() {
         let hits = &sets[i];
-        let only = findings::marginal(i, &sets);
+        let only = solo.only(i, &sets);
         let cal = findings::calibrate(rule, &facts, target)
             .map(|v| format!("{} {}", rule.clauses[rule.calibrated].field.name(), fmt(v)))
             .unwrap_or_else(|| "—".to_string());

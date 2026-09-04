@@ -3602,6 +3602,12 @@ export default function App() {
               repo={repoPath}
               selected={selected}
               reveal={reveal}
+              mode={viewMode}
+              ranks={
+                (viewMode === 'blame' ? authorRank : viewMode === 'language' ? langRank : null) ??
+                undefined
+              }
+              views={lensViews}
               onSelect={(n) => setPicked(n)}
               onPopOut={() => {
                 if (repoPath) void openCodeWindow(repoPath, codeNode.path)

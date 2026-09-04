@@ -127,6 +127,33 @@ pub struct Project {
     /// Monotonic counter, not a clock: the UI follows whichever project was touched last
     /// and `Instant` would need a baseline to serialise. A counter is enough to order them.
     pub touched: u64,
+    /// Bumped every time `reports` changes, which is the one input to a findings report that
+    /// has no revision of its own.
+    ///
+    /// **`reports.len()` is not a substitute and the difference is the whole point.** A
+    /// function read a second time REPLACES its reading and leaves the count where it was, so
+    /// a cache keyed on length would serve a report taken against the old grade — silently,
+    /// and for as long as nobody rescanned. Findings are the surface whose whole discipline is
+    /// that silence must never stand in for an answer.
+    ///
+    /// Every site that writes to `reports` bumps this, and that list IS the correctness
+    /// argument: a seventh insert added later and not bumped is a stale report nobody sees.
+    pub reads: u64,
+    /// The last findings report, and the state of the repo it was taken against.
+    ///
+    /// **Held because a switch must not pay for one.** A report is a walk of every subject,
+    /// a calibration per rule, a hit set per rule and a distribution per field — a second and
+    /// a half on kibana in a dev build, and the window asks for it every time a project
+    /// becomes active. The scan and the trace are already a tax; this was a third one levied
+    /// on merely LOOKING at a repo you had already paid for.
+    ///
+    /// **Keyed on the four things a report is made of, not invalidated by hand.** `scanned`
+    /// moves when the tree does, `reads` when a reading does, `trace.depth` when blame gets
+    /// deeper, and the two mtimes when somebody edits the rules or files a decision — by hand
+    /// or in the window, which is why they are read off the FILES rather than counted in
+    /// memory. A key derived from the inputs cannot be forgotten at a call site the way an
+    /// `invalidate()` can.
+    pub findings: Option<(FindingsAt, crate::findings::ProjectReport)>,
     /// What the repo looked like when this scan was taken — see `watch::probe`.
     ///
     /// The comparison the tick makes. Held per project rather than globally because two repos
@@ -157,6 +184,37 @@ pub struct Project {
     /// so the sidebar can show a bar for each rather than one bar for whichever project it
     /// guessed.
     pub last_agent: Option<Instant>,
+}
+
+/// What a findings report was taken against — see `Project::findings`.
+///
+/// Every field is something that changes the answer, and nothing else is in here: the point
+/// of a key is that it is derived, so a report cannot be served against a repo it does not
+/// describe because somebody forgot a call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FindingsAt {
+    pub scanned: u64,
+    pub reads: u64,
+    pub depth: crate::trace::Depth,
+    /// `.sanity/rules/catalog.md` and `.sanity/findings/decisions.md` as the filesystem last
+    /// wrote them. Files rather than counters because both are meant to be edited by hand and
+    /// merged from a branch — a counter would miss exactly the case the store was designed
+    /// for.
+    pub rules: Option<std::time::SystemTime>,
+    pub decisions: Option<std::time::SystemTime>,
+}
+
+impl FindingsAt {
+    pub fn of(p: &Project) -> FindingsAt {
+        let at = |rel: &str| std::fs::metadata(p.repo.join(rel)).and_then(|m| m.modified()).ok();
+        FindingsAt {
+            scanned: p.scanned,
+            reads: p.reads,
+            depth: p.trace.depth,
+            rules: at(".sanity/rules/catalog.md"),
+            decisions: at(".sanity/findings/decisions.md"),
+        }
+    }
 }
 
 /// Everything sanity is currently holding.
@@ -3797,6 +3855,12 @@ impl Project {
             run: prev.and_then(|p| p.run.clone()),
             events: prev.map(|p| p.events.clone()).unwrap_or_default(),
             touched: prev.map(|p| p.touched).unwrap_or(0),
+            reads: prev.map(|p| p.reads).unwrap_or(0),
+            // **Not carried over.** This tree is a different tree, so the report taken against
+            // the last one describes a repo that is gone. The key would catch it — `scanned`
+            // has just been bumped — and dropping it here says the same thing without relying
+            // on that.
+            findings: None,
             last_agent: prev.and_then(|p| p.last_agent),
             // Bumped, not set. The window watches this for "the tree changed, refetch", and
             // a constant is a change exactly once — every rescan after the first looked
@@ -4530,6 +4594,7 @@ async fn report(
         project.note("read", name, path, Some(&r));
     }
     project.reports.insert(r.id.clone(), r);
+    project.reads = project.reads.wrapping_add(1);
     // Written through on every report. An assessment is minutes of an agent's work and
     // must not depend on the app exiting cleanly to survive.
     let write_error = save_reports(&project.repo, &project.scan, &project.reports).err();
@@ -5939,6 +6004,8 @@ fn drain(
         s.projects.insert(
             known.key.clone(),
             Project {
+                reads: 0,
+                findings: None,
                 repo: path,
                 name: known.name.clone(),
                 scan,
@@ -6383,6 +6450,7 @@ async fn watch_tick(state: &Shared) {
         }
         p.scan = scan;
         p.reports = reports;
+        p.reads = p.reads.wrapping_add(1);
         p.file_marks = file_marks;
         // Whatever the budget allowed this time. A repo that was traced and has now moved past
         // what a tick may spend goes back to saying so rather than keeping the old depth's
@@ -6491,6 +6559,8 @@ pub(crate) mod tests {
         .unwrap();
         let marks = stamp_marks(dir, &scan);
         Project {
+            reads: 0,
+            findings: None,
             repo: dir.to_path_buf(),
             name: "t".into(),
             scan,
@@ -7046,6 +7116,7 @@ fn second() { println!(\"2\"); }\n",
         // A lease left over a function that has since been read explains nothing. It must
         // drop out of both numbers rather than keep claiming a reader is busy on it.
         p.reports.insert(ids[0].clone(), Report { id: ids[0].clone(), ..Report::blank() });
+        p.reads = p.reads.wrapping_add(1);
         let w = work_left(&p);
         assert_eq!(w.remaining, 2, "one function read; its twin and their file are left");
         assert_eq!(w.in_flight, 0, "the reading landed; the stale lease is moot");
@@ -7154,6 +7225,8 @@ fn second() { println!(\"2\"); }\n",
         }
         let mut bank = |r: Report| {
             p.reports.insert(r.id.clone(), r);
+        p.reads = p.reads.wrapping_add(1);
+            p.reads = p.reads.wrapping_add(1);
         };
         bank(reading(&ids[0].0, &ids[0].1, Some(1), "haiku"));
         bank(reading(&ids[1].0, &ids[1].1, Some(7), "sonnet"));
@@ -7177,6 +7250,7 @@ fn second() { println!(\"2\"); }\n",
         // A reading from before the field existed lands in neither bucket.
         let r = reading(&ids[1].0, &ids[1].1, None, "sonnet");
         p.reports.insert(r.id.clone(), r);
+        p.reads = p.reads.wrapping_add(1);
         let agg = aggregate(&p);
         assert_eq!(agg.by_position.unrecorded, 1);
         assert_eq!(agg.by_position.positions[&1].full, 1, "unknown is not position 1");

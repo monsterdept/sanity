@@ -922,8 +922,24 @@ pub fn project_report(
     state: tauri::State<'_, crate::agentapi::Shared>,
     key: String,
 ) -> crate::findings::ProjectReport {
-    let st = crate::agentapi::lock(&state);
+    let mut st = crate::agentapi::lock(&state);
     let Some(p) = st.projects.get(&key) else { return Default::default() };
+
+    // **Served from the last one where the repo has not moved.** Switching to a project the
+    // window has already looked at should cost nothing: the report is a walk of every subject,
+    // a calibration per rule, a hit set per rule and a distribution per field — a second and a
+    // half on kibana in a dev build, and it was being paid every time a project became active
+    // on top of the scan and the trace that had already been paid for.
+    //
+    // The key is derived from the four things a report is made of, so nothing has to remember
+    // to invalidate it — see `FindingsAt`.
+    let at = crate::agentapi::FindingsAt::of(p);
+    if let Some((was, report)) = &p.findings {
+        if *was == at {
+            return report.clone();
+        }
+    }
+
     let traced = crate::findings::Traced {
         // What the map itself knows: whether anybody has read the log yet. NOT
         // `stats::without_history`, which is true for an untraced repo as well as for one
@@ -939,11 +955,12 @@ pub fn project_report(
     // and left alone. Saved is what makes the list drainable; see `findings::rules_for`.
     let facts = crate::findings::subjects(&p.scan.root, &p.reports, traced);
     let rules = crate::findings::rules_for(&p.repo, &facts);
-    crate::findings::ProjectReport {
+    let read = !p.reports.is_empty();
+    let fresh = crate::findings::ProjectReport {
         groups: crate::findings::report(
-            &p.scan.root,
-            &p.reports,
+            &facts,
             traced,
+            read,
             &rules,
             // Read from the repo on every ask rather than held in state. The archive is small,
             // it is a file somebody may well have edited by hand or merged from a branch, and a
@@ -951,9 +968,18 @@ pub fn project_report(
             // been dismissed — which is the one thing this store must never do.
             &crate::findings::archive(&p.repo),
         ),
-        rules: crate::findings::rules_view(&p.repo, &facts, traced, !p.reports.is_empty()),
+        rules: crate::findings::rules_view(&p.repo, &facts, traced, read),
         grammar: crate::findings::grammar(&facts),
+    };
+
+    // Stored against the key it was taken at, which is re-read rather than reused: computing
+    // the report may have WRITTEN `catalog.md`, since `rules_for` calibrates and saves on
+    // first sight. Keeping the earlier key would mark the cache stale the moment it was
+    // filled, and every switch would pay again.
+    if let Some(p) = st.projects.get_mut(&key) {
+        p.findings = Some((crate::agentapi::FindingsAt::of(p), fresh.clone()));
     }
+    fresh
 }
 
 /// The pin for one finding, as the code stands right now — see [`crate::findings::pin_of`].

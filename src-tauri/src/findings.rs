@@ -26,13 +26,13 @@
 
 use crate::agentapi::Report;
 use crate::model::{Node, NodeKind};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// What a rule is about. Directories are deliberately absent — the rim already draws a
 /// directory's distribution, and every directory rule anyone proposes is a sentence it
 /// draws better. See the note; the trigger for revisiting it is a clause about SPREAD,
 /// which is not this grammar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Pop {
     Func,
@@ -922,29 +922,50 @@ pub fn calibrate(rule: &Rule, facts: &[Facts], target: usize) -> Option<f32> {
 
 /// How many of this rule's findings no OTHER rule in the set already found.
 ///
+/// How many of each rule's hits no other rule also found.
+///
 /// **This, not the hit count, is what a rule is titrated against.** "Long and undocumented"
 /// scored 3,455 hits on kibana and was worthless, because 18 of its top 20 were already in
 /// "giant function" — a rule whose marginal contribution is near zero is a second name for
 /// a list you already have. See the note, which cut it on this number.
+///
 /// **Identified by POSITION, never by title.** Two ad-hoc rules off the command line are
 /// both called "ad-hoc", and a title comparison quietly excluded each from the other's
 /// "others" — so two rules matching the same bodies each reported every hit as unique,
 /// which is the exact opposite of what this number is for.
 ///
-/// **Takes the hit lists rather than the rules**, so a catalog of ten costs ten passes over
-/// the tree instead of a hundred. Recomputing them here was fine on a small repo and turned
-/// one call into ninety filter-and-sorts of kibana's 147,906 subjects — which is a panel
-/// that hangs on the repo most in need of it.
-pub fn marginal(at: usize, sets: &[Vec<&Subject>]) -> usize {
-    let Some(mine) = sets.get(at) else { return 0 };
-    let theirs: HashSet<&str> = sets
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| *i != at)
-        .flat_map(|(_, o)| o.iter())
-        .map(|s| s.key.as_str())
-        .collect();
-    mine.iter().filter(|s| !theirs.contains(s.key.as_str())).count()
+/// **Counted once for the whole catalog, not once per rule.** This was a function that
+/// rebuilt the union of every OTHER rule's hits from scratch each time it was asked:
+/// quadratic in the catalog and linear in the hits, which on a repo where rules find
+/// thousands apiece is tens of millions of string hashes to produce eighteen numbers. It was
+/// most of an eight-second project switch on ceph. A subject that exactly one rule found is
+/// a subject with a count of one — that is the whole insight, and it turns the thing into one
+/// pass over the hits plus a lookup per hit.
+///
+/// It takes the hit lists rather than the rules for the same family of reason: recomputing
+/// them here turned one call into ninety filter-and-sorts of kibana's 147,906 subjects.
+pub struct Marginal<'a> {
+    /// How many rules found each subject. Keyed on `Subject::key`, which is what a rule's
+    /// hits are identified by everywhere else — never a node id.
+    seen: HashMap<&'a str, u32>,
+}
+
+impl<'a> Marginal<'a> {
+    pub fn of(sets: &[Vec<&'a Subject>]) -> Marginal<'a> {
+        let mut seen: HashMap<&'a str, u32> = HashMap::new();
+        for set in sets {
+            for s in set {
+                *seen.entry(s.key.as_str()).or_insert(0) += 1;
+            }
+        }
+        Marginal { seen }
+    }
+
+    /// What rule `at` contributes that nothing else does.
+    pub fn only(&self, at: usize, sets: &[Vec<&Subject>]) -> usize {
+        let Some(mine) = sets.get(at) else { return 0 };
+        mine.iter().filter(|s| self.seen.get(s.key.as_str()) == Some(&1)).count()
+    }
 }
 
 /// Every rule's hits, once. The input to [`marginal`], and to anything that draws a group.
@@ -957,7 +978,7 @@ pub fn all_hits<'a>(rules: &[Rule], facts: &'a [Facts]) -> Vec<Vec<&'a Subject>>
 /// **The picker is built from `Field::ALL`, so a fifteenth field cannot be added without
 /// appearing in it.** The alternative — a list in the frontend — is the same list written
 /// twice, and the copy nobody compiles is the one that goes stale.
-#[derive(serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FieldView {
     pub name: &'static str,
@@ -986,7 +1007,7 @@ pub struct FieldView {
 /// three walks of the tree; the counts in the grid, the tiles in the list and the number on
 /// the mascot are the same measurement seen three ways, and issuing them separately was both
 /// three times the work and three chances to describe different states of the same repo.
-#[derive(serde::Serialize, Default)]
+#[derive(Clone, serde::Serialize, Default)]
 pub struct ProjectReport {
     pub groups: Vec<Group>,
     pub rules: Vec<RuleView>,
@@ -994,7 +1015,7 @@ pub struct ProjectReport {
 }
 
 /// Every field and every operator, with what this repo makes of them.
-#[derive(serde::Serialize, Default)]
+#[derive(Clone, serde::Serialize, Default)]
 pub struct Grammar {
     pub fields: Vec<FieldView>,
     pub ops: Vec<&'static str>,
@@ -1019,12 +1040,55 @@ pub fn grammar(facts: &[Facts]) -> Grammar {
 }
 
 /// The distribution of one field, for the calibration hint beside a threshold box.
-#[derive(serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct Spread {
     pub n: usize,
     pub median: f32,
     pub p95: f32,
     pub max: f32,
+}
+
+/// Every distribution a set of rules will ask for, computed once.
+///
+/// **`rules_view` was sorting the repo once per CLAUSE.** Eighteen rules of one to three
+/// clauses is fifty-odd `spread` calls, each a filter and a sort over every function in the
+/// repo — 738ms of a one-second answer on a repo ceph's size, to produce about fifteen
+/// distinct answers. A field's distribution does not depend on which rule is asking.
+///
+/// Keyed on `(pop, field)` because that is what a spread is OF. The population count comes
+/// with it: it is the same walk, and `RuleView::population` needed its own pass otherwise.
+pub struct Spreads {
+    by: HashMap<(Pop, &'static str), Option<Spread>>,
+    pub funcs: usize,
+    pub files: usize,
+}
+
+impl Spreads {
+    pub fn of(facts: &[Facts], rules: &[Rule]) -> Spreads {
+        let mut by = HashMap::new();
+        for r in rules {
+            for c in &r.clauses {
+                by.entry((r.pop, c.field.name())).or_insert_with(|| spread(facts, r.pop, c.field));
+            }
+        }
+        Spreads {
+            by,
+            funcs: facts.iter().filter(|f| f.subject.kind == NodeKind::Func).count(),
+            files: facts.iter().filter(|f| f.subject.kind == NodeKind::File).count(),
+        }
+    }
+
+    fn get(&self, pop: Pop, field: Field) -> Option<&Spread> {
+        self.by.get(&(pop, field.name())).and_then(|s| s.as_ref())
+    }
+
+    fn population(&self, pop: Pop) -> usize {
+        if pop == Pop::File {
+            self.files
+        } else {
+            self.funcs
+        }
+    }
 }
 
 pub fn spread(facts: &[Facts], pop: Pop, field: Field) -> Option<Spread> {
@@ -1145,32 +1209,36 @@ pub fn blocked(rule: &Rule, facts: &[Facts], traced: Traced, read: bool) -> Opti
 }
 
 /// Run a catalog over a scan, ready for the window.
+/// Run a catalog over facts the caller has already built.
+///
+/// **It walked the tree for itself, and every caller had walked it a moment earlier.** The
+/// facts are what `rules_for` calibrates against and what `rules_view` measures, so a command
+/// that wants both plus a list built the same 180,000 records twice. Taking them as an
+/// argument is also the honest signature: this function reports on a set of subjects, and
+/// which tree they came from is the caller's business.
 pub fn report(
-    root: &Node,
-    reports: &HashMap<String, Report>,
+    facts: &[Facts],
     traced: Traced,
+    read: bool,
     rules: &[Rule],
     archive: &[Decision],
 ) -> Vec<Group> {
-    let facts = subjects(root, reports, traced);
-    let read = !reports.is_empty();
     let pins = pinned(archive);
-    // Dismissed findings are gone before `marginal` runs, not after: a rule whose every finding
+    // Dismissed findings are gone before this runs, not after: a rule whose every finding
     // somebody has set aside contributes nothing NOW, which is what the number is asked for.
     // One median per rule, over the population its calibrated clause measures — the
     // comparison its sentence quotes. Computed here rather than per finding: it is a property of
     // the repo, and a sort of every value for every row is the cost this avoids.
+    let spreads = Spreads::of(facts, rules);
     let medians: Vec<Option<f32>> = rules
         .iter()
         .map(|r| {
-            r.clauses
-                .get(r.calibrated)
-                .and_then(|c| spread(&facts, r.pop, c.field))
-                .map(|s| s.median)
+            r.clauses.get(r.calibrated).and_then(|c| spreads.get(r.pop, c.field)).map(|s| s.median)
         })
         .collect();
     let by_key: HashMap<&str, &Facts> = facts.iter().map(|f| (f.subject.key.as_str(), f)).collect();
-    let (sets, aside): (Vec<_>, Vec<_>) = rules.iter().map(|r| live_hits(r, &facts, &pins)).unzip();
+    let (sets, aside): (Vec<_>, Vec<_>) = rules.iter().map(|r| live_hits(r, facts, &pins)).unzip();
+    let solo = Marginal::of(&sets);
     rules
         .iter()
         .enumerate()
@@ -1182,9 +1250,9 @@ pub fn report(
             expr: rule.expr(),
             total: sets[i].len(),
             dismissed: aside[i],
-            only: marginal(i, &sets),
+            only: solo.only(i, &sets),
             lenses: rule.lenses(),
-            blocked: blocked(rule, &facts, traced, read),
+            blocked: blocked(rule, facts, traced, read),
             hits: sets[i]
                 .iter()
                 .take(PER_GROUP)
@@ -1315,39 +1383,52 @@ pub fn rules_view(
     let live = merge(catalog(), &saved);
     let sets = all_hits(&live, facts);
     let known = catalog();
+    // Every distribution these rules will ask for, once — see `Spreads`. The silenced ones
+    // are in here too, because they are drawn with their medians like any other row.
+    let spreads = Spreads::of(facts, &[&live[..], &known[..]].concat());
+    let solo = Marginal::of(&sets);
+    let at = Viewing { facts, spreads: &spreads, traced, read, known: &known };
 
     let mut out: Vec<RuleView> = live
         .iter()
         .enumerate()
-        .map(|(i, r)| view_of(r, true, Some((&sets, i)), facts, traced, read, &known))
+        .map(|(i, r)| view_of(r, true, Some((&sets, i, &solo)), &at))
         .collect();
 
     // The silenced ones, from the catalog and from the file, in the order they would run.
     for k in known.iter() {
         if saved.iter().any(|l| l.id == k.id && l.off) {
-            out.push(view_of(k, false, None, facts, traced, read, &known));
+            out.push(view_of(k, false, None, &at));
         }
     }
     out
 }
 
+/// What every row of the grid is drawn against: one repo, measured once.
+///
+/// **A struct because the argument list was the smell.** Each of these is here for a reason
+/// and none of them belongs to a rule — they are the repo, and passing five of them per row
+/// meant every new one touched every call site.
+struct Viewing<'a> {
+    facts: &'a [Facts],
+    spreads: &'a Spreads,
+    traced: Traced,
+    /// Whether anything here has been read, which is what gates the tier 2 rules.
+    read: bool,
+    /// The shipped catalog, for telling a rule of somebody's own from one of sanity's.
+    known: &'a [Rule],
+}
+
 fn view_of(
     r: &Rule,
     on: bool,
-    found: Option<(&[Vec<&Subject>], usize)>,
-    facts: &[Facts],
-    traced: Traced,
-    read: bool,
-    known: &[Rule],
+    found: Option<(&[Vec<&Subject>], usize, &Marginal)>,
+    at: &Viewing,
 ) -> RuleView {
+    let Viewing { facts, spreads, traced, read, known } = *at;
     RuleView {
         id: r.id.clone(),
-        population: facts
-            .iter()
-            .filter(|f| {
-                f.subject.kind == if r.pop == Pop::File { NodeKind::File } else { NodeKind::Func }
-            })
-            .count(),
+        population: spreads.population(r.pop),
         title: r.title.clone(),
         so_what: r.so_what.clone(),
         says: r.says.clone(),
@@ -1361,7 +1442,7 @@ fn view_of(
                 op: c.op.name().to_string(),
                 value: c.value,
                 lens: c.field.lens().map(str::to_string),
-                median: spread(facts, r.pop, c.field).map(|s| s.median),
+                median: spreads.get(r.pop, c.field).map(|s| s.median),
                 // Only where it would actually be taken: `calibrated` refuses to loosen a
                 // rule, so a looser number is one this program would never apply, and
                 // offering it invites widening a rule on advice that was never given.
@@ -1380,8 +1461,8 @@ fn view_of(
         lenses: r.lenses(),
         on,
         built_in: known.iter().any(|k| k.id == r.id),
-        hits: found.map(|(sets, i)| sets[i].len()).unwrap_or(0),
-        only: found.map(|(sets, i)| marginal(i, sets)).unwrap_or(0),
+        hits: found.map(|(sets, i, _)| sets[i].len()).unwrap_or(0),
+        only: found.map(|(sets, i, solo)| solo.only(i, sets)).unwrap_or(0),
         blocked: blocked(r, facts, traced, read),
     }
 }
@@ -2489,7 +2570,14 @@ mod tests {
         for i in 0..20_000u32 {
             let mut kids = Vec::new();
             for j in 0..8u32 {
-                kids.push(func(&format!("f{i}_{j}"), 10 + (j % 40)));
+                // **Sized so the catalog actually FIRES.** The first version of this made
+                // every function 10 to 50 lines, so no rule matched anything and every
+                // measurement over hit sets came out at zero — which is how a quadratic
+                // `marginal` sat under a bench that reported it as free.
+                kids.push(func(
+                    &format!("f{i}_{j}"),
+                    if j == 0 { 400 + i % 900 } else { 8 + j * 5 },
+                ));
             }
             let mut f = Node::dir(&format!("d{}/f{i}.rs", i % 400), &format!("f{i}.rs"));
             f.kind = NodeKind::File;
@@ -2516,11 +2604,68 @@ mod tests {
         let cat = catalog();
         let _ = all_hits(&cat, &facts);
         let hit = t.elapsed();
+
+        // The two the window actually calls, which the first version of this bench did not
+        // cover — and covering them is how the eight seconds on ceph got found.
+        let repo = std::env::temp_dir().join("sanity-bench-repo");
+        let _ = std::fs::create_dir_all(&repo);
+        let t = Instant::now();
+        let live = calibrated(&cat, &facts);
+        let cal = t.elapsed();
+        let t = Instant::now();
+        let _ = rules_view(&repo, &facts, traced, false);
+        let view = t.elapsed();
+        let _ = live;
         // What one `project_report` costs: the walk, plus everything read off it.
         let whole = built + grammared + hit;
 
+        // **The catalog cannot fire on a synthetic tree** — its rules want `callers`,
+        // `cognitive`, `age`, a reading — so hit-set cost has to be measured against rules
+        // that can. Eighteen overlapping `loc` bands is the shape a real catalog has on a
+        // real repo: several thousand hits apiece, heavily overlapping.
+        let bands: Vec<Rule> = (0..18)
+            .map(|k| Rule::parse(&format!("func: loc >= {}", 300 + k * 30)).expect("parses"))
+            .collect();
+        let sets = all_hits(&bands, &facts);
+        let total: usize = sets.iter().map(|s| s.len()).sum();
+
+        let t = Instant::now();
+        let solo = Marginal::of(&sets);
+        let only: usize = (0..sets.len()).map(|i| solo.only(i, &sets)).sum();
+        let counted = t.elapsed();
+
+        // The version this replaced, inline: the union of every other rule, rebuilt per rule.
+        let t = Instant::now();
+        let mut was = 0usize;
+        for at in 0..sets.len() {
+            let theirs: std::collections::HashSet<&str> = sets
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != at)
+                .flat_map(|(_, o)| o.iter())
+                .map(|s| s.key.as_str())
+                .collect();
+            was += sets[at].iter().filter(|s| !theirs.contains(s.key.as_str())).count();
+        }
+        let quadratic = t.elapsed();
+        assert_eq!(only, was, "the fast one has to agree with the one it replaced");
         println!(
-            "{} subjects — subjects() {built:?}, grammar() {grammared:?}, all_hits() {hit:?}, one report {whole:?}",
+            "  {total} hits over 18 rules — Marginal {counted:?}, rebuilt-per-rule {quadratic:?}"
+        );
+        // **The command's own sequence, end to end.** The pieces above are diagnostic; this
+        // is what a project switch actually pays, and it is the number to argue about.
+        let arch: Vec<Decision> = Vec::new();
+        let t = Instant::now();
+        let f2 = subjects(&root, &reports, traced);
+        let live2 = calibrated(&bands, &f2);
+        let _ = report(&f2, traced, false, &live2, &arch);
+        let _ = rules_view(&repo, &f2, traced, false);
+        let _ = grammar(&f2);
+        let whole_report = t.elapsed();
+        println!("  project_report(): {whole_report:?}");
+
+        println!(
+            "{} subjects — subjects() {built:?}, grammar() {grammared:?}, all_hits() {hit:?}, calibrated() {cal:?}, rules_view() {view:?}, one report {whole:?}",
             facts.len(),
         );
     }
@@ -2604,8 +2749,9 @@ mod tests {
         assert_eq!(hits(&wider, &facts).len(), 3);
         let both = vec![wide.clone(), wider.clone()];
         let sets = all_hits(&both, &facts);
-        assert_eq!(marginal(0, &sets), 0);
-        assert_eq!(marginal(1, &sets), 1);
+        let solo = Marginal::of(&sets);
+        assert_eq!(solo.only(0, &sets), 0);
+        assert_eq!(solo.only(1, &sets), 1);
 
         // Both are titled "ad-hoc", which is why identity here is positional: a title
         // comparison would drop each from the other's set and call every hit unique.

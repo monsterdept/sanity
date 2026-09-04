@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Overlay } from './Overlay'
 import { CopyButton } from './Prose'
 import { FAMILY } from '../lib/labelStyle'
-import { tokenize } from '../lib/tokens'
+import { tokenizeAll } from '../lib/tokens'
 
 /**
  * A piece of source, small enough to sit in the panel and openable when it isn't.
@@ -232,6 +232,10 @@ function Lines({
   marks?: Map<number, { label: string; why: string }>
 }) {
   const lines = code.split('\n')
+  // **Tokenized as a FILE, not a line at a time.** A block comment's body lines are ordinary
+  // prose that a per-line pass reads as code — `as`, `with` and `in` came out as keywords
+  // inside English sentences, in every doc comment in the repo. See `tokenizeAll`.
+  const toks = tokenizeAll(lines)
   return (
     <table className="mono w-full border-collapse text-[10.5px] leading-[1.45]">
       <tbody>
@@ -263,7 +267,7 @@ function Lines({
               }`}
             >
               {highlight ? (
-                tokenize(line).map((t, j) => (
+                toks[i].map((t, j) => (
                   <span key={j} className={t.cls}>
                     {t.text}
                   </span>

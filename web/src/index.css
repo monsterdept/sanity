@@ -146,6 +146,14 @@
    * So: the reddest thing this palette will hold. Warm and slightly earthy, in the family
    * of Danger's hue rather than a pure signal red, because everything around it is paper,
    * ink and plum and a fire-engine red reads as a foreign object dropped on the map. */
+  /* Code view hues — see the token block below for why they are not all `--accent`. Held
+   * off the heat ramp (plum through pink) so no token can be read as a reading. */
+  --code-comment: #5b7355;
+  --code-string: #9c5f3c;
+  --code-num: #2f7d84;
+  --code-fn: #6b4f8f;
+  --code-type: #3f6ea8;
+
   --notify: #b8443a;
   --notify-foreground: #f5f1ea;
   /* Traps get their own color rather than borrowing `--destructive`.
@@ -692,6 +700,14 @@
   --destructive: color-mix(in oklch, #8f5753 70%, #f5f1ea 30%);
   /* Lifted off the ink the way every warm colour here is: the hub sits over the innermost
    * wedges, which are the darkest part of the map, and the light value goes muddy there. */
+  /* Lifted off the ink the way every colour here is: the code view's ground is the card,
+   * which on this theme is a step off black, and the light values go muddy on it. */
+  --code-comment: #7f9d78;
+  --code-string: #d08b5e;
+  --code-num: #55b3bd;
+  --code-fn: #b492e0;
+  --code-type: #79aae6;
+
   --notify: #d0554a;
   --notify-foreground: #1a1a1a;
   --warning: #bf965d;
@@ -1039,33 +1055,50 @@ textarea,
 
 /* ── Code view tokens ─────────────────────────────────────────────────────────
  *
- * Syntax color is SCENERY here, and it has to stay scenery: the reading lives in the
- * heat gutter, and a fully saturated theme beside it would put two color scales in one
- * field of view competing to be the message. So these are low-chroma and close
- * together — enough to tell a string from a keyword at a glance, not enough to look at.
+ * **Syntax colour is scenery, and scenery still has to be legible.** The reading lives in
+ * the heat gutter and a fully saturated theme beside it would put two colour scales in one
+ * field of view competing to be the message — that argument stands and these are all held
+ * well below the ramp's chroma. What it was used to justify was every token deriving from
+ * `--accent`, which is not restraint, it is one hue: a file came out monochrome plum, and
+ * a string, a number and a keyword were three shades of the same idea. Restraint is low
+ * chroma. It is not one hue.
  *
- * Nothing here touches the ramp hues. Comments deliberately sit near the muted text
- * color, because a comment is the one token the metric has an opinion about and it
- * should read as prose rather than as code. */
+ * So the hues are chosen to sit AWAY from the ramp rather than on it — the heat ramp is
+ * plum through pink, so a comment is green, a string is terracotta and a number is teal,
+ * and none of them can be mistaken for a reading. Keywords keep the accent because they
+ * are the most frequent token and the page should still feel like this app.
+ *
+ * **Comments are the one token this app has an opinion about**, and they get a hue of
+ * their own rather than a grey: a doc comment is the thing a reading was taken against,
+ * and it should read as prose written by a person, not as code turned down. */
 .tok-plain {
   color: var(--foreground);
 }
 .tok-punct {
-  color: color-mix(in oklch, var(--foreground) 62%, transparent);
+  color: color-mix(in oklch, var(--foreground) 55%, transparent);
 }
 .tok-comment {
-  color: var(--muted-foreground);
+  color: var(--code-comment);
   font-style: italic;
 }
 .tok-string {
-  color: color-mix(in oklch, var(--accent) 78%, var(--foreground));
+  color: var(--code-string);
 }
 .tok-key {
   color: var(--accent);
   font-weight: 600;
 }
 .tok-num {
-  color: color-mix(in oklch, var(--accent-dim) 70%, var(--foreground));
+  color: var(--code-num);
+}
+/* A call and a type: the two things a reader scans a file for. Weight rather than a third
+ * and fourth hue — the page has enough colour now, and what these need is to stand out from
+ * the plain identifiers around them rather than from each other. */
+.tok-fn {
+  color: var(--code-fn);
+}
+.tok-type {
+  color: var(--code-type);
 }
 
 /* A trap breathes, so the eye finds it without hunting.

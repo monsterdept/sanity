@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { heatColor, isAnalyzed, paintHeat, readSource, type Node } from '../lib/api'
-import { tokenize } from '../lib/tokens'
+import { isAnalyzed, readSource, type Node } from '../lib/api'
+import { colorFor, type ColorMode, type Views } from '../lib/colorMode'
+import { tokenizeAll } from '../lib/tokens'
 
 /** The chunk covering each 1-indexed source line, so a line can report its own heat. */
 function ownerByLine(file: Node): Map<number, Node> {
@@ -15,34 +16,18 @@ function ownerByLine(file: Node): Map<number, Node> {
   return m
 }
 
-/** Ramp stops read off the cascade, so the minimap can interpolate heat itself.
- *
- *  `heatColor` returns a `color-mix()` string, which is fine in CSS and not something a
- *  canvas `fillStyle` will parse. So the five stops come out of the custom properties as
- *  hex and get mixed here — same ramp, same order, arrived at differently. */
-function rampStops(el: HTMLElement): Array<[number, number, number]> {
-  const cs = getComputedStyle(el)
-  return [0, 1, 2, 3, 4].map((i) => {
-    const hex = cs.getPropertyValue(`--heat-${i}`).trim() || '#888888'
-    const n = parseInt(hex.slice(1), 16)
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255] as [number, number, number]
-  })
-}
-
-function rampAt(stops: Array<[number, number, number]>, t: number): string {
-  const x = Math.max(0, Math.min(1, t)) * (stops.length - 1)
-  const i = Math.min(stops.length - 2, Math.floor(x))
-  const f = x - i
-  const c = stops[i].map((v, k) => Math.round(v + (stops[i + 1][k] - v) * f))
-  return `rgb(${c[0]} ${c[1]} ${c[2]})`
-}
-
 /**
- * The whole file at a glance, with the heat on it.
+ * The whole file at a glance: its shape, and where one function gives way to the next.
  *
- * A minimap of source alone would be a scrollbar with texture. What makes it worth the
- * width here is that the heat is on it: the profile of where the thinking sits in this
- * file, visible without scrolling, and clickable to get there.
+ * **It is a map of the FILE and carries no reading.** It had the heat on it, and then briefly
+ * the current lens — the argument being that a minimap of source alone is a scrollbar with
+ * texture. What that actually produced was a column of saturated blocks with the file's shape
+ * lost underneath, saying the same thing the gutter says two inches to its left. The reading
+ * has a place; this is the other thing a reader needs, which is where they ARE.
+ *
+ * The code is drawn as one bar per row from its indent to its end — the indentation profile
+ * is what the eye uses to recognise a place in a file, and drawing glyphs at this scale costs
+ * far more and reads as noise.
  *
  * The code is drawn as one bar per line from its indent to its end — the indentation
  * profile is what the eye actually uses to recognize a place in a file, and drawing
@@ -82,37 +67,80 @@ function Minimap({
     ctx.clearRect(0, 0, r.width, r.height)
     if (lines.length === 0) return
 
-    const stops = rampStops(canvas)
     const ink = getComputedStyle(canvas).color
     // Fit the WHOLE file, however long. A minimap that scrolls is a second thing to
-    // navigate; the point of this one is that the file's heat profile is one glance.
+    // navigate; the point of this one is that the file's shape is one glance.
     const lh = Math.min(3, r.height / lines.length)
     const charW = Math.max(0.35, Math.min(1, (r.width - 6) / 110))
 
-    for (let i = 0; i < lines.length; i++) {
-      const y = i * lh
-      const owner = owners.get(i + 1)
-      if (owner && isAnalyzed(owner)) {
-        ctx.fillStyle = rampAt(stops, paintHeat(owner))
-        ctx.globalAlpha = 0.4
-        ctx.fillRect(0, y, r.width, Math.max(lh, 1))
+    /** **How many source lines share one drawn row.**
+     *
+     *  A big IDE has two answers to a big file. VS Code keeps the map and degrades what it
+     *  draws — `renderCharacters` off swaps glyphs for colour blocks; JetBrains ships no
+     *  minimap by default and gives the gutter an error STRIPE instead, only markers, never
+     *  the text. Both are ways of not drawing per-line detail that no longer fits.
+     *
+     *  **Neither is what a map should do, and this tried both and got both wrong.** Drawing
+     *  one bar per line at a third of a pixel is the barcode; dropping the bars and keeping
+     *  the bands is a paint chip, which is what a 2,690-line file came out as. The failure is
+     *  the same either way: per-line data rendered at sub-pixel scale, once as aliasing and
+     *  once as a wall.
+     *
+     *  So it downsamples rather than degrading. Every drawn row is at least a pixel tall and
+     *  says what the lines under it are between them: the span from the shallowest indent to
+     *  the longest line, and whether a function starts in there. A short file gets one line
+     *  per row and this is exactly what it always did; a long one gets the shape of the file
+     *  rather than a photograph of it. */
+    const step = Math.max(1, Math.ceil(1 / Math.max(lh, 0.0001)))
+    const rowH = lh * step
+
+    for (let i = 0; i < lines.length; i += step) {
+      const y = (i / step) * rowH
+      const upto = Math.min(i + step, lines.length)
+
+      // The bucket, in one pass: how far the code in it reaches, and whether a function
+      // begins there.
+      let indent = Infinity
+      let extent = 0
+      let comment = 0
+      let inked = 0
+      let starts = false
+      for (let j = i; j < upto; j++) {
+        const owner = owners.get(j + 1)
+        if (owner && owners.get(j) !== owner) starts = true
+        const line = lines[j]
+        const trimmed = line.trimStart()
+        if (!trimmed) continue
+        inked++
+        const at = line.length - trimmed.length
+        indent = Math.min(indent, at)
+        extent = Math.max(extent, at + trimmed.length)
+        if (/^(\/\/|#|\*|\/\*)/.test(trimmed)) comment++
+      }
+
+      if (inked > 0) {
+        ctx.fillStyle = ink
+        // Comments sit back, so the shape reads as code with prose in it rather than as
+        // undifferentiated texture. A mixed row leans whichever way its lines do.
+        ctx.globalAlpha = comment > inked / 2 ? 0.14 : 0.34
+        const x = 3 + indent * charW
+        ctx.fillRect(
+          x,
+          y + rowH * 0.18,
+          Math.max(Math.min(extent * charW, r.width - 6) - indent * charW, 0.6),
+          Math.max(rowH * 0.6, 0.6),
+        )
         ctx.globalAlpha = 1
       }
-      const line = lines[i]
-      const trimmed = line.trimStart()
-      if (!trimmed) continue
-      const indent = line.length - trimmed.length
-      ctx.fillStyle = ink
-      // Comments sit back, so the shape reads as code with prose in it rather than as
-      // undifferentiated texture.
-      ctx.globalAlpha = /^(\/\/|#|\*|\/\*)/.test(trimmed) ? 0.22 : 0.5
-      ctx.fillRect(
-        3 + indent * charW,
-        y + lh * 0.15,
-        Math.min(trimmed.length * charW, r.width - 6 - indent * charW),
-        Math.max(lh * 0.7, 0.7),
-      )
-      ctx.globalAlpha = 1
+
+      // Where one function gives way to the next, which is the structure a reader navigates
+      // by and the one thing that survives being small.
+      if (starts) {
+        ctx.fillStyle = ink
+        ctx.globalAlpha = 0.3
+        ctx.fillRect(0, y, r.width, 0.75)
+        ctx.globalAlpha = 1
+      }
     }
 
     // What you are looking at now.
@@ -169,6 +197,9 @@ export function CodeView({
   repo,
   selected,
   reveal,
+  mode,
+  ranks,
+  views,
   onSelect,
   onPopOut,
   onClose,
@@ -179,6 +210,12 @@ export function CodeView({
   /** Scroll to this function once the source is in. The nonce is what makes a repeat of
    *  the same request scroll again instead of looking like no change at all. */
   reveal: { id: string; n: number } | null
+  /** The lens the map is wearing, so the gutter beside a body is the colour that body has
+   *  on the map. It was Surprise whatever the map said, which is two answers about one
+   *  function and one of them unasked for. */
+  mode: ColorMode
+  ranks?: Map<string, number>
+  views?: Views
   onSelect: (n: Node) => void
   /** Rendered in the top-right when present — omitted in a window that IS the code view,
    *  where spawning another of itself is not an action anyone wants. */
@@ -243,6 +280,11 @@ export function CodeView({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see the note above
   }, [revealN, ready])
   const lines = useMemo(() => (src === null ? [] : src.split('\n')), [src])
+  // **Tokenized as a FILE, not a line at a time.** A block comment's body lines are ordinary
+  // prose, and a per-line pass reads them as code: `as`, `with` and `in` came out as keywords
+  // inside English sentences, in every doc comment in this repo. See `tokenizeAll`. Memoised
+  // on the source because it is a pass over the whole file and the view re-renders on scroll.
+  const toks = useMemo(() => tokenizeAll(lines), [lines])
 
   if (error) {
     return (
@@ -277,11 +319,11 @@ export function CodeView({
       >
         <table className="w-max min-w-full border-collapse font-mono text-[11.5px] leading-[1.55]">
           <tbody>
-            {lines.map((line, i) => {
+            {lines.map((_line, i) => {
               const n = i + 1
               const owner = owners.get(n)
               const analyzed = owner ? isAnalyzed(owner) : false
-              const heat = owner && analyzed ? paintHeat(owner) : null
+              const paint = owner ? colorFor(owner, mode, ranks, views) : null
               const isSel = owner != null && selected?.id === owner.id
               const isFirst = owner != null && owner.line === n
               return (
@@ -290,41 +332,81 @@ export function CodeView({
                   data-line={n}
                   onClick={() => owner && onSelect(owner)}
                   className={owner ? 'cursor-pointer' : undefined}
-                  // The reading, as a wash behind the whole chunk.
+                  // **No wash behind the code. The reading lives in the gutter.**
                   //
-                  // Background and text are different channels, so this doesn't fight the
-                  // syntax colors the way tinting the code itself would — and at a fixed
-                  // 16% the ramp carries the value while the text stays at full contrast.
-                  // Fixed rather than scaled by heat: fading the alpha with the reading
-                  // would encode the same number twice, and the cool end would disappear
-                  // instead of saying "measured, and cold".
-                  style={{
-                    background: isSel
-                      ? 'color-mix(in oklch, var(--accent) 22%, transparent)'
-                      : heat !== null
-                        ? `color-mix(in oklch, ${heatColor(heat)} 16%, transparent)`
-                        : undefined,
-                  }}
+                  // Every measured function used to carry a tinted background — the argument
+                  // was that background and text are different channels, so a wash does not
+                  // fight the syntax the way tinting the code would. It does something worse:
+                  // it paints two thirds of the file in one lens's colour, so a file reads as
+                  // a stack of coloured blocks and the code inside them is what you have to
+                  // look past. A code view is for reading code.
+                  //
+                  // The LINE NUMBERS carry it instead. They are a column that is already
+                  // there, already ignorable, and already the thing you scan down when you
+                  // are looking for a place — and nothing is written over them, so a colour
+                  // there costs no legibility at all. A separate three-pixel strip beside
+                  // them was tried in between and reads as an outline drawn around the code
+                  // rather than as a property of it.
+                  //
+                  // The SELECTION gets the only mark on the row, which is what a selection
+                  // should be: it was competing with a wash before, and lost.
+
                 >
-                  {/* The gutter keeps its full-strength bar. The wash behind the code is
-                    deliberately too faint to compare wedge to wedge; this is the edge
-                    you can actually scan down. */}
+                  {/* **The line numbers are the gutter, and they wear the lens the map is
+                    wearing.** It was hard-wired to Surprise, so a reader who had switched the
+                    map to Complexity got a code view still coloured by something else — two
+                    answers about one function, one of them unasked for. `colorFor` is the
+                    same function the wedges are painted by, so this column and the minimap
+                    and the ring are three views of one answer.
+
+                    The digits take `ink`, which `colorFor` returns for exactly this: which of
+                    paper and ink reads on a fill is a fact about that fill, and a number that
+                    disappeared on the hot end of a ramp would be the one part of this view
+                    with no fallback.
+
+                    `--unanalyzed` where this lens has nothing to say about a body, which is
+                    not the same as no body: the column is bare between functions and grey
+                    inside one nobody has measured. */}
                   <td
-                    className="w-[3px] p-0"
+                    // **Stuck to the left edge, because a gutter that scrolls away is not a
+                    //  gutter.** The pane scrolls horizontally — code is `whitespace-pre` and
+                    //  a long line is wider than the pane — and the numbers went with it, so
+                    //  the one column that says where you are was the first thing off screen.
+                    //
+                    //  Sticky needs an OPAQUE ground of its own or the code slides underneath
+                    //  it: between functions there is no lens colour to use, so it takes the
+                    //  view's own background there. That is also why the padding sits on the
+                    //  code cell rather than here — this cell has to be filled edge to edge.
+                    className="sticky left-0 z-10 select-none pl-2.5 pr-2 text-right align-top tabular-nums"
                     style={{
-                      background:
-                        heat !== null
-                          ? heatColor(heat)
-                          : owner
-                            ? 'var(--unanalyzed)'
-                            : 'transparent',
+                      ...(owner
+                        ? paint
+                          ? { background: paint.fill, color: paint.ink }
+                          : { background: 'var(--unanalyzed)', color: 'var(--foreground)' }
+                        : {
+                            background: 'var(--code)',
+                            color: 'var(--muted-foreground)',
+                            opacity: 0.5,
+                          }),
+                      // **The selection is marked HERE, and in the foreground rather than the
+                      //  accent.** It was a rule on the row, which scrolled off with
+                      //  everything else; and the accent is a hue two of the lenses paint in,
+                      //  so on Surprise or Complexity a plum rule against a plum fill was the
+                      //  mark disappearing exactly where the reading was strongest. Ink reads
+                      //  on every fill this column can take.
+                      boxShadow: isSel ? 'inset 3px 0 0 var(--foreground)' : undefined,
                     }}
-                  />
-                  <td className="select-none px-2 text-right align-top text-[var(--muted-foreground)] opacity-50 tabular-nums">
+                  >
                     {n}
                   </td>
-                  <td className="w-full whitespace-pre pr-4 align-top">
-                    {tokenize(line).map((t, j) => (
+                  {/* **Air after the gutter.** The number column is a solid bar of the lens
+                      colour now, and the code used to start against its edge — a saturated
+                      block touching the first character of every line, with nothing between
+                      them to say they are different things. The padding is on the code rather
+                      than on the gutter so the colour still runs to the column's own edge and
+                      reads as one continuous strip down the file. */}
+                  <td className="w-full whitespace-pre pl-3 pr-4 align-top">
+                    {toks[i].map((t, j) => (
                       <span key={j} className={t.cls}>
                         {t.text}
                       </span>
