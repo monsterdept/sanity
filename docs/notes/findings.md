@@ -790,7 +790,7 @@ on showing two lenses. The editor refuses to save a clause no subject can fail, 
 clause and why.
 
 "Recalibrate" is delete-the-saved-value: the next open computes and saves a fresh one, exactly
-as a repo with no `rules.md` does. One code path, not two.
+as a repo with no `catalog.md` does. One code path, not two.
 
 ### The number to tune on is marginal contribution
 
@@ -897,29 +897,98 @@ save, name the token.
 ### A rule change is a new answer, never a stale one
 
 **Editing a rule recomputes every finding, and nothing between the file and the panel may
-remember the old ones.** The path is short on purpose: `project_findings` calls `rules_for`,
-which reads `.sanity/rules.md`; `subjects` walks the in-memory scan; `report` matches, ranks,
-subtracts decisions and counts marginal contribution. Nothing on that path is memoised, so a
-rule that changed on disk is a different answer on the next ask, by construction rather than
-by invalidation.
+remember the old ones.** The path is short on purpose: `project_report` calls `rules_for`,
+which reads `.sanity/rules/catalog.md`; `subjects` walks the in-memory scan; `report` matches,
+ranks, subtracts decisions and counts marginal contribution.
 
 That covers everything derived from the call and not just the list: the totals, `only`, the
-`blocked` reasons, the ignored count, and the number on the mascot. They come from one
-`report`, which is why they cannot disagree about a repo.
+`blocked` reasons, the ignored count, the rules grid and the number on the creature. They come
+from one `ProjectReport`, which is why they cannot disagree about a repo — and they are one
+command for that reason as much as for the walk it saves.
 
-**The earlier plan in *Where it runs* — findings computed at scan time and cached with it —
-was not built, and should not be.** A rule set is an input the caches cannot see, exactly as
-the parser is; caching findings would need a version that moves whenever a rule moves, and a
-rule moves whenever somebody drags a threshold. Recomputing costs a walk of the subjects once
-per rule, and the whole headless run over kibana's 147,906 functions — cold scan included — is
-about ten seconds. There is no cache here and that is the design, not an omission.
+### There IS a cache now, and this section used to say there was not
 
-The window already has the mechanism: a decision bumps a counter and both halves re-ask. A
+**"Nothing on that path is memoised" was true and is not.** The claim it justified — a rule
+that changed on disk is a different answer on the next ask — still holds, but by a key rather
+than by absence, and the difference is worth being exact about because the old paragraph
+argued the cache would be a mistake.
+
+What it argued was: *caching findings would need a version that moves whenever a rule moves,
+and a rule moves whenever somebody drags a threshold.* That is right, and it is the
+specification rather than the objection. There are four such inputs and all four are already
+observable:
+
+| input | what moves | why it is not something else |
+|---|---|---|
+| the tree | `Project::scanned` | already the window's own "refetch" signal |
+| the readings | `Project::reads` | **not** `reports.len()` — see below |
+| blame's depth | `TraceState::depth` | `headcount` is blame's alone |
+| rules and decisions | the two files' mtimes | both are meant to be hand-edited and merged |
+
+**A key derived from the inputs cannot be forgotten at a call site the way an `invalidate()`
+can.** That is the whole argument for this shape. The alternative — a flag cleared wherever
+something changes — has six clearing sites for the readings alone, and the failure of missing
+one is a panel confidently describing a repo as it was, which is invisible.
+
+**`reads` is not `reports.len()`, and the difference is the reason it exists.** A function read
+a second time REPLACES its reading and leaves the count where it was, so a cache keyed on
+length would serve a report taken against the old grade — silently, until something rescanned.
+Every site that writes to `reports` bumps `reads`, and that list of sites is the correctness
+argument; a seventh insert added later and not bumped is stale findings nobody sees.
+
+**The rules and decisions are keyed on FILES rather than on counters**, because the store's
+whole premise is that they are text somebody may edit by hand or merge from a branch. A
+counter would miss exactly the case `.sanity/` was designed for.
+
+### What made it necessary, measured
+
+The old paragraph's cost estimate was a headless run over kibana — "about ten seconds, cold
+scan included" — which is the right number for a CLI invocation and the wrong one for a
+window, where the report is asked for every time a project becomes active, on top of a scan
+and a trace already paid for. Switching to ceph took five seconds and to kibana nine.
+
+Three defects, none of them the cache's absence:
+
+- **`marginal` was quadratic.** It rebuilt the union of every OTHER rule's hits from scratch
+  once per rule, and ran twice per report. A subject exactly one rule found is a subject with
+  a count of one: **1.30s to 140ms** on 291,610 hits over 18 rules.
+- **`rules_view` sorted the repo once per CLAUSE** — fifty-odd passes for about fifteen
+  distinct answers, because a field's distribution does not depend on which rule is asking.
+  **738ms to 235ms.**
+- **`report` walked the tree for itself** while every caller had walked it a moment earlier.
+
+**And the bench written to catch the first could not see it.** Its synthetic functions were 10
+to 50 lines, so no rule fired, every hit set was empty, and a quadratic over hits measured as
+free. It builds bodies the catalog matches now, and runs the old implementation inline beside
+the new one asserting they agree. A bench whose data cannot trigger the code path is a bench
+that reports zero, which is worse than no bench: it answers the question.
+
+**The last one was not speed at all.** With the cache in, one project sitting still produced
+eighty reports in a burst — the effect was keyed on the tree OBJECT, which is rebuilt every
+time a ring arrives or a score streams in. `treeRev` exists for that distinction and says so:
+a tree arriving is a different repo, or the same one rebuilt; a new object for the same repo
+happens several times a minute. The window asks on three scalars now — the tree arriving, how
+many readings have landed, and the counter a rule edit or a decision bumps.
+
+**A dev build prints what each report cost and whether it was one.** `debug_assertions` only,
+because a shipped build should not narrate itself — but two quadratic passes and a per-clause
+sort hid on this path behind reasoning that sounded right, and the line that says
+`computed in 1.31s` against `cached in 84µs` is the difference between fixing this and fixing
+something else.
+
+### What is still true, and what is still not built
+
+The first visit to a project still computes, which is a second and a bit on kibana in a dev
+build. **It belongs on the scan**, where the tax is already being levied — the objection is
+that the computation needs the projects lock, so a background pass trades a slow switch for a
+stalled window. The tree behind an `Arc` is what makes that possible, and it is not done.
+
+The window's own mechanism is unchanged: a decision bumps a counter and every half re-asks. A
 rule edit bumps the same counter.
 
 ### Rules live in the repo the moment they deviate
 
-**`.sanity/rules.md`, committed, and never anywhere else.** The argument is the one
+**`.sanity/rules/catalog.md`, committed, and never anywhere else.** The argument is the one
 `assessment.rs` opens with, applied to rules rather than readings: a store keyed to one
 machine makes the thing it holds private, opaque and mortal — unreviewable, unshareable, and
 dead with the laptop. A threshold somebody chose for a repo is a decision about that repo, not
@@ -1088,7 +1157,7 @@ forever), and `floor` stopped being a field and became a clause.
 
 ### Open, and worth arguing before the build
 
-- **Should a user rule be shareable?** `.sanity/rules.md` is committed, so it already is,
+- **Should a user rule be shareable?** `.sanity/rules/catalog.md` is committed, so it already is,
   between people on one repo. Between REPOS there is nothing, and the catalog is the only
   thing that crosses. A rule somebody found useful on one repo is the obvious thing to want to
   carry, and an export/import is the obvious mechanism — and both are how a catalog becomes a
@@ -1096,7 +1165,7 @@ forever), and `floor` stopped being a field and became a clause.
 - **Does the editor need a preview?** The grid's `hits` and `only` update live, which may be
   the whole of it; a top-five list under the form would be better and is another surface to
   keep honest.
-- **What happens to a `rules.md` written by a newer version?** The dropping discipline says an
+- **What happens to a `catalog.md` written by a newer version?** The dropping discipline says an
   unreadable line is skipped, which for a rule means it silently reverts to the catalog's
   version — safe, and invisible. A count of what was dropped, said once at the top of the
   grid, is probably the answer.
