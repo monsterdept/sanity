@@ -248,11 +248,13 @@ function fieldsFor(g: Grammar, pop: 'func' | 'file'): FieldView[] {
  *  all. Grouping them is not tidiness — it is the difference showing up where the choice is
  *  made, so nobody reaches for a gate expecting a filter. */
 function sections(fields: FieldView[], pop: 'func' | 'file') {
-  const here = fields.filter((f) => f.scope === 'subject')
-  const repo = fields.filter((f) => f.scope === 'repo')
+  const at = (scope: string) => fields.filter((f) => f.scope === scope)
   return [
-    { label: pop === 'file' ? 'this file' : 'this function', fields: here },
-    { label: 'this repo', fields: repo },
+    { label: pop === 'file' ? 'this file' : 'this function', fields: at('subject') },
+    // Only on a function rule: on a file rule these ARE the subject, and `loc` and `funcs`
+    // already say them.
+    { label: 'the file it is in', fields: at('file') },
+    { label: 'this repo', fields: at('repo') },
   ].filter((g) => g.fields.length > 0)
 }
 

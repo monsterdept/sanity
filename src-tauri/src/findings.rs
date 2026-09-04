@@ -41,7 +41,7 @@ pub enum Pop {
 
 /// How far a field reaches — see [`Field::scope`].
 ///
-/// **Two, and the second one is what makes a gate expressible.** A subject-scope clause is a
+/// **Three, and only the last one is special.** A subject-scope clause is a
 /// question about the body in front of it and narrows a list; a repo-scope clause is the same
 /// answer for every subject and decides whether the rule applies here at all. `headcount <= 1`
 /// is a finding on a repo of forty people and a tautology on a repo of one, and the only way
@@ -50,6 +50,12 @@ pub enum Pop {
 #[serde(rename_all = "lowercase")]
 pub enum Scope {
     Subject,
+    /// The file a function lives in. **A filter, not a gate** — two functions in different
+    /// files carry different values, so it narrows a list the way a subject clause does and
+    /// counts against the cap, calibrates and has a distribution. What it changes is only
+    /// where the picker offers it: "how big is this body" and "how big is the file it is in"
+    /// are different questions and a flat list said they were one.
+    File,
     Repo,
 }
 
@@ -115,6 +121,19 @@ pub enum Field {
     /// count them: `headcount <= 1 and callers >= 20` is *load-bearing, and only one person
     /// has been in it*, with nobody named anywhere. See `TODO.md`.
     Headcount,
+    /// How long the file this function lives in is, and how many functions it holds.
+    ///
+    /// **The file a body sits in is context the body cannot report.** A 200-line function is
+    /// one thing in a file of forty and another when it IS the file — the same measurement,
+    /// two different findings — and `loc` alone cannot tell them apart because it is a fact
+    /// about the body and this is a fact about where it lives.
+    ///
+    /// Scope `File` rather than `Repo`: these vary from subject to subject, so they narrow a
+    /// list rather than gating a rule, and everything except the picker treats them as
+    /// ordinary. Offered on function rules only — on a file rule `loc` and `funcs` already
+    /// say this, and two names for one number is where a grammar starts lying.
+    FileLoc,
+    FileFuncs,
     /// How many people have lines standing anywhere in THIS REPO — see `ScanStats::headcount`.
     ///
     /// **The first field that is not about the subject, and the grammar had to learn the
@@ -159,6 +178,8 @@ impl Field {
             // called in files written before the name was found to be backwards.
             "illegible" | "legible" => Field::Legible,
             "headcount" | "hands" => Field::Headcount,
+            "file_loc" | "file_lines" => Field::FileLoc,
+            "file_funcs" => Field::FileFuncs,
             "repo_headcount" => Field::RepoHeadcount,
             "trap" | "traps" => Field::Trap,
             _ => return None,
@@ -182,6 +203,8 @@ impl Field {
             Field::Documented => "documented",
             Field::Legible => "illegible",
             Field::Headcount => "headcount",
+            Field::FileLoc => "file_loc",
+            Field::FileFuncs => "file_funcs",
             Field::RepoHeadcount => "repo_headcount",
             Field::Trap => "trap",
         }
@@ -210,6 +233,9 @@ impl Field {
             Field::Trap => "traps",
             // Blame paints NAMES; this is a count of them, which no lens draws. See the
             // variant, where the case for leaving it lensless is made.
+            // `file_loc` and `file_funcs` ARE the size lens, one scope out: the wedge a
+            // function sits in is the file, and that is the thing being asked about.
+            Field::FileLoc | Field::FileFuncs => "size",
             Field::Headcount | Field::RepoHeadcount | Field::Read => return None,
         })
     }
@@ -224,9 +250,9 @@ impl Field {
     /// **The array in `Facts` is indexed by discriminant, so this must cover every variant**,
     /// not just the ones a form offers. `Trap` is absent from `ALL` and present here; a count
     /// taken from `ALL.len()` would index out of bounds the first time a trap was measured.
-    pub const COUNT: usize = 17;
+    pub const COUNT: usize = 19;
 
-    pub const ALL: [Field; 16] = [
+    pub const ALL: [Field; 18] = [
         Field::Loc,
         Field::Funcs,
         Field::Callers,
@@ -238,6 +264,8 @@ impl Field {
         Field::TouchedDays,
         Field::Commits,
         Field::Headcount,
+        Field::FileLoc,
+        Field::FileFuncs,
         Field::RepoHeadcount,
         Field::Read,
         Field::Surprise,
@@ -255,7 +283,9 @@ impl Field {
             // A file's lines are its functions' lines pooled, so a file-level headcount would
             // say every function in `App.tsx` was written by the same four people. Blame reads
             // ranges; this is a question about a range.
-            Field::Headcount
+            Field::FileLoc
+            | Field::FileFuncs
+            | Field::Headcount
             | Field::Read
             | Field::Surprise
             | Field::Documented
@@ -275,6 +305,7 @@ impl Field {
     pub fn scope(self) -> Scope {
         match self {
             Field::RepoHeadcount => Scope::Repo,
+            Field::FileLoc | Field::FileFuncs => Scope::File,
             _ => Scope::Subject,
         }
     }
@@ -774,7 +805,12 @@ fn walk(node: &Node, reports: &HashMap<String, Report>, traced: Traced, out: &mu
             if not_ours(&node.path, node.excluded).is_some() {
                 return;
             }
-            out.push(facts_of(node, &node.path, None, traced));
+            out.push(facts_of(node, &node.path, None, traced, None));
+            // What every function under it is asked about the file it is in. Counted here
+            // rather than read off `Node::funcs`, which is zero on a full tree — the same
+            // trap `Field::Funcs` records, one caller over.
+            let held = node.children.iter().filter(|c| c.kind == NodeKind::Func).count() as u32;
+            let within = Some((node.loc, held.max(node.funcs)));
             let mut seen: HashMap<&str, usize> = HashMap::new();
             for c in &node.children {
                 if c.kind != NodeKind::Func {
@@ -791,7 +827,7 @@ fn walk(node: &Node, reports: &HashMap<String, Report>, traced: Traced, out: &mu
                     continue;
                 }
                 let report = reports.get(&key).filter(|r| !r.stale);
-                out.push(facts_of(c, &key, report, traced));
+                out.push(facts_of(c, &key, report, traced, within));
             }
         }
         // A function reached without its file is a tree shape this does not expect; skipping
@@ -801,7 +837,16 @@ fn walk(node: &Node, reports: &HashMap<String, Report>, traced: Traced, out: &mu
     }
 }
 
-fn facts_of(node: &Node, key: &str, report: Option<&Report>, traced: Traced) -> Facts {
+fn facts_of(
+    node: &Node,
+    key: &str,
+    report: Option<&Report>,
+    traced: Traced,
+    // The file this body lives in — its lines and how many functions it holds. `None` for a
+    // file, which IS that file: `loc` and `funcs` already say it, and a second name for one
+    // number is where a grammar starts lying.
+    within: Option<(u32, u32)>,
+) -> Facts {
     let mut v: [Option<f32>; Field::COUNT] = [None; Field::COUNT];
     let mut set = |f: Field, x: Option<f32>| {
         if let Some(x) = x {
@@ -817,6 +862,10 @@ fn facts_of(node: &Node, key: &str, report: Option<&Report>, traced: Traced) -> 
         // rule with no hits looks exactly like a repo with no problem.
         let held = node.children.iter().filter(|c| c.kind == NodeKind::Func).count() as u32;
         set(Field::Funcs, Some(held.max(node.funcs) as f32));
+    }
+    if let Some((loc, funcs)) = within {
+        set(Field::FileLoc, Some(loc as f32));
+        set(Field::FileFuncs, Some(funcs as f32));
     }
     set(Field::Callers, node.callers.map(|x| x as f32));
     // **`None` and never zero where blame has not read this range.** A zero would be a claim
