@@ -61,6 +61,7 @@ export function CodeBlock({
   code: raw,
   title,
   subtitle,
+  onOpen,
   startLine,
   highlight = true,
   caveat,
@@ -74,6 +75,17 @@ export function CodeBlock({
   title: string
   /** Where it came from — a path, usually. */
   subtitle?: string
+  /** Where "open this in full" goes.
+   *
+   *  **A modal was the wrong destination once there was a code view.** This box shows a body
+   *  out of context — a signature, a doc, the forks — and the button on it means *show me
+   *  this properly*. It opened a second copy of the same snippet at a larger size, which
+   *  answers a smaller question than the one being asked: the file around it, scrolled to
+   *  this function, with its neighbours and its gutter, is what "properly" means now.
+   *
+   *  Optional, and the modal is the fallback: a block whose caller has no node to open —
+   *  a fragment of a diff, a snippet with no file behind it — still has somewhere to go. */
+  onOpen?: () => void
   /** The file line the first line of `code` is, so the gutter says where you are rather than
    *  counting from one. Omitted for text that has no position in a file, like a doc comment. */
   startLine?: number
@@ -153,9 +165,10 @@ export function CodeBlock({
           type="button"
           onClick={(e) => {
             e.stopPropagation()
-            setOpen(true)
+            if (onOpen) onOpen()
+            else setOpen(true)
           }}
-          title="Open this in full"
+          title={onOpen ? 'Open in the code view' : 'Open this in full'}
           aria-label={`Open ${title} in full`}
           className="absolute right-1 top-1 rounded-[4px] border border-[var(--border)] bg-[var(--card)] p-[3px] opacity-70 shadow-sm transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
         >

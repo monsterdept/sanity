@@ -68,6 +68,7 @@ export function LensPane({
   tangleBands,
   tangleOver,
   onJump,
+  onOpen,
 }: {
   node: Node
   mode: ColorMode
@@ -97,6 +98,9 @@ export function LensPane({
   /** Show the function at this position. Undefined where the window cannot navigate, which
    *  makes every row below plain text rather than a promise it cannot keep. */
   onJump?: (path: string, line: number) => void
+  /** Open this node in the code view. The "open in full" button on a code box calls it — see
+   *  `CodeBlock.onOpen`, where the case for a file over a modal is made. */
+  onOpen?: (n: Node) => void
 }) {
   const r = node.agent
   const stale = node.agentStale === true
@@ -166,6 +170,7 @@ export function LensPane({
       return (
         <TangleSection
           node={node}
+          onOpen={onOpen}
           repoKey={repoKey}
           read={views?.tangle ?? 'weighted'}
           bands={tangleBands}
@@ -1350,12 +1355,14 @@ function bandSpan(loc: number, over?: [number, number] | null): string {
  */
 function TangleSection({
   node,
+  onOpen,
   repoKey,
   read,
   bands,
   over,
 }: {
   node: Node
+  onOpen?: (n: Node) => void
   repoKey: string | null
   read: TangleRead
   bands?: (number | null)[]
@@ -1553,6 +1560,10 @@ function TangleSection({
                 code={forks.lines.join('\n')}
                 title={node.name}
                 subtitle={`${node.path}:${forks.start}`}
+                // The whole file, scrolled to this body — `onDrill` on a function opens the
+                // file that holds it and reveals it, which is the same gesture the map's
+                // double-click makes. See `CodeBlock.onOpen`.
+                onOpen={onOpen && (() => onOpen(node))}
                 startLine={forks.start}
                 maxHeight={cap}
                 marks={marks}

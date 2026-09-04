@@ -414,6 +414,7 @@ export function Detail({
           tangleBands={tangleBands}
           tangleOver={tangleOver}
           onJump={onJump}
+          onOpen={onDrill}
         />
       </div>
     ) : null
@@ -535,6 +536,7 @@ export function Detail({
             tangleBands={tangleBands}
             tangleOver={tangleOver}
             onJump={onJump}
+            onOpen={onDrill}
           />
         )}
 
