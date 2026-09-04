@@ -963,6 +963,115 @@ fn finding_pin(
     Ok((p.repo.clone(), crate::findings::pin_of(r, f), r.title.to_string()))
 }
 
+/// Every rule this repo runs, with what each finds here — see [`crate::findings::RuleView`].
+///
+/// **Answered by the backend for the reason `project_findings` is**, and with the same walk:
+/// the hit counts and the marginal contribution ARE the instrument, and a grid showing
+/// numbers computed from whatever the window happened to fetch would be worse than one
+/// showing none.
+#[tauri::command]
+pub fn project_rules(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    key: String,
+) -> Vec<crate::findings::RuleView> {
+    let st = crate::agentapi::lock(&state);
+    let Some(p) = st.projects.get(&key) else { return Vec::new() };
+    let traced = crate::findings::Traced {
+        git: p.trace.depth != crate::trace::Depth::Untraced,
+        churned: p.scan.stats.churned,
+    };
+    let facts = crate::findings::subjects(&p.scan.root, &p.reports, traced);
+    crate::findings::rules_view(&p.repo, &facts, traced, !p.reports.is_empty())
+}
+
+/// Write one rule back, by id: a changed threshold, a floor, a silence, or a rule of
+/// somebody's own.
+///
+/// **The whole catalog is rewritten, because the file is a complete statement of what runs.**
+/// Editing one line in place would mean a second writer that has to agree with `save_rules`
+/// about the format, and the two would drift the first time a field was added.
+///
+/// A rule the file does not mention still runs, so silencing has to be said: `on: false`
+/// writes `off` rather than dropping the line.
+#[tauri::command]
+pub fn save_rule(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    project: String,
+    rule: crate::findings::RuleEdit,
+) -> Result<(), String> {
+    let (repo, facts, traced) = project_facts(&state, &project)?;
+    let mut live = crate::findings::rules_for(&repo, &facts);
+    let _ = traced;
+    crate::findings::apply_edit(&mut live, rule)?;
+    crate::findings::save_rules(&repo, &live).map_err(|e| e.to_string())
+}
+
+/// Every field and operator a clause may name, with this repo's distribution for each.
+///
+/// **One list, from `Field::ALL`.** The form's pickers are the grammar the evaluator parses,
+/// not a copy of it kept in the frontend — the copy nobody compiles is the one that is still
+/// offering a field that was renamed.
+#[tauri::command]
+pub fn rule_grammar(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    project: String,
+) -> Result<crate::findings::Grammar, String> {
+    let (_repo, facts, _) = project_facts(&state, &project)?;
+    Ok(crate::findings::grammar(&facts))
+}
+
+/// Take a rule out: a rule of somebody's own is deleted, a built-in is silenced.
+///
+/// **A built-in cannot be deleted**, because a later release would ship it again and the
+/// person who removed it would find it back with no record of their having said otherwise.
+#[tauri::command]
+pub fn delete_rule(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    project: String,
+    id: String,
+) -> Result<(), String> {
+    let (repo, facts, _) = project_facts(&state, &project)?;
+    let mut live = crate::findings::rules_for(&repo, &facts);
+    live.retain(|r| r.id != id);
+    crate::findings::save_rules(&repo, &live).map_err(|e| e.to_string())
+}
+
+/// Put a rule back the way the catalog ships it, and re-suggest its threshold.
+#[tauri::command]
+pub fn reset_rule(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    project: String,
+    id: String,
+) -> Result<(), String> {
+    let (repo, facts, _) = project_facts(&state, &project)?;
+    let mut live = crate::findings::rules_for(&repo, &facts);
+    let shipped = crate::findings::catalog();
+    let Some(fresh) = shipped.iter().find(|r| r.id == id) else {
+        return Err("that rule is not one of sanity's own".into());
+    };
+    let tuned = crate::findings::calibrated(std::slice::from_ref(fresh), &facts);
+    match live.iter().position(|r| r.id == id) {
+        Some(at) => live[at] = tuned[0].clone(),
+        // Silenced, and being reset — which is how a rule comes back on.
+        None => live.push(tuned[0].clone()),
+    }
+    crate::findings::save_rules(&repo, &live).map_err(|e| e.to_string())
+}
+
+/// The three things every rule write needs, read under one lock.
+fn project_facts(
+    state: &tauri::State<'_, crate::agentapi::Shared>,
+    project: &str,
+) -> Result<(std::path::PathBuf, Vec<crate::findings::Facts>, crate::findings::Traced), String> {
+    let st = crate::agentapi::lock(state);
+    let p = st.projects.get(project).ok_or("that project is not open")?;
+    let traced = crate::findings::Traced {
+        git: p.trace.depth != crate::trace::Depth::Untraced,
+        churned: p.scan.stats.churned,
+    };
+    Ok((p.repo.clone(), crate::findings::subjects(&p.scan.root, &p.reports, traced), traced))
+}
+
 /// Record what somebody decided about a finding.
 ///
 /// **Keyed by `key_of` and by the rule's ID, and pinned to the state the code was in** — see

@@ -134,6 +134,20 @@
   --accent-foreground: #f5f1ea;
 
   --destructive: #8f5753; /* Danger */
+  /* The finding count on the mascot, and nothing else.
+   *
+   * **A notification red of its own, rather than one of the two reds already here.**
+   * `--destructive` is the app's ERROR red — it marks something that went wrong for the
+   * user — and a count of findings is not an error; the whole surface is careful to say
+   * findings rather than issues, and painting the badge in the error colour would claim
+   * the confidence that word refuses. `--trap` is a LENS colour and means one specific
+   * thing on the map.
+   *
+   * So: the reddest thing this palette will hold. Warm and slightly earthy, in the family
+   * of Danger's hue rather than a pure signal red, because everything around it is paper,
+   * ink and plum and a fire-engine red reads as a foreign object dropped on the map. */
+  --notify: #b8443a;
+  --notify-foreground: #f5f1ea;
   /* Traps get their own color rather than borrowing `--destructive`.
    *
    * Destructive is the app's error red — it marks things that went wrong for the user, and
@@ -676,6 +690,10 @@
   --accent-foreground: #3a2231;
 
   --destructive: color-mix(in oklch, #8f5753 70%, #f5f1ea 30%);
+  /* Lifted off the ink the way every warm colour here is: the hub sits over the innermost
+   * wedges, which are the darkest part of the map, and the light value goes muddy there. */
+  --notify: #d0554a;
+  --notify-foreground: #1a1a1a;
   --warning: #bf965d;
   --success: color-mix(in oklch, #597244 66%, #f5f1ea 34%);
 

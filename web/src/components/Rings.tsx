@@ -733,3 +733,107 @@ export function TangleReading({
     </LensToggle>
   )
 }
+
+/** The dial's colour, corner radius and rotation.
+ *
+ * **In the bar rather than in the menu, because these are still being decided.** The badge's
+ * SHAPE was a bar control while it was being chosen and is a constant now; that is what the
+ * bar is for — a thing whose consequence you want to see immediately and repeatedly while
+ * looking at real repos. These three are the same question still open.
+ *
+ * **Continuous, not a list of named choices.** Four colours, three corner steps and four
+ * rotations were offered first, and every one of those lists is somebody's guess at which
+ * answers are worth having. A picker and two sliders make no such guess, and the cost of
+ * being able to choose badly here is a badge somebody can see is wrong.
+ */
+export function BadgeDial({
+  color,
+  corner,
+  rotation,
+  onColor,
+  onCorner,
+  onRotation,
+}: {
+  /** Six-digit hex. The ink on it is decided by `inkOnHex`, never chosen. */
+  color: string
+  /** 0 is a plain sector, 1 is a stadium — a fraction of half the bar's thickness. */
+  corner: number
+  /** Degrees clockwise off the vertical axis. */
+  rotation: number
+  onColor: (v: string) => void
+  onCorner: (v: number) => void
+  onRotation: (v: number) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const row = 'flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--muted-foreground)]'
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title="The dial on the mascot: colour, corners, rotation"
+        onClick={() => setOpen((v) => !v)}
+        className={`flex items-center gap-1.5 rounded-full border border-[var(--border)] px-2 text-[11px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] ${CONTROL_H}`}
+      >
+        {/* The setting itself, as the trigger. A word saying "badge" would be a label for a
+            control whose whole state is a colour. */}
+        <span
+          className="h-[11px] w-[11px] shrink-0 rounded-full"
+          style={{ background: color, boxShadow: '0 0 0 1px var(--border)' }}
+        />
+        <span>dial</span>
+        <svg width="7" height="4" viewBox="0 0 7 4" aria-hidden>
+          <path d="M0 0 L3.5 4 L7 0 Z" fill="currentColor" />
+        </svg>
+      </button>
+      {open && (
+        <>
+          {/* The backdrop every menu here uses: one click anywhere closes it, including the
+              click that presses something else in the bar. */}
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div
+            role="dialog"
+            className="absolute right-0 top-full z-50 mt-1 w-56 rounded-md border border-[var(--border)] bg-[var(--card)] py-1.5 shadow-lg"
+          >
+            <label className={row}>
+              <span className="w-[52px] shrink-0">colour</span>
+              <input
+                type="color"
+                value={color}
+                onChange={(e) => onColor(e.target.value)}
+                className="h-[18px] w-full cursor-pointer rounded border border-[var(--border)] bg-transparent"
+              />
+            </label>
+            <label className={row}>
+              <span className="w-[52px] shrink-0">corners</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={corner}
+                onChange={(e) => onCorner(Number(e.target.value))}
+                className="w-full accent-[var(--accent)]"
+              />
+              <span className="mono w-[30px] shrink-0 text-right">{Math.round(corner * 100)}</span>
+            </label>
+            <label className={row}>
+              <span className="w-[52px] shrink-0">rotation</span>
+              <input
+                type="range"
+                min={0}
+                max={359}
+                step={1}
+                value={rotation}
+                onChange={(e) => onRotation(Number(e.target.value))}
+                className="w-full accent-[var(--accent)]"
+              />
+              <span className="mono w-[30px] shrink-0 text-right">{rotation}°</span>
+            </label>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}

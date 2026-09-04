@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { trapOf, type AgentCall, type Node } from '../lib/api'
 import { clsx } from '../lib/cn'
 import {
@@ -12,7 +12,7 @@ import {
   paintsFromReadings,
 } from '../lib/colorMode'
 import { unreadable } from '../lib/api'
-import { CHROME_INK } from '../lib/ink'
+import { CHROME_INK, inkOnHex } from '../lib/ink'
 import { arcPath, layout, tileFunctions, type Wedge } from '../lib/sunburst'
 import { RINGS_DEFAULT } from '../lib/rings'
 import { SPACING_DEFAULT, type Spacing } from '../lib/spacing'
@@ -456,6 +456,328 @@ const DIR_RIM_INSET_PX = 3
    without needing ground around it to say so. A switch rather than a width, because the margin
    has three readers and a partial frame is a band that overhangs its plate. */
 
+/** How far below a curve a baseline has to sit for the glyphs on it to straddle the curve,
+ *  as a fraction of the type size.
+ *
+ *  **The offset is in the PATH, because neither way of asking for it works.** Text on a
+ *  `textPath` sets its baseline on the path and grows upward from there, so digits laid on a
+ *  band's centre line ride the band's top edge with the whole thickness empty underneath.
+ *  `dominant-baseline` is not honoured on a `textPath` in this engine and neither is `dy` —
+ *  both were tried on screen and both drew the number exactly where it had been. So the text
+ *  runs on its own arc, struck at a different radius from the band it belongs to: glyphs grow
+ *  away from their baseline, and "away" is outward at the top of a circle and inward at the
+ *  bottom, which is why the two offsets have opposite signs.
+ *
+ *  0.34 is half the cap height of this face at any size — the same figure the upright badges
+ *  got from `align-items: center`, arrived at by arithmetic because a curve has no box to
+ *  centre in. */
+/** What the dial is painted when nobody has said otherwise.
+ *
+ *  The app's notify red, as a literal: the badge takes a colour rather than a token now, and
+ *  a default that read a custom property would be the one value in this control that could
+ *  not come back out of the picker it is set in. */
+export const DIAL_COLOR = '#d0554a'
+
+const ON_CURVE = 0.34
+
+/** A sector of an annulus with rounded corners.
+ *
+ *  **A filled path rather than a stroked arc with a line cap.** A cap gives two answers —
+ *  round or square — and the corner radius is a setting with a middle. It also hangs half a
+ *  thickness past each end of its path, so a capped bar is never the length its geometry
+ *  says, which cost this badge two rounds of the number sitting off-centre and a word half
+ *  under its neighbour.
+ *
+ *  Traversed once around the boundary: out along the leading face, back along the outer arc,
+ *  in along the trailing face, forward along the inner arc. Every corner is convex, so they
+ *  all take the same sweep; the inner arc runs against the outer one because a boundary
+ *  walked in one direction crosses its own inside backwards. */
+function sectorPath(
+  cx: number,
+  cy: number,
+  a0: number,
+  a1: number,
+  r0: number,
+  r1: number,
+  k: number,
+): string {
+  const at = (deg: number, radius: number) => {
+    const a = (deg * Math.PI) / 180
+    return [cx + radius * Math.cos(a), cy - radius * Math.sin(a)] as const
+  }
+  const deg = (px: number, radius: number) => ((px / radius) * 180) / Math.PI
+  // Never more than the shape can hold: half its thickness, and half its span at the tighter
+  // of its two radii. A radius larger than either draws a path that crosses itself.
+  const room = Math.min((r1 - r0) / 2, ((((a1 - a0) * Math.PI) / 180) * r0) / 2)
+  const c = Math.max(0, Math.min(k, room))
+  if (c <= 0.01) {
+    const [ax, ay] = at(a1, r1)
+    const [bx, by] = at(a0, r1)
+    const [dx, dy] = at(a0, r0)
+    const [ex, ey] = at(a1, r0)
+    return `M ${ax} ${ay} A ${r1} ${r1} 0 0 1 ${bx} ${by} L ${dx} ${dy} A ${r0} ${r0} 0 0 0 ${ex} ${ey} Z`
+  }
+  const ko = deg(c, r1)
+  const ki = deg(c, r0)
+  const P = (d: number, r: number) => at(d, r).join(' ')
+  return [
+    `M ${P(a1 - ko, r1)}`,
+    `A ${r1} ${r1} 0 0 1 ${P(a0 + ko, r1)}`,
+    `A ${c} ${c} 0 0 1 ${P(a0, r1 - c)}`,
+    `L ${P(a0, r0 + c)}`,
+    `A ${c} ${c} 0 0 1 ${P(a0 + ki, r0)}`,
+    `A ${r0} ${r0} 0 0 0 ${P(a1 - ki, r0)}`,
+    `A ${c} ${c} 0 0 1 ${P(a1, r0 + c)}`,
+    `L ${P(a1, r1 - c)}`,
+    `A ${c} ${c} 0 0 1 ${P(a1 - ko, r1)}`,
+    'Z',
+  ].join(' ')
+}
+
+/** How many findings are standing, drawn on the creature as a watch dial.
+ *
+ *  **One shape, chosen by looking.** Six were built and offered in the toolbar while the
+ *  question was open — a disc on the shoulder, a band over the head, a curved bar with round
+ *  ends and one with square ends, an aperture at three o'clock, and a plinth under the feet.
+ *  The dial won and the other five are gone; what they were for is worth keeping, because
+ *  each lost for a reason that still applies:
+ *
+ *  - the plain disc and the aperture both put the number where the creature already is, and
+ *    the creature had to shrink to make room for a badge stuck on top of it;
+ *  - the band over the head and the shoulder bar carry one number and there are two to say;
+ *  - the plinth reads as a pedestal, which is a claim about the creature rather than about
+ *    the repo.
+ *
+ *  The dial is the only one where the count has somewhere of its own to be — the hub is
+ *  already a dark disc with a figure at its centre — and the only one with room for the
+ *  second number that gives the first one a denominator.
+ *
+ *  `pointer-events: none`: the CLICK is the whole creature's, one level up. This is the thing
+ *  being pointed at, not the target. */
+function FindingBadge({
+  layer,
+  box,
+  count,
+  rules,
+  color,
+  corner,
+  rotation,
+}: {
+  /** Which side of the creature this sits on. */
+  layer: number
+  /** The side of the mascot's box, in screen pixels. Everything here is a fraction of it, so
+   *  the dial holds its relationship to the creature as the hub grows and shrinks with the
+   *  ring count. */
+  box: number
+  count: number
+  /** How many rules are running here — the number at six o'clock, and the denominator the
+   *  one at twelve is missing without it. */
+  rules: number
+  /** What the found count is painted, as a six-digit hex. The ink ON it is decided by
+   *  `inkOnHex` rather than chosen: which of paper and ink reads on a colour is a fact about
+   *  the colour, and offering it as a second setting would be offering somebody the chance to
+   *  make the number unreadable. */
+  color: string
+  /** How square the bars' corners are: 0 is a plain sector, 1 a stadium. */
+  corner: number
+  /** Degrees clockwise off the vertical axis — see `BADGE_ROTATIONS`. */
+  rotation: number
+}) {
+  // `7` is a dot with a number in it and `1.2k` is a pill, rather than either being stretched
+  // to the other's shape. 15,777 is a baseline, not a notification — but the archive makes
+  // this drainable, so it is worth printing.
+  const text = count > 999 ? `${Math.round(count / 100) / 10}k` : String(count)
+  const ruleText = String(rules)
+  const pathId = useId()
+    /** **The dial: a count at twelve, a count at six, each named beside it.**
+     *
+     *  `FINDINGS 54` over the top and `16 RULES` under the bottom, with both numbers on the
+     *  vertical axis where the eye already expects a dial's markings to be. The words flank
+     *  them on the outside — left of the top one, right of the bottom one — so the pair reads
+     *  outward from the axis in both directions and the assembly is symmetrical about it.
+     *
+     *  **The second number is what the first one was measured BY.** A count with no idea how
+     *  many questions produced it is a number with no denominator; fifty-four findings from
+     *  sixteen rules is a different fact from fifty-four out of three, and the rules grid is
+     *  one click away behind the same creature. */
+    const thick = box * 0.16
+    const font = Math.max(8, thick * 0.6)
+    const cx = box / 2
+    const cy = box * 0.5
+    const disc = box * (R_INNER / HUB_MASCOT)
+    const r = disc - thick / 2 - box * 0.07
+    const capFont = Math.max(7, box * 0.058)
+    const capTrack = 0.22
+    const at = (deg: number, radius = r) => {
+      const a = (deg * Math.PI) / 180
+      return [cx + radius * Math.cos(a), cy - radius * Math.sin(a)] as const
+    }
+    const deg = (px: number) => ((px / r) * 180) / Math.PI
+
+    /** A bar, measured. The path is exactly the digits — the round caps hang half a
+     *  thickness past each end and that overhang IS the padding. `seen` is the half-width of
+     *  what is drawn, caps included, which is what the words have to clear. */
+    const barOf = (txt: string) => {
+      // **The bar is exactly its span.** It was a stroked arc with a round cap, which hangs
+      // half a thickness past each end of its path — so the shape drawn was never the shape
+      // the geometry described, and the padding had to be reasoned about twice. A filled
+      // sector spans its two angles and nothing more, so `seen` is just the half-width.
+      const half = deg((txt.length * font * 0.62 + font * 1.2) / 2)
+      return { half, seen: half }
+    }
+    /** A word, twice: the advance the path must be long enough for, and the ink you can see,
+     *  which is one letter-space shorter because tracking advances after the last glyph too.
+     *  Centring a `textPath` centres the advance, so the two differ by half that. */
+    const wordOf = (w: string, radius: number) => {
+      const path = w.length * capFont * (0.62 + capTrack)
+      const at_ = (px: number) => ((px / radius) * 180) / Math.PI
+      return { pathHalf: at_(path / 2), inkHalf: at_((path - capFont * capTrack) / 2) }
+    }
+
+    // Baselines. Glyphs grow away from the baseline, and "away" is outward at the top of the
+    // circle and inward at the bottom — so the two offsets have opposite signs. See `ON_CURVE`.
+    const upBase = (font_: number) => r - font_ * ON_CURVE
+    const downBase = (font_: number) => r + font_ * ON_CURVE
+
+    const top = barOf(text)
+    const bottom = barOf(ruleText)
+    /** **Every angle is struck at the radius it lives on.**
+     *
+     *  The two words are not on the bars' circle — one sits inside it and the other outside,
+     *  because a baseline is below its type and "below" swaps sides between twelve and six.
+     *  A gap converted once at the bars' radius therefore came out as two different distances
+     *  on screen: the top word, on the smaller circle, ended up visibly tighter against its
+     *  bar than the bottom one. The same millimetres of ground subtend a bigger angle on a
+     *  smaller circle, and the conversion has to know which circle it is on. */
+    /** **`FOUND`, not `FINDINGS`.**
+     *
+     *  Round the dial it reads `FOUND 54 … 16 RULES`, which is a sentence: sixteen rules found
+     *  fifty-four things. `FINDINGS 54` was a label with a value after it while the bottom was
+     *  a value with a noun after it — two grammars on one dial, which is most of why the top
+     *  half felt wrong when the bottom did not.
+     *
+     *  Not `ALERTS`, which is the one option that would break something. Nothing here knows
+     *  anything is wrong: it knows a reader was surprised, that git has a date, that the parse
+     *  counted callers. The panel says findings rather than issues for exactly that reason,
+     *  and a word meaning "somebody must act" on the dial would claim a confidence nothing
+     *  upstream of it has got. `REVIEW` has the opposite problem — it names a workflow this is
+     *  not, and code review is a thing this app sits next to. */
+    const finds = wordOf('FOUND', upBase(capFont))
+    const named = wordOf('RULES', downBase(capFont))
+    const gapPx = capFont * 0.45
+    const gapTop = ((gapPx / upBase(capFont)) * 180) / Math.PI
+    const gapBottom = ((gapPx / downBase(capFont)) * 180) / Math.PI
+
+    /** An arc as two endpoints and a sweep, in the direction its text has to be read.
+     *
+     *  Over the top the reader is inside the curve and the run goes clockwise — decreasing
+     *  angle, sweep 1. Under the bottom they are outside it and everything inverts: the run
+     *  goes counter-clockwise, sweep 0, which is still left to right on screen. */
+    const arc = (mid: number, half: number, radius: number, up: boolean) => {
+      const [ax, ay] = at(up ? mid + half : mid - half, radius)
+      const [bx, by] = at(up ? mid - half : mid + half, radius)
+      return `M ${ax} ${ay} A ${radius} ${radius} 0 0 ${up ? 1 : 0} ${bx} ${by}`
+    }
+
+    // **Both ends turn by the same amount, so the axis turns rather than the badges.** The
+    // two lines are one object; rotating them apart would make the dial say there are two
+    // unrelated things on it. Clockwise on screen is a decreasing angle here.
+    const TOP = 90 - rotation
+    const BOTTOM = 270 - rotation
+    // The word sits outside the bar, away from the axis: left of the top one, right of the
+    // bottom one — which is the larger angle in both cases.
+    const findsInk = TOP + top.seen + gapTop + finds.inkHalf
+    const namedInk = BOTTOM + bottom.seen + gapBottom + named.inkHalf
+    // The ink starts at the path's leading end, so the path's own centre is half a
+    // letter-space further along it — which is a smaller angle going clockwise and a larger
+    // one going the other way.
+    const findsMid = findsInk - (finds.pathHalf - finds.inkHalf)
+    const namedMid = namedInk + (named.pathHalf - named.inkHalf)
+
+    /** **Only one of the two numbers is a notification.**
+     *
+     *  The findings count is something to go and do, and it wears the app's notify red. The
+     *  rules count is not: nothing is asked of anybody by "sixteen rules are running", and
+     *  painting it the same colour made the dial say there were two alarms on it. It is
+     *  context, and it is set the way a watch sets its subdial — printed on the plate rather
+     *  than lit, in the dial's own value a few steps off the ground.
+     *
+     *  A `color-mix` off `--foreground` rather than a token of its own: it has to be a lift
+     *  off whatever the hub is sitting on in both themes, and the two thirds of a token that
+     *  would be spent saying "a bit lighter than the ground" is what the mix already says. */
+    const plate = 'color-mix(in oklch, var(--foreground) 20%, transparent)'
+    const k = (corner * thick) / 2
+    const bar = (mid: number, half: number, fill: string) => (
+      <path d={sectorPath(cx, cy, mid - half, mid + half, r - thick / 2, r + thick / 2, k)} fill={fill} />
+    )
+    /** id, path, size, and the ink it is set in. */
+    const runs: Array<[string, string, number, string]> = [
+      [`${pathId}-t`, arc(TOP, top.half, upBase(font), true), font, inkOnHex(color)],
+      [`${pathId}-b`, arc(BOTTOM, bottom.half, downBase(font), false), font, 'var(--foreground)'],
+      [
+        `${pathId}-tw`,
+        arc(findsMid, finds.pathHalf, upBase(capFont), true),
+        capFont,
+        'var(--muted-foreground)',
+      ],
+      [
+        `${pathId}-bw`,
+        arc(namedMid, named.pathHalf, downBase(capFont), false),
+        capFont,
+        'var(--muted-foreground)',
+      ],
+    ]
+
+    return (
+      <svg
+        aria-hidden
+        className="absolute left-0 top-0"
+        width={box}
+        height={box}
+        style={{ pointerEvents: 'none', overflow: 'visible', zIndex: layer }}
+      >
+        <defs>
+          {runs.map(([id, d]) => (
+            <path key={id} id={id} d={d} />
+          ))}
+        </defs>
+        {bar(TOP, top.half, color)}
+        {bar(BOTTOM, bottom.half, plate)}
+        {runs.map(([id, , size, ink]) => {
+          // The two words are tracked and light; the two numbers are not. A name says what
+          // the figure beside it is and then gets out of its way, which is what the spacing
+          // is for — at this size letter-spacing is what makes small caps read as a label
+          // rather than as shouting.
+          const word = id.endsWith('w')
+          return (
+          <text
+            key={`t-${id}`}
+            className="mono"
+            textAnchor="middle"
+            style={{
+              fontSize: size,
+              fontWeight: word ? 500 : 600,
+              letterSpacing: word ? size * capTrack : undefined,
+              fill: ink,
+            }}
+          >
+            <textPath href={`#${id}`} startOffset="50%">
+              {id.endsWith('-t')
+                ? text
+                : id.endsWith('-b')
+                  ? ruleText
+                  : id.endsWith('-tw')
+                    ? 'FOUND'
+                    : 'RULES'}
+            </textPath>
+          </text>
+          )
+        })}
+      </svg>
+    )
+}
+
+
 function SunburstView({
   root,
   selected,
@@ -520,6 +842,19 @@ function SunburstView({
      *  up a level), so a click handler on the figure would fire on the first click of a
      *  gesture and open a panel in the middle of it. */
     onFindings?: () => void
+    /** Which `--badge-*` colour the found count is painted, and how square its corners are.
+     *
+     *  **Both are menu settings rather than controls in the bar** — see `build_menu`. The
+     *  shape itself was a pulldown while it was being chosen, which is what a bar is for: a
+     *  thing whose consequence you want to see immediately and repeatedly, while deciding.
+     *  It is decided, so the winner is the only shape in the code and these two are what is
+     *  left to set once. */
+    color?: string
+    corner?: number
+    /** Degrees clockwise the pair is turned from the vertical axis. */
+    rotation?: number
+    /** How many rules are running here — the second number on the `label` badge. */
+    rules?: number
   }
   /** Ease the rings toward the shape they are given, instead of taking it.
    *
@@ -1141,23 +1476,41 @@ function SunburstView({
    *  the thing being hovered and clicked. */
   /** The part of a directory's plate its band does not speak for — where the name goes.
    *
-   *  **Reserved whether or not a band is drawn.** The obvious version asks whether this
-   *  wedge has a colour and gives the label the whole plate when it does not; in a replay
-   *  that is a rim appearing for one step of the playhead, so every label in the picture
-   *  would twitch inward and back on every commit. The layout is a property of the ring,
-   *  not of what happens to be painted on it this frame.
+   *  **Reserved per RING, never per wedge, and never during a replay.** The room a band
+   *  takes is subtracted from the top of the plate, and a name centred in what is left sits
+   *  lower than the middle of its wedge — which is correct while there is a band up there
+   *  and wrong when there is not: under a lens that paints no directory rim at all, `src`,
+   *  `web` and `components` all sat visibly inboard with a strip of empty plate above them.
+   *
+   *  Two versions of this are wrong. Asking per wedge gives one directory a centred name and
+   *  its neighbour a low one on the same ring, which reads as labels that slid. Asking every
+   *  frame of a replay is a rim appearing for one step of the playhead and every label in the
+   *  picture twitching inward and back on the commit after — the original argument for
+   *  reserving unconditionally, and it still holds, so a replay keeps the room reserved
+   *  whatever it is painting.
+   *
+   *  What is left is a property of the lens over the ring on screen: either something up
+   *  there can carry a band, or nothing can. See `banded`.
    *
    *  The inset counts twice: once as the band's own margin from the edge, once again as
    *  the gap between the band and the text, so a name is not set against the thing above
    *  it. That is what had `tui` riding high in its wedge with its own ring through the
    *  ascenders. */
-  const plateOf = (g: Geo): Geo => ({
-    ...g,
-    // The band's own trim from the wedge edge (`rimBand`), then the band, then the clear air
-    // above the name. With the frame on the first two of those are the same number, which is
-    // the `inset * 2` this used to read as.
-    r1: Math.max(g.r0, g.r1 - (spacing.border ? rim.inset : cuts.dir / 2) - rim.width - rim.gap),
-  })
+  const plateOf = (g: Geo): Geo =>
+    banded
+      ? {
+          ...g,
+          // The band's own trim from the wedge edge (`rimBand`), then the band, then the
+          // clear air above the name. With the frame on the first two of those are the same
+          // number, which is the `inset * 2` this used to read as.
+          r1: Math.max(
+            g.r0,
+            g.r1 - (spacing.border ? rim.inset : cuts.dir / 2) - rim.width - rim.gap,
+          ),
+        }
+      : // Nothing to make room for, so the name is centred in the whole plate — less the
+        // trim the plate itself is drawn inside of, which is containment rather than a band.
+        { ...g, r1: Math.max(g.r0, g.r1 - (spacing.border ? rim.inset : cuts.dir / 2)) }
 
   /** A directory's reading on the edge it shares with its contents — see `DIR_RIM_PX`.
    *
@@ -1782,6 +2135,37 @@ function SunburstView({
       if (birth || touch) escalated.set(n.id, flashPaint(birth ? 'birth' : 'touch'))
     }
   }
+  /** Whether anything on this ring can carry a directory band — which is what decides
+   *  where a directory's NAME sits. See `plateOf`.
+   *
+   *  **The three things `dirRim` will draw, asked in the same order it asks them**: a
+   *  distribution, the pointing marks, or the wedge's own colour as a solid band. If none of
+   *  them answers for any drawn directory then the strip above every name is empty, and a
+   *  name centred below an empty strip is a name that looks like it slid.
+   *
+   *  **`fills` is asked for its VALUE, not for the key.** It holds an entry for every
+   *  non-function wedge and the entry is often `null` — `colorFor` returning nothing is how a
+   *  directory says it has no reading under this lens, and `dirRim` checks exactly that
+   *  before drawing. Asking `has` made this true on every ring ever drawn, so the room was
+   *  still being reserved everywhere and the whole check did nothing.
+   *
+   *  True during a replay whatever it finds, because the room must not come and go with the
+   *  playhead — a rim that exists for one commit would move every label in the picture and
+   *  put it back on the next.
+   *
+   *  Cheap: it walks the drawn wedges, which is hundreds, and stops at the first yes. The
+   *  maps it reads are the ones already memoised for the ring. */
+  const banded =
+    replaying ||
+    wedges.some(
+      (w) =>
+        w.node.kind === 'dir' &&
+        ((hist.get(w.node.id)?.length ?? 0) > 0 ||
+          (dots?.get(w.node.id)?.length ?? 0) > 0 ||
+          fills.get(w.node.id) != null ||
+          escalated.get(w.node.id) != null),
+    )
+
   const viewTo = useMemo(() => {
     // An open file is fitted to the FAN it is opening into, not to a ring's extent —
     // and to where it is GOING, so the box travels with the cells instead of snapping on
@@ -2830,12 +3214,6 @@ function SunburstView({
           people perform at rest, on the repo root, where there is nowhere to go up to. */}
       {mascot &&
         ((): React.ReactNode => {
-          /** The thought bubble's diameter, as a share of the creature's box.
-           *
-           *  A fifth, which is what it took to read as something the mascot is holding rather
-           *  than something covering its face — the first pass was a third and sat over the
-           *  head. Floored so it stays legible at the smallest hub the ring count produces. */
-          const BUBBLE = Math.max(14, HUB_MASCOT * hubK * 0.2)
           return (
             <div
               ref={hubMascot}
@@ -2878,14 +3256,40 @@ function SunburstView({
                   : undefined
               }
             >
-              <AgentMascot
-                size={HUB_MASCOT * hubK}
-                events={mascot.events}
-                state={mascot.state}
-                gaze={gaze}
-                project={mascot.project}
-                remint={mascot.remint}
-              />
+              {/* **The badge shape changes the creature, not just what is drawn over it.**
+                  The arc needs air above the head — at full size the band lands ON the head
+                  and reads as a hat — so the creature shrinks and keeps its footing, origin
+                  at the bottom of the box, which is the ground it was already standing on.
+                  The plinth takes the ground shadow out of the blueprint: a soft ellipse
+                  spreading from behind a solid block is two grounds, and the block is the
+                  one the creature is standing on. */}
+              <div
+                style={{
+                  /* **The dial takes a squidge of width off the creature.** It carries a line
+                     of type at twelve and another at six; at full size the head reaches the
+                     first and the feet reach the second.
+
+                     Scaled about its CENTRE, which is the part that took two goes to get
+                     right. Anchoring at the bottom keeps the footing where it is, which is
+                     what a badge under the feet would want — but with type above AND below,
+                     the creature has to stay centred between them, and scaling about the feet
+                     pulled it down into the lower line. */
+                  transform: 'scale(0.88)',
+                  transformOrigin: '50% 50%',
+                  // The badge draws over the figure, not under it.
+                  position: 'relative',
+                  zIndex: 1,
+                }}
+              >
+                <AgentMascot
+                  size={HUB_MASCOT * hubK}
+                  events={mascot.events}
+                  state={mascot.state}
+                  gaze={gaze}
+                  project={mascot.project}
+                  remint={mascot.remint}
+                />
+              </div>
               {/* **The count, as a badge.** A cloud and a tail of dots were both tried here
                   and both lost to the plain thing: what this has to do is carry a number
                   legibly at a fifth of the creature's height, over whatever colour the
@@ -2898,42 +3302,15 @@ function SunburstView({
                   `pointer-events: none`: the CLICK is the whole creature's, one level up.
                   This is the thing being pointed at, not the target. */}
               {!!mascot.findings && mascot.state === 'sleeping' && (
-                <div
-                  aria-hidden
-                  className="absolute"
-                  /* **Inset, not in the corner.** The creature is drawn with margin inside
-                     its box — it fills a little over half of it — so a badge at the box's own
-                     top-right corner floats in empty space with nothing to belong to. These
-                     bring it in against the head's upper right, where it reads as the
-                     creature's. Fractions of the box, so it holds that relationship as the
-                     hub grows and shrinks with the ring count. */
-                  style={{
-                    right: HUB_MASCOT * hubK * 0.07,
-                    top: HUB_MASCOT * hubK * 0.11,
-                    pointerEvents: 'none',
-                    lineHeight: 0,
-                  }}
-                >
-                  <span
-                    className="mono flex items-center justify-center rounded-full"
-                    style={{
-                      // Never narrower than a circle, and wider when the number is: `7` is a
-                      // dot with a number in it and `1.2k` is a pill, rather than either
-                      // being stretched to fit the other's shape.
-                      minWidth: BUBBLE,
-                      height: BUBBLE,
-                      padding: `0 ${BUBBLE * 0.22}px`,
-                      fontSize: Math.max(8, BUBBLE * 0.5),
-                      background: 'var(--accent)',
-                      color: 'var(--accent-foreground)',
-                      // The hub sits over whatever the innermost wedges are coloured, so the
-                      // badge carries its own edge rather than trusting the ground behind it.
-                      boxShadow: '0 0 0 1.5px var(--card), 0 1px 3px rgb(0 0 0 / 0.35)',
-                    }}
-                  >
-                    {mascot.findings > 999 ? `${Math.round(mascot.findings / 100) / 10}k` : mascot.findings}
-                  </span>
-                </div>
+                <FindingBadge
+                  layer={2}
+                  box={HUB_MASCOT * hubK}
+                  rules={mascot.rules ?? 0}
+                  color={mascot.color ?? DIAL_COLOR}
+                  corner={mascot.corner ?? 1}
+                  rotation={mascot.rotation ?? 0}
+                  count={mascot.findings}
+                />
               )}
             </div>
           )

@@ -66,6 +66,20 @@ export function inkOn(token: string, alpha = 1): string {
   return chosen
 }
 
+/** Which of paper and ink reads on a colour that is not a token.
+ *
+ *  **The same judgement `inkOn` makes, for a value somebody typed.** `resolve` only knows how
+ *  to look up a custom property, and the badge's colour comes out of a colour picker — but
+ *  which of the two chromes reads on a colour is a fact about that colour, and there must not
+ *  be a second answer to it living somewhere else. Falls back to the chrome's own foreground
+ *  for anything that is not a six-digit hex, which is what every other reader here does with
+ *  a value it cannot parse. */
+export function inkOnHex(hex: string): string {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return CHROME_INK
+  const y = luminance(hex)
+  return contrast(y, luminance(PAPER)) >= contrast(y, luminance(INK)) ? PAPER : INK
+}
+
 /** Cached against the theme, which is the only thing that can change an answer. Custom
  *  properties are read off the root, so a theme swap makes every entry wrong at once. */
 const cache = new Map<string, string>()

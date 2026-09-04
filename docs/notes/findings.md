@@ -21,9 +21,16 @@ away the exact distinction they exist for". So the readings that no amount of lo
 produce are the CONJUNCTIONS. Big and baffling. Documented and still hot. Load-bearing and
 unread. A clone group whose copies no longer agree.
 
-That is what a finding is: a place where two lenses disagree in a way somebody should look at.
-It is the multi-lens feature, and it arrives as a list rather than as a thirteenth colouring
-because the answer to "so what" is a verb, and a colour has no verbs.
+**A finding is where what has been measured yields something needing further inspection or
+work.** That is deliberately wider than "a place where two lenses disagree", which is how this
+note defined it for a while and which was a description of the MECHANISM promoted to a
+definition. A conjunction is how most findings are reached and it is what the grammar is built
+from — but a rule of one clause is still a rule, and the day a single measurement is enough on
+its own the definition should not have to be argued with. What makes something a finding is
+that there is work at the end of it.
+
+It arrives as a list rather than as a thirteenth colouring because the answer to "so what" is
+a verb, and a colour has no verbs.
 
 **They are findings, not issues.** The instrument does not know that anything here is wrong —
 it knows a reader was surprised, that git has a date, that the parse counted callers. A word
@@ -587,32 +594,40 @@ with it.** Not before, and not by widening a band clause to cover a case it does
 
 ## The rules editor
 
-**Not built.** Surfaces 1 and 2 of *Three surfaces* are in the window and this is the third,
-written up before it is started because the parts of it that are hard are not the parts that
-look hard. The dropdowns are an afternoon. What follows them is a type that cannot hold a
-rule somebody wrote, a store that can hold one number per rule, and an archive keyed on rules
-that editing can retire.
+**Built as far as the grid; the form is not.** The store speaks the grammar, `Field` and `Op`
+are enumerable, the commands exist, and the rules are a third view in the panel — read-only.
+What is left is the form, which is the only step whose shape the data does not already decide.
 
-### Four things in the way, all of them in the code today
+The four blockers below were the point of writing this up before starting: the dropdowns are
+an afternoon and none of the afternoon is the hard part. They are kept as a record of what had
+to move, and each now says how it moved.
 
-- **`Rule` is made of `&'static str`.** `id`, `title`, `so_what` and `says` are all static, so
-  every rule that can exist is one compiled into the binary. A rule read out of `.sanity/`
-  cannot be constructed at all. This is the whole blocker and everything else is small beside
-  it: the fields become owned (`String`, or `Cow<'static, str>` so the catalog keeps costing
-  nothing), and `catalog()` stops being the only source of rules.
-- **`saved_rules` is `id -> f32`.** One number per rule — the calibrated clause's threshold.
-  It cannot say *off*, cannot carry a rule the catalog has never heard of, cannot hold a floor
-  or a population or a second clause. The format has to grow into the grammar it already
-  claims to be written in.
-- **`Op::parse` and `Op::name` are private, and nothing enumerates `Field`.** The evaluator
-  needs neither: it parses text and reads values. A dropdown needs both — every field a clause
-  may name, which population each applies to, whether it needs a reading, and every operator
-  with the word for it.
-- **`Group` sends `expr` as a rendered string.** `func: loc >= 257` is the right thing to
-  SHOW; it is not something a form can populate three controls from without parsing its own
-  output back. The wire needs the clauses structured, and `expr()` stays for the tooltip.
+### Four things that were in the way, all of them in the code
 
-None of these is deep. They are listed because they are the reason this is not "add a panel".
+- **`Rule` was made of `&'static str`.** `id`, `title`, `so_what` and `says` were all static,
+  so every rule that could exist was one compiled into the binary and a rule read out of
+  `.sanity/` could not be constructed at all. This was the whole blocker and everything else
+  was small beside it.
+  *Done: the fields are `String`. Not `Cow<'static, str>` — the catalog is fifteen rules of
+  four short strings, which is noise beside a walk of every subject, and `Cow` would have put
+  a borrow-or-own decision at every use site to save it.*
+- **`saved_rules` was `id -> f32`.** One number per rule, the calibrated clause's threshold.
+  It could not say *off*, could not carry a rule the catalog had never heard of, could not
+  hold a floor or a population or a second clause.
+  *Done: it returns `Line`s and `merge` folds them onto the catalog — amendments, not a
+  whitelist, so a rule a later release ships reaches a repo that was tuned before it existed.*
+- **`Op::parse` and `Op::name` were private, and nothing enumerated `Field`.** The evaluator
+  needs neither: it parses text and reads values. A form needs both — every field a clause may
+  name, which population each applies to, whether it needs a reading, and every operator with
+  the word for it.
+  *Done: `Field::ALL`, `Op::ALL` and `Field::pop`, with a test that every name parses back.
+  `trap` is answerable and deliberately not offered: it is a mark rather than a measurement,
+  and a picker would have to present `trap >= 1` as though the number meant something.*
+- **`Group` sent `expr` as a rendered string.** `func: loc >= 257` is the right thing to SHOW
+  and the wrong thing to populate three controls from: a form parsing back the string it was
+  just given would be a second parser, disagreeing with the first the day somebody adds an
+  operator.
+  *Done: `RuleView` carries structured clauses and keeps `expr` for display.*
 
 ### The store, in the grammar it is already written in
 
@@ -720,20 +735,70 @@ person finds that out about their own repo.
 
 ### What the form allows, and what it refuses
 
-Population, then one or two clauses, then a floor, a title and a so-what. Two dropdowns and a
+Population, then one to three clauses, a title and an impact line. Two dropdowns and a
 number, three times over.
 
 It refuses, on purpose and with a reason each:
 
-- **No third clause.** Two is where a conjunction stops needing precedence rules, and a
-  grammar with precedence is a query language — the bottomless thing this whole design exists
-  to avoid. The floor is the escape valve for the case that actually came up, and it is not a
-  clause: it does not appear as a lens and it is not a question the rule is asking.
-- **No OR, and no nesting.** Two rules are how you say "or", and they read better: each gets
-  its own sentence on the tile, and each can be turned off separately.
-- **No new fields.** The field list IS the lens list. A field nothing paints is a number with
-  no picture behind it, and the whole claim of this feature is that a finding is a place two
-  lenses disagree.
+- **No fourth clause, and the cap is a choice rather than a consequence.** It was argued here
+  as being about precedence — that a grammar needing precedence rules is a query language —
+  and **that argument is wrong and is retracted.** Precedence is a real argument against OR,
+  and it is why there is no OR; it caps conjunction at nothing, because `a and b and c and d`
+  is associative and needs none.
+
+  The tell is that the number moved. Two was the cap while the size guard lived in a separate
+  `floor` field, on the argument that it was about the instrument's resolution rather than
+  about the repo: below ten lines a claim about a body is mostly a claim about its signature.
+  That argument did not survive size being a lens — a rule that gates on size is asking a size
+  question whatever the field is called, and hiding it made the tile's lens list a lie by
+  omission, as well as putting the word `floor` on screen, which the first person to see it
+  had to ask about. So the floor became a clause and the cap became three: **a limit that
+  moved to make room for an implementation change was never measuring anything.**
+
+  What is left is two soft reasons, neither of which picks three over four. A tile names the
+  lenses that raised it and carries a sentence about them, and past some width that stops
+  being a sentence. And calibration works by moving one clause's bar to hit a target count, so
+  every clause added narrows the set and the calibrated clause loosens to compensate — past
+  some width the rule is mostly tuning against itself. Three is a judgement, and the UI says
+  so rather than claiming a reason it has not got.
+- **No OR, and no nesting — and the trigger for revisiting it is somebody naming a rule
+  OUTWARD.** OR cannot ask anything a set of rules cannot. Any combination of clauses goes to
+  disjunctive normal form — `A and (B or C)` is `(A and B) or (A and C)` — and the panel
+  already ORs rules together, because a subject three rules flagged is ONE tile with three
+  sentences. So OR is a compression of the rule list, never an extension of its reach, and the
+  compression only pays where the normal form blows up: `(A or B) and (C or D)` is four rules.
+  Nothing in a catalog of sixteen rules of one to three clauses is close.
+
+  **The question is therefore not what can be asked, but whether anything cares that one
+  expression is one rule rather than two.** In the panel nothing does: the unit of address is
+  the SUBJECT, and the tile files a decision across all of its rules at once, so dismissing a
+  thing two rules found is one click and one reason. What the split does cost is bookkeeping —
+  two switches in `catalog.md` with nothing saying they belong together, two rows and two
+  blame lines in `decisions.md` for one judgement, two rows in the grid whose counts overlap.
+
+  **A rule becomes a unit of address the moment its title is shown to somebody who is not
+  looking at the panel** — a notification subject line, a CI check name, a PR comment header.
+  That is when "one rule or two" stops being bookkeeping, and it is the trigger for building
+  OR. Not before.
+
+  There is one cost to weigh when it arrives: `check_template` only lets the report text name
+  a field the rule GUARANTEES, and under OR no branch field is guaranteed. `{{commits}}` is
+  unfillable for a subject that matched the other branch, so a rule using OR loses its
+  tailored paragraph and falls back to the flat impact line.
+- **Four operators, and no `==` or `!=`.** Two directions, each with and without the boundary,
+  is the whole grammar. Half the fields are continuous — `tangle`, `surprise`, `documented`
+  and `illegible` are 0–1 grades, `age` and `touched` are fractional days — and `tangle == 0.8`
+  is a clause that looks correct and matches nothing, silently, forever. On the discrete
+  fields equality is not needed because the values are integers and the existing operators
+  already reach it: `callers == 0` is `callers < 1`, which is exactly what "Load-bearing and
+  unread" does with `read < 1`; `callers != 0` is `callers >= 1`. The only thing that costs
+  two clauses is an interior band, `commits >= 3 and commits < 10`, and that costs two clauses
+  in a language with `==` as well.
+- **No new fields.** The field list IS the lens list, and the form's picker is built from
+  `Field::ALL` rather than from a copy kept in the frontend — a second list is one list plus a
+  stale copy, and the stale one is the one still offering a field that was renamed, which is
+  not hypothetical: `legible` became `illegible`. A field nothing paints is a number with no
+  picture behind it.
 - **No paths, names or globs.** `path contains "/test/"` is the most requested rule that will
   never be in this grammar: it makes rules about what things are CALLED rather than about what
   was measured, and the moment it exists the catalog fills up with them. Exclusions are
@@ -817,6 +882,57 @@ Sorting each subject's decisions by rule id before writing fixes it, and it is t
 is worth doing whether or not the editor ever gets built: a store that reshuffles itself
 cannot be reviewed in a diff, and being reviewable in a diff is why it is Markdown in the repo
 rather than JSON in a cache.
+
+### What kibana said about the catalog
+
+**Run on a repo nobody has read, the tool is a linter, and it was not a good one.** Seven of
+fifteen rules are blocked — *nobody has read this repo yet* — so kibana gets the tier 1 half,
+and the first ten findings were: an index-mapping literal of 5,337 lines, a generated ANTLR
+parser, a `.gen.ts` client, three test suites, a saved-object type table, an i18n string map,
+and two things worth reading. **Two of ten.**
+
+The measurement that should have caught this was taken and misread. "Giant function" had a
+marginal contribution of 2,180 out of 2,292 on kibana, and this note recorded that as the rule
+carrying its weight — the earlier text even says *"in kibana's TypeScript the giant things are
+generated parsers, fixture objects and test suites"* and treats it as a point in the rule's
+favour. What the number actually meant is that **nothing else finds these because nothing else
+considers them worth finding**. High marginal contribution is necessary and not sufficient: a
+rule can be uniquely wrong.
+
+Three changes came out of it, and the first two are not rules at all.
+
+- **Generated code, test code and `.sanityignore` are not subjects.** `Node::excluded` was
+  computed and ignored here; generated and test files are recognised by path. **Excluding by
+  path is not a rule about paths** — the grammar still refuses `path contains "/test/"` as a
+  clause, because a rule is a statement about what was MEASURED. This is the other thing:
+  what the instrument is pointed at, which is what `.sanityignore` has always been.
+  A test's job is different — a long suite is normal, a surprising body is the point, an
+  undocumented one is fine — so every rule means something else there. Findings about tests
+  would be a different catalog, not a subset of this one.
+- **A Rust unit test needed the parser.** It lives in the file it tests, so no path says so,
+  and `#[test]` is a SIBLING of the function rather than part of it. The enclosing module is
+  the one signal that reaches the tree, so `mod_item` is an owner now and `PARSE_VERSION` is
+  8. That costs a re-parse and not a re-blame, which is exactly why the parse version sits on
+  each cache entry — see `scancache`.
+- **A giant body with no branching is data.** The literals that survived the path rules —
+  1,920 lines of saved-object types, 1,879 of i18n strings — are single objects with nothing
+  to follow, and nobody is going to split them up. Giant function gained
+  `cognitive >= 10`: a low bar, and deliberately not "tangled", which is a different rule
+  asking whether the complexity is explained by the length. This one only asks whether there
+  is control flow at all.
+
+Afterwards the same list reads: a fleet service, a heap-snapshot CLI, an ML chart provider, a
+graph workspace, a canvas layout module, two route registrations. **Eight of ten**, with two
+misses that are both the same shape — an ANTLR-generated parser in a `parser/` directory
+rather than an `antlr/` one, and a Playwright page object under `src/playwright/` rather than
+`test/`. Path heuristics get most of it and will never get all of it.
+
+**And one rule was reading its own grades wrong.** Stale doc fired 58 times on this repo and
+owned the list. The threshold was `surprise >= 0.6`, which catches `Grade::Some` — "recognizable,
+but the body does real work the prediction did not cover", which is most documentation. The
+grade the rule is NAMED for is `Grade::None` at 0.92: "the prediction did not describe this
+code". At 0.9 it returns one finding here, and that finding is right. The number was not the
+problem; the reading of it was.
 
 ### Two views, and the CLI has both
 

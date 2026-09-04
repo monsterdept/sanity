@@ -5192,6 +5192,12 @@ pub struct ProjectSummary {
     pub assessed: usize,
     /// Lines of code in the functions still outstanding — see [`unread_lines`].
     pub unread_lines: usize,
+    /// The short HEAD this repo is standing at, or empty where there is no git.
+    ///
+    /// **Provenance, and never a key.** It is the same string a reading records as `at` and
+    /// the same one `assessment::head` computes — one reader, so the dial and the store
+    /// cannot disagree about where the repo is. Nothing matches on it.
+    pub head: String,
     /// Commits reachable from HEAD, as the scan counted them. 0 for a repo with no history.
     ///
     /// Beside the reading numbers because the sidebar now says both: a project has a repo to
@@ -5352,6 +5358,7 @@ impl ProjectList {
                     // `reports.len() - stale` counts readings whose function was deleted.
                     assessed: assessed(p),
                     unread_lines: unread_lines(p),
+                    head: crate::assessment::head(&p.repo),
                     commits: p.scan.stats.commits,
                     // Read from a four-byte sidecar rather than from the timeline itself,
                     // which on a large repo is hundreds of megabytes — see `history::banked`.
@@ -5402,6 +5409,9 @@ impl ProjectList {
                         name: known.name.clone(),
                         repo: known.repo.clone(),
                         scan_cost: Some(cost.clone()),
+                        // Nothing has looked at the repo yet, so where it stands is not
+                        // known — empty, like every other unmeasured field here.
+                        head: String::new(),
                         functions: 0,
                         files: 0,
                         // Not walked yet, so there is no tally — see the field.
@@ -5459,6 +5469,7 @@ impl ProjectList {
                         key: known.key.clone(),
                         name: known.name.clone(),
                         repo: known.repo.clone(),
+                        head: String::new(),
                         // Zeroed behind `loading`, like every other count here: the walk
                         // has not run, so there is no denominator yet and a guess would be
                         // read as a measurement.
