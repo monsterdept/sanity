@@ -415,8 +415,19 @@ export function CodeView({
     // would put the signature back where it started — past the cap you get the tail of the
     // doc, which is the half nearest the code anyway. Two rows where there is no doc, which is
     // margin rather than lead.
-    const doc = fn.doc ? fn.doc.split('\n').length + 1 : 1
-    const lead = Math.min(doc, Math.floor(box.clientHeight / ROW / 2)) + 1
+    // **Counted off the SOURCE, not off `Node::doc`.** The stored doc is the comment's text
+    // and not its delimiters, so measuring the lead from its line count left the `/**` and
+    // the first sentence above the fold — the two lines that say what the thing is. The
+    // tokenizer already knows which lines are comment, so walking up from the signature until
+    // one is not gives the block's real top, whatever a language writes it with.
+    let top = fn.line - 1
+    const isComment = (i: number) =>
+      i >= 0 && toks[i]?.length > 0 && toks[i].every((t) => t.cls === 'tok-comment')
+    while (top > 0 && isComment(top - 1)) top--
+    // One line above the comment, so the block has a margin rather than starting flush.
+    // Capped at half the pane: a doc longer than that would put the signature back where it
+    // started, and past the cap the tail is the half nearest the code anyway.
+    const lead = Math.min(fn.line - top + 1, Math.floor(box.clientHeight / ROW / 2))
     box.scrollTop = Math.max(0, (fn.line - lead) * ROW)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see the note above
   }, [revealN, ready])
