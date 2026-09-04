@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { isAnalyzed, readSource, type Node } from '../lib/api'
 import { colorFor, type ColorMode, type Views } from '../lib/colorMode'
-import { tokenizeAll } from '../lib/tokens'
+import { tokenizeAll, type Tok } from '../lib/tokens'
+import { CELL_H, CELL_W, cellOf, glyphSheet } from '../lib/glyphs'
 
 /** One row's height, in pixels, and it is arithmetic rather than typography.
  *
@@ -50,11 +51,15 @@ function ownerByLine(file: Node): Map<number, Node> {
  */
 function Minimap({
   lines,
+  toks,
   owners,
   scroller,
   insetTop,
 }: {
   lines: string[]
+  /** The same tokens the code is drawn from, so the map is coloured by what the file IS
+   *  rather than by a second guess at it. */
+  toks: Tok[][]
   owners: Map<number, Node>
   scroller: React.RefObject<HTMLDivElement | null>
   /** Room left at the top for the window controls, which sit over this corner. Passed in
@@ -70,148 +75,225 @@ function Minimap({
     if (!canvas || !box) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+    const sheet = glyphSheet()
 
     /** **Redrawn from a scroll LISTENER, with no React in the loop.**
      *
      *  This used to be triggered by a counter bumped in the pane's `onScroll`, with a comment
      *  saying a counter was chosen over the offset because storing the offset "would re-render
      *  the whole table on every scroll frame". A counter re-renders it too — any state change
-     *  here does — so the table reconciled 2,690 rows of tokenized spans sixty times a second,
-     *  and the pane went blank and filled in behind the scroll. What the comment describes is
-     *  exactly what it was doing.
-     *
-     *  The canvas was already drawn imperatively; the only thing React was contributing was
-     *  the re-render. Listening on the element that scrolls removes it, and `passive` says
-     *  this will never fight the scroll it is watching. */
+     *  here does. The canvas was always drawn imperatively; React's only contribution to that
+     *  loop was the re-render. */
     const draw = () => {
-    const r = canvas.getBoundingClientRect()
-    const dpr = window.devicePixelRatio || 1
-    canvas.width = Math.max(1, Math.round(r.width * dpr))
-    canvas.height = Math.max(1, Math.round(r.height * dpr))
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.clearRect(0, 0, r.width, r.height)
-    if (lines.length === 0) return
+      const r = canvas.getBoundingClientRect()
+      const dpr = window.devicePixelRatio || 1
+      canvas.width = Math.max(1, Math.round(r.width * dpr))
+      canvas.height = Math.max(1, Math.round(r.height * dpr))
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      if (lines.length === 0 || !sheet) return
 
-    const ink = getComputedStyle(canvas).color
-    // Fit the WHOLE file, however long. A minimap that scrolls is a second thing to
-    // navigate; the point of this one is that the file's shape is one glance.
-    const lh = Math.min(3, r.height / lines.length)
-    const charW = Math.max(0.35, Math.min(1, (r.width - 6) / 110))
+      // **Device pixels throughout, because a glyph cell IS a pixel count.** Drawing this in
+      // CSS units and letting the transform scale it puts a two-pixel character on a
+      // fractional grid, which is the difference between text and mush.
+      const W = canvas.width
+      const H = canvas.height
+      const rowH = CELL_H
+      const cols = Math.floor(W / CELL_W)
+      /** How many lines the map can hold at one row apiece. */
+      const fits = Math.floor(H / rowH)
 
-    /** **How many source lines share one drawn row.**
-     *
-     *  A big IDE has two answers to a big file. VS Code keeps the map and degrades what it
-     *  draws — `renderCharacters` off swaps glyphs for colour blocks; JetBrains ships no
-     *  minimap by default and gives the gutter an error STRIPE instead, only markers, never
-     *  the text. Both are ways of not drawing per-line detail that no longer fits.
-     *
-     *  **Neither is what a map should do, and this tried both and got both wrong.** Drawing
-     *  one bar per line at a third of a pixel is the barcode; dropping the bars and keeping
-     *  the bands is a paint chip, which is what a 2,690-line file came out as. The failure is
-     *  the same either way: per-line data rendered at sub-pixel scale, once as aliasing and
-     *  once as a wall.
-     *
-     *  So it downsamples rather than degrading. Every drawn row is at least a pixel tall and
-     *  says what the lines under it are between them: the span from the shallowest indent to
-     *  the longest line, and whether a function starts in there. A short file gets one line
-     *  per row and this is exactly what it always did; a long one gets the shape of the file
-     *  rather than a photograph of it. */
-    const step = Math.max(1, Math.ceil(1 / Math.max(lh, 0.0001)))
-    const rowH = lh * step
+      /** **Where the map starts, which is not always line one.**
+       *
+       *  A file longer than the map used to be squashed to a third of a pixel a line, which
+       *  is where the aliasing came from: at that size a row is not a row, it is whatever
+       *  rounding does to one. VS Code's `MinimapLayout` asks whether the file fits and, when
+       *  it does not, slides the map instead — `startLineNumber` derived from where the slider
+       *  sits. Same here: every line that is drawn gets a whole row, and the map scrolls to
+       *  keep the viewport in it.
+       */
+      const rows = Math.min(lines.length, fits)
+      const slack = Math.max(0, lines.length - rows)
+      const through = Math.max(1, box.scrollHeight - box.clientHeight)
+      const at = Math.min(1, Math.max(0, box.scrollTop / through))
+      const first = Math.round(slack * at)
 
-    for (let i = 0; i < lines.length; i += step) {
-      const y = (i / step) * rowH
-      const upto = Math.min(i + step, lines.length)
-
-      // The bucket, in one pass: how far the code in it reaches, and whether a function
-      // begins there.
-      let indent = Infinity
-      let extent = 0
-      let comment = 0
-      let inked = 0
-      let starts = false
-      for (let j = i; j < upto; j++) {
-        const owner = owners.get(j + 1)
-        if (owner && owners.get(j) !== owner) starts = true
-        const line = lines[j]
-        const trimmed = line.trimStart()
-        if (!trimmed) continue
-        inked++
-        const at = line.length - trimmed.length
-        indent = Math.min(indent, at)
-        extent = Math.max(extent, at + trimmed.length)
-        if (/^(\/\/|#|\*|\/\*)/.test(trimmed)) comment++
+      const ink = getComputedStyle(canvas).color
+      /** A token's colour, resolved once per class. `colorFor` and the token classes answer in
+       *  the cascade's vocabulary and a canvas resolves none of it, so one hidden element
+       *  takes the string and the browser hands back what it computed to. */
+      const probe = document.createElement('span')
+      probe.style.display = 'none'
+      canvas.parentElement?.appendChild(probe)
+      const seen = new Map<string, [number, number, number]>()
+      const rgb = (cls: string): [number, number, number] => {
+        const hit = seen.get(cls)
+        if (hit) return hit
+        probe.className = cls
+        const m = /(\d+),\s*(\d+),\s*(\d+)/.exec(getComputedStyle(probe).color)
+        const out: [number, number, number] = m
+          ? [Number(m[1]), Number(m[2]), Number(m[3])]
+          : [128, 128, 128]
+        seen.set(cls, out)
+        return out
       }
 
-      if (inked > 0) {
-        ctx.fillStyle = ink
-        // Comments sit back, so the shape reads as code with prose in it rather than as
-        // undifferentiated texture. A mixed row leans whichever way its lines do.
-        ctx.globalAlpha = comment > inked / 2 ? 0.14 : 0.34
-        const x = 3 + indent * charW
-        ctx.fillRect(
-          x,
-          y + rowH * 0.18,
-          Math.max(Math.min(extent * charW, r.width - 6) - indent * charW, 0.6),
-          Math.max(rowH * 0.6, 0.6),
-        )
-        ctx.globalAlpha = 1
+      const img = ctx.createImageData(W, H)
+      const data = img.data
+      for (let row = 0; row < rows; row++) {
+        const i = first + row
+        const y0 = row * rowH
+        let col = 0
+        for (const t of toks[i] ?? []) {
+          if (col >= cols) break
+          const [cr, cg, cb] = t.cls === 'tok-plain' ? [0, 0, 0] : rgb(t.cls)
+          const plain = t.cls === 'tok-plain'
+          for (let k = 0; k < t.text.length && col < cols; k++, col++) {
+            const cell = cellOf(t.text.charCodeAt(k))
+            if (cell < 0) continue
+            const x0 = col * CELL_W
+            // **Per-pixel alpha from the sheet, the way `minimapCharRenderer` does it.** The
+            // glyph's coverage is the alpha and the token's colour is the tint; a solid block
+            // per character would be the `renderCharacters: false` mode, which is the one that
+            // looks like ours did.
+            for (let y = 0; y < CELL_H; y++) {
+              for (let x = 0; x < CELL_W; x++) {
+                const c = sheet[(cell * CELL_H + y) * CELL_W + x] / 255
+                if (c <= 0) continue
+                const o = ((y0 + y) * W + x0 + x) * 4
+                const a = Math.round(c * 255)
+                if (a <= data[o + 3]) continue
+                if (plain) {
+                  // The chrome's own ink, which is a `var()` and not worth resolving per
+                  // token: plain identifiers are most of a file and they are the ground the
+                  // coloured ones stand out from.
+                  data[o] = 128
+                  data[o + 1] = 128
+                  data[o + 2] = 128
+                } else {
+                  data[o] = cr
+                  data[o + 1] = cg
+                  data[o + 2] = cb
+                }
+                data[o + 3] = a
+              }
+            }
+          }
+        }
       }
+      probe.remove()
+      ctx.putImageData(img, 0, 0)
 
       // Where one function gives way to the next, which is the structure a reader navigates
-      // by and the one thing that survives being small.
-      if (starts) {
-        ctx.fillStyle = ink
-        ctx.globalAlpha = 0.3
-        ctx.fillRect(0, y, r.width, 0.75)
-        ctx.globalAlpha = 1
+      // by. Drawn over the glyphs rather than under them: it is a rule, not a background.
+      ctx.fillStyle = ink
+      for (let row = 0; row < rows; row++) {
+        const n = first + row + 1
+        const owner = owners.get(n)
+        if (owner && owners.get(n - 1) !== owner) {
+          ctx.globalAlpha = 0.22
+          ctx.fillRect(0, row * rowH, W, Math.max(1, dpr * 0.5))
+        }
       }
-    }
+      ctx.globalAlpha = 1
 
-    // What you are looking at now.
-    const total = box.scrollHeight || 1
-    const top = (box.scrollTop / total) * lines.length * lh
-    const hgt = (box.clientHeight / total) * lines.length * lh
-    ctx.fillStyle = ink
-    ctx.globalAlpha = 0.12
-    ctx.fillRect(0, top, r.width, hgt)
-    ctx.globalAlpha = 0.35
-    ctx.strokeStyle = ink
-    ctx.lineWidth = 1
-    ctx.strokeRect(0.5, top + 0.5, r.width - 1, Math.max(hgt - 1, 2))
-    ctx.globalAlpha = 1
+      // **The slider.** Its height is the share of the file on screen and its top is where
+      // that share sits, both measured against the ROWS drawn rather than against the file —
+      // on a long file the map is a window onto the file and the slider is a window onto the
+      // map.
+      const shown = Math.min(1, box.clientHeight / Math.max(1, box.scrollHeight))
+      const top = (box.scrollTop / Math.max(1, box.scrollHeight)) * lines.length
+      const y = (top - first) * rowH
+      const h = Math.max(dpr * 4, shown * lines.length * rowH)
+      ctx.fillStyle = ink
+      ctx.globalAlpha = 0.1
+      ctx.fillRect(0, y, W, h)
+      ctx.globalAlpha = 0.3
+      ctx.lineWidth = dpr
+      ctx.strokeStyle = ink
+      ctx.strokeRect(dpr / 2, y + dpr / 2, W - dpr, Math.max(h - dpr, 2))
+      ctx.globalAlpha = 1
     }
 
     draw()
     box.addEventListener('scroll', draw, { passive: true })
-    return () => box.removeEventListener('scroll', draw)
-  }, [lines, owners, scroller, insetTop])
+    const ro = new ResizeObserver(draw)
+    ro.observe(canvas)
+    return () => {
+      box.removeEventListener('scroll', draw)
+      ro.disconnect()
+    }
+  }, [lines, toks, owners, scroller, insetTop])
 
-  // Click or drag anywhere on it to go there, centered on the pointer like VS Code's.
-  const seek = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  /** **A click jumps and a drag tracks, and they are different gestures.**
+   *
+   *  It did both by teleporting: whatever line was under the pointer became the middle of the
+   *  viewport. On a long file that means one pixel of cursor is `scrollHeight / mapHeight`
+   *  pixels of scroll, so the code runs away from the hand holding it — which is exactly what
+   *  it felt like.
+   *
+   *  VS Code moves the SLIDER one-for-one with the pointer and derives the scroll from that:
+   *  `computedSliderRatio = maxSliderTop / (scrollHeight - viewportHeight)`, and a drag is
+   *  `scrollTop + delta / ratio`. The slider stays under the finger; the file moves as much as
+   *  it has to. A press with no movement still jumps, because that is what a press on a map
+   *  means. */
+  const drag = useRef<{ y: number; top: number } | null>(null)
+
+  const ratio = () => {
+    const box = scroller.current
+    const canvas = ref.current
+    if (!box || !canvas || lines.length === 0) return null
+    const r = canvas.getBoundingClientRect()
+    const rowH = CELL_H / (window.devicePixelRatio || 1)
+    const rows = Math.min(lines.length, Math.floor(r.height / rowH))
+    const shown = Math.min(1, box.clientHeight / Math.max(1, box.scrollHeight))
+    const slider = Math.max(4, shown * lines.length * rowH)
+    const travel = Math.max(1, rows * rowH - slider)
+    return travel / Math.max(1, box.scrollHeight - box.clientHeight)
+  }
+
+  const down = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const box = scroller.current
     const canvas = ref.current
     if (!box || !canvas || lines.length === 0) return
+    canvas.setPointerCapture(e.pointerId)
     const r = canvas.getBoundingClientRect()
-    const lh = Math.min(3, r.height / lines.length)
-    const line = (e.clientY - r.top) / lh
+    const rowH = CELL_H / (window.devicePixelRatio || 1)
+    const rows = Math.min(lines.length, Math.floor(r.height / rowH))
+    const slack = Math.max(0, lines.length - rows)
+    const through = Math.max(1, box.scrollHeight - box.clientHeight)
+    const first = Math.round(slack * (box.scrollTop / through))
+    const line = first + (e.clientY - r.top) / rowH
     box.scrollTop = (line / lines.length) * box.scrollHeight - box.clientHeight / 2
+    drag.current = { y: e.clientY, top: box.scrollTop }
+  }
+
+  const move = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const box = scroller.current
+    const held = drag.current
+    if (!box || !held) return
+    const k = ratio()
+    if (k === null) return
+    box.scrollTop = held.top + (e.clientY - held.y) / k
+  }
+
+  const up = () => {
+    drag.current = null
   }
 
   return (
     <canvas
       ref={ref}
-      aria-hidden
-      onPointerDown={(e) => {
-        e.currentTarget.setPointerCapture(e.pointerId)
-        seek(e)
-      }}
-      onPointerMove={(e) => e.buttons === 1 && seek(e)}
       style={{ top: insetTop, height: `calc(100% - ${insetTop}px)` }}
       className="absolute right-0 w-[74px] cursor-pointer border-l border-[var(--border)] bg-[var(--background)] text-[var(--foreground)]"
+      onPointerDown={down}
+      onPointerMove={move}
+      onPointerUp={up}
+      onPointerCancel={up}
     />
   )
 }
+
 
 /**
  * A file, as source, with each line's heat in the gutter.
@@ -413,7 +495,16 @@ export function CodeView({
 
               `--unanalyzed` where the lens has nothing to say about a body, which is not the
               same as no body: bare between functions, grey inside one nobody has measured. */}
-          <div className="sticky left-0 z-10 shrink-0 select-none bg-[var(--code)] text-right tabular-nums">
+          {/* **Sized for the whole file, not for the rows on screen.** The width came from the
+              widest number rendered, and only the visible rows are rendered — so scrolling
+              from line 80 to line 120 grew the gutter a digit and shunted the code sideways
+              under the reader. The file's line count is known before anything is drawn, and
+              `ch` on a monospace column is exactly a digit, so the column can be the width it
+              will need and stay there. */}
+          <div
+            className="sticky left-0 z-10 shrink-0 select-none bg-[var(--code)] text-right tabular-nums"
+            style={{ minWidth: `calc(${String(lines.length).length}ch + 1.125rem)` }}
+          >
             <div style={{ height: from * ROW }} />
             {lines.slice(from, to).map((_line, k) => {
               const n = from + k + 1
@@ -488,6 +579,7 @@ export function CodeView({
       </div>
       <Minimap
         lines={lines}
+        toks={toks}
         owners={owners}
         scroller={scroller}
         insetTop={onPopOut || onClose ? 30 : 0}

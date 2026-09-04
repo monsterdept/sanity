@@ -153,6 +153,9 @@
   --code-num: #2f7d84;
   --code-fn: #6b4f8f;
   --code-type: #3f6ea8;
+  --code-ctl: #a5486b;
+  --code-op: #7a6a4f;
+  --code-prop: #40707a;
 
   --notify: #b8443a;
   --notify-foreground: #f5f1ea;
@@ -707,6 +710,9 @@
   --code-num: #55b3bd;
   --code-fn: #b492e0;
   --code-type: #79aae6;
+  --code-ctl: #e07a9c;
+  --code-op: #c9b07d;
+  --code-prop: #6fb6c4;
 
   --notify: #d0554a;
   --notify-foreground: #1a1a1a;
@@ -1099,6 +1105,21 @@ textarea,
 }
 .tok-type {
   color: var(--code-type);
+}
+/* **Control flow apart from declaration.** One keyword colour puts `const` and `return` in
+ * the same voice, so a screen of declarations reads exactly like a screen of branching. */
+.tok-ctl {
+  color: var(--code-ctl);
+  font-weight: 600;
+}
+/* A brace is scaffolding; an operator is something the code does. */
+.tok-op {
+  color: var(--code-op);
+}
+/* Reaching into something. Quieter than a call, because most of a line of chained property
+ * access is the reaching and not the thing reached. */
+.tok-prop {
+  color: var(--code-prop);
 }
 
 /* A trap breathes, so the eye finds it without hunting.

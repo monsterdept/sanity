@@ -20,6 +20,15 @@
  * string still mis-colours, which is an acceptable failure for scenery and would not be for
  * the metric.
  */
+/** Words that steer, as opposed to words that declare.
+ *
+ *  **The split is what makes a file read as structured rather than striped.** One keyword
+ *  colour puts `const` and `return` and `import` in the same voice, so a screen of
+ *  declarations looks exactly like a screen of control flow. Every editor separates them and
+ *  it is the single biggest difference between a highlighted file and a legible one. */
+export const CONTROL =
+  /^(?:if|else|for|while|loop|match|switch|case|return|break|continue|yield|await|async|try|except|catch|finally|raise|throw|with|do|goto|defer|select|range|in|is|and|or|not|as|from|import|export|use|package)$/
+
 export const KEYWORDS =
   /^(?:fn|let|const|var|mut|pub|use|mod|impl|struct|enum|trait|match|if|else|for|while|loop|return|break|continue|async|await|move|where|type|dyn|ref|self|Self|crate|super|as|in|function|class|extends|interface|export|import|from|default|new|this|typeof|instanceof|void|null|undefined|true|false|def|elif|lambda|pass|raise|try|except|finally|with|yield|global|nonlocal|None|True|False|and|or|not|is|package|func|go|defer|chan|range|select|switch|case|map|nil|var)$/
 
@@ -69,9 +78,16 @@ export function tokenize(line: string): Tok[] {
     if (comment) out.push({ text, cls: 'tok-comment' })
     else if (str) out.push({ text, cls: 'tok-string' })
     else if (num) out.push({ text, cls: 'tok-num' })
-    else if (word) out.push({ text, cls: KEYWORDS.test(word) ? 'tok-key' : 'tok-plain' })
+    else if (word)
+      out.push({
+        text,
+        cls: CONTROL.test(word) ? 'tok-ctl' : KEYWORDS.test(word) ? 'tok-key' : 'tok-plain',
+      })
     else if (space) out.push({ text, cls: 'tok-plain' })
-    else out.push({ text, cls: 'tok-punct' })
+    // **An operator is not punctuation.** A brace is scaffolding and an `=>` is something the
+    // code DOES, and colouring them alike leaves an expression looking like a list of
+    // brackets. One character class each, longest first so `=>` beats `=`.
+    else out.push({ text, cls: /^[-+*/%<>=!&|^~?:]$/.test(text) ? 'tok-op' : 'tok-punct' })
   }
   return name(out)
 }
@@ -91,7 +107,14 @@ function name(toks: Tok[]): Tok[] {
     // The next thing that is not whitespace.
     let j = i + 1
     while (j < toks.length && toks[j].text.trim() === '') j++
-    if (toks[j]?.text === '(') toks[i].cls = 'tok-fn'
+    // What comes BEFORE decides one case: a name after a dot is a property, whatever follows
+    // it. `a.b()` is a method and still reads as reaching into something, which is the thing
+    // worth seeing; `foo(` with nothing before it is a call.
+    let k = i - 1
+    while (k >= 0 && toks[k].text.trim() === '') k--
+    const dotted = toks[k]?.text === '.'
+    if (toks[j]?.text === '(') toks[i].cls = dotted ? 'tok-prop' : 'tok-fn'
+    else if (dotted) toks[i].cls = 'tok-prop'
     else if (/^[A-Z]/.test(toks[i].text)) toks[i].cls = 'tok-type'
   }
   return toks
