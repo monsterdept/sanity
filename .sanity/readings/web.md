@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-542 of 542 read · 100 surprising
+559 of 559 read · 105 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -360,11 +360,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: The file_doc here is stale/misattached — it's the chaseTrace doc bleeding onto this peer, not a description of parentOf.
 
 ### `App` — QUIRKY — TANGLED
-- spec 3 · served in 6 parts · read at `7c0771ec0366` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:19Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: The root React component wiring together state (progress tracking, findings/lenses, trace/history) via hooks and helpers like useProgress, sameRun, sameProgress, etc., and rendering the overall layout (ProgressPane, ProgressStrip, FindButton, HistoryToggle, Empty state) — the top-level orchestrator connecting keyboard handling, data fetching/polling, and all UI panels. Given its huge size (3169 lines) it likely contains most business logic inline rather than being a thin composition layer.
-- found: The root component of the whole app: dozens of pieces of state and refs covering the live project poll, streamed scan shape/progress, agent readings, function-ring lazy fetching and batching, history/replay (timeline tables, deltas, frame building, scrubbing), trace/blame chaining (chaseTrace walking three depths), findings/decisions, author/language ranking for color lenses, keyboard shortcut dispatch via actOf, and the full JSX layout wiring all of that into the sidebar, top bar, map, legend, transport, and several dialogs (big-folder, big-history, CLI-link, code view).
-- predicted: some · documented: most · derivable: no · legible: some · trap: no
-- note: My prediction correctly identified it as the root orchestrator but drastically underestimated the depth — nearly every piece of state has a load-bearing comment documenting a specific past bug it fixes (stale closures, StrictMode double-invocation, batching races, identity/memo traps), so this function is less 'business logic' and more a dense archive of prior incidents.
+- spec 3 · served in 6 parts · read at `6e8460dd904f` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:33:13Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: App is the root React component of the web UI. It likely holds top-level state (selected project, current reading/trace, progress data) via hooks like useProgress, wires together the ProgressStrip/ProgressPane/ProgressTrack, HistoryToggle, FindButton, and Empty components, and defines handlers such as chaseTrace for walking a trace/ladder when a "Trace" pill is pressed. Given its size (3248 lines) it probably contains many nested helper components and effects for fetching/syncing data from a backend (Tauri) rather than being a small pure function.
+- found: The root React component of a Tauri desktop app that visualizes a repo as a sunburst map. It holds dozens of pieces of state (active project, tree/scan, readings, trace/history replay, findings, rules, mascot activity, drill stack, selection, movie export staging, theme, etc.), runs many polling/streaming effects to sync with a Rust backend (project list, scan shape, live scan progress, agent readings, streamed scores), defines callbacks for navigation (drill, goTo, goUp, flyTo, jumpTo), history replay control (chaseTrace/replay/trace), rule/finding management, and renders the whole shell: sidebar, top toolbar with lens/mode controls, the Sunburst map itself, history transport, detail panel, and several modal dialogs.
+- predicted: some · documented: none · derivable: no · legible: some · trap: no
+- note: The handout's `docs` field only quotes a fragment about chaseTrace, not a description of App itself — for a function this size (3248 lines), no signature-level doc could realistically prepare a reader for its scope.
 
 ### `useProgress`
 - spec 3 · read at `72304b16c0ca` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:38Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -869,16 +869,23 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/Findings.tsx
 
 ### the file itself
-- spec 3 · served in 2 parts · read at `24dd49c0d0ed` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:02:58Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: The React panel rendering the finding catalog in the GUI, the UI counterpart to findings.rs/bin/findings.rs. Small helpers (address, dirOf, fileOf, nameOf, lensName, lensRule, lensColor) format a Hit's path/lens for display, feeding one large Findings component that fetches findings/decisions from the API, groups/sorts them, and lets the user dismiss (fine-for-now/fine-always/flag) or jump to a finding. No file-level doc header exists, unlike the heavily-documented findings.rs.
-- found: The GUI panel for findings, confirmed as predicted: helpers format address/dir/file/name and lens color/label, and the Findings component merges hits by subject (not by rule) into tiles, showing each rule's rendered sentence, lens color rail, and three verdict controls (flag/fine-for-now/fine-always) with an optional reason field, plus an archive drawer and a footer noting dismissed/blocked counts. Difference from prediction: groups/archive/replaying are passed in as props from a parent (App) rather than fetched internally by this component, and grouping is by subject/tile rather than by rule as I guessed.
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- spec 3 · served in 3 parts · read at `570c88b193df` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:38:40Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: React component file that renders the findings UI: a top-level `Findings` component showing rule hits/results, and a `RuleForm` for creating/editing rules, with helper functions for formatting subject addresses/paths (trim, address, dirOf, fileOf, nameOf), lens naming/coloring (lensName, lensColor, fieldColor, lensRule), and draft/edit state management for rules (draftOf, blankDraft, fieldsFor, spreadFor). No file-level doc header exists.
+- found: Findings panel: a modal component with three views (findings/rules/ignored), grouping raw hits by subject into merged tiles (a function flagged by multiple rules is one tile), a RuleForm for creating/editing rules with live distribution stats, verdict buttons (flag/fine-for-now/fine-always) with optional reason text, and an ignored-decisions drawer. Far more UI/UX nuance (grouping-by-subject rationale, middle-truncation layout math, verdict semantics) than my prediction anticipated — it's not just a renderer of backend findings but embeds significant product logic (grouping, ranking, capping) itself.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+
+### `trim`
+- spec 3 · read at `4921dbf891a5` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:34Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Formats a number as a string: whole numbers render with no decimal places, non-whole numbers render with two decimal places, so it can display both a grade threshold like 0.7 and a line-count threshold like 339 without printing 339.00 or rounding 0.7 to 1.
+- found: Returns v.toLocaleString() if v is an integer (whole, possibly with thousands separators), else v.toFixed(2) for two decimal places.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `lensName`
-- spec 3 · read at `068020265e20` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:57Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: lensName is a one-line lookup into a shared MODE_LABEL map (keyed by lens id) returning the human-readable lens name, likely falling back to the raw id if not found, per the docs' note that it defers to a single shared label table rather than a private one.
-- found: Special-cases 'size' to return 'Size' (the neutral, non-lens id), otherwise looks up MODE_LABEL[id] falling back to id itself.
+- spec 3 · read at `c7e2a7c829bf` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:38:02Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Looks up id in a MODE_LABEL map (one entry per lens) and returns the human-readable label for the lens switcher UI; likely falls back to the raw id if not found in the map.
+- found: Returns 'Size' for the special-cased 'size' id, otherwise looks up id in MODE_LABEL (cast to ColorMode) falling back to the raw id string.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The special-case for 'size' outside of MODE_LABEL wasn't derivable from the docs, which only mention the map.
 
 ### `address`
 - spec 3 · read at `0d41450960d5` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:58Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -891,6 +898,13 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Returns the directory portion of path — everything up to (and possibly including) the last '/', via path.slice(0, path.lastIndexOf('/')) or similar, with a fallback (e.g. empty string) if there's no slash.
 - found: Returns everything up to and including the last '/' in path, or empty string if there's no slash.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `dirFor`
+- spec 3 · read at `47bd7aeb00b2` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:38:43Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Computes the directory string to display for a hit given the available column width colW. It first checks whether the full address (dir+file+function) fits on one line; if so, returns the untouched directory. If not, it determines whether file+function will wrap to a second line, and if so, gives the directory the full column width for itself, middle-truncating (via middleTruncate) only if it overruns that width — returning an empty string rather than a near-useless stub when even a full line isn't enough room. If colW hasn't been measured yet (e.g. 0), it falls back to returning the untouched directory path.
+- found: Computes fit in characters from colW (accounting for tile padding and monospace glyph width), returns the untouched dir if colW isn't measured yet or if dir+file+function fit on one line; otherwise the dir gets the whole line's budget and is middle-truncated only if it still overruns.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: The 'return nothing rather than a stub' behavior mentioned in the docs lives inside middleTruncate, not in dirFor itself — I initially attributed it to this function.
 
 ### `fileOf`
 - spec 3 · read at `fea493222266` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:59:01Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -910,19 +924,54 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds a horizontal linear-gradient CSS string with equal-width hard-stop segments, one per lens id, using lensColor for each; falls back to a border color for zero lenses and a plain color (no gradient) for exactly one.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
-### `lensColor`
-- spec 3 · read at `bd1c591aaba1` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:38Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Returns a CSS color string for a given lens id, delegating to `modeToken(id)` for most lenses so colors match the map's wedges/legend, but special-cases `id === 'size'` to return a neutral color since size isn't a lens/mode but describes line width.
-- found: Returns var(modeToken(id)) if id is a known mode and not 'size', otherwise falls back to muted-foreground; guards against unknown ids resolving to an undefined CSS var rather than assuming membership.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Missed the explicit membership check against MODE_LABEL (I assumed only 'size' was special-cased, not unknown ids in general) — the doc comment explains why that guard exists.
+### `fieldColor` — QUIRKY
+- spec 3 · read at `84ff9d23139a` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:35Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Looks up which lens a field id belongs to (via a helper like lensName), then delegates to lensColor using that lens's modeToken, so the pill's color matches the map's wedge color for that lens. For non-lens fields (size, read, or null) it returns a single fixed neutral color rather than computing one.
+- found: Returns a fixed neutral CSS var for a null id, otherwise just forwards the field id straight to lensColor (no separate lens-name lookup step here).
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
 
-### `Findings`
-- spec 3 · served in 2 parts · read at `fcd58621f7cd` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:00:53Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Renders the slide-out findings panel — grouped by rule/lens using peer helpers for labels and colors, lists each finding with a clickable address calling onPick, offers decide/undecide actions wired to onDecide/onUndecide with a reason, shows an "ignored" drawer from archive. While replaying is true it suppresses normal content and shows a note instead. While groups is null shows a loading state. Also renders footer text about rules that couldn't run / were ignored per the docs.
-- found: Renders the findings panel: merges per-rule hits into one tile per subject (sorted flagged-first then by size), shows a header with count and link to an "ignored" archive drawer, handles replaying/no-project/loading states, renders each tile with address, colored lens rule bar, per-rule prose (says runs), lens chips, and flag/snooze/always-fine verdict buttons that open an optional reason input (Enter files it for every rule that raised the tile), and a footer listing set-aside and blocked-rule counts.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: The merge-by-subject logic, the archive drawer, and the reason-input UX were more elaborate than a name/signature alone would suggest — the docs comments carried most of that detail.
+### `lensColor` — QUIRKY
+- spec 3 · read at `1279b03494dc` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:32:33Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Looks up or derives a color string (likely a Tailwind class) for a given lens id, probably via a switch/lookup table matching known lens categories (like bug/style/security) with a default fallback color for unrecognized ids.
+- found: Guards against unknown ids: returns a CSS var mapped through modeToken for known ColorMode ids (excluding 'size'), else falls back to a muted-foreground CSS var, avoiding an invisible/undefined swatch.
+- predicted: some · documented: full · derivable: no · legible: full · trap: no
+
+### `draftOf` — QUIRKY
+- spec 3 · read at `0703e9e06ddc` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:55Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Converts an existing RuleView into an editable Draft for the rule form, copying its title/says text and clauses into the draft shape, the populated counterpart to blankDraft for a new rule.
+- found: Copies id/title/soWhat/says/pop/clauses(stringifying clause values)/calibrated/on/builtIn from a RuleView into Draft shape, plus a wasFields snapshot of the original clause fields (presumably to detect field changes later).
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+
+### `blankDraft`
+- spec 3 · read at `42847f94419a` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:03Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Returns a default Draft object representing a new, unsaved rule with field 'loc', operator '>=', and value '100', to seed the RuleForm when creating a new rule.
+- found: Returns a full Draft object for a new rule: empty id/title/soWhat/says, pop='func', one default clause {field:'loc',op:'>=',value:'100'}, calibrated=0, on=true, builtIn=false, wasFields=[].
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `fieldsFor`
+- spec 3 · read at `f75ed503c35d` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:33Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Filters the Grammar's list of fields down to those valid for the given population ('func' or 'file') — keeping fields with no `pop` tag (valid for both) plus those whose `pop` matches the argument — and returns them as FieldView objects for use in building the rule-editing form's field picker.
+- found: Filters g.fields to those with pop === null (universal) or pop === the given population, exactly as predicted.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `spreadFor`
+- spec 3 · read at `7612d0c41867` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:41Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Returns null if f is undefined; otherwise looks up and returns the Spread value on f keyed by pop (e.g. f.spread[pop] or f.funcSpread/f.fileSpread depending on pop), giving the distribution stats relevant to the chosen population.
+- found: Returns null if f is undefined, else f.file or f.func directly (fields named exactly that, not a nested `.spread` lookup) based on pop.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `RuleForm` — QUIRKY
+- spec 3 · read at `d2f35e05e5c4` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:13Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Renders a form for creating/editing a rule against a draft state, using the grammar to determine which fields/clauses are available (likely via fieldsFor/spreadFor helpers to build dropdowns/inputs per lens). Shows the error message if present, disables Save/Delete while busy, and shows the pinned count as a warning that N existing "fine-for-now" decisions will be affected/revisited if the rule changes. Wires onSave/onCancel/onDelete/onReset to buttons, and uses set() to update the draft as the user edits fields.
+- found: Renders the full rule-editing form: title input, a population selector (func/file) that drops clauses the new population can't answer, up to 3 clauses each with field/op/value selects plus a per-clause distribution hint (median/95th/most or a 'nothing here' message), an add-clause button capped at 3, an impact ('so-what') input, an optional report-text textarea, a warning when changed clause fields will resurface pinned fine-for-now decisions, an error message, and save/cancel/delete-or-turn-off/reset-if-built-in buttons.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+
+### `Findings` — TANGLED
+- spec 3 · served in 2 parts · read at `739d06551ce5` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:35:36Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A large React panel/drawer component that renders the findings list for a project. It shows a loading/empty state while `groups` is null, refuses to render real findings while `replaying` is true (showing an explanatory message instead since findings are a claim about HEAD), and otherwise maps `groups` into per-rule sections of finding tiles, each clickable via `onPick`. It also renders a rule-editing UI (using `RuleForm` and helpers like `fieldsFor`/`spreadFor`/`blankDraft`) wired to `onSaveRule`/`onDeleteRule`/`onResetRule`, decision controls wired to `onDecide`/`onUndecide`, and a footer noting rules that couldn't be run or findings that were ignored, using `lensColor`/`fieldColor`/`lensName` for styling and `dirOf`/`fileOf`/`nameOf`/`address` for formatting locations.
+- found: A three-view drawer (findings/ignored/rules) with a view switch instead of booleans. Findings are merged by subject (one tile per function/file, not per rule that flagged it), sorted flagged-first then by size; it handles a replaying/no-project/loading gating chain before rendering; a rules view lets you click a rule card to open an inline RuleForm draft for add/edit/delete/reset with busy/error state; an ignored view lists archived non-flag decisions with undo; the findings view renders tiles with a middle-truncated monospace path (ResizeObserver-measured column width), a lens-colored rule under the heading, per-rule "says" prose, lens chips, and three verdict buttons (flag/fine-for-now/fine-always) that write decisions per matching rule with an optional reason field. A footer reports ignored count and blocked rules.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: Extremely dense doc-comments throughout explain design rationale (why merged-by-subject, why middle-truncation needed JS not CSS, why one draft at a time) — far more informative than typical inline comments, effectively documenting decisions the code alone wouldn't reveal.
 
 ## web/src/components/HistoryBar.tsx
 
@@ -990,11 +1039,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: I missed the async fetch + loading/error UI entirely and assumed a static hardcoded array; also missed that "functions parsed" isn't its own column since it's a baseline, not a per-language variable.
 
-### `LensHelp` — QUIRKY
-- spec 3 · read at `f7d74c1b789b` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:26Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A React component that renders a modal/panel listing every lens (from the file's lens reference data) in menu order, showing each lens's key, name, and description/swatch, using the small helper components (B, Ramp, Steps, Lens, Languages) as peers. It likely has a close button or backdrop click that calls onClose to dismiss the panel, and possibly keyboard handling (Escape) to close.
-- found: Renders a modal (via Overlay) with a segmented tab control switching between 'Lenses' and 'Languages' views, Escape-to-close handling, a lens-order-mapped list of ENTRIES for the lenses tab, a Languages component for the other tab, and a footer 'Done' button that also calls onClose.
-- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+### `LensHelp`
+- spec 3 · read at `e4e09a923220` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:32:45Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Renders a modal/overlay listing each lens with its key, description, and swatch/example using helper components (Ramp, Steps, Lens, Languages, B), with a close button and likely an Escape-key or backdrop-click handler that calls onClose.
+- found: A modal (via shared Overlay) with a tab switcher between 'Lenses' and 'Languages' views; Lenses tab renders per-lens help entries in LENS_ORDER, Languages tab renders a separate Languages component; footer has a Done button, and Escape key closes it via a window listener.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: The file_doc describes the lens reference content but not this component's structure (tabs, Overlay, Escape handling), so it's documentation of an enclosing concept rather than this function.
 
 ### `HelpButton`
 - spec 3 · read at `ab86dc1f8552` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:33Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -1580,11 +1630,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Sunburst.tsx
 
-### the file itself — QUIRKY — TANGLED
-- spec 3 · served in 6 parts · read at `c1e60fe4a135` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:44Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: This is the core radial sunburst chart component — the map itself. It computes wedge geometry (angle/radius) for the node tree, paints each wedge's color according to whichever lens/ramp is active (using helpers like heatColor/wedgeHeat/paintHeat from api.ts), handles pointer interactions (hover tooltips, click-to-drill, zoom/breadcrumb navigation), draws labels, and likely drives the replay/history animation frame-by-frame. Given its size (2600+ lines) it's probably the single largest and most central UI component in the app, with `outOf`/`share`/`heatShare` as small geometry or ratio helper functions supporting the main `SunburstView` component.
-- found: The main radial sunburst chart component (SunburstView, exported memoized as Sunburst): computes and animates wedge geometry (level-change keyframe zoom plus an exponential 'chase' morph for replay/fold), paints wedges via colorFor/lens, tiles functions inside file bands, draws directory rim histograms/distributions and pointing marks (traps/clones dots), handles hover/click/drill/fold/select interactions with a mask-based dimming selection highlight, renders an animated hub mascot creature with gaze tracking and a findings badge, handles file-zoom fan transitions, and shows a corner caveat chip for hidden/folded/unparsed content — far more mechanism (folding, morphing, mascot, tiling, escalated replay events) than the general 'draw and color wedges' prediction covered.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+### the file itself — QUIRKY
+- spec 3 · served in 7 parts · read at `e0f45fac8715` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:36:05Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A React component file implementing a radial "sunburst" visualization of the repo's file/function hierarchy — likely showing directories/files/functions as nested rings, colored by assessment status (grade, surprise, or warmth). Helper functions outOf/share/heatShare compute ratios (e.g., assessed fraction, heat/warmth intensity) for coloring, sectorPath builds the SVG arc path string for each wedge, FindingBadge renders a small badge for finding counts, and SunburstView is the top-level exported component that ties data to rendering plus likely handles click/hover interactions to drill into the map.
+- found: A ~3000-line React component rendering the repo's radial sunburst visualization: directories/files as rings, functions tiled inside their file's band, colored by a selectable lens (surprise, blame, age, language, traps, clones, docs). It implements a full custom zoom/drill-in and zoom-out transition system (keyframed level changes plus an exponential 'chase' for history replay and directory folding), directory folding, a findings 'dial' badge and mascot creature in the hub, hover tooltips computed by inverse geometry, selection shown via a punched-hole dimming mask, per-ring label fitting/curving, and pixel-density-aware thresholds for culling/tiling wedges too small to read or click.
+- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
 
 ### `outOf` — QUIRKY
 - spec 3 · read at `c45da41818f1` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:55:04Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -1605,12 +1655,40 @@ What this is and how to add to it: [README.md](README.md)
 - found: Under 'surprise' mode, looks up a per-kind damping value from a HEAT_BY_KIND table (defaulting to 1 if kind isn't in it); under every other mode it always returns 1 (no damping).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
+### `sectorPath`
+- spec 3 · read at `0ef7cfb94dfd` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:17Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Computes the four corner points of an annulus sector (leading/trailing edges at inner/outer radii) inset by rounding radius k, then builds an SVG path string using M/L for the straight edges and A (arc) commands for the four rounded corners plus the outer and inner arcs, tracing leading face out, outer arc, trailing face in, inner arc back — using trig (cos/sin of a0/a1) to place points and small offset angles for the corner radius k.
+- found: Builds the rounded-corner annulus-sector path using degree-based trig helpers, with an added clamp of corner radius `k` to the available "room" (half thickness, half angular span at inner radius) and a fallback to a plain unrounded sector path when the clamped radius is near zero.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: The room-clamping logic and the c<=0.01 fallback branch are not obvious from the signature/docs alone.
+
+### `FindingBadge` — QUIRKY — TANGLED
+- spec 3 · read at `6042d6780cfe` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:40:44Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Renders an SVG watch-dial overlay on the creature's hub, sized as a fraction of `box` so it scales with the mascot: a circular dial with the `count` of live findings displayed at the top (twelve o'clock) and the `rules` count as a denominator near the bottom (six o'clock), with pointer-events disabled since clicks belong to the creature above it. Probably includes some color/style logic (e.g. via heatShare/share helpers) to shade the dial based on how many findings are outstanding.
+- found: Draws an SVG watch-dial with a filled arc bar and curved text on textPath at twelve o'clock ('found N') and six o'clock ('N rules'), with extensive geometry to convert pixel widths/gaps into angles at the correct radius for each element (bars, words, numbers use different radii/baselines), single-typeface sizing derived from actual glyph widths, and color logic (notify-red for the findings count, a muted color-mix plate for the rules count) rather than any heat/severity-based shading.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
+- note: I correctly guessed the overall dial concept and pointer-events but substantially underestimated the complexity — it's almost entirely careful circular-typography math (converting linear glyph measurements to angular offsets at multiple radii), not a simple label overlay, and I wrongly assumed a heatShare-driven color scheme that isn't there.
+
 ### `SunburstView` — TANGLED
-- spec 3 · served in 5 parts · read at `fe517d226ef2` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:01Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Top-level React component rendering the whole sunburst radial map: lays out wedges from `root` (using rings/spacing/density), draws SVG arcs colored per `mode`, renders the central hub with mascot/go-up control, and wires pointer interactions for select/drill/clear. Holds substantial internal state (hover/tooltip, morph animation, memoized layout) and reacts to `reading`/`replaying` to highlight in-progress or unread nodes.
-- found: The component computes a radial sunburst layout from `root`, converting every visual threshold (arc width, patch area, rim width, fold-handle size) from pixels to user-space units via `unitsPerPx` so density is a property of the render target (screen vs export) rather than the tree. It manages a hand-rolled rAF-driven transition system for level changes (zoom in/out, becoming/leaving the hub, opening/closing files) plus an optional continuous "chase" animation that eases wedges toward a moving target (used for history replay and directory folding), all keeping per-wedge geometry in refs to avoid a React re-render per frame. On top of layout it draws: directory "rim" bands (either colored distribution histograms or single-color fills or pointing dots for traps/clones), function patches tiled inside file wedges, escalated events for replay commits that have no wedge of their own, a mascot gaze direction averaged/individuated from active reading or replay events, hover/selection rendering via a dimming mask + outline rather than a redrawn overlay, and a footer chip enumerating hidden/unparsed/folded content so the picture never silently implies completeness.
-- predicted: most · documented: full · derivable: no · legible: some · trap: no
-- note: The prop docblock is exhaustive and well-written, but is not itself the whole story — nearly all of the real design reasoning (why pixels convert to units, why the chase exists, why selection dims rather than outlines, why rim runs are computed once and shared with the tooltip) lives in inline comments inside the 2600-line body, not in the signature's docs.
+- spec 3 · served in 5 parts · read at `ce577dd664b6` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:24Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: The giant component that renders the actual sunburst visualization: lays out concentric ring wedges from root sized/colored per mode and views, handles click interactions (select/drill/clear/up), draws the central mascot/hub and its state, pulses nodes currently in `reading`, draws markers/dots for traps and clones on directory rims, applies spacing/rimShare/rings geometry, eases via morph for replay, marks derivable docs, and reports back via onWantRings/onSide which files need ring data and how large the pane is.
+- found: All the core pieces I predicted are correct (ring layout by mode/views, click handling, mascot/hub, reading pulses, trap/clone dot markers, rim geometry knobs, morph easing for replay, onWantRings/onSide reporting), but the actual body is vastly more than that: it implements a from-scratch level-change transition system (leaving/coring/entering wedges with lerped geometry), a continuous rAF 'chase' animator for morph/fold easing, file-zoom unrolling into tiling patches, per-function tiling with roll-up dot textures and stale/unreadable hatches, a rim-histogram/dot-placement algorithm with proximity merging, a selection-mask-via-evenodd-path rendering trick, custom hover/tooltip and rim-segment hit-testing done by pointer math rather than DOM events, directory folding with hatched handles, and a bottom-corner caveat chip enumerating hidden/folded/unparsed content.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+
+## web/src/components/Tabs.tsx
+
+### the file itself
+- spec 3 · read at `dcaa9e338ec1` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:35:54Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Defines a small React component (Tabs) that renders a horizontal row of tab buttons/labels, taking a list of tab items and an active tab (controlled or internal state), and calling an onChange-style callback when the user clicks a different tab. Single-purpose UI primitive with no other exports.
+- found: A generic, controlled segmented-tab-control component (Tabs<K>) taking tabs (key+word pairs), the current active key `at`, and an onPick callback; renders a recessed pill track with a highlighted selected tab, no internal state.
+- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
+- note: Docstring explains design rationale (why title-as-control, why a track background, why centering) that isn't derivable from reading the JSX alone.
+
+### `Tabs`
+- spec 3 · read at `5b8a56bc9ee5` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:33:08Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Renders a flex row (segmented control) inside a recessed/track-styled container, mapping over `tabs` to buttons showing each `word`; the button matching `at` gets a highlighted "lit pill" background/style, others are plain; clicking a button calls `onPick(k)`. Accepts `className` to let the caller control margin/centering.
+- found: Renders a role=tablist div styled as a recessed pill track (inset shadow), mapping tabs to role=tab buttons; the active one gets accent background/foreground and all get bold weight, click calls onPick.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ## web/src/components/WedgeLabel.tsx
 
@@ -1696,11 +1774,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/api.ts
 
-### the file itself — TANGLED
-- spec 3 · served in 4 parts · read at `aaa0164c68a0` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:01Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This is the web app's client-side API/data layer: functions that call the backend (or a bundled server) for project management (list/select/reorder/forget/reset projects), scanning/checking repos, reading source/functions, findings and decisions, agent reports, and CLI install status, plus event subscription helpers (onScanProgress, onSetTheme, etc). It probably also has some unrelated visualization/color-ramp helper functions (heatColor, rampAt, wedgeHeat, temperature) that got placed here rather than in a separate module, suggesting this file has grown into a general "shared utilities" dumping ground beyond just API calls.
-- found: A large client-side data layer: wire-format type mirrors of the Rust backend (Node, Score, ProjectSummary, Findings, AgentReport, etc.), snake_case-to-camelCase normalization (toNode/toScan), Tauri invoke wrappers for every backend command (projects, scanning, tracing, findings/decisions, agent reports, blame/history, CLI install), tree aggregation logic that mirrors Rust's Node::aggregate (reaggregate/applyScores/readInto/applyAgentReports), grade-to-word/number vocabulary tables (HEAT_WORDS, LEGIBLE_WORDS, DOC_WORDS, GRADE_SURPRISE), a repo-wide summarize() function, and color-ramp/heat helper functions (temperature, wedgeHeat, shareRamp, paintHeat, heatColor, rampAt) that compute what colors wedges on the visualization.
-- predicted: most · documented: none · derivable: yes · legible: some · trap: no
+### the file itself
+- spec 3 · served in 4 parts · read at `a794ff7b16e2` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:33:25Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This file is the frontend's single bridge to the Rust backend: thin wrapper functions (scanRepo, listProjects, readSource, saveRule, functionHistory, etc.) that call Tauri's `invoke` for every command registered in lib.rs's invoke_handler, plus listeners for backend-emitted events (onScanProgress, onSetTheme, onOpenProject). It also seems to accumulate a chunk of unrelated domain/view logic — heat/color ramp functions for the visualization (temperature, wedgeHeat, heatColor, rampAt), report aggregation (applyAgentReports, reaggregate, summarize), and tree-shaping helpers (toNode, pruneExcluded, localityOf) — making it a big "api + model glue" grab-bag file rather than a pure API client, with no file-level doc comment explaining that scope.
+- found: It is the frontend's single bridge to the Rust backend (thin invoke() wrappers for every command, plus event listeners), but that's a small fraction of the file's bulk. The overwhelming majority is the shared type/data-model definitions (Node, Score, ProjectSummary, Finding, RuleView, AgentReport, etc.) that mirror the Rust structs field-by-field with wire-format conversion (toNode/toScan snake_case→camelCase), plus tree-aggregation logic (reaggregate, applyScores, applyAgentReports, summarize) and color-ramp/heat calibration helpers (temperature, wedgeHeat, shareRamp, heatColor) — all deliberately centralized here (per extensive inline comments) so the map, panel, and legend can never disagree about what a number or color means.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
 
 ### `languages`
 - spec 3 · read at `8b90410603f0` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:54:20Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -1902,11 +1980,30 @@ What this is and how to add to it: [README.md](README.md)
 - found: Thin wrapper: invoke<Hit[]>('search_project', { key, query, limit }).
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `projectFindings`
-- spec 3 · read at `6e081bbcd35a` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:02:00Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: A thin wrapper that calls Tauri's invoke('project_findings', { project: key }) and returns the resulting FindingGroup[] promise, mirroring the other api.ts wrapper functions.
-- found: Invokes the Tauri command 'project_findings' with { key } and returns the FindingGroup[] promise.
-- predicted: full · documented: some · derivable: no · legible: full · trap: no
+### `projectReport`
+- spec 3 · read at `60480ff53d4a` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:35:47Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A thin wrapper that calls the Tauri `invoke` bridge (e.g. invoke("project_report", { key })) to fetch and return a ProjectReport for the given project key from the Rust backend, with no extra logic.
+- found: Thin wrapper calling invoke('project_report', { key }) to fetch a ProjectReport from the Rust backend, exactly as predicted.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `saveRule` — QUIRKY
+- spec 3 · read at `5af7c36fbc3f` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:04Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A thin API wrapper that POSTs (or PUTs) the RuleEdit payload to a backend endpoint like `/api/projects/${project}/rules`, likely via a shared fetch helper. If the response is not ok, it reads the JSON body's error/reason field and rejects/throws with that message rather than a generic HTTP error, matching the "rejects with the reason" doc.
+- found: It's a one-line wrapper delegating to a generic `invoke` helper (Tauri-style IPC) with command name 'save_rule' and the project/rule args, not a direct fetch/HTTP call as I guessed.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: The reject-with-reason behavior lives inside invoke/backend, not visible in this function body.
+
+### `deleteRule`
+- spec 3 · read at `df0f83a3fa77` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:42Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Thin wrapper that calls the backend (Tauri invoke or fetch) with project and id to delete/silence a rule, returning a Promise<void>; matches the pattern of sibling API functions like saveRule/resetRule.
+- found: Thin wrapper invoking the Tauri 'delete_rule' command with project and id, returning Promise<void>.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `resetRule`
+- spec 3 · read at `b4622828eeaf` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:45Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Thin wrapper that calls Tauri's invoke("reset_rule", { project, id }) to delete the local override for that rule id so it falls back to the built-in catalog definition and default threshold, resolving to void.
+- found: Thin wrapper invoking the Tauri command 'reset_rule' with project and id, resolving to void, exactly as expected.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `decideFinding`
 - spec 3 · read at `ce72779d2562` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:02:15Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -2761,10 +2858,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/ink.ts
 
 ### the file itself
-- spec 2 · read at `def5ec74d317` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:06:08Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: A small color-math library: srgb/luminance/contrast implement WCAG-style relative luminance and contrast ratio calculations, over composites a color over a background, resolve turns a CSS color or var into concrete RGB values, theme reads the app's current theme as a fallback, and inkOn(backgroundColor) is the exported function that picks light or dark ink for a label based on which achieves sufficient contrast against that specific wedge's color rather than the app's theme setting.
-- found: Exports fixed PAPER/INK literals (not theme-flipped) and inkOn(token, alpha) which resolves a CSS custom property to a hex color, composites it over the background at the wedge's fillOpacity, computes WCAG luminance/contrast against both PAPER and INK, and returns whichever contrasts more — falling back to CHROME_INK (var(--foreground)) when the token can't be resolved to a plain hex value (e.g. a color-mix). Results are cached keyed by theme+token+alpha since theme is the only thing that invalidates a resolved custom property.
+- spec 3 · read at `db4d924c4833` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:33:13Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Per-wedge ink-color selection based on measured contrast against the wedge's actual fill color rather than a single global foreground color: srgb/luminance compute WCAG relative luminance, contrast computes the contrast ratio between two colors, over does alpha compositing, resolve turns a color string/CSS var into concrete RGB, theme reads the current light/dark theme, and inkOn/inkOnHex pick whichever of two candidate inks yields better contrast on a given background.
+- found: inkOn/inkOnHex pick between two fixed literal colors (PAPER/INK, deliberately not theme-flipping) based on WCAG contrast against a resolved custom-property or hex background, with inkOn also compositing alpha over the pane background via `over`; resolve reads a CSS custom property off the root and rejects anything not a plain hex; results are cached per theme since theme is the only thing that invalidates a resolved token.
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: The header explains why PAPER/INK are theme-independent literals rather than var(--foreground)-style tokens, which is a non-obvious design decision the code alone wouldn't fully justify.
 
 ### `inkOn`
 - spec 2 · read at `80e76d1ad85c` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:44:02Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -2772,6 +2870,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds a cache key from theme+token+alpha and returns cached result if present. Resolves the token and background color to hex; computes the composited luminance (or plain luminance if alpha>=1 or background missing). Picks PAPER or INK by comparing contrast ratios, or CHROME_INK if the color didn't resolve. Caches and returns.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: Missed the memoization cache entirely; got the compositing/contrast decision logic right.
+
+### `inkOnHex`
+- spec 3 · read at `855923364dae` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:35:44Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Validates that `hex` is a 6-digit hex color (regex), and if not returns some CSS var fallback for foreground ink. If valid, converts it to sRGB, computes luminance, and compares contrast against paper/ink (light/dark) candidates using the same `contrast`/`over` helpers as `inkOn`, returning whichever of two fixed ink colors (likely black/white or light/dark theme tokens) gives better contrast on that background.
+- found: Validates 6-digit hex, falls back to CHROME_INK if not; otherwise computes luminance and picks PAPER or INK, whichever has higher contrast against the given color.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `theme`
 - spec 2 · read at `92ea90ceffc7` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:03:28Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -2830,11 +2934,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/label.ts
 
 ### the file itself
-- spec 2 · read at `0d1a191b1b3f` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:01:40Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: A small geometry/text-fitting module for sunburst wedge labels: `widthPerPx` estimates the average pixel width of a character for measuring how much text fits, `middleTruncate` truncates a string in the middle (preserving start and end, replacing the middle with an ellipsis) to fit a given pixel budget, and `fitLabel` is the main exported function that picks whether a label runs along the arc or along the radius based on the wedge's width-vs-depth shape, then truncates accordingly and returns positioning/orientation info for rendering.
-- found: Confirmed the three functions do what I predicted at a high level, but fitLabel is considerably more involved: it computes max sizes for both arc and radial axes (capping arc size by an allowed bend in radians, centering the radial run and solving a fixed-point equation for its size), prefers the axis matching the wedge's own shape, falls back to the other axis if the preferred one can't hold the full name at all, and only as a last resort middle-truncates on the shape's own axis down to a length/character floor (MIN_KEPT/MIN_SHARE) before giving up and drawing nothing.
+- spec 3 · read at `0eb418fffc7e` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:32:59Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A file of geometry/text-fitting helpers for chart wedge labels: widthPerPx converts between pixel and data-unit scale, monoAdvance measures monospace text width, middleTruncate shortens a string with a middle ellipsis to fit a width, and fitLabel is the entry point that picks arc-vs-radial orientation per wedge shape and returns the truncated label plus orientation for rendering.
+- found: A label-fitting module for polar/annular wedges: widthPerPx measures real canvas text width per em (cached, with a headless fallback); monoAdvance measures monospace glyph width; middleTruncate shortens with an ellipsis in the middle to preserve distinguishing suffixes; fitLabel decides arc-vs-radial axis by wedge shape (preferring the shape's natural axis, falling back to the other), computes max legible size under bend/depth/arc constraints, centers radial labels via a solved fixed-point equation, and only as a last resort truncates the middle down to a floor of characters/share, returning null if nothing legible fits.
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: File header and inline comments are unusually extensive design-history prose (why axis is chosen by shape not size, why bend is capped, why truncation is middle not tail) — none of that reasoning is derivable from the code alone.
+- note: The header doc is unusually thorough (explains the history of wrong approaches and the exact rationale for constants like LINE=1.7, PAD=0.9, DEFAULT_BEND=0.9), essentially full coverage of the file's design intent.
 
 ### `widthPerPx`
 - spec 3 · read at `ba81f995f47e` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:56:24Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -2849,6 +2953,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Returns name unchanged if it fits; returns empty string if keep is below a minimum threshold; otherwise splits keep between head (ceil half) and tail, joining with an ellipsis.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: Didn't anticipate the MIN_KEPT empty-string case, but the core middle-truncation logic matched exactly.
+
+### `monoAdvance`
+- spec 3 · read at `2695f51c1098` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:35:43Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Measures the width of a monospace character using a canvas 2D context (measureText) with the same font stack as the .mono CSS class, caches the result in a module-level variable so it's computed once, and returns a fallback of 0.6 if no canvas is available (e.g., SSR/headless environment).
+- found: Lazily creates a canvas 2D context (module-level cache), measures the width of '0' at a reference font size using the same monospace font stack as .mono, caches the per-em advance ratio in a module-level variable, and returns 0.6 as a fallback when no canvas is available.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: The doc explains the 'why' (portability across machines, headless fallback) which isn't obvious from the code alone.
 
 ### `fitLabel` — TANGLED
 - spec 3 · read at `8a2b8a484244` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:43:48Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
