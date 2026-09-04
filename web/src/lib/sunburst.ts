@@ -409,6 +409,8 @@ function aggregate(fns: Node[], filePath: string): Node {
     signature: null,
     owner: null,
     lastAuthor: first.lastAuthor,
+    mainAuthor: first.mainAuthor,
+    headcount: first.headcount,
     body: null,
     hotspots: [],
     // What makes this a collection rather than a function, everywhere color is decided.

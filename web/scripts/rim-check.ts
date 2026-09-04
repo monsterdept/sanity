@@ -160,6 +160,7 @@ console.log('absence — a band says what it knows, not what the repo is')
     age: { span: 900, read: 'newest' as const },
     churn: { windows: [30, 60, 90, 180] as [number, number, number, number], at: 2, measured: true },
     tangle: 'weighted' as const,
+    blame: 'touched' as const,
   }
   for (const mode of ['age', 'churn'] as const) {
     const rows = bucketsFor(dir([file([func(100, null), func(50, null)])]), mode, undefined, walked)
@@ -395,6 +396,7 @@ console.log('a container draws its distribution, not its mean')
     age: { span: 900, read: 'newest' as const },
     churn: { windows: [30, 60, 90, 180] as [number, number, number, number], at: 2, measured: true },
     tangle: 'weighted' as const,
+    blame: 'touched' as const,
   })
   const slices = hist.get('d') ?? []
   check(
@@ -495,6 +497,7 @@ console.log('columns — a file whose ring never arrived still bands, and does n
       age: { span: 900, read: 'newest' as const },
       churn: { ...ladder, at },
       tangle: 'weighted' as const,
+    blame: 'touched' as const,
     }
     const rows = bucketsFor(dir([file]), 'churn', undefined, views)
     check(
@@ -518,6 +521,7 @@ console.log('columns — a file whose ring never arrived still bands, and does n
       age: { span: 900, read: 'newest' as const },
       churn: { ...ladder, at },
       tangle: 'weighted' as const,
+    blame: 'touched' as const,
     }
     const rows = bucketsFor(dir([file]), 'churn', undefined, views)
     return rows.find((b) => b.lines === 100)?.label
@@ -562,6 +566,7 @@ console.log('roll-ups — and the time tally puts a folded file in its own band'
     age: { span: 900, read },
     churn: { ...ladder, windows: [...ladder.windows] as [number, number, number, number] },
     tangle: 'weighted' as const,
+    blame: 'touched' as const,
   })
 
   const aged = bucketsFor(dir([folded]), 'age', undefined, views('newest'))

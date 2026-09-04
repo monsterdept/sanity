@@ -86,6 +86,21 @@ pub enum Field {
     /// `documented` high is well documented, `surprise` high is more surprising — so the fix
     /// is the name rather than the scale.
     Legible,
+    /// How many people's lines are standing in this body — see `Node::headcount`.
+    ///
+    /// **The one field with no lens behind it, and that is deliberate.** Every other field
+    /// here is a quantity the map already paints, on the rule that a finding is a place two
+    /// PICTURES disagree. This one is the third reduction of blame's line list, and blame
+    /// paints names rather than counts: a ramp of headcounts under a categorical lens would
+    /// be a fourth thing on a switch that has three, and the number's value is as a CLAUSE
+    /// rather than as a colouring. `read` is already the precedent — a field with no lens,
+    /// because an absence of readings is not a picture.
+    ///
+    /// **And it is the shape the two held blame rules need.** A rule may not name a person —
+    /// that is a rule about what a thing is CALLED, which this grammar refuses — but it can
+    /// count them: `headcount <= 1 and callers >= 20` is *load-bearing, and only one person
+    /// has been in it*, with nobody named anywhere. See `TODO.md`.
+    Headcount,
     /// 1 where the reader marked something that will bite whoever edits this next.
     ///
     /// A MARK rather than a grade — a body either carries one or it does not — which is why
@@ -112,6 +127,7 @@ impl Field {
             // `legible` is accepted and means the same thing: it is what this field was
             // called in files written before the name was found to be backwards.
             "illegible" | "legible" => Field::Legible,
+            "headcount" | "hands" => Field::Headcount,
             "trap" | "traps" => Field::Trap,
             _ => return None,
         })
@@ -133,6 +149,7 @@ impl Field {
             Field::Surprise => "surprise",
             Field::Documented => "documented",
             Field::Legible => "illegible",
+            Field::Headcount => "headcount",
             Field::Trap => "trap",
         }
     }
@@ -158,7 +175,9 @@ impl Field {
             Field::Documented => "docs",
             Field::Legible => "legible",
             Field::Trap => "traps",
-            Field::Read => return None,
+            // Blame paints NAMES; this is a count of them, which no lens draws. See the
+            // variant, where the case for leaving it lensless is made.
+            Field::Headcount | Field::Read => return None,
         })
     }
 
@@ -172,9 +191,9 @@ impl Field {
     /// **The array in `Facts` is indexed by discriminant, so this must cover every variant**,
     /// not just the ones a form offers. `Trap` is absent from `ALL` and present here; a count
     /// taken from `ALL.len()` would index out of bounds the first time a trap was measured.
-    pub const COUNT: usize = 15;
+    pub const COUNT: usize = 16;
 
-    pub const ALL: [Field; 14] = [
+    pub const ALL: [Field; 15] = [
         Field::Loc,
         Field::Funcs,
         Field::Callers,
@@ -185,6 +204,7 @@ impl Field {
         Field::AgeDays,
         Field::TouchedDays,
         Field::Commits,
+        Field::Headcount,
         Field::Read,
         Field::Surprise,
         Field::Documented,
@@ -198,9 +218,15 @@ impl Field {
     pub fn pop(self) -> Option<Pop> {
         match self {
             Field::Funcs => Some(Pop::File),
-            Field::Read | Field::Surprise | Field::Documented | Field::Legible | Field::Trap => {
-                Some(Pop::Func)
-            }
+            // A file's lines are its functions' lines pooled, so a file-level headcount would
+            // say every function in `App.tsx` was written by the same four people. Blame reads
+            // ranges; this is a question about a range.
+            Field::Headcount
+            | Field::Read
+            | Field::Surprise
+            | Field::Documented
+            | Field::Legible
+            | Field::Trap => Some(Pop::Func),
             _ => None,
         }
     }
@@ -551,6 +577,14 @@ impl Facts {
 pub struct Traced {
     pub git: bool,
     pub churned: bool,
+    /// Whether blame was read per LINE, which is `Depth::Lines` and not `Depth::Files`.
+    ///
+    /// **Its own flag because it gates a different question.** The log gives every file an
+    /// age, a churn and a last author; only blame gives a FUNCTION a headcount, and a repo
+    /// traced to files has git in every sense the other two fields mean and none of the sense
+    /// this one does. Without the distinction a headcount rule on a log-traced repo finds
+    /// nothing and says nothing, which is silence standing in for a clean bill.
+    pub blamed: bool,
 }
 
 /// What a finding is never about, and why.
@@ -722,6 +756,11 @@ fn facts_of(node: &Node, key: &str, report: Option<&Report>, traced: Traced) -> 
         set(Field::Funcs, Some(held.max(node.funcs) as f32));
     }
     set(Field::Callers, node.callers.map(|x| x as f32));
+    // **`None` and never zero where blame has not read this range.** A zero would be a claim
+    // that nobody's lines are here, which is a confident answer to a question nobody asked —
+    // and `headcount <= 1` would then be true of every function in an untraced repo. The
+    // absence stays an absence; `blocked` is what says why.
+    set(Field::Headcount, node.headcount.map(|x| x as f32));
     set(Field::Calls, node.calls.map(|x| x as f32));
     set(Field::CloneSize, node.clone_size.map(|x| x as f32));
     if let Some(s) = node.score.as_ref() {
@@ -1089,6 +1128,12 @@ pub fn blocked(rule: &Rule, facts: &[Facts], traced: Traced, read: bool) -> Opti
         if c.field == Field::Commits && !traced.churned {
             return Some("the timeline has not been walked".into());
         }
+        // Named rather than left to the catch-all below, which would say "nothing here has a
+        // headcount to compare" — true, and no help. This one has a fix and the sentence is
+        // where somebody finds out what it is.
+        if c.field == Field::Headcount && !traced.blamed {
+            return Some("git history has not been read per line".into());
+        }
         // Whatever is left: the field exists for this population and nothing has one. On
         // Callers and Reach that is a language whose call shape was never parsed, which is
         // exactly the gray the map paints rather than a zero.
@@ -1300,8 +1345,7 @@ fn view_of(
         population: facts
             .iter()
             .filter(|f| {
-                f.subject.kind
-                    == if r.pop == Pop::File { NodeKind::File } else { NodeKind::Func }
+                f.subject.kind == if r.pop == Pop::File { NodeKind::File } else { NodeKind::Func }
             })
             .count(),
         title: r.title.clone(),
@@ -1492,6 +1536,10 @@ fn mint_id(title: &str, live: &[Rule]) -> String {
 pub fn catalog() -> Vec<Rule> {
     let ge = |field, value| Clause { field, op: Op::Ge, value };
     let lt = |field, value| Clause { field, op: Op::Lt, value };
+    // `<=` is used by exactly one rule and is still worth the line: `headcount <= 1` says
+    // *one pair of hands*, where `< 2` says the same thing and makes the reader do the
+    // arithmetic to find out.
+    let le = |field, value| Clause { field, op: Op::Le, value };
     let rule = |id: &str, title: &str, so_what: &str, says: &str, pop, clauses, calibrated| Rule {
         id: id.to_string(),
         title: title.to_string(),
@@ -1690,6 +1738,43 @@ pub fn catalog() -> Vec<Rule> {
             Pop::Func,
             vec![ge(Field::Tangle, 0.8), ge(Field::Loc, 40.0)],
             1,
+        ),
+        // ── Blame's other two reductions ───────────────────────────────────────────────
+        //
+        // **Both count people and neither names one.** A rule that named somebody would be a
+        // rule about what a thing is CALLED, which this grammar refuses — see `Field::pop` and
+        // the note. `headcount` is the count of whose lines are standing, and these are the two
+        // ends of it: nobody else has been here, and a lot of people have.
+        //
+        // **Blocked without `sanity trace --lines`**, which is a rung most repos are not
+        // traced to. That is stated rather than silent: `blocked` names the fix.
+        rule(
+            "one-pair-of-hands",
+            "Load-bearing, and one pair of hands",
+            "Widely depended on, and only one person's lines are in it.",
+            "{{callers}} things call this, and every line of it was last touched by the same person. That is fine until they are unavailable.",
+            Pop::Func,
+            // **`callers` calibrates, not `headcount`.** Tightening a `<=` means lowering it,
+            // and below one is nothing — a clause that cannot be tightened is a clause
+            // calibration would give up on, leaving the rule at whatever the catalog shipped.
+            vec![le(Field::Headcount, 1.0), ge(Field::Callers, 10.0), ge(Field::Loc, 10.0)],
+            1,
+        ),
+        rule(
+            "many-hands-knotty",
+            "Many hands, and knotty",
+            "Several people have been in something more complicated than its length accounts for.",
+            "{{headcount}} people's lines are standing in this, and for {{loc}} lines it branches more than almost anything else here. Everyone who touched it had to hold that shape in their head.",
+            Pop::Func,
+            // **Paired with `tangle` rather than with `loc`, and that is the whole design.** A
+            // headcount rises with size — a 362-line function has more hands than a 10-line
+            // one because it has more lines to touch — so `headcount >= 6 and loc >= 10` is
+            // mostly a long-function rule wearing a headcount. `tangle` is already measured
+            // against the other bodies its size in this repo, so the conjunction says
+            // something size does not: on htop it cuts `tangle >= 0.8` from 47 hits to 10, and
+            // on ceph 86,269 functions down to 581.
+            vec![ge(Field::Headcount, 4.0), ge(Field::Tangle, 0.8), ge(Field::Loc, 10.0)],
+            0,
         ),
     ]
 }
@@ -2320,7 +2405,8 @@ mod tests {
             assert_eq!(back.name(), f.name, "`{}` does not round-trip", f.name);
         }
         for op in &g.ops {
-            let back = super::Op::parse(op).unwrap_or_else(|| panic!("`{op}` is offered and does not parse"));
+            let back = super::Op::parse(op)
+                .unwrap_or_else(|| panic!("`{op}` is offered and does not parse"));
             assert_eq!(back.name(), *op);
         }
     }
@@ -2415,7 +2501,7 @@ mod tests {
         let mut root = Node::dir("", "repo");
         root.children = files;
         let reports = HashMap::new();
-        let traced = Traced { git: true, churned: true };
+        let traced = Traced { git: true, churned: true, blamed: true };
 
         let t = Instant::now();
         let facts = subjects(&root, &reports, traced);
@@ -2462,7 +2548,8 @@ mod tests {
         let reports = HashMap::new();
 
         // No git read at all: an age clause cannot be answered, so it cannot fire.
-        let untraced = subjects(&tree, &reports, Traced { git: false, churned: false });
+        let untraced =
+            subjects(&tree, &reports, Traced { git: false, churned: false, blamed: false });
         let old = Rule::parse("func: age >= 1").expect("parses");
         assert_eq!(hits(&old, &untraced).len(), 0);
 

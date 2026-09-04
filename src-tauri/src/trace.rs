@@ -54,7 +54,11 @@ use crate::scan::Scan;
 /// traced to `Files` says every function in a file has its file's numbers; one traced to
 /// `Lines` says they are the function's own. Presenting either as the other is the map
 /// claiming a resolution nobody paid for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+/// **Ordered, because the rungs nest.** `Lines` is everything `Files` has and more, so
+/// "traced at least this deep" is the question callers actually ask — and asking it as a
+/// chain of `matches!` is the same ladder written out again somewhere else, which is where a
+/// rung gets forgotten.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Depth {
     /// No git at all. Age, churn, commits and authors are absent — which is NOT the same
@@ -642,6 +646,15 @@ pub(crate) struct FuncTrace {
     pub commits: [u32; 4],
     pub last_touched_days: Option<f32>,
     pub last_author: Option<String>,
+    /// Whose lines most of this body is, and how many people's lines are in it — see
+    /// [`crate::blame::RangeHistory`], where the three reductions are named.
+    ///
+    /// **Blame's alone, and `None` without it.** They are counts over a function's OWN lines,
+    /// which the commit log cannot answer: it knows who touched a FILE, and a file's headcount
+    /// stood in for its functions' would say every function in `App.tsx` was written by the
+    /// same four people. A missing count is honest; a borrowed one is not.
+    pub main_author: Option<String>,
+    pub headcount: Option<u32>,
 }
 
 impl<'a> FileTrace<'a> {
@@ -701,6 +714,8 @@ impl<'a> FileTrace<'a> {
                 commits,
                 last_touched_days: Some(h.last_touched_days),
                 last_author: Some(h.last_author.clone()).filter(|a| !a.is_empty()),
+                main_author: Some(h.main_author.clone()).filter(|a| !a.is_empty()),
+                headcount: Some(h.headcount).filter(|n| *n > 0),
             },
             None => FuncTrace {
                 churn,
@@ -708,6 +723,11 @@ impl<'a> FileTrace<'a> {
                 commits,
                 last_touched_days: self.last_touched_days,
                 last_author: self.last_author.clone(),
+                // The file's own last author still stands in for a function blame could not
+                // read — one name at a coarser resolution is the same KIND of answer. A
+                // headcount is not: see the field.
+                main_author: None,
+                headcount: None,
             },
         }
     }
@@ -786,6 +806,11 @@ fn apply_to(
             let (Some(start), Some(end)) = (child.line, child.end_line) else { continue };
             let t = file.func(&child.name, ords[i], start, end);
             child.last_author = t.last_author.clone();
+            // The other two reductions of the same slice — see `RangeHistory`. Written here
+            // as well as in `scan`, because a tree can arrive either way: folded with a trace
+            // already in hand, or folded cold and traced afterwards.
+            child.main_author = t.main_author.clone();
+            child.headcount = t.headcount;
             if let Some(score) = child.score.as_mut() {
                 score.churn = t.churn;
                 score.age_days = t.age_days;

@@ -1274,6 +1274,8 @@ function dirNode(path: string, name: string): Node {
     lang: null,
     excluded: false,
     lastAuthor: null,
+    mainAuthor: null,
+    headcount: null,
     // Never a doc. History replays the commit stream's structure — see the module note on
     // what a frame is allowed to claim — and a comment is a reading's input, not a fact
     // about a commit.
@@ -1712,6 +1714,8 @@ export function frameTree(
         lang: hist.langs[def.path] || null,
         excluded: false,
         lastAuthor: null,
+    mainAuthor: null,
+    headcount: null,
         score: null,
         body: null,
         hotspots: [],

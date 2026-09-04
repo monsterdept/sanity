@@ -163,6 +163,13 @@ export interface Node {
   bytes: number | null
   /** Who last committed to this file. */
   lastAuthor: string | null
+  /** Whose lines most of this body IS — blame's second reduction, and `null` without per-line
+   *  blame. A different question from `lastAuthor` and frequently a different answer. */
+  mainAuthor: string | null
+  /** How many people's lines are standing in this body. `null` without per-line blame, never
+   *  0 — which would be a claim that nobody wrote it. Not painted by any lens; it is a
+   *  findings field. See `TODO.md`. */
+  headcount: number | null
   /** The comment attached to this node: a function's own doc, or a FILE's module header.
    *
    *  Already on the wire — `Node::doc` has been serialised all along — and dropped here,
@@ -597,6 +604,8 @@ interface WireNode {
   bytes?: number | null
   excluded?: boolean
   last_author: string | null
+  main_author?: string | null
+  headcount?: number | null
   unparsed?: number
   doc?: string | null
   signature?: string | null
@@ -677,6 +686,8 @@ function toNode(w: WireNode): Node {
     lang: w.lang ?? null,
     excluded: w.excluded ?? false,
     lastAuthor: w.last_author ?? null,
+    mainAuthor: w.main_author ?? null,
+    headcount: w.headcount ?? null,
     doc: w.doc ?? null,
     signature: w.signature ?? null,
     owner: w.owner ?? null,

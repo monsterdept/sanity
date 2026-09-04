@@ -40,10 +40,18 @@ of the first. Whichever it paints, the other belongs in the panel — and "how m
 is a third reading again, which is the contention signal `docs/notes/time.md` records as
 measured nowhere.
 
-**HELD, and the reason to hold it is a product question rather than a cost.** "I am not sure
-why someone would want a tool that has both blame and this new metric. Better be sure before
-we build it." Two things were established while deciding that, and both should survive the
-hold:
+**BUILT.** The hold below was a product question — "I am not sure why someone would want a
+tool that has both blame and this new metric. Better be sure before we build it." — and what
+answered it is the distinction the hold was taken without: they are not a second metric. They
+are two more reductions of the list blame already reads, and the third one's value is as a
+findings CLAUSE rather than as a colouring.
+
+What shipped: `RangeHistory` gained `main_author` and `headcount`, `Node` carries both
+(`treecache` VERSION 16), Blame has a `most lines` reading beside `last touched`, and the
+catalog has `one-pair-of-hands` and `many-hands-knotty`. Everything below is kept as the
+reasoning, and each claim now says how it landed.
+
+Two things were established while deciding the hold, and both survived it:
 
 - **It is not a second measurement, it is a second REDUCTION, and it is nearly free.** Both
   readings start from one list — every line in the range, with the name of whoever last
@@ -51,6 +59,9 @@ hold:
   names and reports the biggest pile. `FileBlame.lines` already holds that list in memory and
   `range` already slices it, so this is the same slice counted instead of maxed. Nothing
   needs a new pass and nothing needs `range_detail`, which shells out per function.
+  *Done: `FileBlame::range` counts the slice it was already walking, into a `Vec` indexed by
+  the file's own author index rather than a map — the index is dense and small because it is a
+  position in that file's cast, not the repo's.*
 - **Do not call it Ownership.** Blame records who touched each line LAST, so a function
   rewritten wholesale reads as new and everyone whose lines were replaced is gone — not
   diminished, gone. Counting those names measures who holds what is standing now, which is
@@ -58,6 +69,8 @@ hold:
   authorship over time is `git log -L`, refused here on cost like everything else in this
   module. The honest pair is "last touched by" and "most lines here": a timestamp and a
   headcount, neither of them authorship.
+  *Done: the lens is still Blame, the reading is `most lines`, and the field is `headcount`.
+  Author was proposed and refused for exactly this reason — it is Ownership one step along.*
 
 **Three reductions, not two, and the `max` is not the one it sounds like.** The input is one
 list: every line in the range, with the name of whoever last touched that line. What differs
@@ -112,9 +125,19 @@ paragraphs up: *a timestamp and a headcount, neither of them authorship*. One wo
 pulldown and in the clause, because two names for one number is where drift starts.
 
 Their value is as clauses rather than as a lens, which is the last piece of the product
-answer: `headcount >= 5` alone is a number of people, and `headcount >= 5 and surprise >= 0.7`
-is *several people are editing something nobody could predict*, which neither half says. See
-`docs/notes/findings.md`, where the rules are recorded as absent and this is why.
+answer: `headcount >= 5` alone is a number of people, and a conjunction says something neither
+half does. What shipped pairs it with `tangle` rather than with `surprise` — surprise needs a
+reading pass and the count needs per-line blame, and a rule wanting both is a rule almost
+nobody can run. `tangle` is tier 1 and, being measured against the other bodies its size, it
+is the clause that stops a headcount rule from being a long-function rule in disguise: a
+362-line body has more hands because there is more of it to touch. See
+`docs/notes/findings.md`, where the two rules and their numbers on four repos are recorded.
+
+**One thing the build added that the argument had not:** `Traced` gained `blamed`, because a
+repo traced to `Depth::Files` has git in every sense the age and churn fields mean and none of
+the sense this one does. Without it a headcount rule on a log-traced repo finds nothing and
+says nothing, which is silence standing in for a clean bill — so `blocked` names the fix
+instead: *git history has not been read per line*.
 
 **The panel's rows printed one number and were sorted by another — fixed.** `sortBuckets`
 orders blame by `b.lines` while the row printed `b.count`, which is why the column read

@@ -115,7 +115,14 @@ use std::path::{Path, PathBuf};
 ///    opens by naming, arriving through the door built to close it. `#[serde(default)]` on a
 ///    `Vec` means EMPTY, and empty here reads as "no function in this file has a branch table",
 ///    which is a confident answer nobody computed.
-const VERSION: u32 = 15;
+/// 16: `Node` gained `main_author` and `headcount`, the two reductions of a function's blame
+///    that are not its last toucher — whose lines most of it IS, and how many people's lines
+///    are standing in it. Both are `#[serde(default)]` `Option`s, so a version-15 tree loads
+///    with them absent, which is exactly what a repo that has not been blamed reports and is
+///    therefore indistinguishable from it. That is the whole reason this is a bump rather than
+///    a silent addition: a rule reading `headcount <= 1` would find nothing on a cached tree
+///    and report it as a clean bill, which is the failure this surface is written against.
+const VERSION: u32 = 16;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

@@ -7,7 +7,7 @@ import {
   WIDTH_MIN,
   type Spacing,
 } from '../lib/spacing'
-import { CAPS, type AgeRead, type TangleRead } from '../lib/colorMode'
+import { CAPS, type AgeRead, type BlameRead, type TangleRead } from '../lib/colorMode'
 import { inkOn } from '../lib/ink'
 import { useState } from 'react'
 import { capLabel, type Capped } from '../lib/palette'
@@ -729,6 +729,46 @@ export function TangleReading({
             glyph on it reads as a second thing rather than as part of the control. */}
         <rect x="0" y="1" width="13" height="2.6" rx="1.3" fill="currentColor" />
         <rect x="0" y="5.4" width="7" height="2.6" rx="1.3" fill="currentColor" opacity={0.7} />
+      </svg>
+    </LensToggle>
+  )
+}
+
+/** Which of Blame's two reductions the map paints.
+ *
+ * **Two readings of one measurement, not two measurements** — which is the same shape Age's
+ * switch has and the reason this sits beside it: every line of a function carries the name of
+ * whoever touched it LAST, and the two readings take the newest of those or the biggest pile.
+ * They disagree often. A typo fix in a four-hundred-line body makes somebody its last toucher
+ * while they hold one line of it.
+ *
+ * Left of the spacer with the other three, on the rule they all follow: what it changes is
+ * what the COLOUR MEANS, not what is drawn.
+ */
+export function BlameReading({
+  read,
+  onRead,
+}: {
+  read: BlameRead
+  onRead: (r: BlameRead) => void
+}) {
+  const on = read === 'lines'
+  return (
+    <LensToggle
+      on={on}
+      onToggle={(v) => onRead(v ? 'lines' : 'touched')}
+      word="most lines"
+      title={
+        on
+          ? 'Colour by who touched each wedge most recently instead — a timestamp with a name on it.'
+          : 'Colour by whose lines most of each body IS. Not ownership: blame reports who touched each line last, so a body rewritten wholesale reads as new and everyone whose lines were replaced is gone.'
+      }
+    >
+      {/* Three bars of different lengths, the longest lit: a pile being compared to piles. */}
+      <svg width="13" height="9" viewBox="0 0 13 9" aria-hidden>
+        <rect x="0" y="0.5" width="7" height="2.2" rx="1.1" fill="currentColor" opacity={0.55} />
+        <rect x="0" y="3.4" width="13" height="2.2" rx="1.1" fill="currentColor" />
+        <rect x="0" y="6.3" width="4" height="2.2" rx="1.1" fill="currentColor" opacity={0.55} />
       </svg>
     </LensToggle>
   )

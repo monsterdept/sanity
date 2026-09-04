@@ -1781,6 +1781,19 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
         }
     };
     let scans = crate::scancache::ScanCache::open(&path);
+    // **The log walk by default, not per-line blame.** Blame is what `budgets.md` measures at
+    // 206 seconds of a 214-second cold ceph scan, and worse on a repo with 59,000 files; a
+    // verb whose first use is "what is worth looking at here" cannot open with that. The log
+    // gives every rule an answer at file resolution, which is what `score_dir` hands a
+    // function anyway wherever blame could not read it — and the two deeper rungs are there
+    // to be asked for. Named here rather than inline because `blocked` has to know which rung
+    // was taken: `headcount` is blame's alone, and a rule asking for it on a log-traced repo
+    // must say so rather than finding nothing.
+    let want = match (edits, blame) {
+        (true, _) => crate::trace::Depth::Edits,
+        (_, true) => crate::trace::Depth::Lines,
+        _ => crate::trace::Depth::Files,
+    };
     // `Ordering` fidelity: every reading clause is answered from `.sanity/` or not at all —
     // see `findings::Field::Surprise`, which is `None` on an unread body rather than falling
     // back to a proxy score. Paying for the all-pairs term would buy a number nothing here
@@ -1794,17 +1807,7 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
         &std::sync::atomic::AtomicBool::new(false),
         crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
         crate::scan::Fidelity::Ordering,
-        // **The log walk by default, not per-line blame.** Blame is what `budgets.md` measures
-        // at 206 seconds of a 214-second cold ceph scan, and worse on a repo with 59,000
-        // files; a verb whose first use is "what is worth looking at here" cannot open with
-        // that. The log gives every rule an answer at file resolution, which is what
-        // `score_dir` hands a function anyway wherever blame could not read it — and the two
-        // deeper rungs are there to be asked for.
-        match (edits, blame) {
-            (true, _) => crate::trace::Depth::Edits,
-            (_, true) => crate::trace::Depth::Lines,
-            _ => crate::trace::Depth::Files,
-        },
+        want,
     ) {
         Ok(s) => s,
         Err(e) => {
@@ -1813,7 +1816,11 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
         }
     };
     let reports = crate::assessment::load(&path, &scan);
-    let traced = crate::findings::Traced { git: true, churned: scan.stats.churned };
+    let traced = crate::findings::Traced {
+        git: true,
+        churned: scan.stats.churned,
+        blamed: want >= crate::trace::Depth::Lines,
+    };
     let facts = crate::findings::subjects(&scan.root, &reports, traced);
     let rules = crate::findings::rules_for(&path, &facts);
     let groups = crate::findings::report(

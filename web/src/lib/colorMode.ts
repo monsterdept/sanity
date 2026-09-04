@@ -808,6 +808,42 @@ export interface Views {
   churn: ChurnView
   /** Which of Complexity's two readings — see `TangleRead`. */
   tangle: TangleRead
+  /** Which of Blame's two readings — see `BlameRead`. */
+  blame: BlameRead
+}
+
+/** Which of Blame's two readings the lens paints.
+ *
+ *  **Two reductions of one list, not two measurements.** Every line of a function carries the
+ *  name of whoever touched it LAST; `touched` takes the newest of those and `lines` takes the
+ *  biggest pile. They disagree often and interestingly: a typo fix in a four-hundred-line body
+ *  makes somebody its last toucher while they hold one line of it.
+ *
+ *  **Neither is authorship and the lens is not called Author for that reason.** Blame reports
+ *  who touched each line last, so a body rewritten wholesale reads as new and everyone whose
+ *  lines were replaced is gone — not diminished, gone. `touched` is a timestamp with a name on
+ *  it; `lines` is who holds what is STANDING, robust to a one-line-per-file sweep and no help
+ *  at all against a reformat. Real authorship over time is `git log -L`, refused on cost. See
+ *  `TODO.md`, where the three reductions are named.
+ *
+ *  The third reduction — how many people's lines are here — is not a reading, because it is a
+ *  COUNT and this lens paints names. It is a findings field instead: see `Field::Headcount`. */
+export type BlameRead = 'touched' | 'lines'
+
+/** Whose name a categorical wedge is keyed on.
+ *
+ *  **One reader, because five had already been written.** `mode === 'blame' ? node.lastAuthor
+ *  : node.lang` appeared at five call sites — the fill, the rim histogram, the legend, the
+ *  ranks and the roll-up — and a second blame reading means each of them choosing between two
+ *  fields. Five copies of one choice is the split brain `CLAUDE.md` names: the ranking and the
+ *  picture disagreeing about who a wedge belongs to, which reads as a palette bug. */
+export function catKey(
+  node: { lastAuthor: string | null; mainAuthor: string | null; lang: string | null },
+  mode: ColorMode,
+  read: BlameRead,
+): string | null {
+  if (mode !== 'blame') return node.lang
+  return read === 'lines' ? node.mainAuthor : node.lastAuthor
 }
 
 /** Which of Complexity's two readings the lens paints.
@@ -840,6 +876,7 @@ export const VIEWS_DEFAULT: Views = {
   age: AGE_DEFAULT,
   churn: { windows: [30, 60, 90, 180], at: CHURN_DEFAULT_WINDOW, measured: false },
   tangle: 'weighted',
+  blame: 'touched',
 }
 
 
@@ -1307,7 +1344,7 @@ export function colorFor(
     }
   }
 
-  const key = mode === 'blame' ? node.lastAuthor : node.lang
+  const key = catKey(node, mode, views?.blame ?? VIEWS_DEFAULT.blame)
   if (!key) return null
   // Uncommitted lines are a state, never a slot — see `UNCOMMITTED`.
   if (mode === 'blame' && !isAuthor(key)) {
@@ -1837,7 +1874,7 @@ function contribute(
   ) {
     // The same three cases the function branch below spells out, and deliberately the
     // same words: a row must not depend on whether the ring happened to be fetched.
-    const key = mode === 'blame' ? n.lastAuthor : n.lang
+    const key = catKey(n, mode, view.blame)
     if (key && (mode !== 'blame' || isAuthor(key))) {
       const rank = ranks?.get(key)
       // Past the cap there is no rank, and everyone there is ONE row in the structural
@@ -1941,7 +1978,7 @@ function contribute(
         put(band.label, band.label, heatColor(band.t, 'reach'), n)
       }
     } else if (mode === 'blame' || mode === 'language') {
-      const key = mode === 'blame' ? n.lastAuthor : n.lang
+      const key = catKey(n, mode, view.blame)
       if (key && (mode !== 'blame' || isAuthor(key))) {
         const rank = ranks?.get(key)
         // Past the cap there is no rank, and everyone there is ONE row in the structural
@@ -2270,6 +2307,7 @@ export function bucketsFor(
     age: views?.age ?? { span: ageSpanOf(root), read: 'newest' },
     churn: views?.churn ?? VIEWS_DEFAULT.churn,
     tangle: views?.tangle ?? VIEWS_DEFAULT.tangle,
+    blame: views?.blame ?? VIEWS_DEFAULT.blame,
   }
   const bucket = new Map<string, Bucket>()
   /** Ramp inputs per bucket, kept only long enough to average them into a fill. */
@@ -2399,6 +2437,7 @@ export function histogramsFor(
     age: views?.age ?? { span: ageSpanOf(root), read: 'newest' },
     churn: views?.churn ?? VIEWS_DEFAULT.churn,
     tangle: views?.tangle ?? VIEWS_DEFAULT.tangle,
+    blame: views?.blame ?? VIEWS_DEFAULT.blame,
   }
 
   interface Tally {
@@ -2521,11 +2560,11 @@ export function histogramsFor(
 }
 
 /** The distinct values present, for a legend. Categorical modes need one; ramps don't. */
-export function legendFor(root: Node, mode: ColorMode): string[] {
+export function legendFor(root: Node, mode: ColorMode, read: BlameRead = 'touched'): string[] {
   if (mode !== 'blame' && mode !== 'language') return []
   const seen = new Map<string, number>()
   const walk = (n: Node) => {
-    const key = mode === 'blame' ? n.lastAuthor : n.lang
+    const key = catKey(n, mode, read)
     // **A file counts for itself when its ring has not arrived.** `funcs > 0` is exactly
     // that test — it is the count a file carries INSTEAD of its children (see `Node.funcs`)
     // — and it is the difference between a legend and an empty box. Rings are fetched only

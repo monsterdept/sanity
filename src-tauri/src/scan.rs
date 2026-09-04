@@ -1126,6 +1126,8 @@ fn score_dir(
                         commits,
                         last_touched_days,
                         last_author,
+                        main_author,
+                        headcount,
                     } = file_trace.func(&func.name, ords[i], func.start_line, func.end_line);
                     // Same-file peers when there are any; otherwise the directory's.
                     let peers: Vec<&Fingerprint> = if fidelity == Fidelity::Ordering {
@@ -1199,6 +1201,8 @@ fn score_dir(
                         line: Some(func.start_line),
                         lang: Some(file.lang),
                         last_author,
+                        main_author,
+                        headcount,
                         score: Some(Score {
                             surprise,
                             documented: measured * provenance.weight(),
@@ -1265,6 +1269,13 @@ fn score_dir(
                     name,
                     kind: NodeKind::File,
                     excluded: file.excluded,
+                    // **A file has a last author and deliberately not the other two.** Both
+                    // are counts over LINES, and a file's lines are its functions' lines
+                    // pooled — so a file-level headcount would say every function in `App.tsx`
+                    // was written by the same four people. `apply` fills `last_author` from
+                    // the commit log, which is a claim the log can actually make.
+                    main_author: None,
+                    headcount: None,
                     // The module's banner, and the second half of the comment stack a
                     // reader is handed — `collect_tasks` reads it straight off this field
                     // and appends it under the function's own doc. See `parse::file_doc`.

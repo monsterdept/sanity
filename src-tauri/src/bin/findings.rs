@@ -142,6 +142,7 @@ fn main() {
     let traced = findings::Traced {
         git: depth != sanity_lib::trace::Depth::Untraced,
         churned: scan.stats.churned,
+        blamed: depth >= sanity_lib::trace::Depth::Lines,
     };
     let facts = findings::subjects(&scan.root, &reports, traced);
 

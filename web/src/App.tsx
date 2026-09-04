@@ -103,6 +103,7 @@ import {
   VIEWS_DEFAULT,
   type AgeRead,
   type TangleRead,
+  type BlameRead,
   type Views,
   type ColorMode,
 } from './lib/colorMode'
@@ -123,6 +124,7 @@ import {
   AgeReading,
   CONTROL_H,
   TangleReading,
+  BlameReading,
   ChurnWindow,
   ColorCount,
   DerivableToggle,
@@ -2262,6 +2264,9 @@ export default function App() {
    *  is a question you ask of the repo in front of you ("what here is dusty" against "what
    *  here moved lately"), not a way you keep the app. */
   const [ageRead, setAgeRead] = useState<AgeRead>('newest')
+  /** Which of Blame's two reductions the map paints — see `BlameRead`. Session state, like
+   *  the other lens readings: it says what a colour MEANS rather than what is drawn. */
+  const [blameRead, setBlameRead] = useState<BlameRead>('touched')
 
   const keyNow = useRef<(m: ColorMode) => MovieKey | null>(() => null)
   const keyFor = useCallback(
@@ -2275,6 +2280,7 @@ export default function App() {
         age: { span: ageSpan ?? AGE_DEFAULT.span, read: ageRead },
         churn: VIEWS_DEFAULT.churn,
         tangle: tangleRead,
+        blame: blameRead,
       })
       if (ends) {
         return {
@@ -2289,7 +2295,7 @@ export default function App() {
           },
         }
       }
-      const cats = legendFor(at, m)
+      const cats = legendFor(at, m, blameRead)
       // Capped like the map's own ranking — a film is a recording of what was on screen, and
       // a key naming sixteen people over a picture drawing eight is the legend-disagrees-with-
       // the-map failure this file has already paid for twice.
@@ -2315,7 +2321,7 @@ export default function App() {
         ramp: null,
       }
     },
-    [focus, tree, authorRank, langRank, caps, ageRead],
+    [focus, tree, authorRank, langRank, caps, ageRead, blameRead],
   )
   keyNow.current = keyFor
   /** Stable across renders, and current when called — see `keyNow`. */
@@ -2342,6 +2348,7 @@ export default function App() {
       // `AGE_DEFAULT.span` where there is no tree to measure, not zero: zero is a repo with
       // no span, which `ageRamp` reads as "everything here is younger than a day".
       age: { span: ageSpan ?? AGE_DEFAULT.span, read: ageRead },
+      blame: blameRead,
       churn: {
         // The repo's own ladder, or the full one where there is no scan yet — a control has
         // to be able to name its rungs before anything has been walked.
@@ -2356,7 +2363,7 @@ export default function App() {
       },
       tangle: tangleRead,
     }),
-    [ageSpan, ageRead, churnAt, tangleRead, scan],
+    [ageSpan, ageRead, churnAt, tangleRead, blameRead, scan],
   )
   /** Stable identities, because an inline lambda makes the memo below do nothing. */
   const pick = useCallback((n: Node) => setPicked(n), [])
@@ -3000,6 +3007,20 @@ export default function App() {
                 {viewMode === 'tangle' && (
                   <TangleReading read={tangleRead} onRead={setTangleRead} />
                 )}
+                {/* **The fifth lens control, and the same rule places it.** Blame paints one
+                    name per wedge and there are two names it could paint — who touched this
+                    last, or whose lines most of it IS. That is what the colour MEANS, so it
+                    belongs left of the spacer with the other four rather than right of it
+                    with the geometry.
+
+                    On `viewMode`, so a replay that cannot paint Blame does not offer a choice
+                    between two readings of nothing. And a frame carries neither reduction —
+                    `history.ts` builds its nodes with both null — so this is the one lens
+                    control that is genuinely absent during a replay rather than merely
+                    quiet. */}
+                {viewMode === 'blame' && (
+                  <BlameReading read={blameRead} onRead={setBlameRead} />
+                )}
                 {/* **The fourth lens control, in the same slot and on the same rule.** What it
                     changes is what a colour MEANS on this lens — specifically, that one of
                     Docs' colours is standing for two different findings. Keyed off `viewMode`
@@ -3279,7 +3300,7 @@ export default function App() {
                     // picture nobody is looking at. The comment below said this before the
                     // code did: it was true of the counts and not of the categories, which
                     // came from the whole scan.
-                    categories={focus ? legendFor(focus, viewMode) : []}
+                    categories={focus ? legendFor(focus, viewMode, blameRead) : []}
                     // The same map the wedges take their slots from, or the key and the
                     // picture disagree the moment the two orders diverge — which a held
                     // rank order during a replay guarantees they will.

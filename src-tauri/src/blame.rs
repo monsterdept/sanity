@@ -107,10 +107,32 @@ pub struct RangeHistory {
     pub last_touched_days: f32,
     pub age_days: f32,
     pub last_author: String,
+    /// Whose lines most of this body IS, which is a different question from who touched it
+    /// last and frequently a different answer: a typo fix in a four-hundred-line function
+    /// makes somebody its last toucher while they hold one line of it.
+    ///
+    /// **Not `owner`, and not `author`.** Blame reports who touched each line LAST, so a
+    /// body rewritten wholesale reads as new and everyone whose lines were replaced is gone
+    /// — not diminished, gone. This measures who holds what is STANDING, which is robust to
+    /// a one-line-per-file sweep and no help at all against a reformat. See `TODO.md`.
+    pub main_author: String,
+    /// How many people's lines are standing here.
+    ///
+    /// The third reduction of the same list, and the one the findings grammar wants: a rule
+    /// may not name a person — that is a rule about what a thing is CALLED — but it can
+    /// count them. `headcount <= 1 and callers >= 20` is *load-bearing, and only one person
+    /// has been in it*, with nobody named anywhere.
+    pub headcount: u32,
 }
 
 impl FileBlame {
-    /// Collapse the lines of one function into the four facts the map needs.
+    /// Collapse the lines of one function into the six facts the map needs.
+    ///
+    /// **Three of them are reductions of one list and it is worth naming which.** Every line
+    /// carries whoever touched it last; `last_author` takes the newest of those, `main_author`
+    /// takes the biggest pile, and `headcount` counts the distinct names. Same slice, taken
+    /// three ways — no extra pass, no `range_detail`, which shells out per function and is for
+    /// one function at a time in the panel rather than for a hundred and fifty thousand.
     ///
     /// Inclusive of both ends, 1-indexed, and clamped — a function's recorded end line
     /// can outrun the blame when the working tree has moved on since the scan parsed it,
@@ -125,13 +147,30 @@ impl FileBlame {
         let mut commits: HashSet<u64> = HashSet::new();
         let mut newest = slice[0];
         let mut oldest = slice[0].time;
+        // Lines per author index. A `Vec` rather than a map: the index is already dense and
+        // small — it is a position in `self.authors`, which is the file's own cast — so this
+        // is a bucket per person in the FILE, not per person in the repo.
+        let mut held = vec![0u32; self.authors.len()];
         for l in slice {
             commits.insert(l.commit);
             if l.time > newest.time {
                 newest = *l;
             }
             oldest = oldest.min(l.time);
+            if let Some(n) = held.get_mut(l.author as usize) {
+                *n += 1;
+            }
         }
+        let headcount = held.iter().filter(|n| **n > 0).count() as u32;
+        // Ties go to the earlier index, which is the order `self.authors` was built in and
+        // therefore stable across runs — an arbitrary answer is fine, an answer that moves
+        // between two scans of the same tree is a wedge that changes colour for no reason.
+        let main = held
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, n)| **n)
+            .filter(|(_, n)| **n > 0)
+            .map(|(i, _)| i);
         let days = |t: i64| ((now - t).max(0) as f32) / 86_400.0;
         Some(RangeHistory {
             commits: commits.len() as u32,
@@ -141,6 +180,8 @@ impl FileBlame {
             // hidden — the alternative is `git log -L` per function.
             age_days: days(oldest),
             last_author: self.authors.get(newest.author as usize).cloned().unwrap_or_default(),
+            main_author: main.and_then(|i| self.authors.get(i)).cloned().unwrap_or_default(),
+            headcount,
         })
     }
 }
@@ -1119,6 +1160,28 @@ author-time 2000000
 summary second
 \tfn two() {}
 ";
+
+    /// **The three reductions are three answers, and the test has to prove they differ.**
+    ///
+    /// The interesting case is the one that motivated the whole distinction: somebody touches
+    /// one line of a body somebody else wrote, and becomes its last toucher while holding a
+    /// fiftieth of it. If `last_author` and `main_author` ever agree by construction, one of
+    /// them is not being computed.
+    #[test]
+    fn the_newest_hand_is_not_the_biggest_one() {
+        // Ada holds lines 1-2, Grace holds line 3 — and Grace's is the newer commit.
+        let b = parse_porcelain(SAMPLE);
+        let all = b.range(1, 3, 2_000_000).expect("range");
+        assert_eq!(all.last_author, "Grace", "newest line");
+        assert_eq!(all.main_author, "Ada", "most lines");
+        assert_eq!(all.headcount, 2);
+
+        // And over Ada's lines alone, all three collapse to her.
+        let hers = b.range(1, 2, 2_000_000).expect("range");
+        assert_eq!(hers.last_author, "Ada");
+        assert_eq!(hers.main_author, "Ada");
+        assert_eq!(hers.headcount, 1, "one hand, which is what a rule asks about");
+    }
 
     #[test]
     fn parses_a_commit_author_and_time_per_line() {

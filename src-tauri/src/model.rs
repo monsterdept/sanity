@@ -555,6 +555,26 @@ pub struct Node {
     /// which the whole aggregation path relies on.
     #[serde(default)]
     pub last_author: Option<String>,
+    /// Whose lines most of this body IS, where blame could read it.
+    ///
+    /// **A different question from `last_author` and often a different answer**: a typo fix in
+    /// a four-hundred-line function makes somebody its last toucher while they hold one line.
+    /// Not `owner` and not `author` — blame reports who touched each line LAST, so a body
+    /// rewritten wholesale reads as new and everyone whose lines were replaced is gone rather
+    /// than diminished. This says who holds what is STANDING. See `TODO.md`.
+    ///
+    /// Beside `last_author` for the same reason: metadata about the code, kept out of `Score`
+    /// so that stays `Copy`.
+    #[serde(default)]
+    pub main_author: Option<String>,
+    /// How many people's lines are standing in this body.
+    ///
+    /// **The count the findings grammar wants, because a rule may not name a person.** That
+    /// would be a rule about what a thing is CALLED, which the grammar refuses; a rule can
+    /// count them instead. `None` where blame has not read this range — never zero, which
+    /// would be a claim that nobody wrote it.
+    #[serde(default)]
+    pub headcount: Option<u32>,
     /// The comment attached to this chunk, if any.
     ///
     /// Carried on the node rather than left in the parse because two readers need it
@@ -842,6 +862,8 @@ impl Node {
             line: None,
             lang: None,
             last_author: None,
+            main_author: None,
+            headcount: None,
             doc: None,
             signature: None,
             owner: None,
@@ -1092,6 +1114,8 @@ impl Node {
             bytes: self.bytes,
             lang: self.lang,
             last_author: self.last_author.clone(),
+            main_author: self.main_author.clone(),
+            headcount: self.headcount,
             doc: self.doc.clone(),
             signature: self.signature.clone(),
             owner: self.owner.clone(),

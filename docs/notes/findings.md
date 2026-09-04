@@ -487,9 +487,13 @@ repo has been read.
 
 ### Two rules the bench measured cannot be expressed, and are not in the catalog
 
+**Built, and neither is called what the bench called it.** The reduction below landed and the
+hold was lifted; what ships is `one-pair-of-hands` and `many-hands-knotty`, and neither names
+a person. The section is kept because the reason they were absent is the reason they have the
+shape they do.
+
 "Last hand alone" and "Many hands" were in the throwaway harness because it read blame
-directly. They are absent from `catalog()`, and the reason is worth being exact about because
-it is not the one it looks like.
+directly. They were absent from `catalog()`, and the reason was not the one it looks like.
 
 **The data exists per line and is thrown away on the way to a node.** `FileBlame` holds every
 line of a file with the index of whoever last touched it, and `FileBlame::range` already
@@ -499,10 +503,39 @@ exactly: not a second measurement, a second reduction, the same slice counted in
 maxed. It needs no new pass and it must not use `range_detail`, which shells out per function
 and is for one function at a time in the panel, not for a hundred and fifty thousand.
 
-**It is held on a product question rather than a cost** — *"I am not sure why someone would
-want a tool that has both blame and this new metric. Better be sure before we build it."* That
-is the whole blocker, and it is upstream of the catalog: these two rules arrive when that
-question is answered, and not before.
+**It was held on a product question rather than a cost** — *"I am not sure why someone would
+want a tool that has both blame and this new metric. Better be sure before we build it."* What
+answered it was the distinction: they are not a second metric, they are two more reductions of
+the one blame already reads, and the count's value is as a CLAUSE rather than as a colouring.
+`TODO.md` carries that argument.
+
+**What shipped, and the one measurement that decided its shape.**
+
+- `one-pair-of-hands` — `headcount <= 1 and callers >= 10 and loc >= 10`. Widely depended on,
+  and every line last touched by the same person. `callers` is the calibrated clause and not
+  `headcount`: tightening a `<=` means lowering it, and below one is nothing.
+- `many-hands-knotty` — `headcount >= 4 and tangle >= 0.8 and loc >= 10`. Paired with `tangle`
+  rather than with `loc`, and **that pairing is the whole design**. A headcount rises with
+  size — a 362-line body has more hands than a 10-line one because there is more of it to
+  touch — so `headcount >= 6 and loc >= 10` is a long-function rule wearing a headcount.
+  `tangle` is already measured against the other bodies its size in this repo, so the
+  conjunction says something size does not. On htop it cuts `tangle >= 0.8` from 47 hits to
+  10; on ceph it takes 86,269 functions to 581.
+
+Calibrated, on four repos read per line:
+
+| | functions | one pair of hands | many hands, knotty |
+|---|---|---|---|
+| htop | 1,415 | 3 | 10 |
+| sanity | 1,283 | 26 | 0 |
+| VectorLand | 1,871 | 18 | 0 |
+| ceph | 86,269 | 473 | 1,060 |
+
+**Zero on the two solo repos is the right answer and not a silent one.** Nobody else has been
+in them; the rule asked and the answer was no. What would be silence is `one-pair-of-hands`
+firing there — which it does, 26 and 18 — while its headcount clause narrows nothing, because
+one pair of hands is true of everything on a repo with one pair of hands. That is the case
+*A rule can be irrelevant to a repo* is about, and it is why the share sits under the count.
 
 **`Node::last_author` is not a substitute, and the reason is sharper than it first looks.**
 Blame records who touched each line LAST, so a function rewritten wholesale reads as new and
@@ -837,7 +870,11 @@ It refuses, on purpose and with a reason each:
   unread" does with `read < 1`; `callers != 0` is `callers >= 1`. The only thing that costs
   two clauses is an interior band, `commits >= 3 and commits < 10`, and that costs two clauses
   in a language with `==` as well.
-- **No new fields.** The field list IS the lens list, and the form's picker is built from
+- **No new fields — with one exception, and it is written down.** The field list is the lens
+  list, `headcount` apart: it is the count of whose lines are standing, and blame paints
+  NAMES rather than counts, so there is nothing to colour. It earns the exception by being
+  the only shape a rule about people may take — a rule that named somebody would be a rule
+  about what a thing is CALLED, which the bullet below refuses. The picker is built from
   `Field::ALL` rather than from a copy kept in the frontend — a second list is one list plus a
   stale copy, and the stale one is the one still offering a field that was renamed, which is
   not hypothetical: `legible` became `illegible`. A field nothing paints is a number with no
