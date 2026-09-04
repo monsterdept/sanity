@@ -247,8 +247,31 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
           fills={['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-4)', 'var(--cat-5)']}
         />
       }
-      measures="the author of the most recently changed line."
+      measures="who a wedge belongs to, in one of two ways — see the reading below."
+      values="last touched · most lines"
     >
+      <p>
+        <B>Neither reading is authorship, and the lens is not called Author for that reason.</B>{' '}
+        Blame records who touched each line <em>last</em>, so a body rewritten wholesale reads as
+        new and everyone whose lines were replaced is gone — not diminished, gone. Both readings
+        come from one list: every line, with the name of whoever last touched it.
+      </p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-4">
+        <li>
+          <code>last touched</code> — the newest line's name. A timestamp with a name on it, and
+          what this lens has always painted.
+        </li>
+        <li>
+          <code>most lines</code> — whose lines most of the body <em>is</em>. A different question
+          and often a different answer: a typo fix in a 400-line function makes somebody its last
+          toucher while they hold one line of it.
+        </li>
+      </ul>
+      <p>
+        There is a third reduction of the same list — how many people's lines are standing — and it
+        is not here, because it is a count and this lens paints names. It is a findings rule field
+        instead, <code>headcount</code>.
+      </p>
       How many authors get their own color is set by the <B>colors</B> control. The legend names the
       top 16. Below that there are two different remainders:
       <ul className="mt-1 list-disc space-y-0.5 pl-4">
