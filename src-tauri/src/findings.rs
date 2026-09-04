@@ -167,6 +167,13 @@ impl Field {
     /// **One list, and the compiler keeps its length honest.** A thirteenth field added to the
     /// enum and forgotten here would be a question the evaluator can answer and the form
     /// cannot ask — invisible, because nothing fails.
+    /// How many fields there are, including the one `ALL` leaves out.
+    ///
+    /// **The array in `Facts` is indexed by discriminant, so this must cover every variant**,
+    /// not just the ones a form offers. `Trap` is absent from `ALL` and present here; a count
+    /// taken from `ALL.len()` would index out of bounds the first time a trap was measured.
+    pub const COUNT: usize = 15;
+
     pub const ALL: [Field; 14] = [
         Field::Loc,
         Field::Funcs,
@@ -520,12 +527,17 @@ pub struct Subject {
 /// Everything a clause can ask about one subject, resolved once.
 pub struct Facts {
     pub subject: Subject,
-    values: HashMap<&'static str, f32>,
+    /// **A slot per field, not a map.** It was `HashMap<&'static str, f32>`, which is a
+    /// separate allocation and a hash per lookup for a record that has fifteen possible
+    /// fields and knows all of them at compile time — and there is one of these per subject,
+    /// so kibana carried 180,000 of them. `Field` is a fieldless enum, so its discriminant IS
+    /// the index; the array costs sixty bytes inline and answers without hashing.
+    values: [Option<f32>; Field::COUNT],
 }
 
 impl Facts {
     fn get(&self, f: Field) -> Option<f32> {
-        self.values.get(f.name()).copied()
+        self.values[f as usize]
     }
 }
 
@@ -693,10 +705,10 @@ fn walk(node: &Node, reports: &HashMap<String, Report>, traced: Traced, out: &mu
 }
 
 fn facts_of(node: &Node, key: &str, report: Option<&Report>, traced: Traced) -> Facts {
-    let mut v: HashMap<&'static str, f32> = HashMap::new();
+    let mut v: [Option<f32>; Field::COUNT] = [None; Field::COUNT];
     let mut set = |f: Field, x: Option<f32>| {
         if let Some(x) = x {
-            v.insert(f.name(), x);
+            v[f as usize] = Some(x);
         }
     };
     set(Field::Loc, Some(node.loc as f32));
@@ -925,8 +937,25 @@ pub struct FieldView {
     pub file: Option<Spread>,
 }
 
+/// One walk's worth of answers — what the panel, the grid and the creature all read.
+///
+/// Named `ProjectReport` rather than `Report`, which in this file is a READER's report — the
+/// thing a model sends back about one function. Two Reports in one module is the kind of
+/// collision that gets resolved by whichever import is written last.
+///
+/// **Together because they are one answer about one repo.** They were three commands and
+/// three walks of the tree; the counts in the grid, the tiles in the list and the number on
+/// the mascot are the same measurement seen three ways, and issuing them separately was both
+/// three times the work and three chances to describe different states of the same repo.
+#[derive(serde::Serialize, Default)]
+pub struct ProjectReport {
+    pub groups: Vec<Group>,
+    pub rules: Vec<RuleView>,
+    pub grammar: Grammar,
+}
+
 /// Every field and every operator, with what this repo makes of them.
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Default)]
 pub struct Grammar {
     pub fields: Vec<FieldView>,
     pub ops: Vec<&'static str>,
@@ -2316,6 +2345,84 @@ mod tests {
         let mut root = Node::dir("", "repo");
         root.children = vec![f];
         root
+    }
+
+    /// **`Facts` is indexed by discriminant, so the count has to cover every variant.**
+    ///
+    /// `ALL` is what a form offers and deliberately leaves `Trap` out; the array is what every
+    /// subject carries. Taking the size from `ALL.len()` would index out of bounds the first
+    /// time a reader reported a trap — on a repo that had been read, months after the change.
+    #[test]
+    fn every_field_has_a_slot() {
+        for f in super::Field::ALL {
+            assert!((f as usize) < super::Field::COUNT, "`{}` is past the end", f.name());
+        }
+        assert!((super::Field::Trap as usize) < super::Field::COUNT, "trap is past the end");
+        // And nothing is wasted: the last variant is the last slot.
+        assert_eq!(super::Field::Trap as usize, super::Field::COUNT - 1);
+    }
+
+    /// **Not a correctness test — a measurement, kept out of the default run.**
+    ///
+    /// It exists because "opening kibana got slower" is a question a proxy cannot answer, and
+    /// this file gained a third caller of [`subjects`] the day it did: `project_findings`,
+    /// `project_rules` and `rule_grammar` each build the whole fact set for themselves.
+    ///
+    /// At 180,000 subjects, which is kibana's order:
+    ///
+    /// | | release | dev |
+    /// |---|---|---|
+    /// | `subjects()` | 41ms | 221ms |
+    /// | `grammar()` | 29ms | 430ms |
+    /// | `all_hits()` | 23ms | 366ms |
+    ///
+    /// So the three commands together are about 90ms in a shipped build and about 1.8s under
+    /// `just dev`, which is where it was noticed — and they hold the projects lock while they
+    /// run, so they serialise. The cost is dominated by the fact set being built three times
+    /// rather than by anything the grammar does; `Facts::values` is a `HashMap` per subject,
+    /// so that is 540,000 small maps to answer three questions about one repo.
+    #[test]
+    #[ignore]
+    fn bench_grammar_at_kibana_scale() {
+        use std::time::Instant;
+        let mut files = Vec::new();
+        for i in 0..20_000u32 {
+            let mut kids = Vec::new();
+            for j in 0..8u32 {
+                kids.push(func(&format!("f{i}_{j}"), 10 + (j % 40)));
+            }
+            let mut f = Node::dir(&format!("d{}/f{i}.rs", i % 400), &format!("f{i}.rs"));
+            f.kind = NodeKind::File;
+            f.loc = kids.iter().map(|c| c.loc).sum();
+            f.funcs = kids.len() as u32;
+            f.children = kids;
+            files.push(f);
+        }
+        let mut root = Node::dir("", "repo");
+        root.children = files;
+        let reports = HashMap::new();
+        let traced = Traced { git: true, churned: true };
+
+        let t = Instant::now();
+        let facts = subjects(&root, &reports, traced);
+        let built = t.elapsed();
+
+        let t = Instant::now();
+        let g = grammar(&facts);
+        let grammared = t.elapsed();
+        assert_eq!(g.fields.len(), Field::ALL.len());
+
+        let t = Instant::now();
+        let cat = catalog();
+        let _ = all_hits(&cat, &facts);
+        let hit = t.elapsed();
+        // What one `project_report` costs: the walk, plus everything read off it.
+        let whole = built + grammared + hit;
+
+        println!(
+            "{} subjects — subjects() {built:?}, grammar() {grammared:?}, all_hits() {hit:?}, one report {whole:?}",
+            facts.len(),
+        );
     }
 
     /// The rule text is the settings page's own vocabulary, so it has to round-trip.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   Decision,
   FieldView,
@@ -13,6 +13,7 @@ import type {
   Verdict,
 } from '../lib/api'
 import { MODE_LABEL, modeToken, type ColorMode } from '../lib/colorMode'
+import { middleTruncate, monoAdvance } from '../lib/label'
 import { Tabs } from './Tabs'
 
 /** The colour of one lens, for a swatch beside the finding it helped raise.
@@ -56,6 +57,39 @@ function dirOf(path: string): string {
   const cut = path.lastIndexOf('/')
   return cut === -1 ? '' : path.slice(0, cut + 1)
 }
+
+/** The directory, shortened from the middle only when a line of its own cannot hold it.
+ *
+ *  **Two cases, because the address takes one line or two.** If the whole of it fits, nothing
+ *  is cut. If it does not, the file and its function wrap to a second line — so the directory
+ *  is then alone on the first, with the WHOLE line to spend, and is cut only if it overruns
+ *  that.
+ *
+ *  Subtracting the file and the function from the budget in every case was the first version
+ *  and it is wrong in exactly the case that matters: `qa/standalone/scrub/` came out as
+ *  `qa/st…rub/` on a line with four fifths of it empty, because the arithmetic was still
+ *  reserving room for a file that had already moved to the line below. The layout decides
+ *  which line things are on; this has to ask the same question the layout asks.
+ *
+ *  Where even a full line leaves too little to be worth reading, `middleTruncate` returns
+ *  nothing rather than a stub — `x…e/` narrows nothing and still costs a line.
+ *
+ *  Falls back to the untouched path before the column has been measured: one frame of an
+ *  overlong address beats a frame of nothing.
+ */
+function dirFor(hit: Hit, colW: number): string {
+  const dir = dirOf(hit.path)
+  if (colW <= 0) return dir
+  // The tile's own padding, which the measured element sits outside of.
+  const fits = Math.floor((colW - 32) / (ADDRESS_PX * monoAdvance()))
+  // One line for all three: nothing is cut.
+  if (dir.length + fileOf(hit).length + nameOf(hit).length <= fits) return dir
+  // Two lines, and this one is the directory's alone.
+  return dir.length <= fits ? dir : middleTruncate(dir, fits)
+}
+
+/** The size the address is set at, which the character count has to agree with. */
+const ADDRESS_PX = 15
 
 /** The file, with its `#` where a function follows. Never truncated.
  *
@@ -605,6 +639,21 @@ export function Findings({
   /** The backend's refusal, shown verbatim. It is written to be read. */
   const [formError, setFormError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  /** How wide a tile's text column is, in pixels, or 0 before it has been measured.
+   *
+   *  **Measured once for the panel, not once per tile.** Every tile is the same width — the
+   *  panel is a fixed column — so an observer apiece would be fifty observers answering one
+   *  question. It feeds the middle-truncation of the directory, which CSS cannot do: `…` in
+   *  the MIDDLE means knowing how many characters fit, and only the layout knows that. */
+  const [colW, setColW] = useState(0)
+  const column = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = column.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setColW(e.contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [open, view])
 
   // Escape puts it down, on the window because this panel has no field to own the keyboard
   // with. Registered only while it is up, so it cannot swallow the key from anything else.
@@ -782,17 +831,47 @@ export function Findings({
             }
           />
         </div>
-        {/* The way into the drawer, and out of it, said as the sentence it is. Absent when
-            there is nothing in there: a link to an empty room is a thing to wonder about. */}
-        {groups && !replaying && view !== 'rules' && ignored.length > 0 && (
-          <div className="flex justify-end border-b border-[var(--border)] px-4 py-1.5">
-            <button
-              type="button"
-              onClick={() => setView(view === 'ignored' ? 'findings' : 'ignored')}
-              className="text-[11px] text-[var(--muted-foreground)] underline decoration-[var(--border)] underline-offset-2 hover:text-[var(--foreground)] hover:decoration-current"
-            >
-              {view === 'ignored' ? 'back to findings' : `${ignored.length} ignored`}
-            </button>
+        {/* **A section header per view: what you are looking at, and what you can do to it.**
+            The tabs above say which of the three is showing and carry the counts; this says it
+            again at the head of the list, which is the line the eye lands on after pressing a
+            tab — and it gives the view's one ACTION somewhere to be. `add rule` floated at the
+            top of the rules list with nothing to sit against, and the way into the ignored
+            drawer had a bar of its own.
+
+            Absent while there is nothing to head: a title over an empty pane is furniture. */}
+        {groups && !replaying && (
+          <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2">
+            <span className="text-[12px] font-medium text-[var(--foreground)]">
+              {view === 'rules' ? 'Rules' : view === 'ignored' ? 'Ignored' : 'Findings'}
+            </span>
+            {view === 'rules' ? (
+              // Only when the form is not already open — the open form IS the new rule, and a
+              // button that makes another one while one is being written would throw the first
+              // away without saying so.
+              (!draft || draft.id !== '') && (
+                <button
+                  type="button"
+                  disabled={!grammar}
+                  onClick={() => {
+                    setDraft(blankDraft())
+                    setFormError(null)
+                  }}
+                  className="rounded border border-[var(--border)] px-2 py-[3px] text-[11px] text-[var(--muted-foreground)] hover:border-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-40"
+                >
+                  Add Rule
+                </button>
+              )
+            ) : ignored.length > 0 ? (
+              // The way into the drawer, and out of it, said as the sentence it is. Absent when
+              // there is nothing in there: a link to an empty room is a thing to wonder about.
+              <button
+                type="button"
+                onClick={() => setView(view === 'ignored' ? 'findings' : 'ignored')}
+                className="text-[11px] text-[var(--muted-foreground)] underline decoration-[var(--border)] underline-offset-2 hover:text-[var(--foreground)] hover:decoration-current"
+              >
+                {view === 'ignored' ? 'back to findings' : `${ignored.length} ignored`}
+              </button>
+            ) : null}
           </div>
         )}
 
@@ -820,21 +899,10 @@ export function Findings({
 
                 Read-only for now: every number here is already computable, and it is worth
                 looking at before anything is editable. */}
-            {/* **New rules go at the top, where the button is.** A form that opened at the
-                bottom of a catalog of twelve would open off screen, and the first thing it
-                did would be to scroll away from the thing that was just clicked. */}
-            {!draft || draft.id !== '' ? (
-              <button
-                className="mb-3 rounded-md border border-dashed border-[var(--border)] px-3 py-2 text-[11px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                disabled={!grammar}
-                onClick={() => {
-                  setDraft(blankDraft())
-                  setFormError(null)
-                }}
-              >
-                + a rule of your own
-              </button>
-            ) : (
+            {/* **A new rule opens at the top, under the button that made it.** A form that
+                opened at the bottom of a catalog of sixteen would open off screen, and the
+                first thing it did would be to scroll away from the thing just pressed. */}
+            {draft && draft.id === '' && (
               <div className="mb-3 rounded-md border border-[var(--border)] px-3 py-2.5">
                 <RuleForm
                   draft={draft}
@@ -1095,6 +1163,8 @@ export function Findings({
                same measurement, so nothing is closer to its neighbour than to the edge. */
             className="min-h-0 flex-1 overflow-y-auto p-4"
           >
+            {/* The one measured element: `p-4` inside, and a tile's own `px-4` inside that. */}
+            <div ref={column} className="h-0" />
             {items.length === 0 && (
               <p className="py-1 text-[11px] text-[var(--muted-foreground)]">
                 {setAside > 0
@@ -1122,60 +1192,71 @@ export function Findings({
                           is the string somebody would type to go there. The glyphs it replaces
                           said the same thing in a symbol nobody had been taught.
 
-                          The directory is muted so the eye lands on the file and the function;
-                          it is truncated from the LEFT, because the end of a path is the half
-                          that identifies it. */}
+                          The directory is muted so the eye lands on the file and the function,
+                          and it is shortened from the MIDDLE — see `dirFor`. */}
                       <button
                         type="button"
                         onClick={() => choose(finding.hit)}
                         title={address(finding.hit)}
-                        className="mono flex w-full min-w-0 items-baseline text-left"
+                        className="mono flex w-full min-w-0 flex-wrap items-baseline text-left"
                       >
-                        {/* **Right-aligned and clipped, never `dir="rtl"`.** The bidi trick
-                            for left-truncating a path reorders it: a directory ending in `/`
-                            has that slash resolved as a neutral character and moved to the
-                            front, so `src-tauri/src/` rendered as `/src-tauri/src` and ran
-                            straight into the filename beside it. Aligning an overflowing line
-                            to the right spills it off the left edge instead — the same result,
-                            with nothing telling the text it is RTL.
+                        {/* **One line, shortened from the MIDDLE, and CSS cannot do it.**
+                            Both ends of a path carry something: the head says which corner of
+                            the repo this is, the tail says which of the forty `src/` folders.
+                            `text-overflow` only ever eats one end, and the two attempts before
+                            this both ate the wrong one — `dir="rtl"` reordered the slashes so
+                            `src-tauri/src/` rendered as `/src-tauri/src`, and `text-align:
+                            right` did nothing at all, because a nowrap line that outgrows its
+                            box overflows to the RIGHT whatever its alignment. That one carried
+                            a comment claiming it clipped from the left for months, while every
+                            screenshot of it showed the head surviving and the filename gone.
 
-                            Shrinks but never GROWS: with `flex-1` a short directory was pushed
-                            to the far side of its own box, leaving a gap between `/web/src/`
-                            and the file it belongs to. Content-sized until the row runs out of
-                            room is the behaviour wanted, and it is the flex default.
+                            An ellipsis in the MIDDLE means counting characters, and only the
+                            layout knows how many fit — hence the measured column and the
+                            monospace advance. Monospace is what makes it a division rather
+                            than a search: every glyph is the same width.
 
-                            Clipped rather than ellipsised, and silently: an ellipsis costs a
-                            character from the half worth reading, and a fade would draw on
-                            every short path too, since CSS cannot tell whether it overflowed.
-                            The whole address is on the row's `title`. */}
-                        {/* **One size, three weights.** The directory was set smaller to keep
-                            it out of the way, which it did by making the address look like two
-                            things joined. Now the rule underneath does the separating and the
-                            heading can be one line of type: the tiers are carried by weight and
-                            value, which is enough when nothing else is competing. */}
-                        <span className="min-w-0 overflow-hidden whitespace-nowrap text-right text-[15px] text-[var(--muted-foreground)]">
-                          {dirOf(finding.hit.path)}
+                            Shrink-0, so the line WRAPS before the path is cut: flex shrinks an
+                            item before it wraps, and a shrinkable directory would be shortened
+                            to keep the file beside it rather than giving the file its own
+                            roomy line. Everything on one line whenever everything fits. */}
+                        <span className="shrink-0 whitespace-nowrap text-[15px] text-[var(--muted-foreground)]">
+                          {dirFor(finding.hit, colW)}
                         </span>
                         {/* The file is still where-it-IS: same size as the name so they read
                             as one heading, lighter so the name is the thing being named. On a
                             file finding there is no name and this carries the full weight. */}
-                        <span
-                          className="shrink-0 text-[15px]"
-                          style={{
-                            fontWeight: finding.hit.kind === 'func' ? 400 : 600,
-                            color:
-                              finding.hit.kind === 'func'
-                                ? 'color-mix(in oklch, var(--foreground) 72%, transparent)'
-                                : 'var(--foreground)',
-                          }}
-                        >
-                          {fileOf(finding.hit)}
-                        </span>
-                        <span
-                          className="shrink-0 text-[15px] font-semibold"
-                          style={{ color: 'var(--foreground)' }}
-                        >
-                          {nameOf(finding.hit)}
+                        {/* **The file and the function are one item, and the FILE is what gives
+                            way inside it.** They were two items, and two items can be split:
+                            `run_cli.ts#` at the end of a line with `runHeapSnapshotAnalyzerCli`
+                            alone on the next puts a break through the middle of one identity.
+                            One item cannot be split, so the pair travels to the second line
+                            together.
+
+                            When even that line is too narrow, the file clips and the function
+                            does not — `shrink-0` on the name, `min-w-0` and hidden overflow on
+                            the file. A function is the most specific thing the address names
+                            and the last thing worth losing; the file it sits in is recoverable
+                            from the directory above it, and the whole address is on `title`. */}
+                        <span className="flex min-w-0 max-w-full items-baseline text-[15px]">
+                          <span
+                            className="min-w-0 overflow-hidden whitespace-nowrap"
+                            style={{
+                              fontWeight: finding.hit.kind === 'func' ? 400 : 600,
+                              color:
+                                finding.hit.kind === 'func'
+                                  ? 'color-mix(in oklch, var(--foreground) 72%, transparent)'
+                                  : 'var(--foreground)',
+                            }}
+                          >
+                            {fileOf(finding.hit)}
+                          </span>
+                          <span
+                            className="shrink-0 whitespace-nowrap font-semibold"
+                            style={{ color: 'var(--foreground)' }}
+                          >
+                            {nameOf(finding.hit)}
+                          </span>
                         </span>
                       </button>
                     </div>

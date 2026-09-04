@@ -39,8 +39,7 @@ import {
   decideFinding,
   undecideFinding,
   projectDecisions,
-  projectRules,
-  ruleGrammar,
+  projectReport,
   saveRule,
   deleteRule,
   resetRule,
@@ -48,7 +47,6 @@ import {
   type Grammar,
   type Hit,
   type FindingGroup,
-  projectFindings,
   type Node,
   type Progress,
   type AgentActivity,
@@ -2688,74 +2686,48 @@ export default function App() {
     [tree, jumpTo],
   )
 
-  /** Ask the backend what is worth looking at here.
+  /** Ask the backend what is worth looking at here — findings, rules and grammar at once.
    *
-   *  **On the project and on the map's identity, not on every render.** A fresh `tree` is
-   *  what a landed scan or a landed reading produces, so this re-asks exactly when the
-   *  answer could have changed — and a rescan is the event that can add findings to a repo you
-   *  are already standing in. Answers are dropped if the project moved on while one was in
-   *  flight, or the dot on one repo would be reporting another's.
+   *  **One call, because it is one answer.** These were three effects on three commands, and
+   *  each command built the whole fact set for itself: three walks of the tree, under one
+   *  lock, which on kibana is 540,000 records to answer three questions about one repo. They
+   *  are also the same measurement seen three ways — the counts in the grid, the tiles in the
+   *  list and the number on the creature — so three fetches were three chances for them to
+   *  describe different states of the repo.
    *
-   *  Not asked at all during a replay: the panel refuses that state, and a badge over a
-   *  frame would be pointing at findings about a repo that is not the one on screen. */
+   *  **On the project and on the map's identity, not on every render.** A fresh `tree` is what
+   *  a landed scan or a landed reading produces, so this re-asks exactly when the answer could
+   *  have changed — and a rescan is the event that can add findings to a repo you are already
+   *  standing in. Answers are dropped if the project moved on while one was in flight, or the
+   *  dot on one repo would be reporting another's.
+   *
+   *  Not asked at all during a replay: the panel refuses that state, and a badge over a frame
+   *  would be pointing at findings about a repo that is not the one on screen. */
   useEffect(() => {
     if (!activeKey || historyOn) {
       setFindingGroups(null)
-      return
-    }
-    let live = true
-    void projectFindings(activeKey)
-      .then((g) => {
-        if (live) setFindingGroups(g)
-      })
-      .catch(() => {
-        if (live) setFindingGroups(null)
-      })
-    return () => {
-      live = false
-    }
-  }, [activeKey, tree, historyOn, archiveAt])
-
-  /** The catalog, with what each rule finds here.
-   *
-   *  **Re-asked on the same signals the findings are**, because the two are one answer: the
-   *  counts in the grid and the tiles in the list come from one walk, and a grid showing what
-   *  a rule found before somebody edited it would be the map and the key disagreeing. */
-  useEffect(() => {
-    if (!activeKey || historyOn) {
       setRules(null)
-      return
-    }
-    let live = true
-    void projectRules(activeKey)
-      .then((r) => {
-        if (live) setRules(r)
-      })
-      .catch(() => {
-        if (live) setRules(null)
-      })
-    return () => {
-      live = false
-    }
-  }, [activeKey, tree, historyOn, archiveAt])
-
-  useEffect(() => {
-    if (!activeKey || historyOn) {
       setGrammar(null)
       return
     }
     let live = true
-    void ruleGrammar(activeKey)
-      .then((g) => {
-        if (live) setGrammar(g)
+    void projectReport(activeKey)
+      .then((r) => {
+        if (!live) return
+        setFindingGroups(r.groups)
+        setRules(r.rules)
+        setGrammar(r.grammar)
       })
       .catch(() => {
-        if (live) setGrammar(null)
+        if (!live) return
+        setFindingGroups(null)
+        setRules(null)
+        setGrammar(null)
       })
     return () => {
       live = false
     }
-  }, [activeKey, historyOn])
+  }, [activeKey, tree, historyOn, archiveAt])
 
   useEffect(() => {
     if (!activeKey) {

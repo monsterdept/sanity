@@ -37,11 +37,17 @@
  * now change, and a bound that stops somewhere the reader can see past is a bound that reads
  * as a bug.
  *
- * Sixteen because it is where the two controls meet: at the narrowest ring width, sixteen
- * bands still have a couple of units each, and the sixteenth is the first one that has nothing
- * left to give. It is not a promise that sixteen is legible on every repo — that is exactly
- * the judgement the control exists to hand over, and it is why the range stays bounded at all
- * rather than becoming a number box. **The count is still not a substitute for drilling.**
+ * **Twelve, and the argument for sixteen went with the control it rested on.** Sixteen was
+ * where the two controls MET: at the narrowest ring width the hub gives back a third of the
+ * radius, and the sixteenth band was the first with nothing left to give. There is no ring
+ * width control any more — `SPACING_DEFAULT` fixes it at 1, which puts the hub back at a
+ * fixed 62 and every band back to `(340 − 62) / rings`. A ceiling justified by a slider
+ * nobody can reach is a number with no argument behind it.
+ *
+ * Twelve is not the eight that preceded all this either. It is a judgement about where the
+ * outer band stops being worth drawing on a repo deep enough to fill it, which is exactly
+ * the judgement this control exists to hand over — and it is why the range stays bounded at
+ * all rather than becoming a number box. **The count is still not a substitute for drilling.**
  * Depth buys rings, not ANGLE, and a sliver two degrees wide says nothing however many rings
  * are drawn outside it; see the first paragraph, which is the whole reason this is a control
  * with a ceiling instead of a camera.
@@ -55,9 +61,7 @@
 export const RINGS_DEFAULT = 5
 
 /** The counts the switcher offers. */
-export const RINGS_RANGE = [
-  3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
-] as const
+export const RINGS_RANGE = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const
 
 export const RINGS_MIN = RINGS_RANGE[0]
 export const RINGS_MAX = RINGS_RANGE[RINGS_RANGE.length - 1]

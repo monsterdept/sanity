@@ -902,13 +902,28 @@ pub fn search_project(
 /// Empty for a project that has never been scanned. Every OTHER absence is reported inside
 /// the group as [`crate::findings::Group::blocked`], because a rule that cannot answer must not
 /// be drawn as a rule that found nothing.
+/// Everything the findings panel and the mascot need, from ONE walk of the tree.
+///
+/// **It was three commands and it is one because they are one answer.** `project_findings`,
+/// `project_rules` and `rule_grammar` each built the whole fact set for themselves — three
+/// walks, three sets of one record per function, all three under the projects lock so they
+/// serialised. On kibana that is 540,000 records to answer three questions about one repo,
+/// and it is what made opening it slow.
+///
+/// Nothing is cached to fix that, and nothing should be: a cache here needs a key that moves
+/// whenever the tree or the readings do, and the failure mode of getting that key wrong is a
+/// panel confidently describing a repo as it was. Asking once is the version with no key.
+///
+/// It also removes a way for the three to disagree. The counts in the grid, the tiles in the
+/// list and the number on the creature now come from one set of facts by construction rather
+/// than from three fetches that happen to be issued together.
 #[tauri::command]
-pub fn project_findings(
+pub fn project_report(
     state: tauri::State<'_, crate::agentapi::Shared>,
     key: String,
-) -> Vec<crate::findings::Group> {
+) -> crate::findings::ProjectReport {
     let st = crate::agentapi::lock(&state);
-    let Some(p) = st.projects.get(&key) else { return Vec::new() };
+    let Some(p) = st.projects.get(&key) else { return Default::default() };
     let traced = crate::findings::Traced {
         // What the map itself knows: whether anybody has read the log yet. NOT
         // `stats::without_history`, which is true for an untraced repo as well as for one
@@ -923,17 +938,21 @@ pub fn project_findings(
     // and left alone. Saved is what makes the list drainable; see `findings::rules_for`.
     let facts = crate::findings::subjects(&p.scan.root, &p.reports, traced);
     let rules = crate::findings::rules_for(&p.repo, &facts);
-    crate::findings::report(
-        &p.scan.root,
-        &p.reports,
-        traced,
-        &rules,
-        // Read from the repo on every ask rather than held in state. The archive is small, it
-        // is a file somebody may well have edited by hand or merged from a branch, and a
-        // cached copy is how the panel comes to disagree with `.sanity/` about what has been
-        // dismissed — which is the one thing this store must never do.
-        &crate::findings::archive(&p.repo),
-    )
+    crate::findings::ProjectReport {
+        groups: crate::findings::report(
+            &p.scan.root,
+            &p.reports,
+            traced,
+            &rules,
+            // Read from the repo on every ask rather than held in state. The archive is small,
+            // it is a file somebody may well have edited by hand or merged from a branch, and a
+            // cached copy is how the panel comes to disagree with `.sanity/` about what has
+            // been dismissed — which is the one thing this store must never do.
+            &crate::findings::archive(&p.repo),
+        ),
+        rules: crate::findings::rules_view(&p.repo, &facts, traced, !p.reports.is_empty()),
+        grammar: crate::findings::grammar(&facts),
+    }
 }
 
 /// The pin for one finding, as the code stands right now — see [`crate::findings::pin_of`].
@@ -963,27 +982,6 @@ fn finding_pin(
     Ok((p.repo.clone(), crate::findings::pin_of(r, f), r.title.to_string()))
 }
 
-/// Every rule this repo runs, with what each finds here — see [`crate::findings::RuleView`].
-///
-/// **Answered by the backend for the reason `project_findings` is**, and with the same walk:
-/// the hit counts and the marginal contribution ARE the instrument, and a grid showing
-/// numbers computed from whatever the window happened to fetch would be worse than one
-/// showing none.
-#[tauri::command]
-pub fn project_rules(
-    state: tauri::State<'_, crate::agentapi::Shared>,
-    key: String,
-) -> Vec<crate::findings::RuleView> {
-    let st = crate::agentapi::lock(&state);
-    let Some(p) = st.projects.get(&key) else { return Vec::new() };
-    let traced = crate::findings::Traced {
-        git: p.trace.depth != crate::trace::Depth::Untraced,
-        churned: p.scan.stats.churned,
-    };
-    let facts = crate::findings::subjects(&p.scan.root, &p.reports, traced);
-    crate::findings::rules_view(&p.repo, &facts, traced, !p.reports.is_empty())
-}
-
 /// Write one rule back, by id: a changed threshold, a floor, a silence, or a rule of
 /// somebody's own.
 ///
@@ -1004,20 +1002,6 @@ pub fn save_rule(
     let _ = traced;
     crate::findings::apply_edit(&mut live, rule)?;
     crate::findings::save_rules(&repo, &live).map_err(|e| e.to_string())
-}
-
-/// Every field and operator a clause may name, with this repo's distribution for each.
-///
-/// **One list, from `Field::ALL`.** The form's pickers are the grammar the evaluator parses,
-/// not a copy of it kept in the frontend — the copy nobody compiles is the one that is still
-/// offering a field that was renamed.
-#[tauri::command]
-pub fn rule_grammar(
-    state: tauri::State<'_, crate::agentapi::Shared>,
-    project: String,
-) -> Result<crate::findings::Grammar, String> {
-    let (_repo, facts, _) = project_facts(&state, &project)?;
-    Ok(crate::findings::grammar(&facts))
 }
 
 /// Take a rule out: a rule of somebody's own is deleted, a built-in is silenced.

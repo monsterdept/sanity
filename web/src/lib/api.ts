@@ -1291,14 +1291,6 @@ export interface Say {
   filled: boolean
 }
 
-/** The finding catalog for a project — see `commands::project_findings`.
- *
- *  Asked of the backend rather than computed here, for the reason `searchProject` is: the
- *  window's tree is slimmed on a large repo and holds neither the function names nor the call
- *  counts every interesting rule is made of. */
-export function projectFindings(key: string): Promise<FindingGroup[]> {
-  return invoke<FindingGroup[]>('project_findings', { key })
-}
 
 /** What somebody decided about a finding. Mirrors `findings::Verdict`.
  *
@@ -1401,14 +1393,21 @@ export interface Grammar {
   ops: string[]
 }
 
-/** The grammar, with this repo's numbers in it. */
-export function ruleGrammar(key: string): Promise<Grammar> {
-  return invoke<Grammar>('rule_grammar', { project: key })
+/** One walk's worth of answers. Mirrors `findings::ProjectReport`.
+ *
+ *  **One call, because it is one answer.** The findings, the rules and the grammar were three
+ *  commands, and each built the whole fact set for itself — three walks of the tree under one
+ *  lock, which on kibana is 540,000 records to answer three questions about one repo. They
+ *  are also the same measurement seen three ways, so fetching them separately was three
+ *  chances for the grid, the list and the creature to describe different states of it. */
+export interface ProjectReport {
+  groups: FindingGroup[]
+  rules: RuleView[]
+  grammar: Grammar
 }
 
-/** Every rule this repo runs, plus the ones it has silenced. */
-export function projectRules(key: string): Promise<RuleView[]> {
-  return invoke<RuleView[]>('project_rules', { key })
+export function projectReport(key: string): Promise<ProjectReport> {
+  return invoke<ProjectReport>('project_report', { key })
 }
 
 /** A rule on its way back. Mirrors `findings::RuleEdit`.
