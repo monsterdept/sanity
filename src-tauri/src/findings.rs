@@ -304,13 +304,19 @@ impl Field {
     pub fn pop(self) -> Option<Pop> {
         match self {
             Field::Funcs => Some(Pop::File),
-            // A file's lines are its functions' lines pooled, so a file-level headcount would
-            // say every function in `App.tsx` was written by the same four people. Blame reads
-            // ranges; this is a question about a range.
+            // **`headcount` answers for a file too, and did not always.** It was function-only
+            // on the argument that a file's lines are its functions' lines pooled — which is
+            // true of inferring a FUNCTION's count from its file, and not true of the file's
+            // own. A file's headcount is everyone with a line standing anywhere in it,
+            // including the imports and the wiring between declarations, and the node carries
+            // it measured rather than derived. So a file rule may ask.
+            //
+            // The `file_*` three stay function-only: on a file rule they would be a second
+            // name for `loc`, `funcs` and `headcount`, and two names for one number is where a
+            // grammar starts lying.
             Field::FileLoc
             | Field::FileFuncs
             | Field::FileHeadcount
-            | Field::Headcount
             | Field::Read
             | Field::Surprise
             | Field::Documented
@@ -2049,6 +2055,42 @@ pub fn catalog() -> Vec<Rule> {
                 ge(Field::Loc, 10.0),
             ],
             2,
+        ),
+        rule(
+            "alone-in-shared-code",
+            "Alone in a file others work in",
+            "Only one person's lines are in this body, in a file several people work in.",
+            "Every line of this was last touched by the same person, in a file {{file_headcount}} people have lines in. A pocket somebody owns alone, in shared territory.",
+            Pop::Func,
+            // **The file's count is the gate and the finding at once.** Six people in a file
+            // is what makes one person in a body of it worth saying — on a repo where nobody
+            // shares a file the clause is false everywhere and the rule is silent, which is
+            // the right answer and needs no `repo_headcount` beside it to reach it.
+            //
+            // `loc` calibrates: the other two are the statement and moving either would
+            // change what the rule means rather than how much of it there is.
+            vec![
+                ge(Field::FileHeadcount, 6.0),
+                le(Field::Headcount, 1.0),
+                ge(Field::Loc, 20.0),
+            ],
+            2,
+        ),
+        rule(
+            "lone-file",
+            "A file nobody else has been in",
+            "A whole file with only one or two people's lines in it, on a project with many.",
+            "{{funcs}} functions, and every line of this file was last touched by one of {{headcount}} people — out of {{repo_headcount}} who have worked on this repo.",
+            Pop::File,
+            // The same question one scope out from `alone-in-shared-code`, and a different
+            // answer: that one is a pocket inside shared territory, this is territory nobody
+            // else has entered. Gated on the repo because on a small team it is every file.
+            vec![
+                ge(Field::RepoHeadcount, 6.0),
+                ge(Field::Funcs, 5.0),
+                le(Field::Headcount, 2.0),
+            ],
+            1,
         ),
         rule(
             "crowded-and-knotty",
