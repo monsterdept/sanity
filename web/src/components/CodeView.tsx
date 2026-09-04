@@ -424,11 +424,13 @@ export function CodeView({
     const isComment = (i: number) =>
       i >= 0 && toks[i]?.length > 0 && toks[i].every((t) => t.cls === 'tok-comment')
     while (top > 0 && isComment(top - 1)) top--
-    // One line above the comment, so the block has a margin rather than starting flush.
-    // Capped at half the pane: a doc longer than that would put the signature back where it
-    // started, and past the cap the tail is the half nearest the code anyway.
-    const lead = Math.min(fn.line - top + 1, Math.floor(box.clientHeight / ROW / 2))
-    box.scrollTop = Math.max(0, (fn.line - lead) * ROW)
+    // **The whole comment, from its first line, and one line of margin above it.** There was
+    // a cap at half the pane, on the argument that a long doc would push the signature back
+    // down where it started — and the way it enforced that was by cutting the comment's HEAD,
+    // which is the sentence that says what the thing is. Landing in the middle of a
+    // paragraph is worse than landing above the code: the code is one scroll away and always
+    // in the same direction, where a lost opening line has to be hunted for upward.
+    box.scrollTop = Math.max(0, (top - 1) * ROW)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see the note above
   }, [revealN, ready])
   const lines = useMemo(() => (src === null ? [] : src.split('\n')), [src])
