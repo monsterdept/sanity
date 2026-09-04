@@ -999,9 +999,6 @@ export interface ProjectSummary {
   key: string
   name: string
   repo: string
-  /** The short HEAD this repo is standing at, or `''` where there is no git and while the
-   *  project is still loading. Provenance — nothing keys on it. */
-  head: string
   functions: number
   /** Files that are their own reading — see `count_files` in Rust. The coverage
    *  denominator is `functions + files`, because both are queued, reported and expired the

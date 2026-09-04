@@ -12,7 +12,7 @@ import {
   paintsFromReadings,
 } from '../lib/colorMode'
 import { unreadable } from '../lib/api'
-import { CHROME_INK, inkOnHex } from '../lib/ink'
+import { CHROME_INK, PAPER } from '../lib/ink'
 import { arcPath, layout, tileFunctions, type Wedge } from '../lib/sunburst'
 import { RINGS_DEFAULT } from '../lib/rings'
 import { SPACING_DEFAULT, type Spacing } from '../lib/spacing'
@@ -39,8 +39,8 @@ import {
 } from '../lib/zoom'
 import { RollupDots, dotsId, ROLLUP_TEXTURE_PX } from './RollupDots'
 import { WedgeLabel } from './WedgeLabel'
-import { fitLabel } from '../lib/label'
-import { FAMILY, WEIGHT } from '../lib/labelStyle'
+import { fitLabel, widthPerPx } from '../lib/label'
+import { FAMILY, TRACKING, WEIGHT } from '../lib/labelStyle'
 import { StaleHatch } from './StaleHatch'
 import { WedgeTip } from './WedgeTip'
 import { AgentMascot } from './AgentMascot'
@@ -476,7 +476,29 @@ const DIR_RIM_INSET_PX = 3
  *  The app's notify red, as a literal: the badge takes a colour rather than a token now, and
  *  a default that read a custom property would be the one value in this control that could
  *  not come back out of the picker it is set in. */
-export const DIAL_COLOR = '#d0554a'
+const DIAL_COLOR = '#e65546'
+
+/** The line round the found bar.
+ *
+ *  **Darker than the fill, all the way round, the way a macOS badge is built.** A sheen was
+ *  tried first — the lighter colour graded along the outer edge, as light falling on an
+ *  enamel marking — and it is the wrong model: a notification badge is not lit from
+ *  somewhere, it is a flat chip with an edge, and the edge is what lifts it off whatever it
+ *  is sitting on rather than a gradient across its face.
+ *
+ *  It also does a job the sheen could not. The hub sits over the innermost wedges, which are
+ *  whatever colour the lens is painting; a shape with no edge borrows the ground behind it,
+ *  which is the failure every other badge in this file wears a ring against. */
+const DIAL_EDGE = '#da4a3b'
+
+/** The found count is set in paper, always.
+ *
+ *  **Not `inkOnHex`, which is what this was.** That picks whichever of paper and ink reads
+ *  better on the fill, and it is the right answer for a colour nobody chose — but a dial's
+ *  markings are printed in one ink, and a number that flipped to black when somebody nudged
+ *  the picker a shade lighter would read as a bug in the picker. The cost is real and worth
+ *  stating: pick a pale enough colour and the count goes faint. The picker is where that is
+ *  visible, immediately, which is the same argument that put the picker in the bar. */
 
 /** How square the dial's bars are: a fraction of half their thickness, where 1 is a stadium
  *  and 0 a plain sector.
@@ -487,6 +509,21 @@ export const DIAL_COLOR = '#d0554a'
  *  shape and the spacing menu went — a bar that keeps offering a settled question costs every
  *  reader a decision they have no basis to make. */
 const DIAL_CORNER = 0.35
+
+/** The dial's proportions, all struck off the type size rather than off the box.
+ *
+ *  `PAD_H` is the ground before and after the digits; `PAD_V` is how much taller the bar is
+ *  than the type standing in it; `LABEL` is the words' size as a fraction of the numbers'.
+ *  The last of those was two constants with two floors before, and the floors bit at
+ *  different sizes — so the label came out at 78% of the number where the fractions intended
+ *  60%, and the intended proportion never happened at any hub this app draws. */
+const DIAL_PAD_H = 0.65
+const DIAL_PAD_V = 1.35
+const DIAL_LABEL = 0.84
+/** Ground between the markings and the dial's edge, in type sizes. */
+const DIAL_INSET = 1.1
+/** How much of its box the creature takes while the dial is round it. */
+const DIAL_MASCOT = 0.75
 
 const ON_CURVE = 0.34
 
@@ -569,8 +606,6 @@ function FindingBadge({
   box,
   count,
   rules,
-  color,
-  rotation,
 }: {
   /** Which side of the creature this sits on. */
   layer: number
@@ -582,13 +617,6 @@ function FindingBadge({
   /** How many rules are running here — the number at six o'clock, and the denominator the
    *  one at twelve is missing without it. */
   rules: number
-  /** What the found count is painted, as a six-digit hex. The ink ON it is decided by
-   *  `inkOnHex` rather than chosen: which of paper and ink reads on a colour is a fact about
-   *  the colour, and offering it as a second setting would be offering somebody the chance to
-   *  make the number unreadable. */
-  color: string
-  /** Degrees clockwise off the vertical axis — see `BADGE_ROTATIONS`. */
-  rotation: number
 }) {
   // `7` is a dot with a number in it and `1.2k` is a pill, rather than either being stretched
   // to the other's shape. 15,777 is a baseline, not a notification — but the archive makes
@@ -607,14 +635,43 @@ function FindingBadge({
      *  many questions produced it is a number with no denominator; fifty-four findings from
      *  sixteen rules is a different fact from fifty-four out of three, and the rules grid is
      *  one click away behind the same creature. */
-    const thick = box * 0.16
-    const font = Math.max(8, thick * 0.6)
+    /** **The type is the unit, and the bar is measured off it.** It was the other way round —
+     *  a thickness struck off the box, with the type struck off the thickness — which made
+     *  every padding a fraction of a fraction and left no single number meaning "how much
+     *  ground round the digits". Same geometry at the defaults; the difference is that the
+     *  two paddings are now the two numbers they always were. */
+    const font = Math.max(8, box * 0.096)
+    // Vertical padding: how much taller the bar is than the type standing in it.
+    const thick = font * DIAL_PAD_V
     const cx = box / 2
     const cy = box * 0.5
     const disc = box * (R_INNER / HUB_MASCOT)
-    const r = disc - thick / 2 - box * 0.07
-    const capFont = Math.max(7, box * 0.058)
-    const capTrack = 0.22
+    // Clear of the disc's edge rather than against it: at nothing it read as a bar stuck to
+    // the rim, and the markings are meant to sit inside that. In type sizes like everything
+    // else here, so it holds its look if the dial is ever drawn bigger.
+    const r = disc - thick / 2 - font * DIAL_INSET
+    /** **Off the number, not off the box.** It was its own fraction of `box` with its own
+     *  floor, which is two constants where there is one relationship — and the floors bit at
+     *  different sizes, so the label came out at 78% of the number where the fractions
+     *  intended 60%. The floor was doing the sizing, not the ratio, and the intended
+     *  proportion never happened at any hub this app draws.
+     *
+     *  One floor, on the pair: whichever of the two is smaller is the one that has to stay
+     *  legible, and holding the ratio through it keeps the label a label. */
+    const capFont = font * DIAL_LABEL
+    /** **One face for the whole dial** — the one every filename on the rim is set in.
+     *
+     *  It was two: the words in `LINE Seed JP` and the digits still in the mono face they had
+     *  when the words were mono too. That is two typefaces inside one phrase, `found 49`, and
+     *  it was left over rather than chosen. A dial can defend numerals of their own — mono
+     *  keeps a count from changing width as it ticks — but nothing here is ticking, and the
+     *  map has one voice.
+     *
+     *  Measured the same way as well as drawn the same way, which is the part that matters:
+     *  a `0.62` advance is true of every glyph in a mono face and of none in a proportional
+     *  one, so both the words and the digits are measured with `widthPerPx` against the real
+     *  face — the same function the rim's own labels are laid out with. */
+    const words = { found: 'found', rules: 'rules' }
     const at = (deg: number, radius = r) => {
       const a = (deg * Math.PI) / 180
       return [cx + radius * Math.cos(a), cy - radius * Math.sin(a)] as const
@@ -629,16 +686,16 @@ function FindingBadge({
       // half a thickness past each end of its path — so the shape drawn was never the shape
       // the geometry described, and the padding had to be reasoned about twice. A filled
       // sector spans its two angles and nothing more, so `seen` is just the half-width.
-      const half = deg((txt.length * font * 0.62 + font * 1.2) / 2)
+      const half = deg((widthPerPx(txt, WEIGHT) * font + font * DIAL_PAD_H) / 2)
       return { half, seen: half }
     }
     /** A word, twice: the advance the path must be long enough for, and the ink you can see,
      *  which is one letter-space shorter because tracking advances after the last glyph too.
      *  Centring a `textPath` centres the advance, so the two differ by half that. */
     const wordOf = (w: string, radius: number) => {
-      const path = w.length * capFont * (0.62 + capTrack)
+      const path = widthPerPx(w, WEIGHT) * capFont + w.length * capFont * TRACKING
       const at_ = (px: number) => ((px / radius) * 180) / Math.PI
-      return { pathHalf: at_(path / 2), inkHalf: at_((path - capFont * capTrack) / 2) }
+      return { pathHalf: at_(path / 2), inkHalf: at_((path - capFont * TRACKING) / 2) }
     }
 
     // Baselines. Glyphs grow away from the baseline, and "away" is outward at the top of the
@@ -669,8 +726,8 @@ function FindingBadge({
      *  and a word meaning "somebody must act" on the dial would claim a confidence nothing
      *  upstream of it has got. `REVIEW` has the opposite problem — it names a workflow this is
      *  not, and code review is a thing this app sits next to. */
-    const finds = wordOf('FOUND', upBase(capFont))
-    const named = wordOf('RULES', downBase(capFont))
+    const finds = wordOf(words.found, upBase(capFont))
+    const named = wordOf(words.rules, downBase(capFont))
     const gapPx = capFont * 0.45
     const gapTop = ((gapPx / upBase(capFont)) * 180) / Math.PI
     const gapBottom = ((gapPx / downBase(capFont)) * 180) / Math.PI
@@ -689,12 +746,26 @@ function FindingBadge({
     // **Both ends turn by the same amount, so the axis turns rather than the badges.** The
     // two lines are one object; rotating them apart would make the dial say there are two
     // unrelated things on it. Clockwise on screen is a decreasing angle here.
-    const TOP = 90 - rotation
-    const BOTTOM = 270 - rotation
+    const TOP = 90
+    const BOTTOM = 270
     // The word sits outside the bar, away from the axis: left of the top one, right of the
     // bottom one — which is the larger angle in both cases.
-    const findsInk = TOP + top.seen + gapTop + finds.inkHalf
-    const namedInk = BOTTOM + bottom.seen + gapBottom + named.inkHalf
+    /** **Which of the two things is on the axis: the number, or the pair.**
+     *
+     *  A dial's markings sit on its axis, and there are two readings of what the marking IS.
+     *  The number alone is one — twelve o'clock is where the count is, and the word hangs off
+     *  it like a caption. `FOUND 54` as one object is the other, and then the axis runs
+     *  through the middle of the phrase rather than through the figure.
+     *
+     *  Both are defensible and they look different enough to be worth a switch. The shift is
+     *  computed per side, because the two words are different lengths: half the ground the
+     *  word and its gap take, moved back the way the word went. */
+    const shiftTop = -(gapTop + 2 * finds.inkHalf) / 2
+    const shiftBottom = -(gapBottom + 2 * named.inkHalf) / 2
+    const topMid = TOP + shiftTop
+    const bottomMid = BOTTOM + shiftBottom
+    const findsInk = topMid + top.seen + gapTop + finds.inkHalf
+    const namedInk = bottomMid + bottom.seen + gapBottom + named.inkHalf
     // The ink starts at the path's leading end, so the path's own centre is half a
     // letter-space further along it — which is a smaller angle going clockwise and a larger
     // one going the other way.
@@ -714,13 +785,25 @@ function FindingBadge({
      *  would be spent saying "a bit lighter than the ground" is what the mix already says. */
     const plate = 'color-mix(in oklch, var(--foreground) 20%, transparent)'
     const k = (DIAL_CORNER * thick) / 2
-    const bar = (mid: number, half: number, fill: string) => (
-      <path d={sectorPath(cx, cy, mid - half, mid + half, r - thick / 2, r + thick / 2, k)} fill={fill} />
+    const bar = (mid: number, half: number, fill: string, line?: string) => (
+      <path
+        d={sectorPath(cx, cy, mid - half, mid + half, r - thick / 2, r + thick / 2, k)}
+        fill={fill}
+        stroke={line}
+        // A hairline in the map's own units, so it stays a hairline at every zoom rather
+        // than growing into a border on a big window.
+        strokeWidth={line ? thick * 0.09 : undefined}
+      />
     )
     /** id, path, size, and the ink it is set in. */
     const runs: Array<[string, string, number, string]> = [
-      [`${pathId}-t`, arc(TOP, top.half, upBase(font), true), font, inkOnHex(color)],
-      [`${pathId}-b`, arc(BOTTOM, bottom.half, downBase(font), false), font, 'var(--foreground)'],
+      [`${pathId}-t`, arc(topMid, top.half, upBase(font), true), font, PAPER],
+      [
+        `${pathId}-b`,
+        arc(bottomMid, bottom.half, downBase(font), false),
+        font,
+        'var(--foreground)',
+      ],
       [
         `${pathId}-tw`,
         arc(findsMid, finds.pathHalf, upBase(capFont), true),
@@ -748,8 +831,8 @@ function FindingBadge({
             <path key={id} id={id} d={d} />
           ))}
         </defs>
-        {bar(TOP, top.half, color)}
-        {bar(BOTTOM, bottom.half, plate)}
+        {bar(topMid, top.half, DIAL_COLOR, DIAL_EDGE)}
+        {bar(bottomMid, bottom.half, plate)}
         {runs.map(([id, , size, ink]) => {
           // The two words are tracked and light; the two numbers are not. A name says what
           // the figure beside it is and then gets out of its way, which is what the spacing
@@ -759,12 +842,15 @@ function FindingBadge({
           return (
           <text
             key={`t-${id}`}
-            className="mono"
+            className={undefined}
             textAnchor="middle"
             style={{
+              fontFamily: FAMILY,
               fontSize: size,
-              fontWeight: word ? 500 : 600,
-              letterSpacing: word ? size * capTrack : undefined,
+              // The numbers a step heavier than the words beside them: same face, and the
+              // count still has to win.
+              fontWeight: word ? WEIGHT : 600,
+              letterSpacing: size * TRACKING,
               fill: ink,
             }}
           >
@@ -774,8 +860,8 @@ function FindingBadge({
                 : id.endsWith('-b')
                   ? ruleText
                   : id.endsWith('-tw')
-                    ? 'FOUND'
-                    : 'RULES'}
+                    ? words.found
+                    : words.rules}
             </textPath>
           </text>
           )
@@ -849,16 +935,6 @@ function SunburstView({
      *  up a level), so a click handler on the figure would fire on the first click of a
      *  gesture and open a panel in the middle of it. */
     onFindings?: () => void
-    /** Which `--badge-*` colour the found count is painted, and how square its corners are.
-     *
-     *  **Both are menu settings rather than controls in the bar** — see `build_menu`. The
-     *  shape itself was a pulldown while it was being chosen, which is what a bar is for: a
-     *  thing whose consequence you want to see immediately and repeatedly, while deciding.
-     *  It is decided, so the winner is the only shape in the code and these two are what is
-     *  left to set once. */
-    color?: string
-    /** Degrees clockwise the pair is turned from the vertical axis. */
-    rotation?: number
     /** How many rules are running here — the second number on the `label` badge. */
     rules?: number
   }
@@ -979,6 +1055,7 @@ function SunburstView({
    *  container's corner for one frame before the next mousemove corrected it. */
   const [pos, setPos] = useState({ x: 0, y: 0 })
   const [box, setBox] = useState({ w: 0, h: 0 })
+  const hubMascot = useRef<HTMLDivElement>(null)
   const art = useRef<SVGGElement>(null)
   const pane = useRef<HTMLDivElement>(null)
   /** The pane's size, measured rather than inferred from pointer traffic.
@@ -993,6 +1070,11 @@ function SunburstView({
     if (!el) return
     const ro = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect
+      // **Placed here as well as in the frame loop.** An observer callback runs before the
+      // paint that the resize causes, so the creature moves on the same frame as the wedges;
+      // waiting for the state below to come back through a render puts it one frame behind
+      // for every frame of a drag, which is the hub stuttering inside a smooth map.
+      place.current(width, height)
       setBox((prev) => (prev.w === width && prev.h === height ? prev : { w: width, h: height }))
     })
     ro.observe(el)
@@ -1105,7 +1187,6 @@ function SunburstView({
    *  viewBox is written to the element: this is updated every frame of a level change, and
    *  a second React render per frame to carry two numbers is most of what made the motion
    *  feel heavy. */
-  const hubMascot = useRef<HTMLDivElement>(null)
   const hover = hoverNode ? { node: hoverNode, ...pos } : null
   /** Directories folded shut by clicking them. A view concern, so it lives here rather
    *  than in the app's drill stack — and it survives drilling, so a directory you closed
@@ -2214,6 +2295,33 @@ function SunburstView({
   }, [target, root.kind, root.id, paneAspect, fileIds, morph, rIn])
   const viewFrom = useRef(viewTo)
   const viewNow = useRef(viewTo)
+  /** Put the creature where the hub's user-space origin lands, for a pane of this size.
+   *
+   *  **Held in a ref so the RESIZE observer can call it too, and that is the whole point.**
+   *  The pane's size reaches this component as state, so on a window drag the SVG rescaled
+   *  itself natively every frame while the creature waited for a React render — one frame
+   *  behind, every frame, which is a hub that stutters while everything around it is smooth.
+   *  The observer runs before paint, so placing it from there puts the creature on the same
+   *  frame as the box it sits in. The effect below still calls it, because the view also
+   *  moves without the pane changing at all. */
+  const place = useRef((w: number, h: number) => {
+    void w
+    void h
+  })
+  place.current = (w: number, h: number) => {
+    const el = hubMascot.current
+    if (!el || w <= 0 || h <= 0) return
+    const v = viewNow.current
+    const s = Math.min(w, h) / v.side
+    const x = w / 2 + (0 - v.cx) * s
+    const y = h / 2 + (HUB_MASCOT_Y - v.cy) * s
+    el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${s})`
+    // Hidden until it has been placed. Untransformed it sits in the pane's top-left corner,
+    // which is a creature in the wrong place for however long the first measurement takes —
+    // and `mascot` in the effect's deps is what re-places it after a replay is switched off
+    // and the layer mounts again with no transform on it.
+    el.style.visibility = 'visible'
+  }
   if (startedRun.current !== run) {
     startedRun.current = run
     viewFrom.current = viewNow.current
@@ -2236,18 +2344,7 @@ function SunburstView({
     // middle of the pane. Written here rather than in its own effect because it has to move
     // on the SAME frame as the wedges: a creature that arrives one frame late slides across
     // the map behind the disc it belongs to.
-    const el = hubMascot.current
-    if (el && box.w > 0 && box.h > 0) {
-      const s = Math.min(box.w, box.h) / v.side
-      const x = box.w / 2 + (0 - v.cx) * s
-      const y = box.h / 2 + (HUB_MASCOT_Y - v.cy) * s
-      el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${s})`
-      // Hidden until it has been placed. Untransformed it sits in the pane's top-left
-      // corner, which is a creature in the wrong place for however long the first
-      // measurement takes — and `mascot` in the deps is what re-places it after the replay
-      // is switched off and the layer mounts again with no transform on it.
-      el.style.visibility = 'visible'
-    }
+    place.current(box.w, box.h)
   }, [viewTo, e, moving, box.w, box.h, mascot])
 
   /** Which segment of a directory's rim the pointer is over, if any.
@@ -3280,7 +3377,7 @@ function SunburstView({
                      what a badge under the feet would want — but with type above AND below,
                      the creature has to stay centred between them, and scaling about the feet
                      pulled it down into the lower line. */
-                  transform: 'scale(0.88)',
+                  transform: `scale(${DIAL_MASCOT})`,
                   transformOrigin: '50% 50%',
                   // The badge draws over the figure, not under it.
                   position: 'relative',
@@ -3312,8 +3409,6 @@ function SunburstView({
                   layer={2}
                   box={HUB_MASCOT * hubK}
                   rules={mascot.rules ?? 0}
-                  color={mascot.color ?? DIAL_COLOR}
-                  rotation={mascot.rotation ?? 0}
                   count={mascot.findings}
                 />
               )}

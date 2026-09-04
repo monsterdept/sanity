@@ -78,7 +78,6 @@ import { Sunburst } from './components/Sunburst'
 import type { MovieKey, Staged } from './lib/movie'
 import { forgetMonster } from './lib/monster'
 import { onScanShape, shapeTree, type ShapeFile } from './lib/shape'
-import { DIAL_COLOR } from './components/Sunburst'
 import type { MascotState } from './components/MascotFigure'
 import { CommitLog } from './components/CommitLog'
 import { HistoryBar } from './components/HistoryBar'
@@ -131,7 +130,6 @@ import {
   DerivableToggle,
   MarkerToggle,
   RingCount,
-  BadgeDial,
 } from './components/Rings'
 import { loadRings, saveRings } from './lib/rings'
 import { BAND_SHARE, SPACING_DEFAULT } from './lib/spacing'
@@ -350,16 +348,6 @@ function parentOf(node: Node, id: string): Node | null {
   return null
 }
 
-/** A number out of `localStorage`, clamped, or the default.
- *
- *  **Nothing stored is trusted.** It is a string store a person can open and edit, and a
- *  `NaN` out of it would reach the dial as every arc's radius and draw an empty badge, which
- *  looks like the feature being broken rather than like a bad value. */
-function num(key: string, fallback: number, lo: number, hi: number): number {
-  const v = Number(localStorage.getItem(key))
-  return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback
-}
-
 export default function App() {
   const [scan, setScan] = useState<Scan | null>(null)
   /** Ticks when a tree ARRIVES from the backend — a different project, a rescan, or none.
@@ -457,26 +445,6 @@ export default function App() {
   /** How many rings the map draws — see `lib/rings.ts`. A display preference, so it is read
    *  from storage once and written back on every change, and it is NOT per project. */
   const [rings, setRings] = useState(loadRings)
-  /** What the found count on the dial is painted, how square its corners are, and how far
-   *  round the dial the pair is turned.
-   *
-   *  **In the bar, and remembered.** The badge's SHAPE was a bar control while it was being
-   *  chosen and is a constant now, which is what a bar is for — a thing whose consequence you
-   *  want to see immediately and repeatedly while deciding. These three are the same question
-   *  still open, so they sit in the same place; they persist because comparing them across a
-   *  restart is exactly what they are for. */
-  const [badgeColor, setBadgeColor] = useState(
-    () => localStorage.getItem('badge-color') ?? DIAL_COLOR,
-  )
-  /** Degrees clockwise off the vertical, or null for centred — which is the default and is
-   *  stored as the word rather than as `0`, so "put it back" and "somebody dragged it to
-   *  zero" stay different things. */
-  const [badgeRotation, setBadgeRotation] = useState<number | null>(() =>
-    localStorage.getItem('badge-rotation') === null ||
-    localStorage.getItem('badge-rotation') === 'centred'
-      ? null
-      : num('badge-rotation', 0, 0, 359),
-  )
   /** How much of each ring a directory's own band takes — see `Sunburst`'s `rimShare`, which
    *  carries the argument. Session state, not stored.
    *
@@ -2906,10 +2874,8 @@ export default function App() {
       findings: findingTotal,
       onFindings: openFindings,
       rules: liveRules,
-      color: badgeColor,
-      rotation: badgeRotation ?? 0,
     }),
-    [mascot, findingTotal, openFindings, liveRules, badgeColor, badgeRotation],
+    [mascot, findingTotal, openFindings, liveRules],
   )
 
   return (
@@ -3120,23 +3086,6 @@ export default function App() {
                   disabled={findingsOpen || helping}
                   onOpen={() => setFinding(true)}
                 />
-                {/* **Only while there is a dial to look at.** A control for the colour of a
-                    number that is not on screen has nothing to change, and the bar already
-                    refuses to print numbers it cannot stand behind. */}
-                {!historyOn && findingTotal > 0 && (
-                  <BadgeDial
-                    color={badgeColor}
-                    rotation={badgeRotation}
-                    onColor={(c) => {
-                      setBadgeColor(c)
-                      localStorage.setItem('badge-color', c)
-                    }}
-                    onRotation={(c) => {
-                      setBadgeRotation(c)
-                      localStorage.setItem('badge-rotation', c === null ? 'centred' : String(c))
-                    }}
-                  />
-                )}
               </div>
             )}
           </TopRow>
