@@ -922,6 +922,7 @@ pub fn project_report(
     state: tauri::State<'_, crate::agentapi::Shared>,
     key: String,
 ) -> crate::findings::ProjectReport {
+    let started = std::time::Instant::now();
     let mut st = crate::agentapi::lock(&state);
     let Some(p) = st.projects.get(&key) else { return Default::default() };
 
@@ -936,6 +937,7 @@ pub fn project_report(
     let at = crate::agentapi::FindingsAt::of(p);
     if let Some((was, report)) = &p.findings {
         if *was == at {
+            said(&key, "cached", started);
             return report.clone();
         }
     }
@@ -979,8 +981,27 @@ pub fn project_report(
     if let Some(p) = st.projects.get_mut(&key) {
         p.findings = Some((crate::agentapi::FindingsAt::of(p), fresh.clone()));
     }
+    said(&key, "computed", started);
     fresh
 }
+
+/// What a report cost, on stderr, in a dev build only.
+///
+/// **Because "the switch is slow" is not a measurement and neither is a guess about why.**
+/// Two quadratic passes and a per-clause sort hid in here for a week behind reasoning that
+/// sounded right, and the bench written to catch them could not see them. A line per call
+/// says which project, whether it was served or computed, and how long it took — which is the
+/// difference between fixing this and fixing something else.
+///
+/// `debug_assertions` because it is a development instrument: a shipped build should not
+/// narrate itself, and `just dev` is where somebody is watching.
+#[cfg(debug_assertions)]
+fn said(key: &str, how: &str, at: std::time::Instant) {
+    eprintln!("findings: {key} {how} in {:?}", at.elapsed());
+}
+
+#[cfg(not(debug_assertions))]
+fn said(_key: &str, _how: &str, _at: std::time::Instant) {}
 
 /// The pin for one finding, as the code stands right now — see [`crate::findings::pin_of`].
 ///
