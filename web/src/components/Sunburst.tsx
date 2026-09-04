@@ -3403,8 +3403,21 @@ function SunburstView({
                   as a creature wearing a number rather than having one.
 
                   `pointer-events: none`: the CLICK is the whole creature's, one level up.
-                  This is the thing being pointed at, not the target. */}
-              {!!mascot.findings && mascot.state === 'sleeping' && (
+                  This is the thing being pointed at, not the target.
+
+                  **Drawn whatever the creature is doing.** It used to be gated on `sleeping`,
+                  which is not an argument anybody made — it is a condition that was written
+                  and never justified, and what it did was take the count off the map for the
+                  whole of a reading pass. Kibana's is minutes long; sanity's is 1,700
+                  functions. For all of that the map said nothing while the panel behind it
+                  said forty-nine, and silence standing in for a clean bill is the one thing
+                  this surface is written never to do.
+
+                  The count is honest during a run, and interestingly so: tier-2 rules are
+                  blocked until something has been read, so the number GROWS as the readers
+                  land — which is the reading pass paying off, said in the one place you are
+                  already looking. */}
+              {!!mascot.findings && (
                 <FindingBadge
                   layer={2}
                   box={HUB_MASCOT * hubK}
